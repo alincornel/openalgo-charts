@@ -8,6 +8,15 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 1.0.5
+
+**Fixed**
+
+- Native right-click "Save image as…" now saves the visible chart (the clicked
+  pane) instead of a blank overlay layer — the pane is composited into the
+  captured canvas just before the menu opens, and overlay repaints pause while
+  it is open. `downloadScreenshot()` remains the full multi-pane export.
+
 ## 1.0.4
 
 Trading-UI beautification — the order-placement surfaces get a modern,

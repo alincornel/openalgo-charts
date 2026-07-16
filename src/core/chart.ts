@@ -189,6 +189,7 @@ export class Chart {
   private _downLocalY = 0;
   private _dragId: string | null = null; // externalId of the primitive being dragged
   private _hoverId: string | null = null; // externalId of the primitive under the pointer
+  private _overlayFrozen = false; // native context menu open: keep the save-image snapshot
   private _dragCb: ((externalId: string, price: number) => void) | null = null;
   private _dragEndCb: ((externalId: string, price: number) => void) | null = null;
   // axis-drag rescale (price axis = vertical, time axis = horizontal)
@@ -755,7 +756,7 @@ export class Chart {
       const ctx = this._renderContext(isBottom);
       if (level >= InvalidationLevel.Full || perPane?.autoScale) pane.autoscale(ctx);
       if (level >= InvalidationLevel.Light) pane.paintBase(ctx);
-      if (level >= InvalidationLevel.Cursor) {
+      if (level >= InvalidationLevel.Cursor && !this._overlayFrozen) {
         // Global crosshair: every pane draws the vertical line at the shared x;
         // only the hovered pane draws the horizontal line + price tag; the bottom
         // pane draws the date tag.
@@ -780,6 +781,7 @@ export class Chart {
     el.addEventListener('wheel', this._onWheel, { passive: false });
     el.addEventListener('dblclick', this._onDblClick);
     el.addEventListener('pointerenter', this._onPointerEnter);
+    el.addEventListener('contextmenu', this._onContextMenu);
     // Keyboard: listen on the document when available (so shortcuts fire on hover
     // without focusing the chart), else on the focusable container. The handler
     // gates by scope / hover / focus.
@@ -790,6 +792,43 @@ export class Chart {
   }
 
   private readonly _onPointerEnter = (): void => { this._pointerInside = true; };
+
+  /**
+   * The chart renders as stacked canvases, so the browser's right-click
+   * "Save image as…" would capture only the topmost (transparent overlay)
+   * layer — a blank image. Just before the native menu opens, composite the
+   * clicked pane's base layer *beneath* its overlay bitmap so the saved image
+   * is the visible chart, and freeze overlay repaints (live ticks repaint every
+   * few hundred ms and would wipe the snapshot while the menu is open). The
+   * freeze lifts on the next pointer/wheel/key input after the menu closes.
+   * Apps that present their own menu (preventDefault on contextmenu) are
+   * unaffected. Multi-pane note: the native save captures the clicked pane
+   * only — use `downloadScreenshot()` for the full multi-pane composite.
+   */
+  private readonly _onContextMenu = (e: MouseEvent): void => {
+    if (e.defaultPrevented) return; // app shows its own menu (e.g. order entry)
+    const pane = this._panes[this._localPoint(e).pane];
+    if (pane === undefined) return;
+    // Null the crosshair without invalidating: a pointerleave fired while the
+    // native menu is open must not schedule a repaint that wipes the snapshot.
+    this._cursor = null;
+    this._cursorPane = null;
+    try {
+      const g = pane.top.ctx;
+      g.save();
+      g.globalCompositeOperation = 'destination-over';
+      g.drawImage(pane.base.element, 0, 0);
+      g.restore();
+      this._overlayFrozen = true;
+    } catch { /* zero-sized or detached canvas — nothing to snapshot */ }
+  };
+
+  /** Resume overlay repaints after the native context menu closes. */
+  private _unfreezeOverlay(): void {
+    if (!this._overlayFrozen) return;
+    this._overlayFrozen = false;
+    this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Cursor));
+  }
 
   private _localPoint(e: { clientX: number; clientY: number }): { x: number; y: number; pane: number; localY: number; paneHeight: number } {
     const rect = this._container.getBoundingClientRect();
@@ -804,6 +843,7 @@ export class Chart {
   }
 
   private readonly _onPointerDown = (e: PointerEvent): void => {
+    this._unfreezeOverlay();
     // Only the primary button starts a pan / line-drag. A right-click (context
     // menu) also fires pointerdown, and its pointerup is often swallowed by the
     // menu — arming the drag state then makes the chart pan with no button held.
@@ -866,6 +906,7 @@ export class Chart {
   };
 
   private readonly _onPointerMove = (e: PointerEvent): void => {
+    this._unfreezeOverlay();
     // Safety: if the primary button is no longer held (missed pointerup — e.g.
     // released over a context menu or outside the window), end any drag now.
     if (e.pointerType === 'mouse' && (e.buttons & 1) === 0 && (this._dragging || this._dragId !== null || this._axisDrag !== null)) {
@@ -974,6 +1015,7 @@ export class Chart {
   };
 
   private readonly _onWheel = (e: WheelEvent): void => {
+    this._unfreezeOverlay();
     e.preventDefault();
     const p = this._localPoint(e);
     const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
@@ -1021,6 +1063,7 @@ export class Chart {
 
   // ── keyboard navigation (focus the chart, then arrows / +- / Home) ────────
   private readonly _onKeyDown = (e: KeyboardEvent): void => {
+    this._unfreezeOverlay();
     const sc = this._shortcuts;
     if (sc === null || ShortcutManager.shouldIgnore(e.target) || !this._shortcutsActive()) return;
     const cmd = sc.resolve(e);
@@ -1210,6 +1253,7 @@ export class Chart {
       el.removeEventListener('wheel', this._onWheel);
       el.removeEventListener('dblclick', this._onDblClick);
       el.removeEventListener('pointerenter', this._onPointerEnter);
+      el.removeEventListener('contextmenu', this._onContextMenu);
       this._keyTarget?.removeEventListener('keydown', this._onKeyDown as EventListener);
       this._keyTarget = null;
     }

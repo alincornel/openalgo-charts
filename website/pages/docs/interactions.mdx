@@ -60,8 +60,10 @@ result matches exactly what the user sees — useful for share/export buttons.
 screenshot keyboard shortcut).
 </Callout>
 
-<Callout type="warning">
-The browser's native right-click **"Save image as…"** captures only the topmost
-canvas layer — the transparent crosshair overlay — because the chart renders as
-stacked canvases. Always export via `takeScreenshot()` / `downloadScreenshot()`.
+<Callout type="info">
+The browser's right-click **"Save image as…"** works too: the chart composites
+the clicked pane into the layer the browser captures just before the native
+menu opens (the chart renders as stacked canvases, so this used to save a
+blank overlay). Note it saves the **clicked pane only** — for the full
+multi-pane chart use `takeScreenshot()` / `downloadScreenshot()`.
 </Callout>

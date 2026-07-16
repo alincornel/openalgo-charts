@@ -2,6 +2,19 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.0.5
+
+### Fixed
+- The browser's native right-click **"Save image as…"** now saves the visible
+  chart instead of a blank image. The chart renders as stacked canvases and the
+  browser captures only the topmost (transparent overlay) layer, so on
+  `contextmenu` the clicked pane's base layer is composited beneath its overlay
+  and overlay repaints are frozen while the menu is open (live ticks used to
+  wipe the snapshot); rendering resumes on the next pointer/wheel/key input.
+  Apps that present their own context menu (`preventDefault`) are unaffected.
+  The native save captures the clicked pane only — `downloadScreenshot()`
+  remains the full multi-pane export.
+
 ## 1.0.4
 
 Trading-UI beautification: the order-placement surfaces (order / position /
