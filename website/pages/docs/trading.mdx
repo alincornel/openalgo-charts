@@ -45,6 +45,35 @@ chart.addPriceLine({ price: last * 1.03, color: '#26a69a', lineWidth: 1, dashed:
 chart.timeScale.fitContent(bars.length);
 return chart;`} caption="Entry, stop-loss and target as segmented, draggable pill groups - solid badge, boxed qty, and an integrated x to cancel/exit." />
 
+## Inline Buy/Sell buttons
+
+`BuySellButtons` is a TradingView-style trade panel drawn **inside** the plot — a
+`SELL` button, a quantity chip, and a `BUY` button, docked to a corner and fixed
+while the chart pans/zooms. It draws on the overlay canvas (so it lands in
+screenshots) and routes clicks through `chart.subscribeClick`.
+
+```ts
+import { BuySellButtons } from 'openalgo-charts';
+
+const panel = new BuySellButtons({ id: 'trade', position: 'top-left', qty: 1 });
+chart.addPrimitive(panel);
+
+panel.setMark(ltp);      // one price on both buttons (no bid/ask)
+// panel.setPrices(bid, ask);  // or a spread
+panel.setQty(lots);      // centre chip
+
+chart.subscribeClick((id) => {
+  if (id === 'trade:buy')  eng.placeMarket(symbol, 'BUY', qty);
+  if (id === 'trade:sell') eng.placeMarket(symbol, 'SELL', qty);
+  if (id === 'trade:qty')  focusQtyInput();   // your qty control
+});
+```
+
+Options: `position` (`top-left` default, any corner or `center`), `margin`,
+`qty`, `buyColor` / `sellColor` (default to the theme), `buyLabel` / `sellLabel`,
+and `showPrices`. Update at runtime with `setPrices` / `setMark`, `setQty`, and
+`setColors`.
+
 ## The order engine
 
 `OrderEngine` is the logic layer - it validates, routes, and tracks orders, with an

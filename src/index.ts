@@ -44,6 +44,8 @@ export { SeriesMarkers, markerSizePx, effectiveMarkerPx, drawShape } from './pri
 export type { SeriesMarker, MarkerShape, MarkerPosition, MarkerSize } from './primitives/markers';
 export { LogoWatermark, watermarkRect } from './primitives/watermark';
 export type { LogoWatermarkOptions, WatermarkPosition } from './primitives/watermark';
+export { BuySellButtons } from './primitives/buy-sell-buttons';
+export type { BuySellButtonsOptions } from './primitives/buy-sell-buttons';
 export { EventMarkers } from './primitives/event-markers';
 export type { ChartEvent } from './primitives/event-markers';
 

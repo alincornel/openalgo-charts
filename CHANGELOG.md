@@ -2,6 +2,19 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.0.6
+
+### Added
+- `BuySellButtons` — an inline, TradingView-style trade panel drawn on the chart
+  (a `SELL` button, a quantity chip, and a `BUY` button, docked to a corner and
+  fixed while the chart pans/zooms). Clicks hit-test to `${id}:sell` /
+  `${id}:buy` / `${id}:qty`, routed through `chart.subscribeClick`, so the app
+  places the order. Prices update cheaply per tick via `setPrices(bid, ask)` /
+  `setMark(price)`; `setQty()` and `setColors()` restyle at runtime. Configurable
+  `position`, `margin`, labels, colors, and `showPrices`. Add it with
+  `chart.addPrimitive(new BuySellButtons({ ... }))`. Base-tier export.
+  (Base engine limit raised to 28 KB / 34.5 KB Brotli.)
+
 ## 1.0.5
 
 ### Fixed
