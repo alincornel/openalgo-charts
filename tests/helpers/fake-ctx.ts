@@ -8,6 +8,7 @@ export interface Op {
   args: number[];
   fillStyle?: string;
   strokeStyle?: string;
+  lineWidth?: number;
 }
 
 export class RecordingContext {
@@ -28,7 +29,7 @@ export class RecordingContext {
   public lineTo(x: number, y: number): void { this.ops.push({ type: 'lineTo', args: [x, y] }); }
   public arc(x: number, y: number, r: number): void { this.ops.push({ type: 'arc', args: [x, y, r] }); }
   public ellipse(x: number, y: number, rx: number, ry: number): void { this.ops.push({ type: 'ellipse', args: [x, y, rx, ry] }); }
-  public stroke(): void { this.ops.push({ type: 'stroke', args: [], strokeStyle: this.strokeStyle }); }
+  public stroke(): void { this.ops.push({ type: 'stroke', args: [], strokeStyle: this.strokeStyle, lineWidth: this.lineWidth }); }
   public fill(): void { this.ops.push({ type: 'fill', args: [], fillStyle: this.fillStyle }); }
   public fillRect(x: number, y: number, w: number, h: number): void {
     this.ops.push({ type: 'fillRect', args: [x, y, w, h], fillStyle: this.fillStyle });
@@ -38,12 +39,13 @@ export class RecordingContext {
   }
   public setLineDash(d: number[]): void { this.ops.push({ type: 'setLineDash', args: [...d] }); }
   public rect(x: number, y: number, w: number, h: number): void { this.ops.push({ type: 'rect', args: [x, y, w, h] }); }
+  public roundRect(x: number, y: number, w: number, h: number, r: number): void { this.ops.push({ type: 'roundRect', args: [x, y, w, h, r] }); }
   public clip(): void { this.ops.push({ type: 'clip', args: [] }); }
   public createLinearGradient(): { addColorStop(o: number, c: string): void } {
     this.ops.push({ type: 'createLinearGradient', args: [] });
     return { addColorStop: () => { this.ops.push({ type: 'addColorStop', args: [] }); } };
   }
-  public fillText(_t: string, x: number, y: number): void { this.ops.push({ type: 'fillText', args: [x, y] }); }
+  public fillText(_t: string, x: number, y: number): void { this.ops.push({ type: 'fillText', args: [x, y], fillStyle: this.fillStyle }); }
   public measureText(t: string): { width: number } { return { width: t.length * 6 }; }
   public setTransform(): void { this.ops.push({ type: 'setTransform', args: [] }); }
   public translate(x: number, y: number): void { this.ops.push({ type: 'translate', args: [x, y] }); }

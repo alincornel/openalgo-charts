@@ -34,9 +34,13 @@ describe('TradingController', () => {
     expect(tc.getPositions()).toHaveLength(1);
     expect(tc.getOrders()).toHaveLength(1);
     const [pos, ord] = h.lines().map((l) => l.options());
-    expect(pos.leftLabel).toBe('LONG 1.5  +$100.00');
+    expect(pos.badge).toBe('LONG');
+    expect(pos.qty).toBe(1.5);
+    expect(pos.leftLabel).toBe('+$100.00');
     expect(pos.closeButton).toBe(true);
-    expect(ord.leftLabel).toBe('BUY 0.5 LIMIT');
+    expect(ord.badge).toBe('BUY');
+    expect(ord.qty).toBe(0.5);
+    expect(ord.leftLabel).toBe('LIMIT');
     expect(ord.cursor).toBe('ns-resize'); // draggable by default
   });
 
@@ -88,6 +92,8 @@ describe('TradingController', () => {
     tc.setOrders([{ id: 'o1', type: 'limit', side: 'buy', price: 100, size: 1, variant: 'line-only' }]);
     const opts = h.lines()[0].options();
     expect(opts.leftLabel).toBeUndefined();
+    expect(opts.badge).toBeUndefined();
+    expect(opts.qty).toBeUndefined();
     expect(opts.closeButton).toBe(false);
     expect(opts.cursor).toBeUndefined();
   });
@@ -98,7 +104,7 @@ describe('TradingController', () => {
     tc.setPositions([{ id: 'p1', side: 'long', entryPrice: 100, size: 2, pnlText: '+$0.00' }]);
     const line = h.lines()[0];
     tc.updatePositionPnl('p1', 250, '+$250.00', '+2.50%');
-    expect(line.options().leftLabel).toBe('LONG 2  +$250.00');
+    expect(line.options().leftLabel).toBe('+$250.00 (+2.50%)');
     expect(h.lines()).toHaveLength(1); // same line, not recreated
   });
 
@@ -133,7 +139,9 @@ describe('TradingController — T2 (brackets, markers, settings, clicks)', () =>
     tc.on('trading:bracket_modify', onBracket);
     tc.on('trading:order_modify', onModify);
     tc.setOrders([{ id: 'tp1', type: 'limit', side: 'sell', price: 110, size: 1, parentId: 'pos1', bracketRole: 'tp' }]);
-    expect(h.lines()[0].options().leftLabel).toBe('TP 1');
+    expect(h.lines()[0].options().badge).toBe('TP');
+    expect(h.lines()[0].options().qty).toBe(1);
+    expect(h.lines()[0].options().leftLabel).toBeUndefined();
     h.drag('ord:tp1', 112);
     h.dragEnd('ord:tp1', 112);
     expect(onBracket).toHaveBeenCalledWith({ parentId: 'pos1', bracketRole: 'tp', newPrice: 112 });

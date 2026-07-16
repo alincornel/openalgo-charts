@@ -1,9 +1,14 @@
 /**
  * Horizontal price line primitive (ARCHITECTURE.md §8). The reusable base for
  * order/SL/TP/alert/indicator-level lines: a line across the plot plus a fixed
- * right-axis price tag. Drag handling is added by the trade layer in Phase 9.
+ * right-axis price tag and an optional broker-style segmented pill group on the
+ * line — [badge][qty][label][✕] — with hover / dragging states (the chart
+ * passes `hoverId`/`dragId` on the render context) and a drag ghost at the
+ * pre-drag price via `setDragGhost`. Interaction semantics are unchanged from
+ * the classic tag: the ✕ hit-tests as `${id}::close`, everything else drags.
  */
 import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, PrimitiveHit, ZOrder } from './primitive';
+import { contrastText, withAlpha, shade, drawPillGroup, type PillSegment } from '../render/pill';
 
 export interface PriceLineOptions {
   price: number;
@@ -12,7 +17,11 @@ export interface PriceLineOptions {
   dashed: boolean;
   /** Right-axis tag text. Defaults to the formatted price. */
   label?: string;
-  /** Optional tag drawn at the LEFT end of the line (broker-style order tag). */
+  /** Solid colored badge segment at the start of the pill group (e.g. 'BUY', 'TP', 'SL'). */
+  badge?: string;
+  /** Quantity segment rendered as a neutral box after the badge. */
+  qty?: string | number;
+  /** Info text segment (order type, price, P&L ...) — the classic left tag text. */
   leftLabel?: string;
   /**
    * Fraction of the plot width the line spans, measured from the right (price)
@@ -20,7 +29,7 @@ export interface PriceLineOptions {
    * partial-width order line. The right-axis tag is always drawn.
    */
   extentFromRight?: number;
-  /** Draw a small cancel (cross) box at the right end; hit-tests as `${id}::close`. */
+  /** Draw a cancel (✕) segment at the end of the pill group; hit-tests as `${id}::close`. */
   closeButton?: boolean;
   /** Stable id returned by hit-test (for click/drag routing). */
   id: string;
@@ -28,12 +37,17 @@ export interface PriceLineOptions {
   cursor?: string;
 }
 
-/** Width/height of the cancel (cross) box, in media px (shared by draw + hit-test). */
-const CLOSE_BOX = 14;
+/** Pill/segment height in media px (shared by draw + hit-test). */
+const TAG_H = 18;
+/** Gap between segments in media px. */
+const GAP = 2;
 
 export class PriceLine implements IPrimitive {
   private _opts: PriceLineOptions;
   private _host: PrimitiveHost | null = null;
+  private _ghostPrice: number | null = null;
+  /** Pill-group geometry from the last draw (media px) for hit-testing. */
+  private _group: { x0: number; x1: number; closeX0: number } | null = null;
 
   public constructor(opts: PriceLineOptions) {
     this._opts = opts;
@@ -57,9 +71,18 @@ export class PriceLine implements IPrimitive {
     this._host?.requestUpdate();
   }
 
-  /** Update the left-end tag text (e.g. live position P&L); repaints. */
+  /** Update the info segment text (e.g. live position P&L); repaints. */
   public setLeftLabel(text: string): void {
     this._opts.leftLabel = text;
+    this._host?.requestUpdate();
+  }
+
+  /**
+   * Show a dimmed reference line at the pre-drag price while the user drags
+   * (pass the original price on drag start, null on drag end to clear).
+   */
+  public setDragGhost(price: number | null): void {
+    this._ghostPrice = price;
     this._host?.requestUpdate();
   }
 
@@ -76,59 +99,108 @@ export class PriceLine implements IPrimitive {
   }
 
   public draw(ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext): void {
+    this._group = null;
     const y = Math.round(rc.priceScale.priceToY(this._opts.price) * rc.dpr) + 0.5;
     if (y < 0 || y > rc.plotHeight * rc.dpr) return;
-    const xEnd = Math.round(rc.plotWidth * rc.dpr);
+    const dpr = rc.dpr;
+    const xEnd = Math.round(rc.plotWidth * dpr);
     const extent = Math.max(0, Math.min(1, this._opts.extentFromRight ?? 1));
-    const xStart = Math.round(rc.plotWidth * (1 - extent) * rc.dpr);
+    const xStart = Math.round(rc.plotWidth * (1 - extent) * dpr);
+    const color = this._opts.color;
+    // Hover/dragging visual states apply to interactive lines only (draggable
+    // or cancellable); plain level lines stay static under the pointer.
+    const interactive = this._opts.cursor !== undefined || this._opts.closeButton === true;
+    const dragging = rc.dragId === this._opts.id;
+    const hovered = interactive && !dragging && (rc.hoverId === this._opts.id || rc.hoverId === `${this._opts.id}::close`);
+    const closeHovered = rc.hoverId === `${this._opts.id}::close`;
 
     ctx.save();
-    ctx.strokeStyle = this._opts.color;
-    ctx.lineWidth = Math.max(1, Math.round(this._opts.lineWidth * rc.dpr));
-    if (this._opts.dashed) ctx.setLineDash([4 * rc.dpr, 4 * rc.dpr]);
+
+    // drag ghost: dimmed line at the pre-drag price (revert reference)
+    if (this._ghostPrice !== null && dragging) {
+      const gy = Math.round(rc.priceScale.priceToY(this._ghostPrice) * dpr) + 0.5;
+      if (gy >= 0 && gy <= rc.plotHeight * dpr) {
+        ctx.strokeStyle = withAlpha(color, 0.35);
+        ctx.lineWidth = Math.max(1, Math.round(dpr));
+        ctx.setLineDash([2 * dpr, 3 * dpr]);
+        ctx.beginPath();
+        ctx.moveTo(xStart, gy);
+        ctx.lineTo(xEnd, gy);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+
+    // soft emphasis halo while dragging (no shadowBlur — cheap wide stroke)
+    if (dragging) {
+      ctx.strokeStyle = withAlpha(color, 0.18);
+      ctx.lineWidth = Math.max(5 * dpr, Math.round(this._opts.lineWidth * dpr) + 4 * dpr);
+      ctx.beginPath();
+      ctx.moveTo(xStart, y);
+      ctx.lineTo(xEnd, y);
+      ctx.stroke();
+    }
+
+    ctx.strokeStyle = hovered || dragging ? shade(color, 0.1) : color;
+    const baseW = Math.max(1, Math.round(this._opts.lineWidth * dpr));
+    ctx.lineWidth = hovered || dragging ? baseW + Math.round(dpr) : baseW;
+    if (this._opts.dashed) ctx.setLineDash([4 * dpr, 4 * dpr]);
     ctx.beginPath();
     ctx.moveTo(xStart, y);
     ctx.lineTo(xEnd, y);
     ctx.stroke();
     ctx.setLineDash([]);
 
-    ctx.font = `${11 * rc.dpr}px system-ui, sans-serif`;
+    ctx.font = `500 ${11 * dpr}px system-ui, sans-serif`;
     ctx.textBaseline = 'middle';
-    const padX = 6 * rc.dpr;
-    const boxH = 16 * rc.dpr;
-
-    // right-axis price tag
-    const label = this._opts.label ?? rc.priceScale.format(this._opts.price);
-    const textW = ctx.measureText(label).width;
-    ctx.fillStyle = this._opts.color;
-    ctx.fillRect(xEnd + 1, y - boxH / 2, textW + padX * 2, boxH);
-    ctx.fillStyle = '#0d0e12';
     ctx.textAlign = 'left';
+    const boxH = TAG_H * dpr;
+    const padX = 6 * dpr;
+    const r = 3 * dpr;
+
+    // right-axis price tag (kept rectangular like the axis/crosshair tags)
+    const axisFill = dragging || hovered ? shade(color, 0.12) : color;
+    const label = this._opts.label ?? rc.priceScale.format(this._opts.price);
+    ctx.fillStyle = axisFill;
+    ctx.fillRect(xEnd + 1, y - boxH / 2, ctx.measureText(label).width + padX * 2, boxH);
+    ctx.fillStyle = contrastText(color);
     ctx.fillText(label, xEnd + 1 + padX, y);
 
-    // optional left-end order tag (e.g. "BUY 100 LIMIT")
-    if (this._opts.leftLabel) {
-      const lw = ctx.measureText(this._opts.leftLabel).width;
-      ctx.fillStyle = this._opts.color;
-      ctx.fillRect(xStart, y - boxH / 2, lw + padX * 2, boxH);
-      ctx.fillStyle = '#0d0e12';
-      ctx.fillText(this._opts.leftLabel, xStart + padX, y);
-    }
-
-    // optional cancel box at the right end of the line (cross drawn geometrically)
-    if (this._opts.closeButton) {
-      const s = CLOSE_BOX * rc.dpr;
-      const bx = xEnd - s;
-      const by = y - s / 2;
-      ctx.fillStyle = this._opts.color;
-      ctx.fillRect(bx, by, s, s);
-      ctx.strokeStyle = '#0d0e12';
-      ctx.lineWidth = Math.max(1, Math.round(1.5 * rc.dpr));
-      const p = 4 * rc.dpr;
-      ctx.beginPath();
-      ctx.moveTo(bx + p, by + p); ctx.lineTo(bx + s - p, by + s - p);
-      ctx.moveTo(bx + s - p, by + p); ctx.lineTo(bx + p, by + s - p);
-      ctx.stroke();
+    // segmented pill group on the line: [badge][qty][label][✕]
+    const hasGroup = this._opts.badge !== undefined || this._opts.qty !== undefined ||
+      (this._opts.leftLabel !== undefined && this._opts.leftLabel !== '') || this._opts.closeButton === true;
+    if (hasGroup) {
+      // neutral "surface" segments: opaque so the line doesn't run through text
+      const transparentBg = rc.theme.background === 'transparent';
+      const surface = transparentBg ? withAlpha(color, 0.14) : rc.theme.background;
+      const surfaceText = transparentBg ? rc.theme.axisText : contrastText(rc.theme.background);
+      const border = withAlpha(rc.theme.axisText, hovered || dragging ? 0.75 : 0.5);
+      const segments: PillSegment[] = [];
+      if (this._opts.badge !== undefined) {
+        segments.push({
+          text: this._opts.badge,
+          fill: dragging ? shade(color, 0.2) : hovered ? shade(color, 0.12) : color,
+          textColor: contrastText(color),
+          border: shade(color, -0.25),
+        });
+      }
+      if (this._opts.qty !== undefined) {
+        segments.push({ text: String(this._opts.qty), fill: surface, textColor: surfaceText, border });
+      }
+      if (this._opts.leftLabel !== undefined && this._opts.leftLabel !== '') {
+        segments.push({ text: this._opts.leftLabel, fill: surface, textColor: surfaceText, border });
+      }
+      if (this._opts.closeButton === true) {
+        segments.push({
+          close: true,
+          fill: closeHovered ? color : surface,
+          textColor: closeHovered ? contrastText(color) : surfaceText,
+          border: closeHovered ? color : border,
+        });
+      }
+      this._group = drawPillGroup(ctx, xStart + (extent === 1 ? 6 * dpr : 0), y, segments, {
+        height: boxH, padX, radius: r, gap: GAP * dpr, backplate: transparentBg ? undefined : rc.theme.background, dpr,
+      });
     }
     ctx.restore();
   }
@@ -137,9 +209,14 @@ export class PriceLine implements IPrimitive {
     if (x < 0 || x > rc.plotWidth) return null;
     const lineY = rc.priceScale.priceToY(this._opts.price);
     const distance = Math.abs(y - lineY);
-    // Cancel box at the right end takes priority and routes as a click (not a drag).
-    if (this._opts.closeButton && x >= rc.plotWidth - CLOSE_BOX && distance <= CLOSE_BOX / 2 + 1) {
-      return { externalId: `${this._opts.id}::close`, zOrder: 'normal', distance, cursor: 'pointer' };
+    // Inside the pill group (segment boxes are taller than the 4px line zone):
+    // the ✕ segment routes as a click, the rest of the group drags the line.
+    const g = this._group;
+    if (g !== null && distance <= TAG_H / 2 + 1 && x >= g.x0 && x <= g.x1) {
+      if (this._opts.closeButton && x >= g.closeX0) {
+        return { externalId: `${this._opts.id}::close`, zOrder: 'normal', distance, cursor: 'pointer' };
+      }
+      return { externalId: this._opts.id, zOrder: 'normal', distance, cursor: this._opts.cursor };
     }
     if (distance > 4) return null;
     return { externalId: this._opts.id, zOrder: 'normal', distance, cursor: this._opts.cursor };

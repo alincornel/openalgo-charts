@@ -22,7 +22,7 @@
     <button class="buy" id="buy">Buy (mkt)</button>
     <button class="sell" id="sell">Sell (mkt)</button>
     <button id="limit">Place limit ↓</button>
-    <span style="opacity:.6">drag the limit / SL / TP lines to modify</span>
+    <span style="opacity:.6">drag the limit / SL / TP lines to modify · click a pill's ✕ to cancel</span>
     <span id="log"></span>
   </div>
   <div id="chart"></div>
@@ -65,6 +65,13 @@
       (id, price) => { const c = brokerToClient.get(id); if (c) eng.requestModify(c, price); },
       (id, price) => { const c = brokerToClient.get(id); if (c) { eng.requestModify(c, price); eng.commitModify(c); } },
     );
+
+    // The pill's ✕ segment routes as `order:<id>::close` → cancel via the engine.
+    chart.subscribeClick((id) => {
+      if (!id.endsWith('::close')) return;
+      const c = brokerToClient.get(id.slice(0, -'::close'.length));
+      if (c) { eng.cancelOrder(c); document.getElementById('log').textContent = 'cancelled'; }
+    });
 
     // simulated LTP
     let t = 0;

@@ -45,6 +45,7 @@ it on teardown (component unmount, route change) so listeners never leak.
 | `ready` | `{}` | Once, on the microtask after `createChart` returns. |
 | `crosshair:move` | `{ time, index, price, bar, point }` | The pointer moves over the plot (all-null when it leaves). |
 | `click` | `{ id }` | A hit-testable primitive (marker, event, price line) is clicked. `id` is its `externalId`. |
+| `hover` | `{ id }` | The pointer enters (`id` = `externalId`) or leaves (`id` = `null`) a hit-testable primitive. |
 | `pan` | `{ from, to, logicalFrom, logicalTo }` | The user pans (drag, two-finger, kinetic glide). |
 | `zoom` | `{ from, to, logicalFrom, logicalTo }` | The user zooms (wheel or pinch). |
 | `resize` | `{ width, height }` | The container size changes (CSS px). |
@@ -124,6 +125,20 @@ chart.on('click', ({ id }) => {
 ```
 
 `chart.subscribeClick(cb)` is the typed equivalent (`cb(externalId)`).
+
+### hover
+
+Fires when the pointer enters or leaves a hit-testable primitive (`id` is the
+primitive's `externalId`, or `null` on leave) — at state-change rate, not
+pointer rate. The chart already renders hover states (thicker line, brighter
+pill, cursor hint) by itself; use this event for app-side affordances such as
+an order tooltip or a details panel.
+
+```ts
+chart.on('hover', ({ id }) => {
+  tooltip.hidden = id === null || !id.startsWith('ord:');
+});
+```
 
 ## Viewport events
 

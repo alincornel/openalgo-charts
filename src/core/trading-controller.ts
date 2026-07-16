@@ -8,6 +8,7 @@
  */
 import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, ZOrder } from '../primitives/primitive';
 import { PriceLine, type PriceLineOptions } from '../primitives/price-line';
+import { contrastText, roundRectPath } from '../render/pill';
 
 export type PositionSide = 'long' | 'short';
 export type TradingOrderSide = 'buy' | 'sell';
@@ -141,8 +142,8 @@ function drawBubble(ctx: CanvasRenderingContext2D, x: number, y: number, color: 
   ctx.arc(x, y, r, 0, Math.PI * 2);
   ctx.fill();
   if (text !== '') {
-    ctx.fillStyle = '#fff';
-    ctx.font = `${9 * dpr}px system-ui, sans-serif`;
+    ctx.fillStyle = contrastText(color);
+    ctx.font = `500 ${9 * dpr}px system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(text, x, y + 0.5 * dpr);
@@ -151,12 +152,14 @@ function drawBubble(ctx: CanvasRenderingContext2D, x: number, y: number, color: 
 
 function drawCount(ctx: CanvasRenderingContext2D, x: number, y: number, count: number, color: string, dpr: number): void {
   const text = String(count);
-  ctx.font = `${9 * dpr}px system-ui, sans-serif`;
+  ctx.font = `500 ${9 * dpr}px system-ui, sans-serif`;
   const w = ctx.measureText(text).width + 10 * dpr;
   const h = 15 * dpr;
   ctx.fillStyle = color;
-  ctx.fillRect(Math.round(x - w / 2), Math.round(y - h / 2), Math.round(w), Math.round(h));
-  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  roundRectPath(ctx, Math.round(x - w / 2), Math.round(y - h / 2), Math.round(w), Math.round(h), 3 * dpr);
+  ctx.fill();
+  ctx.fillStyle = contrastText(color);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(text, x, y + 0.5 * dpr);
@@ -355,16 +358,13 @@ export class TradingController {
   }
 
   private _sig(o: PriceLineOptions): string {
-    return `${o.color}|${o.dashed}|${o.closeButton === true}|${o.cursor ?? ''}|${o.leftLabel !== undefined}`;
+    return `${o.color}|${o.dashed}|${o.closeButton === true}|${o.cursor ?? ''}|${o.leftLabel !== undefined}|${o.badge ?? ''}|${o.qty ?? ''}`;
   }
 
+  /** Info segment for a position: live P&L text (side/size live in badge/qty). */
   private _positionPill(p: TradingPosition): string {
-    return `${p.side.toUpperCase()} ${p.size}${p.pnlText !== undefined ? '  ' + p.pnlText : ''}`;
-  }
-
-  private _orderPill(o: TradingOrder): string {
-    if (o.bracketRole !== undefined) return `${o.bracketRole.toUpperCase()} ${o.size}`;
-    return `${o.side.toUpperCase()} ${o.size} ${o.type.replace('_', ' ').toUpperCase()}`;
+    if (p.pnlText === undefined) return '';
+    return `${p.pnlText}${p.pnlPercent !== undefined ? ` (${p.pnlPercent})` : ''}`;
   }
 
   private _positionOpts(p: TradingPosition): PriceLineOptions {
@@ -375,6 +375,8 @@ export class TradingController {
       lineWidth: 2,
       dashed: false,
       id: `pos:${p.id}`,
+      badge: lineOnly ? undefined : p.side.toUpperCase(),
+      qty: lineOnly ? undefined : p.size,
       leftLabel: lineOnly ? undefined : this._positionPill(p),
       closeButton: !lineOnly && p.readOnly !== true,
       extentFromRight: 0.3,
@@ -393,7 +395,9 @@ export class TradingController {
       lineWidth: o.lineWidth ?? 1,
       dashed: (o.lineStyle ?? 'solid') !== 'solid',
       id: `ord:${o.id}`,
-      leftLabel: lineOnly ? undefined : this._orderPill(o),
+      badge: lineOnly ? undefined : (o.bracketRole ?? o.side).toUpperCase(),
+      qty: lineOnly ? undefined : o.size,
+      leftLabel: lineOnly || o.bracketRole !== undefined ? undefined : o.type.replace('_', ' ').toUpperCase(),
       closeButton: !lineOnly && o.readOnly !== true,
       extentFromRight: 0.3,
       cursor: draggable ? 'ns-resize' : undefined,
@@ -428,7 +432,10 @@ export class TradingController {
     const cur = this._orders.get(externalId.slice(4));
     if (cur === undefined) return;
     const id = externalId.slice(4);
-    if (!this._dragPrev.has(id)) this._dragPrev.set(id, cur.entity.price);
+    if (!this._dragPrev.has(id)) {
+      this._dragPrev.set(id, cur.entity.price);
+      cur.line.setDragGhost(cur.entity.price); // dimmed pre-drag reference line
+    }
     cur.line.setPrice(price);
   }
 
@@ -439,6 +446,7 @@ export class TradingController {
     if (cur === undefined) return;
     const previousPrice = this._dragPrev.get(id) ?? cur.entity.price;
     this._dragPrev.delete(id);
+    cur.line.setDragGhost(null);
     cur.entity.price = price;
     cur.line.setPrice(price);
     if (cur.entity.bracketRole !== undefined) {

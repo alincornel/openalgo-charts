@@ -57,7 +57,16 @@ export class OpenAlgoTradeFeed implements OrderFeed {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ apikey: this._config.apiKey, ...body }),
     });
-    if (!res.ok) throw new Error(`openalgo-charts: ${path} failed (${res.status})`);
+    if (!res.ok) {
+      // Surface OpenAlgo's own error text (e.g. RMS rules, square-off windows)
+      // instead of a bare status code — the UI shows this to the trader.
+      let detail = '';
+      try {
+        const j = (await res.json()) as { message?: string };
+        if (typeof j.message === 'string' && j.message !== '') detail = `: ${j.message}`;
+      } catch { /* non-JSON error body */ }
+      throw new Error(`openalgo-charts: ${path} failed (${res.status})${detail}`);
+    }
     return res.json();
   }
 
@@ -167,8 +176,14 @@ function num(v: number | string | undefined): number {
 
 const STATUS_MAP: Record<string, Order['status']> = {
   open: 'working', pending: 'pending', trigger_pending: 'working',
+  'trigger pending': 'working',
   complete: 'filled', cancelled: 'cancelled', rejected: 'rejected',
 };
+
+/** Map a lowercase OpenAlgo order_status to the chart's Order status. */
+export function mapOrderStatus(s: string): Order['status'] {
+  return STATUS_MAP[s.toLowerCase()] ?? 'working';
+}
 
 export function mapOrder(r: RawOrder): Order {
   return {

@@ -1,12 +1,13 @@
 /**
  * Bracket group (ARCHITECTURE.md §9.1). SL + Target lines tied to a position,
- * with shaded risk (red) and reward (green) zones and an R:R label — the core
- * advanced-trade-management visualisation. Phase 8 is read-only; Phase 9 makes
- * the SL/TP lines draggable (OCO modify).
+ * with theme-derived shaded risk/reward zones, rounded "SL/TP @ price" chips at
+ * the left edge, and an R:R chip near entry — the core advanced-trade-management
+ * visualisation. The SL/TP lines thicken on hover and are draggable (OCO modify).
  */
 import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, PrimitiveHit, ZOrder } from '../primitives/primitive';
 import type { OrderSide } from './types';
 import { riskReward } from './pnl';
+import { withAlpha, drawPill } from '../render/pill';
 
 export interface BracketState {
   symbol: string;
@@ -44,42 +45,50 @@ export class BracketGroup implements IPrimitive {
 
   public draw(ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext): void {
     const { entry, stop, target } = this._state;
-    const xEnd = Math.round(rc.plotWidth * rc.dpr);
-    const yEntry = rc.priceScale.priceToY(entry) * rc.dpr;
-    const yStop = rc.priceScale.priceToY(stop) * rc.dpr;
-    const yTarget = rc.priceScale.priceToY(target) * rc.dpr;
+    const dpr = rc.dpr;
+    const xEnd = Math.round(rc.plotWidth * dpr);
+    const yEntry = rc.priceScale.priceToY(entry) * dpr;
+    const yStop = rc.priceScale.priceToY(stop) * dpr;
+    const yTarget = rc.priceScale.priceToY(target) * dpr;
 
     ctx.save();
-    // risk zone (entry ↔ stop)
-    ctx.fillStyle = 'rgba(239,83,80,0.10)';
+    // risk zone (entry ↔ stop) and reward zone (entry ↔ target), theme-derived
+    ctx.fillStyle = withAlpha(rc.theme.loss, 0.09);
     ctx.fillRect(0, Math.min(yEntry, yStop), xEnd, Math.abs(yStop - yEntry));
-    // reward zone (entry ↔ target)
-    ctx.fillStyle = 'rgba(38,166,154,0.10)';
+    ctx.fillStyle = withAlpha(rc.theme.profit, 0.09);
     ctx.fillRect(0, Math.min(yEntry, yTarget), xEnd, Math.abs(yTarget - yEntry));
 
-    // SL and TP lines
-    for (const [y, color, tag] of [[yStop, rc.theme.loss, 'SL'], [yTarget, rc.theme.profit, 'TP']] as const) {
+    // SL and TP lines + rounded "SL @ price" chips at the left edge
+    ctx.font = `500 ${10 * dpr}px system-ui, sans-serif`;
+    ctx.textBaseline = 'middle';
+    for (const [yRaw, color, tag, price, id] of [
+      [yStop, rc.theme.loss, 'SL', stop, `bracket-sl:${this._state.symbol}`],
+      [yTarget, rc.theme.profit, 'TP', target, `bracket-tp:${this._state.symbol}`],
+    ] as const) {
+      const y = Math.round(yRaw) + 0.5;
+      const hovered = rc.hoverId === id || rc.dragId === id;
       ctx.strokeStyle = color;
-      ctx.lineWidth = Math.max(1, Math.round(rc.dpr));
-      ctx.setLineDash([4 * rc.dpr, 4 * rc.dpr]);
+      const baseW = Math.max(1, Math.round(dpr));
+      ctx.lineWidth = hovered ? baseW + Math.round(dpr) : baseW;
+      ctx.setLineDash([4 * dpr, 4 * dpr]);
       ctx.beginPath();
-      ctx.moveTo(0, Math.round(y) + 0.5);
-      ctx.lineTo(xEnd, Math.round(y) + 0.5);
+      ctx.moveTo(0, y);
+      ctx.lineTo(xEnd, y);
       ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillStyle = color;
-      ctx.font = `${10 * rc.dpr}px system-ui, sans-serif`;
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(tag, 4 * rc.dpr, Math.round(y));
+      drawPill(ctx, 4 * dpr, y, `${tag} ${rc.priceScale.format(price)}`, 16 * dpr, 6 * dpr, {
+        fill: withAlpha(color, hovered ? 0.28 : 0.16), text: color, border: withAlpha(color, 0.55), radius: 3 * dpr,
+        backplate: rc.theme.background === 'transparent' ? undefined : rc.theme.background,
+      });
     }
 
-    // R:R label near entry
+    // R:R chip near entry
     const rr = riskReward(entry, stop, target);
     if (rr !== null) {
-      ctx.fillStyle = '#c7ccd8';
-      ctx.font = `${10 * rc.dpr}px system-ui, sans-serif`;
-      ctx.fillText(`R:R ${rr.toFixed(2)}`, 4 * rc.dpr, Math.round(yEntry) - 8 * rc.dpr);
+      drawPill(ctx, 4 * dpr, Math.round(yEntry) - 12 * dpr, `R:R ${rr.toFixed(2)}`, 16 * dpr, 6 * dpr, {
+        fill: withAlpha(rc.theme.axisText, 0.16), text: rc.theme.axisText, radius: 3 * dpr,
+        backplate: rc.theme.background === 'transparent' ? undefined : rc.theme.background,
+      });
     }
     ctx.restore();
   }

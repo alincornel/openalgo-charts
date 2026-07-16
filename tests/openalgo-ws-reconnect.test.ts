@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { OpenAlgoWsFeed } from '../src/feed/openalgo-ws';
+import { OpenAlgoWsFeed, parseOrderUpdate, type OrderUpdateEvent } from '../src/feed/openalgo-ws';
 
 function fakeSocket(): any {
   const s: any = {
@@ -63,6 +63,53 @@ describe('OpenAlgoWsFeed reconnect', () => {
     sockets[0].onclose();
     vi.advanceTimersByTime(60000);
     expect(sockets).toHaveLength(1);
+    ws.close();
+  });
+});
+
+describe('OpenAlgoWsFeed order updates', () => {
+  const rawUpdate = {
+    type: 'order_update', user_id: 'u', mode: 'analyze', broker: 'upstox',
+    orderid: '240221025997024', symbol: 'RELIANCE', exchange: 'NSE', action: 'BUY',
+    quantity: 10, price: 1424.0, trigger_price: 0, pricetype: 'LIMIT', product: 'MIS',
+    order_status: 'Complete', filled_quantity: 10, pending_quantity: 0,
+    average_price: 1423.85, rejection_reason: '',
+  };
+
+  it('parseOrderUpdate normalizes the documented payload (and only that type)', () => {
+    const e = parseOrderUpdate(rawUpdate)!;
+    expect(e.orderId).toBe('240221025997024');
+    expect(e.action).toBe('BUY');
+    expect(e.status).toBe('complete'); // lowercased
+    expect(e.triggerPrice).toBeUndefined(); // 0 → undefined
+    expect(e.filledQuantity).toBe(10);
+    expect(e.averagePrice).toBeCloseTo(1423.85);
+    expect(parseOrderUpdate({ type: 'market_data', data: { ltp: 1 } })).toBeNull();
+    expect(parseOrderUpdate('ping')).toBeNull();
+  });
+
+  it('subscribeOrders sends the action, dispatches events, and replays on reconnect', () => {
+    vi.useFakeTimers();
+    const sockets: any[] = [];
+    const ws = new OpenAlgoWsFeed({
+      url: 'ws://x', apiKey: 'k', reconnect: { baseDelayMs: 100 },
+      socketFactory: () => { const s = fakeSocket(); sockets.push(s); return s; },
+    });
+    const events: OrderUpdateEvent[] = [];
+    ws.onOrderUpdate((e) => events.push(e));
+    ws.connect();
+    ws.subscribeOrders();
+    expect(sockets[0].sent.some((m: string) => m.includes('subscribe_orders'))).toBe(true);
+
+    sockets[0].onmessage({ data: JSON.stringify(rawUpdate) });
+    expect(events).toHaveLength(1);
+    expect(events[0].symbol).toBe('RELIANCE');
+
+    // unexpected drop → reconnect replays the order-stream subscription too
+    sockets[0].onclose();
+    vi.advanceTimersByTime(100);
+    expect(sockets).toHaveLength(2);
+    expect(sockets[1].sent.some((m: string) => m.includes('subscribe_orders'))).toBe(true);
     ws.close();
   });
 });

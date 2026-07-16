@@ -39,6 +39,10 @@ export interface PaneRenderContext {
   showHorzGrid: boolean;
   /** Optional custom time label formatter (UTC seconds -> string). Defaults to IST. */
   timeFormatter?: (utcSeconds: number, tickMark?: TickMarkType) => string;
+  /** externalId of the primitive under the pointer (hover visual state). */
+  hoverId?: string | null;
+  /** externalId of the line currently being dragged (active visual state). */
+  dragId?: string | null;
 }
 
 export class Pane {
@@ -134,6 +138,8 @@ export class Pane {
       priceAxisWidth: ctx.priceAxisWidth,
       dpr: ctx.dpr,
       theme: ctx.theme,
+      hoverId: ctx.hoverId ?? null,
+      dragId: ctx.dragId ?? null,
     };
   }
 
@@ -280,16 +286,18 @@ export class Pane {
       }
     }
 
-    // normal-layer primitives (price lines, markers, events) draw over series
-    for (const p of this._primitives) if (p.zOrder() === 'normal') p.draw(g, prc);
-
-    // axes
+    // axis ticks first, then the last-price line/tag, then trading primitives —
+    // order/position pill groups stay legible when the LTP crosses them
     drawPriceAxis(g, this.priceScale, layout, dpr, axisStyle);
     if (lastEntry !== null) {
       drawLastPriceLabel(g, this.priceScale, lastEntry.close, lastEntry.up, layout, dpr, axisStyle, {
         up: ctx.theme.lastPriceUp, down: ctx.theme.lastPriceDown, text: ctx.theme.lastPriceText,
       }, lastEntry.showLine, lastEntry.showTag);
     }
+
+    // normal-layer primitives (price lines, markers, events) draw over series
+    for (const p of this._primitives) if (p.zOrder() === 'normal') p.draw(g, prc);
+
     if (ctx.showTimeAxis) {
       drawTimeAxis(g, ctx.timeScale, ctx.dataLayer, layout, dpr, axisStyle, ctx.timeFormatter);
     }

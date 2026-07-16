@@ -8,6 +8,38 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 1.0.4
+
+Trading-UI beautification — the order-placement surfaces get a modern,
+theme-aware visual pass plus real interaction feedback.
+
+**Added**
+
+- Hover / dragging states for interactive price lines (thicker line, brighter
+  pill, solid cancel button, soft drag halo) and chart-applied cursor hints
+  (`ns-resize` over draggable lines, `pointer` over cancel and ladder rows).
+- New `hover` event: `chart.on('hover', ({ id }) => ...)` fires on primitive
+  enter/leave.
+- Drag ghost: `PriceLine.setDragGhost(price | null)` draws a dimmed reference
+  line at the pre-drag price while modifying (automatic via `chart.trading`).
+- Broker-style segmented pill groups on order and position lines —
+  `[badge][qty][label][✕]` with new `badge` / `qty` price-line options and
+  auto-contrast text; bracket chips with prices (`SL 2,850.00`) and
+  theme-derived risk/reward zones; fill progress (`3/10`) and dimmed pending
+  state on working-order lines; fully theme-aware DOM ladder with a
+  hovered-row outline.
+- `PrimitiveRenderContext.hoverId` / `dragId` for custom primitives.
+- Real-time order updates: `OpenAlgoWsFeed.subscribeOrders()` / `onOrderUpdate()`
+  (OpenAlgo `subscribe_orders` stream) with reconnect replay; `mapOrderStatus`.
+- `chart.downloadScreenshot(filename?)` — PNG export of the full composited chart.
+
+**Fixed**
+
+- Right-click no longer leaves the chart "sticky-dragging"; missed `pointerup`
+  is recovered on the next move.
+- Crosshair hidden while dragging an order line (no phantom line at the grab point).
+- Last-price line draws beneath order/position pills instead of striking through.
+
 ## 1.0.3
 
 Cosmetic parity — the last visual gaps for a lightweight-charts migration.

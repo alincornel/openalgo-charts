@@ -160,6 +160,7 @@
       <button id="connect" class="btn btn--primary">Connect</button>
       <button id="disconnect" class="btn btn--ghost">Disconnect</button>
       <button id="fit" class="btn" title="restore the default view (fit bars + auto price scale), same as double-click">Fit</button>
+      <button id="snap" class="btn" title="save the chart as a PNG (composites all layers; browser right-click save only captures the crosshair overlay)">📷 PNG</button>
     </div>
     <div class="status"><span class="status-dot"></span><span id="status">enter your API key and Connect</span></div>
   </header>
@@ -231,11 +232,33 @@
     };
     const chartType = () => CHART_TYPES[el('ctype').value] || CHART_TYPES.candlestick;
     // Push price + volume from the raw bars, applying the selected transform.
+    // Transformed types (Renko / Range / Line Break / Kagi / P&F) emit their own
+    // element times; the volume pane must use THOSE times too — feeding it the
+    // raw bars would re-add every raw timestamp to the shared time axis and
+    // scatter the bricks with gaps.
+    function bucketVolume(tbars) {
+      const out = []; let ri = 0;
+      for (const tb of tbars) {
+        let v = 0;
+        while (ri < rawBars.length && rawBars[ri].time <= tb.time) { v += rawBars[ri].volume || 0; ri++; }
+        out.push({ time: tb.time, open: 0, high: v, low: 0, close: v });
+      }
+      let rest = 0;
+      while (ri < rawBars.length) { rest += rawBars[ri].volume || 0; ri++; }
+      if (out.length && rest) { const last = out[out.length - 1]; last.high += rest; last.close += rest; }
+      return out;
+    }
     function setPriceData() {
       if (!price || !rawBars.length) return;
       const cfg = chartType();
-      price.setData(cfg.tf ? runTransform(cfg.tf(), rawBars) : rawBars);
-      volume.setData(rawBars.map((b) => ({ time: b.time, open: 0, high: b.volume || 0, low: 0, close: b.volume || 0 })));
+      if (cfg.tf) {
+        const t = runTransform(cfg.tf(), rawBars);
+        price.setData(t);
+        volume.setData(bucketVolume(t)); // brick-bucketed volume, same time axis
+      } else {
+        price.setData(rawBars);
+        volume.setData(rawBars.map((b) => ({ time: b.time, open: 0, high: b.volume || 0, low: 0, close: b.volume || 0 })));
+      }
     }
     // chart trading (real OpenAlgo orders via the proxy)
     let trade = null, bookTimer = null, lastLtp = null;
@@ -300,7 +323,7 @@
       return chart.addPriceLine({
         price: o.triggerPrice ?? o.price, color: o.side === 'BUY' ? '#26a69a' : '#ef5350',
         lineWidth: 1, dashed: true, id: `order:${o.id}`, cursor: 'ns-resize', extentFromRight: 0.30,
-        closeButton: true, leftLabel: `${o.side} ${o.qty} ${o.type}`,
+        closeButton: true, badge: o.side, qty: o.qty, leftLabel: o.type,
       }, 0);
     }
     async function pollBook() {
@@ -330,7 +353,7 @@
       if (!position) return '';
       const mark = lastLtp != null ? lastLtp : position.avg;
       const pnl = (mark - position.avg) * position.net; // net is signed, correct for long/short
-      return `${position.net > 0 ? 'LONG' : 'SHORT'} ${Math.abs(position.net)} @ ${fmt(position.avg)}  ${pnl >= 0 ? '+' : '-'}Rs ${Math.round(Math.abs(pnl)).toLocaleString('en-IN')}`;
+      return `@ ${fmt(position.avg)}  ${pnl >= 0 ? '+' : '-'}Rs ${Math.round(Math.abs(pnl)).toLocaleString('en-IN')}`;
     }
     function renderPosition(pos) {
       if (posLine && chart) { chart.removePrimitive(posLine); posLine = null; }
@@ -338,7 +361,8 @@
       if (!position || !chart) return;
       posLine = chart.addPriceLine({
         price: position.avg, color: position.net > 0 ? '#2e7d6b' : '#a14a52', lineWidth: 2, dashed: false,
-        id: 'position', extentFromRight: 0.30, leftLabel: posLabel(), closeButton: true, // close = exit position
+        id: 'position', extentFromRight: 0.30, closeButton: true, // close = exit position
+        badge: position.net > 0 ? 'LONG' : 'SHORT', qty: Math.abs(position.net), leftLabel: posLabel(),
       }, 0);
     }
     // Exit the open position at market (square off to flat via placesmartorder position_size 0).
@@ -413,10 +437,16 @@
     // Per-chart interaction wiring (drag-to-modify on release, cancel/exit clicks).
     function wireChart() {
       chart.subscribeDrag(
-        (id, p) => { if (!id.startsWith('order:') || id.endsWith('::close')) return; const rec = orderLines.get(id.slice(6)); if (rec) rec.line.setPrice(round2v(p)); },
+        (id, p) => {
+          if (!id.startsWith('order:') || id.endsWith('::close')) return;
+          const rec = orderLines.get(id.slice(6)); if (!rec) return;
+          if (rec.dragFrom == null) { rec.dragFrom = rec.line.price; rec.line.setDragGhost(rec.dragFrom); } // dimmed pre-drag reference
+          rec.line.setPrice(round2v(p));
+        },
         (id, p) => {
           if (!id.startsWith('order:') || id.endsWith('::close')) return;
           const oid = id.slice(6), rec = orderLines.get(oid); if (!rec) return;
+          rec.line.setDragGhost(null); rec.dragFrom = null;
           const px = round2v(p), stop = rec.order.type === 'SL' || rec.order.type === 'SL-M';
           el('status').textContent = `modifying ${rec.order.side} ${rec.order.type} to ${fmt(px)} ...`;
           trade.modify(oid, stop ? { triggerPrice: px } : { price: px })
@@ -463,6 +493,24 @@
         else if (m.type === 'error') el('wsstate').textContent = 'WS error: ' + (m.message || 'unknown');
       });
       ws.connect();
+      // Event-driven order lines: broker/sandbox pushes fills, cancels and
+      // rejections instantly; the slow poll below stays as reconciliation.
+      ws.onOrderUpdate((e) => {
+        if (!lastReq || e.symbol !== lastReq.symbol || !chart) return;
+        const working = e.status === 'open' || e.status === 'trigger pending' || e.status === 'pending';
+        const rec = orderLines.get(e.orderId);
+        const o = { id: e.orderId, side: e.action, type: e.pricetype, qty: e.quantity, filledQty: e.filledQuantity,
+          price: e.price, triggerPrice: e.triggerPrice, status: working ? 'working' : e.status };
+        if (working) {
+          if (rec) { rec.order = o; rec.line.setPrice(e.triggerPrice ?? e.price); }
+          else orderLines.set(e.orderId, { line: makeOrderLine(o), order: o });
+        } else if (rec) { chart.removePrimitive(rec.line); orderLines.delete(e.orderId); }
+        el('status').textContent = `order ${e.orderId} ${e.status}` +
+          (e.status === 'complete' ? ` @ ${fmt(e.averagePrice || e.price)}` : '') +
+          (e.rejectionReason ? ' — ' + e.rejectionReason : '');
+        if (!working) pollBook(); // a fill/cancel changes the position book too
+      });
+      ws.subscribeOrders();
       liveAgg = /^\d+(m|h)$/i.test(interval); // aggregate ticks into candles for intraday only
       builder = new CandleBuilder({ intervalSec: intervalToSeconds(interval), volumeMode: 'ltq-sum' });
       tickN = 0;
@@ -492,13 +540,18 @@
 
       // ── chart trading: real OpenAlgo orders ──
       trade = new OpenAlgoTradeFeed({ baseUrl: '', apiKey, strategy: 'openalgo-charts', defaultProduct: el('product').value });
-      bookTimer = setInterval(pollBook, 3000);
+      bookTimer = setInterval(pollBook, 8000); // slow reconciliation; order updates stream via WS
       pollBook();
     }
 
     el('connect').addEventListener('click', connect);
     el('disconnect').addEventListener('click', () => { disconnect(); el('status').textContent = 'disconnected'; });
     el('fit').addEventListener('click', () => { if (chart) chart.resetScale(); });
+    el('snap').addEventListener('click', () => {
+      if (!chart) return;
+      const name = lastReq ? `${lastReq.symbol}-${lastReq.interval}-${new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')}.png` : 'chart.png';
+      chart.downloadScreenshot(name);
+    });
 
     // right-click the chart -> order menu at the cursor price (place via OpenAlgoTradeFeed)
     const ctxMenu = el('ctxmenu');

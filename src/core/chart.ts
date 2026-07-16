@@ -24,7 +24,7 @@ import { ShortcutManager } from '../input/shortcuts';
 import type { ShortcutManagerOptions } from '../input/shortcuts';
 import { TradingController } from './trading-controller';
 import { pinchState, pinchDelta, type PinchState } from '../input/touch';
-import type { IPrimitive, PrimitiveHost } from '../primitives/primitive';
+import type { IPrimitive, PrimitiveHost, PrimitiveHit } from '../primitives/primitive';
 import { PriceLine, type PriceLineOptions } from '../primitives/price-line';
 import { SeriesMarkers } from '../primitives/markers';
 import { EventMarkers } from '../primitives/event-markers';
@@ -188,6 +188,7 @@ export class Chart {
   private _downX = 0;
   private _downLocalY = 0;
   private _dragId: string | null = null; // externalId of the primitive being dragged
+  private _hoverId: string | null = null; // externalId of the primitive under the pointer
   private _dragCb: ((externalId: string, price: number) => void) | null = null;
   private _dragEndCb: ((externalId: string, price: number) => void) | null = null;
   // axis-drag rescale (price axis = vertical, time axis = horizontal)
@@ -400,7 +401,7 @@ export class Chart {
   // ── unified event bus ─────────────────────────────────────────────────────
   // One `on(name, cb)` surface for every chart event, complementing the typed
   // `subscribe*` helpers. Names emitted by the core: 'ready', 'crosshair:move',
-  // 'click', 'pan', 'zoom', 'resize', 'lazy-load'. The trade layer routes its
+  // 'click', 'hover', 'pan', 'zoom', 'resize', 'lazy-load'. The trade layer routes its
   // 'trading:*' events through here too, so `chart.on('trading:order_modify')`
   // and `chart.trading.on('order_modify')` are equivalent.
   private readonly _listeners = new Map<string, Set<(payload: unknown) => void>>();
@@ -726,6 +727,8 @@ export class Chart {
       showHorzGrid: this._gridHorz,
       timeFormatter: this._timeFormatter,
       leftAxisWidth: this._leftAxisWidth,
+      hoverId: this._hoverId,
+      dragId: this._dragId,
     };
   }
 
@@ -801,6 +804,10 @@ export class Chart {
   }
 
   private readonly _onPointerDown = (e: PointerEvent): void => {
+    // Only the primary button starts a pan / line-drag. A right-click (context
+    // menu) also fires pointerdown, and its pointerup is often swallowed by the
+    // menu — arming the drag state then makes the chart pan with no button held.
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
     this._stopKinetic();
     const p = this._localPoint(e);
     this._pointers.set(e.pointerId, { x: p.x, y: p.y, pane: p.pane });
@@ -836,6 +843,12 @@ export class Chart {
     const hit = this._panes[p.pane]?.hitTestPrimitives(p.x - this._leftAxisWidth, p.localY, this._renderContext(p.pane === this._panes.length - 1));
     if (hit && hit.cursor === 'ns-resize' && this._dragCb !== null) {
       this._dragId = hit.externalId;
+      this._setHover(hit); // active state + cursor even when no hover preceded (touch)
+      // Hide the crosshair while dragging a line — a frozen crosshair at the
+      // grab point reads as a phantom second line (the axis tag tracks price).
+      this._cursor = null;
+      this._cursorPane = null;
+      this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Cursor));
       this._dragging = false;
       this._pointerMoved = false;
       return;
@@ -853,6 +866,12 @@ export class Chart {
   };
 
   private readonly _onPointerMove = (e: PointerEvent): void => {
+    // Safety: if the primary button is no longer held (missed pointerup — e.g.
+    // released over a context menu or outside the window), end any drag now.
+    if (e.pointerType === 'mouse' && (e.buttons & 1) === 0 && (this._dragging || this._dragId !== null || this._axisDrag !== null)) {
+      this._onPointerUp(e);
+      return;
+    }
     const p = this._localPoint(e);
     if (this._pointers.has(e.pointerId)) this._pointers.set(e.pointerId, { x: p.x, y: p.y, pane: p.pane });
     if (this._pinch !== null) { this._updatePinch(); return; }
@@ -918,6 +937,13 @@ export class Chart {
       const price = this._panes[this._downPane].priceScale.yToPrice(p.localY);
       this._dragEndCb?.(this._dragId, price);
       this._dragId = null;
+      // Re-evaluate hover at the release point (mouse keeps hovering the line;
+      // touch has no pointer any more) and drop the dragging visual state.
+      const hit = e.pointerType === 'touch'
+        ? null
+        : this._panes[p.pane]?.hitTestPrimitives(p.x - this._leftAxisWidth, p.localY, this._renderContext(p.pane === this._panes.length - 1)) ?? null;
+      this._setHover(hit);
+      this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Light));
       return;
     }
     this._dragging = false;
@@ -935,6 +961,7 @@ export class Chart {
 
   private readonly _onPointerLeave = (): void => {
     this._pointerInside = false;
+    if (this._dragId === null) this._setHover(null); // keep the active state while dragging
     if (this._cursor !== null) {
       this._cursor = null;
       this._cursorPane = null;
@@ -1030,7 +1057,7 @@ export class Chart {
       case 'zoomOut': ts.zoomAtX(this._width / 2, 1 / 1.1); return true;
       case 'resetScale': this.resetScale(); return true;
       case 'fitContent': if (this._dataLayer.length > 0) ts.fitContent(this._dataLayer.length); return true;
-      case 'screenshot': this._downloadScreenshot(); return true;
+      case 'screenshot': this.downloadScreenshot(); return true;
       case 'toggleGridVert': this.setGridOptions({ vertLines: !this._gridVert }); return true;
       case 'toggleGridHorz': this.setGridOptions({ horzLines: !this._gridHorz }); return true;
       case 'toggleCrosshairMagnet': this._crosshairMode = this._crosshairMode === 'magnet' ? 'normal' : 'magnet'; return true;
@@ -1038,12 +1065,18 @@ export class Chart {
     }
   }
 
-  private _downloadScreenshot(): void {
+  /**
+   * Composite the full chart (all panes + overlays) and trigger a PNG download.
+   * This is what the screenshot keyboard shortcut runs; call it from a toolbar
+   * button for a reliable "save image" — the browser's native right-click
+   * "Save image as…" captures only the topmost (transparent overlay) canvas.
+   */
+  public downloadScreenshot(filename = 'chart.png'): void {
     try {
       const canvas = this.takeScreenshot();
       const a = this._doc.createElement('a');
       a.href = canvas.toDataURL('image/png');
-      a.download = 'chart.png';
+      a.download = filename;
       a.click();
     } catch { /* ignore (tainted canvas / no DOM) */ }
   }
@@ -1060,6 +1093,21 @@ export class Chart {
     this._liveRegion.textContent = `Financial chart, ${txt}`;
   }
 
+  /**
+   * Track the primitive under the pointer: apply its cursor hint to the
+   * container and repaint on hover enter/leave so lines/pills can render
+   * hover states (they read `hoverId` off the render context).
+   */
+  private _setHover(hit: PrimitiveHit | null): void {
+    const id = hit?.externalId ?? null;
+    this._container.style.cursor = hit?.cursor ?? '';
+    if (id === this._hoverId) return;
+    this._hoverId = id;
+    // hover-styled primitives draw on the base canvas → light repaint, no rescale
+    this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Light));
+    this.emit('hover', { id });
+  }
+
   private _updateCursor(paneIndex: number, x: number, localY: number, containerY = localY): void {
     // Plot spans [leftAxisWidth, width - priceAxisWidth]; work in plot-relative x.
     const rightEdge = this._width - this._priceAxisWidth;
@@ -1070,6 +1118,7 @@ export class Chart {
       return;
     }
     const pane = this._panes[paneIndex];
+    this._setHover(pane.hitTestPrimitives(plotX, localY, this._renderContext(paneIndex === this._panes.length - 1)) ?? null);
     let y = localY;
     const index = Math.round(this._timeScale.xToIndex(plotX));
     let hoveredBar: Bar | null = null;
@@ -1166,6 +1215,7 @@ export class Chart {
     }
     this._liveRegion?.remove();
     this._liveRegion = null;
+    this._container.style.cursor = ''; // drop any hover cursor hint we applied
     this._pointers.clear();
     for (const pane of this._panes) pane.destroy(); // detaches primitives + removes element
     this._panes.length = 0;

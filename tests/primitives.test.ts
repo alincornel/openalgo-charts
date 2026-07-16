@@ -75,14 +75,16 @@ describe('PriceLine primitive', () => {
     new PriceLine({ price: 50, color: '#fff', lineWidth: 1, dashed: false, id: 'b', extentFromRight: 0.3, leftLabel: 'BUY 100 LIMIT' })
       .draw(partial.ctx, rc);
     expect(partial.rec.ops.find((o) => o.type === 'moveTo')!.args[0]).toBe(420); // 600 * (1 - 0.3)
-    expect(partial.rec.count('fillRect')).toBe(2); // right price tag + left order tag
+    expect(partial.rec.count('fillRect')).toBe(1); // right price tag
+    expect(partial.rec.count('roundRect')).toBe(2); // group backplate + label segment
   });
 
-  it('closeButton hit-tests as a click at the right end; the rest of the line drags', () => {
+  it('closeButton hit-tests as a click on the ✕ segment; the rest of the line drags', () => {
     const { rc } = makeRc(); // plotWidth 600
     const pl = new PriceLine({ price: 50, color: '#fff', lineWidth: 1, dashed: false, id: 'order:7', cursor: 'ns-resize', closeButton: true });
+    pl.draw(makeCtx().ctx, rc); // draw records the pill-group geometry
     const yAt50 = rc.priceScale.priceToY(50);
-    const close = pl.hitTest(596, yAt50, rc); // within the right-end cancel box
+    const close = pl.hitTest(16, yAt50, rc); // inside the ✕ segment (group starts at x=6, ✕ is 20 wide)
     expect(close!.externalId).toBe('order:7::close');
     expect(close!.cursor).toBe('pointer'); // click, not drag
     const drag = pl.hitTest(120, yAt50, rc); // elsewhere on the line

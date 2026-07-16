@@ -1,19 +1,28 @@
 /**
- * Position marker (ARCHITECTURE.md §9.1). A line at the average entry price with
- * a live unrealized-P&L tag (₹ and %), colored by P&L sign, plus a breakeven
- * reference. Updates cheaply on every LTP tick (overlay-only repaint).
+ * Position marker (ARCHITECTURE.md §9.1). A line at the average entry price
+ * with a broker-style segmented pill group — [LONG|SHORT][qty][P&L (pct)][✕] —
+ * a compact avg-price tag on the axis, and a shaded entry→LTP band colored by
+ * P&L sign. Updates cheaply on every LTP tick. The ✕ hit-tests as
+ * `position:<symbol>::close` (wire it to your square-off flow).
  */
 import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, PrimitiveHit, ZOrder } from '../primitives/primitive';
 import type { Position } from './types';
 import { unrealizedPnl, unrealizedPnlPercent } from './pnl';
+import { withAlpha, shade, contrastText, drawPillGroup } from '../render/pill';
+
+const TAG_H = 18;
+const GAP = 2;
 
 export class PositionMarker implements IPrimitive {
   private _position: Position;
   private _ltp = NaN;
   private _host: PrimitiveHost | null = null;
+  private _group: { x0: number; x1: number; closeX0: number } | null = null;
+  private readonly _extent: number;
 
-  public constructor(position: Position) {
+  public constructor(position: Position, options: { extentFromRight?: number } = {}) {
     this._position = position;
+    this._extent = Math.max(0.1, Math.min(1, options.extentFromRight ?? 0.5));
   }
 
   public attached(host: PrimitiveHost): void { this._host = host; }
@@ -37,42 +46,75 @@ export class PositionMarker implements IPrimitive {
   }
 
   public draw(ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext): void {
+    this._group = null;
     if (this._position.netQty === 0) return;
-    const entryY = Math.round(rc.priceScale.priceToY(this._position.avgPrice) * rc.dpr) + 0.5;
-    const xEnd = Math.round(rc.plotWidth * rc.dpr);
+    const dpr = rc.dpr;
+    const entryY = Math.round(rc.priceScale.priceToY(this._position.avgPrice) * dpr) + 0.5;
+    if (entryY < 0 || entryY > rc.plotHeight * dpr) return;
+    const xEnd = Math.round(rc.plotWidth * dpr);
     const pnl = Number.isNaN(this._ltp) ? 0 : unrealizedPnl(this._position, this._ltp);
-    const color = pnl >= 0 ? rc.theme.profit : rc.theme.loss;
+    const pnlColor = pnl >= 0 ? rc.theme.profit : rc.theme.loss;
+    const long = this._position.netQty > 0;
+    const sideColor = long ? rc.theme.buy : rc.theme.sell;
+    const id = `position:${this._position.symbol}`;
+    const active = rc.hoverId === id || rc.hoverId === `${id}::close`;
+
+    const xStart = Math.round(rc.plotWidth * (1 - this._extent) * dpr);
 
     ctx.save();
-    // entry line (solid)
-    ctx.strokeStyle = rc.theme.axisText;
-    ctx.lineWidth = Math.max(1, Math.round(rc.dpr));
+    // entry line (solid, side-colored on hover)
+    ctx.strokeStyle = active ? sideColor : rc.theme.axisText;
+    ctx.lineWidth = Math.max(1, Math.round(dpr)) + (active ? Math.round(dpr) : 0);
     ctx.beginPath();
-    ctx.moveTo(0, entryY);
+    ctx.moveTo(xStart, entryY);
     ctx.lineTo(xEnd, entryY);
     ctx.stroke();
 
-    // shaded band from entry to LTP, colored by P&L
+    // shaded band from entry to LTP, colored by P&L sign (theme-derived)
     if (!Number.isNaN(this._ltp)) {
-      const ltpY = Math.round(rc.priceScale.priceToY(this._ltp) * rc.dpr);
-      ctx.fillStyle = pnl >= 0 ? 'rgba(38,166,154,0.12)' : 'rgba(239,83,80,0.12)';
-      ctx.fillRect(0, Math.min(entryY, ltpY), xEnd, Math.abs(ltpY - entryY));
+      const ltpY = Math.round(rc.priceScale.priceToY(this._ltp) * dpr);
+      ctx.fillStyle = withAlpha(pnlColor, 0.1);
+      ctx.fillRect(xStart, Math.min(entryY, ltpY), xEnd - xStart, Math.abs(ltpY - entryY));
     }
 
-    // P&L tag on the right axis
-    const dir = this._position.netQty > 0 ? 'LONG' : 'SHORT';
-    const pct = Number.isNaN(this._ltp) ? 0 : unrealizedPnlPercent(this._position, this._ltp);
-    const label = `${dir} ${Math.abs(this._position.netQty)} | ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)`;
-    ctx.font = `${11 * rc.dpr}px system-ui, sans-serif`;
-    const padX = 6 * rc.dpr;
-    const boxH = 16 * rc.dpr;
-    const textW = ctx.measureText(label).width;
-    ctx.fillStyle = color;
-    ctx.fillRect(xEnd + 1, entryY - boxH / 2, textW + padX * 2, boxH);
-    ctx.fillStyle = rc.theme.lastPriceText;
-    ctx.textAlign = 'left';
+    ctx.font = `500 ${11 * dpr}px system-ui, sans-serif`;
     ctx.textBaseline = 'middle';
-    ctx.fillText(label, xEnd + 1 + padX, entryY);
+    ctx.textAlign = 'left';
+    const boxH = TAG_H * dpr;
+    const padX = 6 * dpr;
+    const r = 3 * dpr;
+
+    // compact right-axis tag: avg entry price, colored by P&L sign
+    const px = rc.priceScale.format(this._position.avgPrice);
+    ctx.fillStyle = pnlColor;
+    ctx.fillRect(xEnd + 1, entryY - boxH / 2, ctx.measureText(px).width + padX * 2, boxH);
+    ctx.fillStyle = contrastText(pnlColor);
+    ctx.fillText(px, xEnd + 1 + padX, entryY);
+
+    // segmented pill group: [LONG|SHORT][qty][±pnl (±pct)][✕]
+    const surface = rc.theme.background === 'transparent' ? withAlpha(sideColor, 0.14) : rc.theme.background;
+    const surfaceText = rc.theme.background === 'transparent' ? rc.theme.axisText : contrastText(rc.theme.background);
+    const border = withAlpha(rc.theme.axisText, active ? 0.75 : 0.5);
+    const closeHovered = rc.hoverId === `${id}::close`;
+    const pct = Number.isNaN(this._ltp) ? 0 : unrealizedPnlPercent(this._position, this._ltp);
+    const dir = long ? 'LONG' : 'SHORT';
+    const qtyText = String(Math.abs(this._position.netQty));
+    const pnlText = `${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)`;
+
+    this._group = drawPillGroup(ctx, xStart, entryY, [
+      { text: dir, fill: active ? shade(sideColor, 0.12) : sideColor, textColor: contrastText(sideColor), border: shade(sideColor, -0.25) },
+      { text: qtyText, fill: surface, textColor: surfaceText, border },
+      { text: pnlText, fill: surface, textColor: pnlColor, border: withAlpha(pnlColor, 0.65) },
+      {
+        close: true,
+        fill: closeHovered ? sideColor : surface,
+        textColor: closeHovered ? contrastText(sideColor) : surfaceText,
+        border: closeHovered ? sideColor : border,
+      },
+    ], {
+      height: boxH, padX, radius: r, gap: GAP * dpr,
+      backplate: rc.theme.background === 'transparent' ? undefined : rc.theme.background, dpr,
+    });
     ctx.restore();
   }
 
@@ -80,7 +122,14 @@ export class PositionMarker implements IPrimitive {
     if (this._position.netQty === 0 || x < 0 || x > rc.plotWidth) return null;
     const lineY = rc.priceScale.priceToY(this._position.avgPrice);
     const distance = Math.abs(y - lineY);
-    if (distance > 4) return null;
-    return { externalId: `position:${this._position.symbol}`, zOrder: 'normal', distance, cursor: 'pointer' };
+    const id = `position:${this._position.symbol}`;
+    const g = this._group;
+    if (g !== null && distance <= TAG_H / 2 + 1 && x >= g.x0 && x <= g.x1) {
+      if (x >= g.closeX0) return { externalId: `${id}::close`, zOrder: 'normal', distance, cursor: 'pointer' };
+      return { externalId: id, zOrder: 'normal', distance, cursor: 'pointer' };
+    }
+    // line-proximity hits only along the visible (partial) span
+    if (distance > 4 || x < rc.plotWidth * (1 - this._extent) - 8) return null;
+    return { externalId: id, zOrder: 'normal', distance, cursor: 'pointer' };
   }
 }

@@ -12,6 +12,7 @@
  */
 import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, PrimitiveHit, ZOrder } from '../primitives/primitive';
 import type { MarketDepth } from '../feed/types';
+import { contrastText, withAlpha, parseColor } from '../render/pill';
 
 export type LadderTier = 'none' | 'compact' | 'deep';
 
@@ -132,30 +133,51 @@ export class DomLadder implements IPrimitive {
     let maxQty = 1;
     for (const r of rows) maxQty = Math.max(maxQty, r.bidQty, r.askQty);
 
+    // theme-derived palette: heat from buy/sell, legible qty text on any theme
+    const bid = parseColor(rc.theme.buy) ?? { r: 38, g: 166, b: 154, a: 1 };
+    const ask = parseColor(rc.theme.sell) ?? { r: 239, g: 83, b: 80, a: 1 };
+    const qtyText = withAlpha(contrastText(rc.theme.background === 'transparent' ? '#808080' : rc.theme.background), 0.9);
+
     ctx.save();
+    // subtle inner edge so the ladder strip reads as a docked panel
+    ctx.strokeStyle = withAlpha(rc.theme.axisLine, 0.6);
+    ctx.lineWidth = Math.max(1, Math.round(dpr));
+    ctx.beginPath();
+    ctx.moveTo(Math.round(x0) + 0.5, 0);
+    ctx.lineTo(Math.round(x0) + 0.5, Math.round(rc.plotHeight * dpr));
+    ctx.stroke();
+
     ctx.font = `${9 * dpr}px system-ui, sans-serif`;
     ctx.textBaseline = 'middle';
     for (const r of rows) {
       const yc = rc.priceScale.priceToY(r.price) * dpr;
+      const bidHover = rc.hoverId === `ladder-bid:${r.price}`;
+      const askHover = rc.hoverId === `ladder-ask:${r.price}`;
       // bid heatmap + bar (left of mid)
       if (r.bidQty > 0) {
-        ctx.fillStyle = `rgba(38,166,154,${0.15 + 0.5 * (r.bidQty / maxQty)})`;
+        ctx.fillStyle = `rgba(${bid.r},${bid.g},${bid.b},${0.15 + 0.5 * (r.bidQty / maxQty) + (bidHover ? 0.15 : 0)})`;
         const w = (stripW / 2) * (r.bidQty / maxQty);
         ctx.fillRect(mid - w, yc - rowH / 2, w, rowH - 1);
-        ctx.fillStyle = '#bfeee8';
+        ctx.fillStyle = qtyText;
         ctx.textAlign = 'left';
         ctx.fillText(String(r.bidQty), x0 + 2 * dpr, yc);
         this._rowHits.push({ price: r.price, y: rc.priceScale.priceToY(r.price), side: 'bid' });
       }
       // ask heatmap + bar (right of mid)
       if (r.askQty > 0) {
-        ctx.fillStyle = `rgba(239,83,80,${0.15 + 0.5 * (r.askQty / maxQty)})`;
+        ctx.fillStyle = `rgba(${ask.r},${ask.g},${ask.b},${0.15 + 0.5 * (r.askQty / maxQty) + (askHover ? 0.15 : 0)})`;
         const w = (stripW / 2) * (r.askQty / maxQty);
         ctx.fillRect(mid, yc - rowH / 2, w, rowH - 1);
-        ctx.fillStyle = '#f6c9c8';
+        ctx.fillStyle = qtyText;
         ctx.textAlign = 'right';
         ctx.fillText(String(r.askQty), x0 + stripW - 2 * dpr, yc);
         this._rowHits.push({ price: r.price, y: rc.priceScale.priceToY(r.price), side: 'ask' });
+      }
+      // hovered row: outline the clickable half (place-order affordance)
+      if (bidHover || askHover) {
+        ctx.strokeStyle = bidHover ? withAlpha(rc.theme.buy, 0.9) : withAlpha(rc.theme.sell, 0.9);
+        ctx.lineWidth = Math.max(1, Math.round(dpr));
+        ctx.strokeRect(bidHover ? x0 + 0.5 : mid + 0.5, yc - rowH / 2 + 0.5, stripW / 2 - 1, rowH - 2);
       }
     }
     ctx.restore();

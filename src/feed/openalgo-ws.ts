@@ -72,6 +72,73 @@ export function formatAuthenticate(apiKey: string): string {
   return JSON.stringify({ action: 'authenticate', api_key: apiKey });
 }
 
+/** Pure: subscribe to the account-level order-update stream (no symbols/modes). */
+export function formatSubscribeOrders(): string {
+  return JSON.stringify({ action: 'subscribe_orders' });
+}
+
+export function formatUnsubscribeOrders(): string {
+  return JSON.stringify({ action: 'unsubscribe_orders' });
+}
+
+/**
+ * Real-time order lifecycle event from the `subscribe_orders` stream — fills,
+ * partial fills, rejections, cancellations, pushed by the broker (or by the
+ * sandbox engine in analyze mode).
+ */
+export interface OrderUpdateEvent {
+  orderId: string;
+  symbol: string;
+  exchange: string;
+  action: 'BUY' | 'SELL';
+  quantity: number;
+  price: number;
+  /** Undefined when the broker reports 0 (plain LIMIT/MARKET). */
+  triggerPrice?: number;
+  pricetype: string;
+  product: string;
+  /** Lowercase OpenAlgo status: open | trigger pending | complete | rejected | cancelled | ... */
+  status: string;
+  filledQuantity: number;
+  pendingQuantity: number;
+  averagePrice: number;
+  /** Broker RMS/OMS text when rejected. */
+  rejectionReason: string;
+  /** 'live' for broker events, 'analyze' for sandbox events. */
+  mode: string;
+}
+
+/** Pure: parse an inbound `order_update` frame; null for any other message. */
+export function parseOrderUpdate(raw: unknown): OrderUpdateEvent | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const m = raw as Record<string, unknown>;
+  if (m.type !== 'order_update') return null;
+  const num = (v: unknown): number => {
+    if (typeof v === 'number') return v;
+    if (typeof v === 'string' && v.trim() !== '') { const n = Number(v); return Number.isNaN(n) ? 0 : n; }
+    return 0;
+  };
+  const str = (v: unknown): string => (typeof v === 'string' ? v : '');
+  const trig = num(m.trigger_price);
+  return {
+    orderId: str(m.orderid),
+    symbol: str(m.symbol),
+    exchange: str(m.exchange),
+    action: m.action === 'SELL' ? 'SELL' : 'BUY',
+    quantity: num(m.quantity),
+    price: num(m.price),
+    triggerPrice: trig > 0 ? trig : undefined,
+    pricetype: str(m.pricetype) === '' ? 'LIMIT' : str(m.pricetype),
+    product: str(m.product),
+    status: str(m.order_status).toLowerCase(),
+    filledQuantity: num(m.filled_quantity),
+    pendingQuantity: num(m.pending_quantity),
+    averagePrice: num(m.average_price),
+    rejectionReason: str(m.rejection_reason),
+    mode: str(m.mode),
+  };
+}
+
 /**
  * Pure: build a subscribe message — `{ action, symbol, exchange, mode }`, where
  * `mode` is the numeric OpenAlgo data mode. Depth subscriptions may request a
@@ -156,6 +223,8 @@ export class OpenAlgoWsFeed {
   private readonly _depthCbs = new Set<(symbol: string, exchange: string, depth: MarketDepth) => void>();
   private readonly _stateCbs = new Set<(state: WsState) => void>();
   private readonly _controlCbs = new Set<(msg: WsControlMessage) => void>();
+  private readonly _orderCbs = new Set<(e: OrderUpdateEvent) => void>();
+  private _ordersSubscribed = false;
   // Active subscriptions, replayed on reconnect. Keyed by mode:symbol:exchange.
   private readonly _subs = new Map<string, { mode: WsMode; symbol: string; exchange: string; depthLevel?: number }>();
   private _userClosed = false;
@@ -218,6 +287,7 @@ export class OpenAlgoWsFeed {
     if (this._resubscribeOnOpen) {
       this._resubscribeOnOpen = false;
       for (const s of this._subs.values()) this._sock?.send(formatSubscribe(s.mode, s.symbol, s.exchange, s.depthLevel));
+      if (this._ordersSubscribed) this._sock?.send(formatSubscribeOrders());
     }
   }
 
@@ -237,7 +307,7 @@ export class OpenAlgoWsFeed {
       this._reconnectTimer = null;
       this._sock = null;
       this._open = false;
-      this._resubscribeOnOpen = this._subs.size > 0;
+      this._resubscribeOnOpen = this._subs.size > 0 || this._ordersSubscribed;
       this.connect();
     }, delay);
   }
@@ -274,6 +344,22 @@ export class OpenAlgoWsFeed {
     this._send(formatUnsubscribe(mode, symbol, exchange));
   }
 
+  /** Subscribe to real-time order updates (fills / cancels / rejections). Account-level; replayed on reconnect. */
+  public onOrderUpdate(cb: (e: OrderUpdateEvent) => void): () => void {
+    this._orderCbs.add(cb);
+    return () => this._orderCbs.delete(cb);
+  }
+
+  public subscribeOrders(): void {
+    this._ordersSubscribed = true;
+    this._send(formatSubscribeOrders());
+  }
+
+  public unsubscribeOrders(): void {
+    this._ordersSubscribed = false;
+    this._send(formatUnsubscribeOrders());
+  }
+
   public close(): void {
     this._userClosed = true; // intentional: never auto-reconnect after this
     if (this._reconnectTimer !== null) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
@@ -287,6 +373,11 @@ export class OpenAlgoWsFeed {
     let raw: unknown;
     try { raw = JSON.parse(data); } catch { raw = data; } // heartbeats may be plain text
     if (isPing(raw)) { this._sock?.send(JSON.stringify({ action: 'pong' })); return; }
+    const orderUpdate = parseOrderUpdate(raw);
+    if (orderUpdate !== null) {
+      for (const cb of this._orderCbs) cb(orderUpdate);
+      return;
+    }
     const parsed = parseMessage(raw);
     if (parsed === null) {
       // Non-market-data frame (auth / subscribe ack, or a server error) → surface it.

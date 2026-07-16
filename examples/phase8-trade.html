@@ -14,7 +14,7 @@
 <body>
   <div class="bar">
     <strong>Phase 8</strong>
-    <span>order lines · position marker w/ live P&amp;L · SL/TP bracket — reconciled from a simulated broker book (read-only)</span>
+    <span>order lines · position marker w/ live P&amp;L · SL/TP bracket — reconciled from a simulated broker book (✕ cancels in the sim)</span>
     <span id="log" style="margin-left:auto;opacity:.7"></span>
   </div>
   <div id="chart"></div>
@@ -35,14 +35,26 @@
     broker.onLtp((s, ltp) => tc.onLtp(s, ltp));
 
     // Simulated book: a long position with an SL/TP bracket + one resting limit order.
-    broker.setBook(
-      [
-        { id: 'sl1', symbol: 'SIM', side: 'SELL', type: 'SL-M', qty: 10, filledQty: 0, price: 0, triggerPrice: last * 0.97, status: 'working', role: 'sl' },
-        { id: 'tp1', symbol: 'SIM', side: 'SELL', type: 'LIMIT', qty: 10, filledQty: 0, price: last * 1.05, status: 'working', role: 'tp' },
-        { id: 'lim1', symbol: 'SIM', side: 'BUY', type: 'LIMIT', qty: 5, filledQty: 0, price: last * 0.985, status: 'working' },
-      ],
-      [{ symbol: 'SIM', netQty: 10, avgPrice: last }],
-    );
+    let orders = [
+      { id: 'sl1', symbol: 'SIM', side: 'SELL', type: 'SL-M', qty: 10, filledQty: 0, price: 0, triggerPrice: last * 0.97, status: 'working', role: 'sl' },
+      { id: 'tp1', symbol: 'SIM', side: 'SELL', type: 'LIMIT', qty: 10, filledQty: 0, price: last * 1.05, status: 'working', role: 'tp' },
+      { id: 'lim1', symbol: 'SIM', side: 'BUY', type: 'LIMIT', qty: 5, filledQty: 0, price: last * 0.985, status: 'working' },
+    ];
+    let positions = [{ symbol: 'SIM', netQty: 10, avgPrice: last }];
+    broker.setBook(orders, positions);
+
+    // The ✕ segments route as clicks: cancel the order / flatten the position in the sim.
+    chart.subscribeClick((id) => {
+      if (!id.endsWith('::close')) return;
+      const base = id.slice(0, -'::close'.length);
+      if (base.startsWith('order:')) {
+        orders = orders.filter((o) => o.id !== base.slice(6));
+      } else if (base.startsWith('position:')) {
+        positions = [];
+        orders = orders.filter((o) => !o.role); // brackets die with the position
+      }
+      broker.setBook(orders, positions);
+    });
 
     // Live P&L: drift the LTP around the entry.
     let ltp = last, t = 0;

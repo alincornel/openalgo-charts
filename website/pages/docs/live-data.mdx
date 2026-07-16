@@ -52,6 +52,32 @@ ws.subscribe('LTP', 'RELIANCE', 'NSE');
 The WS adapter speaks the documented OpenAlgo protocol (authenticate → numeric-mode subscribe
 → `market_data`), with connection and control callbacks (`onState` / `onControl`).
 
+## Real-time order updates
+
+OpenAlgo also streams **order lifecycle events** — fills, partial fills,
+rejections, cancellations — over the same socket (`subscribe_orders`). This is
+an account-level stream (no symbols/modes), pushed by the broker in live mode
+or by the sandbox engine in analyze mode. Use it to update on-chart order lines
+instantly instead of polling the order book:
+
+```ts
+ws.onOrderUpdate((e) => {
+  // e: { orderId, symbol, action, quantity, price, triggerPrice?, pricetype,
+  //      status, filledQuantity, averagePrice, rejectionReason, mode, ... }
+  const working = e.status === 'open' || e.status === 'trigger pending' || e.status === 'pending';
+  if (working) upsertOrderLine(e);
+  else removeOrderLine(e.orderId);        // complete / cancelled / rejected
+});
+ws.subscribeOrders();                     // replayed automatically on reconnect
+// ws.unsubscribeOrders() to stop
+```
+
+`status` is OpenAlgo's lowercase order vocabulary (`open`, `trigger pending`,
+`complete`, `rejected`, `cancelled`, …); `mapOrderStatus` (exported from the
+base package) converts it to the chart's `Order['status']`. Keep a slow
+order-book poll as reconciliation — brokers can deliver the same transition
+twice (dedupe on `orderId` + `status` + `filledQuantity`).
+
 After an unexpected close it **auto-reconnects** with exponential backoff, then
 re-authenticates and replays every active subscription. `close()` is treated as
 intentional and never reconnects. `onState` reports a `'reconnecting'` phase in

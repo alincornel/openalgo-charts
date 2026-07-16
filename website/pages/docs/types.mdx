@@ -455,6 +455,8 @@ interface PriceLineOptions {
   lineWidth: number;
   dashed: boolean;
   label?: string;
+  badge?: string;
+  qty?: string | number;
   leftLabel?: string;
   extentFromRight?: number;
   closeButton?: boolean;
@@ -463,7 +465,7 @@ interface PriceLineOptions {
 }
 ```
 
-Options for `chart.addPriceLine(opts, paneIndex)`. `id` is the `externalId` returned by hit-tests and routed to click/drag callbacks. `extentFromRight` (0..1) controls how far the line spans from the right axis (`1` = full width, the default). `closeButton` adds a cancel box at the right end that hit-tests as `${id}::close`. `leftLabel` draws a broker-style order tag at the left end of the line.
+Options for `chart.addPriceLine(opts, paneIndex)`. `id` is the `externalId` returned by hit-tests and routed to click/drag callbacks. `extentFromRight` (0..1) controls how far the line spans from the right axis (`1` = full width, the default). `badge`, `qty`, `leftLabel`, and `closeButton` compose the broker-style segmented pill group at the left end of the line — `[badge][qty][leftLabel][✕]` — where `badge` is a solid segment in the line color (e.g. `BUY`, `SL`), `qty` and `leftLabel` are neutral boxed segments, and the `✕` segment hit-tests as `${id}::close`. `PriceLine.setDragGhost(price | null)` shows a dimmed reference line at the pre-drag price while dragging.
 
 ### `SeriesMarker`
 

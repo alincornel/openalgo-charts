@@ -2,6 +2,83 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.0.4
+
+Trading-UI beautification: the order-placement surfaces (order / position /
+bracket lines, DOM ladder) get a modern, theme-aware visual pass plus real
+interaction feedback, and order lines go event-driven via OpenAlgo's
+`subscribe_orders` WebSocket stream. 334 unit tests; base engine ~26.4 KB
+Brotli (size limits raised to 27 / 33.5 KB for the visual-state rendering and
+the order-update stream).
+
+### Added
+- Hover + dragging visual states for interactive price lines: hovering a
+  draggable order line thickens it and brightens its pill, the cancel button
+  fills solid on hover, and a dragged line gets a soft emphasis halo. The chart
+  now applies primitive cursor hints (`ns-resize` over draggable lines,
+  `pointer` over cancel/close/ladder rows) to the container and emits a new
+  `hover` event (`chart.on('hover', ({ id }) => ...)`) on primitive enter/leave.
+- Drag ghost: `PriceLine.setDragGhost(price | null)` draws a dimmed reference
+  line at the pre-drag price while modifying an order. `chart.trading` wires it
+  automatically; the live example wires it for the raw drag path.
+- Broker-style segmented pill groups on order/position lines —
+  `[badge][qty][label][✕]`: a solid colored badge (`BUY` / `SELL` / `TP` /
+  `SL` / `LONG` / `SHORT`), boxed qty and info segments, and an integrated
+  cancel `✕` (still routes as `<id>::close`). New `PriceLineOptions.badge` and
+  `qty` fields; text auto-contrasts against fills (`contrastText`), so every
+  theme stays legible.
+- `WorkingOrderLine` shows fill progress (`3/10`) once partially filled, dims
+  pending (un-acked) orders until the broker confirms, and gains a ✕ segment
+  (`order:<id>::close`) plus a compact price-only axis tag.
+- `PositionMarker` renders the segmented group with live P&L (₹ and %) colored
+  by sign, a ✕ segment (`position:<symbol>::close`), and highlights on hover.
+- `BracketGroup` chips now include prices (`SL 2,850.00`, `TP 3,000.00`), the
+  R:R chip is theme-aware, risk/reward zones derive from `theme.loss`/`profit`,
+  and SL/TP lines thicken on hover/drag.
+- `DomLadder` is fully theme-aware (heat colors from `theme.buy`/`sell`, qty
+  text auto-contrasts with the background), gains a docked-edge separator and a
+  hovered-row outline as a click-to-trade affordance.
+- New shared render helpers (`src/render/pill.ts`): `parseColor`, `luminance`,
+  `contrastText`, `withAlpha`, `shade`, `roundRectPath`, `drawPill`, `drawGrip`.
+
+- Real-time order updates: `OpenAlgoWsFeed.subscribeOrders()` /
+  `onOrderUpdate(cb)` speak OpenAlgo's account-level `subscribe_orders` stream
+  (fills, partial fills, rejections, cancellations — live broker or analyze
+  sandbox), with automatic replay on reconnect. New pure helpers
+  `formatSubscribeOrders`, `formatUnsubscribeOrders`, `parseOrderUpdate`, and
+  `mapOrderStatus`. The live example updates order lines from this stream and
+  keeps a slow poll only for reconciliation.
+- `chart.downloadScreenshot(filename?)` — public PNG export of the full
+  composited chart (all panes + overlays); the screenshot shortcut now routes
+  through it. The browser's native right-click "Save image as…" only captures
+  the transparent overlay layer.
+
+### Fixed
+- Right-click no longer arms the pan state: a context-menu click used to leave
+  the chart "sticky-dragging" (its `pointerup` is swallowed by the menu). Only
+  the primary button starts a pan / line-drag, and a missed `pointerup` is now
+  recovered on the next move.
+- Live example: Renko / Range / Line Break / Kagi / P&F no longer render with
+  time gaps between elements — the volume pane is re-bucketed onto the
+  transformed element times instead of re-adding every raw timestamp to the
+  shared axis (documented in Transforms).
+- `OpenAlgoTradeFeed` errors now include OpenAlgo's own message (e.g. "MIS
+  orders cannot be placed after square-off time…") instead of a bare HTTP
+  status code.
+- The crosshair is hidden while dragging an order line — the frozen crosshair
+  at the grab point used to read as a phantom second line.
+- The series last-price line no longer strikes through order/position pill
+  groups (it now draws beneath trading primitives).
+- WS `trigger pending` (with a space) order status now maps to `working`.
+
+### Changed
+- `PrimitiveRenderContext` gains optional `hoverId` / `dragId` fields (custom
+  primitives can render their own hover/active states).
+- Trade-fill bubble/count markers use auto-contrast text instead of fixed white.
+- Trade-tier `WorkingOrderLine` / `PositionMarker` default to a half-width line
+  (`extentFromRight` constructor option), matching the partial-width order
+  lines of the parity API.
+
 ## 1.0.3
 
 Cosmetic parity to close the last visual gaps for a lightweight-charts migration.

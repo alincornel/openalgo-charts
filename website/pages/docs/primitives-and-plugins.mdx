@@ -103,22 +103,23 @@ import { PriceLine } from 'openalgo-charts';
 const sl = new PriceLine({
   id: 'stop-loss', price: 19750, color: '#ef5350',
   lineWidth: 1, dashed: true,
-  leftLabel: 'SL 100', cursor: 'ns-resize',
+  badge: 'SL', qty: 100, cursor: 'ns-resize',
 });
 chart.addPrimitive(sl);
 
 // move the line and trigger a repaint
 sl.setPrice(19600);
 
-// update the left-end order tag, e.g. live P&L
-sl.setLeftLabel('SL  -150');
+// update the info segment, e.g. live P&L
+sl.setLeftLabel('-150');
 ```
 
 `setPrice(price: number)` moves the horizontal line and calls `requestUpdate()` on the host.
-`setLeftLabel(text: string)` updates the broker-style left-end tag text and repaints.
+`setLeftLabel(text: string)` updates the info segment of the pill group and repaints.
+`setDragGhost(price | null)` shows/clears a dimmed reference line while dragging.
 
-See [PriceLineOptions](/docs/types) for the full option set including `extentFromRight`,
-`closeButton`, and `label`.
+See [PriceLineOptions](/docs/types) for the full option set including `badge`, `qty`,
+`extentFromRight`, `closeButton`, and `label`.
 
 ## Logo / brand watermark
 

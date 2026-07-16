@@ -96,6 +96,16 @@ describe('OpenAlgoTradeFeed (offline, injected fetch)', () => {
     expect(cap.body).toMatchObject({ orderid: 'OA123' });
   });
 
+  it('surfaces OpenAlgo error messages on non-OK responses (RMS text, not just a status code)', async () => {
+    const fetchImpl = (async () => ({
+      ok: false, status: 400,
+      json: async () => ({ status: 'error', message: 'MIS orders cannot be placed after square-off time (15:15 IST). Trading resumes at 09:00 AM IST.' }),
+    } as Response)) as unknown as typeof fetch;
+    const feed = new OpenAlgoTradeFeed({ baseUrl: 'http://x', apiKey: 'k', fetchImpl });
+    await expect(feed.place({ symbol: 'SBIN', exchange: 'NSE', side: 'BUY', type: 'MARKET', qty: 1, mode: 'analyzer' }))
+      .rejects.toThrow(/square-off time/);
+  });
+
   it('maps an orderbook row to a broker-agnostic Order', () => {
     const o = mapOrder({ orderid: 'X', symbol: 'SBIN', action: 'SELL', pricetype: 'SL', quantity: 5, filled_quantity: 2, price: 99, order_status: 'open' });
     expect(o).toMatchObject({ id: 'X', side: 'SELL', type: 'SL', qty: 5, filledQty: 2, status: 'working' });

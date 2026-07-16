@@ -20,6 +20,10 @@ export interface PrimitiveRenderContext {
   priceAxisWidth: number;
   dpr: number;
   theme: ChartTheme;
+  /** externalId of the primitive hit under the pointer (hover state), if any. */
+  hoverId?: string | null;
+  /** externalId of the line being dragged (active state), if any. */
+  dragId?: string | null;
 }
 
 export interface PrimitiveHit {
