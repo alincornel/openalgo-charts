@@ -775,7 +775,7 @@ export class Chart {
     const el = this._container;
     el.addEventListener('pointerdown', this._onPointerDown);
     el.addEventListener('pointermove', this._onPointerMove);
-    el.addEventListener('pointerup', this._onPointerUp);
+    el.addEventListener('pointerup', this._onPointerUpNative);
     el.addEventListener('pointercancel', this._onPointerUp);
     el.addEventListener('pointerleave', this._onPointerLeave);
     el.addEventListener('wheel', this._onWheel, { passive: false });
@@ -998,6 +998,23 @@ export class Chart {
       return;
     }
     if (KineticAnimation.shouldAnimate(this._dragVelocity)) this._startKinetic(this._dragVelocity);
+  };
+
+  /**
+   * DOM pointerup entry point. Mirrors the primary-button guard in
+   * `_onPointerDown`: a right-click (or any non-primary mouse button) fires
+   * pointerdown *and* pointerup, but `_onPointerDown` ignores it — so the
+   * down state (`_downX`/`_downLocalY`/`_downPane`/`_pointerMoved`) is never
+   * refreshed and still holds the *previous* left-click. Letting a non-primary
+   * pointerup through would re-run the click branch against that stale position
+   * and replay the last click (e.g. re-firing a Buy/Sell button → a phantom
+   * order). Touch/pen are unaffected (they contact with button 0). The internal
+   * recovery call from `_onPointerMove` invokes `_onPointerUp` directly, so it
+   * bypasses this filter and still ends a drag when a button release is missed.
+   */
+  private readonly _onPointerUpNative = (e: PointerEvent): void => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    this._onPointerUp(e);
   };
 
   private readonly _onPointerLeave = (): void => {
@@ -1247,7 +1264,7 @@ export class Chart {
       const el = this._container;
       el.removeEventListener('pointerdown', this._onPointerDown);
       el.removeEventListener('pointermove', this._onPointerMove);
-      el.removeEventListener('pointerup', this._onPointerUp);
+      el.removeEventListener('pointerup', this._onPointerUpNative);
       el.removeEventListener('pointercancel', this._onPointerUp);
       el.removeEventListener('pointerleave', this._onPointerLeave);
       el.removeEventListener('wheel', this._onWheel);

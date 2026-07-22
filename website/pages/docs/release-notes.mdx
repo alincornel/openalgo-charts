@@ -8,6 +8,19 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 1.0.7
+
+**Fixed**
+
+- A right-click on the chart no longer replays the previous left-click. Only the
+  primary button starts a gesture, so a right-click's `pointerdown` is ignored —
+  but the matching `pointerup` was unguarded and fell through to the click path,
+  re-hit-testing at the *stale* position from the last left-click and re-firing
+  `subscribeClick`. With `BuySellButtons` that meant the first right-click after
+  buying/selling silently placed a second, duplicate order. `pointerup` now
+  applies the same primary-button guard as `pointerdown` (touch/pen unaffected;
+  the missed-`pointerup` drag recovery is preserved).
+
 ## 1.0.6
 
 **Added**
