@@ -8,6 +8,8 @@ const entries = {
   trade: 'src/trade/index.ts',
   transform: 'src/transform/index.ts',
   profile: 'src/profile/index.ts',
+  indicators: 'src/indicators/index.ts',
+  draw: 'src/draw/index.ts',
 };
 
 const outFile = {
@@ -15,6 +17,8 @@ const outFile = {
   trade: 'openalgo-charts.trade',
   transform: 'openalgo-charts.transform',
   profile: 'openalgo-charts.profile',
+  indicators: 'openalgo-charts.indicators',
+  draw: 'openalgo-charts.draw',
 };
 
 const typesFile = {
@@ -22,14 +26,46 @@ const typesFile = {
   trade: 'trade/index',
   transform: 'transform/index',
   profile: 'profile/index',
+  indicators: 'indicators/index',
+  draw: 'draw/index',
+};
+
+/**
+ * Every tier is its own bundle, so anything it deep-imports from the base is
+ * *inlined* — a second, private copy. That is only a size cost for pure
+ * functions, but for the registries (chart types, indicators) it is a
+ * correctness bug: a tier would register into a Map that `createChart` never
+ * reads. Tiers therefore import shared runtime state from `../index`, which is
+ * external for tier builds and emitted as a plain `openalgo-charts` import.
+ */
+const PKG = 'openalgo-charts';
+const tierExternal = (id) => id === PKG;
+
+/**
+ * Resolve the package's own name to the base entry. Used only by the bundles
+ * that must inline the base (the IIFE and the combined docs bundle); tier
+ * bundles leave it external so the import survives into the output.
+ */
+const aliasSelf = {
+  name: 'alias-self-reference',
+  resolveId(id) {
+    return id === PKG ? { id: new URL('src/index.ts', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1') } : null;
+  },
 };
 
 const js = Object.entries(entries).map(([key, input]) => ({
   input,
+  external: key === 'index' ? undefined : tierExternal,
   output: {
     file: `dist/${outFile[key]}.mjs`,
     format: 'es',
     sourcemap: true,
+    // Emit the shared import as a path relative to the tier bundle rather than
+    // the bare package name, so `<script type="module">` loading /dist/*.mjs
+    // straight from a server works with no import map. Bundlers and Node
+    // resolve the relative path just as happily. (The .d.ts builds keep the
+    // bare specifier, which TypeScript resolves through package.json exports.)
+    paths: { [PKG]: `./${outFile.index}.mjs` },
   },
   plugins: [
     typescript({ tsconfig: './tsconfig.build.json' }),
@@ -52,9 +88,9 @@ const iife = {
   ],
 };
 
-// Combined bundle (base + transform + profile in one module) — docs live demos
-// only, so transform-tier custom renderers share createChart's registry. No
-// .d.ts is generated (not a published entry point).
+// Combined bundle (base + every tier in one module instance) — docs live demos
+// only. Nothing is external here, so the tiers resolve `../index` to the real
+// base module and share one registry. No .d.ts (not a published entry point).
 const allBundle = {
   input: 'src/all.ts',
   output: {
@@ -63,6 +99,7 @@ const allBundle = {
     sourcemap: true,
   },
   plugins: [
+    aliasSelf,
     typescript({ tsconfig: './tsconfig.build.json' }),
     terser({ format: { comments: false } }),
   ],
@@ -70,6 +107,7 @@ const allBundle = {
 
 const types = Object.entries(entries).map(([key, input]) => ({
   input,
+  external: key === 'index' ? undefined : tierExternal,
   output: { file: `dist/${typesFile[key]}.d.ts`, format: 'es' },
   plugins: [dts()],
 }));

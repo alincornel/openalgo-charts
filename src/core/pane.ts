@@ -156,6 +156,18 @@ export class Pane {
     this.top.resize(width, height, dpr);
   }
 
+  /**
+   * Give every scale on this pane its plot height. Height is a *layout*
+   * property, but it used to be set only inside the autoscale pass — so any
+   * y↔price conversion before the first paint divided by zero and returned
+   * ±Infinity. Layout is when the height is actually known.
+   */
+  public setScaleHeights(plotHeight: number): void {
+    this.priceScale.setHeight(plotHeight);
+    this._leftScale?.setHeight(plotHeight);
+    this._overlayScale?.setHeight(plotHeight);
+  }
+
   private _layout(ctx: PaneRenderContext): PlotLayout {
     const plotLeft = ctx.leftAxisWidth ?? 0;
     return {

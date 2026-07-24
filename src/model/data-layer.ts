@@ -18,6 +18,8 @@ export interface IndexedBar {
   bar: Bar;
 }
 
+const EMPTY_BARS: readonly Bar[] = [];
+
 export class DataLayer {
   private readonly _series = new Map<SeriesId, SeriesEntry>();
   private _sortedTimes: number[] = [];
@@ -129,6 +131,62 @@ export class DataLayer {
 
   public timeToIndex(time: number): number | undefined {
     return this._indexByTime.get(time);
+  }
+
+  /**
+   * Fractional logical index → UTC seconds, interpolating between bars and
+   * extrapolating past either edge at the nearest bar spacing.
+   *
+   * `indexToTime` only answers for indices that have a bar. Anything anchored to
+   * an arbitrary x — a drawing endpoint, a cursor readout, a projection to the
+   * right of the last bar — needs a time for positions *between* bars too, which
+   * the gapless axis (§5.3) makes common: everything a weekend or a session
+   * break collapsed away lands there. Returns NaN when there is no data.
+   */
+  public indexToTimeFloat(index: number): number {
+    const t = this._sortedTimes;
+    const n = t.length;
+    if (n === 0) return NaN;
+    if (n === 1) return t[0];
+    if (index <= 0) return t[0] + index * (t[1] - t[0]);
+    if (index >= n - 1) return t[n - 1] + (index - (n - 1)) * (t[n - 1] - t[n - 2]);
+    const i = Math.floor(index);
+    return t[i] + (index - i) * (t[i + 1] - t[i]);
+  }
+
+  /** UTC seconds → fractional logical index. The inverse of `indexToTimeFloat`. */
+  public timeToIndexFloat(time: number): number {
+    const t = this._sortedTimes;
+    const n = t.length;
+    if (n === 0) return NaN;
+    if (n === 1) return 0;
+    if (time <= t[0]) {
+      const step = t[1] - t[0];
+      return step > 0 ? (time - t[0]) / step : 0;
+    }
+    if (time >= t[n - 1]) {
+      const step = t[n - 1] - t[n - 2];
+      return step > 0 ? n - 1 + (time - t[n - 1]) / step : n - 1;
+    }
+    // Largest index whose time is <= `time`.
+    let lo = 0;
+    let hi = n - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (t[mid] <= time) lo = mid;
+      else hi = mid - 1;
+    }
+    const span = t[lo + 1] - t[lo];
+    return span > 0 ? lo + (time - t[lo]) / span : lo;
+  }
+
+  /**
+   * A series' bars, time-sorted, with no per-call allocation — the read path
+   * for anything that recomputes over full history (indicators, transforms).
+   * The array is live: treat it as read-only.
+   */
+  public seriesBars(id: SeriesId): readonly Bar[] {
+    return this._series.get(id)?.bars ?? EMPTY_BARS;
   }
 
   /** All bars of a series paired with their shared logical index. */

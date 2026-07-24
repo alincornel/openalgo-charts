@@ -34,6 +34,8 @@ export interface SeriesStyle {
   lineStyle?: 'solid' | 'dashed' | 'dotted';
   step?: boolean;
   markers?: boolean;
+  /** Draw only the markers, with no connecting line (Parabolic SAR, scatter). */
+  markersOnly?: boolean;
   markerRadius?: number;
   areaTopColor?: string;
   areaBottomColor?: string;
@@ -48,7 +50,11 @@ export interface SeriesStyle {
   base?: number;
 
   // point & figure / kagi family
-  /** Box size for stacking P&F X/O glyphs. */
+  /**
+   * Fallback box size for stacking P&F X/O glyphs. Columns from
+   * `PointFigureTransform` carry their own `boxSize`, which wins — set this only
+   * for hand-built column data.
+   */
   boxSize?: number;
   /** Kagi thick (yang) line color. */
   thickColor?: string;

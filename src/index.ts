@@ -30,6 +30,44 @@ export type { SeriesStyle } from './render/series-style';
 export { registerChartType, getChartType, registeredChartTypes } from './model/chart-type-registry';
 export type { SeriesType, RendererEntry, DrawItem, SeriesRenderContext } from './model/chart-type-registry';
 
+// indicator registry (built-in descriptors ship in 'openalgo-charts/indicators')
+export {
+  registerIndicator,
+  getIndicator,
+  hasIndicator,
+  registeredIndicators,
+  indicatorDefaults,
+  indicatorStyleInputs,
+  plotStyleKeys,
+  INDICATOR_LINE_STYLES,
+  sourceValue,
+  sourceValues,
+  INDICATOR_SOURCES,
+} from './model/indicator-registry';
+export type {
+  IndicatorDescriptor,
+  IndicatorInput,
+  IndicatorPlot,
+  IndicatorLevel,
+  IndicatorSettings,
+  IndicatorSource,
+  IndicatorStore,
+  IndicatorValues,
+  IndicatorAttachContext,
+} from './model/indicator-registry';
+export type { IndicatorApi, IndicatorHost } from './model/indicator-instance';
+
+// serialisable chart state (saved layouts / templates / drawings passthrough)
+export { CHART_STATE_VERSION } from './model/chart-state';
+export type {
+  ChartState,
+  PaneState,
+  PriceScaleState,
+  SeriesState,
+  IndicatorState,
+  RestoreReport,
+} from './model/chart-state';
+
 export { CandleBuilder, DEFAULT_CANDLE_BUILDER_OPTIONS } from './feed/candle-builder';
 export type { CandleBuilderOptions, Tick, CandleUpdate, VolumeMode, LateTickPolicy } from './feed/candle-builder';
 
@@ -46,6 +84,8 @@ export { LogoWatermark, watermarkRect } from './primitives/watermark';
 export type { LogoWatermarkOptions, WatermarkPosition } from './primitives/watermark';
 export { BuySellButtons } from './primitives/buy-sell-buttons';
 export type { BuySellButtonsOptions } from './primitives/buy-sell-buttons';
+export { PaneLegend } from './primitives/pane-legend';
+export type { PaneLegendOptions, PaneLegendAction, LegendValue } from './primitives/pane-legend';
 export { EventMarkers } from './primitives/event-markers';
 export type { ChartEvent } from './primitives/event-markers';
 

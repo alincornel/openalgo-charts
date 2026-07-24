@@ -61,15 +61,21 @@ export function drawLine(
   const pts = style.step ? stepPoints(base) : base;
   ctx.save();
   ctx.strokeStyle = style.color ?? '#4f8cff';
-  ctx.lineWidth = Math.max(1, Math.round((style.lineWidth ?? 1.5) * dpr));
+  // Not rounded to whole device px: snapping a 1.5px stroke up to 2px reads
+  // heavier and blockier than the width the caller asked for. Rounding only
+  // helps axis-aligned rules, and a polyline is rarely one. Round caps + joins
+  // keep reversals and segment ends smooth rather than chiselled.
+  ctx.lineWidth = Math.max(1, (style.lineWidth ?? 1.5) * dpr);
   ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
   const dash = style.lineStyle === 'dashed' ? [6 * dpr, 4 * dpr]
     : style.lineStyle === 'dotted' ? [1 * dpr, 3 * dpr]
     : [];
   ctx.setLineDash(dash);
-  strokePolyline(ctx, pts, dpr);
+  // markersOnly: dots with no connecting stroke (Parabolic SAR, scatter plots).
+  if (!style.markersOnly) strokePolyline(ctx, pts, dpr);
   ctx.setLineDash([]);
-  if (style.markers) {
+  if (style.markers || style.markersOnly) {
     const r = (style.markerRadius ?? 2) * dpr;
     ctx.fillStyle = style.color ?? '#4f8cff';
     for (const p of base) {

@@ -8,8 +8,8 @@ Professional interactive financial charts, on-chart trading, and live data - in 
 
 [![npm version](https://img.shields.io/npm/v/openalgo-charts.svg?color=cb3837&label=npm)](https://www.npmjs.com/package/openalgo-charts)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
-[![bundle](https://img.shields.io/badge/brotli-~24%20KB%20base%20%C2%B7%20~38%20KB%20full-brightgreen.svg)](./ARCHITECTURE.md)
-[![tests](https://img.shields.io/badge/tests-297%20passing-brightgreen.svg)](#develop)
+[![bundle](https://img.shields.io/badge/brotli-~33%20KB%20base%20%C2%B7%20~58%20KB%20full-brightgreen.svg)](./ARCHITECTURE.md)
+[![tests](https://img.shields.io/badge/tests-462%20passing-brightgreen.svg)](#develop)
 [![dependencies](https://img.shields.io/badge/runtime%20deps-0-brightgreen.svg)](#principles)
 
 [**Documentation**](https://marketcalls.github.io/openalgo-charts/) &nbsp;·&nbsp; [**Live examples**](https://marketcalls.github.io/openalgo-charts/examples) &nbsp;·&nbsp; [**Getting started**](./docs/getting-started.md) &nbsp;·&nbsp; [**Architecture**](./ARCHITECTURE.md)
@@ -62,14 +62,19 @@ Loadable tiers - lazy-load only what you use:
 | `openalgo-charts/trade` | On-chart order/position/bracket tools + DOM ladder |
 | `openalgo-charts/transform` | Renko, Range bars, Point &amp; Figure, Kagi, Line Break, Heikin Ashi |
 | `openalgo-charts/profile` | Volume Profile, Market Profile (TPO), Footprint, Order flow |
+| `openalgo-charts/indicators` | 18 built-in indicators + the Tier-2 (external-data) contract |
+| `openalgo-charts/draw` | 18 drawing tools + a headless drawing controller |
 
 ## What's built
 
 - **Chart types:** candles, hollow/volume candles, bars, high-low, line, line+markers, step, area, HLC-area, baseline, columns, histogram.
 - **Transforms:** Heikin Ashi, Renko, Range bars, Line Break, Point &amp; Figure, Kagi.
 - **Profiles &amp; order flow:** Volume Profile, Market Profile (TPO), Footprint, cumulative delta.
+- **Indicators:** 18 built-ins via `chart.addIndicator(...)` - SMA, EMA, WMA, VWAP, Bollinger, Supertrend, Parabolic SAR, Ichimoku, RSI, MACD, Stochastic, ADX/DMI, CCI, MFI, ATR, Volume, OBV, A/D - plus a registry for your own, and a Tier-2 contract for indicators with external data (open interest, CVD).
 - **Trading:** order/position/bracket lines, live P&amp;L, one-click + drag-to-modify, OCO, validation, analyzer mode, and a depth-of-market ladder (5 to 200 levels).
-- **Live + historical** OpenAlgo data (REST history + WebSocket ticks with auto-reconnect), a unified `chart.on(...)` event bus, markers/signals, earnings/dividend/expiry event markers, custom price/time formatters, and EMA/RSI/ATR/Supertrend indicators.
+- **Drawing tools:** 18 tools (trend/ray/fib/channel/position/measure/text/...) with a headless controller - placement, selection, per-anchor drag, magnet snap, undo/redo, and persistence through the chart state.
+- **Panes:** draggable dividers, move/maximize/remove, and TradingView-style pane legends with inline show-hide / settings / delete controls.
+- **Live + historical** OpenAlgo data (REST history + WebSocket ticks with auto-reconnect), a unified `chart.on(...)` event bus, markers/signals, earnings/dividend/expiry event markers, and custom price/time formatters.
 
 ## Documentation
 
@@ -89,7 +94,7 @@ cd website && npm install && npm run dev    # http://localhost:3000/openalgo-cha
 ```bash
 npm install        # install dev toolchain
 npm run typecheck  # strict TypeScript check
-npm test           # unit tests (vitest) - 297 across 39 files
+npm test           # unit tests (vitest) - 462 across 47 files
 npm run build      # Rollup -> dist/ (minified ESM per tier + types)
 npm run size       # size-limit (Brotli) against the budget
 npm run e2e        # Playwright Chromium smoke tests
@@ -105,7 +110,7 @@ npm run verify     # typecheck + test + build + size
 
 ## Status &amp; limitations
 
-Version **1.0.1 (published)** - all engine build phases are implemented with 297 unit tests, base engine ~24 KB Brotli, full package ~38 KB Brotli (all tiers). The OpenAlgo WS/trade adapters ship and auto-reconnect, but their exact message/endpoint schemas should be verified against your running OpenAlgo build. Overlay and `indexed-to-100` price scales are not yet implemented - see [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the honest deferred list.
+Version **1.1.0 (published)** - all engine build phases are implemented with 462 unit tests, base engine ~33 KB Brotli, full package ~58 KB Brotli (all six tiers). The OpenAlgo WS/trade adapters ship and auto-reconnect, but their exact message/endpoint schemas should be verified against your running OpenAlgo build. An optional DOM chrome package (toolbar, dialogs, command palette, objects panel) is the next planned piece; the Footprint/order-flow renderer still needs its visual pass, and overlay and `indexed-to-100` price scales are unimplemented - see [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the honest deferred list.
 
 ## License
 

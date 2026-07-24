@@ -90,6 +90,101 @@ return chart;`} />
 </div>
 
 <div>
+### Drawing tools (draw tier)
+<RunnableExample hideCode height={300} tiers={['draw']} code={`const chart = lib.createChart(el);
+const bars = lib.generateBars(1700000000, 160, 3600);
+chart.addSeries('candlestick').setData(bars);
+chart.timeScale.fitContent(bars.length);
+
+const draw = new lib.DrawingController(chart);
+const at = (i) => bars[i].time;
+draw.add({ tool: 'trend-line', paneIndex: 0, points: [
+  { time: at(20), price: bars[20].low }, { time: at(90), price: bars[90].high },
+], style: { color: '#4f8cff', lineWidth: 2 } });
+draw.add({ tool: 'rectangle', paneIndex: 0, points: [
+  { time: at(100), price: bars[100].high }, { time: at(140), price: bars[140].low },
+], style: { color: '#26a69a', fill: true, fillOpacity: 0.14 } });
+draw.add({ tool: 'horizontal-line', paneIndex: 0,
+  points: [{ time: at(0), price: bars[bars.length - 1].close }],
+  style: { color: '#f5a623', lineStyle: 'dashed' } });
+return chart;`} />
+</div>
+
+<div>
+### Fibonacci retracement
+<RunnableExample hideCode height={300} tiers={['draw']} code={`const chart = lib.createChart(el);
+const bars = lib.generateBars(1700000000, 140, 3600);
+chart.addSeries('candlestick').setData(bars);
+chart.timeScale.fitContent(bars.length);
+
+// Anchor the leg on the swing low and swing high of the loaded range.
+let lo = 0, hi = 0;
+bars.forEach((b, i) => { if (b.low < bars[lo].low) lo = i; if (b.high > bars[hi].high) hi = i; });
+new lib.DrawingController(chart).add({
+  tool: 'fib-retracement', paneIndex: 0,
+  points: [{ time: bars[lo].time, price: bars[lo].low }, { time: bars[hi].time, price: bars[hi].high }],
+  style: { color: '#ab47bc', showLabels: true, fill: true, extendRight: true },
+});
+return chart;`} />
+</div>
+
+<div>
+### Position tool with R:R
+<RunnableExample hideCode height={300} tiers={['draw']} code={`const chart = lib.createChart(el);
+const bars = lib.generateBars(1700000000, 120, 3600);
+chart.addSeries('candlestick').setData(bars);
+chart.timeScale.fitContent(bars.length);
+
+const last = bars[bars.length - 1].close;
+// Risk-based sizing: qty = (accountSize x risk%) / stop distance.
+new lib.DrawingController(chart).add({
+  tool: 'long-position', paneIndex: 0,
+  points: [
+    { time: bars[70].time, price: last },
+    { time: bars[110].time, price: last * 1.04 },
+    { time: bars[110].time, price: last * 0.98 },
+  ],
+  style: { color: '#8892a6', accountSize: 100000, risk: 1, showLabels: true },
+});
+return chart;`} />
+</div>
+
+<div>
+### Draw it yourself
+<RunnableExample hideCode height={320} tiers={['draw']} caption="Click the buttons, then click the chart to place anchors. Drag a shape or its handles; press Delete to remove the selection." code={`const wrap = document.createElement('div');
+wrap.style.cssText = 'display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap';
+el.appendChild(wrap);
+const host = document.createElement('div');
+host.style.cssText = 'height:270px';
+el.appendChild(host);
+
+const chart = lib.createChart(host);
+const bars = lib.generateBars(1700000000, 160, 3600);
+chart.addSeries('candlestick').setData(bars);
+chart.timeScale.fitContent(bars.length);
+
+const draw = new lib.DrawingController(chart, { magnet: true, stayInDrawingMode: false });
+for (const id of ['trend-line', 'ray', 'rectangle', 'fib-retracement', 'measure', 'text']) {
+  const b = document.createElement('button');
+  b.textContent = lib.getDrawingTool(id).name;
+  b.style.cssText = 'padding:4px 10px;border-radius:6px;border:1px solid #2a3046;background:#1c2030;color:#c7ccd8;cursor:pointer';
+  b.onclick = () => draw.setTool(id);
+  wrap.appendChild(b);
+}
+const undo = document.createElement('button');
+undo.textContent = 'Undo';
+undo.style.cssText = 'padding:4px 10px;border-radius:6px;border:1px solid #2a3046;background:#1c2030;color:#c7ccd8;cursor:pointer';
+undo.onclick = () => draw.undo();
+wrap.appendChild(undo);
+
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Delete' || e.key === 'Backspace') { const id = draw.selected(); if (id) draw.remove(id); }
+  if (e.key === 'Escape') draw.setTool(null);
+});
+return chart;`} />
+</div>
+
+<div>
 ### Renko (transform tier)
 <RunnableExample hideCode height={280} tiers={['transform']} code={`const chart = lib.createChart(el);
 const bars = lib.generateBars(1700000000, 400, 3600);

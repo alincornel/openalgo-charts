@@ -67,8 +67,151 @@
     .chk:hover { border-color: #33405a; color: var(--tx); }
     .chk input { accent-color: var(--acc); width: 14px; height: 14px; }
     .lbl { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .6px; }
+    /* Active-indicator chips: one per chart.addIndicator() instance. */
+    /* Generated indicator-settings modal. */
+    #setmodal { position: fixed; inset: 0; z-index: 60; background: rgba(6,8,12,.55);
+      display: flex; align-items: center; justify-content: center; }
+    #setmodal[hidden] { display: none; }
+    .set-card { width: 340px; max-height: 78vh; display: flex; flex-direction: column;
+      background: var(--panel); border: 1px solid var(--bd); border-radius: 12px;
+      box-shadow: 0 18px 50px rgba(0,0,0,.55); overflow: hidden; }
+    .set-head { display: flex; align-items: center; justify-content: space-between;
+      padding: 11px 14px; border-bottom: 1px solid var(--bd-soft); font-weight: 650; color: var(--tx); }
+    .set-head button { border: 0; background: transparent; color: var(--faint); font-size: 20px;
+      line-height: 1; cursor: pointer; padding: 0 2px; }
+    .set-head button:hover { color: var(--tx); }
+    .set-tabs { display: flex; gap: 4px; padding: 8px 14px 0; border-bottom: 1px solid var(--bd-soft); }
+    .set-tab { background: transparent; border: 0; border-bottom: 2px solid transparent; color: var(--mut);
+      font: inherit; font-size: 12px; padding: 6px 10px; cursor: pointer; }
+    .set-tab.is-on { color: var(--tx); border-bottom-color: var(--acc); }
+    .set-group { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; margin-top: 6px; }
+    .set-body { padding: 10px 14px; overflow: auto; display: grid; gap: 9px; }
+    .set-row { display: grid; grid-template-columns: 1fr 140px; align-items: center; gap: 10px; }
+    .set-row label { color: var(--mut); font-size: 12px; }
+    .set-row input, .set-row select { width: 100%; box-sizing: border-box; background: var(--elev);
+      color: var(--tx); border: 1px solid var(--bd-soft); border-radius: 7px; padding: 5px 8px; font-size: 12px; }
+    .set-row input[type=color] { padding: 2px; height: 28px; cursor: pointer; }
+    .set-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 11px 14px;
+      border-top: 1px solid var(--bd-soft); }
+    .indlist { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+    .chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 6px 3px 9px;
+      border-radius: 7px; border: 1px solid var(--bd-soft); background: var(--elev);
+      color: var(--mut); font-size: 12px; }
+    .chip b { color: var(--tx); font-weight: 600; }
+    .chip .sw { width: 8px; height: 8px; border-radius: 50%; }
+    .chip button { border: 0; background: transparent; color: var(--faint); cursor: pointer;
+      font-size: 13px; line-height: 1; padding: 2px 3px; border-radius: 4px; }
+    .chip button:hover { background: #2a3348; color: #ff9b9b; }
     .spacer { flex: 1 1 auto; }
     .hint { color: var(--faint); font-size: 12px; font-style: italic; }
+
+
+    /* ── drawing: left tool rail + floating tool widget ─────────── */
+    .rail { position: absolute; top: 0; left: 0; bottom: 0; width: 42px; z-index: 20;
+      background: #0c0f16; border-right: 1px solid var(--bd-soft);
+      display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 0; overflow-y: auto; }
+    .rail button { width: 32px; height: 32px; display: grid; place-items: center; flex: none;
+      background: transparent; border: 1px solid transparent; border-radius: 7px;
+      color: var(--mut); cursor: pointer; }
+    .rail button:hover { background: var(--elev); color: var(--tx); }
+    .rail button.is-on { background: rgba(34,193,164,.16); border-color: #1d6b5e; color: var(--acc-2); }
+    .rail .sep { width: 22px; height: 1px; background: var(--bd-soft); margin: 4px 0; flex: none; }
+    .rail svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.6;
+      stroke-linecap: round; stroke-linejoin: round; }
+    .stage.has-rail #chart { left: 42px; }
+
+    /* Floating properties bar for the selected drawing — draggable by its grip. */
+    #toolwidget { position: absolute; z-index: 40; display: flex; align-items: center; gap: 2px;
+      padding: 4px 6px; background: var(--panel); border: 1px solid var(--bd);
+      border-radius: 9px; box-shadow: 0 10px 30px rgba(0,0,0,.5); user-select: none; }
+    #toolwidget[hidden] { display: none; }
+    #toolwidget .grip { cursor: grab; color: var(--faint); padding: 0 4px; letter-spacing: -2px; font-size: 15px; }
+    #toolwidget .grip:active { cursor: grabbing; }
+    #toolwidget button { width: 28px; height: 28px; display: grid; place-items: center;
+      background: transparent; border: 0; border-radius: 6px; color: var(--mut); cursor: pointer; }
+    #toolwidget button:hover { background: var(--elev-2); color: var(--tx); }
+    #toolwidget button.danger:hover { color: #ff8b8b; }
+    #toolwidget .vsep { width: 1px; height: 18px; background: var(--bd-soft); margin: 0 3px; }
+    #toolwidget svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6;
+      stroke-linecap: round; stroke-linejoin: round; }
+    .swatch { width: 20px; height: 20px; border-radius: 5px; border: 1px solid #0006; }
+    #toolwidget .wbtn { width: auto; padding: 0 7px; font: inherit; font-size: 12px; color: var(--tx); }
+
+    .textedit { position: absolute; z-index: 45; background: var(--elev-2);
+      border: 1px solid var(--acc); border-radius: 5px; padding: 2px 6px;
+      font: inherit; outline: none; min-width: 90px; }
+
+    #textmodal { position: fixed; inset: 0; z-index: 60; background: rgba(6,8,12,.55);
+      display: flex; align-items: center; justify-content: center; }
+    #textmodal[hidden] { display: none; }
+    .td-card { width: 330px; }
+    .td-body { padding: 12px 14px; display: grid; gap: 10px; }
+    .td-row { display: flex; align-items: center; gap: 8px; }
+    .td-row select { flex: 1 1 auto; min-width: 0; background: var(--elev); color: var(--tx);
+      border: 1px solid var(--bd-soft); border-radius: 7px; padding: 5px 8px; font-size: 12px; }
+    .td-row input[type=color], .td-check input[type=color] {
+      width: 32px; height: 28px; padding: 2px; background: var(--elev);
+      border: 1px solid var(--bd-soft); border-radius: 7px; cursor: pointer; flex: none; }
+    .td-tog { width: 30px; height: 28px; flex: none; background: var(--elev); color: var(--mut);
+      border: 1px solid var(--bd-soft); border-radius: 7px; cursor: pointer; font-size: 13px; }
+    .td-tog.is-on { background: rgba(34,193,164,.18); border-color: #1d6b5e; color: var(--acc-2); }
+    #td-text { width: 100%; box-sizing: border-box; resize: vertical; background: var(--elev);
+      color: var(--tx); border: 1px solid var(--bd-soft); border-radius: 7px; padding: 8px;
+      font: inherit; font-size: 13px; outline: none; }
+    #td-text:focus { border-color: var(--acc); }
+    .td-check { display: flex; align-items: center; gap: 8px; color: var(--mut); font-size: 12px; cursor: pointer; }
+    .td-check input[type=checkbox] { accent-color: var(--acc); width: 15px; height: 15px; }
+    .td-check span { flex: 1 1 auto; }
+    .td-check input[type=number] { width: 66px; background: var(--elev); color: var(--tx);
+      border: 1px solid var(--bd-soft); border-radius: 7px; padding: 4px 6px; font-size: 12px; }
+
+    /* Colour + opacity popover */
+    #colorpop { position: absolute; z-index: 41; width: 236px; padding: 10px;
+      background: var(--panel); border: 1px solid var(--bd); border-radius: 10px;
+      box-shadow: 0 14px 40px rgba(0,0,0,.55); }
+    #colorpop[hidden] { display: none; }
+    .swgrid { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; }
+    .swgrid button { width: 100%; aspect-ratio: 1; border-radius: 4px; border: 1px solid #0005; cursor: pointer; padding: 0; }
+    .swgrid button.is-on { outline: 2px solid var(--acc-2); outline-offset: 1px; }
+    #colorpop .lbl { display: block; margin: 10px 0 4px; }
+    #colorpop input[type=range] { width: 100%; accent-color: var(--acc); }
+    .poprow { display: flex; align-items: center; gap: 8px; }
+    .poprow output { font-size: 12px; color: var(--mut); min-width: 40px; text-align: right; }
+
+
+    /* ── TradingView-style shell bar ─────────────────────────────── */
+    .shellbar { display: flex; align-items: center; gap: 6px; padding: 6px 10px; flex-wrap: wrap;
+      background: linear-gradient(180deg, var(--panel), #0c0f16); border-bottom: 1px solid var(--bd-soft); }
+    .legacy { display: none !important; }
+    .tbtn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 9px;
+      background: transparent; border: 1px solid transparent; border-radius: 7px;
+      color: var(--tx); font: inherit; font-size: 13px; cursor: pointer; }
+    .tbtn:hover { background: var(--elev); border-color: var(--bd-soft); }
+    .tbtn.is-on { background: rgba(34,193,164,.16); border-color: #1d6b5e; color: var(--acc-2); }
+    .tbtn b { font-weight: 700; letter-spacing: .3px; }
+    .tbtn--icon { padding: 0; width: 30px; justify-content: center; }
+    .shellbar svg, .menu svg { width: 17px; height: 17px; fill: none; stroke: currentColor;
+      stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+    .pills { display: inline-flex; background: var(--elev); border: 1px solid var(--bd-soft); border-radius: 8px; padding: 2px; }
+    .pills button { height: 24px; padding: 0 9px; background: transparent; border: 0; border-radius: 6px;
+      color: var(--mut); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+    .pills button:hover { color: var(--tx); }
+    .pills button.is-on { background: var(--elev-2); color: var(--acc-2); }
+    /* the live symbol input, shown only while editing */
+    #symbol.is-live { position: fixed; top: 44px; left: 96px; z-index: 70; display: block;
+      width: 190px; height: 34px; }
+    #symbol { display: none; }
+
+    .menu { position: fixed; z-index: 80; min-width: 190px; max-height: 70vh; overflow: auto;
+      padding: 5px; background: var(--panel); border: 1px solid var(--bd); border-radius: 10px;
+      box-shadow: 0 14px 40px rgba(0,0,0,.55); }
+    .menu button { display: flex; align-items: center; gap: 9px; width: 100%; padding: 6px 8px;
+      background: transparent; border: 0; border-radius: 6px; color: var(--tx);
+      font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+    .menu button:hover { background: var(--elev-2); }
+    .menu button em { margin-left: auto; color: var(--acc-2); font-style: normal; }
+    .menu-group { padding: 7px 8px 3px; color: var(--faint); font-size: 11px;
+      text-transform: uppercase; letter-spacing: .5px; }
 
     /* ── chart stage ────────────────────────────────────────────── */
     .stage { position: relative; flex: 1 1 auto; min-height: 0; }
@@ -125,7 +268,8 @@
   </style>
 </head>
 <body>
-  <header class="topbar">
+  <header class="shellbar" id="shellbar"></header>
+  <header class="topbar legacy">
     <div class="brand"><span class="brand-dot"></span> OpenAlgo <em>yfinance</em></div>
     <div class="divider"></div>
     <div class="group">
@@ -137,17 +281,32 @@
         <option>1mo</option><option selected>1y</option><option>6mo</option><option>5y</option><option>max</option>
       </select>
       <select id="ctype" class="field" title="chart type">
-        <option value="candlestick">Candles</option>
-        <option value="hollow-candle">Hollow Candles</option>
-        <option value="bar">Bars (OHLC)</option>
-        <option value="high-low">High-Low</option>
-        <option value="volume-candle">Volume Candles</option>
-        <option value="line">Line</option>
-        <option value="line-markers">Line + Markers</option>
-        <option value="step">Step Line</option>
-        <option value="area">Area</option>
-        <option value="hlc-area">HLC Area</option>
-        <option value="baseline">Baseline</option>
+        <optgroup label="Time-indexed">
+          <option value="candlestick">Candles</option>
+          <option value="hollow-candle">Hollow Candles</option>
+          <option value="bar">Bars (OHLC)</option>
+          <option value="high-low">High-Low</option>
+          <option value="volume-candle">Volume Candles</option>
+          <option value="line">Line</option>
+          <option value="line-markers">Line + Markers</option>
+          <option value="step">Step Line</option>
+          <option value="area">Area</option>
+          <option value="hlc-area">HLC Area</option>
+          <option value="baseline">Baseline</option>
+        </optgroup>
+        <optgroup label="Transforms (movement-driven)">
+          <option value="t:heikin-ashi">Heikin Ashi</option>
+          <option value="t:renko">Renko</option>
+          <option value="t:range">Range Bars</option>
+          <option value="t:line-break">Line Break</option>
+          <option value="t:point-figure">Point &amp; Figure</option>
+          <option value="t:kagi">Kagi</option>
+        </optgroup>
+      </select>
+      <select id="pfmode" class="field" title="Point &amp; Figure box sizing" hidden>
+        <option value="atr">P&amp;F: ATR box</option>
+        <option value="percent">P&amp;F: 1% box</option>
+        <option value="fixed">P&amp;F: fixed box</option>
       </select>
     </div>
     <div class="divider"></div>
@@ -159,11 +318,28 @@
     <div class="status"><span class="status-dot"></span><span id="status"></span></div>
   </header>
 
-  <div class="subbar">
+  <div class="subbar legacy">
     <span class="lbl">Indicators</span>
     <div class="group">
-      <label class="chk"><input type="checkbox" id="st" checked /> <span>Supertrend</span></label>
-      <label class="chk"><input type="checkbox" id="rsi" checked /> <span>RSI</span></label>
+      <select id="indpick" class="field" title="add an indicator from the openalgo-charts/indicators tier"></select>
+      <button id="indadd" class="btn">Add</button>
+      <span id="indlist" class="indlist"></span>
+    </div>
+    <div class="divider"></div>
+    <span class="lbl">Draw</span>
+    <div class="group">
+      <select id="drawtool" class="field" title="drawing tool (openalgo-charts/draw)"></select>
+      <button id="drawundo" class="btn" title="undo">&#8630;</button>
+      <button id="drawredo" class="btn" title="redo">&#8631;</button>
+      <button id="drawdel" class="btn" title="delete selected">Del</button>
+      <button id="drawclear" class="btn btn--ghost" title="remove all drawings">Clear</button>
+      <label class="chk" title="snap anchors to O/H/L/C"><input type="checkbox" id="magnet" /> <span>Magnet</span></label>
+    </div>
+    <div class="divider"></div>
+    <span class="lbl">Layout</span>
+    <div class="group">
+      <button id="lsave" class="btn" title="chart.getState() -> localStorage">Save</button>
+      <button id="lload" class="btn" title="chart.restoreState() from localStorage">Restore</button>
       <label class="chk"><input type="checkbox" id="vgrid" checked /> <span>V Grid</span></label>
       <label class="chk"><input type="checkbox" id="hgrid" checked /> <span>H Grid</span></label>
     </div>
@@ -182,7 +358,8 @@
     <span class="hint">bracket = entry + OCO target/stop · right-click the chart for single orders</span>
   </div>
 
-  <main class="stage">
+  <main class="stage has-rail">
+    <div class="rail" id="rail"></div>
     <div id="chart"></div>
     <div id="legend"></div>
   </main>
@@ -207,6 +384,29 @@
   </div>
 
   <!-- broker-style right-click order menu (price under the cursor) -->
+  <!-- Indicator settings. The form is GENERATED from the descriptor's `inputs`,
+       so it works for every registered indicator, including your own. -->
+  <div id="setmodal" hidden>
+    <div class="set-card">
+      <div class="set-head"><span id="set-title"></span><button id="set-x" title="close">×</button></div>
+      <div class="set-tabs">
+        <button class="set-tab is-on" data-tab="inputs">Inputs</button>
+        <button class="set-tab" data-tab="style">Style</button>
+      </div>
+      <div id="set-body" class="set-body"></div>
+      <div class="set-foot">
+        <button id="set-reset" class="btn btn--ghost">Defaults</button>
+        <button id="set-ok" class="btn btn--primary">Apply</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Floating properties bar for the selected drawing. Drag it by the grip. -->
+  <div id="toolwidget" hidden></div>
+  <!-- Text settings: the drawing is canvas-rendered, so this edits its style bag. -->
+  <div id="textmodal" hidden><div class="set-card td-card" id="textdlg"></div></div>
+  <div id="colorpop" hidden></div>
+
   <div id="ctxmenu" hidden>
     <button class="buy" data-side="BUY" data-type="MARKET">Buy Market</button>
     <button class="sell" data-side="SELL" data-type="MARKET">Sell Market</button>
@@ -221,7 +421,16 @@
   </div>
 
   <script type="module">
-    import { createChart, rsiSeries, supertrendSeries, LogoWatermark } from '/dist/openalgo-charts.mjs';
+    import { createChart, registeredIndicators, getIndicator, indicatorStyleInputs, INDICATOR_SOURCES, LogoWatermark, PaneLegend } from '/dist/openalgo-charts.mjs';
+    // Lazy tiers. Each registers into the base bundle's registries as a side
+    // effect of being imported, so `addSeries('point-figure')` and
+    // `addIndicator('macd')` resolve afterwards.
+    import {
+      runTransform, HeikinAshiTransform, RenkoTransform, RangeBarsTransform,
+      LineBreakTransform, PointFigureTransform, KagiTransform,
+    } from '/dist/openalgo-charts.transform.mjs';
+    import '/dist/openalgo-charts.indicators.mjs';
+    import { DrawingController, BUILTIN_DRAWING_TOOLS } from '/dist/openalgo-charts.draw.mjs';
 
     // A broker-agnostic DataFeed for yfinance: getBars hits this demo's /api/history,
     // which already returns the chart's Bar shape (time in UTC seconds).
@@ -239,6 +448,47 @@
     const UP = '#26a69a', DOWN = '#ef5350';
     const TRADE_EXTENT = 0.30; // order/bracket lines span only the rightmost 30% (broker-style)
     let chart, price, volume;
+
+    // Active indicators, as {indicatorId, settings} specs. They are re-applied on
+    // every chart rebuild (a chart-type switch destroys and recreates the chart),
+    // which is also exactly what chart.getState()/restoreState() persists.
+    let activeIndicators = [{ indicatorId: 'supertrend', settings: {} }, { indicatorId: 'rsi', settings: {} }];
+    const LAYOUT_KEY = 'oa-charts-layout';
+
+    // ── Family-B transforms ────────────────────────────────────────────────
+    // A transform re-buckets bars by price movement rather than the clock, so one
+    // source bar can emit zero, one, or many elements. Renko/Range/Line Break/HA
+    // plot as candles; P&F and Kagi have their own renderers (transform tier).
+    function applyTransform(kind, bars) {
+      if (!bars.length) return { type: 'candlestick', data: bars };
+      // Scale the box/range to the instrument so one setting suits AAPL and BTC.
+      const span = bars.reduce((m, b) => Math.max(m, b.high), 0) - bars.reduce((m, b) => Math.min(m, b.low), Infinity);
+      const box = Math.max(1e-6, span / 40);
+      switch (kind) {
+        case 'heikin-ashi':
+          return { type: 'candlestick', data: runTransform(new HeikinAshiTransform(), bars) };
+        case 'renko':
+          return { type: 'candlestick', data: runTransform(new RenkoTransform({ boxSize: box }), bars) };
+        case 'range':
+          return { type: 'candlestick', data: runTransform(new RangeBarsTransform({ range: box * 2 }), bars) };
+        case 'line-break':
+          return { type: 'candlestick', data: runTransform(new LineBreakTransform({ lines: 3 }), bars) };
+        case 'kagi':
+          return { type: 'kagi', data: runTransform(new KagiTransform({ reversal: box * 2 }), bars) };
+        case 'point-figure': {
+          // Box-size modes are new: 'atr' and 'percent' re-resolve the box each
+          // time a column opens, so the grid tracks volatility / price level.
+          const mode = el('pfmode').value;
+          const opts = mode === 'atr' ? { mode: 'atr', atrPeriod: 14, reversal: 3 }
+            : mode === 'percent' ? { mode: 'percent', percent: 1, reversal: 3 }
+            : { boxSize: box, reversal: 3 };
+          // Columns carry their own boxSize, so the series needs no style.boxSize.
+          return { type: 'point-figure', data: runTransform(new PointFigureTransform(opts), bars) };
+        }
+        default:
+          return { type: 'candlestick', data: bars };
+      }
+    }
 
     // Resting orders placed by right-click: each is one draggable price line.
     let orders = [];   // { id, side, type, price, qty, product, line }
@@ -296,22 +546,35 @@
     const nameOf = (sym) => sym.toUpperCase().replace(/\.(NS|BO)$/, '');
 
     // Title + O H L C V + change(%). Driven by the crosshair; falls back to the last bar.
+    // The symbol row is a PaneLegend like every indicator row, not a floating
+    // DOM box: an opaque overlay sat on top of the indicator legends and hid
+    // them. As row 0 of pane 0 it shares the same stack, so indicator rows
+    // simply flow underneath it.
+    let symbolLegend = null;
+    let volLegend = null;
     function setLegend(bar) {
-      const legend = el('legend');
-      const head = `<span class="name">${esc(nameOf(req.symbol || ''))}</span>`
-        + `<span class="meta"> &middot; ${(req.interval || '').toUpperCase()} &middot; ${exchangeOf(req.symbol || '')}</span>`;
-      if (!bar) { legend.innerHTML = head; return; }
+      if (!symbolLegend) return;
+      symbolLegend.setOptions({
+        title: nameOf(req.symbol || ''),
+        params: `${(req.interval || '').toUpperCase()} · ${exchangeOf(req.symbol || '')}`,
+      });
+      if (!bar) { symbolLegend.setValues([]); volLegend && volLegend.setValues([]); return; }
       const i = idxByTime.get(bar.time);
       const prevClose = (i != null && i > 0) ? currentBars[i - 1].close : bar.open;
       const chg = bar.close - prevClose;
       const pct = prevClose ? (chg / prevClose) * 100 : 0;
-      const col = bar.close >= bar.open ? UP : DOWN;
-      const chgCol = chg >= 0 ? UP : DOWN;
-      const v = (label, val) => `<span class="lbl">${label}</span><span style="color:${col}">${fmt(val)}</span>`;
-      const vol = bar.volume != null ? `<span class="lbl">V</span><span style="color:${col}">${fmtVol(bar.volume)}</span>` : '';
       const sign = chg >= 0 ? '+' : '';
-      const change = `<span style="color:${chgCol};margin-left:10px">${sign}${fmt(chg)} (${sign}${pct.toFixed(2)}%)</span>`;
-      legend.innerHTML = head + v('O', bar.open) + v('H', bar.high) + v('L', bar.low) + v('C', bar.close) + ' ' + vol + change;
+      const col = bar.close >= bar.open ? UP : DOWN;
+      // Dimmed O/H/L/C labels with colored numbers, one segment each.
+      symbolLegend.setValues([
+        { label: 'O', text: fmt(bar.open), color: col },
+        { label: 'H', text: fmt(bar.high), color: col },
+        { label: 'L', text: fmt(bar.low), color: col },
+        { label: 'C', text: fmt(bar.close), color: col },
+        { text: `${sign}${fmt(chg)} (${sign}${pct.toFixed(2)}%)`, color: chg >= 0 ? UP : DOWN },
+      ]);
+      // Volume gets its own row, the way a volume study would.
+      if (volLegend) volLegend.setValues([{ text: fmtVol(bar.volume ?? 0), color: col }]);
     }
 
     // ── Sahi-style bracket (entry / target / stop) ──────────────────────────
@@ -530,6 +793,176 @@
       }
     });
 
+    // A primitive belongs to one pane and anchors to THAT pane's box, so a
+    // bottom-left watermark on pane 0 floats mid-chart as soon as an indicator
+    // pane appears beneath it. Re-home it on the bottom pane whenever the pane
+    // stack changes, so it stays in the chart's own bottom-left corner.
+    let watermark = null;
+    function placeWatermark() {
+      if (!chart) return;
+      if (watermark) chart.removePrimitive(watermark);
+      watermark = new LogoWatermark({
+        src: '/examples/openalgo-logo.svg', height: 26, opacity: 0.85,
+        position: 'bottom-left', margin: 6,
+      });
+      chart.addPrimitive(watermark, chart.panes().length - 1);
+    }
+
+    // ── indicator picker ───────────────────────────────────────────────────
+    // The picker is built from the registry, not a hardcoded list — anything
+    // registered (built-in or your own descriptor) shows up here automatically.
+    function fillIndicatorPicker() {
+      const pick = el('indpick');
+      const byCat = new Map();
+      for (const d of registeredIndicators().sort((a, b) => a.name.localeCompare(b.name))) {
+        const cat = d.category || 'Other';
+        if (!byCat.has(cat)) byCat.set(cat, []);
+        byCat.get(cat).push(d);
+      }
+      pick.innerHTML = '';
+      for (const [cat, list] of [...byCat].sort((a, b) => a[0].localeCompare(b[0]))) {
+        const g = document.createElement('optgroup');
+        g.label = cat;
+        for (const d of list) {
+          const o = document.createElement('option');
+          o.value = d.id; o.textContent = d.name;
+          g.appendChild(o);
+        }
+        pick.appendChild(g);
+      }
+      pick.value = 'macd';
+    }
+
+    // One chip per live instance, reading chart.indicators() — the same handles
+    // an objects panel would drive.
+    function renderIndicatorChips() {
+      const host = el('indlist');
+      host.innerHTML = '';
+      for (const inst of chart.indicators()) {
+        const chip = document.createElement('span');
+        chip.className = 'chip';
+        const first = inst.series(Object.keys(inst.values())[0]);
+        const color = (inst.settings().color) || '#8892a6';
+        chip.innerHTML = `<span class="sw" style="background:${esc(String(color))}"></span><b>${esc(inst.name)}</b>`;
+        const x = document.createElement('button');
+        x.textContent = '×';
+        x.title = 'remove';
+        x.addEventListener('click', () => {
+          chart.removeIndicator(inst.id);
+          activeIndicators = activeIndicators.filter((s) => s.indicatorId !== inst.indicatorId);
+          renderIndicatorChips();
+          el('status').textContent = `removed ${inst.name}`;
+        });
+        chip.appendChild(x);
+        host.appendChild(chip);
+        void first;
+      }
+      if (!chart.indicators().length) host.innerHTML = '<span style="color:var(--faint);font-size:12px">none</span>';
+    }
+
+    // ── generated indicator settings ───────────────────────────────────────
+    // Nothing here is indicator-specific: the descriptor's `inputs` declare a
+    // key, a type, a label, and a default, which is everything a form needs.
+    // The same 40 lines render MACD, Bollinger, or your own custom descriptor.
+    let settingsFor = null; // the IndicatorApi handle being edited
+
+    let settingsTab = 'inputs';
+    function openSettings(instanceId) {
+      const inst = chart.indicators().find((i) => i.id === instanceId);
+      if (!inst) return;
+      settingsFor = inst;
+      el('set-title').textContent = getIndicator(inst.indicatorId).name + ' settings';
+      renderSettingsTab();
+      el('setmodal').hidden = false;
+    }
+
+    // Inputs = the descriptor's own `inputs`. Style = `indicatorStyleInputs()`,
+    // generated per plot (colour, opacity, thickness, line style) so every
+    // indicator gets the same controls without declaring them.
+    function renderSettingsTab() {
+      const inst = settingsFor;
+      if (!inst) return;
+      const descriptor = getIndicator(inst.indicatorId);
+      const current = inst.settings();
+      const inputs = settingsTab === 'style' ? indicatorStyleInputs(descriptor) : descriptor.inputs;
+      const body = el('set-body');
+      body.innerHTML = '';
+      let group = null;
+      for (const input of inputs) {
+        if (input.group && input.group !== group) {
+          group = input.group;
+          const h = document.createElement('div');
+          h.className = 'set-group';
+          h.textContent = group;
+          body.appendChild(h);
+        }
+        const row = document.createElement('div');
+        row.className = 'set-row';
+        const label = document.createElement('label');
+        label.textContent = input.label;
+        label.htmlFor = 'set_' + input.key;
+        let field;
+        if (input.type === 'select' || input.type === 'source') {
+          field = document.createElement('select');
+          const options = input.type === 'source' ? INDICATOR_SOURCES : input.options;
+          for (const o of options) {
+            const opt = document.createElement('option');
+            opt.value = o.value; opt.textContent = o.label;
+            field.appendChild(opt);
+          }
+          field.value = String(current[input.key]);
+        } else if (input.type === 'boolean') {
+          field = document.createElement('input');
+          field.type = 'checkbox';
+          field.checked = Boolean(current[input.key]);
+        } else {
+          field = document.createElement('input');
+          field.type = input.type === 'number' ? 'number' : input.type === 'color' ? 'color' : 'text';
+          if (input.type === 'number') {
+            if (input.min !== undefined) field.min = input.min;
+            if (input.max !== undefined) field.max = input.max;
+            if (input.step !== undefined) field.step = input.step;
+          }
+          field.value = String(current[input.key] ?? '');
+        }
+        field.id = 'set_' + input.key;
+        field.dataset.key = input.key;
+        field.dataset.kind = input.type;
+        row.append(label, field);
+        body.appendChild(row);
+      }
+    }
+
+    function collectSettings() {
+      if (!settingsFor) return;
+      const patch = {};
+      for (const field of el('set-body').querySelectorAll('[data-key]')) {
+        const { key, kind } = field.dataset;
+        patch[key] = kind === 'number' ? Number(field.value)
+          : kind === 'boolean' ? field.checked
+          : field.value;
+      }
+      settingsFor.setSettings(patch);                       // recomputes + restyles
+      const spec = activeIndicators.find((s) => s.indicatorId === settingsFor.indicatorId);
+      if (spec) spec.settings = settingsFor.settings();      // survives a chart rebuild
+    }
+
+    function applySettings() {
+      if (!settingsFor) return;
+      const name = settingsFor.name;
+      collectSettings();
+      renderIndicatorChips();
+      el('status').textContent = `${name} updated`;
+      closeSettings();
+    }
+
+    function closeSettings() {
+      el('setmodal').hidden = true;
+      settingsFor = null;
+      settingsTab = 'inputs';
+      for (const t of document.querySelectorAll('.set-tab')) t.classList.toggle('is-on', t.dataset.tab === 'inputs');
+    }
+
     // (Re)build the chart for the currently selected type using cached bars.
     function render() {
       if (chart) chart.destroy();
@@ -538,38 +971,69 @@
         priceAxisWidth: 72, // free crosshair (follows pointer)
         grid: { vertLines: el('vgrid').checked, horzLines: el('hgrid').checked },
       });
-      // OpenAlgo brand watermark (on-canvas, captured by screenshots).
-      chart.addPrimitive(new LogoWatermark({ src: '/examples/openalgo-logo.svg', height: 30, opacity: 0.9, position: 'bottom-left' }));
 
-      const type = el('ctype').value;
+      // Row 0 of the price pane: symbol + interval + the O/H/L/C/V readout.
+      // Added BEFORE any indicator so their legends stack beneath it
+      // (`legendRowsOn` counts what is already there).
+      symbolLegend = new PaneLegend({ id: 'symbol', title: '', params: '', row: 0, actions: [] });
+      chart.addPrimitive(symbolLegend, 0);
+
+      const sel = el('ctype').value;
+      const isTransform = sel.startsWith('t:');
+      el('pfmode').hidden = sel !== 't:point-figure';
+
+      // Family-B transforms replace the plotted series with derived elements, so
+      // the volume pane and trading overlay are hidden for them (a Renko brick or
+      // a P&F column has no single source bar to hang volume off).
+      const { type, data } = isTransform
+        ? applyTransform(sel.slice(2), currentBars)
+        : { type: sel, data: currentBars };
+
       const style = {};
       if (type === 'baseline') {
         const avg = currentBars.reduce((s, b) => s + b.close, 0) / (currentBars.length || 1);
         style.baseValue = avg;
       }
       price = chart.addSeries(type, { style }); // first series -> drives the OHLC legend
-      volume = chart.addSeries('histogram', { paneIndex: 1, style: { color: '#33415e' } });
-      price.setData(currentBars);
-      volume.setData(currentBars.map((b) => ({ time: b.time, open: 0, high: b.volume, low: 0, close: b.volume })));
-      markersApi = price.createMarkers(); // executed-fill arrows
-      markersApi.setMarkers(fills);
-
-      // Supertrend(10, 3) overlay - green uptrend / red downtrend (openalgo.ta.supertrend).
-      if (el('st').checked) {
-        const { up, down } = supertrendSeries(currentBars, 10, 3);
-        chart.addSeries('line', { style: { color: UP, lineWidth: 2 } }).setData(up);
-        chart.addSeries('line', { style: { color: DOWN, lineWidth: 2 } }).setData(down);
+      price.setData(data);
+      if (!isTransform) {
+        // Volume rides an OVERLAY price scale inside the price pane
+        // (priceScaleId: '') rather than a pane of its own: it autoscales
+        // independently but draws no axis, so the right-hand column stays a
+        // clean price ladder instead of stacking a second numeric scale. The
+        // 82% top margin pins the bars to the bottom fifth, and the `volume`
+        // price format renders 200M rather than 200000000.
+        volume = chart.addSeries('histogram', {
+          paneIndex: 0,
+          priceScaleId: '',
+          style: { color: '#33415e', base: 0 },
+          priceFormat: { type: 'volume' },
+        });
+        volume.priceScale().setOptions({ marginTop: 0.82, marginBottom: 0 });
+        volume.setData(currentBars.map((b) => ({ time: b.time, open: 0, high: b.volume, low: 0, close: b.volume })));
+        volLegend = new PaneLegend({ id: 'volume', title: 'Vol', params: '', actions: [] });
+        chart.addPrimitive(volLegend, 0);
+        markersApi = price.createMarkers(); // executed-fill arrows
+        markersApi.setMarkers(fills);
+      } else {
+        volume = null;
+        markersApi = null; // the old handle belongs to the destroyed chart
+        volLegend = null;  // transforms have no per-bar volume to report
       }
 
-      // RSI(14) in its own bottom pane with 70/30 guides + 50 midline (openalgo.ta.rsi).
-      if (el('rsi').checked) {
-        const rsiPane = 2;
-        chart.addSeries('line', { paneIndex: rsiPane, style: { color: '#e0b020', lineWidth: 1.5 } })
-          .setData(rsiSeries(currentBars, 14));
-        chart.addPriceLine({ price: 70, color: DOWN, lineWidth: 1, dashed: true, id: 'rsi-70', label: '70' }, rsiPane);
-        chart.addPriceLine({ price: 30, color: UP, lineWidth: 1, dashed: true, id: 'rsi-30', label: '30' }, rsiPane);
-        chart.addPriceLine({ price: 50, color: '#5a6072', lineWidth: 1, dashed: true, id: 'rsi-50', label: '50' }, rsiPane);
+      // Indicators come from the lazy 'openalgo-charts/indicators' tier. The chart
+      // owns the whole lifecycle: it creates one series per plot, picks the pane,
+      // draws declared reference levels (RSI 70/30), pins a declared fixed range
+      // (RSI 0..100), and recomputes on every data change.
+      if (!isTransform) {
+        for (const spec of activeIndicators) {
+          try { chart.addIndicator(spec.indicatorId, spec.settings); }
+          catch (e) { console.warn('indicator', spec.indicatorId, e.message); }
+        }
       }
+      renderIndicatorChips();
+      placeWatermark();
+      attachDrawing();
 
       // Chart trading: one drag handler routes both - drag a bracket leg -> move
       // that leg; drag a resting order line -> re-price that order. Both are redrawn
@@ -594,6 +1058,18 @@
         attachBracketLines(); updateBracket();
       }
 
+      // The gear on a pane legend has no built-in dialog (the engine ships no
+      // DOM), so it emits and we render the generated form.
+      chart.on('indicatorSettings', ({ instanceId }) => openSettings(instanceId));
+      // The ✕ / trash on a legend removes the indicator inside the chart, so
+      // mirror that into our own spec list and refresh the chips.
+      chart.on('indicatorRemoved', ({ indicatorId }) => {
+        activeIndicators = activeIndicators.filter((s) => s.indicatorId !== indicatorId);
+        renderIndicatorChips();
+      });
+      // Any change to the pane stack moves which pane is the bottom one.
+      for (const ev of ['paneRemoved', 'paneMoved']) chart.on(ev, placeWatermark);
+
       // OHLC legend tracks the crosshair. The position P&L does NOT - it marks to
       // the LTP (the latest close here; with a live feed, update it on each tick).
       chart.subscribeCrosshairMove((e) => setLegend(e.bar ?? currentBars[currentBars.length - 1]));
@@ -613,6 +1089,23 @@
         removeBracket(); removeAllOrders(); clearPosition(); // detach old chart's lines + reset vars
         restoreState(req.symbol);                            // repopulate this symbol's saved orders/bracket/position
         render();
+        // Re-apply the saved layout now the series exists — a logical viewport
+        // means nothing on an empty chart, and the drawing controller reads its
+        // model back out of the restored state.
+        try {
+          const raw = localStorage.getItem(LAYOUT_KEY);
+          if (raw) {
+            const saved = JSON.parse(raw);
+            activeIndicators = (saved.indicators || []).map((i) => ({ indicatorId: i.indicatorId, settings: i.settings }));
+            chart.restoreState(saved);
+            if (draw) draw.fromJSON(saved.drawings || []);
+            renderIndicatorChips();
+            placeWatermark();
+          }
+        } catch (e) {
+          // A silent catch here hid a real restore failure once; say so.
+          console.warn('[demo] layout restore failed:', e);
+        }
         status.textContent = `${req.symbol} · ${bars.length} bars · ${req.interval}/${req.period}`;
       } catch (e) {
         status.textContent = 'error: ' + e.message;
@@ -672,12 +1165,798 @@
       a.href = chart.takeScreenshot().toDataURL('image/png');
       a.click();
     });
-    // switching chart type / toggling indicators re-renders cached bars (no network round-trip)
-    ['ctype', 'st', 'rsi'].forEach((id) => el(id).addEventListener('change', () => { if (currentBars.length) render(); }));
+    // switching chart type / P&F box mode re-renders cached bars (no network round-trip)
+    ['ctype', 'pfmode'].forEach((id) => el(id).addEventListener('change', () => { if (currentBars.length) render(); }));
     // toggle grid lines live (no rebuild needed)
     const applyGrid = () => chart && chart.setGridOptions({ vertLines: el('vgrid').checked, horzLines: el('hgrid').checked });
     el('vgrid').addEventListener('change', applyGrid);
     el('hgrid').addEventListener('change', applyGrid);
+
+    // Add an indicator live — no chart rebuild, no refetch. The handle it returns
+    // is what a settings dialog or an objects panel would drive.
+    el('indadd').addEventListener('click', () => {
+      const id = el('indpick').value;
+      if (!chart || !currentBars.length) return;
+      if (activeIndicators.some((s) => s.indicatorId === id)) { el('status').textContent = `${id} already added`; return; }
+      const inst = chart.addIndicator(id);
+      activeIndicators.push({ indicatorId: id, settings: inst.settings() });
+      renderIndicatorChips();
+      placeWatermark(); // a new pane may now be the bottom one
+      autosave();
+      el('status').textContent = `added ${inst.name} on pane ${inst.paneIndex}`;
+    });
+
+    // ── layout persistence ─────────────────────────────────────────────────
+    // getState() captures the viewport, grid, panes, price scales and indicator
+    // instances. It deliberately does NOT capture series data — that is the
+    // app's (it knows the symbol and feed) — so restore reports the series
+    // descriptors back and we rebuild them from the cached bars.
+    el('lsave').addEventListener('click', () => {
+      if (!chart) return;
+      localStorage.setItem(LAYOUT_KEY, JSON.stringify(chart.getState()));
+      el('status').textContent = `layout saved · ${chart.indicators().length} indicator(s)`;
+    });
+    el('lload').addEventListener('click', () => {
+      const raw = localStorage.getItem(LAYOUT_KEY);
+      if (!chart || !raw) { el('status').textContent = 'no saved layout'; return; }
+      const state = JSON.parse(raw);
+      // Mirror the restored indicators into our own spec list so a later chart
+      // rebuild (type switch / reload) keeps them.
+      activeIndicators = (state.indicators || []).map((i) => ({ indicatorId: i.indicatorId, settings: i.settings }));
+      const report = chart.restoreState(state);
+      if (!report.applied) { el('status').textContent = 'restore failed: ' + report.reason; return; }
+      renderIndicatorChips();
+      el('status').textContent = `layout restored · ${report.indicators} indicator(s) · ${report.series.length} series descriptor(s)`;
+    });
+
+    for (const tab of document.querySelectorAll('.set-tab')) {
+      tab.addEventListener('click', () => {
+        if (!settingsFor) return;
+        collectSettings();                       // keep edits made on this tab
+        settingsTab = tab.dataset.tab;
+        for (const t of document.querySelectorAll('.set-tab')) t.classList.toggle('is-on', t === tab);
+        renderSettingsTab();
+      });
+    }
+    el('set-ok').addEventListener('click', applySettings);
+    el('set-x').addEventListener('click', closeSettings);
+    el('set-reset').addEventListener('click', () => {
+      if (!settingsFor) return;
+      const d = getIndicator(settingsFor.indicatorId);
+      const defaults = {};
+      for (const i of d.inputs) defaults[i.key] = i.default;
+      settingsFor.setSettings(defaults);
+      const spec = activeIndicators.find((s) => s.indicatorId === settingsFor.indicatorId);
+      if (spec) spec.settings = settingsFor.settings();
+      renderIndicatorChips();
+      closeSettings();
+    });
+    el('setmodal').addEventListener('click', (e) => { if (e.target.id === 'setmodal') closeSettings(); });
+    window.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSettings(); });
+
+
+
+    // ══ toolbar shell ══════════════════════════════════════════════════════
+    // Buttons and popup menus rather than native <select>s: a select cannot show
+    // an icon per row, cannot group, and looks like a form control on a chart.
+    // The old fields still exist (hidden) so every existing handler keeps working
+    // — the shell just drives them.
+    const TOOLBAR_ICON = {
+      search: '<circle cx="9" cy="9" r="5.5"/><path d="M13 13l4 4"/>',
+      candles: '<path d="M6 4v12M6 6h0"/><rect x="4" y="6" width="4" height="7"/><path d="M14 3v14"/><rect x="12" y="6" width="4" height="8"/>',
+      bars: '<path d="M6 4v12M6 7h3M3 10h3"/><path d="M14 4v12M14 7h3M11 10h3"/>',
+      line: '<path d="M3 14l4-5 4 3 6-8"/>',
+      area: '<path d="M3 15l4-5 4 3 6-8v10z"/>',
+      baseline: '<path d="M3 10h14"/><path d="M3 13l4-5 4 3 6-6"/>',
+      renko: '<rect x="3" y="10" width="4" height="5"/><rect x="8" y="6" width="4" height="5"/><rect x="13" y="3" width="4" height="5"/>',
+      pnf: '<path d="M3 4l4 4M7 4l-4 4"/><circle cx="10" cy="12" r="2"/><path d="M14 4l4 4M18 4l-4 4"/>',
+      indicators: '<path d="M3 15l3-6 3 3 3-7 3 5 2-2"/>',
+      save: '<path d="M4 4h9l3 3v9H4z"/><path d="M7 4v4h6V4M7 16v-5h6v5"/>',
+      restore: '<path d="M4 10a6 6 0 1 1 2 4.5"/><path d="M3 6v4h4"/>',
+      camera: '<rect x="3" y="6" width="14" height="10" rx="2"/><circle cx="10" cy="11" r="3"/><path d="M7 6l1.5-2h3L13 6"/>',
+      fit: '<path d="M4 8V4h4M16 8V4h-4M4 12v4h4M16 12v4h-4"/>',
+      grid: '<path d="M3 8h14M3 12h14M8 3v14M12 3v14"/>',
+      magnet: '<path d="M6 4v6a4 4 0 008 0V4"/><path d="M6 4h3v6M11 4h3v6"/>',
+      chevron: '<path d="M6 8l4 4 4-4"/>',
+    };
+    const ticon = (k) => '<svg viewBox="0 0 20 20">' + (TOOLBAR_ICON[k] || '') + '</svg>';
+
+    const CHART_TYPES = [
+      { group: 'Time-indexed' },
+      { v: 'candlestick', label: 'Candles', icon: 'candles' },
+      { v: 'hollow-candle', label: 'Hollow candles', icon: 'candles' },
+      { v: 'bar', label: 'Bars (OHLC)', icon: 'bars' },
+      { v: 'high-low', label: 'High-Low', icon: 'bars' },
+      { v: 'volume-candle', label: 'Volume candles', icon: 'candles' },
+      { v: 'line', label: 'Line', icon: 'line' },
+      { v: 'line-markers', label: 'Line + markers', icon: 'line' },
+      { v: 'step', label: 'Step line', icon: 'line' },
+      { v: 'area', label: 'Area', icon: 'area' },
+      { v: 'hlc-area', label: 'HLC area', icon: 'area' },
+      { v: 'baseline', label: 'Baseline', icon: 'baseline' },
+      { group: 'Transforms' },
+      { v: 't:heikin-ashi', label: 'Heikin Ashi', icon: 'candles' },
+      { v: 't:renko', label: 'Renko', icon: 'renko' },
+      { v: 't:range', label: 'Range bars', icon: 'renko' },
+      { v: 't:line-break', label: 'Line break', icon: 'renko' },
+      { v: 't:point-figure', label: 'Point & Figure', icon: 'pnf' },
+      { v: 't:kagi', label: 'Kagi', icon: 'line' },
+    ];
+    const INTERVALS = ['5m', '15m', '30m', '1h', '1d', '1wk'];
+    const PERIODS = ['1mo', '6mo', '1y', '5y', 'max'];
+
+    /** One popup menu at a time, anchored under its button. */
+    let openMenu = null;
+    function popupMenu(anchor, rows) {
+      closeMenu();
+      const m = document.createElement('div');
+      m.className = 'menu';
+      for (const r of rows) {
+        if (r.group) {
+          const g = document.createElement('div');
+          g.className = 'menu-group';
+          g.textContent = r.group;
+          m.appendChild(g);
+          continue;
+        }
+        const b = document.createElement('button');
+        b.innerHTML = (r.icon ? ticon(r.icon) : '<span style="width:20px"></span>') +
+          '<span>' + esc(r.label) + '</span>' + (r.on ? '<em>&#10003;</em>' : '');
+        b.addEventListener('click', () => { closeMenu(); r.onSelect(); });
+        m.appendChild(b);
+      }
+      document.body.appendChild(m);
+      const r = anchor.getBoundingClientRect();
+      m.style.left = Math.min(r.left, window.innerWidth - m.offsetWidth - 8) + 'px';
+      m.style.top = (r.bottom + 4) + 'px';
+      openMenu = m;
+    }
+    function closeMenu() { if (openMenu) { openMenu.remove(); openMenu = null; } }
+    window.addEventListener('pointerdown', (e) => {
+      if (openMenu && !openMenu.contains(e.target) && !e.target.closest('.tbtn')) closeMenu();
+    }, true);
+
+    const chartTypeLabel = (v) => (CHART_TYPES.find((t) => t.v === v) || { label: 'Candles' }).label;
+    const chartTypeIcon = (v) => (CHART_TYPES.find((t) => t.v === v) || { icon: 'candles' }).icon;
+
+    /** Rebuild the top toolbar from the current state of the hidden controls. */
+    function renderToolbar() {
+      const bar = el('shellbar');
+      const ctype = el('ctype').value;
+      bar.innerHTML = '';
+
+      const brand = document.createElement('div');
+      brand.className = 'brand';
+      brand.innerHTML = '<span class="brand-dot"></span> OpenAlgo <em>yfinance</em>';
+      bar.appendChild(brand);
+      bar.appendChild(divider());
+
+      // symbol
+      const sym = tbtn(ticon('search') + '<b>' + esc((el('symbol').value || '').toUpperCase()) + '</b>', 'Change symbol');
+      sym.addEventListener('click', () => {
+        const box = el('symbol');
+        box.classList.add('is-live');
+        box.focus();
+        box.select();
+      });
+      bar.appendChild(sym);
+      bar.appendChild(divider());
+
+      // interval pills
+      const ig = document.createElement('div');
+      ig.className = 'pills';
+      for (const iv of INTERVALS) {
+        const b = document.createElement('button');
+        b.textContent = iv.toUpperCase();
+        b.className = el('interval').value === iv ? 'is-on' : '';
+        b.addEventListener('click', () => { el('interval').value = iv; load(); renderToolbar(); });
+        ig.appendChild(b);
+      }
+      bar.appendChild(ig);
+
+      // range menu
+      const range = tbtn('<span>' + esc(el('period').value) + '</span>' + ticon('chevron'), 'History range');
+      range.addEventListener('click', () => popupMenu(range, PERIODS.map((p) => ({
+        label: p, on: p === el('period').value,
+        onSelect: () => { el('period').value = p; load(); renderToolbar(); },
+      }))));
+      bar.appendChild(range);
+      bar.appendChild(divider());
+
+      // chart type menu
+      const ct = tbtn(ticon(chartTypeIcon(ctype)) + '<span>' + esc(chartTypeLabel(ctype)) + '</span>' + ticon('chevron'), 'Chart type');
+      ct.addEventListener('click', () => popupMenu(ct, CHART_TYPES.map((t) => (t.group ? { group: t.group } : {
+        label: t.label, icon: t.icon, on: t.v === ctype,
+        onSelect: () => { el('ctype').value = t.v; el('ctype').dispatchEvent(new Event('change')); renderToolbar(); },
+      }))));
+      bar.appendChild(ct);
+
+      // P&F box mode, only when it applies
+      if (ctype === 't:point-figure') {
+        const pf = tbtn('<span>' + esc(el('pfmode').selectedOptions[0].textContent) + '</span>' + ticon('chevron'), 'P&F box sizing');
+        pf.addEventListener('click', () => popupMenu(pf, [...el('pfmode').options].map((o) => ({
+          label: o.textContent, on: o.selected,
+          onSelect: () => { el('pfmode').value = o.value; el('pfmode').dispatchEvent(new Event('change')); renderToolbar(); },
+        }))));
+        bar.appendChild(pf);
+      }
+
+      // indicators
+      const ind = tbtn(ticon('indicators') + '<span>Indicators</span>', 'Add an indicator');
+      ind.addEventListener('click', () => {
+        const rows = [];
+        let group = null;
+        for (const o of el('indpick').options) {
+          const g = o.parentElement.label;
+          if (g && g !== group) { group = g; rows.push({ group: g }); }
+          rows.push({
+            label: o.textContent,
+            onSelect: () => { el('indpick').value = o.value; el('indadd').click(); },
+          });
+        }
+        popupMenu(ind, rows);
+      });
+      bar.appendChild(ind);
+      bar.appendChild(divider());
+
+      // view + layout icons
+      bar.appendChild(iconBtn('fit', 'Reset view', () => chart && chart.resetScale()));
+      bar.appendChild(iconBtn('grid', 'Grid', () => {
+        const v = el('vgrid'), h = el('hgrid');
+        popupMenu(bar.lastChild, [
+          { label: 'Both', on: v.checked && h.checked, onSelect: () => { v.checked = h.checked = true; v.dispatchEvent(new Event('change')); h.dispatchEvent(new Event('change')); } },
+          { label: 'Horizontal', on: !v.checked && h.checked, onSelect: () => { v.checked = false; h.checked = true; v.dispatchEvent(new Event('change')); h.dispatchEvent(new Event('change')); } },
+          { label: 'Vertical', on: v.checked && !h.checked, onSelect: () => { v.checked = true; h.checked = false; v.dispatchEvent(new Event('change')); h.dispatchEvent(new Event('change')); } },
+          { label: 'None', on: !v.checked && !h.checked, onSelect: () => { v.checked = h.checked = false; v.dispatchEvent(new Event('change')); h.dispatchEvent(new Event('change')); } },
+        ]);
+      }));
+      const mg = iconBtn('magnet', 'Magnet: snap drawings to O/H/L/C', () => {
+        const box = el('magnet');
+        box.checked = !box.checked;
+        box.dispatchEvent(new Event('change'));
+        renderToolbar();
+      });
+      if (el('magnet').checked) mg.classList.add('is-on');
+      bar.appendChild(mg);
+      bar.appendChild(iconBtn('camera', 'Save PNG', () => el('save').click()));
+      bar.appendChild(divider());
+      bar.appendChild(iconBtn('save', 'Save layout', () => el('lsave').click()));
+      bar.appendChild(iconBtn('restore', 'Restore layout', () => el('lload').click()));
+
+      const status = document.createElement('div');
+      status.className = 'status';
+      status.innerHTML = '<span class="status-dot"></span>';
+      const s = el('status');
+      s.parentElement && s.parentElement.removeChild(s);
+      status.appendChild(s);
+      bar.appendChild(status);
+    }
+
+    function tbtn(html, title) {
+      const b = document.createElement('button');
+      b.className = 'tbtn';
+      b.innerHTML = html;
+      b.title = title;
+      return b;
+    }
+    function iconBtn(icon, title, onClick) {
+      const b = tbtn(ticon(icon), title);
+      b.classList.add('tbtn--icon');
+      b.addEventListener('click', onClick);
+      return b;
+    }
+    function divider() {
+      const d = document.createElement('span');
+      d.className = 'divider';
+      return d;
+    }
+
+    // ══ drawing UI: left tool rail + floating tool widget ═══════════════════
+    // All of this is HOST ui — the engine draws on canvas and ships no DOM, so a
+    // toolbar and a properties bar belong here (and, later, in a UI package).
+    // Everything routes through the controller's public API.
+    const ICON = {
+      cursor: '<path d="M4 2l7 16 2.2-6.2L19 9.6z"/>',
+      trend: '<path d="M3 15L15 4"/><circle cx="3" cy="15" r="1.6"/><circle cx="15" cy="4" r="1.6"/>',
+      hline: '<path d="M2 10h16"/><circle cx="6" cy="10" r="1.6"/>',
+      vline: '<path d="M10 2v16"/><circle cx="10" cy="6" r="1.6"/>',
+      rect: '<rect x="3" y="5" width="14" height="10" rx="1"/>',
+      ellipse: '<ellipse cx="10" cy="10" rx="7" ry="5"/>',
+      channel: '<path d="M3 13L15 4M5 17L17 8"/>',
+      fib: '<path d="M3 4h14M3 8h14M3 12h14M3 16h14"/>',
+      position: '<rect x="3" y="4" width="14" height="5" rx="1"/><rect x="3" y="11" width="14" height="5" rx="1"/>',
+      measure: '<path d="M3 12l6-6 8 8"/><path d="M3 12h4M3 12v-4"/>',
+      text: '<path d="M4 5h12M10 5v11"/>',
+      arrow: '<path d="M4 16L15 5M15 5h-5M15 5v5"/>',
+      path: '<path d="M3 14c3-8 6 4 9-3s4 2 5 1"/>',
+      trash: '<path d="M3 5h14M7 5V3h6v2M5 5l1 12h8l1-12"/>',
+      lock: '<rect x="4" y="9" width="12" height="8" rx="1.5"/><path d="M7 9V6a3 3 0 016 0v3"/>',
+      unlock: '<rect x="4" y="9" width="12" height="8" rx="1.5"/><path d="M7 9V6a3 3 0 015.7-1.3"/>',
+      clone: '<rect x="6" y="6" width="10" height="10" rx="1.5"/><path d="M4 12V4h8"/>',
+    };
+    const svgIcon = (k) => '<svg viewBox="0 0 20 20">' + (ICON[k] || '') + '</svg>';
+
+    // Rail groups. A group with several tools cycles them on repeat clicks, so a
+    // family of 4 line tools stays one button instead of four.
+    const RAIL = [
+      { icon: 'cursor', title: 'Cursor (Esc)', tools: [] },
+      { sep: true },
+      { icon: 'trend', title: 'Lines: trend / ray / extended / arrow', tools: ['trend-line', 'ray', 'extended-line', 'arrow'] },
+      { icon: 'hline', title: 'Horizontal line / ray', tools: ['horizontal-line', 'horizontal-ray'] },
+      { icon: 'vline', title: 'Vertical / cross line', tools: ['vertical-line', 'cross-line'] },
+      { sep: true },
+      { icon: 'rect', title: 'Rectangle', tools: ['rectangle'] },
+      { icon: 'ellipse', title: 'Ellipse', tools: ['ellipse'] },
+      { icon: 'channel', title: 'Parallel channel', tools: ['parallel-channel'] },
+      { sep: true },
+      { icon: 'fib', title: 'Fib retracement / extension', tools: ['fib-retracement', 'fib-extension'] },
+      { icon: 'position', title: 'Long / short position', tools: ['long-position', 'short-position'] },
+      { icon: 'measure', title: 'Measure', tools: ['measure'] },
+      { sep: true },
+      { icon: 'text', title: 'Text', tools: ['text'] },
+      { icon: 'path', title: 'Path', tools: ['path'] },
+      { sep: true },
+      { icon: 'trash', title: 'Remove all drawings', action: 'clear' },
+    ];
+
+    function buildRail() {
+      const rail = el('rail');
+      rail.innerHTML = '';
+      for (const g of RAIL) {
+        if (g.sep) {
+          const sp = document.createElement('div');
+          sp.className = 'sep';
+          rail.appendChild(sp);
+          continue;
+        }
+        const b = document.createElement('button');
+        b.innerHTML = svgIcon(g.icon);
+        b.title = g.title;
+        b.dataset.tools = (g.tools || []).join(',');
+        b.addEventListener('click', () => {
+          if (!draw) return;
+          if (g.action === 'clear') { draw.clear(); return; }
+          const list = g.tools;
+          if (list.length === 0) { draw.setTool(null); return; }
+          const at = list.indexOf(draw.activeTool());
+          draw.setTool(list[(at + 1) % list.length]);
+        });
+        rail.appendChild(b);
+      }
+    }
+
+    function syncRail(tool) {
+      for (const b of el('rail').querySelectorAll('button')) {
+        const tools = (b.dataset.tools || '').split(',').filter(Boolean);
+        b.classList.toggle('is-on', tool === null ? tools.length === 0 : tools.indexOf(tool) >= 0);
+      }
+      el('drawtool').value = tool || '';
+    }
+
+    // ── the floating tool widget ───────────────────────────────────────────
+    const SWATCHES = [
+      '#ffffff', '#d1d4dc', '#b2b5be', '#9598a1', '#787b86', '#5d606b', '#434651', '#2a2e39', '#1e222d', '#000000',
+      '#f23645', '#ff9800', '#ffe100', '#4caf50', '#089981', '#00bcd4', '#2962ff', '#673ab7', '#9c27b0', '#e91e63',
+      '#fccbcd', '#ffe0b2', '#fff9c4', '#c8e6c9', '#b2dfdb', '#b2ebf2', '#bbdefb', '#d1c4e9', '#e1bee7', '#f8bbd0',
+      '#faa1a4', '#ffcc80', '#fff176', '#a5d6a7', '#80cbc4', '#80deea', '#90caf9', '#b39ddb', '#ce93d8', '#f48fb1',
+      '#f77c80', '#ffb74d', '#ffee58', '#81c784', '#4db6ac', '#4dd0e1', '#64b5f6', '#9575cd', '#ba68c8', '#f06292',
+      '#b22833', '#e65100', '#fbc02d', '#388e3c', '#00695c', '#0097a7', '#1565c0', '#4527a0', '#6a1b9a', '#ad1457',
+    ];
+    let widgetFor = null;   // id of the drawing the widget edits
+    let widgetPos = null;   // set once the user drags the widget
+
+    const drawingOf = (id) => (draw ? draw.get(id) : undefined);
+
+    function showWidget(id) {
+      const d = drawingOf(id);
+      const w = el('toolwidget');
+      if (!d) { w.hidden = true; widgetFor = null; hideColorPop(); return; }
+      widgetFor = id;
+      const style = d.style || {};
+      const isText = d.tool === 'text';
+      w.innerHTML = '';
+
+      const grip = document.createElement('span');
+      grip.className = 'grip';
+      grip.textContent = '⠿';
+      grip.title = 'Drag to move';
+      w.appendChild(grip);
+      startWidgetDrag(grip);
+
+      const button = (html, title, onClick, cls) => {
+        const b = document.createElement('button');
+        b.innerHTML = html;
+        b.title = title;
+        if (cls) b.className = cls;
+        if (onClick) b.addEventListener('click', onClick);
+        w.appendChild(b);
+        return b;
+      };
+
+      // Colour swatch opens the grid + opacity popover.
+      const sw = document.createElement('button');
+      sw.title = 'Colour and opacity';
+      sw.innerHTML = '<span class="swatch" style="background:' + esc(style.color || '#2962ff') + '"></span>';
+      sw.addEventListener('click', (e) => { e.stopPropagation(); toggleColorPop(); });
+      w.appendChild(sw);
+
+      if (isText) {
+        const sizes = [10, 12, 13, 16, 20, 28, 40];
+        const fs = document.createElement('button');
+        fs.className = 'wbtn';
+        fs.title = 'Font size';
+        fs.textContent = String(style.fontSize || 13);
+        fs.addEventListener('click', () => {
+          const next = sizes[(sizes.indexOf(style.fontSize || 13) + 1) % sizes.length];
+          draw.update(id, { style: { fontSize: next } });
+          showWidget(id);
+        });
+        w.appendChild(fs);
+        button(svgIcon('text'), 'Text settings', () => openTextDialog(id));
+      } else {
+        const steps = [1, 1.5, 2, 3, 4];
+        const th = document.createElement('button');
+        th.className = 'wbtn';
+        th.title = 'Thickness';
+        th.textContent = (style.lineWidth || 1.5) + 'px';
+        th.addEventListener('click', () => {
+          const next = steps[(steps.indexOf(style.lineWidth || 1.5) + 1) % steps.length];
+          draw.update(id, { style: { lineWidth: next } });
+          showWidget(id);
+        });
+        w.appendChild(th);
+
+        const order = ['solid', 'dashed', 'dotted'];
+        const cur = style.lineStyle || 'solid';
+        const ls = document.createElement('button');
+        ls.className = 'wbtn';
+        ls.title = 'Line style';
+        ls.textContent = cur === 'solid' ? '——' : cur === 'dashed' ? '- -' : '···';
+        ls.addEventListener('click', () => {
+          draw.update(id, { style: { lineStyle: order[(order.indexOf(cur) + 1) % 3] } });
+          showWidget(id);
+        });
+        w.appendChild(ls);
+      }
+
+      const vs = document.createElement('span');
+      vs.className = 'vsep';
+      w.appendChild(vs);
+
+      button(svgIcon(d.locked ? 'lock' : 'unlock'), d.locked ? 'Unlock' : 'Lock', () => {
+        draw.update(id, { locked: !d.locked });
+        showWidget(id);
+      });
+      button(svgIcon('clone'), 'Duplicate', () => {
+        const copy = draw.add({
+          tool: d.tool,
+          paneIndex: d.paneIndex,
+          style: Object.assign({}, d.style),
+          points: d.points.map((p) => ({ time: p.time, price: p.price })),
+        });
+        draw.select(copy.id);
+      });
+      button(svgIcon('trash'), 'Delete (Del)', () => { draw.remove(id); }, 'danger');
+
+      w.hidden = false;
+      positionWidget();
+    }
+
+    /**
+     * Inline text editing: an input floated over the drawing's anchor. A
+     * `prompt()` is blockable, steals focus, and cannot be styled — and the
+     * engine draws text on canvas, so there is no DOM node to contentEdit.
+     */
+    function editText(id) {
+      const d = drawingOf(id);
+      if (!d) return;
+      const stage = el('chart');
+      const p = d.points[0];
+      const x = chart.timeToCoordinate(p.time);
+      const y = chart.priceToCoordinate(p.price, d.paneIndex);
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = d.style.text || '';
+      input.className = 'textedit';
+      input.style.left = Math.max(46, (Number.isFinite(x) ? x : 60)) + 'px';
+      input.style.top = ((y == null || !Number.isFinite(y) ? 60 : y) - 12) + 'px';
+      input.style.fontSize = (d.style.fontSize || 13) + 'px';
+      input.style.color = d.style.color || '#d7dce8';
+      stage.parentElement.appendChild(input);
+      input.focus();
+      input.select();
+      const commit = (save) => {
+        if (save) draw.update(id, { style: { text: input.value } });
+        input.remove();
+        showWidget(id);
+      };
+      input.addEventListener('keydown', (e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') commit(true);
+        else if (e.key === 'Escape') commit(false);
+      });
+      input.addEventListener('blur', () => commit(true));
+    }
+
+
+    // ── text settings dialog ───────────────────────────────────────────────
+    // The engine draws text on canvas, so there is no DOM node to style — the
+    // dialog edits the drawing's style bag and the renderer picks it up.
+    const FONTS = [
+      { label: 'Default', value: '' },
+      { label: 'Sans', value: 'ui-sans-serif, system-ui, sans-serif' },
+      { label: 'Serif', value: 'ui-serif, Georgia, serif' },
+      { label: 'Mono', value: 'ui-monospace, SFMono-Regular, Menlo, monospace' },
+    ];
+    const FONT_SIZES = [10, 11, 12, 14, 16, 20, 24, 28, 32, 40, 48];
+    let textDlgFor = null;
+
+    function openTextDialog(id) {
+      const d = drawingOf(id);
+      if (!d) return;
+      textDlgFor = id;
+      const st = d.style || {};
+      const dlg = el('textdlg');
+      dlg.innerHTML =
+        '<div class="set-head"><span>Text</span><button id="td-x" title="Close">&times;</button></div>' +
+        '<div class="td-body">' +
+          '<div class="td-row">' +
+            '<input type="color" id="td-color" value="' + esc(st.color || '#d7dce8') + '" title="Font colour" />' +
+            '<select id="td-font" title="Font"></select>' +
+            '<select id="td-size" title="Size"></select>' +
+            '<button id="td-bold" class="td-tog" title="Bold"><b>B</b></button>' +
+            '<button id="td-italic" class="td-tog" title="Italic"><i>I</i></button>' +
+          '</div>' +
+          '<textarea id="td-text" rows="5" spellcheck="false"></textarea>' +
+          '<label class="td-check"><input type="checkbox" id="td-bg" /> <span>Background</span>' +
+            '<input type="color" id="td-bgc" title="Background colour" /></label>' +
+          '<label class="td-check"><input type="checkbox" id="td-bd" /> <span>Border</span>' +
+            '<input type="color" id="td-bdc" title="Border colour" /></label>' +
+          '<label class="td-check"><input type="checkbox" id="td-wrap" /> <span>Text wrap</span>' +
+            '<input type="number" id="td-wrapw" min="60" max="900" step="10" title="Wrap width (px)" /></label>' +
+        '</div>' +
+        '<div class="set-foot">' +
+          '<button id="td-cancel" class="btn btn--ghost">Cancel</button>' +
+          '<button id="td-ok" class="btn btn--primary">Ok</button>' +
+        '</div>';
+
+      const fontSel = el('td-font');
+      for (const f of FONTS) {
+        const o = document.createElement('option');
+        o.value = f.value; o.textContent = f.label;
+        fontSel.appendChild(o);
+      }
+      fontSel.value = st.fontFamily || '';
+
+      const sizeSel = el('td-size');
+      for (const s of FONT_SIZES) {
+        const o = document.createElement('option');
+        o.value = String(s); o.textContent = String(s);
+        sizeSel.appendChild(o);
+      }
+      sizeSel.value = String(st.fontSize || 14);
+
+      el('td-text').value = st.text || '';
+      el('td-bold').classList.toggle('is-on', st.fontWeight === 'bold');
+      el('td-italic').classList.toggle('is-on', st.fontStyle === 'italic');
+      el('td-bg').checked = st.background === true;
+      el('td-bgc').value = st.backgroundColor || '#1e222d';
+      el('td-bd').checked = st.border === true;
+      el('td-bdc').value = st.borderColor || (st.color || '#d7dce8');
+      el('td-wrap').checked = st.wrap === true;
+      el('td-wrapw').value = String(st.wrapWidth || 220);
+
+      // Live preview: every control applies immediately, Cancel reverts.
+      const before = Object.assign({}, st);
+      const apply = () => {
+        draw.update(textDlgFor, {
+          style: {
+            color: el('td-color').value,
+            fontFamily: el('td-font').value || undefined,
+            fontSize: Number(el('td-size').value),
+            fontWeight: el('td-bold').classList.contains('is-on') ? 'bold' : 'normal',
+            fontStyle: el('td-italic').classList.contains('is-on') ? 'italic' : 'normal',
+            text: el('td-text').value,
+            background: el('td-bg').checked,
+            backgroundColor: el('td-bgc').value,
+            border: el('td-bd').checked,
+            borderColor: el('td-bdc').value,
+            wrap: el('td-wrap').checked,
+            wrapWidth: Number(el('td-wrapw').value),
+          },
+        });
+      };
+      for (const idd of ['td-color', 'td-font', 'td-size', 'td-text', 'td-bg', 'td-bgc', 'td-bd', 'td-bdc', 'td-wrap', 'td-wrapw']) {
+        el(idd).addEventListener('input', apply);
+        el(idd).addEventListener('change', apply);
+      }
+      for (const idd of ['td-bold', 'td-italic']) {
+        el(idd).addEventListener('click', () => { el(idd).classList.toggle('is-on'); apply(); });
+      }
+      el('td-x').addEventListener('click', () => closeTextDialog(before));
+      el('td-cancel').addEventListener('click', () => closeTextDialog(before));
+      el('td-ok').addEventListener('click', () => { apply(); closeTextDialog(null); });
+
+      el('textmodal').hidden = false;
+      el('td-text').focus();
+    }
+
+    function closeTextDialog(revertTo) {
+      if (revertTo && textDlgFor) draw.update(textDlgFor, { style: revertTo });
+      el('textmodal').hidden = true;
+      textDlgFor = null;
+    }
+
+    /** Park the widget above the drawing — until the user drags it somewhere. */
+    function positionWidget() {
+      const w = el('toolwidget');
+      if (w.hidden) return;
+      const d = drawingOf(widgetFor);
+      if (!d) return;
+      if (widgetPos) {
+        w.style.left = widgetPos.x + 'px';
+        w.style.top = widgetPos.y + 'px';
+        return;
+      }
+      const stage = el('chart').getBoundingClientRect();
+      const xs = [];
+      const ys = [];
+      for (const p of d.points) {
+        const cx = chart.timeToCoordinate(p.time);
+        const cy = chart.priceToCoordinate(p.price, d.paneIndex);
+        if (Number.isFinite(cx)) xs.push(cx);
+        if (cy !== null && Number.isFinite(cy)) ys.push(cy);
+      }
+      const x = xs.length ? Math.min.apply(null, xs) : 60;
+      const y = ys.length ? Math.min.apply(null, ys) - 44 : 60;
+      w.style.left = Math.max(46, Math.min(stage.width - w.offsetWidth - 8, x)) + 'px';
+      w.style.top = Math.max(6, y) + 'px';
+    }
+
+    function startWidgetDrag(grip) {
+      grip.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        const w = el('toolwidget');
+        const start = { x: e.clientX, y: e.clientY, left: w.offsetLeft, top: w.offsetTop };
+        const move = (ev) => {
+          widgetPos = { x: start.left + (ev.clientX - start.x), y: start.top + (ev.clientY - start.y) };
+          positionWidget();
+          hideColorPop();
+        };
+        const up = () => {
+          window.removeEventListener('pointermove', move);
+          window.removeEventListener('pointerup', up);
+        };
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', up);
+      });
+    }
+
+    // ── colour + opacity popover ───────────────────────────────────────────
+    function toggleColorPop() {
+      const pop = el('colorpop');
+      if (!pop.hidden) { hideColorPop(); return; }
+      const d = drawingOf(widgetFor);
+      if (!d) return;
+      const cur = String((d.style && d.style.color) || '#2962ff').toLowerCase();
+      const opacity = Math.round(((d.style && d.style.fillOpacity) != null ? d.style.fillOpacity : 0.12) * 100);
+      pop.innerHTML =
+        '<div class="swgrid"></div>' +
+        '<span class="lbl">Opacity</span>' +
+        '<div class="poprow"><input type="range" id="popop" min="0" max="100" value="' + opacity + '" />' +
+        '<output id="popout">' + opacity + '%</output></div>';
+      const grid = pop.querySelector('.swgrid');
+      for (const c of SWATCHES) {
+        const b = document.createElement('button');
+        b.style.background = c;
+        b.title = c;
+        if (c === cur) b.classList.add('is-on');
+        b.addEventListener('click', () => {
+          draw.update(widgetFor, { style: { color: c, fillColor: c } });
+          showWidget(widgetFor);
+          hideColorPop();
+        });
+        grid.appendChild(b);
+      }
+      const range = pop.querySelector('#popop');
+      range.addEventListener('input', () => {
+        pop.querySelector('#popout').textContent = range.value + '%';
+        // Opacity drives the shape fill; the stroke keeps full strength, so a
+        // faint zone still reads as a zone.
+        const v = Number(range.value) / 100;
+        draw.update(widgetFor, { style: { fillOpacity: v, fill: v > 0 } });
+      });
+      const w = el('toolwidget');
+      pop.style.left = w.offsetLeft + 'px';
+      pop.style.top = (w.offsetTop + w.offsetHeight + 6) + 'px';
+      pop.hidden = false;
+    }
+
+    function hideColorPop() { el('colorpop').hidden = true; }
+
+    window.addEventListener('pointerdown', (e) => {
+      if (!el('colorpop').contains(e.target) && !el('toolwidget').contains(e.target)) hideColorPop();
+    });
+
+    // Persist the whole chart state (viewport, panes, indicators, drawings) on
+    // every change, so a refresh comes back exactly where it left off. Debounced
+    // because drags fire per frame.
+    let saveTimer = 0;
+    function autosave() {
+      if (!chart) return;
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => {
+        try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(chart.getState())); } catch (_) {}
+      }, 250);
+    }
+
+    // ── drawing tools ──────────────────────────────────────────────────────
+    // The controller is headless: it owns the model and the interactions, and
+    // this toolbar is just a host driving setTool / undo / remove. Drawings
+    // persist through chart.getState(), so Layout > Save keeps them.
+    let draw = null;
+    function attachDrawing() {
+      if (draw) draw.destroy();
+      draw = new DrawingController(chart, { magnet: el('magnet').checked });
+      chart.on('draw:tool', ({ tool }) => syncRail(tool));
+      chart.on('draw:add', ({ drawing }) => { el('status').textContent = `drew ${drawing.tool}`; });
+      // Selecting a drawing raises its properties bar; deselecting hides it.
+      chart.on('draw:select', ({ id }) => showWidget(id));
+      // Double-click a selected text drawing to edit it in place.
+      el('chart').addEventListener('dblclick', () => {
+        const id = draw && draw.selected();
+        const d = id ? draw.get(id) : null;
+        if (d && d.tool === 'text') openTextDialog(id);
+      });
+      chart.on('draw:remove', () => { showWidget(null); autosave(); });
+      chart.on('draw:update', () => { positionWidget(); autosave(); });
+      chart.on('draw:add', autosave);
+      for (const ev of ['paneResized', 'paneMoved', 'paneMaximized', 'paneRemoved', 'indicatorRemoved']) {
+        chart.on(ev, autosave);
+      }
+      // Keep the widget glued to its drawing while the chart moves under it.
+      for (const ev of ['viewport', 'resize']) chart.on(ev, positionWidget);
+      syncRail(draw.activeTool());
+    }
+
+    (function fillToolPicker() {
+      const sel = el('drawtool');
+      const none = document.createElement('option');
+      none.value = ''; none.textContent = 'Cursor';
+      sel.appendChild(none);
+      for (const t of BUILTIN_DRAWING_TOOLS) {
+        const o = document.createElement('option');
+        o.value = t.id; o.textContent = t.name;
+        sel.appendChild(o);
+      }
+    })();
+
+    el('drawtool').addEventListener('change', () => draw && draw.setTool(el('drawtool').value || null));
+    el('drawundo').addEventListener('click', () => draw && draw.undo());
+    el('drawredo').addEventListener('click', () => draw && draw.redo());
+    el('drawdel').addEventListener('click', () => {
+      const id = draw && draw.selected();
+      if (id) draw.remove(id);
+    });
+    el('drawclear').addEventListener('click', () => draw && draw.clear());
+    el('magnet').addEventListener('change', () => draw && draw.setOptions({ magnet: el('magnet').checked }));
+    // Keyboard: Delete removes the selection, Esc leaves the tool, Ctrl+Z / Y undo-redo.
+    window.addEventListener('keydown', (e) => {
+      if (!draw || /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+      if (e.key === 'Delete' || e.key === 'Backspace') { const id = draw.selected(); if (id) { draw.remove(id); e.preventDefault(); } }
+      else if (e.key === 'Escape') draw.setTool(null);
+      else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.shiftKey ? draw.redo() : draw.undo(); e.preventDefault(); }
+      else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { draw.redo(); e.preventDefault(); }
+    });
+
+    buildRail();
+    fillIndicatorPicker();
+    renderToolbar();
+    // The symbol box is a floating editor raised by the toolbar button.
+    el('symbol').addEventListener('blur', () => { el('symbol').classList.remove('is-live'); renderToolbar(); });
+    el('symbol').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === 'Escape') { el('symbol').classList.remove('is-live'); renderToolbar(); }
+    });
     load();
   </script>
 </body>

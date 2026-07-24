@@ -35,6 +35,19 @@ yfinance (Python)  ──►  server.py /api/history  ──►  YFinanceDataFee
   same broker-agnostic `DataFeed` interface the OpenAlgo adapter uses. Swapping
   data sources is just a different `getBars()`.
 
+## What the demo shows
+
+| Feature | Where |
+|---|---|
+| **18 built-in indicators** | The picker is built from `registeredIndicators()`, not a hardcoded list — anything registered shows up, grouped by category. Add/remove live, no refetch. |
+| **Pane legends** | Every source gets a row: swatch, name, params, and one reading per plot in its own colour. Hover a row for inline controls — show/hide, settings, move pane, maximize, delete. |
+| **Generated settings** | The gear opens a form built from the descriptor's `inputs`. The same code renders MACD, Bollinger, or your own indicator — nothing is indicator-specific. |
+| **Draggable panes** | Drag the boundary between panes (cursor turns `row-resize`) to redistribute height. |
+| **Transforms** | The chart-type dropdown has a *Transforms* group: Heikin Ashi, Renko, Range Bars, Line Break, Point & Figure, Kagi. P&F reveals its box-sizing mode (ATR / percent / fixed). |
+| **Layout save/restore** | `chart.getState()` → `localStorage` → `chart.restoreState()`, reporting how many indicators and series descriptors round-tripped. |
+| **Volume overlay** | Volume rides an overlay price scale (`priceScaleId: ''`) inside the price pane, pinned to the bottom fifth — so the right-hand axis stays a clean price ladder instead of stacking a second numeric scale. |
+| **Chart trading** | Right-click for single orders; Buy/Sell Bracket for entry + OCO target/stop. Drag any line to re-price it. |
+
 ## Notes
 
 - Intraday intervals (`1m`–`90m`, `1h`) are limited by Yahoo to recent history

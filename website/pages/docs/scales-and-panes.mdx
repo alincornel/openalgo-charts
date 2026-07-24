@@ -4,6 +4,7 @@ description: Time scale, price scale, axis-drag rescale, and multi-pane layouts.
 ---
 
 import RunnableExample from '../../components/RunnableExample'
+import { Callout } from 'nextra/components'
 
 # Scales & panes
 
@@ -72,6 +73,92 @@ chart.addPriceLine({ price: 30, color: '#26a69a', lineWidth: 1, dashed: true, id
 
 chart.timeScale.fitContent(bars.length);
 return chart;`} />
+
+## Resizing, reordering & removing panes
+
+Pane heights are relative **weights**, not pixels — only the ratio matters. Users drag the
+boundary between two panes (the cursor becomes `row-resize` within 4px of it) and the height
+moves from one to the other, conserving their combined weight so the rest of the stack is
+untouched and neither side can collapse.
+
+| Method | Description |
+|---|---|
+| `chart.setPaneWeight(index, weight)` | Set a pane's relative height. |
+| `chart.paneWeight(index)` | Read it back. |
+| `chart.movePane(index, -1 \| 1)` | Move a pane one slot up or down. |
+| `chart.maximizePane(index)` | Expand one pane to fill the chart; call again to restore. |
+| `chart.maximizedPane()` | The maximized pane index, or `null`. |
+| `chart.removePane(index)` | Remove a pane with its series and indicators. |
+
+<Callout type="info">
+**Pane 0 is pinned.** It owns the primary price series and the shared price context, so
+`removePane(0)` and any `movePane` that would displace it return `false` rather than
+silently doing something surprising. Removing a pane re-indexes the panes below it, and the
+indicators living there move with them.
+</Callout>
+
+Events: `paneResized`, `paneMoved`, `paneMaximized`, `paneRemoved`.
+
+## Pane legends
+
+Every indicator gets a legend row at the top-left of its pane — a colour swatch, the name,
+its parameters, and one reading per plot in that plot's own colour, tracking the crosshair.
+Hovering the row reveals inline controls; the chart handles the presses itself, so you get
+show/hide, move, maximize, and delete without wiring anything.
+
+| Control | Effect |
+|---|---|
+| Eye | Show / hide the source's plots (it stays on the chart). |
+| Gear | Emits `indicatorSettings` — see below. |
+| Up / Down | Move this pane one slot. |
+| Maximize | Expand this pane; press again to restore. |
+| Trash | Remove the source, and its pane if that empties it. |
+
+The first legend on a non-price pane also carries the pane-level controls (move, maximize),
+so extra rows on the same pane stay uncluttered.
+
+The engine ships no DOM, so the gear has no built-in dialog — it emits and you render one.
+Everything needed to *generate* a settings form already lives on the descriptor's `inputs`:
+
+```ts
+chart.on('indicatorSettings', ({ instanceId }) => {
+  const inst = chart.indicators().find((i) => i.id === instanceId);
+  const descriptor = getIndicator(inst.indicatorId);
+  for (const input of descriptor.inputs) {
+    // input.type is 'number' | 'boolean' | 'color' | 'text' | 'select' | 'source'
+    // build a field, then: inst.setSettings({ [input.key]: value })
+  }
+});
+```
+
+### Your own legend rows
+
+`PaneLegend` is a public primitive, so a host can add its own rows — a symbol / OHLC header,
+a volume readout. Rows added to the same pane stack automatically in insertion order, and
+removing one closes the gap.
+
+```ts
+import { PaneLegend } from 'openalgo-charts';
+
+const symbol = new PaneLegend({ id: 'symbol', title: 'AAPL', params: '1D · NSE', actions: [] });
+chart.addPrimitive(symbol, 0);
+
+symbol.setValues([
+  { label: 'O', text: '322.04', color: '#26a69a' },
+  { label: 'H', text: '334.37', color: '#26a69a' },
+  { text: '+11.36 (+3.53%)', color: '#26a69a' },
+]);
+```
+
+`actions: []` gives a read-only row. Pass any of `'hide' | 'settings' | 'up' | 'down' |
+'maximize' | 'close'` to show controls; they hit-test as `${id}::<action>` and route through
+`chart.subscribeClick`.
+
+<Callout type="info">
+Legends draw on the **canvas**, not in the DOM — like `BuySellButtons` and the DOM ladder.
+They composite into `takeScreenshot()`, cost no DOM per pane, and their icons are vector
+strokes rather than text glyphs (`⛶` and `🗑` render as emoji on some platforms).
+</Callout>
 
 ## Left, right & overlay price scales
 

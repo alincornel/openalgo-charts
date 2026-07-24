@@ -1,6 +1,6 @@
 ---
 title: Indicators
-description: EMA, RSI, ATR and Supertrend - matching openalgo.ta semantics.
+description: 18 built-in indicators via chart.addIndicator, plus the registry for your own.
 ---
 
 import RunnableExample from '../../components/RunnableExample'
@@ -8,10 +8,29 @@ import { Callout } from 'nextra/components'
 
 # Indicators
 
-The base tier ships **EMA, RSI, ATR, and Supertrend**, computed with Wilder semantics to
-match `openalgo.ta`. The `*Series` helpers return `Bar[]` (time + close set to the indicator
-value; other OHLC fields mirror close). Warmup slots carry `NaN`, which the line renderer
-skips as whitespace.
+There are two ways to put an indicator on a chart, and they suit different jobs.
+
+**`chart.addIndicator(id)`** is the managed path: the chart creates the series, picks the
+pane, draws reference levels, recomputes on every data change, and cleans up on removal.
+The 18 built-ins live in the lazy `openalgo-charts/indicators` tier.
+
+```ts
+import { createChart } from 'openalgo-charts';
+import 'openalgo-charts/indicators';   // registers all 18 built-ins
+
+const chart = createChart(el);
+chart.addSeries('candlestick').setData(bars);
+
+chart.addIndicator('bollinger');                       // overlays the price pane
+const macd = chart.addIndicator('macd', { fastPeriod: 8 });  // gets its own pane
+macd.setSettings({ fastPeriod: 12 });
+macd.remove();
+```
+
+**The raw functions** (`ema`, `rsi`, `atr`, `supertrend`) stay in the base bundle for when
+you want to compute a value and plot it yourself. They use Wilder semantics to match
+`openalgo.ta`; the `*Series` helpers return `Bar[]` with `NaN` in warmup slots, which the
+line renderer skips as whitespace.
 
 ```ts
 import {
@@ -21,6 +40,157 @@ import {
   atr, trueRange,            // ATR (raw values) + true range
 } from 'openalgo-charts';
 ```
+
+## The built-in catalog
+
+<RunnableExample height={420} tiers={['indicators']} code={`const chart = lib.createChart(el);
+const bars = lib.generateBars(1700000000, 220, 3600);
+chart.addSeries('candlestick').setData(bars);
+chart.addIndicator('bollinger');
+chart.addIndicator('macd');
+chart.timeScale.fitContent(bars.length);
+return chart;`} />
+
+| Indicator | `id` | Placement | Key settings |
+|---|---|---|---|
+| Simple Moving Average | `sma` | onchart | `length`, `source` |
+| Exponential Moving Average | `ema` | onchart | `length`, `source` |
+| Weighted Moving Average | `wma` | onchart | `length`, `source` |
+| VWAP | `vwap` | onchart | `anchor` (`session` / `continuous`), `source` |
+| Bollinger Bands | `bollinger` | onchart | `length`, `stdDev`, `source` |
+| Supertrend | `supertrend` | onchart | `period`, `multiplier` |
+| Parabolic SAR | `parabolic-sar` | onchart | `start`, `increment`, `maximum` |
+| Ichimoku Cloud | `ichimoku` | onchart | `conversionPeriod`, `basePeriod`, `laggingSpanPeriod`, `displacement` |
+| RSI | `rsi` | pane | `length`, `source`, `overbought`, `oversold` |
+| MACD | `macd` | pane | `fastPeriod`, `slowPeriod`, `signalPeriod` |
+| Stochastic | `stochastic` | pane | `kPeriod`, `kSmoothing`, `dPeriod` |
+| ADX / DMI | `adx` | pane | `period`, `adxPeriod` |
+| CCI | `cci` | pane | `period`, `constant` |
+| Money Flow Index | `mfi` | pane | `period` |
+| ATR | `atr` | pane | `period` |
+| Volume | `volume` | pane | `color` |
+| On-Balance Volume | `obv` | pane | `color` |
+| Accumulation/Distribution | `adl` | pane | `color` |
+
+`onchart` indicators overlay the price pane; `pane` indicators create their own. Override
+with `chart.addIndicator('rsi', {}, { paneIndex: 2 })`.
+
+<Callout type="info">
+**VWAP anchors on the IST trading day** by default, matching the rest of the engine's
+session handling. Pass `{ anchor: 'continuous' }` for a running VWAP over all loaded data.
+</Callout>
+
+## The IndicatorApi handle
+
+`addIndicator` returns a handle:
+
+| Member | Type | Description |
+|---|---|---|
+| `id` | `string` | Unique instance id (several instances of one indicator can coexist). |
+| `indicatorId` | `string` | The descriptor id, e.g. `'macd'`. |
+| `name` | `string` | Display name. |
+| `paneIndex` | `number` | Pane the indicator drew into. |
+| `settings()` | `IndicatorSettings` | Current settings, as a copy. |
+| `setSettings(patch)` | `void` | Merge a patch, recompute, and restyle. |
+| `series(plotKey)` | `SeriesApi \| undefined` | The series behind one plot, for direct styling. |
+| `values()` | `IndicatorValues` | Latest computed columns. |
+| `remove()` | `void` | Remove every series and level it created. |
+
+`chart.indicators()` lists the live instances; `chart.removeIndicator(id)` removes one by id.
+
+## Writing your own
+
+An indicator is **data, not code in the core** — the chart never switches on an id. Each
+plot names a registered *chart type*, so your indicator draws through the same renderers as
+any other series and adds no drawing code.
+
+```ts
+import { registerIndicator, sourceValues } from 'openalgo-charts';
+
+registerIndicator({
+  id: 'momentum',
+  name: 'Momentum',
+  category: 'Momentum',
+  placement: 'pane',
+  inputs: [
+    { key: 'length', type: 'number', label: 'Length', default: 10, min: 1, max: 500 },
+    { key: 'source', type: 'source', label: 'Source', default: 'close' },
+    { key: 'color',  type: 'color',  label: 'Color',  default: '#4f8cff' },
+  ],
+  plots: [{ key: 'mom', type: 'line', title: 'Momentum', colorKey: 'color' }],
+  calc: (bars, s) => {
+    const v = sourceValues(bars, s.source);
+    const n = s.length;
+    return { mom: v.map((x, i) => (i >= n ? x - v[i - n] : null)) };
+  },
+  levels: () => [{ price: 0, color: '#5a6b8c', dashed: true }],
+});
+
+chart.addIndicator('momentum', { length: 14 });
+```
+
+`calc` must return one array per plot key, the same length as `bars`. Use `null` for warmup
+slots — the line renderer breaks across them and autoscale skips them, so a gap draws as
+nothing rather than a spike to zero.
+
+### Descriptor reference
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Registry key. |
+| `name` | `string` | Display name. |
+| `category` | `string?` | Grouping for a picker UI. |
+| `placement` | `'onchart' \| 'pane'` | Overlay the price pane, or take a new one. |
+| `inputs` | `IndicatorInput[]` | Tunable settings; `type` is what a settings UI renders. |
+| `plots` | `IndicatorPlot[]` | One per drawn series. `type` is any registered chart type. |
+| `calc` | `(bars, settings, store) => IndicatorValues` | Full recompute. |
+| `calcTail` | `(bars, settings, fromIndex, previous, store) => IndicatorValues \| null` | Optional incremental path. |
+| `levels` | `(settings) => IndicatorLevel[]` | Optional horizontal reference lines. |
+| `range` | `(settings) => \{ min, max \} \| null` | Optional fixed pane range (RSI 0..100). |
+| `attach` | `(ctx) => (() => void) \| void` | Optional lifecycle for external data (Tier 2). |
+
+Input types are `number`, `boolean`, `color`, `text`, `select`, and `source`. A `source`
+input picks a price series; `INDICATOR_SOURCES` is the canonical option list for a UI.
+
+<Callout type="warning">
+**`calcTail` matters for live charts.** Without it every incoming tick costs a full
+recompute — a few hundred microseconds for one indicator over 50k bars, but O(n) per tick
+*per indicator*. Implement it for anything meant to run in a busy live pane: return values
+for `[fromIndex, bars.length)` and the runtime splices them onto the previous result, or
+return `null` to fall back to a full `calc`.
+</Callout>
+
+## Tier 2: indicators with their own data
+
+Some series aren't derived from the chart's OHLCV at all — open interest, cumulative volume
+delta, PCR, an external analytics feed. `createTier2Indicator` wraps a fetch / subscribe
+lifecycle into an ordinary descriptor, so the runtime, settings, panes, and removal all work
+identically. There is no second runtime.
+
+```ts
+import { registerIndicator } from 'openalgo-charts';
+import { createTier2Indicator } from 'openalgo-charts/indicators';
+
+registerIndicator(createTier2Indicator({
+  id: 'open-interest',
+  name: 'Open Interest',
+  placement: 'pane',
+  inputs: [{ key: 'symbol', type: 'text', label: 'Symbol', default: 'NIFTY' }],
+  plots: [{ key: 'oi', type: 'line', title: 'OI' }],
+  refetchOn: ['symbol'],                       // these settings invalidate the data
+  fetch: async ({ settings, from, to }) => {
+    const rows = await loadOpenInterest(settings.symbol, from, to);
+    return rows.map((r) => ({ time: r.time, values: { oi: r.oi } }));
+  },
+  subscribe: (ctx, push) => streamOi(ctx.settings.symbol, (r) =>
+    push({ time: r.time, values: { oi: r.oi } })),
+}));
+```
+
+**Alignment rule.** External points carry their own timestamps, which rarely match bar
+times. Each bar takes the most recent point **at or before** it — last-known-value, never
+interpolated and never forward-looking. Bars before the first point are `null`. A failed
+fetch leaves the previous points on screen rather than blanking the pane.
 
 ## Supertrend
 

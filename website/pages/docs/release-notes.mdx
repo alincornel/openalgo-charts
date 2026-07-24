@@ -8,6 +8,77 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## Unreleased
+
+**Added — Indicators**
+
+- **18 built-in indicators** in the new lazy `openalgo-charts/indicators` tier
+  (4.5 KB Brotli): SMA, EMA, WMA, VWAP, Bollinger Bands, Supertrend, Parabolic
+  SAR, Ichimoku Cloud, RSI, MACD, Stochastic, ADX/DMI, CCI, MFI, ATR, Volume,
+  OBV, and A/D. See [Indicators](/docs/indicators).
+- **An indicator registry** — the sibling of the chart-type registry. A
+  descriptor is data, and each plot names a registered chart type, so indicators
+  ride the existing renderers and add no drawing code. `chart.addIndicator()`,
+  `chart.indicators()`, `chart.removeIndicator()`.
+- **A Tier-2 contract** (`createTier2Indicator`) for indicators whose data is not
+  derived from the chart's OHLCV — open interest, CVD, any external feed.
+
+**Added — Panes & legends**
+
+- **Pane legends** with per-plot readings in each plot's colour, tracking the
+  crosshair, and inline controls revealed on hover: show/hide, settings, move
+  pane, maximize, delete. `PaneLegend` is public, so a host can add its own rows
+  (a symbol/OHLC header) and indicator rows stack beneath.
+- **Draggable pane dividers** plus `setPaneWeight`, `movePane`, `maximizePane`,
+  and `removePane`. See [Scales & Panes](/docs/scales-and-panes).
+
+**Added — State**
+
+- `chart.getState()` / `chart.restoreState()` for saved layouts, with an opaque
+  `drawings` slot. See [Chart State](/docs/state).
+
+**Fixed — Packaging**
+
+- Lazy tiers could not register into the base bundle's registries: each tier
+  inlined its own private copy, so `import 'openalgo-charts/transform'` followed
+  by `addSeries('point-figure')` threw even though the tier was loaded. Tiers now
+  import the package entry, which is external for tier builds.
+
+**Fixed — Interaction**
+
+- A `setPointerCapture` throw (Chrome raises `NotFoundError` for an inactive
+  pointer id) aborted the rest of `pointerdown`, silently losing the pane-divider
+  grab, the axis-drag arm, and the **order-line drag arm**.
+- Pane hit-testing could be offset from what was drawn: panes were laid out with
+  a flex *ratio* while their canvases were sized from the chart's own height, so
+  any drift between the two shifted every hit-test off the pixels.
+
+**Fixed — Point & Figure**
+
+- No more phantom first column. When the first move after the anchor bar was
+  *down*, the direction was still `0`, so the reversal branch fired while the
+  column's top and bottom boxes were equal — emitting a zero-height column that
+  drew as a blank slot at the start of every down-opening chart.
+- Columns are built from the bar range, not just the close. The new `method`
+  option defaults to `'hl'`: a bar's high extends an X column and its low
+  extends an O column. A bar that swung through several boxes intrabar but
+  closed flat used to produce no boxes at all. `method: 'close'` restores the
+  previous behaviour.
+- The renderer walks integer box indices instead of accumulating
+  `level += boxSize` — thirty steps of `0.05` land on `101.49999999999991`,
+  which duplicated the top glyph of tall columns. Off-screen glyph rows are now
+  culled.
+
+**Added — Point & Figure**
+
+- Box-size modes: `mode: 'fixed' | 'percent' | 'atr'`, the latter two
+  re-resolved each time a column opens so the grid tracks price level and
+  volatility.
+- `PointFigureColumn` carries `boxSize` and `boxes`, and the renderer reads the
+  box size from the column — so `style: { boxSize }` is no longer needed, and
+  the transform and style can no longer disagree. See
+  [Transforms → Point & Figure](/docs/transforms#point--figure).
+
 ## 1.0.7
 
 **Fixed**

@@ -15,6 +15,15 @@ import type { TickMarkType } from '../render/axis';
 import { DataLayer } from '../model/data-layer';
 import { createSeriesRecord, type SeriesApi, type PriceScaleId } from '../model/series';
 import { getChartType, type SeriesType } from '../model/chart-type-registry';
+import { getIndicator, hasIndicator, type IndicatorSettings } from '../model/indicator-registry';
+import { IndicatorInstance, type IndicatorApi, type IndicatorHost } from '../model/indicator-instance';
+import {
+  CHART_STATE_VERSION,
+  type ChartState,
+  type PaneState,
+  type SeriesState,
+  type RestoreReport,
+} from '../model/chart-state';
 import type { SeriesStyle } from '../render/series-style';
 import type { Bar, SeriesDataItem } from '../model/bar';
 import { toBar } from '../model/bar';
@@ -28,6 +37,7 @@ import type { IPrimitive, PrimitiveHost, PrimitiveHit } from '../primitives/prim
 import { PriceLine, type PriceLineOptions } from '../primitives/price-line';
 import { SeriesMarkers } from '../primitives/markers';
 import { EventMarkers } from '../primitives/event-markers';
+import { PaneLegend, type PaneLegendAction } from '../primitives/pane-legend';
 
 export interface ChartOptions {
   document?: Document;
@@ -126,6 +136,8 @@ export interface CrosshairMoveEvent {
   bar: Bar | null;
   /** Cursor position in container media px, or null on leave. */
   point: { x: number; y: number } | null;
+  /** Pane under the cursor, or null on leave. */
+  paneIndex?: number | null;
 }
 
 function defaultPixelRatio(): number {
@@ -177,6 +189,16 @@ export class Chart {
   private _dragVelocity = 0;
   private _kineticHandle: number | null = null;
   private readonly _firstDataId: { value: number | null } = { value: null };
+  private readonly _indicators: IndicatorInstance[] = [];
+  /** Guards indicator recompute against re-entry via its own `series.setData`. */
+  private _recomputing = false;
+  /** Opaque drawing-tier payload, round-tripped through get/restoreState. */
+  private _drawingState: unknown = undefined;
+  /** Pane currently maximized, and the weights to restore when it un-maximizes. */
+  private _maximizedPane: number | null = null;
+  private _savedWeights: number[] | null = null;
+  /** Legend rows per pane, so new ones stack below existing ones. */
+  private readonly _legends: { legend: PaneLegend; paneIndex: number }[] = [];
   /** Pane holding the primary price series (only this pane gets magnet snapping). */
   private _firstPaneIndex = 0;
   private _historyLoader: (() => void) | null = null;
@@ -190,10 +212,19 @@ export class Chart {
   private _dragId: string | null = null; // externalId of the primitive being dragged
   private _hoverId: string | null = null; // externalId of the primitive under the pointer
   private _overlayFrozen = false; // native context menu open: keep the save-image snapshot
-  private _dragCb: ((externalId: string, price: number) => void) | null = null;
-  private _dragEndCb: ((externalId: string, price: number) => void) | null = null;
+  private _dragCb: ((externalId: string, price: number, time: number) => void) | null = null;
+  private _dragEndCb: ((externalId: string, price: number, time: number) => void) | null = null;
   // axis-drag rescale (price axis = vertical, time axis = horizontal)
   private _axisDrag: 'price' | 'time' | null = null;
+  /** Active pane-divider drag: which boundary, and the weights/heights at grab time. */
+  /** True once a primitive drag has actually moved — see the pointerup note. */
+  private _dragMoved = false;
+  /** Where the drag was grabbed, in data space, so deltas start at the press. */
+  private _dragFrom: { time: number; price: number } = { time: 0, price: 0 };
+  private _paneResize: {
+    index: number; startY: number;
+    aWeight: number; bWeight: number; aHeight: number; bHeight: number;
+  } | null = null;
   private _axisStartCoord = 0;
   private _axisStartMin = 0;
   private _axisStartMax = 0;
@@ -317,11 +348,20 @@ export class Chart {
 
   /** Add a series and return its data handle. */
   public addSeries(type: SeriesType, options: AddSeriesOptions = {}): SeriesApi {
+    return this._createSeries(type, options, true);
+  }
+
+  /**
+   * `claimPrimary` is false for series the chart creates on a caller's behalf
+   * (indicator plots), so an indicator's line never becomes the price series
+   * that drives the magnet crosshair and the OHLC legend.
+   */
+  private _createSeries(type: SeriesType, options: AddSeriesOptions, claimPrimary: boolean): SeriesApi {
     const dataId = this._dataLayer.createSeries();
     const paneIndex = options.paneIndex ?? 0;
     this._ensurePane(paneIndex);
     // The first price-type series drives the magnet crosshair + OHLC legend.
-    if (this._firstDataId.value === null && getChartType(type).isPriceSeries) {
+    if (claimPrimary && this._firstDataId.value === null && getChartType(type).isPriceSeries) {
       this._firstDataId.value = dataId;
       this._firstPaneIndex = paneIndex;
     }
@@ -379,6 +419,112 @@ export class Chart {
     return em;
   }
 
+  /**
+   * Add a registered indicator. Built-in descriptors live in the lazy
+   * `openalgo-charts/indicators` tier — import it (or register your own with
+   * `registerIndicator`) before calling this.
+   *
+   * `'onchart'` indicators overlay the price pane; `'pane'` indicators get a new
+   * pane of their own unless `paneIndex` says otherwise. The returned handle
+   * recomputes automatically whenever the source data changes.
+   *
+   * ```ts
+   * import 'openalgo-charts/indicators';
+   * const macd = chart.addIndicator('macd', { fastPeriod: 8 });
+   * macd.setSettings({ fastPeriod: 12 });
+   * macd.remove();
+   * ```
+   */
+  public addIndicator(
+    indicatorId: string,
+    settings: Readonly<IndicatorSettings> = {},
+    options: { paneIndex?: number } = {},
+  ): IndicatorApi {
+    const instance = new IndicatorInstance(
+      this._indicatorHost(),
+      getIndicator(indicatorId),
+      settings,
+      options.paneIndex,
+    );
+    this._indicators.push(instance);
+    return instance;
+  }
+
+  /** Every live indicator instance, in the order they were added. */
+  public indicators(): readonly IndicatorApi[] {
+    return this._indicators;
+  }
+
+  /** Remove one indicator instance by its handle id. Returns true if it existed. */
+  public removeIndicator(instanceId: string): boolean {
+    const i = this._indicators.findIndex((x) => x.id === instanceId);
+    if (i < 0) return false;
+    const { indicatorId, paneIndex } = this._indicators[i];
+    this._indicators[i].remove();
+    this._indicators.splice(i, 1);
+    this.emit('indicatorRemoved', { instanceId, indicatorId, paneIndex });
+    return true;
+  }
+
+  private _indicatorHost(): IndicatorHost {
+    return {
+      addIndicatorLegend: (o): PaneLegend => {
+        // The first legend on a non-price pane also carries the pane-level
+        // controls (move / maximize), the way a charting pane toolbar does;
+        // extra rows keep only their own show / settings / delete.
+        const paneActions: PaneLegendAction[] =
+          o.row === 0 && o.paneIndex > 0
+            ? ['hide', 'settings', 'up', 'down', 'maximize', 'close']
+            : ['hide', 'settings', 'close'];
+        const legend = new PaneLegend({ ...o, actions: paneActions });
+        this._addPrimitive(o.paneIndex, legend);
+        return legend;
+      },
+      removeIndicatorLegend: (legend): void => {
+        this.removePrimitive(legend);
+        this._restackLegends();
+      },
+      legendRowsOn: (paneIndex): number => this._legends.filter((l) => l.paneIndex === paneIndex).length,
+      addIndicatorSeries: (type, paneIndex, style, priceScaleId): SeriesApi =>
+        this._createSeries(
+          type as SeriesType,
+          { paneIndex, style: style as SeriesStyle | undefined, priceScaleId: priceScaleId as PriceScaleId | undefined },
+          false,
+        ),
+      addIndicatorLevel: (price, color, dashed, label, id, paneIndex): PriceLine =>
+        this.addPriceLine({ price, color, lineWidth: 1, dashed, leftLabel: label, id }, paneIndex),
+      removeIndicatorLevel: (line): void => this.removePrimitive(line),
+      sourceBars: (): readonly Bar[] =>
+        this._firstDataId.value === null ? [] : this._dataLayer.seriesBars(this._firstDataId.value),
+      nextPaneIndex: (): number => this._panes.length,
+      setPaneRange: (paneIndex, range): void => {
+        const pane = this._panes[paneIndex];
+        if (pane === undefined) return;
+        if (range === null) {
+          pane.priceScale.setAutoScale(true);
+        } else {
+          pane.priceScale.setAutoScale(false);
+          pane.priceScale.setPriceRange(range);
+        }
+      },
+    };
+  }
+
+  /**
+   * Recompute every indicator after a source-data change. Reentrant-guarded:
+   * an indicator writes its plots with `series.setData`, which re-enters the
+   * same data-mutation path that called us.
+   */
+  private _recomputeIndicators(): void {
+    if (this._recomputing || this._indicators.length === 0) return;
+    this._recomputing = true;
+    try {
+      for (const indicator of this._indicators) indicator.recompute();
+    } finally {
+      this._recomputing = false;
+    }
+  }
+
   /** Subscribe to clicks on hit-testable primitives (markers, events, lines). */
   public subscribeClick(cb: (externalId: string) => void): void {
     this._clickCb = cb;
@@ -393,10 +539,49 @@ export class Chart {
     this._crosshairCb = cb;
   }
 
-  /** Subscribe to drags of draggable lines (order/SL/TP). Fires per move and on release. */
-  public subscribeDrag(onDrag: (externalId: string, price: number) => void, onDragEnd?: (externalId: string, price: number) => void): void {
+  /**
+   * Subscribe to drags of draggable primitives (order / SL / TP lines, drawing
+   * handles). Fires per move and on release.
+   *
+   * `time` is the UTC seconds under the cursor, interpolated between bars and
+   * extrapolated past the right edge — so a two-axis drag (a trendline endpoint,
+   * a projection) has a usable time even where the gapless axis has no bar.
+   * Price-only consumers can simply ignore it.
+   */
+  public subscribeDrag(
+    onDrag: (externalId: string, price: number, time: number) => void,
+    onDragEnd?: (externalId: string, price: number, time: number) => void,
+  ): void {
     this._dragCb = onDrag;
     this._dragEndCb = onDragEnd ?? null;
+  }
+
+  /**
+   * Guarantee a pane's price scale has a real range before converting y↔price.
+   * Autoscaling normally happens during paint, so every coordinate API — and
+   * the price carried by click/drag events — used to answer with the default
+   * 0..1 (or ±Infinity) until the first frame had run. Callers cannot be asked
+   * to wait for a paint, so scale on demand.
+   */
+  private _ensureScaled(paneIndex: number): void {
+    const pane = this._panes[paneIndex];
+    if (pane === undefined || pane.priceScale.scaled) return;
+    pane.autoscale(this._renderContext(paneIndex === this._panes.length - 1));
+  }
+
+  /** Container-relative x (media px) → UTC seconds on the (gapless) time axis. */
+  private _xToTime(x: number): number {
+    return this._dataLayer.indexToTimeFloat(this._timeScale.xToIndex(x - this._leftAxisWidth));
+  }
+
+  /** UTC seconds → container-relative x (media px). The inverse of `_xToTime`. */
+  public timeToCoordinate(time: number): number {
+    return this._timeScale.indexToX(this._dataLayer.timeToIndexFloat(time)) + this._leftAxisWidth;
+  }
+
+  /** Container-relative x (media px) → UTC seconds. */
+  public coordinateToTime(x: number): number {
+    return this._xToTime(x);
   }
 
   // ── unified event bus ─────────────────────────────────────────────────────
@@ -472,6 +657,7 @@ export class Chart {
    * doesn't exist. The inverse is `coordinateToPrice`.
    */
   public priceToCoordinate(price: number, paneIndex = 0): number | null {
+    this._ensureScaled(paneIndex);
     const pane = this._panes[paneIndex];
     if (pane === undefined) return null;
     const top = this._paneLayout()[paneIndex]?.top ?? 0;
@@ -480,6 +666,7 @@ export class Chart {
 
   /** Map a container-relative media-px Y back to a price on a pane (inverse of priceToCoordinate). */
   public coordinateToPrice(y: number, paneIndex = 0): number | null {
+    this._ensureScaled(paneIndex);
     const pane = this._panes[paneIndex];
     if (pane === undefined) return null;
     const top = this._paneLayout()[paneIndex]?.top ?? 0;
@@ -532,16 +719,38 @@ export class Chart {
         this.invalidate((m) => m.invalidatePane(paneIndex, { level: InvalidationLevel.Light, autoScale: false })),
     };
     this._panes[paneIndex].addPrimitive(primitive, host);
+    // Track legend rows however they were added — a host can add its own (a
+    // symbol/OHLC row) and indicator legends must stack beneath it.
+    if (primitive instanceof PaneLegend) {
+      this._legends.push({ legend: primitive, paneIndex });
+      this._restackLegends();
+    }
     this.invalidate((m) => m.invalidatePane(paneIndex, { level: InvalidationLevel.Light, autoScale: false }));
   }
 
   /** Remove a primitive from whichever pane holds it. */
   public removePrimitive(primitive: IPrimitive): void {
+    const li = this._legends.findIndex((l) => l.legend === primitive);
+    if (li >= 0) this._legends.splice(li, 1);
     for (let i = 0; i < this._panes.length; i++) {
       if (this._panes[i].removePrimitive(primitive)) {
+        if (li >= 0) this._restackLegends();
         this.invalidate((m) => m.invalidatePane(i, { level: InvalidationLevel.Light, autoScale: false }));
         return;
       }
+    }
+  }
+
+  /**
+   * Renumber legend rows per pane in insertion order, so removing one closes
+   * the gap instead of leaving a hole where it used to sit.
+   */
+  private _restackLegends(): void {
+    const rowByPane = new Map<number, number>();
+    for (const entry of this._legends) {
+      const row = rowByPane.get(entry.paneIndex) ?? 0;
+      entry.legend.setOptions({ row });
+      rowByPane.set(entry.paneIndex, row + 1);
     }
   }
 
@@ -563,6 +772,7 @@ export class Chart {
     if (kind === 'append' && !wasAtRight) {
       this._timeScale.setRightOffset(this._timeScale.rightOffset - 1);
     }
+    if (dataId === this._firstDataId.value) this._recomputeIndicators();
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
     this._updateAccessibleSummary();
   }
@@ -585,6 +795,7 @@ export class Chart {
       this._timeScale.fitContent(this._dataLayer.length);
       this._hasFitContent = true;
     }
+    if (dataId === this._firstDataId.value) this._recomputeIndicators();
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
     this._updateAccessibleSummary();
   }
@@ -595,6 +806,7 @@ export class Chart {
     // baseIndex shifts up by the inserted count; updating it keeps the same
     // bars on screen because (rightEdge − index) is invariant.
     this._timeScale.setBaseIndex(this._dataLayer.baseIndex);
+    if (dataId === this._firstDataId.value) this._recomputeIndicators();
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
     this._updateAccessibleSummary();
   }
@@ -658,6 +870,131 @@ export class Chart {
     return this._panes;
   }
 
+  /**
+   * Capture the chart's serialisable state: viewport, grid, crosshair mode,
+   * pane weights and price scales, indicator instances, and a `drawings` slot
+   * the drawing tier fills. JSON-safe.
+   *
+   * Series **data** is not captured — the app owns that (it knows the symbol,
+   * the timeframe, and the feed). Series *descriptors* are, so an app that
+   * rebuilds its own series can re-apply their styling and placement.
+   */
+  public getState(): ChartState {
+    const panes: PaneState[] = this._panes.map((pane) => {
+      const scale = pane.priceScale;
+      const o = scale.options;
+      const state: PaneState = {
+        weight: pane.weight,
+        priceScale: {
+          marginTop: o.marginTop, marginBottom: o.marginBottom, minMove: o.minMove,
+          mode: o.mode, inverted: o.inverted, autoScale: scale.autoScale,
+        },
+      };
+      if (!scale.autoScale) state.priceScale.range = { ...scale.priceRange() };
+      return state;
+    });
+
+    const series: SeriesState[] = [];
+    this._panes.forEach((pane, paneIndex) => {
+      for (const record of pane.series()) {
+        series.push({ type: record.type, style: { ...record.style }, paneIndex, priceScaleId: record.scaleId });
+      }
+    });
+
+    const state: ChartState = {
+      version: CHART_STATE_VERSION,
+      viewport: { ...this.getVisibleLogicalRange() },
+      barSpacing: this._timeScale.barSpacing,
+      grid: this.gridOptions(),
+      crosshairMode: this._crosshairMode,
+      panes,
+      series,
+      indicators: this._indicators.map((i) => ({
+        indicatorId: i.indicatorId,
+        settings: i.settings(),
+        paneIndex: i.paneIndex,
+      })),
+    };
+    if (this._drawingState !== undefined) state.drawings = this._drawingState;
+    return state;
+  }
+
+  /**
+   * Re-apply a state captured by `getState`. Restores grid, crosshair mode,
+   * pane weights and price scales, indicators, and the viewport — everything
+   * the chart is the source of truth for.
+   *
+   * It does **not** recreate series: the chart has no way to know their data.
+   * The returned report lists the series descriptors it saw so the caller can
+   * rebuild them (`addSeries(s.type, { paneIndex: s.paneIndex, style: s.style })`)
+   * and then feed them.
+   *
+   * Restore the viewport *after* your data lands — logical ranges index bars, so
+   * a range applied to an empty chart means nothing. Call `restoreState` again
+   * (or `setVisibleLogicalRange`) once the series are populated.
+   */
+  public restoreState(state: unknown): RestoreReport {
+    const s = state as ChartState | null;
+    if (s === null || typeof s !== 'object' || typeof s.version !== 'number') {
+      return { applied: false, series: [], indicators: 0, reason: 'not a chart state object' };
+    }
+    if (s.version > CHART_STATE_VERSION) {
+      return { applied: false, series: [], indicators: 0, reason: `state version ${s.version} is newer than ${CHART_STATE_VERSION}` };
+    }
+
+    if (s.grid) this.setGridOptions(s.grid);
+    if (s.crosshairMode) this._crosshairMode = s.crosshairMode;
+
+    if (s.panes) {
+      s.panes.forEach((ps, i) => {
+        this._ensurePane(i);
+        const pane = this._panes[i];
+        pane.weight = ps.weight;
+        const scale = pane.priceScale;
+        scale.setOptions({
+          marginTop: ps.priceScale.marginTop, marginBottom: ps.priceScale.marginBottom,
+          minMove: ps.priceScale.minMove, mode: ps.priceScale.mode, inverted: ps.priceScale.inverted,
+        });
+        scale.setAutoScale(ps.priceScale.autoScale);
+        if (!ps.priceScale.autoScale && ps.priceScale.range) scale.setPriceRange(ps.priceScale.range);
+      });
+      this._relayout();
+    }
+
+    // Indicators are fully derivable from the source data, so they *can* be
+    // recreated. Replace rather than append, so restore is idempotent.
+    let indicators = 0;
+    if (s.indicators) {
+      for (const instance of this._indicators) instance.remove();
+      this._indicators.length = 0;
+      for (const spec of s.indicators) {
+        if (!hasIndicator(spec.indicatorId)) continue; // tier not loaded — skip, don't throw
+        this._indicators.push(new IndicatorInstance(
+          this._indicatorHost(), getIndicator(spec.indicatorId), spec.settings, spec.paneIndex,
+        ));
+        indicators += 1;
+      }
+    }
+
+    this._drawingState = s.drawings;
+    if (s.barSpacing !== undefined) this._timeScale.setBarSpacing(s.barSpacing);
+    if (s.viewport && this._dataLayer.length > 0) this.setVisibleLogicalRange(s.viewport);
+    this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
+    return { applied: true, series: s.series ?? [], indicators };
+  }
+
+  /**
+   * The opaque `drawings` slot in the chart state. The base engine only
+   * round-trips it; the drawing tier reads and writes it.
+   */
+  public drawingState(): unknown {
+    return this._drawingState;
+  }
+
+  public setDrawingState(value: unknown): void {
+    this._drawingState = value;
+  }
+
   public invalidate(build: (mask: InvalidateMask) => void): void {
     if (this._pending === null) this._pending = new InvalidateMask();
     build(this._pending);
@@ -678,9 +1015,19 @@ export class Chart {
     const dpr = this._pixelRatio();
     const total = this._weightTotal();
     for (const pane of this._panes) {
-      // DOM box and canvas use the SAME weighted height so layout == hit-test.
-      pane.element.style.flex = `${pane.weight} 1 0`;
-      pane.resize(this._width, (this._height * pane.weight) / total, dpr);
+      const h = (this._height * pane.weight) / total;
+      // The DOM box is given the SAME pixel height the canvas is sized to,
+      // rather than a flex ratio. With `flex: w 1 0` the browser distributed the
+      // container's *real* height while the canvas used `this._height` — so any
+      // drift between the two (a container that resized before the observer
+      // fired) silently offset every hit-test from what was drawn: pane
+      // boundaries, legend buttons, and crosshair mapping all landed elsewhere.
+      // Deriving both from one number makes layout == hit-test by construction.
+      pane.element.style.flex = `0 0 ${h}px`;
+      pane.resize(this._width, h, dpr);
+      // Scale height is a layout property — see Pane.setScaleHeights.
+      const isLast = pane === this._panes[this._panes.length - 1];
+      pane.setScaleHeights(Math.max(0, h - (isLast ? this._timeAxisHeight : 0)));
     }
     this._timeScale.setWidth(Math.max(0, this._width - this._priceAxisWidth - this._leftAxisWidth));
   }
@@ -698,6 +1045,163 @@ export class Chart {
     let total = 0;
     for (const pane of this._panes) total += pane.weight;
     return total <= 0 ? 1 : total;
+  }
+
+  /** Grab tolerance around a pane boundary, in media px. */
+  private static readonly DIVIDER_GRAB = 4;
+
+  /**
+   * Index of the pane whose *bottom* boundary is within grab range of `y`, or
+   * null. Boundary `i` separates pane `i` from pane `i + 1`; the last pane's
+   * bottom is the chart edge and is not draggable.
+   */
+  private _dividerAt(y: number): number | null {
+    const layout = this._paneLayout();
+    for (let i = 0; i < layout.length - 1; i++) {
+      const boundary = layout[i].top + layout[i].height;
+      if (Math.abs(y - boundary) <= Chart.DIVIDER_GRAB) return i;
+    }
+    return null;
+  }
+
+  /**
+   * Set a pane's relative height weight. Panes share the chart height in
+   * proportion to their weights, so only the ratio matters.
+   */
+  public setPaneWeight(index: number, weight: number): void {
+    const pane = this._panes[index];
+    if (pane === undefined) return;
+    pane.weight = Math.max(0.05, weight);
+    this._relayout();
+    this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
+  }
+
+  public paneWeight(index: number): number {
+    return this._panes[index]?.weight ?? 0;
+  }
+
+  /**
+   * Remove a pane, everything drawn in it, and any indicator that lives there.
+   * Pane 0 (price) is never removable — removing it would leave the chart with
+   * no time axis owner.
+   *
+   * Returns false when the index is out of range or is pane 0.
+   */
+  public removePane(index: number): boolean {
+    if (index <= 0 || index >= this._panes.length) return false;
+    // Indicators own their series, so let them tear themselves down first —
+    // otherwise their series rows would outlive the pane holding them.
+    for (let i = this._indicators.length - 1; i >= 0; i--) {
+      if (this._indicators[i].paneIndex !== index) continue;
+      this._indicators[i].remove();
+      this._indicators.splice(i, 1);
+    }
+    const pane = this._panes[index];
+    for (const record of [...pane.series()]) {
+      pane.removeSeries(record);
+      this._dataLayer.removeSeries(record.dataId);
+      if (this._firstDataId.value === record.dataId) this._firstDataId.value = null;
+    }
+    pane.destroy();
+    this._panes.splice(index, 1);
+    // Indicators below the removed pane shift up one.
+    for (const indicator of this._indicators) {
+      if (indicator.paneIndex > index) indicator.shiftPane(-1);
+    }
+    this._timeScale.setBaseIndex(this._dataLayer.baseIndex);
+    this._recomputeLeftAxis();
+    this._relayout();
+    this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
+    this.emit('paneRemoved', { paneIndex: index });
+    return true;
+  }
+
+  /**
+   * Move a pane up or down one slot. Pane 0 (price) is pinned — it owns the
+   * primary series and the shared price context — so a move that would displace
+   * it is refused.
+   */
+  public movePane(index: number, direction: -1 | 1): boolean {
+    const target = index + direction;
+    if (index <= 0 || target <= 0 || index >= this._panes.length || target >= this._panes.length) return false;
+    const panes = this._panes;
+    [panes[index], panes[target]] = [panes[target], panes[index]];
+    for (const indicator of this._indicators) {
+      if (indicator.paneIndex === index) indicator.shiftPane(direction);
+      else if (indicator.paneIndex === target) indicator.shiftPane(-direction);
+    }
+    // Re-append in the new order so the DOM matches the pane array.
+    for (const pane of panes) this._container.appendChild(pane.element);
+    this._relayout();
+    this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
+    this.emit('paneMoved', { from: index, to: target });
+    return true;
+  }
+
+  /**
+   * Expand one pane to fill the chart, collapsing the others to a sliver.
+   * Calling it again (or on another pane) restores the previous weights.
+   */
+  public maximizePane(index: number): boolean {
+    if (index < 0 || index >= this._panes.length) return false;
+    if (this._maximizedPane === index) {
+      const saved = this._savedWeights;
+      if (saved !== null) this._panes.forEach((p, i) => { p.weight = saved[i] ?? p.weight; });
+      this._maximizedPane = null;
+      this._savedWeights = null;
+    } else {
+      if (this._savedWeights === null) this._savedWeights = this._panes.map((p) => p.weight);
+      this._panes.forEach((p, i) => { p.weight = i === index ? 1 : 0.001; });
+      this._maximizedPane = index;
+    }
+    this._relayout();
+    this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
+    this.emit('paneMaximized', { paneIndex: this._maximizedPane });
+    return true;
+  }
+
+  /** The maximized pane index, or null when none is. */
+  public maximizedPane(): number | null {
+    return this._maximizedPane;
+  }
+
+  /**
+   * Route a pane-legend button press. Ids look like `indicator:<instanceId>::close`.
+   * Returns true when the id was ours and was handled.
+   */
+  private _handleLegendAction(externalId: string): boolean {
+    const sep = externalId.lastIndexOf('::');
+    if (sep < 0) return false;
+    const action = externalId.slice(sep + 2);
+    // A host-owned legend row (a symbol/OHLC row) also reveals on hover; swallow
+    // its click so it never surfaces as a phantom id.
+    if (action === 'row' && !externalId.startsWith('indicator:')) return true;
+    if (!externalId.startsWith('indicator:')) return false;
+    const instanceId = externalId.slice('indicator:'.length, sep);
+    // `::row` is the hover target that reveals the controls — never an action.
+    if (action === 'row') return true;
+    const indicator = this._indicators.find((i) => i.id === instanceId);
+    if (indicator === undefined) return false;
+    const paneIndex = indicator.paneIndex;
+    switch (action) {
+      case 'close': {
+        this.removeIndicator(instanceId);
+        // An indicator pane that just emptied has nothing left to show.
+        if (paneIndex > 0 && this._panes[paneIndex]?.series().length === 0) this.removePane(paneIndex);
+        return true;
+      }
+      case 'hide': indicator.setVisible(!indicator.visible()); return true;
+      case 'up': this.movePane(paneIndex, -1); return true;
+      case 'down': this.movePane(paneIndex, 1); return true;
+      case 'maximize': this.maximizePane(paneIndex); return true;
+      // The engine is canvas-only and ships no DOM, so the settings form is the
+      // host's. Everything it needs to *generate* one is on the descriptor
+      // (`inputs`), and applying it is `indicator.setSettings(patch)`.
+      case 'settings':
+        this.emit('indicatorSettings', { instanceId, indicatorId: indicator.indicatorId, paneIndex });
+        return true;
+      default: return false;
+    }
   }
 
   /** Cumulative top + height of each pane, by weight (the source of truth for hit-testing). */
@@ -851,11 +1355,33 @@ export class Chart {
     this._stopKinetic();
     const p = this._localPoint(e);
     this._pointers.set(e.pointerId, { x: p.x, y: p.y, pane: p.pane });
-    this._container.setPointerCapture?.(e.pointerId);
+    // `setPointerCapture` throws NotFoundError when the pointer id is not
+    // currently active (a synthetic event, or one already released). The
+    // optional call only guarded against the method being absent, so the throw
+    // aborted the rest of pointerdown — losing the divider grab, the axis-drag
+    // arm, and the line-drag arm. Capture is an optimisation; never fatal.
+    try { this._container.setPointerCapture?.(e.pointerId); } catch { /* not capturable */ }
     if (this._pointers.size >= 2) { this._beginPinch(); return; } // second finger → pinch, skip single-drag
     this._downPane = p.pane;
     this._downX = p.x;
     this._downLocalY = p.localY;
+
+    // Pane divider: pressing within a few px of the boundary between two panes
+    // starts a resize (TradingView-style), redistributing weight between them.
+    const divider = this._dividerAt(p.y);
+    if (divider !== null) {
+      const layout = this._paneLayout();
+      this._paneResize = {
+        index: divider,
+        startY: p.y,
+        aWeight: this._panes[divider].weight,
+        bWeight: this._panes[divider + 1].weight,
+        aHeight: layout[divider].height,
+        bHeight: layout[divider + 1].height,
+      };
+      this._dragging = false;
+      return;
+    }
 
     // Axis-drag rescale: dragging the price axis (right strip) rescales Y;
     // dragging the time axis (bottom strip of the last pane) rescales X.
@@ -881,8 +1407,17 @@ export class Chart {
 
     // If the press lands on a draggable line (order/SL/TP), drag it — don't pan.
     const hit = this._panes[p.pane]?.hitTestPrimitives(p.x - this._leftAxisWidth, p.localY, this._renderContext(p.pane === this._panes.length - 1));
-    if (hit && hit.cursor === 'ns-resize' && this._dragCb !== null) {
+    // `draggable` primitives (drawing anchors/shapes) arm regardless of a host
+    // callback — they publish through the `drag` event bus. The `ns-resize`
+    // form is the original price-line path and still needs `subscribeDrag`.
+    if (hit && (hit.draggable === true || (hit.cursor === 'ns-resize' && this._dragCb !== null))) {
       this._dragId = hit.externalId;
+      this._dragMoved = false;
+      this._ensureScaled(p.pane);
+      this._dragFrom = {
+        time: this._xToTime(p.x),
+        price: this._panes[p.pane].priceScale.yToPrice(p.localY),
+      };
       this._setHover(hit); // active state + cursor even when no hover preceded (touch)
       // Hide the crosshair while dragging a line — a frozen crosshair at the
       // grab point reads as a phantom second line (the axis tag tracks price).
@@ -928,6 +1463,21 @@ export class Chart {
       this.invalidate((m) => m.invalidatePane(this._downPane, { level: InvalidationLevel.Light, autoScale: false }));
       return;
     }
+    if (this._paneResize !== null) {
+      const r = this._paneResize;
+      // Move `dy` px of height from one pane to the other, keeping their summed
+      // weight constant so the other panes are untouched. Clamped so neither
+      // side collapses below a usable height.
+      const total = r.aHeight + r.bHeight;
+      const sum = r.aWeight + r.bWeight;
+      const min = Math.min(24, total / 4);
+      const aH = Math.max(min, Math.min(total - min, r.aHeight + (p.y - r.startY)));
+      this._panes[r.index].weight = (aH / total) * sum;
+      this._panes[r.index + 1].weight = sum - this._panes[r.index].weight;
+      this._relayout();
+      this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
+      return;
+    }
     if (this._axisDrag === 'time') {
       // drag right (dx>0) → expand (wider bars); drag left → compress
       const dx = p.x - this._axisStartCoord;
@@ -936,8 +1486,16 @@ export class Chart {
       return;
     }
     if (this._dragId !== null) {
+      if (Math.abs(p.x - this._downX) > 3 || Math.abs(p.localY - this._downLocalY) > 3) this._dragMoved = true;
       const price = this._panes[this._downPane].priceScale.yToPrice(p.localY);
-      this._dragCb?.(this._dragId, price);
+      const time = this._xToTime(p.x);
+      this._dragCb?.(this._dragId, price, time);
+      this.emit('drag', {
+        id: this._dragId, price, time, paneIndex: this._downPane,
+        // The grab origin, so a consumer's delta starts at the press instead of
+        // the first move — otherwise the shape lags the cursor by one event.
+        fromPrice: this._dragFrom.price, fromTime: this._dragFrom.time,
+      });
       return;
     }
     if (this._dragging) {
@@ -962,11 +1520,16 @@ export class Chart {
   };
 
   private readonly _onPointerUp = (e: PointerEvent): void => {
-    this._container.releasePointerCapture?.(e.pointerId);
+    try { this._container.releasePointerCapture?.(e.pointerId); } catch { /* already released */ }
     this._pointers.delete(e.pointerId);
     if (this._pinch !== null) {
       // a finger lifted mid-pinch: end the gesture; don't start a drag with the remnant
       if (this._pointers.size < 2) { this._pinch = null; this._dragging = false; }
+      return;
+    }
+    if (this._paneResize !== null) {
+      this._paneResize = null;
+      this.emit('paneResized', { paneIndex: this._downPane });
       return;
     }
     if (this._axisDrag !== null) {
@@ -976,7 +1539,22 @@ export class Chart {
     if (this._dragId !== null) {
       const p = this._localPoint(e);
       const price = this._panes[this._downPane].priceScale.yToPrice(p.localY);
-      this._dragEndCb?.(this._dragId, price);
+      const time = this._xToTime(p.x);
+      this._dragEndCb?.(this._dragId, price, time);
+      this.emit('drag:end', { id: this._dragId, price, time, paneIndex: this._downPane });
+      // A press on a draggable primitive arms a drag, so this branch used to
+      // swallow the release — and a plain click on a drawing never reached the
+      // click path, leaving it unselectable. A gesture that never moved is a
+      // click by any reasonable reading.
+      if (!this._dragMoved) {
+        const id = this._dragId;
+        this._clickCb?.(id);
+        this.emit('click', {
+          id, price, time,
+          paneIndex: this._downPane,
+          point: { x: this._downX, y: this._downLocalY },
+        });
+      }
       this._dragId = null;
       // Re-evaluate hover at the release point (mouse keeps hovering the line;
       // touch has no pointer any more) and drop the dragging visual state.
@@ -988,13 +1566,26 @@ export class Chart {
       return;
     }
     this._dragging = false;
-    if (!this._pointerMoved && this._clickCb !== null) {
+    // Always hit-test a clean click: the chart's own chrome (pane-legend
+    // buttons) must work whether or not the host subscribed to clicks.
+    if (!this._pointerMoved) {
       const isBottom = this._downPane === this._panes.length - 1;
       const hit = this._panes[this._downPane]?.hitTestPrimitives(this._downX - this._leftAxisWidth, this._downLocalY, this._renderContext(isBottom));
-      if (hit) {
-        this._clickCb(hit.externalId);
-        this.emit('click', { id: hit.externalId });
-      }
+      // Pane-legend buttons are the chart's own chrome — handle them here so
+      // the host doesn't have to re-implement remove/hide/move/maximize.
+      if (hit && this._handleLegendAction(hit.externalId)) return;
+      if (hit) this._clickCb?.(hit.externalId);
+      // The event carries position and fires on empty plot too, which is what a
+      // tool that *places* something (a drawing, an alert) needs; `id` is null
+      // there. `subscribeClick` stays hit-only for back-compat.
+      this._ensureScaled(this._downPane);
+      this.emit('click', {
+        id: hit?.externalId ?? null,
+        price: this._panes[this._downPane]?.priceScale.yToPrice(this._downLocalY) ?? null,
+        time: this._xToTime(this._downX),
+        paneIndex: this._downPane,
+        point: { x: this._downX, y: this._downLocalY },
+      });
       return;
     }
     if (KineticAnimation.shouldAnimate(this._dragVelocity)) this._startKinetic(this._dragVelocity);
@@ -1025,7 +1616,9 @@ export class Chart {
       this._cursorPane = null;
       // clear the crosshair from every pane (global vertical line)
       this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Cursor));
-      const cleared = { time: null, index: null, price: null, bar: null, point: null };
+      // Pointer left the plot: legends fall back to the latest bar.
+      for (const indicator of this._indicators) indicator.updateLegendValues();
+      const cleared = { time: null, index: null, price: null, bar: null, point: null, paneIndex: null };
       this._crosshairCb?.(cleared);
       this.emit('crosshair:move', cleared);
     }
@@ -1178,7 +1771,15 @@ export class Chart {
       return;
     }
     const pane = this._panes[paneIndex];
-    this._setHover(pane.hitTestPrimitives(plotX, localY, this._renderContext(paneIndex === this._panes.length - 1)) ?? null);
+    const hit = pane.hitTestPrimitives(plotX, localY, this._renderContext(paneIndex === this._panes.length - 1)) ?? null;
+    // A pane boundary beats a primitive hit: the divider is a thin target and
+    // the legend rows sit right below one.
+    if (hit === null && this._dividerAt(containerY) !== null) {
+      this._setHover(null);
+      this._container.style.cursor = 'row-resize';
+      return;
+    }
+    this._setHover(hit);
     let y = localY;
     const index = Math.round(this._timeScale.xToIndex(plotX));
     let hoveredBar: Bar | null = null;
@@ -1196,6 +1797,8 @@ export class Chart {
     }
     this._cursorPane = paneIndex;
     this._cursor = { x: plotX, y }; // plot-relative; the crosshair line is drawn inside the plot shift
+    // Legend rows read the bar under the crosshair, like every charting package.
+    for (const indicator of this._indicators) indicator.updateLegendValues(index);
     // global crosshair → repaint every pane's overlay (cheap; base untouched)
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Cursor));
     if (this._crosshairCb !== null || this._listeners.get('crosshair:move') !== undefined) {
@@ -1206,6 +1809,7 @@ export class Chart {
         price: pane.yToPrice(localY),
         bar: hoveredBar,
         point: { x, y: containerY },
+        paneIndex,
       };
       this._crosshairCb?.(move);
       this.emit('crosshair:move', move);
@@ -1258,6 +1862,8 @@ export class Chart {
   public destroy(): void {
     this._loop.stop();
     this._stopKinetic();
+    for (const indicator of this._indicators) indicator.remove();
+    this._indicators.length = 0;
     this._resizeObserver?.disconnect();
     this._resizeObserver = null;
     if (typeof window !== 'undefined') {

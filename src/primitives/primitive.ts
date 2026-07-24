@@ -32,6 +32,12 @@ export interface PrimitiveHit {
   /** Pixel distance from the cursor (smaller wins ties before z-order). */
   distance: number;
   cursor?: string;
+  /**
+   * Arm a drag on press. Price lines set `cursor: 'ns-resize'` and move on one
+   * axis; anything that moves on **both** (a drawing anchor, a whole shape)
+   * declares it here, and the drag callbacks receive time as well as price.
+   */
+  draggable?: boolean;
 }
 
 /** Injected when a primitive is attached; lets it request a repaint. */

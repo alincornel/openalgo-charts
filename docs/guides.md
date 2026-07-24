@@ -24,7 +24,7 @@ transform tier:
 ```ts
 import { runTransform, PointFigureTransform } from 'openalgo-charts/transform';
 const cols = runTransform(new PointFigureTransform({ boxSize: 1, reversal: 3 }), bars);
-chart.addSeries('point-figure', { style: { boxSize: 1 } }).setData(cols);
+chart.addSeries('point-figure').setData(cols); // columns carry their own boxSize
 ```
 
 ## Multi-pane (volume / indicators)

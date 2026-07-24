@@ -58,6 +58,12 @@ export class PriceScale {
   private _min = 0;
   private _max = 1;
   private _autoScale = true;
+  /**
+   * True once a real range has been applied. The default 0..1 is a placeholder,
+   * not a measurement — anything converting y↔price before that would answer
+   * confidently with nonsense.
+   */
+  private _scaled = false;
   private _priceFormatter: ((price: number) => string) | null = null;
 
   public constructor(options: Partial<PriceScaleOptions> = {}) {
@@ -84,6 +90,12 @@ export class PriceScale {
   public setPriceRange(range: PriceRange): void {
     this._min = range.min;
     this._max = range.max;
+    this._scaled = true;
+  }
+
+  /** Whether a real price range has been applied (see `_scaled`). */
+  public get scaled(): boolean {
+    return this._scaled;
   }
 
   public priceRange(): PriceRange {

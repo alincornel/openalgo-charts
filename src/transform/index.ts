@@ -3,7 +3,11 @@
 // plot the result: Heikin Ashi / Renko / Range / Line Break render as a
 // 'candlestick' series; Point & Figure → 'point-figure'; Kagi → 'kagi'.
 
-import { registerChartType } from '../model/chart-type-registry';
+// The registry MUST come from the base entry, not a deep path: each tier is its
+// own rollup bundle, so a deep import would inline a *second* copy of the
+// registry and `createChart` would never see what this tier registers.
+// `../index` is marked external for tier builds and emitted as 'openalgo-charts'.
+import { registerChartType } from 'openalgo-charts';
 import { drawPointFigure } from '../render/point-figure';
 import { drawKagi } from '../render/kagi';
 
@@ -25,7 +29,7 @@ export function registerTransformChartTypes(): void {
   _registered = true;
   registerChartType('point-figure', {
     defaultStyle: {}, isPriceSeries: true,
-    draw: (g, items, toY, bs, dpr, s) => drawPointFigure(g, items, toY, bs, dpr, s),
+    draw: (g, items, toY, bs, dpr, s, rc) => drawPointFigure(g, items, toY, bs, dpr, s, rc.plotHeight),
     extents: (bar) => ({ min: bar.low, max: bar.high }),
   });
   registerChartType('kagi', {
@@ -43,5 +47,11 @@ export { HeikinAshiTransform } from './heikin-ashi';
 export { RenkoTransform, type RenkoOptions } from './renko';
 export { RangeBarsTransform, type RangeOptions } from './range-bars';
 export { LineBreakTransform, type LineBreakOptions } from './line-break';
-export { PointFigureTransform, type PointFigureOptions } from './point-figure';
+export {
+  PointFigureTransform,
+  type PointFigureOptions,
+  type PointFigureColumn,
+  type PointFigureMethod,
+  type PointFigureBoxMode,
+} from './point-figure';
 export { KagiTransform, type KagiOptions } from './kagi';

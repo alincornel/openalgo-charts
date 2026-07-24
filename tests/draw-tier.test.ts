@@ -1,0 +1,515 @@
+import { describe, it, expect, beforeAll } from 'vitest';
+import { Chart } from '../src/core/chart';
+import { fakeDocument, pointer, type FakeElement } from './helpers/fake-dom';
+import { makeCtx } from './helpers/fake-ctx';
+import { darkTheme } from '../src/theme';
+import {
+  DrawingController, DrawingLayer,
+  registeredDrawingTools, getDrawingTool, hasDrawingTool, registerDrawingTool,
+  BUILTIN_DRAWING_TOOLS,
+  distToSegment, distToLine, distToRect, distToEllipse, rectOf, extendSegment,
+} from '../src/draw/index';
+import type { Drawing } from '../src/draw/types';
+import type { Bar } from '../src/model/bar';
+
+const W = 800;
+const H = 600;
+
+beforeAll(() => {
+  const g = globalThis as unknown as { window?: unknown };
+  g.window ??= {};
+});
+
+const bars = (n: number): Bar[] =>
+  Array.from({ length: n }, (_, i) => {
+    const c = 100 + Math.sin(i / 4) * 5;
+    return { time: 1700000000 + i * 60, open: c, high: c + 2, low: c - 2, close: c, volume: 10 };
+  });
+
+function makeChart(): { chart: Chart; el: FakeElement } {
+  const el = fakeDocument().createElement('div') as unknown as FakeElement;
+  const chart = new Chart(el, {
+    document: fakeDocument(), raf: { schedule: () => 0 },
+    pixelRatio: () => 1, shortcuts: false,
+  });
+  chart.applySize(W, H);
+  chart.addSeries('candlestick').setData(bars(120));
+  return { chart, el };
+}
+
+describe('coordinate conversion before the first paint', () => {
+  // The render loop never runs in these tests (`raf.schedule` is a no-op), which
+  // is exactly the state a caller is in between `setData` and the first frame.
+  // Price conversion used to depend on the autoscale pass, so it answered
+  // ±Infinity there — and a drawing placed from a click got a NaN anchor that
+  // serialised to null and could never be rendered again.
+  it('coordinateToPrice returns a real price with no frame having run', () => {
+    const { chart } = makeChart();
+    const p = chart.coordinateToPrice(200, 0);
+    expect(p).not.toBeNull();
+    expect(Number.isFinite(p as number)).toBe(true);
+  });
+
+  it('round-trips price ↔ y before the first paint', () => {
+    const { chart } = makeChart();
+    const price = chart.coordinateToPrice(250, 0) as number;
+    expect(chart.priceToCoordinate(price, 0)).toBeCloseTo(250, 6);
+  });
+
+  it('lands inside the data range rather than the placeholder 0..1 scale', () => {
+    const { chart } = makeChart();
+    const mid = chart.coordinateToPrice(H / 2, 0) as number;
+    expect(mid).toBeGreaterThan(50);
+    expect(mid).toBeLessThan(200);
+  });
+
+  it('a click carries a usable price, so placement anchors are never NaN', () => {
+    const { chart, el } = makeChart();
+    let payload: { price: number | null } | null = null;
+    chart.on('click', (p) => { payload = p as { price: number | null }; });
+    el.dispatch('pointerdown', pointer('down', 300, 200));
+    el.dispatch('pointerup', pointer('up', 300, 200));
+    expect(payload).not.toBeNull();
+    const price = (payload as unknown as { price: number | null }).price;
+    expect(price).not.toBeNull();
+    expect(Number.isFinite(price as number)).toBe(true);
+  });
+});
+
+describe('clicking a drawing selects it', () => {
+  // A press on a draggable primitive arms a drag, and the drag-end branch used
+  // to return before the click path ran — so a drawing could be dragged but
+  // never selected, and its anchor handles never appeared.
+  it('a press that never moves still selects', () => {
+    const { chart, el } = makeChart();
+    const draw = new DrawingController(chart);
+    const price = chart.coordinateToPrice(300, 0) as number;
+    const time = chart.coordinateToTime(400);
+    const d = draw.add({
+      tool: 'horizontal-line', paneIndex: 0, style: {}, points: [{ time, price }],
+    });
+    draw.select(null);
+    expect(draw.selected()).toBeNull();
+
+    el.dispatch('pointerdown', pointer('down', 400, 300));
+    el.dispatch('pointerup', pointer('up', 400, 300));
+    expect(draw.selected()).toBe(d.id);
+  });
+
+  it('a press that moves is a drag, not a selection-only click', () => {
+    const { chart, el } = makeChart();
+    const draw = new DrawingController(chart);
+    const price = chart.coordinateToPrice(300, 0) as number;
+    const time = chart.coordinateToTime(400);
+    const d = draw.add({
+      tool: 'horizontal-line', paneIndex: 0, style: {}, points: [{ time, price }],
+    });
+    el.dispatch('pointerdown', pointer('down', 400, 300));
+    el.dispatch('pointermove', pointer('move', 400, 360));
+    el.dispatch('pointerup', pointer('up', 400, 360));
+    // It moved, so the anchor changed.
+    expect(draw.get(d.id)?.points[0].price).not.toBe(price);
+  });
+});
+
+describe('geometry', () => {
+  it('measures distance to a segment, clamped at its ends', () => {
+    const a = { x: 0, y: 0 };
+    const b = { x: 10, y: 0 };
+    expect(distToSegment(5, 3, a, b)).toBeCloseTo(3, 9);
+    // Past the end it measures to the endpoint, not the infinite line.
+    expect(distToSegment(20, 0, a, b)).toBeCloseTo(10, 9);
+    expect(distToLine(20, 0, a, b)).toBeCloseTo(0, 9);
+  });
+
+  it('treats a filled rect as grabbable inside and an empty one only on its edge', () => {
+    const a = { x: 0, y: 0 };
+    const b = { x: 10, y: 10 };
+    expect(distToRect(5, 5, a, b, true)).toBe(0);
+    expect(distToRect(5, 5, a, b, false)).toBeCloseTo(5, 9);
+  });
+
+  it('measures distance to an ellipse boundary', () => {
+    const a = { x: 0, y: 0 };
+    const b = { x: 20, y: 20 };
+    expect(distToEllipse(10, 10, a, b, true)).toBe(0);
+    expect(distToEllipse(20, 10, a, b, false)).toBeCloseTo(0, 6); // on the rim
+  });
+
+  it('normalises rect corners regardless of anchor order', () => {
+    expect(rectOf({ x: 10, y: 8 }, { x: 2, y: 20 })).toEqual({ x0: 2, y0: 8, x1: 10, y1: 20 });
+  });
+
+  it('extends a segment to the plot edges, keeping slope', () => {
+    const [a, b] = extendSegment({ x: 10, y: 10 }, { x: 20, y: 20 }, 100, true, true);
+    expect(a).toEqual({ x: 0, y: 0 });
+    expect(b).toEqual({ x: 100, y: 100 });
+  });
+});
+
+describe('tool registry', () => {
+  it('registers every built-in on tier import', () => {
+    expect(BUILTIN_DRAWING_TOOLS).toHaveLength(18);
+    for (const t of BUILTIN_DRAWING_TOOLS) expect(hasDrawingTool(t.id)).toBe(true);
+    expect(registeredDrawingTools().length).toBeGreaterThanOrEqual(18);
+  });
+
+  it('has unique ids and a sane anchor count', () => {
+    const ids = BUILTIN_DRAWING_TOOLS.map((t) => t.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const t of BUILTIN_DRAWING_TOOLS) expect(t.points).toBeGreaterThanOrEqual(0);
+  });
+
+  it('throws a clear error for an unknown tool', () => {
+    expect(() => getDrawingTool('nope')).toThrow(/unknown drawing tool/);
+  });
+
+  it('accepts a custom tool', () => {
+    registerDrawingTool({
+      id: 'test-dot', name: 'Dot', points: 1,
+      draw: () => {}, distance: () => 0,
+    });
+    expect(hasDrawingTool('test-dot')).toBe(true);
+  });
+});
+
+describe('every built-in tool renders and hit-tests', () => {
+  const rc = {
+    timeScale: { indexToX: (i: number) => i * 5 },
+    priceScale: { priceToY: (p: number) => 300 - p, format: (p: number) => p.toFixed(2) },
+    dataLayer: { timeToIndexFloat: () => 10, indexToTimeFloat: (i: number) => i },
+    plotWidth: W, plotHeight: H, priceAxisWidth: 60, dpr: 1, theme: darkTheme,
+  } as never;
+
+  it('draws without throwing and reports a finite distance', () => {
+    for (const tool of BUILTIN_DRAWING_TOOLS) {
+      const n = Math.max(1, tool.points || 3);
+      const drawing: Drawing = {
+        id: 'x', tool: tool.id, paneIndex: 0,
+        points: Array.from({ length: n }, (_, i) => ({ time: 1700000000 + i * 600, price: 100 + i * 5 })),
+        style: { color: '#4f8cff', lineWidth: 1.5, text: 'hi' },
+      };
+      const pts = drawing.points.map((_, i) => ({ x: 50 + i * 40, y: 100 + i * 30 }));
+      const { ctx, rec } = makeCtx();
+      expect(() => tool.draw({
+        ctx, rc, drawing, selected: false, pts,
+        style: { color: '#4f8cff', lineWidth: 1.5, ...drawing.style },
+        formatPrice: (v) => v.toFixed(2),
+      }), tool.id).not.toThrow();
+      expect(rec.ops.length, `${tool.id} drew nothing`).toBeGreaterThan(0);
+
+      const d = tool.distance(pts[0].x, pts[0].y, { pts, drawing, rc });
+      expect(d === null || Number.isFinite(d), `${tool.id} distance`).toBe(true);
+    }
+  });
+});
+
+describe('text styling', () => {
+  const rc = {
+    timeScale: { indexToX: (i: number) => i },
+    priceScale: { priceToY: (p: number) => p, format: (p: number) => String(p) },
+    dataLayer: { timeToIndexFloat: (t: number) => t },
+    plotWidth: W, plotHeight: H, priceAxisWidth: 60, dpr: 1, theme: darkTheme,
+  } as never;
+
+  const render = (style: Record<string, unknown>) => {
+    const drawing: Drawing = {
+      id: 't', tool: 'text', paneIndex: 0,
+      points: [{ time: 10, price: 10 }],
+      style: { color: '#fff', lineWidth: 1, ...style },
+    };
+    const { ctx, rec } = makeCtx();
+    getDrawingTool('text').draw({
+      ctx, rc, drawing, selected: false, pts: [{ x: 50, y: 60 }],
+      style: { color: '#fff', lineWidth: 1, ...style },
+      formatPrice: (v) => String(v),
+    });
+    return rec;
+  };
+
+  it('ships the full style surface as defaults', () => {
+    const d = getDrawingTool('text').defaultStyle ?? {};
+    expect(d).toMatchObject({
+      fontWeight: 'normal', fontStyle: 'normal',
+      background: false, border: false, wrap: false, textAlign: 'left',
+    });
+  });
+
+  it('applies weight, style, and family to the canvas font', () => {
+    const rec = render({ text: 'Hi', fontSize: 20, fontWeight: 'bold', fontStyle: 'italic', fontFamily: 'Georgia' });
+    // The recording context keeps the last font assigned before fillText.
+    expect(rec.ops.some((o) => o.type === 'fillText')).toBe(true);
+    expect(rec.font).toContain('italic');
+    expect(rec.font).toContain('700');
+    expect(rec.font).toContain('Georgia');
+    expect(rec.font).toContain('20px');
+  });
+
+  it('draws one line per newline', () => {
+    const one = render({ text: 'a' });
+    const three = render({ text: 'a\nb\nc' });
+    expect(three.count('fillText')).toBe(one.count('fillText') + 2);
+  });
+
+  it('adds a background plate and a border only when asked', () => {
+    const plain = render({ text: 'x' });
+    expect(plain.count('fill')).toBe(0);
+    expect(plain.count('stroke')).toBe(0);
+    const boxed = render({ text: 'x', background: true, border: true, backgroundColor: '#123456' });
+    expect(boxed.count('fill')).toBe(1);
+    expect(boxed.count('stroke')).toBe(1);
+  });
+
+  it('soft-wraps at wrapWidth, producing more lines than unwrapped', () => {
+    const text = 'the quick brown fox jumps over the lazy dog again and again';
+    const unwrapped = render({ text, wrap: false });
+    const wrapped = render({ text, wrap: true, wrapWidth: 60 });
+    expect(wrapped.count('fillText')).toBeGreaterThan(unwrapped.count('fillText'));
+  });
+
+  it('hit-tests the measured box, not a character count', () => {
+    const tool = getDrawingTool('text');
+    const drawing: Drawing = {
+      id: 't', tool: 'text', paneIndex: 0, points: [{ time: 10, price: 10 }],
+      style: { text: 'hello', fontSize: 14 },
+    };
+    const pts = [{ x: 50, y: 60 }];
+    expect(tool.distance(52, 62, { pts, drawing, rc })).toBe(0);   // inside
+    expect(tool.distance(400, 62, { pts, drawing, rc })).toBeNull(); // far right
+    expect(tool.distance(52, 300, { pts, drawing, rc })).toBeNull(); // far below
+  });
+});
+
+describe('DrawingController', () => {
+  it('places a two-anchor tool over two clicks and selects it', () => {
+    const { chart } = makeChart();
+    const draw = new DrawingController(chart);
+    draw.setTool('trend-line');
+    expect(draw.activeTool()).toBe('trend-line');
+
+    chart.emit('click', { id: null, time: 1700000600, price: 101, paneIndex: 0, point: { x: 10, y: 10 } });
+    expect(draw.drawings()).toHaveLength(0); // still one anchor short
+    chart.emit('click', { id: null, time: 1700003600, price: 108, paneIndex: 0, point: { x: 90, y: 40 } });
+
+    expect(draw.drawings()).toHaveLength(1);
+    const d = draw.drawings()[0];
+    expect(d.tool).toBe('trend-line');
+    expect(d.points).toEqual([
+      { time: 1700000600, price: 101 },
+      { time: 1700003600, price: 108 },
+    ]);
+    expect(draw.selected()).toBe(d.id);
+    expect(draw.activeTool()).toBeNull(); // returns to the cursor by default
+  });
+
+  it('stays in the tool when asked', () => {
+    const { chart } = makeChart();
+    const draw = new DrawingController(chart, { stayInDrawingMode: true });
+    draw.setTool('horizontal-line');
+    chart.emit('click', { id: null, time: 1700000600, price: 101, paneIndex: 0, point: { x: 10, y: 10 } });
+    expect(draw.drawings()).toHaveLength(1);
+    expect(draw.activeTool()).toBe('horizontal-line');
+  });
+
+  it('snaps to the nearest O/H/L/C when magnet is on', () => {
+    const { chart } = makeChart();
+    const draw = new DrawingController(chart, { magnet: true });
+    // The crosshair supplies the bar the magnet snaps against.
+    chart.emit('crosshair:move', {
+      time: 1700000600, price: 103.4, paneIndex: 0, bar: { open: 100, high: 104, low: 99, close: 101 },
+    });
+    draw.setTool('horizontal-line');
+    chart.emit('click', { id: null, time: 1700000600, price: 103.4, paneIndex: 0, point: { x: 10, y: 10 } });
+    expect(draw.drawings()[0].points[0].price).toBe(104); // nearest of O/H/L/C
+  });
+
+  it('drags a whole shape by the cursor delta', () => {
+    const { chart } = makeChart();
+    const draw = new DrawingController(chart);
+    const d = draw.add({
+      tool: 'trend-line', paneIndex: 0, style: {},
+      points: [{ time: 1000, price: 10 }, { time: 2000, price: 20 }],
+    });
+    chart.emit('drag', { id: `draw:${d.id}`, time: 1000, price: 10, paneIndex: 0 });
+    chart.emit('drag', { id: `draw:${d.id}`, time: 1500, price: 15, paneIndex: 0 });
+    chart.emit('drag:end', {});
+    expect(draw.get(d.id)?.points).toEqual([
+      { time: 1500, price: 15 },
+      { time: 2500, price: 25 },
+    ]);
+  });
+
+  it('drags a single anchor by its handle', () => {
+    const { chart } = makeChart();
+    const draw = new DrawingController(chart);
+    const d = draw.add({
+      tool: 'trend-line', paneIndex: 0, style: {},
+      points: [{ time: 1000, price: 10 }, { time: 2000, price: 20 }],
+    });
+    chart.emit('drag', { id: `draw:${d.id}#1`, time: 3000, price: 33, paneIndex: 0 });
+    chart.emit('drag:end', {});
+    expect(draw.get(d.id)?.points).toEqual([
+      { time: 1000, price: 10 },   // untouched
+      { time: 3000, price: 33 },
+    ]);
+  });
+
+  it('refuses to drag a locked drawing', () => {
+    const { chart } = makeChart();
+    const draw = new DrawingController(chart);
+    const d = draw.add({
+      tool: 'trend-line', paneIndex: 0, style: {}, locked: true,
+      points: [{ time: 1000, price: 10 }, { time: 2000, price: 20 }],
+    });
+    chart.emit('drag', { id: `draw:${d.id}`, time: 5000, price: 50, paneIndex: 0 });
+    expect(draw.get(d.id)?.points[0]).toEqual({ time: 1000, price: 10 });
+  });
+
+  it('undoes a drag as one step, not one per frame', () => {
+    const { chart } = makeChart();
+    const draw = new DrawingController(chart);
+    const d = draw.add({
+      tool: 'trend-line', paneIndex: 0, style: {},
+      points: [{ time: 1000, price: 10 }, { time: 2000, price: 20 }],
+    });
+    for (let i = 1; i <= 5; i++) {
+      chart.emit('drag', { id: `draw:${d.id}`, time: 1000 + i * 100, price: 10 + i, paneIndex: 0 });
+    }
+    chart.emit('drag:end', {});
+    draw.undo();
+    expect(draw.get(d.id)?.points[0]).toEqual({ time: 1000, price: 10 });
+  });
+
+  it('undo / redo round-trips add and remove', () => {
+    const { chart } = makeChart();
+    const draw = new DrawingController(chart);
+    const d = draw.add({ tool: 'horizontal-line', paneIndex: 0, style: {}, points: [{ time: 1000, price: 10 }] });
+    expect(draw.drawings()).toHaveLength(1);
+    draw.remove(d.id);
+    expect(draw.drawings()).toHaveLength(0);
+    expect(draw.undo()).toBe(true);
+    expect(draw.drawings()).toHaveLength(1);
+    expect(draw.redo()).toBe(true);
+    expect(draw.drawings()).toHaveLength(0);
+    expect(draw.redo()).toBe(false);
+  });
+
+  it('a new edit clears the redo branch', () => {
+    const { chart } = makeChart();
+    const draw = new DrawingController(chart);
+    draw.add({ tool: 'horizontal-line', paneIndex: 0, style: {}, points: [{ time: 1, price: 1 }] });
+    draw.undo();
+    expect(draw.canRedo()).toBe(true);
+    draw.add({ tool: 'horizontal-line', paneIndex: 0, style: {}, points: [{ time: 2, price: 2 }] });
+    expect(draw.canRedo()).toBe(false);
+  });
+
+  it('persists through the chart state and restores', () => {
+    const { chart } = makeChart();
+    const draw = new DrawingController(chart);
+    draw.add({ tool: 'rectangle', paneIndex: 0, style: { color: '#abc' }, points: [{ time: 1, price: 1 }, { time: 2, price: 2 }] });
+    const state = JSON.parse(JSON.stringify(chart.getState()));
+    expect(state.drawings).toHaveLength(1);
+    expect(state.drawings[0].tool).toBe('rectangle');
+
+    // A fresh chart + controller picks the drawings back up from the state.
+    const other = makeChart();
+    other.chart.restoreState(state);
+    const draw2 = new DrawingController(other.chart);
+    expect(draw2.drawings()).toHaveLength(1);
+    expect(draw2.drawings()[0].style.color).toBe('#abc');
+  });
+
+  it('clicking empty space clears the selection', () => {
+    const { chart } = makeChart();
+    const draw = new DrawingController(chart);
+    const d = draw.add({ tool: 'horizontal-line', paneIndex: 0, style: {}, points: [{ time: 1, price: 1 }] });
+    draw.select(d.id);
+    expect(draw.selected()).toBe(d.id);
+    chart.emit('click', { id: null, time: 1, price: 1, paneIndex: 0, point: { x: 1, y: 1 } });
+    expect(draw.selected()).toBeNull();
+  });
+
+  it('clicking a drawing selects it', () => {
+    const { chart } = makeChart();
+    const draw = new DrawingController(chart);
+    const d = draw.add({ tool: 'horizontal-line', paneIndex: 0, style: {}, points: [{ time: 1, price: 1 }] });
+    chart.emit('click', { id: `draw:${d.id}`, time: 1, price: 1, paneIndex: 0, point: { x: 1, y: 1 } });
+    expect(draw.selected()).toBe(d.id);
+  });
+
+  it('rejects an unknown tool id', () => {
+    const { chart } = makeChart();
+    const draw = new DrawingController(chart);
+    expect(() => draw.setTool('nope')).toThrow(/unknown drawing tool/);
+  });
+
+  it('destroy detaches its layers and listeners', () => {
+    const { chart } = makeChart();
+    const draw = new DrawingController(chart);
+    draw.add({ tool: 'horizontal-line', paneIndex: 0, style: {}, points: [{ time: 1, price: 1 }] });
+    draw.destroy();
+    // Events after destroy must not mutate the model.
+    chart.emit('click', { id: null, time: 9, price: 9, paneIndex: 0, point: { x: 1, y: 1 } });
+    expect(draw.drawings()).toHaveLength(1);
+  });
+});
+
+describe('DrawingLayer hit-testing', () => {
+  const rc = {
+    timeScale: { indexToX: (i: number) => i },
+    priceScale: { priceToY: (p: number) => p, format: (p: number) => String(p) },
+    dataLayer: { timeToIndexFloat: (t: number) => t },
+    plotWidth: W, plotHeight: H, priceAxisWidth: 60, dpr: 1, theme: darkTheme,
+  } as never;
+
+  const line = (id: string): Drawing => ({
+    id, tool: 'trend-line', paneIndex: 0,
+    points: [{ time: 100, price: 100 }, { time: 200, price: 200 }],
+    style: {},
+  });
+
+  it('hits the body within the grab radius and misses beyond it', () => {
+    const layer = new DrawingLayer();
+    layer.setDrawings([line('a')]);
+    expect(layer.hitTest(150, 150, rc)?.externalId).toBe('draw:a');
+    expect(layer.hitTest(150, 400, rc)).toBeNull();
+  });
+
+  it('marks hits draggable so the chart arms a two-axis drag', () => {
+    const layer = new DrawingLayer();
+    layer.setDrawings([line('a')]);
+    expect(layer.hitTest(150, 150, rc)?.draggable).toBe(true);
+  });
+
+  it('an anchor handle of the selected drawing beats its body', () => {
+    const layer = new DrawingLayer();
+    layer.setDrawings([line('a')]);
+    layer.setSelected('a');
+    const hit = layer.hitTest(100, 100, rc);
+    expect(hit?.externalId).toBe('draw:a#0');
+  });
+
+  it('skips locked and hidden drawings', () => {
+    const layer = new DrawingLayer();
+    layer.setDrawings([{ ...line('a'), locked: true }]);
+    expect(layer.hitTest(150, 150, rc)).toBeNull();
+    layer.setDrawings([{ ...line('b'), visible: false }]);
+    expect(layer.hitTest(150, 150, rc)).toBeNull();
+  });
+
+  it('the newest drawing wins a tie', () => {
+    const layer = new DrawingLayer();
+    layer.setDrawings([line('old'), line('new')]);
+    expect(layer.hitTest(150, 150, rc)?.externalId).toBe('draw:new');
+  });
+
+  it('draws an in-progress preview alongside committed drawings', () => {
+    const layer = new DrawingLayer();
+    layer.setDrawings([line('a')]);
+    layer.setPreview({ ...line('__preview'), id: '__preview' });
+    const { ctx, rec } = makeCtx();
+    layer.draw(ctx, rc);
+    expect(rec.count('stroke')).toBe(2);
+  });
+});

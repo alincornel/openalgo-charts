@@ -2,6 +2,190 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.1.0
+
+Two new lazy tiers — **indicators** and **drawing tools** — plus the registries,
+state, and pane chrome they need. Base engine ~32.7 KB Brotli, full package
+~58 KB across all six tiers, 462 unit tests.
+
+### Fixed
+
+- **Lazy tiers could not register into the base bundle's registries.** Each tier
+  is its own rollup bundle with nothing marked external, so a deep import like
+  `../model/chart-type-registry` was *inlined* — giving the tier a second,
+  private copy of the registry `Map`. The documented usage
+  (`import 'openalgo-charts/transform'` then `chart.addSeries('point-figure')`)
+  therefore threw `series type "point-figure" needs the transform tier` even
+  though the tier was loaded. Only `src/all.ts` — built for the docs site —
+  happened to work, because it puts everything in one module instance.
+
+  Tiers now import shared runtime state from the package entry
+  (`import { registerChartType } from 'openalgo-charts'`), which is external for
+  tier builds, so every bundle references one registry instead of inlining its
+  own. Duplicated *pure* helpers across tiers were only ever a size cost, and
+  removing the inlined registry shrank the transform tier from 4.6 KB to
+  2.7 KB Brotli.
+
+- **A `setPointerCapture` throw aborted the rest of `pointerdown`.** Chrome
+  throws `NotFoundError` when the pointer id is not currently active, and the
+  call was only optional-chained — which guards against the method being
+  *absent*, not against it throwing. Anything armed after it silently never
+  happened: the pane-divider grab, the price/time axis-drag arm, and the
+  order-line drag arm. Both capture calls are now wrapped; capture is an
+  optimisation, never fatal.
+- **Pane hit-testing could be offset from what was drawn.** `_relayout` gave each
+  pane a flex *ratio* (`flex: w 1 0`) while sizing its canvas from the chart's
+  own `this._height`, so the browser distributed the container's real height and
+  the model used a possibly-stale one. Any drift between the two shifted every
+  hit-test away from the pixels: pane boundaries, legend buttons, and crosshair
+  mapping all landed elsewhere. Panes now get the same pixel height the canvas
+  is sized to, making layout == hit-test by construction.
+- **Point & Figure no longer emits a phantom first column.** When the first move
+  after the anchor bar was *down*, the direction was still `0`, so the reversal
+  branch fired while the column's top and bottom boxes were equal — emitting a
+  zero-height column that the renderer drew as a blank slot at the start of
+  every down-opening chart. Direction is now established without emitting a
+  column, and `flush()` returns nothing until a real column exists.
+- **P&F columns are built from the bar range, not just the close.** The new
+  `method` option defaults to `'hl'` (the standard construction): a bar's high
+  extends an X column and its low extends an O column. A bar that swung through
+  several boxes intrabar but closed flat used to produce no boxes at all. Pass
+  `method: 'close'` for the previous close-only behaviour.
+- **The P&F renderer walks integer box indices** instead of accumulating
+  `level += boxSize`. Thirty steps of `0.05` land on `101.49999999999991`, which
+  duplicated the top glyph of tall columns. Glyph rows outside the plot are now
+  culled, and a per-column glyph cap keeps a pathological box size from hanging
+  a frame.
+
+### Added
+
+- **`openalgo-charts/draw` — a new lazy tier (6.3 KB Brotli)** with 18 drawing
+  tools and a headless `DrawingController`: trend line, ray, extended line,
+  arrow, horizontal line/ray, vertical line, cross line, rectangle, ellipse,
+  parallel channel, fib retracement/extension, long/short position, measure,
+  text, and path. The controller runs placement (with a live preview), selection,
+  whole-shape and per-anchor dragging, magnet snap to O/H/L/C, undo/redo, and
+  serialisation — and ships **no UI**, so a host wires its own toolbar.
+  `registerDrawingTool` makes a custom tool first-class, exactly like a chart
+  type or an indicator.
+- **Drawing anchors live in data space** (`{ time, price }`), never pixels. The
+  time axis is gapless, so a pixel anchor would slide the moment a weekend
+  collapsed; anchors map through `DataLayer.timeToIndexFloat`, which also
+  resolves positions *between* bars and *past the last bar*, where projections
+  live. Drawings round-trip through `ChartState.drawings` with no extra plumbing.
+- **Full text styling** on the `text` tool: `fontFamily`, `fontWeight`,
+  `fontStyle`, `background` + `backgroundColor` + `backgroundOpacity`,
+  `border` + `borderColor`, `wrap` + `wrapWidth`, and `textAlign`. Text renders
+  multiline, soft-wraps against live font metrics, and hit-tests its **measured**
+  box rather than a character-count estimate.
+- `PrimitiveHit.draggable` — arm a two-axis drag (drawing anchors and shapes),
+  alongside the existing one-axis `cursor: 'ns-resize'` price-line path.
+- **`drag` / `drag:end` events**, carrying `fromTime` / `fromPrice` (the grab
+  origin) so a consumer's delta measures from the press rather than the first
+  move. The `click` event now also fires on empty plot, with position and a null
+  `id` — what a tool that *places* something needs.
+- **Pane legends with inline controls.** `PaneLegend` draws the TradingView-style
+  row at a pane's top-left — swatch, name, parameters, and **one reading per
+  plot in that plot's own colour** (a single number in a single colour cannot
+  say which value belongs to which line of an MA ribbon or MACD), tracking the
+  crosshair and falling back to the latest bar on leave — plus inline action
+  buttons: show/hide, settings, move pane up/down, maximize, and delete.
+  Controls stay hidden until the row is hovered, so a stack of legends reads as
+  clean text; the row itself hit-tests (`::row`) to trigger that reveal, and the
+  chart swallows those clicks so they never surface as phantom ids.
+  Rows stack automatically per pane — a host can add its own (a symbol/OHLC
+  header, a volume readout) with `chart.addPrimitive(new PaneLegend(...), pane)`
+  and indicator rows flow beneath it; removing one closes the gap. Drawn on the canvas (like `BuySellButtons` and `DomLadder`) so it
+  composites into screenshots and costs no DOM per pane, with icons as vector
+  strokes rather than text glyphs, which render as emoji on some platforms.
+  Every indicator gets one automatically; the first legend on a non-price pane
+  also carries the pane-level controls, so extra rows stay uncluttered. The
+  chart handles these presses itself, so a host gets them without wiring
+  anything. `settings` has no built-in dialog — the engine ships no DOM — so it
+  emits `indicatorSettings`; everything needed to *generate* a form is already
+  on the descriptor's `inputs`.
+- **Pane management:** `setPaneWeight`, `paneWeight`, `movePane`, `maximizePane`,
+  `maximizedPane`, and `removePane`, plus **draggable pane dividers** — press
+  within 4px of a boundary and drag to redistribute height between the two
+  adjacent panes (cursor turns `row-resize`), conserving their combined weight
+  so other panes are untouched and neither side can collapse. Removing a pane
+  takes its series and indicators with it and re-indexes the panes below;
+  pane 0 is pinned. Deleting the last indicator on a pane removes the pane too.
+  New events: `paneResized`, `paneMoved`, `paneMaximized`, `paneRemoved`,
+  `indicatorRemoved`, `indicatorSettings`.
+- **An indicator registry, the sibling of the chart-type registry.** The
+  chart-type registry answers *"how do I paint an array of bars"*; this one
+  answers *"what do I compute, what does it plot, and what can a user tune"*.
+  An `IndicatorDescriptor` is data, not code in the core — the chart never
+  switches on an indicator id — and each `plot` names a registered **chart
+  type**, so indicators ride the existing Family-A renderers and add no drawing
+  code at all. `registerIndicator` / `getIndicator` / `registeredIndicators` /
+  `indicatorDefaults` ship in the base bundle (~1.5 KB); the catalog does not.
+- **`chart.addIndicator(id, settings?, { paneIndex? })`**, plus
+  `chart.indicators()` and `chart.removeIndicator(instanceId)`. The returned
+  `IndicatorApi` handle carries `settings()`, `setSettings(patch)`,
+  `series(plotKey)`, `values()`, and `remove()`. The runtime creates one series
+  per plot, places `'onchart'` indicators on the price pane and `'pane'`
+  indicators on a new one, draws declared reference levels, applies a declared
+  fixed range (RSI 0..100), recomputes on every source-data change, and tears
+  everything down on `remove()` / `destroy()`. Indicator plots never claim the
+  primary price series, so they can be added before any candles exist without
+  hijacking the magnet crosshair and OHLC legend.
+- **`openalgo-charts/indicators` — a new lazy tier (4.5 KB Brotli)** with 18
+  Tier-1 built-ins: SMA, EMA, WMA, VWAP, Bollinger Bands, Supertrend, Parabolic
+  SAR, Ichimoku Cloud, RSI, MACD, Stochastic, ADX/DMI, CCI, MFI, ATR, Volume,
+  OBV, and A/D. Importing the tier registers all of them.
+- **The Tier-2 contract** (`createTier2Indicator`) for indicators whose data is
+  *not* derived from the chart's OHLCV — open interest, CVD, PCR, any external
+  feed. It wraps a `fetch` / `subscribe` / `refetchOn` lifecycle into an ordinary
+  descriptor, so the runtime, settings, panes, and removal all work identically;
+  there is no second runtime. External points are projected onto the bar
+  timeline by last-known-value — the most recent point *at or before* each bar,
+  never interpolated and never forward-looking — and a failed fetch leaves the
+  previous data on screen rather than blanking the pane.
+- `IndicatorDescriptor.calcTail` — an optional incremental path so a live tick
+  does not cost a full recompute. Return values for `[fromIndex, bars.length)`
+  and the runtime splices them onto the previous result; return `null` to fall
+  back to `calc`.
+- **`chart.getState()` / `chart.restoreState(state)`** — a JSON-safe snapshot of
+  the viewport, grid, crosshair mode, pane weights, per-pane price scales, and
+  indicator instances, plus an opaque `drawings` slot the drawing tier owns and
+  the base engine round-trips. The contract is that the chart serialises what
+  the chart owns: series **data** is the app's, so `restoreState` never
+  recreates series — it returns a `RestoreReport` listing the descriptors it saw
+  so the app can rebuild them from its own feed and re-apply the saved styling.
+  Restore is idempotent (indicators are replaced, not appended), a state from a
+  newer `CHART_STATE_VERSION` is rejected rather than half-applied, and an
+  indicator whose tier is not loaded is skipped rather than thrown.
+- **`chart.subscribeDrag` now passes `time` alongside `price`**, so a two-axis
+  drag (a trendline endpoint, a forward projection) has a usable time even where
+  the gapless axis has no bar. Existing price-only callbacks are unaffected.
+- **`chart.timeToCoordinate(time)` / `chart.coordinateToTime(x)`**, backed by
+  new `DataLayer.indexToTimeFloat` / `timeToIndexFloat`. `indexToTime` only
+  answers for indices that have a bar; anchoring to an arbitrary x needs a time
+  *between* bars too — which the gapless axis (§5.3) makes the common case,
+  since everything a weekend or session break collapsed lands there — and past
+  the right edge, where projections live.
+- `SeriesStyle.markersOnly` — draw a line series' markers with no connecting
+  stroke (Parabolic SAR, scatter plots).
+- `DataLayer.seriesBars(id)` — a series' bars with no per-call allocation, the
+  read path for anything recomputing over full history.
+
+- **P&F box-size modes.** `mode: 'fixed' | 'percent' | 'atr'` — `'percent'`
+  sizes the box at `price × percent / 100` and `'atr'` at
+  `ATR(atrPeriod) × atrMultiplier` (Wilder), both re-resolved each time a column
+  opens, so the grid tracks price level and volatility.
+- **Columns carry their own geometry.** `PointFigureColumn` extends `Bar` with
+  `boxSize` and `boxes`, and the renderer reads the box size from the column.
+  `style: { boxSize }` is no longer needed — which removes the footgun where the
+  transform and the style could disagree and silently desync the glyph stack —
+  and is the only way variable-box modes can render correctly. `style.boxSize`
+  remains as a fallback for hand-built column data; failing that the renderer
+  infers the box from the shortest column in view.
+- A column's `high` is now the **exclusive top edge** of its highest box, so
+  `[low, high)` is exactly the span the glyphs occupy and
+  `boxes === (high - low) / boxSize`. The stack previously drew one glyph short.
+
 ## 1.0.7
 
 ### Fixed
