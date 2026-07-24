@@ -5,14 +5,15 @@ import { computeTpo } from '../src/profile/tpo';
 import {
   computeFootprint, diagonalImbalances, cumulativeDelta, stackedImbalances, type ClassifiedTrade,
 } from '../src/profile/footprint';
-import { HorizontalProfile, Footprint } from '../src/profile/profile-primitive';
+import { HorizontalProfile } from '../src/profile/profile-primitive';
+import { Footprint, compactVol } from '../src/profile/footprint-primitive';
 import { priceBuckets } from '../src/profile/profile-model';
 import type { Bar } from '../src/model/bar';
 import type { PrimitiveRenderContext } from '../src/primitives/primitive';
 import { PriceScale } from '../src/scale/price-scale';
 import { TimeScale } from '../src/scale/time-scale';
 import { DataLayer } from '../src/model/data-layer';
-import { makeCtx } from './helpers/fake-ctx';
+import { makeCtx, type RecordingContext } from './helpers/fake-ctx';
 
 const bar = (time: number, o: number, h: number, l: number, c: number, v: number): Bar => ({ time, open: o, high: h, low: l, close: c, volume: v });
 
@@ -145,17 +146,154 @@ describe('profile primitives render', () => {
     expect(rec.count('fillText')).toBeGreaterThan(0);
   });
 
-  it('Footprint shades cells (fillRect) and outlines diagonal imbalances (strokeRect)', () => {
+  it('Footprint fills diagonal imbalances saturated rather than outlining them', () => {
     const r = rc();
-    const fp = new Footprint({ tickSize: 0.05, imbalanceRatio: 3 });
-    // ask 30 at 100.05 dominates bid 2 one tick below → a green diagonal-imbalance box
-    fp.setBars([computeFootprint(1, [
+    // ask 30 at 100.05 dominates bid 2 one tick below -> a buy imbalance.
+    const bars = [computeFootprint(1, [
       { price: 100.05, qty: 30, side: 'ask' },
       { price: 100.0, qty: 2, side: 'bid' },
+    ], 0.05)];
+    const plain = new Footprint({ tickSize: 0.05, imbalanceRatio: 1e9, statsRows: [] });
+    plain.setBars(bars);
+    const a = makeCtx();
+    plain.draw(a.ctx, r);
+
+    const hot = new Footprint({ tickSize: 0.05, imbalanceRatio: 3, statsRows: [] });
+    hot.setBars(bars);
+    const b = makeCtx();
+    hot.draw(b.ctx, r);
+
+    // Same geometry either way — an outline would have added strokeRect calls.
+    expect(b.rec.count('strokeRect')).toBe(0);
+    expect(b.rec.count('roundRect')).toBe(a.rec.count('roundRect'));
+    // ...but the imbalanced cell is painted a different (saturated) colour.
+    const fills = (r2: RecordingContext): (string | undefined)[] =>
+      r2.ops.filter((o) => o.type === 'fill').map((o) => o.fillStyle);
+    expect(fills(b.rec)).not.toEqual(fills(a.rec));
+  });
+
+  it('Footprint grades cell colour by share of the bar peak', () => {
+    const r = rc();
+    const fp = new Footprint({ tickSize: 0.05, imbalanceRatio: 1e9, statsRows: [] });
+    fp.setBars([computeFootprint(1, [
+      { price: 100.0, qty: 1, side: 'ask' },
+      { price: 100.05, qty: 100, side: 'ask' },
     ], 0.05)]);
     const { ctx, rec } = makeCtx();
     fp.draw(ctx, r);
-    expect(rec.count('fillRect')).toBeGreaterThan(0);  // graded bid/ask cells + footer
-    expect(rec.count('strokeRect')).toBeGreaterThan(0); // imbalance outline box
+    const fills = rec.ops.filter((o) => o.type === 'fill').map((o) => o.fillStyle);
+    // A quiet row and a peak row must not share a colour.
+    expect(new Set(fills).size).toBeGreaterThan(1);
+  });
+
+  it('Footprint computes per-bar stats with a running CVD', () => {
+    const fp = new Footprint();
+    fp.setBars([
+      computeFootprint(1, [{ price: 100, qty: 10, side: 'ask' }], 0.05),  // +10
+      computeFootprint(2, [{ price: 100, qty: 4, side: 'bid' }], 0.05),   // -4
+      computeFootprint(3, [{ price: 100, qty: 6, side: 'ask' }], 0.05),   // +6
+    ]);
+    const s = fp.stats();
+    expect(s.map((x) => x.delta)).toEqual([10, -4, 6]);
+    expect(s.map((x) => x.cvd)).toEqual([10, 6, 12]);   // running, not per-bar
+    expect(s[0].volume).toBe(10);
+    expect(s[0].deltaPct).toBeCloseTo(100, 6);
+    expect(s[1].deltaPct).toBeCloseTo(-100, 6);
+  });
+
+  it('Footprint draws one stats row per configured metric', () => {
+    const r = rc();
+    const bars = [computeFootprint(1, [{ price: 100, qty: 5, side: 'ask' }], 0.05)];
+    const none = new Footprint({ tickSize: 0.05, statsRows: [] });
+    none.setBars(bars);
+    const a = makeCtx();
+    none.draw(a.ctx, r);
+
+    const four = new Footprint({ tickSize: 0.05, statsRows: ['volume', 'delta', 'deltaPct', 'cvd'] });
+    four.setBars(bars);
+    const b = makeCtx();
+    four.draw(b.ctx, r);
+    expect(b.rec.count('fillText')).toBe(a.rec.count('fillText') + 4);
+  });
+
+  it('Footprint is restylable at runtime instead of needing a rebuild', () => {
+    const r = rc();
+    const fp = new Footprint({ tickSize: 0.05, statsRows: [] });
+    fp.setBars([computeFootprint(1, [{ price: 100, qty: 5, side: 'ask' }], 0.05)]);
+    const a = makeCtx();
+    fp.draw(a.ctx, r);
+    fp.setOptions({ buyColor: '#00ff00' });
+    const b = makeCtx();
+    fp.draw(b.ctx, r);
+    expect(fp.options().buyColor).toBe('#00ff00');
+    const fills = (r2: RecordingContext): string =>
+      r2.ops.filter((o) => o.type === 'fill').map((o) => o.fillStyle).join('|');
+    expect(fills(b.rec)).not.toBe(fills(a.rec));
+  });
+
+  it('Footprint drops cell numbers when rows are too short to read', () => {
+    const bars = [computeFootprint(1, [
+      { price: 100, qty: 5, side: 'ask' }, { price: 100.05, qty: 5, side: 'bid' },
+    ], 0.05)];
+    const roomy = new Footprint({ tickSize: 0.05, statsRows: [], minTextHeight: 1 });
+    roomy.setBars(bars);
+    const a = makeCtx();
+    roomy.draw(a.ctx, rc());
+
+    const cramped = new Footprint({ tickSize: 0.05, statsRows: [], minTextHeight: 10000 });
+    cramped.setBars(bars);
+    const b = makeCtx();
+    cramped.draw(b.ctx, rc());
+    expect(a.rec.count('fillText')).toBeGreaterThan(0);
+    expect(b.rec.count('fillText')).toBe(0);   // heatmap only
+    expect(b.rec.count('roundRect')).toBeGreaterThan(0);
+  });
+
+  it('Footprint drives autoscale so the top and bottom rows are not clipped', () => {
+    const fp = new Footprint();
+    fp.setBars([computeFootprint(1, [
+      { price: 100, qty: 1, side: 'ask' }, { price: 101, qty: 1, side: 'bid' },
+    ], 0.5)]);
+    expect(fp.autoscaleInfo()).toEqual({ min: 100, max: 101 });
+  });
+
+  it('Footprint hit-tests a column and reports its stats', () => {
+    const r = rc();
+    const fp = new Footprint({ tickSize: 0.05 });
+    fp.setBars([computeFootprint(1, [{ price: 100, qty: 7, side: 'ask' }], 0.05)]);
+    const { ctx } = makeCtx();
+    fp.draw(ctx, r);                       // hit-testing needs the drawn geometry
+    const x = r.timeScale.indexToX(0);
+    const hit = fp.hitTest(x, 50);
+    expect(hit?.externalId).toBe('footprint:1');
+    const hover = fp.hoverAt(x, r.priceScale.priceToY(100), r);
+    expect(hover?.stats.volume).toBe(7);
+    expect(hover?.cell?.askVol).toBe(7);
+    expect(fp.hitTest(-500, 50)).toBeNull();
+  });
+
+  it('Footprint hoverAt reuses the last draw context when none is passed', () => {
+    // Hosts should not have to fabricate a PrimitiveRenderContext to show a tooltip.
+    const r = rc();
+    const fp = new Footprint({ tickSize: 0.05 });
+    fp.setBars([computeFootprint(1, [{ price: 100, qty: 7, side: 'ask' }], 0.05)]);
+    const x = r.timeScale.indexToX(0);
+    expect(fp.hoverAt(x, r.priceScale.priceToY(100))).toBeNull();  // nothing drawn yet
+    const { ctx } = makeCtx();
+    fp.draw(ctx, r);
+    const hover = fp.hoverAt(x, r.priceScale.priceToY(100));
+    expect(hover?.stats.volume).toBe(7);
+    expect(hover?.cell?.askVol).toBe(7);
+  });
+
+  it('compactVol formats to three significant figures', () => {
+    expect(compactVol(4_530_000)).toBe('4.53M');
+    expect(compactVol(13_000_000)).toBe('13M');
+    expect(compactVol(30_200_000)).toBe('30.2M');
+    expect(compactVol(47_100)).toBe('47.1K');
+    expect(compactVol(128_000)).toBe('128K');
+    expect(compactVol(3_000)).toBe('3K');
+    expect(compactVol(-943_000)).toBe('-943K');
+    expect(compactVol(512)).toBe('512');
   });
 });

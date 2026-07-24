@@ -77,12 +77,62 @@ those for its own order lines without the two fighting over one channel.
 
 ## Interaction
 
-- **Place** — click once per anchor. A live preview follows the cursor between clicks.
+- **Place** — click once per anchor, or **press-drag-release** to lay down a two-point shape
+  in one gesture. A live preview follows the cursor between clicks.
 - **Select** — click a drawing; click empty space to deselect.
 - **Move** — drag the body to translate every anchor, or drag a handle to move one.
 - **Magnet** — `{ magnet: true }` snaps new anchors to the nearest O/H/L/C of the hovered bar.
 - **Undo** — a whole drag is **one** undo step, not one per frame.
 - **Lock** — a locked drawing renders but cannot be selected or dragged.
+
+<Callout>
+While a tool is armed the controller puts the chart in **placement mode**
+(`chart.setPlacementMode(true)`), so a press starts a shape instead of panning. The chart
+reports the gesture as two `click` events — the press point, then the release point tagged
+`viaDrag`. `DrawingController` manages this for you; you only need it if you are placing
+things (alerts, annotations) without the draw tier.
+</Callout>
+
+## Text and labels
+
+The `text` tool draws a standalone text box, but **shapes carry labels too** — set
+`style.text` on a rectangle, ellipse, or parallel channel and it renders inside the outline.
+That is one shape with two colours: `color` strokes the outline, `fontColor` paints the label.
+
+| Style key | Applies to | Notes |
+| --- | --- | --- |
+| `text` | text tool, shapes | `\n` starts a new line |
+| `fontSize` | both | media px |
+| `fontFamily` | both | defaults to the UI sans stack |
+| `fontWeight` | both | `'normal'` \| `'bold'` |
+| `fontStyle` | both | `'normal'` \| `'italic'` |
+| `fontColor` | both | falls back to `color` |
+| `textAlign` | both | `'left'` \| `'center'` \| `'right'` |
+| `textVAlign` | both | `'top'` \| `'middle'` \| `'bottom'` |
+| `textPosition` | shapes only | `'inside'` the outline or `'outside'` just above it |
+
+| `background`, `backgroundColor`, `backgroundOpacity` | text tool | filled plate behind the text |
+| `border`, `borderColor` | text tool | stroked plate border |
+| `wrap`, `wrapWidth` | both | soft-wrap instead of running off the pane |
+
+```ts
+draw.add('rectangle', [a, b], {
+  color: '#8b5cf6',
+  text: 'Supply zone',
+  fontColor: '#ffffff',
+  fontSize: 13,
+  fontWeight: 'bold',
+  textPosition: 'inside',
+  textVAlign: 'top',
+  textAlign: 'center',
+});
+```
+
+<Callout>
+With `textPosition: 'inside'`, `textVAlign` x `textAlign` give the nine placements a
+TradingView shape-text panel exposes. `'outside'` parks the block above the shape and ignores
+`textVAlign`. `examples/yfinance/index.html` wires all of it to a properties bar.
+</Callout>
 
 ## Persistence
 

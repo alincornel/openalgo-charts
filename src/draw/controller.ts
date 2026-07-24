@@ -33,6 +33,8 @@ interface ClickPayload {
   price: number | null;
   paneIndex: number;
   point: { x: number; y: number };
+  /** Set on the release half of a press-drag-release gesture. */
+  viaDrag?: boolean;
 }
 
 interface DragPayload {
@@ -92,8 +94,18 @@ export class DrawingController {
     }
     this._tool = toolId;
     this._pending = [];
+    this._setPlacementMode(toolId !== null);
     this._syncPreview();
     this._chart.emit('draw:tool', { tool: toolId });
+  }
+
+  /**
+   * Ask the chart to stop panning and report gestures as anchor placement.
+   * Guarded so a base bundle predating `setPlacementMode` still loads the tier.
+   */
+  private _setPlacementMode(active: boolean): void {
+    const chart = this._chart as unknown as { setPlacementMode?: (a: boolean) => void };
+    chart.setPlacementMode?.(active);
   }
 
   public activeTool(): string | null {
@@ -206,6 +218,7 @@ export class DrawingController {
   }
 
   public destroy(): void {
+    this._setPlacementMode(false);   // never leave the chart unable to pan
     for (const off of this._off) off();
     this._off.length = 0;
     for (const [pane, layer] of this._layers) {
@@ -231,6 +244,11 @@ export class DrawingController {
   private _onClick(p: ClickPayload): void {
     // Placement takes precedence: while a tool is armed, a click is an anchor.
     if (this._tool !== null) {
+      // The release half of a drag only means something while a shape is part
+      // way through. A single-anchor tool (text, horizontal line) is already
+      // finished by the press, so treating the release as another anchor would
+      // drop a second drawing wherever the user let go.
+      if (p.viaDrag === true && this._pending.length === 0) return;
       // Reject an unmappable click outright — a NaN anchor serialises as null
       // and produces a drawing that can never be rendered or hit-tested.
       if (p.price === null || !Number.isFinite(p.price) || !Number.isFinite(p.time)) return;
@@ -253,7 +271,10 @@ export class DrawingController {
         tool: tool.id, points: this._pending, style: {}, paneIndex: this._pendingPane,
       });
       this._pending = [];
-      if (!this._opts.stayInDrawingMode) this._tool = null;
+      if (!this._opts.stayInDrawingMode) {
+        this._tool = null;
+        this._setPlacementMode(false);   // hand panning back to the chart
+      }
       this._syncPreview();
       this.select(created.id);
       this._chart.emit('draw:tool', { tool: this._tool });

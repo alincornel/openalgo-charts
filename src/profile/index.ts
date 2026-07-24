@@ -51,11 +51,19 @@ export {
 } from './footprint';
 export {
   HorizontalProfile,
-  Footprint,
   type ProfileLevel,
   type HorizontalProfileOptions,
-  type FootprintOptions,
 } from './profile-primitive';
+export {
+  Footprint,
+  DEFAULT_FOOTPRINT_OPTIONS,
+  compactVol,
+  type FootprintOptions,
+  type FootprintDisplayMode,
+  type FootprintStatRow,
+  type FootprintBarStats,
+  type FootprintHover,
+} from './footprint-primitive';
 export {
   FootprintAggregator,
   type FootprintTick,

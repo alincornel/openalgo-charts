@@ -18,6 +18,28 @@ describe('ticks', () => {
     for (let i = 1; i < t.length; i++) expect(t[i]).toBeGreaterThan(t[i - 1]);
   });
 
+  it('keeps density on a narrow range far from zero', () => {
+    // A footprint on a 65000 instrument autoscales to a ~10-point window. Rounding
+    // the span to a nice number before dividing used to yield 3 labels, not 6.
+    const t = niceTicks(64994.875, 65005.375, 6);
+    expect(t.length).toBeGreaterThanOrEqual(5);
+    expect(t.length).toBeLessThanOrEqual(6);
+  });
+
+  it('never returns more than maxTicks', () => {
+    const ranges: [number, number][] = [
+      [0, 7], [0, 0.003], [19800, 20450], [-50, 50], [0, 1e6],
+      [2.5, 2.5001], [1.2, 1.35], [0, 100], [100, 105], [0.0001, 0.0009],
+    ];
+    for (const [min, max] of ranges) {
+      for (const maxTicks of [3, 4, 6, 10]) {
+        const t = niceTicks(min, max, maxTicks);
+        expect(t.length, `[${min}, ${max}] @ ${maxTicks}`).toBeLessThanOrEqual(maxTicks);
+        for (let i = 1; i < t.length; i++) expect(t[i]).toBeGreaterThan(t[i - 1]);
+      }
+    }
+  });
+
   it('handles degenerate ranges without looping', () => {
     expect(niceTicks(5, 5)).toEqual([5]);
     expect(niceTicks(NaN, 10)).toHaveLength(1);

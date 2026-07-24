@@ -3,110 +3,286 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>OpenAlgo Charts — Order Flow / Footprint demo</title>
+  <title>OpenAlgo Charts — Order Flow / Footprint (live)</title>
   <style>
-    html, body { margin: 0; height: 100%; background: #0d0e12; color: #c7ccd8; font: 13px/1.4 system-ui, sans-serif; }
-    .bar { padding: 8px 12px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-    select, button { background: #1c2030; color: #c7ccd8; border: 1px solid #2a3046; border-radius: 6px; padding: 4px 8px; cursor: pointer; }
-    #chart { position: absolute; top: 46px; left: 0; right: 0; bottom: 0; cursor: crosshair; }
-    #status { margin-left: auto; opacity: .75; }
-    .legend { position: absolute; top: 54px; left: 16px; z-index: 10; pointer-events: none; font-size: 12px; text-shadow: 0 0 3px #0d0e12; }
-    .legend b { color: #e8eaf0; } .ask { color: #bfeee8; } .bid { color: #f6c9c8; }
+    :root {
+      --bg: #0a0c11; --panel: #0f121a; --elev: #151925; --elev-2: #1b2030;
+      --bd: #232a3a; --bd-soft: #1a1f2c; --tx: #d7dce8; --mut: #8b93a7; --faint: #5b6376;
+      --acc: #22c1a4; --acc-2: #2dd4bf; --buy: #26a69a; --sell: #ef5350; --h: 30px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      background: var(--bg); color: var(--tx);
+      font: 13px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+    }
+    .bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px;
+      background: linear-gradient(180deg, var(--panel), #0c0f16); border-bottom: 1px solid var(--bd-soft); }
+    .brand { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; }
+    .brand-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--acc); box-shadow: 0 0 8px var(--acc); }
+    .brand em { color: var(--acc-2); font-style: normal; font-weight: 700; font-size: 11px;
+      letter-spacing: .8px; border: 1px solid #17423a; background: #0e2420; padding: 1px 6px; border-radius: 5px; }
+    .divider { width: 1px; height: 20px; background: var(--bd-soft); }
+    .lbl { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .6px; }
+    select, button, input {
+      height: var(--h); background: var(--elev); color: var(--tx); border: 1px solid var(--bd);
+      border-radius: 7px; padding: 0 9px; font: inherit; cursor: pointer; outline: none;
+    }
+    select:hover, button:hover { border-color: #33405a; background: var(--elev-2); }
+    button.on { background: linear-gradient(180deg, var(--acc-2), var(--acc)); color: #04231d; border-color: transparent; }
+    button.danger { color: #ff9b9b; }
+    .chk { display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; height: var(--h);
+      border: 1px solid var(--bd-soft); border-radius: 7px; background: var(--elev);
+      color: var(--mut); font-size: 12px; cursor: pointer; user-select: none; }
+    .chk input { accent-color: var(--acc); width: 14px; height: 14px; cursor: pointer; }
+    .spacer { flex: 1 1 auto; }
+    .stat { display: inline-flex; flex-direction: column; line-height: 1.25; padding: 0 10px;
+      border-left: 1px solid var(--bd-soft); }
+    .stat span { color: var(--faint); font-size: 10px; text-transform: uppercase; letter-spacing: .5px; }
+    .stat b { font-size: 13px; font-variant-numeric: tabular-nums; }
+    .up { color: var(--buy); } .down { color: var(--sell); }
+    .stage { position: relative; flex: 1 1 auto; min-height: 0; }
+    #chart { position: absolute; inset: 0; cursor: crosshair; }
+    .hint { padding: 6px 12px; color: var(--faint); font-size: 12px; font-style: italic;
+      background: #0c0f16; border-bottom: 1px solid var(--bd-soft); }
+    /* Hover inspector — a host-drawn panel fed by Footprint.hoverAt(). */
+    #tip { position: absolute; z-index: 30; pointer-events: none; min-width: 168px;
+      padding: 9px 11px; border-radius: 9px; background: rgba(15,18,26,.95);
+      border: 1px solid var(--bd); box-shadow: 0 10px 30px rgba(0,0,0,.5); font-size: 12px; }
+    #tip[hidden] { display: none; }
+    #tip .t { color: var(--faint); font-size: 10px; text-transform: uppercase;
+      letter-spacing: .5px; margin-bottom: 5px; }
+    #tip .r { display: flex; justify-content: space-between; gap: 14px; font-variant-numeric: tabular-nums; }
+    #tip .r i { color: var(--mut); font-style: normal; }
   </style>
 </head>
 <body>
   <div class="bar">
-    <strong>Order Flow / Footprint</strong>
-    <span style="opacity:.6">synthetic classified ticks → FootprintAggregator</span>
+    <div class="brand"><span class="brand-dot"></span> OpenAlgo <em>order flow</em></div>
+    <div class="divider"></div>
+    <button id="play" class="on">Pause</button>
+    <select id="speed" title="tick rate">
+      <option value="220">Slow</option>
+      <option value="60" selected>Live</option>
+      <option value="12">Fast</option>
+      <option value="3">Turbo</option>
+    </select>
     <select id="tf" title="bar size">
-      <option value="300">5-min bars</option>
-      <option value="180">3-min bars</option>
-      <option value="600">10-min bars</option>
+      <option value="15">15s bars</option>
+      <option value="30" selected>30s bars</option>
+      <option value="60">1m bars</option>
+    </select>
+    <div class="divider"></div>
+    <span class="lbl">View</span>
+    <select id="mode" title="cell display">
+      <option value="bidask" selected>Bid × Ask</option>
+      <option value="delta">Delta</option>
+      <option value="volume">Volume</option>
     </select>
     <select id="ratio" title="diagonal imbalance ratio">
-      <option value="2">imbalance 2x</option>
-      <option value="3" selected>imbalance 3x</option>
-      <option value="4">imbalance 4x</option>
+      <option value="2">Imbalance 2×</option>
+      <option value="3" selected>Imbalance 3×</option>
+      <option value="5">Imbalance 5×</option>
     </select>
-    <button id="regen">Regenerate ticks</button>
-    <span id="status"></span>
+    <label class="chk"><input type="checkbox" id="stacked" checked /> <span>Stacked</span></label>
+    <label class="chk"><input type="checkbox" id="stats" checked /> <span>Stats</span></label>
+    <button id="reset" class="danger">Reset</button>
+    <span class="spacer"></span>
+    <div class="stat"><span>Last</span><b id="s-last">—</b></div>
+    <div class="stat"><span>Volume</span><b id="s-vol">—</b></div>
+    <div class="stat"><span>Delta</span><b id="s-delta">—</b></div>
+    <div class="stat"><span>CVD</span><b id="s-cvd">—</b></div>
   </div>
-  <div id="chart"></div>
-  <div class="legend">
-    <b>Footprint</b> — each bar shows <span class="bid">bid volume</span> · <span class="ask">ask volume</span> at every price;
-    tinted cells = diagonal imbalance. Lower pane: cumulative delta (Σ ask−bid).
+  <div class="hint">
+    Synthetic classified ticks stream into a <code>FootprintAggregator</code> and the forming bar
+    updates in place — the same path a live WebSocket trade feed takes. Hover a column for its
+    bid × ask, delta, and CVD.
   </div>
+
+  <main class="stage">
+    <div id="chart"></div>
+    <div id="tip" hidden></div>
+  </main>
 
   <script type="module">
-    import { createChart } from '/dist/openalgo-charts.mjs';
-    import { FootprintAggregator, Footprint, cumulativeDelta } from '/dist/openalgo-charts.profile.mjs';
+    import { createChart, darkTheme, PaneLegend } from '/dist/openalgo-charts.mjs';
+    import { FootprintAggregator, Footprint, compactVol } from '/dist/openalgo-charts.profile.mjs';
 
-    const TICK = 0.5;          // price tick size
-    const BARS = 10;           // how many footprint bars to generate (fewer → wider cells)
-    let chart, price, footprint, delta;
+    const TICK = 0.5;          // instrument tick size
+    const START = 65_000;      // opening price
+    const el = (id) => document.getElementById(id);
 
-    // Generate classified trade ticks (price, qty, bid/ask) as a bounded random
-    // walk, then aggregate into footprint bars + matching OHLC candles.
-    function generate(seconds) {
-      const agg = new FootprintAggregator({ mode: 'interval', seconds, anchorSec: 0 }, TICK);
-      const start = 1_700_000_000 - (1_700_000_000 % seconds); // aligned to the interval grid
-      const center = 100;
-      let mid = center, t = start;
-      const fpByTime = new Map();   // time -> latest footprint snapshot
-      const candleByTime = new Map();
-      const ticksPerBar = 130;
-      for (let i = 0; i < BARS * ticksPerBar; i++) {
-        t += 1 + Math.floor(Math.random() * 4);
-        // bounded walk with gentle mean reversion so each bar keeps a readable range
-        mid += (Math.random() - 0.5) * TICK * 1.3 + (center - mid) * 0.01;
-        const buy = Math.random() < 0.5 + (Math.random() - 0.5) * 0.25; // hit ask (buy) vs bid (sell)
-        const price = buy ? mid + TICK / 2 : mid - TICK / 2;
-        const qty = 1 + Math.floor(Math.random() * 18);
-        const side = buy ? 'ask' : 'bid';
-        const upd = agg.onTick({ time: t, price, qty, side });
-        const bt = upd.bar.time;
-        fpByTime.set(bt, upd.bar);
-        let c = candleByTime.get(bt);
-        if (!c) candleByTime.set(bt, { time: bt, open: price, high: price, low: price, close: price, volume: qty });
-        else { c.high = Math.max(c.high, price); c.low = Math.min(c.low, price); c.close = price; c.volume += qty; }
+    let chart, price, footprint, legend, agg;
+    let bars = [];             // FootprintBar[] — the order-flow model
+    let candles = [];          // the OHLC the price series draws
+    let mid = START;
+    let t = Math.floor(Date.now() / 1000);
+    let timer = null;
+    let running = true;
+    let drift = 0;             // slow-moving bias so the tape trends, not jitters
+
+    /**
+     * One classified print. A real feed classifies against the live bid/ask;
+     * here a bounded random walk decides which side got hit, with a drifting
+     * bias so the tape produces genuine imbalances rather than noise.
+     */
+    function nextTick() {
+      drift += (Math.random() - 0.5) * 0.05;
+      drift = Math.max(-0.32, Math.min(0.32, drift));
+      // Mean-revert toward the open so the ladder stays a readable depth.
+      drift -= (mid - START) * 0.0006;
+      const buy = Math.random() < 0.5 + drift;
+      mid += (buy ? 1 : -1) * TICK * (Math.random() < 0.22 ? 1 : 0);
+      const p = buy ? mid + TICK / 2 : mid - TICK / 2;
+      // Heavy-tailed sizes: most prints are small, a few are the ones that matter.
+      const qty = Math.round((Math.random() ** 3) * 900_000 + 1_000);
+      t += 1;
+      return { time: t, price: p, qty, side: buy ? 'ask' : 'bid' };
+    }
+
+    function applyTick(tk) {
+      const upd = agg.onTick(tk);
+      const bt = upd.bar.time;
+      if (upd.isNew) {
+        bars.push(upd.bar);
+        candles.push({ time: bt, open: tk.price, high: tk.price, low: tk.price, close: tk.price, volume: tk.qty });
+        // Keep the working set bounded — an order-flow tape is a window, not a log.
+        if (bars.length > 14) { bars.shift(); candles.shift(); }
+      } else {
+        bars[bars.length - 1] = upd.bar;
+        const c = candles[candles.length - 1];
+        c.high = Math.max(c.high, tk.price);
+        c.low = Math.min(c.low, tk.price);
+        c.close = tk.price;
+        c.volume += tk.qty;
       }
-      const fp = [...fpByTime.values()].sort((a, b) => a.time - b.time);
-      const candles = [...candleByTime.values()].sort((a, b) => a.time - b.time);
-      return { fp, candles };
+      return upd.isNew;
+    }
+
+    /** Repaint: the forming bar updates in place, a new bar appends. */
+    function push(isNew) {
+      const last = candles[candles.length - 1];
+      if (isNew) price.setData(candles); else price.update(last);
+      footprint.setBars(bars.slice());
+      const s = footprint.stats();
+      const cur = s[s.length - 1];
+      if (!cur) return;
+      el('s-last').textContent = last.close.toFixed(2);
+      el('s-last').className = last.close >= last.open ? 'up' : 'down';
+      el('s-vol').textContent = compactVol(cur.volume);
+      el('s-delta').textContent = (cur.delta >= 0 ? '+' : '') + compactVol(cur.delta);
+      el('s-delta').className = cur.delta >= 0 ? 'up' : 'down';
+      el('s-cvd').textContent = (cur.cvd >= 0 ? '+' : '') + compactVol(cur.cvd);
+      el('s-cvd').className = cur.cvd >= 0 ? 'up' : 'down';
+      legend.setValues([
+        { label: 'O', text: last.open.toFixed(2) },
+        { label: 'H', text: last.high.toFixed(2) },
+        { label: 'L', text: last.low.toFixed(2) },
+        { label: 'C', text: last.close.toFixed(2), color: last.close >= last.open ? '#26a69a' : '#ef5350' },
+        { label: 'Δ', text: (cur.delta >= 0 ? '+' : '') + compactVol(cur.delta),
+          color: cur.delta >= 0 ? '#26a69a' : '#ef5350' },
+      ]);
     }
 
     function build() {
       if (chart) chart.destroy();
-      document.getElementById('chart').innerHTML = '';
-      chart = createChart(document.getElementById('chart'), { priceAxisWidth: 64 });
-      // transparent candles drive autoscale + the time axis but stay invisible — the
-      // footprint cells are the chart (the primitive draws its own high/low range line).
+      el('chart').innerHTML = '';
+      chart = createChart(el('chart'), { theme: darkTheme, priceAxisWidth: 78 });
+
+      // Transparent candles drive the time axis and autoscale; the footprint
+      // cells are what you actually read.
       const clear = 'rgba(0,0,0,0)';
-      price = chart.addSeries('candlestick', { style: { upColor: clear, downColor: clear, wickUpColor: clear, wickDownColor: clear, borderUpColor: clear, borderDownColor: clear } });
-      footprint = new Footprint({ cellWidth: 64, imbalanceRatio: Number(document.getElementById('ratio').value), tickSize: TICK, font: 10, footer: true });
+      price = chart.addSeries('candlestick', { style: {
+        upColor: clear, downColor: clear, wickUpColor: clear, wickDownColor: clear,
+        borderUpColor: clear, borderDownColor: clear,
+      } });
+
+      footprint = new Footprint({
+        tickSize: TICK,
+        displayMode: el('mode').value,
+        imbalanceRatio: Number(el('ratio').value),
+        stackedImbalances: el('stacked').checked ? 3 : 0,
+        statsRows: el('stats').checked ? ['volume', 'delta', 'deltaPct', 'cvd'] : [],
+      });
       chart.addPrimitive(footprint, 0);
-      delta = chart.addSeries('baseline', { paneIndex: 1, style: { baseValue: 0 } });
-    }
 
-    function render(seconds) {
-      const { fp, candles } = generate(seconds);
-      build();
-      price.setData(candles);
-      footprint.setBars(fp);
-      // cumulative delta as a baseline series in the lower pane (above/below zero shaded)
-      const cum = cumulativeDelta(fp);
-      delta.setData(fp.map((b, i) => ({ time: b.time, open: cum[i], high: cum[i], low: cum[i], close: cum[i] })));
-      const last = fp[fp.length - 1];
-      document.getElementById('status').textContent =
-        `${fp.length} bars · last delta ${last.delta >= 0 ? '+' : ''}${last.delta} · cum delta ${cum[cum.length - 1] >= 0 ? '+' : ''}${cum[cum.length - 1]}`;
+      legend = new PaneLegend({ id: 'of', title: 'BTCUSD', params: 'order flow', actions: [] });
+      chart.addPrimitive(legend, 0);
+
+      // Hover inspector, fed by the primitive's own hit-test geometry.
+      chart.on('crosshair:move', (e) => {
+        const tip = el('tip');
+        if (!e.point) { tip.hidden = true; return; }
+        const h = footprint.hoverAt(e.point.x, e.point.y);
+        if (!h) { tip.hidden = true; return; }
+        const s = h.stats;
+        const row = (k, v, cls) => `<div class="r"><i>${k}</i><b class="${cls || ''}">${v}</b></div>`;
+        tip.innerHTML =
+          `<div class="t">${new Date(h.time * 1000).toLocaleTimeString()}</div>` +
+          (h.cell ? row('Bid × Ask', compactVol(h.cell.bidVol) + ' × ' + compactVol(h.cell.askVol)) : '') +
+          (h.cell ? row('Price', h.cell.price.toFixed(2)) : '') +
+          row('Volume', compactVol(s.volume)) +
+          row('Delta', (s.delta >= 0 ? '+' : '') + compactVol(s.delta), s.delta >= 0 ? 'up' : 'down') +
+          row('Delta %', s.deltaPct.toFixed(1) + '%', s.deltaPct >= 0 ? 'up' : 'down') +
+          row('CVD', (s.cvd >= 0 ? '+' : '') + compactVol(s.cvd), s.cvd >= 0 ? 'up' : 'down');
+        tip.hidden = false;
+        const stage = el('chart').getBoundingClientRect();
+        tip.style.left = Math.min(e.point.x + 16, stage.width - tip.offsetWidth - 8) + 'px';
+        tip.style.top = Math.min(e.point.y + 16, stage.height - tip.offsetHeight - 8) + 'px';
+      });
+
       window.__chart = () => chart;
+      window.__footprint = () => footprint;
     }
 
-    const go = () => render(Number(document.getElementById('tf').value));
-    document.getElementById('regen').addEventListener('click', go);
-    document.getElementById('tf').addEventListener('change', go);
-    document.getElementById('ratio').addEventListener('change', go);
-    go();
+    function reset() {
+      const seconds = Number(el('tf').value);
+      agg = new FootprintAggregator({ mode: 'interval', seconds, anchorSec: 0 }, TICK);
+      bars = [];
+      candles = [];
+      mid = START;
+      drift = 0;
+      t = Math.floor(Date.now() / 1000);
+      build();
+      // Seed some history so the tape opens with context rather than one bar.
+      for (let i = 0; i < seconds * 14; i++) applyTick(nextTick());
+      price.setData(candles);
+      footprint.setBars(bars.slice());
+      chart.timeScale.fitContent(candles.length);
+      push(true);
+    }
+
+    function loop() {
+      clearInterval(timer);
+      if (!running) return;
+      timer = setInterval(() => {
+        // A few prints per frame so the forming bar visibly fills in.
+        let isNew = false;
+        for (let i = 0; i < 3; i++) isNew = applyTick(nextTick()) || isNew;
+        push(isNew);
+      }, Number(el('speed').value));
+    }
+
+    el('play').addEventListener('click', () => {
+      running = !running;
+      el('play').textContent = running ? 'Pause' : 'Play';
+      el('play').classList.toggle('on', running);
+      loop();
+    });
+    el('speed').addEventListener('change', loop);
+    el('tf').addEventListener('change', () => { reset(); loop(); });
+    el('reset').addEventListener('click', () => { reset(); loop(); });
+    // These restyle live — no rebuild, which is what setOptions is for.
+    el('mode').addEventListener('change', () => footprint.setOptions({ displayMode: el('mode').value }));
+    el('ratio').addEventListener('change', () => footprint.setOptions({ imbalanceRatio: Number(el('ratio').value) }));
+    el('stacked').addEventListener('change', () => footprint.setOptions({ stackedImbalances: el('stacked').checked ? 3 : 0 }));
+    el('stats').addEventListener('change', () => footprint.setOptions({
+      statsRows: el('stats').checked ? ['volume', 'delta', 'deltaPct', 'cvd'] : [],
+    }));
+
+    reset();
+    loop();
   </script>
 </body>
 </html>

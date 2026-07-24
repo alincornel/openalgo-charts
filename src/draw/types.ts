@@ -57,6 +57,19 @@ export interface DrawingStyle {
   wrapWidth?: number;
   /** Horizontal alignment within the box. Defaults to 'left'. */
   textAlign?: 'left' | 'center' | 'right';
+  /** Vertical placement within the box. Defaults to 'top'. */
+  textVAlign?: 'top' | 'middle' | 'bottom';
+  /**
+   * Where a shape's label sits relative to the shape: `inside` the outline, or
+   * `outside` just above it. Shapes only — the text tool *is* its own box.
+   */
+  textPosition?: 'inside' | 'outside';
+  /**
+   * Label colour. Shapes need this separate from `color`, which is the outline —
+   * a purple rectangle with white text is one shape with two colours.
+   * Falls back to `color`.
+   */
+  fontColor?: string;
   /** Position tools: capital base and risk per trade, for the size readout. */
   accountSize?: number;
   risk?: number;

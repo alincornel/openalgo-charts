@@ -1623,6 +1623,8 @@
       vs.className = 'vsep';
       w.appendChild(vs);
 
+      // Shapes can carry a label too — same dialog, shape-aware fields.
+      if (!isText) button(svgIcon('text'), style.text ? 'Edit text' : 'Add text', () => openTextDialog(id));
       button(svgIcon(d.locked ? 'lock' : 'unlock'), d.locked ? 'Unlock' : 'Lock', () => {
         draw.update(id, { locked: !d.locked });
         showWidget(id);
@@ -1697,11 +1699,13 @@
       textDlgFor = id;
       const st = d.style || {};
       const dlg = el('textdlg');
+      const isShape = d.tool !== 'text';
+      const toolName = (BUILTIN_DRAWING_TOOLS.find((t) => t.id === d.tool) || { name: 'Text' }).name;
       dlg.innerHTML =
-        '<div class="set-head"><span>Text</span><button id="td-x" title="Close">&times;</button></div>' +
+        '<div class="set-head"><span>' + esc(toolName) + '</span><button id="td-x" title="Close">&times;</button></div>' +
         '<div class="td-body">' +
           '<div class="td-row">' +
-            '<input type="color" id="td-color" value="' + esc(st.color || '#d7dce8') + '" title="Font colour" />' +
+            '<input type="color" id="td-color" value="' + esc((d.tool !== 'text' ? st.fontColor : st.color) || st.color || '#d7dce8') + '" title="Font colour" />' +
             '<select id="td-font" title="Font"></select>' +
             '<select id="td-size" title="Size"></select>' +
             '<button id="td-bold" class="td-tog" title="Bold"><b>B</b></button>' +
@@ -1714,6 +1718,14 @@
             '<input type="color" id="td-bdc" title="Border colour" /></label>' +
           '<label class="td-check"><input type="checkbox" id="td-wrap" /> <span>Text wrap</span>' +
             '<input type="number" id="td-wrapw" min="60" max="900" step="10" title="Wrap width (px)" /></label>' +
+          // Shapes place their label relative to the outline, so they get the
+          // Inside/Outside + Left/Centre/Right pair TradingView shows.
+          (isShape
+            ? '<div class="td-row"><span style="flex:1 1 auto;color:var(--mut);font-size:12px">Text alignment</span>' +
+              '<select id="td-pos"><option value="inside">Inside</option><option value="outside">Outside</option></select>' +
+              '<select id="td-align"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select>' +
+              '</div>'
+            : '') +
         '</div>' +
         '<div class="set-foot">' +
           '<button id="td-cancel" class="btn btn--ghost">Cancel</button>' +
@@ -1745,13 +1757,17 @@
       el('td-bdc').value = st.borderColor || (st.color || '#d7dce8');
       el('td-wrap').checked = st.wrap === true;
       el('td-wrapw').value = String(st.wrapWidth || 220);
+      if (isShape) {
+        el('td-pos').value = st.textPosition || 'inside';
+        el('td-align').value = st.textAlign || 'left';
+      }
 
       // Live preview: every control applies immediately, Cancel reverts.
       const before = Object.assign({}, st);
       const apply = () => {
         draw.update(textDlgFor, {
           style: {
-            color: el('td-color').value,
+            ...(isShape ? {} : { color: el('td-color').value }),
             fontFamily: el('td-font').value || undefined,
             fontSize: Number(el('td-size').value),
             fontWeight: el('td-bold').classList.contains('is-on') ? 'bold' : 'normal',
@@ -1763,10 +1779,16 @@
             borderColor: el('td-bdc').value,
             wrap: el('td-wrap').checked,
             wrapWidth: Number(el('td-wrapw').value),
+            // Shapes keep the outline colour on `color`; the label uses fontColor.
+            ...(isShape
+              ? { fontColor: el('td-color').value, textPosition: el('td-pos').value, textAlign: el('td-align').value }
+              : {}),
           },
         });
       };
-      for (const idd of ['td-color', 'td-font', 'td-size', 'td-text', 'td-bg', 'td-bgc', 'td-bd', 'td-bdc', 'td-wrap', 'td-wrapw']) {
+      const ids = ['td-color', 'td-font', 'td-size', 'td-text', 'td-bg', 'td-bgc', 'td-bd', 'td-bdc', 'td-wrap', 'td-wrapw'];
+      if (isShape) ids.push('td-pos', 'td-align');
+      for (const idd of ids) {
         el(idd).addEventListener('input', apply);
         el(idd).addEventListener('change', apply);
       }
@@ -1906,7 +1928,7 @@
       el('chart').addEventListener('dblclick', () => {
         const id = draw && draw.selected();
         const d = id ? draw.get(id) : null;
-        if (d && d.tool === 'text') openTextDialog(id);
+        if (d) openTextDialog(id);
       });
       chart.on('draw:remove', () => { showWidget(null); autosave(); });
       chart.on('draw:update', () => { positionWidget(); autosave(); });

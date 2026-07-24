@@ -55,35 +55,84 @@ return chart;`} caption="TPO counts per price (left), with POC and value area." 
 
 Footprint shows per-price bid vs ask volume with diagonal-imbalance highlighting. Build each
 bar with `computeFootprint(time, classifiedTrades, tickSize)` and render with the `Footprint`
-primitive. The demo below synthesizes random classified trades for a handful of bars:
+primitive.
 
-<RunnableExample height={420} tiers={['profile']} code={`const chart = lib.createChart(el);
-const bars = lib.generateBars(1700000000, 8, 3600);
-chart.addSeries('candlestick').setData(bars);
+Cells are filled proportionally to volume rather than outlined, so a column reads as a heat
+ladder at a glance; imbalanced cells fill **saturated** instead of gaining a border, and runs
+of consecutive same-side imbalances get a bracket down the edge. Column width is derived from
+the chart's bar spacing unless you pin `cellWidth`, and when rows get shorter than
+`minTextHeight` the numbers drop out and the column degrades to a pure heatmap — so zooming
+out never turns into unreadable overlap.
 
+The demo below **replays a classified tape** into a `FootprintAggregator`: ticks arrive a few
+at a time, the forming bar updates in place, and the tape loops when it runs out. That is the
+same path a live WebSocket trade feed takes.
+
+<RunnableExample height={420} tiers={['profile']} code={`const chart = lib.createChart(el, { priceAxisWidth: 68 });
 const tick = 0.5;
-const fbars = bars.map(function (b, i) {
-  let seed = (i + 1) * 7919;
-  const rnd = function () { seed = (seed * 1103515245 + 12345) & 2147483647; return seed / 2147483647; };
-  const trades = [];
-  const steps = Math.max(1, Math.round((b.high - b.low) / tick));
-  const buyBias = b.close >= b.open ? 0.6 : 0.4;
-  for (let s = 0; s <= steps; s++) {
-    const price = b.low + s * tick;
-    const n = 2 + Math.floor(rnd() * 18);
-    for (let k = 0; k < n; k++) {
-      trades.push({ price: price, qty: 1 + Math.floor(rnd() * 9), side: rnd() < buyBias ? 'ask' : 'bid' });
+const price = chart.addSeries('candlestick');
+
+// Deterministic tape, so the demo replays the same session every time.
+let seed = 20240719;
+const rnd = function () { seed = (seed * 1103515245 + 12345) & 2147483647; return seed / 2147483647; };
+
+let mid = 100, drift = 0, t = 1700000000;
+const tape = [];
+for (let i = 0; i < 1400; i++) {
+  drift += (rnd() - 0.5) * 0.05;
+  drift = Math.max(-0.3, Math.min(0.3, drift));
+  drift -= (mid - 100) * 0.02;                       // mean-revert: keep the ladder shallow
+  const buy = rnd() < 0.5 + drift;
+  if (rnd() < 0.28) mid += (buy ? 1 : -1) * tick;
+  tape.push({
+    time: t + i,
+    price: buy ? mid + tick / 2 : mid - tick / 2,
+    qty: Math.round(Math.pow(rnd(), 3) * 400 + 5),   // heavy-tailed: a few prints matter
+    side: buy ? 'ask' : 'bid',
+  });
+}
+
+const fp = new lib.Footprint({
+  tickSize: tick,
+  imbalanceRatio: 3,
+  stackedImbalances: 3,
+  statsRows: ['volume', 'delta', 'deltaPct', 'cvd'],
+});
+chart.addPrimitive(fp);
+
+let agg, bars, candles, cursor;
+const reset = function () {
+  agg = new lib.FootprintAggregator({ mode: 'interval', seconds: 30 }, tick);
+  bars = []; candles = []; cursor = 0;
+};
+reset();
+
+const step = function () {
+  for (let n = 0; n < 6 && cursor < tape.length; n++) {
+    const tk = tape[cursor++];
+    const u = agg.onTick(tk);
+    if (u.isNew) {
+      bars.push(u.bar);
+      candles.push({ time: u.bar.time, open: tk.price, high: tk.price, low: tk.price, close: tk.price, volume: tk.qty });
+      if (bars.length > 12) { bars.shift(); candles.shift(); }
+    } else {
+      bars[bars.length - 1] = u.bar;
+      const c = candles[candles.length - 1];
+      c.high = Math.max(c.high, tk.price); c.low = Math.min(c.low, tk.price);
+      c.close = tk.price; c.volume += tk.qty;
     }
   }
-  return lib.computeFootprint(b.time, trades, tick);
-});
+  if (cursor >= tape.length) reset();
+  price.setData(candles.slice());
+  fp.setBars(bars.slice());
+  chart.timeScale.fitContent(candles.length);
+};
 
-const fp = new lib.Footprint({ cellWidth: 60, imbalanceRatio: 3, tickSize: tick });
-chart.addPrimitive(fp);
-fp.setBars(fbars);
-
-chart.timeScale.fitContent(bars.length);
-return chart;`} caption="Per-bar bid x ask cells (red = bid, green = ask), graded by volume, with delta footers." />
+step();
+const timer = setInterval(step, 420);               // slow enough to watch a bar build
+const teardown = chart.destroy.bind(chart);
+chart.destroy = function () { clearInterval(timer); teardown(); };
+return chart;`} caption="A replayed tape: the rightmost column is the forming bar, updating in place as ticks arrive." />
 
 For live data, aggregate the stream instead of building bars by hand:
 
@@ -101,6 +150,59 @@ ws.onTrade((t) => {
 Footprint and order flow require a feed that classifies each trade as hitting the bid or the
 ask. A plain OHLCV or LTP stream cannot produce them - the demo above fakes the
 classification for illustration.
+</Callout>
+
+### Display modes
+
+`displayMode` switches what a column shows without touching the underlying bars:
+
+| Mode | Columns | Reads as |
+| --- | --- | --- |
+| `bidask` (default) | two — bid on the left, ask on the right | classic footprint; diagonal imbalances are visible |
+| `delta` | one, signed | net aggression per price; green above zero, red below |
+| `volume` | one, unsigned | where trade actually happened, side ignored |
+
+### Stats table
+
+`statsRows` renders a per-bar table under the columns, one row per metric, in the order given.
+Each cell is tinted by its own strength, so a run of heavy positive delta reads as a green
+block. Pass `[]` to hide the table.
+
+| Row | Value |
+| --- | --- |
+| `volume` | total bar volume |
+| `delta` | `askVol - bidVol` summed over the bar |
+| `deltaPct` | that delta as a percentage of bar volume |
+| `cvd` | cumulative delta — a running total across all loaded bars |
+| `trades` | number of prints in the bar |
+
+### Runtime restyling and hit-testing
+
+`setOptions(partial)` merges and repaints, so a toolbar can drive the primitive live:
+
+```ts
+fp.setOptions({ displayMode: 'delta', imbalanceRatio: 5, statsRows: ['volume', 'cvd'] });
+```
+
+`hitTest(x, y)` and `hoverAt(x, y)` map a pointer position back to the bar and price row under
+the cursor — enough to build a hover inspector without the library owning any DOM. `hoverAt`
+returns `{ time, price, cell, stats }`, where `cell` is `null` when the pointer is over the
+stats table rather than a price row:
+
+```ts
+chart.on('crosshair:move', (e) => {
+  const hit = e.point ? fp.hoverAt(e.point.x, e.point.y) : null;
+  tooltip.hidden = hit === null;
+  if (hit === null) return;
+  const cell = hit.cell ? `bid ${hit.cell.bidVol} x ask ${hit.cell.askVol}` : '';
+  tooltip.textContent = `${cell}  vol ${hit.stats.volume}  Δ ${hit.stats.delta}`;
+});
+```
+
+<Callout>
+`examples/orderflow/index.html` in the repo wires all of this to a live synthetic tape — the
+forming bar updates in place as ticks arrive, which is the same path a real WebSocket trade
+feed takes.
 </Callout>
 
 ## Footprint analytics

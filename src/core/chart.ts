@@ -206,6 +206,8 @@ export class Chart {
   private _clickCb: ((externalId: string) => void) | null = null;
   private _crosshairCb: ((e: CrosshairMoveEvent) => void) | null = null;
   private _pointerMoved = false;
+  /** While true, pointer gestures place anchors instead of panning. */
+  private _placementMode = false;
   private _downPane = 0;
   private _downX = 0;
   private _downLocalY = 0;
@@ -841,6 +843,17 @@ export class Chart {
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
   }
 
+  /**
+   * Turn pointer gestures into anchor placement instead of panning. A host arms
+   * this while a drawing tool is active: a press no longer scrolls the chart, and
+   * a press-drag-release is reported as two `click` events (press point, then
+   * release point, the latter tagged `viaDrag`) so a two-point shape can be drawn
+   * in one gesture. `DrawingController` drives this for you.
+   */
+  public setPlacementMode(active: boolean): void {
+    this._placementMode = active;
+  }
+
   /** Swap the palette at runtime (dark/light toggle) without recreating the chart. */
   public setTheme(theme: ChartTheme): void {
     this._theme = theme;
@@ -1405,6 +1418,15 @@ export class Chart {
       return;
     }
 
+    // While a host is placing something (a drawing tool is armed), a press is the
+    // start of a shape, not a pan. Bail before the drag/hit paths so the gesture
+    // can only produce anchors — `_onPointerUp` turns it into clicks.
+    if (this._placementMode) {
+      this._dragging = false;
+      this._pointerMoved = false;
+      return;
+    }
+
     // If the press lands on a draggable line (order/SL/TP), drag it — don't pan.
     const hit = this._panes[p.pane]?.hitTestPrimitives(p.x - this._leftAxisWidth, p.localY, this._renderContext(p.pane === this._panes.length - 1));
     // `draggable` primitives (drawing anchors/shapes) arm regardless of a host
@@ -1484,6 +1506,13 @@ export class Chart {
       this._timeScale.setBarSpacing(this._axisStartSpacing * Math.exp(dx * 0.005));
       this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
       return;
+    }
+    // Placement mode suppresses the pan path, which is where `_pointerMoved`
+    // is normally set — track the gesture here so pointerup can still tell a
+    // click from a drag-to-draw.
+    if (this._placementMode && this._pointers.size > 0
+      && (Math.abs(p.x - this._downX) > 3 || Math.abs(p.localY - this._downLocalY) > 3)) {
+      this._pointerMoved = true;
     }
     if (this._dragId !== null) {
       if (Math.abs(p.x - this._downX) > 3 || Math.abs(p.localY - this._downLocalY) > 3) this._dragMoved = true;
@@ -1566,6 +1595,31 @@ export class Chart {
       return;
     }
     this._dragging = false;
+    // Placement mode: a press-drag-release is how every charting UI draws a
+    // two-point shape, but the click branch below is gated on the pointer having
+    // stayed still, so the gesture used to place nothing at all. Replay it as the
+    // two clicks it means — press point, then release point. `viaDrag` lets the
+    // host ignore the second one for single-anchor tools it already completed.
+    if (this._placementMode && this._pointerMoved) {
+      const p = this._localPoint(e);
+      this._ensureScaled(this._downPane);
+      this.emit('click', {
+        id: null,
+        price: this._panes[this._downPane]?.priceScale.yToPrice(this._downLocalY) ?? null,
+        time: this._xToTime(this._downX),
+        paneIndex: this._downPane,
+        point: { x: this._downX, y: this._downLocalY },
+      });
+      this.emit('click', {
+        id: null,
+        price: this._panes[this._downPane]?.priceScale.yToPrice(p.localY) ?? null,
+        time: this._xToTime(p.x),
+        paneIndex: this._downPane,
+        point: { x: p.x, y: p.localY },
+        viaDrag: true,
+      });
+      return;
+    }
     // Always hit-test a clean click: the chart's own chrome (pane-legend
     // buttons) must work whether or not the host subscribed to clicks.
     if (!this._pointerMoved) {

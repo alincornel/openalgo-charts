@@ -280,7 +280,122 @@ describe('text styling', () => {
   });
 });
 
+describe('shape labels', () => {
+  const rc = {
+    timeScale: { indexToX: (i: number) => i },
+    priceScale: { priceToY: (p: number) => p, format: (p: number) => String(p) },
+    dataLayer: { timeToIndexFloat: (t: number) => t },
+    plotWidth: W, plotHeight: H, priceAxisWidth: 60, dpr: 1, theme: darkTheme,
+  } as never;
+
+  const render = (tool: string, style: Record<string, unknown>) => {
+    const drawing: Drawing = {
+      id: 's', tool, paneIndex: 0,
+      points: [{ time: 10, price: 10 }, { time: 20, price: 40 }, { time: 30, price: 60 }],
+      style: { color: '#a855f7', lineWidth: 1.5, ...style },
+    };
+    const pts = [{ x: 40, y: 40 }, { x: 200, y: 140 }, { x: 260, y: 180 }];
+    const { ctx, rec } = makeCtx();
+    getDrawingTool(tool).draw({
+      ctx, rc, drawing, selected: false, pts,
+      style: { color: '#a855f7', lineWidth: 1.5, ...style },
+      formatPrice: (v) => String(v),
+    });
+    return rec;
+  };
+
+  it('a shape with no text draws no label', () => {
+    expect(render('rectangle', {}).count('fillText')).toBe(0);
+  });
+
+  it('rectangle, ellipse, and channel all carry a label', () => {
+    for (const tool of ['rectangle', 'ellipse', 'parallel-channel']) {
+      expect(render(tool, { text: 'zone' }).count('fillText'), tool).toBe(1);
+    }
+  });
+
+  it('uses fontColor for the label, keeping color as the outline', () => {
+    const rec = render('rectangle', { text: 'hi', fontColor: '#ffffff' });
+    const textFill = rec.ops.filter((o) => o.type === 'fillText').map((o) => o.fillStyle);
+    expect(textFill).toContain('#ffffff');
+    // The outline is still stroked in the shape colour.
+    expect(rec.ops.some((o) => o.type === 'strokeRect' && o.strokeStyle === '#a855f7')).toBe(true);
+  });
+
+  it('falls back to the shape colour when no fontColor is set', () => {
+    const rec = render('rectangle', { text: 'hi' });
+    expect(rec.ops.filter((o) => o.type === 'fillText').map((o) => o.fillStyle)).toContain('#a855f7');
+  });
+
+  it('places an outside label above the shape and an inside one within it', () => {
+    const inside = render('rectangle', { text: 'hi', textPosition: 'inside' });
+    const outside = render('rectangle', { text: 'hi', textPosition: 'outside' });
+    const y = (rec: ReturnType<typeof render>) =>
+      (rec.ops.find((o) => o.type === 'fillText') as { args: number[] }).args[1];
+    expect(y(outside)).toBeLessThan(40);      // above the top edge (y0 = 40)
+    expect(y(inside)).toBeGreaterThanOrEqual(40);
+  });
+
+  it('honours multiline and vertical alignment', () => {
+    expect(render('rectangle', { text: 'a\nb\nc' }).count('fillText')).toBe(3);
+    const top = render('rectangle', { text: 'x', textVAlign: 'top' });
+    const bottom = render('rectangle', { text: 'x', textVAlign: 'bottom' });
+    const y = (rec: ReturnType<typeof render>) =>
+      (rec.ops.find((o) => o.type === 'fillText') as { args: number[] }).args[1];
+    expect(y(bottom)).toBeGreaterThan(y(top));
+  });
+});
+
 describe('DrawingController', () => {
+  it('draws a two-anchor shape from one press-drag-release gesture', () => {
+    // The chart reports a drag as press-click then release-click (`viaDrag`);
+    // before this, dragging with a tool armed panned the chart and drew nothing.
+    const { chart } = makeChart();
+    const draw = new DrawingController(chart);
+    draw.setTool('rectangle');
+
+    chart.emit('click', { id: null, time: 1700000600, price: 101, paneIndex: 0, point: { x: 10, y: 10 } });
+    chart.emit('click', { id: null, time: 1700003600, price: 108, paneIndex: 0, point: { x: 90, y: 40 }, viaDrag: true });
+
+    expect(draw.drawings()).toHaveLength(1);
+    const d = draw.drawings()[0];
+    expect(d.tool).toBe('rectangle');
+    // Both anchors distinct — a degenerate rect renders as nothing at all.
+    expect(d.points).toEqual([
+      { time: 1700000600, price: 101 },
+      { time: 1700003600, price: 108 },
+    ]);
+  });
+
+  it('ignores the release click for a single-anchor tool', () => {
+    // Otherwise dragging with `text` armed drops a second box where you let go.
+    const { chart } = makeChart();
+    const draw = new DrawingController(chart, { stayInDrawingMode: true });
+    draw.setTool('text');
+
+    chart.emit('click', { id: null, time: 1700000600, price: 101, paneIndex: 0, point: { x: 10, y: 10 } });
+    expect(draw.drawings()).toHaveLength(1);
+    chart.emit('click', { id: null, time: 1700003600, price: 108, paneIndex: 0, point: { x: 90, y: 40 }, viaDrag: true });
+    expect(draw.drawings()).toHaveLength(1);
+  });
+
+  it('arms and releases the chart placement mode with the tool', () => {
+    const { chart } = makeChart();
+    const modes: boolean[] = [];
+    (chart as unknown as { setPlacementMode: (a: boolean) => void }).setPlacementMode = (a) => modes.push(a);
+    const draw = new DrawingController(chart);
+
+    draw.setTool('rectangle');
+    expect(modes[modes.length - 1]).toBe(true);          // press must not pan
+    chart.emit('click', { id: null, time: 1, price: 1, paneIndex: 0, point: { x: 1, y: 1 } });
+    chart.emit('click', { id: null, time: 2, price: 2, paneIndex: 0, point: { x: 2, y: 2 }, viaDrag: true });
+    expect(modes[modes.length - 1]).toBe(false);          // panning handed back
+
+    draw.setTool('rectangle');
+    draw.destroy();
+    expect(modes[modes.length - 1]).toBe(false);          // never left armed
+  });
+
   it('places a two-anchor tool over two clicks and selects it', () => {
     const { chart } = makeChart();
     const draw = new DrawingController(chart);

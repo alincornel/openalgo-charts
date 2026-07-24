@@ -2,6 +2,83 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.0.9
+
+Order-flow overhaul, drag-to-draw, shape text, and a price-axis density fix.
+492 unit tests.
+
+### Added
+
+- **Footprint rewritten** (`src/profile/footprint-primitive.ts`). Cells now fill
+  proportionally to volume instead of being outlined, so a column reads as a heat
+  ladder; imbalanced cells fill *saturated* rather than gaining a border, and runs
+  of consecutive same-side imbalances get a bracket down the edge.
+
+  New options: `displayMode` (`bidask` | `delta` | `volume`), `statsRows` — a
+  per-bar table of `volume` / `delta` / `deltaPct` / `cvd` / `trades`, each cell
+  tinted by its own strength — plus `stackedImbalances`, `showPoc`, `showCandle`,
+  `widthFactor`, `radius`, and `minTextHeight`. Column width derives from the
+  chart's bar spacing unless `cellWidth` pins it, and rows shorter than
+  `minTextHeight` drop their numbers and degrade to a pure heatmap, so zooming
+  out never turns into unreadable overlap.
+
+  `setOptions()` merges and repaints for live restyling; `hitTest()` and
+  `hoverAt()` map a pointer back to the bar and price row so a host can build a
+  tooltip without the library owning any DOM. `autoscaleInfo()` now returns a
+  range, so the footprint drives the pane's scale.
+
+- **Shape text.** `DrawingStyle` gains `fontColor`, `textVAlign`, and
+  `textPosition`; rectangles, ellipses, and parallel channels now render a
+  `style.text` label — one shape with two colours (`color` strokes the outline,
+  `fontColor` paints the label). `textPosition: 'inside'` with
+  `textVAlign` x `textAlign` gives the nine placements a TradingView shape-text
+  panel exposes; `'outside'` parks the block above the shape.
+
+- **Live order-flow demo** (`examples/orderflow/index.html`). Synthetic classified
+  ticks stream into a `FootprintAggregator` and the forming bar updates in place —
+  the same path a live WebSocket trade feed takes. Speed, timeframe, display mode,
+  imbalance ratio, stacked toggle, and stats toggle are all wired to `setOptions`,
+  with a hover inspector fed by `hoverAt`.
+
+### Fixed
+
+- **Drawing a rectangle by dragging placed nothing and scrolled the chart.**
+  Press-drag-release is how every charting UI lays down a two-point shape, but the
+  chart only emitted a `click` when the pointer had *not* moved, so the gesture
+  produced no anchors — while the pan path consumed it and scrolled the view out
+  from under the user. Click-click still worked, which is why it went unnoticed.
+
+  New `chart.setPlacementMode(active)`: while a host is placing something, a press
+  no longer pans, and a press-drag-release is reported as two `click` events — the
+  press point, then the release point tagged `viaDrag`. `DrawingController` arms
+  and releases this with the active tool, so every two-point tool (rectangle,
+  ellipse, trend line, channel, fib, position) gains drag-to-draw with no API
+  change. Single-anchor tools ignore the release half, so dragging with `text`
+  armed no longer drops a second box where you let go.
+
+- **The price axis produced about half the tick labels it was asked for.**
+  `niceTicks` rounded the span up to a nice number and *then* divided to get the
+  step — rounding twice. A 10.5-point range became 20, giving a step of 5 and
+  three labels where six were requested; on a footprint autoscaled to ~15 points
+  around 65000 the axis was nearly bare.
+
+  The step now comes from the raw span. Because `niceNum(x, true)` snaps to the
+  *nearest* nice value it can undershoot and overshoot `maxTicks`, so the result
+  is clamped up the 1 → 2 → 2.5 → 5 → 10 ladder until it fits. The 2.5 rung —
+  already promised by `niceNum`'s own docstring but missing from its
+  implementation — is what keeps a 15-point range from collapsing from 8 labels
+  straight to 3.
+
+### Changed
+
+- `Footprint.hoverAt(x, y, rc?)` — `rc` is now optional and defaults to the
+  context of the last paint, so a crosshair handler can call `hoverAt(p.x, p.y)`
+  instead of fabricating a `PrimitiveRenderContext` out of chart internals.
+
+- Docs demos follow the site theme. `RunnableExample` wraps `createChart` to pass
+  the resolved light/dark palette, since the library default is the light one and
+  every example was rendering a white panel into a dark page.
+
 ## 1.0.8
 
 Two new lazy tiers — **indicators** and **drawing tools** — plus the registries,

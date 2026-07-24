@@ -208,20 +208,21 @@ export const CROSS_LINE: DrawingTool = {
 
 export const RECTANGLE: DrawingTool = {
   id: 'rectangle', name: 'Rectangle', points: 2,
-  defaultStyle: { fill: true },
+  defaultStyle: { fill: true, fontSize: 14, textAlign: 'left', textVAlign: 'top', textPosition: 'inside' },
   draw: (c) => {
     const r = rectOf(c.pts[0], c.pts[1]);
     withFill(c, () => c.ctx.fillRect(r.x0, r.y0, r.x1 - r.x0, r.y1 - r.y0));
     applyStroke(c);
     c.ctx.strokeRect(r.x0, r.y0, r.x1 - r.x0, r.y1 - r.y0);
     c.ctx.setLineDash([]);
+    shapeLabel(c, r.x0, r.y0, r.x1, r.y1);
   },
   distance: (x, y, h) => distToRect(x, y, h.pts[0], h.pts[1], h.drawing.style.fill === true),
 };
 
 export const ELLIPSE: DrawingTool = {
   id: 'ellipse', name: 'Ellipse', points: 2,
-  defaultStyle: { fill: true },
+  defaultStyle: { fill: true, fontSize: 14, textAlign: 'center', textVAlign: 'middle', textPosition: 'inside' },
   draw: (c) => {
     const r = rectOf(c.pts[0], c.pts[1]);
     const cx = (r.x0 + r.x1) / 2;
@@ -237,6 +238,7 @@ export const ELLIPSE: DrawingTool = {
     path();
     c.ctx.stroke();
     c.ctx.setLineDash([]);
+    shapeLabel(c, r.x0, r.y0, r.x1, r.y1);
   },
   distance: (x, y, h) => distToEllipse(x, y, h.pts[0], h.pts[1], h.drawing.style.fill === true),
 };
@@ -263,6 +265,8 @@ export const PARALLEL_CHANNEL: DrawingTool = {
     c.ctx.moveTo(a2.x, a2.y); c.ctx.lineTo(b2.x, b2.y);
     c.ctx.stroke();
     c.ctx.setLineDash([]);
+    shapeLabel(c, Math.min(a.x, b.x), Math.min(a.y, b.y, a2.y, b2.y),
+      Math.max(a.x, b.x), Math.max(a.y, b.y, a2.y, b2.y));
   },
   distance: (x, y, h) => {
     const [a, b, t] = h.pts;
@@ -482,6 +486,52 @@ function textBox(
     height: lines.length * lineHeight + TEXT_PAD * 2 * dpr,
     lineHeight,
   };
+}
+
+
+/**
+ * Draw a shape's attached label. Shapes carry an optional `text` that renders
+ * inside (or just above) their bounds, with its own colour, font, and
+ * alignment — the outline colour and the label colour are different decisions.
+ */
+function shapeLabel(c: DrawContext, x0: number, y0: number, x1: number, y1: number): void {
+  const { ctx, rc, style } = c;
+  const text = style.text;
+  if (text === undefined || text === '') return;
+  const d = rc.dpr;
+  const size = (style.fontSize ?? 14) * d;
+  const pad = 6 * d;
+  ctx.save();
+  ctx.setLineDash([]);
+  ctx.font = textFont(style, size);
+  ctx.fillStyle = style.fontColor ?? style.color;
+  ctx.textBaseline = 'top';
+
+  const lines = style.wrap === true
+    ? textLines(ctx, style, Math.max(20 * d, x1 - x0 - pad * 2))
+    : text.split('\n');
+  const lineHeight = size * LINE_GAP;
+  const blockH = lines.length * lineHeight;
+
+  const align = style.textAlign ?? 'left';
+  ctx.textAlign = align;
+  const tx = align === 'center' ? (x0 + x1) / 2 : align === 'right' ? x1 - pad : x0 + pad;
+
+  // `outside` lifts the block clear of the shape so it never sits on the outline.
+  let ty: number;
+  if (style.textPosition === 'outside') {
+    ty = y0 - blockH - pad;
+  } else {
+    const v = style.textVAlign ?? 'top';
+    ty = v === 'middle' ? (y0 + y1 - blockH) / 2
+      : v === 'bottom' ? y1 - blockH - pad
+      : y0 + pad;
+  }
+  for (const line of lines) {
+    ctx.fillText(line, tx, ty);
+    ty += lineHeight;
+  }
+  ctx.restore();
 }
 
 export const TEXT: DrawingTool = {

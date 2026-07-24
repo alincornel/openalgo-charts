@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useTheme } from 'next-themes';
 import { highlight } from './highlight';
 
 type Tier = 'trade' | 'transform' | 'profile' | 'indicators' | 'draw';
@@ -36,6 +37,8 @@ export default function RunnableExample({ code, tiers = [], height = 360, hideCo
   const ref = useRef<HTMLDivElement>(null);
   const [err, setErr] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const { resolvedTheme } = useTheme();
+  const dark = resolvedTheme !== 'light';
 
   useEffect(() => {
     let chart: { destroy?: () => void } | undefined;
@@ -45,9 +48,22 @@ export default function RunnableExample({ code, tiers = [], height = 360, hideCo
         const lib = await loadLib();
         if (cancelled || !ref.current) return;
         ref.current.innerHTML = '';
+        // The library defaults to the light palette, which reads as a white hole
+        // punched in a dark docs page. Wrap `createChart` so every example follows
+        // the site theme without each one having to ask; an example that passes
+        // its own `theme` still wins, since caller options spread last.
+        // A copy, not `Object.create(lib)`: a module namespace exposes its
+        // exports as getter-only accessors, so an override on a child object
+        // throws rather than shadowing.
+        const create = lib.createChart as (h: HTMLElement, o: unknown) => unknown;
+        const themed = {
+          ...lib,
+          createChart: (host: HTMLElement, opts?: Record<string, unknown>) =>
+            create(host, { theme: dark ? lib.darkTheme : lib.lightTheme, ...opts }),
+        };
         // eslint-disable-next-line @typescript-eslint/no-implied-eval
         const fn = new Function('el', 'lib', code) as (el: HTMLElement, lib: unknown) => { destroy?: () => void };
-        chart = fn(ref.current, lib);
+        chart = fn(ref.current, themed);
         // Stamp the OpenAlgo logo on every demo (unless the demo manages its own).
         if (watermark && chart) {
           const withPrimitive = chart as { addPrimitive?: (p: unknown) => void };
@@ -66,7 +82,7 @@ export default function RunnableExample({ code, tiers = [], height = 360, hideCo
       try { chart?.destroy?.(); } catch { /* ignore */ }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [code, tiers.join(',')]);
+  }, [code, tiers.join(','), dark]);
 
   return (
     <div className="oac-example">
