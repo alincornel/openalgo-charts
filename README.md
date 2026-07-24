@@ -9,7 +9,7 @@ Professional interactive financial charts, on-chart trading, and live data - in 
 [![npm version](https://img.shields.io/npm/v/openalgo-charts.svg?color=cb3837&label=npm)](https://www.npmjs.com/package/openalgo-charts)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
 [![bundle](https://img.shields.io/badge/brotli-~33%20KB%20base%20%C2%B7%20~58%20KB%20full-brightgreen.svg)](./ARCHITECTURE.md)
-[![tests](https://img.shields.io/badge/tests-462%20passing-brightgreen.svg)](#develop)
+[![tests](https://img.shields.io/badge/tests-468%20passing-brightgreen.svg)](#develop)
 [![dependencies](https://img.shields.io/badge/runtime%20deps-0-brightgreen.svg)](#principles)
 
 [**Documentation**](https://marketcalls.github.io/openalgo-charts/) &nbsp;·&nbsp; [**Live examples**](https://marketcalls.github.io/openalgo-charts/examples) &nbsp;·&nbsp; [**Getting started**](./docs/getting-started.md) &nbsp;·&nbsp; [**Architecture**](./ARCHITECTURE.md)
@@ -94,7 +94,7 @@ cd website && npm install && npm run dev    # http://localhost:3000/openalgo-cha
 ```bash
 npm install        # install dev toolchain
 npm run typecheck  # strict TypeScript check
-npm test           # unit tests (vitest) - 462 across 47 files
+npm test           # unit tests (vitest) - 468 across 47 files
 npm run build      # Rollup -> dist/ (minified ESM per tier + types)
 npm run size       # size-limit (Brotli) against the budget
 npm run e2e        # Playwright Chromium smoke tests
@@ -110,7 +110,7 @@ npm run verify     # typecheck + test + build + size
 
 ## Status &amp; limitations
 
-Version **1.1.0 (published)** - all engine build phases are implemented with 462 unit tests, base engine ~33 KB Brotli, full package ~58 KB Brotli (all six tiers). The OpenAlgo WS/trade adapters ship and auto-reconnect, but their exact message/endpoint schemas should be verified against your running OpenAlgo build. An optional DOM chrome package (toolbar, dialogs, command palette, objects panel) is the next planned piece; the Footprint/order-flow renderer still needs its visual pass, and overlay and `indexed-to-100` price scales are unimplemented - see [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the honest deferred list.
+Version **1.0.8 (published)** - all engine build phases are implemented with 468 unit tests, base engine ~33 KB Brotli, full package ~58 KB Brotli (all six tiers). The OpenAlgo WS/trade adapters ship and auto-reconnect, but their exact message/endpoint schemas should be verified against your running OpenAlgo build. An optional DOM chrome package (toolbar, dialogs, command palette, objects panel) is the next planned piece; the Footprint/order-flow renderer still needs its visual pass, and overlay and `indexed-to-100` price scales are unimplemented - see [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the honest deferred list.
 
 ## License
 

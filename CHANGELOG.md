@@ -2,11 +2,11 @@
 
 All notable changes to OpenAlgo Charts.
 
-## 1.1.0
+## 1.0.8
 
 Two new lazy tiers — **indicators** and **drawing tools** — plus the registries,
 state, and pane chrome they need. Base engine ~32.7 KB Brotli, full package
-~58 KB across all six tiers, 462 unit tests.
+~58 KB across all six tiers, 468 unit tests.
 
 ### Fixed
 
