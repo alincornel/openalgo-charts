@@ -203,6 +203,55 @@ describe('chart.getState / restoreState', () => {
   });
 });
 
+describe('restoreState never leaves an empty pane', () => {
+  // A saved pane exists only to hold an indicator, and restoreState skips an
+  // indicator whose tier was never imported. The pane used to survive anyway —
+  // still claiming its weight and still drawing a default 0..100 axis, which
+  // reads as a large blank region under the chart.
+  it('drops a pane whose indicator could not be recreated', () => {
+    const chart = makeChart();
+    chart.addSeries('candlestick').setData(bars(60));
+
+    const state = {
+      version: 1,
+      panes: [
+        { weight: 1, priceScale: { marginTop: 0.1, marginBottom: 0.1, autoScale: true } },
+        { weight: 2, priceScale: { marginTop: 0.1, marginBottom: 0.1, autoScale: true } },
+      ],
+      // No such indicator, so restoreState skips it — the same path a state
+      // referencing an unloaded tier takes.
+      indicators: [{ indicatorId: 'no-such-indicator', settings: {}, paneIndex: 1 }],
+      series: [],
+    };
+
+    const report = chart.restoreState(state);
+    expect(report.applied).toBe(true);
+    expect(report.indicators).toBe(0);          // unknown id -> skipped
+    expect(chart.panes()).toHaveLength(1);      // ...and its pane went with it
+    expect(chart.panes()[0].series().length).toBeGreaterThan(0);
+  });
+
+  it('keeps a pane that still holds a series', () => {
+    const chart = makeChart();
+    chart.addSeries('candlestick').setData(bars(60));
+    chart.addSeries('histogram', { paneIndex: 1 })
+      .setData([{ time: 1700000000, open: 0, high: 5, low: 0, close: 5 }]);
+    expect(chart.panes()).toHaveLength(2);
+
+    chart.restoreState({
+      version: 1,
+      panes: [
+        { weight: 1, priceScale: { marginTop: 0.1, marginBottom: 0.1, autoScale: true } },
+        { weight: 2, priceScale: { marginTop: 0.1, marginBottom: 0.1, autoScale: true } },
+      ],
+      indicators: [],
+      series: [],
+    });
+    // Pane 1 is host-owned, not indicator-owned, so it must survive.
+    expect(chart.panes()).toHaveLength(2);
+  });
+});
+
 describe('drag carries time as well as price', () => {
   it('maps container x to a time on the gapless axis', () => {
     const chart = makeChart();

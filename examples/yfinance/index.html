@@ -436,6 +436,9 @@
     <button class="sell" data-side="SELL" data-type="SL">Sell Stop (SL)</button>
     <hr>
     <button data-act="cancelall">Cancel All Orders</button>
+    <hr>
+    <button data-act="delsel">Delete Drawing</button>
+    <button data-act="delall">Remove All Drawings</button>
   </div>
 
   <script type="module">
@@ -1156,6 +1159,17 @@
           : type === 'LIMIT' ? `${verb} Limit @ ${fmt(ctxPrice)}`
           : `${verb} Stop (SL) @ ${fmt(ctxPrice)}`;
       });
+      // Hide the drawing rows when there is nothing to act on, so the menu
+      // never offers a dead option.
+      const nDraw = draw ? draw.drawings().length : 0;
+      const selId = draw ? draw.selected() : null;
+      const rowAll = ctxMenu.querySelector('[data-act="delall"]');
+      const rowSel = ctxMenu.querySelector('[data-act="delsel"]');
+      rowAll.hidden = nDraw === 0;
+      rowSel.hidden = !selId;
+      rowAll.previousElementSibling.hidden = nDraw === 0;   // its separator
+      if (nDraw > 0) rowAll.textContent = `Remove All Drawings (${nDraw})`;
+
       ctxMenu.style.left = Math.min(e.clientX, window.innerWidth - 180) + 'px';
       ctxMenu.style.top = Math.min(e.clientY, window.innerHeight - 230) + 'px';
       ctxMenu.hidden = false;
@@ -1168,8 +1182,23 @@
       if (!btn) return;
       e.stopPropagation();
       hideCtx();
-      if (btn.getAttribute('data-act') === 'cancelall') {
+      const act = btn.getAttribute('data-act');
+      if (act === 'cancelall') {
         removeAllOrders(); removeBracket(); clearPosition(); saveState(); el('status').textContent = 'all orders cancelled / flat'; return;
+      }
+      if (act === 'delall') {
+        if (!draw) return;
+        const n = draw.drawings().length;
+        draw.clear();                 // one undo step, so it is recoverable
+        autosave();
+        el('status').textContent = n ? `removed ${n} drawing${n === 1 ? '' : 's'}` : 'no drawings to remove';
+        return;
+      }
+      if (act === 'delsel') {
+        if (!draw) return;
+        const id = draw.selected();
+        if (id) { draw.remove(id); autosave(); el('status').textContent = 'drawing deleted'; }
+        return;
       }
       placeOrder(btn.getAttribute('data-side'), btn.getAttribute('data-type'), ctxPrice);
     });

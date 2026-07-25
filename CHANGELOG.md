@@ -26,9 +26,21 @@ All notable changes to OpenAlgo Charts.
   the last tool picked; the caret opens the list. Icons were redrawn on a 24x24
   grid with a thinner stroke and outlined endpoint handles.
 
+- **Right-click drawing actions in the yfinance demo** — "Delete Drawing" for
+  the selected one and "Remove All Drawings (n)" for the lot. Both rows hide
+  when there is nothing to act on, so the menu never offers a dead option.
+
 - `pane.primitives()`, matching the existing `pane.series()`.
 
 ### Fixed
+
+- **A restored layout could leave a large blank region under the chart.**
+  A saved pane exists only to hold an indicator, and `restoreState` skips an
+  indicator whose tier was never imported — but the pane survived anyway, still
+  claiming its weight and still drawing a default 0..100 price axis. On a chart
+  whose only restored indicator was an overlay, that empty pane took roughly
+  two thirds of the height. `restoreState` now drops panes that end up with no
+  series, the same way removing the last indicator from a pane already does.
 
 - **The yfinance demo rendered a white chart inside dark chrome.** It never
   passed a theme, and the library default is the light palette (since

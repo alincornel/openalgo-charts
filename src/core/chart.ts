@@ -1006,6 +1006,16 @@ export class Chart {
       }
     }
 
+    // A saved pane only exists to hold an indicator, and an indicator is skipped
+    // when its tier was never imported — so a restore can leave a pane behind
+    // with nothing in it. An empty pane still claims its weight and still draws
+    // a default 0..100 axis, which reads as a large blank region under the
+    // chart. Drop them, the same way removing the last indicator from a pane
+    // already does. Walk backwards so the indices stay valid as panes go.
+    for (let i = this._panes.length - 1; i > 0; i--) {
+      if (this._panes[i].series().length === 0) this.removePane(i);
+    }
+
     this._drawingState = s.drawings;
     if (s.barSpacing !== undefined) this._timeScale.setBarSpacing(s.barSpacing);
     if (s.viewport && this._dataLayer.length > 0) this.setVisibleLogicalRange(s.viewport);
