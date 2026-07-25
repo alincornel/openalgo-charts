@@ -8,6 +8,109 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 1.0.10
+
+**Added — Market Profile**
+
+- **Controllable TPO / footprint row height.** Row height is now
+  `tickSize * rowTicks` instead of being pinned to the instrument tick. The
+  multiplier is the one a trader already thinks in: Nifty trades in 0.1 and you
+  want 2-point rows, so `rowTicks` is `2 / 0.1 = 20` (`rowTicksFor(2, 0.1)` does
+  the division). Keeping the two separate matters — the tick is what imbalance
+  and single-print logic count on, so widening rows must not mean lying about it.
+  The same multiplier reaches order flow:
+  `computeFootprint(t, trades, 0.1, 20)` and `new FootprintAggregator(tf, 0.1, 20)`.
+  See [Market Profile](/docs/market-profile#row-size).
+- **Letters degrade to bricks automatically.** A TPO row is only as tall as the
+  price scale makes it, so at some zoom a letter stops fitting. `blockDisplay:
+  'auto'` (the new default) crossfades: the block is always drawn and the letter
+  fades in over `letterFade` px above `minLetterHeight`, so zooming through the
+  threshold reads as one continuous change instead of a jump. The footprint fades
+  its cell numbers the same way via `textFade`.
+- **Analytics** — per-period detail, the developing POC / value-area track, day
+  type, open type, range extension, buying / selling tails, volume POC, and
+  `nakedLevels()` for prior POC / VAH / VAL no later session traded through.
+- **Session windows** — `window` drops bars outside a trading session and anchors
+  period `A` to the window's open. Built-ins in `TRADING_HOURS`: `all-hours`,
+  `india`, `asia`, `london`, `new-york`, `us-regular`. `compositeSessions` merges
+  N sessions into a rolling composite.
+- **Renderer options** — `colorMode` gains `period` (one hue per TPO period, now
+  the default); plus `split` period columns, `showTpoCounts`, `showTails`,
+  `showPoorHighLow`, `showNakedLevels`, `showDevelopingPoc` / `showDevelopingVa`,
+  `showDayType` / `showOpenType`, `volumeProfileSide`, `showVolumeValues`, and
+  `hitTest` / `hoverAt` for a host-drawn tooltip.
+
+**Added — Interaction**
+
+- **Time navigator** — hover-revealed zoom / step controls just above the time
+  axis: `-` `+` to zoom, `‹` `›` to step one bar. Invisible until the pointer
+  nears the bottom of the chart, then faded in. The buttons run the *same*
+  commands the keyboard does, so the two cannot drift apart, and each tooltip
+  reads its combo from the live keymap. On by default; `timeNavigator: false`
+  drops it. See [Interactions](/docs/interactions#time-navigator-hover-revealed-zoom-controls).
+- New commands `panLeftBar` / `panRightBar` (one bar, unbound by default), and a
+  public `pane.primitives()` accessor.
+
+**Fixed**
+
+- **The docs Market Profile example rendered a histogram, not a market profile.**
+  It used `computeTpo` + `HorizontalProfile` — a volume-profile-shaped bar chart
+  with no letters — even though the letter renderer already existed.
+- **Periods anchored to the first bar rather than the session open**, so a session
+  whose first bar arrived late shifted every letter.
+
+**Breaking**
+
+- `MarketProfile`'s `showLetters` boolean is replaced by `blockDisplay`
+  (`showLetters: false` becomes `blockDisplay: 'blocks'`).
+
+## 1.0.9
+
+**Added — Order flow**
+
+- **Footprint rewritten.** Cells fill proportionally to volume instead of being
+  outlined, so a column reads as a heat ladder; imbalanced cells fill *saturated*
+  rather than gaining a border, and runs of consecutive same-side imbalances get
+  a bracket. New `displayMode` (`bidask` / `delta` / `volume`), a per-bar
+  `statsRows` table (volume / delta / delta % / CVD / trades) tinted by strength,
+  plus `stackedImbalances`, `showPoc`, `showCandle`, `widthFactor`, `radius` and
+  `minTextHeight`. `setOptions()` restyles live; `hitTest()` / `hoverAt()` map a
+  pointer back to the bar and price row. See
+  [Profiles & Order Flow](/docs/profiles-and-orderflow).
+- **Live order-flow example** — synthetic classified ticks stream into a
+  `FootprintAggregator` with the forming bar updating in place, the same path a
+  live WebSocket trade feed takes.
+
+**Added — Drawing**
+
+- **Shape text** — `DrawingStyle` gains `fontColor`, `textVAlign` and
+  `textPosition`; rectangles, ellipses and parallel channels render a
+  `style.text` label. One shape, two colours: `color` strokes the outline,
+  `fontColor` paints the label. See [Drawing Tools](/docs/drawing-tools#text-and-labels).
+
+**Fixed**
+
+- **Drawing a rectangle by dragging placed nothing and scrolled the chart.**
+  Press-drag-release is how every charting UI lays down a two-point shape, but
+  the chart only emitted a `click` when the pointer had *not* moved, so the
+  gesture produced no anchors while the pan path consumed it. New
+  `chart.setPlacementMode(active)`: a press no longer pans, and the gesture is
+  reported as two `click` events, the release tagged `viaDrag`. Every two-point
+  tool gained drag-to-draw with no API change; single-anchor tools ignore the
+  release half.
+- **The price axis produced about half the tick labels it was asked for.**
+  `niceTicks` rounded the span up to a nice number and *then* divided, rounding
+  twice — a 10.5-point range became 20, giving three labels where six were
+  requested. The step now comes from the raw span, clamped up the
+  1 / 2 / 2.5 / 5 / 10 ladder until it fits.
+
+**Changed**
+
+- `Footprint.hoverAt(x, y, rc?)` — `rc` is optional and defaults to the last
+  paint's context, so a crosshair handler can just call `hoverAt(p.x, p.y)`.
+- Docs demos follow the site theme (the library default is the light palette, so
+  every example had been rendering a white panel into a dark page).
+
 ## 1.0.8
 
 **Added — Indicators**
