@@ -2,7 +2,11 @@
 
 All notable changes to OpenAlgo Charts.
 
-## Unreleased
+## 1.0.11
+
+16 more drawing tools, TradingView-style rail flyouts, and the fix for a blank
+region that could appear under the chart and persist across reloads.
+532 unit tests.
 
 ### Added
 
