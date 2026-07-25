@@ -38,6 +38,8 @@ export interface FootprintOptions {
   font: number;
   /** Below this row height, numbers are dropped and cells render as a heatmap. */
   minTextHeight: number;
+  /** Height (px) over which the cell numbers fade in around `minTextHeight`. */
+  textFade: number;
   /** `bidask` two columns; `delta` or `volume` a single column. */
   displayMode: FootprintDisplayMode;
   /** Diagonal-imbalance ratio. */
@@ -66,6 +68,7 @@ export const DEFAULT_FOOTPRINT_OPTIONS: FootprintOptions = {
   widthFactor: 0.9,
   font: 10,
   minTextHeight: 11,
+  textFade: 4,
   displayMode: 'bidask',
   imbalanceRatio: 3,
   imbalanceThreshold: 0,
@@ -295,7 +298,10 @@ export class Footprint implements IPrimitive {
     }
 
     const imbalanced = this._imbalances(cells);
-    const showText = rowH >= o.minTextHeight * dpr;
+    // 0 below the threshold, 1 a few px above it, linear between.
+    const textAlpha = Math.max(0, Math.min(1,
+      (rowH / dpr - o.minTextHeight) / Math.max(1, o.textFade) + 1));
+    const showText = textAlpha > 0;
     if (showText) {
       ctx.font = `${o.font * dpr}px ui-monospace, SFMono-Regular, Menlo, monospace`;
       ctx.textAlign = 'center';
@@ -310,12 +316,12 @@ export class Footprint implements IPrimitive {
 
       const flag = imbalanced.get(c.price);
       if (o.displayMode === 'bidask') {
-        this._cell(ctx, x0, top, half - dpr, h, c.bidVol, peak, sell, bg, flag === 'sell', showText, dpr);
-        this._cell(ctx, col.x + dpr, top, half - dpr, h, c.askVol, peak, buy, bg, flag === 'buy', showText, dpr);
+        this._cell(ctx, x0, top, half - dpr, h, c.bidVol, peak, sell, bg, flag === 'sell', textAlpha, dpr);
+        this._cell(ctx, col.x + dpr, top, half - dpr, h, c.askVol, peak, buy, bg, flag === 'buy', textAlpha, dpr);
       } else {
         const v = o.displayMode === 'delta' ? c.askVol - c.bidVol : c.bidVol + c.askVol;
         const color = o.displayMode === 'delta' ? (v >= 0 ? buy : sell) : mix(sell, buy, 0.5);
-        this._cell(ctx, x0, top, width - dpr, h, Math.abs(v), peak, color, bg, false, showText, dpr, v);
+        this._cell(ctx, x0, top, width - dpr, h, Math.abs(v), peak, color, bg, false, textAlpha, dpr, v);
       }
 
       if (o.showPoc && c.price === stats.poc) {
@@ -345,7 +351,7 @@ export class Footprint implements IPrimitive {
   private _cell(
     ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number,
     value: number, peak: number, color: string, bg: string,
-    hot: boolean, showText: boolean, dpr: number, display?: number,
+    hot: boolean, textAlpha: number, dpr: number, display?: number,
   ): void {
     if (w <= 0) return;
     const t = peak > 0 ? value / peak : 0;
@@ -356,8 +362,10 @@ export class Footprint implements IPrimitive {
     ctx.beginPath();
     ctx.roundRect(x, y, w, h, r);
     ctx.fill();
-    if (!showText) return;
-    ctx.fillStyle = hot ? '#0d0f14' : withAlpha('#ffffff', 0.9);
+    if (textAlpha <= 0) return;
+    // Fade rather than switch: zooming through the threshold reads as one
+    // continuous change instead of numbers blinking on and off.
+    ctx.fillStyle = hot ? withAlpha('#0d0f14', textAlpha) : withAlpha('#ffffff', 0.9 * textAlpha);
     ctx.fillText(compactVol(display ?? value), x + w / 2, y + h / 2);
   }
 

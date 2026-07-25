@@ -5,134 +5,227 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>OpenAlgo Charts — Market Profile (TPO) demo</title>
   <style>
-    html, body { margin: 0; height: 100%; background: #0d0e12; color: #c7ccd8; font: 13px/1.4 system-ui, sans-serif; }
-    .bar { padding: 8px 12px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-    select, button { background: #1c2030; color: #c7ccd8; border: 1px solid #2a3046; border-radius: 6px; padding: 4px 8px; cursor: pointer; }
-    #chart { position: absolute; top: 46px; left: 0; right: 0; bottom: 0; cursor: crosshair; }
-    #status { margin-left: auto; opacity: .75; }
-    .legend { position: absolute; top: 54px; left: 16px; z-index: 10; pointer-events: none; font-size: 12px; text-shadow: 0 0 3px #0d0e12; }
-    .legend b { color: #e8eaf0; } .poc { color: #f0a020; } .va { color: #9fb4d8; } .ib { color: #b08a5a; }
+    :root {
+      --bg: #0a0c11; --panel: #0f121a; --elev: #151925; --elev-2: #1b2030;
+      --bd: #232a3a; --bd-soft: #1a1f2c; --tx: #d7dce8; --mut: #8b93a7; --faint: #5b6376;
+      --acc: #22c1a4; --acc-2: #2dd4bf; --h: 30px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      background: var(--bg); color: var(--tx); overflow: hidden;
+      font: 13px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      display: flex; flex-direction: column; height: 100vh;
+    }
+    .bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px;
+      background: linear-gradient(180deg, var(--panel), #0c0f16); border-bottom: 1px solid var(--bd-soft); }
+    .brand { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; }
+    .brand-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--acc); box-shadow: 0 0 8px var(--acc); }
+    .brand em { color: var(--acc-2); font-style: normal; font-weight: 700; font-size: 11px;
+      letter-spacing: .8px; border: 1px solid #17423a; background: #0e2420; padding: 1px 6px; border-radius: 5px; }
+    .divider { width: 1px; height: 20px; background: var(--bd-soft); }
+    .lbl { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .6px; }
+    select, button, input { height: var(--h); background: var(--elev); color: var(--tx);
+      border: 1px solid var(--bd); border-radius: 7px; padding: 0 9px; font: inherit; cursor: pointer; outline: none; }
+    select:hover, button:hover { border-color: #33405a; background: var(--elev-2); }
+    input[type=range] { width: 132px; padding: 0; cursor: ew-resize; accent-color: var(--acc); }
+    .chk { display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; height: var(--h);
+      border: 1px solid var(--bd-soft); border-radius: 7px; background: var(--elev);
+      color: var(--mut); font-size: 12px; cursor: pointer; user-select: none; }
+    .chk input { accent-color: var(--acc); width: 14px; height: 14px; cursor: pointer; }
+    .spacer { flex: 1 1 auto; }
+    .stat { display: inline-flex; flex-direction: column; line-height: 1.25; padding: 0 10px;
+      border-left: 1px solid var(--bd-soft); }
+    .stat span { color: var(--faint); font-size: 10px; text-transform: uppercase; letter-spacing: .5px; }
+    .stat b { font-size: 13px; font-variant-numeric: tabular-nums; }
+    .hint { padding: 6px 12px; color: var(--faint); font-size: 12px; font-style: italic;
+      background: #0c0f16; border-bottom: 1px solid var(--bd-soft); }
+    .stage { position: relative; flex: 1 1 auto; min-height: 0; }
+    #chart { position: absolute; inset: 0; cursor: crosshair; }
+    #tip { position: absolute; z-index: 30; pointer-events: none; min-width: 150px;
+      padding: 9px 11px; border-radius: 9px; background: rgba(15,18,26,.95);
+      border: 1px solid var(--bd); box-shadow: 0 10px 30px rgba(0,0,0,.5); font-size: 12px; }
+    #tip[hidden] { display: none; }
+    #tip .t { color: var(--faint); font-size: 10px; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 5px; }
+    #tip .r { display: flex; justify-content: space-between; gap: 14px; font-variant-numeric: tabular-nums; }
+    #tip .r i { color: var(--mut); font-style: normal; }
+    .tag { display: inline-block; margin-top: 5px; padding: 1px 6px; border-radius: 4px;
+      font-size: 10px; background: #1d3a33; color: var(--acc-2); }
   </style>
 </head>
 <body>
   <div class="bar">
-    <strong>Market Profile (TPO)</strong>
-    <span style="opacity:.6">time-price-opportunity letters, not volume profile</span>
-    <select id="period" title="TPO period size">
-      <option value="6">30-min periods</option>
-      <option value="2">10-min periods</option>
-      <option value="12">60-min periods</option>
+    <div class="brand"><span class="brand-dot"></span> OpenAlgo <em>market profile</em></div>
+    <div class="divider"></div>
+
+    <span class="lbl">Row</span>
+    <input type="range" id="rowsize" min="1" max="40" step="1" value="10" title="TPO row height, in ticks" />
+    <span id="rowlabel" style="min-width:110px;font-variant-numeric:tabular-nums"></span>
+
+    <div class="divider"></div>
+    <select id="block" title="how blocks render">
+      <option value="auto" selected>Auto letters &#8646; bricks</option>
+      <option value="blocks+letters">Always letters</option>
+      <option value="blocks">Bricks only</option>
     </select>
-    <button id="regen">Regenerate session</button>
-    <span id="status"></span>
+    <select id="color" title="block colouring">
+      <option value="period" selected>Colour by period</option>
+      <option value="valueArea">Colour by value area</option>
+      <option value="count">Heat by TPO count</option>
+      <option value="volume">Heat by volume</option>
+    </select>
+    <select id="period" title="TPO period size">
+      <option value="30" selected>30-min periods</option>
+      <option value="15">15-min periods</option>
+      <option value="60">60-min periods</option>
+    </select>
+    <label class="chk"><input type="checkbox" id="split" /> <span>Split</span></label>
+    <label class="chk"><input type="checkbox" id="vol" /> <span>Volume</span></label>
+    <label class="chk"><input type="checkbox" id="extras" /> <span>Day type</span></label>
+    <button id="regen">Regenerate</button>
+
+    <span class="spacer"></span>
+    <div class="stat"><span>POC</span><b id="s-poc">—</b></div>
+    <div class="stat"><span>Value area</span><b id="s-va">—</b></div>
+    <div class="stat"><span>Rows</span><b id="s-rows">—</b></div>
   </div>
-  <div id="chart"></div>
-  <div class="legend">
-    <b>Market Profile</b> — each letter (A, B, C …) is one <span id="plabel">30-min</span> period that traded at that price ·
-    <span class="poc">POC</span> · <span class="va">value area (70%)</span> · <span class="ib">initial balance</span>
+  <div class="hint">
+    Each letter is one period that traded at that price — A, B, C … in order. Drag the
+    <b>Row</b> slider (or zoom the price axis) and watch letters fade into bricks the moment a
+    row gets too short to hold a glyph. Hover a row for its letters and TPO count.
   </div>
+
+  <main class="stage">
+    <div id="chart"></div>
+    <div id="tip" hidden></div>
+  </main>
 
   <script type="module">
-    import { createChart } from '/dist/openalgo-charts.mjs';
-    import { computeTpo, priceBuckets } from '/dist/openalgo-charts.profile.mjs';
+    import { createChart, darkTheme } from '/dist/openalgo-charts.mjs';
+    import { computeMarketProfile, MarketProfile } from '/dist/openalgo-charts.profile.mjs';
 
-    const SESSION_BARS = 48;   // 5-min bars (≈ 4-hour session)
-    let chart, price, tpo;
+    // A 0.1-tick index around 24000 — the Nifty-shaped case the row multiplier
+    // exists for: 2-point rows means rowTicks = 2 / 0.1 = 20.
+    const TICK = 0.1;
+    const START = 24000;
+    const BAR_SEC = 300;              // 5-minute bars
+    const SESSION_BARS = 75;          // 09:15 -> 15:30
+    const el = (id) => document.getElementById(id);
 
-    // Synthetic intraday session: a bounded random-walk of 5-min OHLC bars.
+    let chart, price, mp, bars = [];
+
+    /** One synthetic session: a mean-reverting walk that builds a real body. */
     function genSession() {
-      const start = 1_700_000_000 - (1_700_000_000 % 300);
-      let mid = 100; const out = [];
+      // 09:15 IST on a fixed date (IST is UTC+5:30, so 03:45 UTC).
+      const open = Math.floor(Date.UTC(2024, 0, 15, 3, 45, 0) / 1000);
+      let p = START;
+      let drift = 0;
+      const out = [];
       for (let i = 0; i < SESSION_BARS; i++) {
-        const o = mid;
-        let hi = o, lo = o, c = o;
-        for (let k = 0; k < 5; k++) { c += (Math.random() - 0.5) * 0.6; hi = Math.max(hi, c); lo = Math.min(lo, c); }
-        out.push({ time: start + i * 300, open: o, high: hi, low: lo, close: c, volume: 0 });
-        mid = c;
+        drift += (Math.random() - 0.5) * 0.55;
+        drift = Math.max(-1.6, Math.min(1.6, drift));
+        // Pull back toward the open so the profile builds a body, not a ramp.
+        drift -= (p - START) * 0.012;
+        const o = p;
+        const c = o + drift + (Math.random() - 0.5) * 2.2;
+        const h = Math.max(o, c) + Math.random() * 2.5;
+        const l = Math.min(o, c) - Math.random() * 2.5;
+        p = c;
+        out.push({
+          time: open + i * BAR_SEC,
+          open: o, high: h, low: l, close: c,
+          volume: Math.round(2000 + Math.random() ** 2 * 26000),
+        });
       }
       return out;
     }
 
-    // Collapse the session into TPO rows: price -> string of period letters.
-    function tpoLetters(bars, periodBars, tickSize) {
-      const rows = new Map();
-      const n = Math.ceil(bars.length / periodBars);
-      for (let p = 0; p < n; p++) {
-        const slice = bars.slice(p * periodBars, (p + 1) * periodBars);
-        if (!slice.length) continue;
-        let hi = -Infinity, lo = Infinity;
-        for (const b of slice) { hi = Math.max(hi, b.high); lo = Math.min(lo, b.low); }
-        const letter = String.fromCharCode(65 + (p % 26)); // A, B, C …
-        for (const bkt of priceBuckets(lo, hi, tickSize)) rows.set(bkt, (rows.get(bkt) || '') + letter);
+    function recompute() {
+      const rt = Number(el('rowsize').value);
+      const res = computeMarketProfile(bars, {
+        tickSize: TICK,
+        rowTicks: rt,
+        session: 'composite',
+        blockMinutes: Number(el('period').value),
+        valueAreaPercent: 0.7,
+        initialBalancePeriods: 2,
+        tailEdges: 3,
+      });
+      mp.setData(res);
+
+      el('rowlabel').textContent = `${(TICK * rt).toFixed(1)} pt · ${rt}×${TICK}`;
+      const s = res.sessions[0];
+      if (s) {
+        el('s-poc').textContent = s.poc.toFixed(1);
+        el('s-va').textContent = `${s.val.toFixed(1)} – ${s.vah.toFixed(1)}`;
+        el('s-rows').textContent = String(s.levels.length);
       }
-      return [...rows.entries()].map(([price, text]) => ({ price, text })).sort((a, b) => b.price - a.price);
     }
 
-    // Custom pane primitive that draws the TPO letter grid + POC/VA/IB lines.
-    function makeTpoPrimitive() {
-      return {
-        rows: [], poc: 0, vah: 0, val: 0, ib: { high: 0, low: 0 },
-        zOrder: () => 'normal',
-        autoscaleInfo: () => null,
-        draw(ctx, rc) {
-          if (!this.rows.length) return;
-          const dpr = rc.dpr;
-          const hline = (p, color, dash) => {
-            const y = Math.round(rc.priceScale.priceToY(p) * dpr) + 0.5;
-            ctx.strokeStyle = color; ctx.lineWidth = Math.max(1, Math.round(dpr));
-            if (dash) ctx.setLineDash([4 * dpr, 4 * dpr]);
-            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(rc.plotWidth * dpr, y); ctx.stroke(); ctx.setLineDash([]);
-          };
-          ctx.save();
-          // initial-balance band + value-area / POC reference lines
-          hline(this.ib.high, '#6e5636', true); hline(this.ib.low, '#6e5636', true);
-          hline(this.vah, '#5a6b8c'); hline(this.val, '#5a6b8c'); hline(this.poc, '#f0a020');
-          // TPO letters, left-aligned (row width = letter count → the profile shape)
-          ctx.font = `${10 * dpr}px ui-monospace, SFMono-Regular, Menlo, monospace`;
-          ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-          for (const r of this.rows) {
-            const y = rc.priceScale.priceToY(r.price) * dpr;
-            const inVa = r.price <= this.vah && r.price >= this.val;
-            ctx.fillStyle = r.price === this.poc ? '#f0a020' : inVa ? '#aebfdc' : '#5d6678';
-            ctx.fillText(r.text, 10 * dpr, y);
-          }
-          ctx.restore();
-        },
-      };
+    function applyStyle() {
+      mp.setOptions({
+        blockDisplay: el('block').value,
+        colorMode: el('color').value,
+        split: el('split').checked,
+        showVolumeProfile: el('vol').checked,
+        showVolumeValues: el('vol').checked,
+        showDayType: el('extras').checked,
+        showOpenType: el('extras').checked,
+        showPoorHighLow: el('extras').checked,
+      });
     }
 
     function build() {
-      if (chart) chart.destroy();
-      document.getElementById('chart').innerHTML = '';
-      chart = createChart(document.getElementById('chart'), { priceAxisWidth: 64 });
-      // dim candles for price context; the bright TPO letters are the focus
-      price = chart.addSeries('candlestick', { style: { upColor: '#1b2a2e', downColor: '#2a1c1f', wickUpColor: '#2b3a3e', wickDownColor: '#3a2b2f', borderUpColor: '#2b3a3e', borderDownColor: '#3a2b2f' } });
-      tpo = makeTpoPrimitive();
-      chart.addPrimitive(tpo, 0);
+      chart = createChart(el('chart'), { theme: darkTheme, priceAxisWidth: 74 });
+      price = chart.addSeries('candlestick');
+      mp = new MarketProfile(null, { letterWidth: 9, profileSpacing: 6 });
+      chart.addPrimitive(mp, 0);
+
+      chart.on('crosshair:move', (e) => {
+        const tip = el('tip');
+        if (!e.point) { tip.hidden = true; return; }
+        const h = mp.hoverAt(e.point.x, e.point.y);
+        if (!h) { tip.hidden = true; return; }
+        const row = (k, v) => `<div class="r"><i>${k}</i><b>${v}</b></div>`;
+        const tags = [
+          h.isPoc ? 'POC' : '',
+          h.inValueArea ? 'In value area' : '',
+          h.isSinglePrint ? 'Single print' : '',
+        ].filter(Boolean).map((t) => `<span class="tag">${t}</span>`).join(' ');
+        tip.innerHTML =
+          `<div class="t">${h.price.toFixed(1)}</div>` +
+          row('Letters', h.level.letters || '—') +
+          row('TPO count', h.level.count) +
+          row('Volume', Math.round(h.level.volume).toLocaleString()) +
+          tags;
+        tip.hidden = false;
+        const r = el('chart').getBoundingClientRect();
+        tip.style.left = Math.min(e.point.x + 16, r.width - 190) + 'px';
+        tip.style.top = Math.min(e.point.y + 12, r.height - 130) + 'px';
+      });
     }
 
-    function render() {
-      const periodBars = Number(document.getElementById('period').value);
-      document.getElementById('plabel').textContent = ({ 2: '10-min', 6: '30-min', 12: '60-min' })[periodBars];
-      const bars = genSession();
-      let hi = -Infinity, lo = Infinity;
-      for (const b of bars) { hi = Math.max(hi, b.high); lo = Math.min(lo, b.low); }
-      const tickSize = Math.max(0.05, Math.round((hi - lo) / 40 / 0.05) * 0.05); // ~40 rows
-      const res = computeTpo(bars, periodBars, tickSize, 0.7, 2);
-
-      build();
-      Object.assign(tpo, { rows: tpoLetters(bars, periodBars, tickSize), poc: res.poc, vah: res.vah, val: res.val, ib: res.ib });
-      price.setData(bars); // sets the price range → first paint draws the TPO grid
-
-      const periods = Math.ceil(bars.length / periodBars);
-      document.getElementById('status').textContent =
-        `${periods} periods · POC ${res.poc.toFixed(2)} · VA ${res.val.toFixed(2)}–${res.vah.toFixed(2)} · IB ${res.ib.low.toFixed(2)}–${res.ib.high.toFixed(2)}`;
-      window.__chart = () => chart;
+    function regenerate() {
+      bars = genSession();
+      price.setData(bars);
+      recompute();
+      chart.timeScale.fitContent(bars.length);
     }
 
-    document.getElementById('regen').addEventListener('click', render);
-    document.getElementById('period').addEventListener('change', render);
-    render();
+    build();
+    regenerate();
+    applyStyle();
+
+    // Row size and period change the model; everything else is a pure restyle.
+    el('rowsize').addEventListener('input', recompute);
+    el('period').addEventListener('change', recompute);
+    el('regen').addEventListener('click', regenerate);
+    for (const id of ['block', 'color', 'split', 'vol', 'extras']) {
+      el(id).addEventListener('change', applyStyle);
+    }
+
+    window.__chart = () => chart;
+    window.__mp = () => mp;
   </script>
 </body>
 </html>

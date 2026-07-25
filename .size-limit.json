@@ -2,7 +2,7 @@
   {
     "name": "Base engine (chart types + indicator registry + watermark + shortcuts + trading API)",
     "path": "dist/openalgo-charts.mjs",
-    "limit": "34 KB",
+    "limit": "35 KB",
     "brotli": true
   },
   {
@@ -11,7 +11,7 @@
       "dist/openalgo-charts.mjs",
       "dist/openalgo-charts.trade.mjs"
     ],
-    "limit": "40.5 KB",
+    "limit": "41.5 KB",
     "brotli": true
   },
   {
@@ -35,7 +35,7 @@
   {
     "name": "Profile tier (Volume Profile/TPO/Market Profile/Footprint/Orderflow)",
     "path": "dist/openalgo-charts.profile.mjs",
-    "limit": "8 KB",
+    "limit": "11 KB",
     "brotli": true
   },
   {

@@ -7,6 +7,7 @@ import {
 } from '../src/profile/footprint';
 import { HorizontalProfile } from '../src/profile/profile-primitive';
 import { Footprint, compactVol } from '../src/profile/footprint-primitive';
+import { FootprintAggregator } from '../src/profile/footprint-aggregator';
 import { priceBuckets } from '../src/profile/profile-model';
 import type { Bar } from '../src/model/bar';
 import type { PrimitiveRenderContext } from '../src/primitives/primitive';
@@ -284,6 +285,35 @@ describe('profile primitives render', () => {
     const hover = fp.hoverAt(x, r.priceScale.priceToY(100));
     expect(hover?.stats.volume).toBe(7);
     expect(hover?.cell?.askVol).toBe(7);
+  });
+
+  it('rowTicks widens footprint bricks without changing the tick size', () => {
+    // Nifty-style: 0.1 tick, 2-point bricks -> rowTicks 20.
+    const trades: ClassifiedTrade[] = [];
+    for (let i = 0; i < 60; i++) {
+      trades.push({ price: 24000 + i * 0.1, qty: 1, side: i % 2 === 0 ? 'ask' : 'bid' });
+    }
+    const fine = computeFootprint(1, trades, 0.1);
+    const coarse = computeFootprint(1, trades, 0.1, 20);
+    expect(fine.cells.length).toBeGreaterThan(50);
+    expect(coarse.cells.length).toBeLessThan(6);
+    // Rows really are 2 points apart, and no volume was lost in the regrouping.
+    expect(Math.abs((coarse.cells[0].price - coarse.cells[1].price) - 2)).toBeLessThan(1e-6);
+    const sum = (b: typeof fine) => b.cells.reduce((n, c) => n + c.bidVol + c.askVol, 0);
+    expect(sum(coarse)).toBe(sum(fine));
+  });
+
+  it('FootprintAggregator buckets ticks onto the rowTicks grid', () => {
+    const agg = new FootprintAggregator({ mode: 'interval', seconds: 60 }, 0.1, 20);
+    let bar = agg.onTick({ time: 0, price: 24000.1, qty: 5, side: 'ask' }).bar;
+    bar = agg.onTick({ time: 1, price: 24000.7, qty: 7, side: 'ask' }).bar;
+    // Both prints round onto the same 2-point brick.
+    expect(bar.cells).toHaveLength(1);
+    expect(bar.cells[0].price).toBe(24000);
+    expect(bar.cells[0].askVol).toBe(12);
+    // A print a full brick away opens a new row.
+    bar = agg.onTick({ time: 2, price: 24002.4, qty: 3, side: 'bid' }).bar;
+    expect(bar.cells).toHaveLength(2);
   });
 
   it('compactVol formats to three significant figures', () => {

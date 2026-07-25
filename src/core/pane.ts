@@ -106,6 +106,11 @@ export class Pane {
     return this._series;
   }
 
+  /** Primitives attached to this pane, in draw order. */
+  public primitives(): readonly IPrimitive[] {
+    return this._primitives;
+  }
+
   public addPrimitive(primitive: IPrimitive, host: PrimitiveHost): void {
     this._primitives.push(primitive);
     primitive.attached?.(host);

@@ -19,11 +19,24 @@ export interface ClassifiedTrade {
   side: 'bid' | 'ask';
 }
 
-/** Build one bar's footprint from its classified trades. */
-export function computeFootprint(time: number, trades: readonly ClassifiedTrade[], tickSize: number): FootprintBar {
+/**
+ * Build one bar's footprint from its classified trades.
+ *
+ * `rowTicks` is the same multiplier the market profile uses: rows are
+ * `tickSize * rowTicks` tall, so a trader can widen bricks without pretending
+ * the instrument has a coarser tick. Nifty at 0.1 with 2-point bricks is
+ * `computeFootprint(t, trades, 0.1, 20)`.
+ */
+export function computeFootprint(
+  time: number,
+  trades: readonly ClassifiedTrade[],
+  tickSize: number,
+  rowTicks = 1,
+): FootprintBar {
+  const row = tickSize * Math.max(1, Math.floor(rowTicks));
   const map = new Map<number, FootprintCell>();
   for (const t of trades) {
-    const price = bucketPrice(t.price, tickSize);
+    const price = bucketPrice(t.price, row);
     let cell = map.get(price);
     if (cell === undefined) { cell = { price, bidVol: 0, askVol: 0 }; map.set(price, cell); }
     if (t.side === 'bid') cell.bidVol += t.qty; else cell.askVol += t.qty;

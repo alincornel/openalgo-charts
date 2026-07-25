@@ -33,23 +33,31 @@ return chart;`} caption="Volume Profile with POC (gold) and value area on the ri
 
 ## Market Profile (TPO)
 
-`computeTpo(bars, periodBars, tickSize, valueAreaPct)` counts how many periods traded at each
-price. The result has the same `{ poc, vah, val }` shape as a volume profile, so the same
-`HorizontalProfile` primitive renders it - feed `count` as the bar `value`:
+A real market profile draws **letter blocks** — one letter per time period, stacked at every
+price that period traded. `computeMarketProfile` builds them and the `MarketProfile` primitive
+renders them:
 
-<RunnableExample height={360} tiers={['profile']} code={`const chart = lib.createChart(el);
+<RunnableExample height={420} tiers={['profile']} code={`const chart = lib.createChart(el);
 const bars = lib.generateBars(1700000000, 160, 1800); // ~30-min bars
 chart.addSeries('candlestick').setData(bars);
 
-const tpo = lib.computeTpo(bars, 4, 0.5, 0.7); // 4 bars/period, 0.5 tick, 70% value area
-chart.addPrimitive(new lib.HorizontalProfile({
-  buckets: tpo.buckets.map(function (b) { return { price: b.price, value: b.count }; }),
-  poc: tpo.poc, vah: tpo.vah, val: tpo.val,
-  width: 150, side: 'left', barColor: '#3a5d52', vaColor: '#4a8f7a',
-}));
+const mp = lib.computeMarketProfile(bars, {
+  tickSize: 0.1,
+  rowTicks: lib.rowTicksFor(0.5, 0.1),  // 0.5-point rows
+  session: 'composite',
+  blockMinutes: 120,
+});
+chart.addPrimitive(new lib.MarketProfile(mp, { colorMode: 'period', letterWidth: 9 }));
 
 chart.timeScale.fitContent(bars.length);
-return chart;`} caption="TPO counts per price (left), with POC and value area." />
+return chart;`} caption="TPO letter blocks, one hue per period, with POC / value area and the initial-balance bracket." />
+
+<Callout>
+There is also a simpler `computeTpo(bars, periodBars, tickSize, valueAreaPct)` that returns
+`{ poc, vah, val }` counts in volume-profile shape, for when you want a plain histogram from
+the `HorizontalProfile` primitive rather than letters. See
+[Market Profile (TPO)](/docs/market-profile) for the full renderer.
+</Callout>
 
 ## Footprint & cumulative delta
 

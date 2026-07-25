@@ -52,7 +52,7 @@ describe('MarketProfile primitive', () => {
 
   it('draws solid blocks when letters are disabled', () => {
     const { result, t0 } = makeResult();
-    const mp = new MarketProfile(result, { showLetters: false, showValueAreaLabels: false, showPocLabel: false });
+    const mp = new MarketProfile(result, { blockDisplay: 'blocks', showValueAreaLabels: false, showPocLabel: false });
     const { ctx, calls } = recorder();
     mp.draw(ctx, makeRc(t0, t0 + 1800));
     expect(calls.fillRect).toBeGreaterThan(0);
@@ -70,5 +70,99 @@ describe('MarketProfile primitive', () => {
     mp.draw(ctx, makeRc(0, 1));
     expect(calls.fillText + calls.fillRect + calls.stroke).toBe(0);
     expect(mp.autoscaleInfo()).toBeNull();
+  });
+});
+
+/** Render context whose price scale can be zoomed, so row height is testable. */
+function makeScaledRc(startTime: number, endTime: number, pxPerPrice: number): PrimitiveRenderContext {
+  return {
+    dpr: 2,
+    plotWidth: 600, plotHeight: 300, priceAxisWidth: 60,
+    timeScale: { indexToX: (i: number) => 100 + i * 40 },
+    priceScale: { priceToY: (p: number) => 400 - p * pxPerPrice, format: (p: number) => p.toFixed(2) },
+    dataLayer: { timeToIndex: (t: number) => (t === startTime ? 0 : t === endTime ? 5 : 5) },
+    theme: {},
+  } as unknown as PrimitiveRenderContext;
+}
+
+/** Records the alpha each glyph was painted at, so a fade is observable. */
+function alphaRecorder() {
+  const letterAlphas: number[] = [];
+  const rectAlphas: number[] = [];
+  const ctx: Record<string, unknown> = {
+    canvas: {},
+    globalAlpha: 1, fillStyle: '', strokeStyle: '', lineWidth: 1, font: '', textAlign: '', textBaseline: '',
+    save() {}, restore() {},
+    beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}, setLineDash() {},
+    fillRect() { rectAlphas.push(ctx.globalAlpha as number); },
+    fillText() { letterAlphas.push(ctx.globalAlpha as number); },
+  };
+  return { ctx: ctx as unknown as CanvasRenderingContext2D, letterAlphas, rectAlphas };
+}
+describe('TPO letter / brick auto transition', () => {
+  // Letters and labels both call fillText, so compare against a labels-off run.
+  const quiet = { showValueAreaLabels: false, showPocLabel: false, showSessionLabel: false } as const;
+
+  it('draws letters when rows are tall enough', () => {
+    const { result, t0 } = makeResult();
+    const mp = new MarketProfile(result, quiet);
+    const { ctx, letterAlphas } = alphaRecorder();
+    mp.draw(ctx, makeScaledRc(t0, t0 + 1800, 20)); // 20px per price unit -> tall rows
+    expect(letterAlphas.length).toBeGreaterThan(0);
+    expect(Math.max(...letterAlphas)).toBeGreaterThan(0.9);
+  });
+
+  it('drops to bricks when rows get too short for a glyph', () => {
+    const { result, t0 } = makeResult();
+    const mp = new MarketProfile(result, quiet);
+    const { ctx, letterAlphas, rectAlphas } = alphaRecorder();
+    mp.draw(ctx, makeScaledRc(t0, t0 + 1800, 1)); // 1px per price unit -> tiny rows
+    expect(letterAlphas).toHaveLength(0);   // no glyphs at all
+    expect(rectAlphas.length).toBeGreaterThan(0); // but the blocks still render
+  });
+
+  it('crossfades through the threshold instead of snapping', () => {
+    const { result, t0 } = makeResult();
+    const mp = new MarketProfile(result, { ...quiet, minLetterHeight: 7, letterFade: 4 });
+    const { ctx, letterAlphas } = alphaRecorder();
+    // Row height ~9px sits inside the 7..11px fade band.
+    mp.draw(ctx, makeScaledRc(t0, t0 + 1800, 9));
+    expect(letterAlphas.length).toBeGreaterThan(0);
+    const a = Math.max(...letterAlphas);
+    expect(a).toBeGreaterThan(0);
+    expect(a).toBeLessThan(1);   // partially faded, not fully on
+  });
+
+  it('explicit blockDisplay overrides the auto behaviour', () => {
+    const { result, t0 } = makeResult();
+    // 'letters' forces glyphs even at a row height auto would call too short.
+    const forced = new MarketProfile(result, { ...quiet, blockDisplay: 'letters' });
+    const r1 = alphaRecorder();
+    forced.draw(r1.ctx, makeScaledRc(t0, t0 + 1800, 1));
+    expect(r1.letterAlphas.length).toBeGreaterThan(0);
+
+    // 'blocks' suppresses them even when there is plenty of room.
+    const blocks = new MarketProfile(result, { ...quiet, blockDisplay: 'blocks' });
+    const r2 = alphaRecorder();
+    blocks.draw(r2.ctx, makeScaledRc(t0, t0 + 1800, 20));
+    expect(r2.letterAlphas).toHaveLength(0);
+    expect(r2.rectAlphas.length).toBeGreaterThan(0);
+  });
+});
+
+describe('MarketProfile hit-testing', () => {
+  it('maps a pointer back to the session row under it', () => {
+    const { result, t0 } = makeResult();
+    const mp = new MarketProfile(result);
+    const { ctx } = alphaRecorder();
+    const rc = makeScaledRc(t0, t0 + 1800, 20);
+    mp.draw(ctx, rc);                       // hit-testing needs drawn geometry
+    const x = 150;                          // inside the session box (102..298)
+    const hit = mp.hitTest(x, 50);
+    expect(hit?.externalId).toBe('mp:0');
+    const hover = mp.hoverAt(x, rc.priceScale.priceToY(110));
+    expect(hover?.price).toBe(110);
+    expect(hover?.level.letters).toBe('AB');
+    expect(mp.hitTest(-500, 50)).toBeNull();
   });
 });

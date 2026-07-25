@@ -27,17 +27,30 @@ export { computeTpo } from './tpo';
 export {
   computeMarketProfile,
   tpoLetter,
+  rowTicksFor,
+  nakedLevels,
+  rowOf,
+  inWindow,
+  TRADING_HOURS,
   DEFAULT_MARKET_PROFILE_OPTIONS,
   type MarketProfileOptions,
   type MarketProfileSession,
   type MarketProfileLevel,
+  type MarketProfilePeriod,
   type MarketProfileSessionResult,
   type MarketProfileResult,
+  type SessionWindow,
+  type DevelopingValue,
+  type DayType,
+  type OpenType,
 } from './market-profile';
 export {
   MarketProfile,
+  TPO_PERIOD_COLORS,
   DEFAULT_MARKET_PROFILE_PRIMITIVE_OPTIONS,
   type MarketProfilePrimitiveOptions,
+  type MarketProfileHover,
+  type MpBlockDisplay,
   type MpColorMode,
 } from './market-profile-primitive';
 export {

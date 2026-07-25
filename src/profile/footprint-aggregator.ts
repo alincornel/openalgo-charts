@@ -31,9 +31,14 @@ export class FootprintAggregator {
   private _volume = 0;
   private _open = false;
 
-  public constructor(tf: TickTimeframe, tickSize: number) {
+  /**
+   * `rowTicks` widens each brick to `tickSize * rowTicks` — the same multiplier
+   * the market profile uses, so an instrument's real tick stays honest while the
+   * ladder stays readable. Nifty at 0.1 with 2-point bricks is `(tf, 0.1, 20)`.
+   */
+  public constructor(tf: TickTimeframe, tickSize: number, rowTicks = 1) {
     this._tf = tf;
-    this._tickSize = tickSize;
+    this._tickSize = tickSize * Math.max(1, Math.floor(rowTicks));
   }
 
   private _snapshot(): FootprintBar {

@@ -98,6 +98,8 @@ interface ChartOptions {
   grid?: { vertLines?: boolean; horzLines?: boolean };
   ariaLabel?: string;
   shortcuts?: ShortcutManager | Partial<ShortcutManagerOptions> | false;
+  /** Hover-revealed zoom / step controls above the time axis. Default true. */
+  timeNavigator?: boolean | Partial<TimeNavigatorOptions>;
 }
 ```
 

@@ -86,6 +86,8 @@ export { BuySellButtons } from './primitives/buy-sell-buttons';
 export type { BuySellButtonsOptions } from './primitives/buy-sell-buttons';
 export { PaneLegend } from './primitives/pane-legend';
 export type { PaneLegendOptions, PaneLegendAction, LegendValue } from './primitives/pane-legend';
+export { TimeNavigator, DEFAULT_TIME_NAVIGATOR_OPTIONS } from './primitives/time-navigator';
+export type { TimeNavigatorOptions, TimeNavigatorAction } from './primitives/time-navigator';
 export { EventMarkers } from './primitives/event-markers';
 export type { ChartEvent } from './primitives/event-markers';
 

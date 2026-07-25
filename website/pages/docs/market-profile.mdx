@@ -96,11 +96,53 @@ computeMarketProfile(bars, options): MarketProfileResult
 
 | Option | Default | Description |
 |---|---|---|
-| `tickSize` | `0.05` | price bucket size TPOs are counted on |
+| `tickSize` | `0.05` | the instrument's real tick |
+| `rowTicks` | `1` | ticks per TPO row — see [Row size](#row-size) |
 | `session` | `'day'` | `'day'` / `'week'` / `'month'` / `'composite'` |
 | `blockMinutes` | `30` | period length (one letter per period) |
 | `valueAreaPercent` | `0.7` | fraction of TPOs inside the value area (0..1) |
 | `initialBalancePeriods` | `2` | opening periods that form the Initial Balance |
+| `window` | none | restrict each session to a `SessionWindow`; see [Sessions](#session-windows) |
+| `compositeSessions` | `1` | merge N consecutive sessions into one profile |
+| `tailEdges` | `0` | min run of single prints that promotes a buying / selling tail |
+
+### Row size
+
+TPO row height is `tickSize * rowTicks`. Keeping the two separate means widening rows never
+means lying about the instrument's tick — which matters, because the tick is what imbalance
+and single-print logic are counted on.
+
+`rowTicks` is the multiplier a trader already thinks in. Nifty trades in 0.1 and you want
+2-point rows, so the multiplier is `2 / 0.1 = 20`:
+
+```ts
+computeMarketProfile(bars, { tickSize: 0.1, rowTicks: 20 });      // 2-point rows
+computeMarketProfile(bars, { tickSize: 0.1, rowTicks: rowTicksFor(2, 0.1) });  // same thing
+```
+
+`rowTicksFor(rowSize, tickSize)` does the division for you and floors at 1.
+
+<Callout>
+The **order flow / footprint** side takes the same multiplier, so a chart's bricks and its
+profile rows can share one grid: `computeFootprint(time, trades, 0.1, 20)` and
+`new FootprintAggregator(tf, 0.1, 20)`. See [Profiles & Order Flow](/docs/profiles-and-orderflow).
+</Callout>
+
+### Session windows
+
+A `window` drops bars outside a trading session and anchors period `A` to the window's open —
+not to whatever bar happened to arrive first, which otherwise shifts every letter. Windows
+that cross midnight are handled as one session, not two halves.
+
+```ts
+import { computeMarketProfile, TRADING_HOURS } from 'openalgo-charts/profile';
+
+computeMarketProfile(bars, { window: TRADING_HOURS['india'] });          // 09:15–15:30 IST
+computeMarketProfile(bars, { window: { startMinute: 9 * 60 + 15, endMinute: 15 * 60 + 30, name: 'RTH' } });
+```
+
+Built-ins: `all-hours`, `india`, `asia`, `london`, `new-york`, `us-regular` — all in IST
+minutes-from-midnight, since the library's calendar is IST (§5.3).
 
 ## `MarketProfile` primitive options
 
@@ -109,19 +151,56 @@ Pass in the constructor (`new MarketProfile(result, options)`) or update live wi
 
 | Option | Default | Description |
 |---|---|---|
-| `showLetters` | `true` | draw TPO letters (else solid blocks) |
+| `blockDisplay` | `'auto'` | `auto` / `blocks+letters` / `letters` / `blocks` — see [Letters and bricks](#letters-and-bricks) |
+| `minLetterHeight` / `letterFade` | `7` / `4` | row height (px) where letters give way to bricks, and the fade band |
 | `letterWidth` | `8` | width of one TPO column, px |
-| `font` | `10` | letter font size, px |
-| `colorMode` | `valueArea` | `uniform` / `valueArea` / `heat` |
-| `color` / `vaColor` | grays | base and value-area colors |
-| `opacity` | `0.9` | letters / blocks opacity |
-| `showPoc` / `pocColor` / `showPocLabel` | `true` / gold / `true` | Point of Control line + label |
+| `font` | `10` | letter font size, px (auto-shrinks to fit short rows) |
+| `colorMode` | `'period'` | `period` / `valueArea` / `count` / `volume` / `uniform` |
+| `periodColors` | 12 hues | palette for `colorMode: 'period'` |
+| `opacity` / `outsideVaOpacity` | `0.92` / `0.45` | block opacity, and dimming outside the value area |
+| `split` | `false` | give each period its own column slot instead of packing rows left |
+| `profileSpacing` | `4` | gap between session profiles, px |
+| `showPoc` / `pocColor` / `pocThickness` / `showPocLabel` | `true` / gold / `2` / `true` | Point of Control |
 | `showValueArea` / `vahColor` / `valColor` / `showValueAreaLabels` | `true` | VAH & VAL lines + labels |
-| `fillValueArea` / `valueAreaFillColor` / `valueAreaFillOpacity` | `true` / teal / `0.08` | shade the value-area band |
+| `fillValueArea` / `valueAreaFillColor` / `valueAreaFillOpacity` | `true` / teal / `0.07` | shade the value-area band |
 | `showInitialBalance` / `ibColor` | `true` | opening-range bracket |
 | `showSinglePrints` / `singlePrintColor` | `true` | mark lone TPOs |
-| `showVolumeProfile` / `volumeProfileWidth` / `volumeColor` | `false` / `60` / slate | volume-at-price sub-profile |
+| `showTails` / `buyTailColor` / `sellTailColor` | `true` | buying / selling tails (needs `tailEdges`) |
+| `showPoorHighLow` / `poorColor` | `false` | flag a session extreme that printed more than one TPO |
+| `showNakedLevels` / `nakedColor` | `false` | extend untested prior POC / VAH / VAL to the right edge |
+| `showDevelopingPoc` / `showDevelopingVa` | `false` | trace POC / value area as they developed |
+| `showTpoCounts` / `countColor` | `false` | per-level TPO count column |
+| `showSessionLabel` / `showDayType` / `showOpenType` | `true` / `false` / `false` | header labels |
+| `showVolumeProfile` / `volumeProfileWidth` / `volumeProfileSide` / `showVolumeValues` | `false` / `60` / `right` / `false` | volume-at-price sub-profile |
 | `zOrder` | `top` | draw over (`top`) or behind (`bottom`) the series |
+
+### Letters and bricks
+
+A TPO row is only as tall as the price scale makes it, so at some zoom a letter stops fitting.
+Rather than clip glyphs or make you toggle a setting, `blockDisplay: 'auto'` (the default)
+**crossfades**: the block is always drawn, and the letter fades in over `letterFade` px above
+`minLetterHeight`. Zooming through the threshold reads as one continuous change rather than a
+jump, and the profile stays readable at every scale.
+
+Pin the behaviour when you want it fixed — `'letters'` for glyphs only, `'blocks'` for a pure
+brick profile, `'blocks+letters'` to force both regardless of room.
+
+<Callout>
+The footprint renderer fades its cell numbers the same way, via `minTextHeight` / `textFade`.
+</Callout>
+
+### Hit-testing
+
+`hitTest(x, y)` and `hoverAt(x, y)` map a pointer back to the session and price row under it,
+so a host can build a tooltip without the library owning any DOM. `hoverAt` returns
+`{ sessionIndex, price, level, session, isPoc, inValueArea, isSinglePrint }`.
+
+```ts
+chart.on('crosshair:move', (e) => {
+  const hit = e.point ? mp.hoverAt(e.point.x, e.point.y) : null;
+  if (hit) tooltip.textContent = `${hit.level.letters}  ${hit.level.count} TPO`;
+});
+```
 
 ## Data model
 

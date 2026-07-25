@@ -2,6 +2,90 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.0.10
+
+Market Profile brought up to a full TPO implementation, row height became a
+setting rather than a side effect of tick size, and the chart gained
+TradingView-style hover-revealed zoom controls. 518 unit tests.
+
+### Added
+
+- **Time navigator** — the zoom / step controls that live just above the time
+  axis. Invisible until the pointer nears the bottom of the chart, then faded in
+  over `fadeSeconds`: `-` `+` to zoom, `‹` `›` to step exactly one bar.
+
+  The buttons run the *same* commands the keyboard does (`_runShortcut`), so the
+  two paths cannot drift apart, and each tooltip reads its combo from the live
+  keymap — rebind `zoomIn` and the tooltip follows. On by default; pass
+  `timeNavigator: false` to drop it, or an options object to restyle. It rides
+  the bottom pane and follows when panes are added or removed, and hit-tests to
+  nothing while hidden so it never steals a click from the chart underneath.
+
+  Reveal is driven by pointer position rather than `rc.hoverId` on purpose: hover
+  ids come from `bestHit`, so a drawing or an order line near the bottom of the
+  chart would win the hit and silently hide the controls.
+
+  New commands `panLeftBar` / `panRightBar` (one bar, unbound by default) and a
+  public `pane.primitives()` accessor, matching the existing `pane.series()`.
+
+- **Controllable TPO / footprint row height.** Row height is now
+  `tickSize * rowTicks` instead of being pinned to the instrument tick. The
+  multiplier is the one a trader already thinks in: Nifty trades in 0.1 and you
+  want 2-point rows, so `rowTicks` is `2 / 0.1 = 20`. `rowTicksFor(2, 0.1)` does
+  the division. Keeping the two separate matters — the tick is what imbalance and
+  single-print logic count on, so widening rows must not mean lying about it.
+
+  The same multiplier reaches order flow: `computeFootprint(t, trades, 0.1, 20)`
+  and `new FootprintAggregator(tf, 0.1, 20)`, so a chart's bricks and its profile
+  rows can share one grid.
+
+- **Letters degrade to bricks automatically.** A TPO row is only as tall as the
+  price scale makes it, so at some zoom a letter stops fitting. `blockDisplay:
+  'auto'` (the new default) crossfades: the block is always drawn and the letter
+  fades in over `letterFade` px above `minLetterHeight`, so zooming through the
+  threshold reads as one continuous change instead of a jump. `'letters'`,
+  `'blocks'` and `'blocks+letters'` pin the choice. The footprint fades its cell
+  numbers the same way via `textFade`, replacing a hard on/off cutoff.
+
+- **Market Profile analytics.** Per-period detail (`periodDetail`), the
+  developing POC / value-area track, day type (normal / normal-variation / trend
+  / double-distribution / neutral), open type (drive / test-drive /
+  rejection-reverse / auction), range extension beyond the initial balance,
+  buying and selling tails (`tailEdges`), volume POC, and `nakedLevels()` for
+  prior POC / VAH / VAL no later session traded back through.
+
+- **Session windows.** `window` drops bars outside a trading session and anchors
+  period `A` to the window's open rather than to whatever bar arrived first —
+  which otherwise shifted every letter. Windows crossing midnight are treated as
+  one session instead of two halves. Built-ins in `TRADING_HOURS`: `all-hours`,
+  `india`, `asia`, `london`, `new-york`, `us-regular`. `compositeSessions` merges
+  N consecutive sessions into a rolling composite.
+
+- **Renderer options** to match: `colorMode` gains `period` (one hue per TPO
+  period, now the default) alongside `valueArea` / `count` / `volume` / `uniform`;
+  plus `split` period columns, `showTpoCounts`, `showTails`, `showPoorHighLow`,
+  `showNakedLevels`, `showDevelopingPoc` / `showDevelopingVa`, `showDayType` /
+  `showOpenType` / `showSessionLabel`, `outsideVaOpacity`, `profileSpacing`,
+  `volumeProfileSide` and `showVolumeValues`. `hitTest` / `hoverAt` map a pointer
+  back to the session and row for a host-drawn tooltip.
+
+### Fixed
+
+- **The docs Market Profile example rendered a histogram, not a market profile.**
+  The "Market Profile (TPO)" section used `computeTpo` + `HorizontalProfile` — a
+  volume-profile-shaped bar chart with no letters at all — even though the
+  `MarketProfile` letter renderer already existed. It now uses
+  `computeMarketProfile` + `MarketProfile`, and `examples/market-profile` was
+  rebuilt around the real primitive with a live row-size slider.
+
+### Changed
+
+- `MarketProfile`'s `showLetters` boolean is replaced by `blockDisplay`
+  (`showLetters: false` becomes `blockDisplay: 'blocks'`).
+- The profile tier's size budget moves from 8 KB to 11 KB (now 10.12 KB
+  brotlied) to cover the analytics above. The base engine moves from 34 KB to
+  35 KB for the time navigator (418 B).
+
 ## 1.0.9
 
 Order-flow overhaul, drag-to-draw, shape text, and a price-axis density fix.

@@ -20,6 +20,42 @@ Every live demo on this site is fully interactive — the points below apply to 
   `pointer` cursor. Dragging shows a dimmed ghost at the pre-drag price (see
   [On-chart trading](/docs/trading#interaction-feedback-hover-drag-ghost)).
 
+## Time navigator (hover-revealed zoom controls)
+
+Move the pointer near the bottom of the chart and a small control strip fades in just above
+the time axis — `-` `+` to zoom, `‹` `›` to step one bar at a time. It stays invisible
+otherwise, so a clean chart stays clean.
+
+The buttons run the *same* commands as the keyboard shortcuts, so the two can never drift
+apart, and each tooltip shows the combo currently bound to that command — rebind `zoomIn` and
+the tooltip follows.
+
+```ts
+createChart(el);                              // on by default
+createChart(el, { timeNavigator: false });    // drop it entirely
+createChart(el, {                             // or restyle
+  timeNavigator: { size: 30, revealHeight: 90, fadeSeconds: 0.2, showTooltip: false },
+});
+```
+
+| Option | Default | Description |
+|---|---|---|
+| `buttons` | `['zoomOut','zoomIn',null,'panLeftBar','panRightBar']` | order; `null` inserts a group gap |
+| `size` / `gap` / `groupGap` | `26` / `4` / `16` | button box and spacing, px |
+| `bottomMargin` | `10` | gap above the time axis, px |
+| `revealHeight` | `64` | height of the band that reveals the controls, px |
+| `fadeSeconds` | `0.12` | fade duration; `0` disables the animation |
+| `labels` / `hints` | built-in | tooltip text and keyboard hint per action |
+| `showTooltip` | `true` | show the tooltip above the hovered button |
+
+The controls live on the bottom pane and follow it when panes are added or removed. While
+hidden they hit-test to nothing, so they never steal a click from the chart underneath.
+
+<Callout>
+`TimeNavigator` is an ordinary primitive. To place your own — a second strip, a different
+button set — import it, add it to a pane, and feed it pointer positions with `setPointer`.
+</Callout>
+
 ## Touch
 
 Touch works out of the box (`touch-action: none` on the container):

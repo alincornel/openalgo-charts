@@ -38,6 +38,7 @@ import { PriceLine, type PriceLineOptions } from '../primitives/price-line';
 import { SeriesMarkers } from '../primitives/markers';
 import { EventMarkers } from '../primitives/event-markers';
 import { PaneLegend, type PaneLegendAction } from '../primitives/pane-legend';
+import { TimeNavigator, type TimeNavigatorOptions } from '../primitives/time-navigator';
 
 export interface ChartOptions {
   document?: Document;
@@ -86,6 +87,12 @@ export interface ChartOptions {
    * `(s) => new Date(s * 1000).toISOString().slice(11, 16)`.
    */
   timeFormatter?: (utcSeconds: number, tickMark?: TickMarkType) => string;
+  /**
+   * Hover-revealed zoom / step controls above the time axis (TradingView-style).
+   * `true` by default — they stay invisible until the pointer nears the bottom
+   * of the chart. Pass `false` to drop them, or an options object to restyle.
+   */
+  timeNavigator?: boolean | Partial<TimeNavigatorOptions>;
 }
 
 export interface AddSeriesOptions {
@@ -235,6 +242,9 @@ export class Chart {
   private _priceScaleOptions: Partial<PriceScaleOptions> | null = null;
   private _timeFormatter: ((utcSeconds: number, tickMark?: TickMarkType) => string) | undefined = undefined;
   private _leftAxisWidth = 0; // chart-wide reserved left-axis column (0 = none)
+  private _timeNav: TimeNavigator | null = null;
+  /** Pane the navigator is currently attached to, so it can follow the bottom. */
+  private _timeNavPane = -1;
 
   public constructor(container: HTMLElement, options: ChartOptions = {}) {
     this._container = container;
@@ -254,6 +264,13 @@ export class Chart {
     this._timeFormatter = options.timeFormatter;
     this._gridVert = options.grid?.vertLines ?? true;
     this._gridHorz = options.grid?.horzLines ?? true;
+    const nav = options.timeNavigator ?? true;
+    if (nav !== false) {
+      this._timeNav = new TimeNavigator(
+        { ...(nav === true ? {} : nav), hints: this._navHints(nav === true ? undefined : nav) },
+        this._now,
+      );
+    }
 
     // Respect a position set via CSS (absolute/relative/fixed); only force
     // 'relative' when the container is statically positioned. Reading
@@ -1025,6 +1042,7 @@ export class Chart {
 
   /** Distribute height across panes by weight; sync the shared time-scale width. */
   private _relayout(): void {
+    this._syncTimeNavPane();
     const dpr = this._pixelRatio();
     const total = this._weightTotal();
     for (const pane of this._panes) {
@@ -1186,6 +1204,14 @@ export class Chart {
     const sep = externalId.lastIndexOf('::');
     if (sep < 0) return false;
     const action = externalId.slice(sep + 2);
+    // Navigator buttons run the same commands the keyboard does, so the two
+    // paths can never drift apart.
+    if (this._timeNav !== null && externalId.startsWith(`${this._timeNav.options().id}::`)) {
+      if (this._runShortcut(action)) {
+        this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
+      }
+      return true;
+    }
     // A host-owned legend row (a symbol/OHLC row) also reveals on hover; swallow
     // its click so it never surfaces as a phantom id.
     if (action === 'row' && !externalId.startsWith('indicator:')) return true;
@@ -1228,6 +1254,47 @@ export class Chart {
       top += h;
     }
     return out;
+  }
+
+  /**
+   * Keyboard hints for the navigator tooltips, read from the live keymap so a
+   * rebind shows up in the tooltip instead of a stale hardcoded string. The
+   * one-bar step buttons have no default binding, so they get no hint.
+   */
+  private _navHints(opts?: Partial<TimeNavigatorOptions>): Partial<Record<string, string>> {
+    if (opts?.hints !== undefined) return opts.hints;
+    if (this._shortcuts === null) return {};
+    const out: Record<string, string> = {};
+    for (const e of this._shortcuts.list()) {
+      if (e.command !== 'zoomIn' && e.command !== 'zoomOut') continue;
+      const combo = e.combos[0];
+      if (combo !== undefined) out[e.command] = prettyCombo(combo);
+    }
+    return out;
+  }
+
+  /**
+   * Keep the navigator on the bottom pane — it belongs just above the time
+   * axis, and adding or removing a pane moves which one that is.
+   */
+  private _syncTimeNavPane(): void {
+    if (this._timeNav === null) return;
+    const target = this._panes.length - 1;
+    if (target === this._timeNavPane || target < 0) return;
+    if (this._timeNavPane >= 0) this._panes[this._timeNavPane]?.removePrimitive(this._timeNav);
+    this._addPrimitive(target, this._timeNav);
+    this._timeNavPane = target;
+  }
+
+  /**
+   * Push the pointer to the navigator and keep painting while it fades, so the
+   * animation runs even when nothing else on the chart is changing.
+   */
+  private _feedTimeNav(p: { x: number; y: number } | null): void {
+    const nav = this._timeNav;
+    if (nav === null) return;
+    nav.setPointer(p);
+    if (nav.animating()) this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Light));
   }
 
   private _renderContext(showTimeAxis: boolean): PaneRenderContext {
@@ -1664,6 +1731,7 @@ export class Chart {
 
   private readonly _onPointerLeave = (): void => {
     this._pointerInside = false;
+    this._feedTimeNav(null);
     if (this._dragId === null) this._setHover(null); // keep the active state while dragging
     if (this._cursor !== null) {
       this._cursor = null;
@@ -1754,6 +1822,8 @@ export class Chart {
   private _runShortcut(command: string): boolean {
     const ts = this._timeScale;
     switch (command) {
+      case 'panLeftBar': ts.setRightOffset(ts.rightOffset - 1); return true;
+      case 'panRightBar': ts.setRightOffset(ts.rightOffset + 1); return true;
       case 'panLeft': ts.setRightOffset(ts.rightOffset - 2); return true;
       case 'panRight': ts.setRightOffset(ts.rightOffset + 2); return true;
       case 'panLeftFast': ts.setRightOffset(ts.rightOffset - 10); return true;
@@ -1834,6 +1904,9 @@ export class Chart {
       return;
     }
     this._setHover(hit);
+    // The navigator reveals on pointer position, not on hover id — see the note
+    // in time-navigator.ts. Only the bottom pane carries it.
+    this._feedTimeNav(paneIndex === this._panes.length - 1 ? { x: plotX, y: localY } : null);
     let y = localY;
     const index = Math.round(this._timeScale.xToIndex(plotX));
     let hoveredBar: Bar | null = null;
@@ -1946,4 +2019,18 @@ export class Chart {
 /** Create a chart inside the given container element. */
 export function createChart(container: HTMLElement, options: ChartOptions = {}): Chart {
   return new Chart(container, options);
+}
+
+/**
+ * Render a shortcut combo for a tooltip: physical key codes turned into the
+ * symbols a user recognises (`Equal` -> `+`, `ArrowDown` -> `↓`).
+ */
+function prettyCombo(combo: string): string {
+  const KEYS: Record<string, string> = {
+    Equal: '+', Minus: '-', NumpadAdd: '+', NumpadSubtract: '-',
+    ArrowLeft: '<', ArrowRight: '>', ArrowUp: '^', ArrowDown: 'v',
+  };
+  return combo.split('+').map((p) => p.trim())
+    .map((p) => (p === 'Mod' ? 'Ctrl' : KEYS[p] ?? p.replace(/^(Key|Digit)/, '')))
+    .join(' + ');
 }
