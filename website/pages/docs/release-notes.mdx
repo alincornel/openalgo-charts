@@ -8,6 +8,60 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 1.0.11
+
+**Added — Drawing tools**
+
+- **16 more tools**, taking the built-in set from 18 to 34 for 1.7 KB (draw tier
+  6.6 KB -> 8.3 KB Brotli). Shapes: `circle`, `triangle`. Paths: `polyline`,
+  `arc`, `curve`. Channels: `fib-channel`. Fibonacci: `fib-time-zone`,
+  `fib-fan`. Gann: `gann-fan`, `gann-box`. Forecasting: `forecast`. Measurers:
+  `price-range`, `date-range`. Arrows: `arrow-up`, `arrow-down`. Brushes:
+  `highlighter`. See [Drawing Tools](/docs/drawing-tools#the-tools).
+- `circle` measures its radius in **pixels**, so it stays round on screen rather
+  than becoming the ellipse that differing axis scales would otherwise produce.
+  `arc` passes *through* its middle anchor while `curve` treats that anchor as a
+  control handle. The measurers take their bar count from logical indices, so it
+  matches the gapless axis rather than raw elapsed time.
+- `pane.primitives()`, matching the existing `pane.series()`.
+
+**Fixed**
+
+- **A large blank region could appear under the chart, and persist across
+  reloads.** Three faults compounded.
+
+  `removeIndicator` did not prune the pane it had just emptied — that logic sat
+  in the pane legend's close handler, so the on-chart X cleaned up but a host
+  removing the same indicator from its own UI left an empty pane behind. An
+  empty pane still claims its weight and still draws a default `0..100` price
+  axis, which is both the blank region and the second set of axis labels under
+  the price ticks. The pruning now lives in `removeIndicator`.
+
+  `getState` then persisted that orphan and `restoreState` faithfully rebuilt
+  it, so once it happened it came back on every load. `restoreState` now drops
+  panes that end up with no series.
+
+  `maximizePane` parks the other panes at a `0.001` placeholder and snapshots
+  the real weights by index, but `removePane` never spliced that snapshot — so
+  un-maximizing restored weights against a shifted array and could strand panes
+  at the placeholder. `removePane` now keeps it aligned.
+
+  An already-saved layout still holds the orphan until it is cleared or
+  overwritten.
+
+**Demo**
+
+- **Rail flyout menus** — a group opens a sectioned list of its tools instead of
+  cycling them on repeat clicks, which was undiscoverable past two and unusable
+  at 34. A plain click re-activates the last tool picked; the caret opens the
+  list. Icons were redrawn on a 24x24 grid with a thinner stroke and outlined
+  endpoint handles.
+- **Right-click drawing actions** — "Delete Drawing" and "Remove All Drawings
+  (n)", both hidden when there is nothing to act on. Removal goes through the
+  controller, so it is a single undo step.
+- Fixed the demo rendering a white chart inside dark chrome: it never passed a
+  theme, and the library default is the light palette.
+
 ## 1.0.10
 
 **Added — Market Profile**

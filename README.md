@@ -60,14 +60,14 @@ Import only what you use. Each tier is a separate bundle that registers into the
 
 | Import | Contents | Brotli |
 |---|---|---|
-| `openalgo-charts` | Engine, 13 chart types, panes &amp; scales, primitives, registries, chart state, trading overlay, OpenAlgo feeds | 32.7 KB |
+| `openalgo-charts` | Engine, 13 chart types, panes &amp; scales, primitives, registries, chart state, trading overlay, OpenAlgo feeds | 34.6 KB |
 | `openalgo-charts/indicators` | 18 built-in indicators + the Tier-2 (external-data) contract | 4.5 KB |
 | `openalgo-charts/draw` | 34 drawing tools + a headless drawing controller | 8.3 KB |
 | `openalgo-charts/transform` | Heikin Ashi, Renko, Range bars, Line Break, Point &amp; Figure, Kagi | 2.7 KB |
-| `openalgo-charts/profile` | Volume Profile, Market Profile (TPO), Footprint, order flow | 5.5 KB |
+| `openalgo-charts/profile` | Volume Profile, Market Profile (TPO), Footprint, order flow | 10.1 KB |
 | `openalgo-charts/trade` | Order / position / bracket tools + DOM ladder | 6.6 KB |
 
-Everything together is **58 KB Brotli**.
+Everything together is **66.7 KB Brotli**.
 
 ## What's built
 
