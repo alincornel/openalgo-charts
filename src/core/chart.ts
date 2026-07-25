@@ -482,6 +482,12 @@ export class Chart {
     this._indicators[i].remove();
     this._indicators.splice(i, 1);
     this.emit('indicatorRemoved', { instanceId, indicatorId, paneIndex });
+    // An indicator pane that just emptied has nothing left to show. This lived
+    // in the legend's close handler, so only the on-chart × pruned the pane — a
+    // host removing the same indicator from its own UI left it behind, and
+    // `getState` then persisted the orphan, so every reload restored a blank
+    // region. Doing it here means every caller behaves the same.
+    if (paneIndex > 0 && this._panes[paneIndex]?.series().length === 0) this.removePane(paneIndex);
     return true;
   }
 
@@ -1145,6 +1151,14 @@ export class Chart {
     }
     pane.destroy();
     this._panes.splice(index, 1);
+    // Keep the maximize snapshot aligned. It is indexed by pane position, so
+    // dropping a pane without splicing it leaves un-maximize restoring the
+    // wrong weights — which is how panes end up stranded at the 0.001
+    // placeholder maximize parks them at, and `getState` then persists that.
+    if (this._savedWeights !== null) {
+      this._savedWeights.splice(index, 1);
+      if (this._savedWeights.length <= 1) this._savedWeights = null;
+    }
     // Indicators below the removed pane shift up one.
     for (const indicator of this._indicators) {
       if (indicator.paneIndex > index) indicator.shiftPane(-1);
@@ -1233,12 +1247,9 @@ export class Chart {
     if (indicator === undefined) return false;
     const paneIndex = indicator.paneIndex;
     switch (action) {
-      case 'close': {
-        this.removeIndicator(instanceId);
-        // An indicator pane that just emptied has nothing left to show.
-        if (paneIndex > 0 && this._panes[paneIndex]?.series().length === 0) this.removePane(paneIndex);
+      case 'close':
+        this.removeIndicator(instanceId);   // prunes its pane if it emptied
         return true;
-      }
       case 'hide': indicator.setVisible(!indicator.visible()); return true;
       case 'up': this.movePane(paneIndex, -1); return true;
       case 'down': this.movePane(paneIndex, 1); return true;

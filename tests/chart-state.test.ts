@@ -252,6 +252,72 @@ describe('restoreState never leaves an empty pane', () => {
   });
 });
 
+describe('an emptied indicator pane never survives', () => {
+  // The pruning used to live only in the pane legend's close handler, so the
+  // on-chart X cleaned up but `chart.removeIndicator(id)` from a host's own UI
+  // did not. The orphan pane then went into getState, and every reload restored
+  // a blank region under the chart.
+  it('removeIndicator prunes the pane it emptied', () => {
+    const chart = makeChart();
+    chart.addSeries('candlestick').setData(bars(60));
+    // RSI lives in its own pane.
+    const rsi = chart.addIndicator('rsi');
+    expect(chart.panes().length).toBeGreaterThan(1);
+    const pane = rsi.paneIndex;
+    expect(pane).toBeGreaterThan(0);
+
+    // The host's own UI calls this directly — it used to leave the pane behind.
+    chart.removeIndicator(rsi.id);
+    expect(chart.panes()).toHaveLength(1);
+  });
+
+  it('keeps the pane when a host series shares it', () => {
+    const chart = makeChart();
+    chart.addSeries('candlestick').setData(bars(60));
+    const rsi = chart.addIndicator('rsi');
+    const pane = rsi.paneIndex;
+    chart.addSeries('line', { paneIndex: pane })
+      .setData([{ time: 1700000000, open: 1, high: 1, low: 1, close: 1 }]);
+
+    chart.removeIndicator(rsi.id);
+    // Something the host put there is still in it, so the pane stays.
+    expect(chart.panes()).toHaveLength(2);
+  });
+
+  it('getState does not persist a pane with nothing in it', () => {
+    const chart = makeChart();
+    chart.addSeries('candlestick').setData(bars(40));
+    const state = chart.getState() as { panes: unknown[] };
+    // One series, one pane — a second entry here is what produced the gap.
+    expect(state.panes).toHaveLength(chart.panes().length);
+  });
+});
+
+describe('maximize bookkeeping survives pane removal', () => {
+  // maximizePane parks the other panes at a 0.001 placeholder and snapshots the
+  // real weights by index. Removing a pane without splicing that snapshot left
+  // un-maximize restoring the wrong weights, stranding panes at 0.001 — which
+  // getState then persisted.
+  it('splices the saved-weight snapshot when a pane goes', () => {
+    const chart = makeChart();
+    chart.addSeries('candlestick').setData(bars(40));
+    chart.addSeries('line', { paneIndex: 1 })
+      .setData([{ time: 1700000000, open: 1, high: 1, low: 1, close: 1 }]);
+    chart.addSeries('line', { paneIndex: 2 })
+      .setData([{ time: 1700000000, open: 2, high: 2, low: 2, close: 2 }]);
+    expect(chart.panes()).toHaveLength(3);
+
+    chart.maximizePane(0);
+    expect(chart.panes()[1].weight).toBeCloseTo(0.001, 6);
+
+    chart.removePane(2);
+    chart.maximizePane(0);          // toggle off — restores the snapshot
+
+    // Every surviving pane must be back to a real weight, not the placeholder.
+    for (const p of chart.panes()) expect(p.weight).toBeGreaterThan(0.01);
+  });
+});
+
 describe('drag carries time as well as price', () => {
   it('maps container x to a time on the gapless axis', () => {
     const chart = makeChart();

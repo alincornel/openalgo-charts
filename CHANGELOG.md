@@ -34,13 +34,25 @@ All notable changes to OpenAlgo Charts.
 
 ### Fixed
 
-- **A restored layout could leave a large blank region under the chart.**
-  A saved pane exists only to hold an indicator, and `restoreState` skips an
-  indicator whose tier was never imported — but the pane survived anyway, still
-  claiming its weight and still drawing a default 0..100 price axis. On a chart
-  whose only restored indicator was an overlay, that empty pane took roughly
-  two thirds of the height. `restoreState` now drops panes that end up with no
-  series, the same way removing the last indicator from a pane already does.
+- **A large blank region could appear under the chart, and persist across
+  reloads.** Three faults compounded.
+
+  `removeIndicator` did not prune the pane it had just emptied — that logic sat
+  in the pane legend's close handler, so the on-chart X cleaned up but a host
+  removing the same indicator from its own UI (a toolbar chip, a menu) left an
+  empty pane behind. An empty pane still claims its weight and still draws a
+  default 0..100 price axis, which is the blank region plus the second set of
+  axis labels under the price ticks. The pruning now lives in
+  `removeIndicator`, so every caller behaves the same.
+
+  `getState` then persisted that orphan, and `restoreState` faithfully rebuilt
+  it — so once it happened it survived every reload. `restoreState` now drops
+  panes that end up with no series.
+
+  `maximizePane` parks the other panes at a `0.001` placeholder and snapshots
+  the real weights by index, but `removePane` never spliced that snapshot — so
+  un-maximizing restored weights against a shifted array and could strand panes
+  at the placeholder. `removePane` now keeps it aligned.
 
 - **The yfinance demo rendered a white chart inside dark chrome.** It never
   passed a theme, and the library default is the light palette (since
