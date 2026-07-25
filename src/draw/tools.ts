@@ -625,12 +625,505 @@ export const PATH: DrawingTool = {
 };
 
 /** Every built-in, in toolbar order. */
+/**
+ * Measurers. `measure` reports price *and* time together; these two constrain it
+ * to one axis, which is what you want when the other one is noise — sizing a
+ * retracement without caring how long it took, or counting bars to an event
+ * without caring where price went.
+ */
+export const PRICE_RANGE: DrawingTool = {
+  id: 'price-range', name: 'Price Range', points: 2,
+  defaultStyle: { fill: true, showLabels: true, fillOpacity: 0.1 },
+  draw: (c) => {
+    const d = c.rc.dpr;
+    const p = c.drawing.points;
+    const chg = p[1].price - p[0].price;
+    const pct = p[0].price !== 0 ? (chg / p[0].price) * 100 : 0;
+    const up = chg >= 0;
+    const tint = up ? '#26a69a' : '#ef5350';
+    // Span the drawn x-range so the band reads as a price zone, not a bare line.
+    const x0 = Math.min(c.pts[0].x, c.pts[1].x);
+    const x1 = Math.max(c.pts[0].x, c.pts[1].x) + (c.pts[0].x === c.pts[1].x ? 60 * d : 0);
+    const y0 = c.pts[0].y;
+    const y1 = c.pts[1].y;
+    c.ctx.save();
+    c.ctx.globalAlpha = c.style.fillOpacity ?? 0.1;
+    c.ctx.fillStyle = tint;
+    c.ctx.fillRect(x0, Math.min(y0, y1), x1 - x0, Math.abs(y1 - y0));
+    c.ctx.restore();
+    applyStroke(c);
+    c.ctx.strokeStyle = tint;
+    c.ctx.beginPath();
+    for (const y of [y0, y1]) { c.ctx.moveTo(x0, Math.round(y) + 0.5); c.ctx.lineTo(x1, Math.round(y) + 0.5); }
+    // The measured leg, with arrow heads at both ends.
+    const mx = (x0 + x1) / 2;
+    c.ctx.moveTo(mx, y0); c.ctx.lineTo(mx, y1);
+    const dir = y1 > y0 ? 1 : -1;
+    c.ctx.moveTo(mx - 4 * d, y1 - 5 * d * dir); c.ctx.lineTo(mx, y1); c.ctx.lineTo(mx + 4 * d, y1 - 5 * d * dir);
+    c.ctx.moveTo(mx - 4 * d, y0 + 5 * d * dir); c.ctx.lineTo(mx, y0); c.ctx.lineTo(mx + 4 * d, y0 + 5 * d * dir);
+    c.ctx.stroke();
+    c.ctx.setLineDash([]);
+    const sign = up ? '+' : '';
+    label(c, `${sign}${c.formatPrice(chg)}  (${sign}${pct.toFixed(2)}%)`, mx + 6 * d, (y0 + y1) / 2, tint);
+  },
+  distance: (x, y, h) => distToRect(x, y, h.pts[0], h.pts[1], true),
+};
+
+export const DATE_RANGE: DrawingTool = {
+  id: 'date-range', name: 'Date Range', points: 2,
+  defaultStyle: { fill: true, showLabels: true, fillOpacity: 0.1 },
+  draw: (c) => {
+    const d = c.rc.dpr;
+    const p = c.drawing.points;
+    const tint = c.style.color;
+    const x0 = c.pts[0].x;
+    const x1 = c.pts[1].x;
+    const y0 = Math.min(c.pts[0].y, c.pts[1].y);
+    const y1 = Math.max(c.pts[0].y, c.pts[1].y) + (c.pts[0].y === c.pts[1].y ? 40 * d : 0);
+    c.ctx.save();
+    c.ctx.globalAlpha = c.style.fillOpacity ?? 0.1;
+    c.ctx.fillStyle = tint;
+    c.ctx.fillRect(Math.min(x0, x1), y0, Math.abs(x1 - x0), y1 - y0);
+    c.ctx.restore();
+    applyStroke(c);
+    c.ctx.beginPath();
+    for (const x of [x0, x1]) { c.ctx.moveTo(Math.round(x) + 0.5, y0); c.ctx.lineTo(Math.round(x) + 0.5, y1); }
+    const my = (y0 + y1) / 2;
+    c.ctx.moveTo(x0, my); c.ctx.lineTo(x1, my);
+    const dir = x1 > x0 ? 1 : -1;
+    c.ctx.moveTo(x1 - 5 * d * dir, my - 4 * d); c.ctx.lineTo(x1, my); c.ctx.lineTo(x1 - 5 * d * dir, my + 4 * d);
+    c.ctx.moveTo(x0 + 5 * d * dir, my - 4 * d); c.ctx.lineTo(x0, my); c.ctx.lineTo(x0 + 5 * d * dir, my + 4 * d);
+    c.ctx.stroke();
+    c.ctx.setLineDash([]);
+    // Counted on logical indices, so it matches the gapless axis rather than
+    // raw elapsed time (a weekend is not 48 bars).
+    const i0 = c.rc.dataLayer.timeToIndexFloat(p[0].time);
+    const i1 = c.rc.dataLayer.timeToIndexFloat(p[1].time);
+    const bars = Math.abs(Math.round(i1 - i0));
+    label(c, `${bars} bars`, (x0 + x1) / 2, y0 - 10 * d, tint);
+  },
+  distance: (x, y, h) => distToRect(x, y, h.pts[0], h.pts[1], true),
+};
+
+/**
+ * Position forecast — project a move from an anchor. Two anchors give the
+ * projected leg; the shape extends the same slope past the target as a dashed
+ * cone, so the drawing says "if this continues" rather than just marking a line.
+ */
+export const FORECAST: DrawingTool = {
+  id: 'forecast', name: 'Forecast', points: 2,
+  defaultStyle: { fill: true, showLabels: true, fillOpacity: 0.12, lineStyle: 'dashed' },
+  draw: (c) => {
+    const d = c.rc.dpr;
+    const p = c.drawing.points;
+    const [a, b] = c.pts;
+    const chg = p[1].price - p[0].price;
+    const pct = p[0].price !== 0 ? (chg / p[0].price) * 100 : 0;
+    const up = chg >= 0;
+    const tint = up ? '#26a69a' : '#ef5350';
+    // The cone widens with the projected distance — a forecast is less certain
+    // the further out it runs, and the shape should say so.
+    const spread = Math.abs(b.y - a.y) * 0.35 + 6 * d;
+    c.ctx.save();
+    c.ctx.globalAlpha = c.style.fillOpacity ?? 0.12;
+    c.ctx.fillStyle = tint;
+    c.ctx.beginPath();
+    c.ctx.moveTo(a.x, a.y);
+    c.ctx.lineTo(b.x, b.y - spread);
+    c.ctx.lineTo(b.x, b.y + spread);
+    c.ctx.closePath();
+    c.ctx.fill();
+    c.ctx.restore();
+    applyStroke(c);
+    c.ctx.strokeStyle = tint;
+    c.ctx.beginPath();
+    c.ctx.moveTo(a.x, a.y);
+    c.ctx.lineTo(b.x, b.y);
+    c.ctx.stroke();
+    c.ctx.setLineDash([]);
+    c.ctx.beginPath();
+    c.ctx.arc(a.x, a.y, 3 * d, 0, Math.PI * 2);
+    c.ctx.fillStyle = tint;
+    c.ctx.fill();
+    const i0 = c.rc.dataLayer.timeToIndexFloat(p[0].time);
+    const i1 = c.rc.dataLayer.timeToIndexFloat(p[1].time);
+    const bars = Math.abs(Math.round(i1 - i0));
+    const sign = up ? '+' : '';
+    label(c, `${sign}${c.formatPrice(chg)} (${sign}${pct.toFixed(2)}%)  ${bars} bars`,
+      b.x + 6 * d, b.y, tint);
+  },
+  distance: (x, y, h) => distToSegment(x, y, h.pts[0], h.pts[1]),
+};
+
+// ── shapes ────────────────────────────────────────────────────────────────
+
+/**
+ * Circle from centre + a radius handle. The radius is measured in *pixels*, so
+ * it stays a circle on screen instead of the ellipse the two axes' differing
+ * scales would otherwise produce.
+ */
+export const CIRCLE: DrawingTool = {
+  id: 'circle', name: 'Circle', points: 2,
+  defaultStyle: { fill: true },
+  draw: (c) => {
+    const [a, b] = c.pts;
+    const r = Math.hypot(b.x - a.x, b.y - a.y);
+    c.ctx.beginPath();
+    c.ctx.arc(a.x, a.y, r, 0, Math.PI * 2);
+    withFill(c, () => c.ctx.fill());
+    applyStroke(c);
+    c.ctx.stroke();
+    c.ctx.setLineDash([]);
+  },
+  distance: (x, y, h) => {
+    const [a, b] = h.pts;
+    const r = Math.hypot(b.x - a.x, b.y - a.y);
+    const d = Math.hypot(x - a.x, y - a.y);
+    if (h.drawing.style.fill === true && d <= r) return 0;
+    return Math.abs(d - r);
+  },
+};
+
+export const TRIANGLE: DrawingTool = {
+  id: 'triangle', name: 'Triangle', points: 3,
+  defaultStyle: { fill: true },
+  draw: (c) => {
+    c.ctx.beginPath();
+    c.ctx.moveTo(c.pts[0].x, c.pts[0].y);
+    c.ctx.lineTo(c.pts[1].x, c.pts[1].y);
+    c.ctx.lineTo(c.pts[2].x, c.pts[2].y);
+    c.ctx.closePath();
+    withFill(c, () => c.ctx.fill());
+    applyStroke(c);
+    c.ctx.stroke();
+    c.ctx.setLineDash([]);
+  },
+  distance: (x, y, h) => distToPolyline(x, y, [...h.pts, h.pts[0]]),
+};
+
+/** Free-form polyline: click each vertex, double-click to finish. */
+export const POLYLINE: DrawingTool = {
+  id: 'polyline', name: 'Polyline', points: 0,
+  defaultStyle: { fill: false },
+  draw: (c) => {
+    if (c.pts.length < 2) return;
+    c.ctx.beginPath();
+    c.ctx.moveTo(c.pts[0].x, c.pts[0].y);
+    for (let i = 1; i < c.pts.length; i++) c.ctx.lineTo(c.pts[i].x, c.pts[i].y);
+    if (c.style.fill === true) { c.ctx.closePath(); withFill(c, () => c.ctx.fill()); }
+    applyStroke(c);
+    c.ctx.stroke();
+    c.ctx.setLineDash([]);
+  },
+  distance: (x, y, h) => distToPolyline(x, y, h.pts),
+};
+
+/** Sample a quadratic whose control is derived so the curve passes through `m`. */
+function quadPoints(a: ScreenPoint, m: ScreenPoint, b: ScreenPoint): ScreenPoint[] {
+  const cx = 2 * m.x - (a.x + b.x) / 2;
+  const cy = 2 * m.y - (a.y + b.y) / 2;
+  const out: ScreenPoint[] = [];
+  for (let i = 0; i <= 16; i++) {
+    const t = i / 16;
+    const u = 1 - t;
+    out.push({ x: u * u * a.x + 2 * u * t * cx + t * t * b.x, y: u * u * a.y + 2 * u * t * cy + t * t * b.y });
+  }
+  return out;
+}
+
+/** Arc through three anchors — the middle one is on the curve, not a handle. */
+export const ARC: DrawingTool = {
+  id: 'arc', name: 'Arc', points: 3,
+  draw: (c) => {
+    const [a, m, b] = c.pts;
+    applyStroke(c);
+    c.ctx.beginPath();
+    c.ctx.moveTo(a.x, a.y);
+    // Lift the control point so the curve passes *through* the middle anchor
+    // rather than merely leaning toward it.
+    c.ctx.quadraticCurveTo(2 * m.x - (a.x + b.x) / 2, 2 * m.y - (a.y + b.y) / 2, b.x, b.y);
+    c.ctx.stroke();
+    c.ctx.setLineDash([]);
+  },
+  distance: (x, y, h) => distToPolyline(x, y, quadPoints(h.pts[0], h.pts[1], h.pts[2])),
+};
+
+/** Quadratic curve — the middle anchor is a control handle, off the curve. */
+export const CURVE: DrawingTool = {
+  id: 'curve', name: 'Curve', points: 3,
+  draw: (c) => {
+    const [a, m, b] = c.pts;
+    applyStroke(c);
+    c.ctx.beginPath();
+    c.ctx.moveTo(a.x, a.y);
+    c.ctx.quadraticCurveTo(m.x, m.y, b.x, b.y);
+    c.ctx.stroke();
+    c.ctx.setLineDash([]);
+  },
+  distance: (x, y, h) => {
+    const [a, m, b] = h.pts;
+    const pts: ScreenPoint[] = [];
+    for (let i = 0; i <= 16; i++) {
+      const t = i / 16;
+      const u = 1 - t;
+      pts.push({ x: u * u * a.x + 2 * u * t * m.x + t * t * b.x, y: u * u * a.y + 2 * u * t * m.y + t * t * b.y });
+    }
+    return distToPolyline(x, y, pts);
+  },
+};
+
+// ── arrows & brushes ──────────────────────────────────────────────────────
+
+/** A single-anchor marker that points at a bar. `up` sits below, pointing up. */
+function arrowMarker(id: string, name: string, up: boolean): DrawingTool {
+  return {
+    id, name, points: 1,
+    defaultStyle: { fill: true, fillOpacity: 0.9 },
+    draw: (c) => {
+      const d = c.rc.dpr;
+      const { x, y } = c.pts[0];
+      const len = 16 * d;
+      const w = 6 * d;
+      const dir = up ? 1 : -1;
+      // Offset off the anchor so the marker sits beside the bar, not on top of it.
+      const tipY = y + dir * 2 * d;
+      c.ctx.beginPath();
+      c.ctx.moveTo(x, tipY);
+      c.ctx.lineTo(x - w, tipY + dir * w);
+      c.ctx.lineTo(x - w / 2.4, tipY + dir * w);
+      c.ctx.lineTo(x - w / 2.4, tipY + dir * len);
+      c.ctx.lineTo(x + w / 2.4, tipY + dir * len);
+      c.ctx.lineTo(x + w / 2.4, tipY + dir * w);
+      c.ctx.lineTo(x + w, tipY + dir * w);
+      c.ctx.closePath();
+      c.ctx.save();
+      c.ctx.globalAlpha = c.style.fillOpacity ?? 0.9;
+      c.ctx.fillStyle = fillStyleOf(c);
+      c.ctx.fill();
+      c.ctx.restore();
+      applyStroke(c);
+      c.ctx.stroke();
+      c.ctx.setLineDash([]);
+    },
+    distance: (x, y, hc) => {
+      const a = hc.pts[0];
+      const dy = up ? y - a.y : a.y - y;
+      return Math.abs(x - a.x) <= 8 && dy >= -4 && dy <= 20 ? 0 : null;
+    },
+  };
+}
+export const ARROW_UP = arrowMarker('arrow-up', 'Arrow Up', true);
+export const ARROW_DOWN = arrowMarker('arrow-down', 'Arrow Down', false);
+
+/** Highlighter — the brush with a fat, translucent stroke. */
+export const HIGHLIGHTER: DrawingTool = {
+  id: 'highlighter', name: 'Highlighter', points: 0,
+  defaultStyle: { lineWidth: 12, fillOpacity: 0.28 },
+  draw: (c) => {
+    if (c.pts.length < 2) return;
+    const d = c.rc.dpr;
+    c.ctx.save();
+    c.ctx.globalAlpha = c.style.fillOpacity ?? 0.28;
+    c.ctx.strokeStyle = c.style.color;
+    c.ctx.lineWidth = Math.max(2, (c.style.lineWidth || 12) * d);
+    c.ctx.lineCap = 'round';
+    c.ctx.lineJoin = 'round';
+    c.ctx.beginPath();
+    c.ctx.moveTo(c.pts[0].x, c.pts[0].y);
+    for (let i = 1; i < c.pts.length; i++) c.ctx.lineTo(c.pts[i].x, c.pts[i].y);
+    c.ctx.stroke();
+    c.ctx.restore();
+  },
+  distance: (x, y, h) => {
+    const d = distToPolyline(x, y, h.pts);
+    return d <= Math.max(6, (h.drawing.style.lineWidth ?? 12) / 2) ? 0 : d;
+  },
+};
+
+// ── fibonacci & gann ──────────────────────────────────────────────────────
+
+/** Fib channel — fib levels spread across a trend leg, parallel to it. */
+export const FIB_CHANNEL: DrawingTool = {
+  id: 'fib-channel', name: 'Fib Channel', points: 3,
+  defaultStyle: { showLabels: true, levels: [...DEFAULT_FIB] },
+  draw: (c) => {
+    const levels = c.style.levels ?? DEFAULT_FIB;
+    const [a, b, w] = c.pts;
+    // The third anchor sets the channel width; each level is a fraction of it.
+    const offX = w.x - b.x;
+    const offY = w.y - b.y;
+    applyStroke(c);
+    for (const lv of levels) {
+      c.ctx.beginPath();
+      c.ctx.moveTo(a.x + offX * lv, a.y + offY * lv);
+      c.ctx.lineTo(b.x + offX * lv, b.y + offY * lv);
+      c.ctx.stroke();
+      if (c.style.showLabels !== false) {
+        label(c, `${(lv * 100).toFixed(1)}%`, b.x + offX * lv + 4 * c.rc.dpr, b.y + offY * lv);
+      }
+    }
+    c.ctx.setLineDash([]);
+  },
+  distance: (x, y, h) => {
+    const levels = h.drawing.style.levels ?? DEFAULT_FIB;
+    const [a, b, w] = h.pts;
+    let best = Infinity;
+    for (const lv of levels) {
+      const d = distToSegment(x, y,
+        { x: a.x + (w.x - b.x) * lv, y: a.y + (w.y - b.y) * lv },
+        { x: b.x + (w.x - b.x) * lv, y: b.y + (w.y - b.y) * lv });
+      if (d < best) best = d;
+    }
+    return best;
+  },
+};
+
+/** The Fibonacci sequence itself — time zones count bars, not ratios. */
+const FIB_SEQUENCE: readonly number[] = [0, 1, 2, 3, 5, 8, 13, 21, 34, 55];
+
+/** Fib time zone — vertical lines at fib multiples of the base leg's width. */
+export const FIB_TIME_ZONE: DrawingTool = {
+  id: 'fib-time-zone', name: 'Fib Time Zone', points: 2,
+  defaultStyle: { showLabels: true },
+  draw: (c) => {
+    const [a, b] = c.pts;
+    const unit = b.x - a.x;
+    if (Math.abs(unit) < 0.5) return;
+    const d = c.rc.dpr;
+    const maxX = c.rc.plotWidth * d;
+    applyStroke(c);
+    for (const n of FIB_SEQUENCE) {
+      const x = a.x + unit * n;
+      if (x < -10 || x > maxX + 10) continue;
+      c.ctx.beginPath();
+      c.ctx.moveTo(Math.round(x) + 0.5, 0);
+      c.ctx.lineTo(Math.round(x) + 0.5, c.rc.plotHeight * d);
+      c.ctx.stroke();
+      if (c.style.showLabels !== false) label(c, String(n), x + 3 * d, 12 * d);
+    }
+    c.ctx.setLineDash([]);
+  },
+  distance: (x, y, h) => {
+    void y;
+    const [a, b] = h.pts;
+    const unit = b.x - a.x;
+    if (Math.abs(unit) < 0.5) return null;
+    let best = Infinity;
+    for (const n of FIB_SEQUENCE) best = Math.min(best, Math.abs(x - (a.x + unit * n)));
+    return best;
+  },
+};
+
+const FAN_LEVELS: readonly number[] = [0.236, 0.382, 0.5, 0.618, 0.786, 1];
+
+/** Rays from the anchor at fib fractions of the leg — speed resistance fan. */
+export const FIB_FAN: DrawingTool = {
+  id: 'fib-fan', name: 'Fib Speed Fan', points: 2,
+  defaultStyle: { showLabels: true, levels: [...FAN_LEVELS] },
+  draw: (c) => {
+    const levels = c.style.levels ?? FAN_LEVELS;
+    const [a, b] = c.pts;
+    const d = c.rc.dpr;
+    const maxX = c.rc.plotWidth * d;
+    applyStroke(c);
+    for (const lv of levels) {
+      // Each ray takes the full run but a fraction of the rise.
+      const end = extendSegment(a, { x: b.x, y: a.y + (b.y - a.y) * lv }, maxX, false, true)[1];
+      c.ctx.beginPath();
+      c.ctx.moveTo(a.x, a.y);
+      c.ctx.lineTo(end.x, end.y);
+      c.ctx.stroke();
+      if (c.style.showLabels !== false) label(c, `${(lv * 100).toFixed(1)}%`, b.x + 4 * d, a.y + (b.y - a.y) * lv);
+    }
+    c.ctx.setLineDash([]);
+  },
+  distance: (x, y, h) => {
+    const levels = h.drawing.style.levels ?? FAN_LEVELS;
+    const [a, b] = h.pts;
+    let best = Infinity;
+    for (const lv of levels) {
+      best = Math.min(best, distToSegment(x, y, a,
+        extendSegment(a, { x: b.x, y: a.y + (b.y - a.y) * lv }, h.rc.plotWidth, false, true)[1]));
+    }
+    return best;
+  },
+};
+
+/** Gann price/time ratios: 1x8 … 1x1 … 8x1. */
+const GANN_RATIOS: readonly (readonly [number, number])[] = [
+  [1, 0.125], [1, 0.25], [1, 0.5], [1, 1], [0.5, 1], [0.25, 1], [0.125, 1],
+];
+
+/** Gann fan — rays at the classic price/time ratios from one anchor. */
+export const GANN_FAN: DrawingTool = {
+  id: 'gann-fan', name: 'Gann Fan', points: 2,
+  defaultStyle: { showLabels: true },
+  draw: (c) => {
+    const [a, b] = c.pts;
+    const d = c.rc.dpr;
+    const maxX = c.rc.plotWidth * d;
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    if (Math.abs(dx) < 0.5) return;
+    applyStroke(c);
+    for (const [rx, ry] of GANN_RATIOS) {
+      const end = extendSegment(a, { x: a.x + dx * rx, y: a.y + dy * ry }, maxX, false, true)[1];
+      c.ctx.beginPath();
+      c.ctx.moveTo(a.x, a.y);
+      c.ctx.lineTo(end.x, end.y);
+      c.ctx.stroke();
+    }
+    // Only the 1x1 gets a label — the rest are read off it.
+    if (c.style.showLabels !== false) label(c, '1x1', b.x + 4 * d, b.y);
+    c.ctx.setLineDash([]);
+  },
+  distance: (x, y, h) => {
+    const [a, b] = h.pts;
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    let best = Infinity;
+    for (const [rx, ry] of GANN_RATIOS) {
+      best = Math.min(best, distToSegment(x, y, a,
+        extendSegment(a, { x: a.x + dx * rx, y: a.y + dy * ry }, h.rc.plotWidth, false, true)[1]));
+    }
+    return best;
+  },
+};
+
+/** Gann box — an 8x8 grid over the drawn rectangle, plus the 1x1 diagonal. */
+export const GANN_BOX: DrawingTool = {
+  id: 'gann-box', name: 'Gann Box', points: 2,
+  defaultStyle: { fill: true, fillOpacity: 0.05 },
+  draw: (c) => {
+    const r = rectOf(c.pts[0], c.pts[1]);
+    withFill(c, () => c.ctx.fillRect(r.x0, r.y0, r.x1 - r.x0, r.y1 - r.y0));
+    applyStroke(c);
+    const w = r.x1 - r.x0;
+    const h = r.y1 - r.y0;
+    c.ctx.beginPath();
+    for (let i = 0; i <= 8; i++) {
+      const x = Math.round(r.x0 + (w * i) / 8) + 0.5;
+      const y = Math.round(r.y0 + (h * i) / 8) + 0.5;
+      c.ctx.moveTo(x, r.y0); c.ctx.lineTo(x, r.y1);
+      c.ctx.moveTo(r.x0, y); c.ctx.lineTo(r.x1, y);
+    }
+    c.ctx.moveTo(r.x0, r.y1); c.ctx.lineTo(r.x1, r.y0);
+    c.ctx.stroke();
+    c.ctx.setLineDash([]);
+  },
+  distance: (x, y, h) => distToRect(x, y, h.pts[0], h.pts[1], h.drawing.style.fill === true),
+};
+
 export const BUILTIN_DRAWING_TOOLS: readonly DrawingTool[] = [
   TREND_LINE, RAY, EXTENDED_LINE, ARROW,
   HORIZONTAL_LINE, HORIZONTAL_RAY, VERTICAL_LINE, CROSS_LINE,
   RECTANGLE, ELLIPSE, PARALLEL_CHANNEL,
   FIB_RETRACEMENT, FIB_EXTENSION,
-  LONG_POSITION, SHORT_POSITION, MEASURE,
+  LONG_POSITION, SHORT_POSITION, FORECAST,
+  MEASURE, PRICE_RANGE, DATE_RANGE,
+  CIRCLE, TRIANGLE, POLYLINE, ARC, CURVE,
+  ARROW_UP, ARROW_DOWN, HIGHLIGHTER,
+  FIB_CHANNEL, FIB_TIME_ZONE, FIB_FAN, GANN_FAN, GANN_BOX,
   TEXT, PATH,
 ];
 

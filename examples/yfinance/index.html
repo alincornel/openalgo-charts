@@ -116,8 +116,26 @@
     .rail button:hover { background: var(--elev); color: var(--tx); }
     .rail button.is-on { background: rgba(34,193,164,.16); border-color: #1d6b5e; color: var(--acc-2); }
     .rail .sep { width: 22px; height: 1px; background: var(--bd-soft); margin: 4px 0; flex: none; }
-    .rail svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.6;
+    .rail button { position: relative; }
+    .rail svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.5;
       stroke-linecap: round; stroke-linejoin: round; }
+    /* Caret marks a group that has a flyout; it brightens with the button. */
+    .rail .railcaret { position: absolute; right: 1px; bottom: 0; line-height: 0; opacity: .45; }
+    .rail .railcaret svg { width: 9px; height: 9px; stroke-width: 2.4; }
+    .rail button:hover .railcaret, .rail button.is-on .railcaret { opacity: .9; }
+
+    .railmenu { position: fixed; z-index: 60; min-width: 226px; max-height: 86vh; overflow-y: auto;
+      padding: 6px; background: var(--panel); border: 1px solid var(--bd);
+      border-radius: 10px; box-shadow: 0 14px 40px rgba(0,0,0,.55); }
+    .railmenu__head { padding: 8px 10px 4px; color: var(--faint); font-size: 10px;
+      text-transform: uppercase; letter-spacing: .7px; }
+    .railmenu__item { display: flex; align-items: center; gap: 10px; width: 100%;
+      padding: 7px 10px; background: transparent; border: 0; border-radius: 7px;
+      color: var(--tx); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+    .railmenu__item:hover { background: var(--elev-2); }
+    .railmenu__item.is-on { background: rgba(34,193,164,.16); color: var(--acc-2); }
+    .railmenu__item svg { width: 18px; height: 18px; fill: none; stroke: currentColor;
+      stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; flex: none; }
     .stage.has-rail #chart { left: 42px; }
 
     /* Floating properties bar for the selected drawing — draggable by its grip. */
@@ -421,7 +439,7 @@
   </div>
 
   <script type="module">
-    import { createChart, registeredIndicators, getIndicator, indicatorStyleInputs, INDICATOR_SOURCES, LogoWatermark, PaneLegend } from '/dist/openalgo-charts.mjs';
+    import { createChart, darkTheme, registeredIndicators, getIndicator, indicatorStyleInputs, INDICATOR_SOURCES, LogoWatermark, PaneLegend } from '/dist/openalgo-charts.mjs';
     // Lazy tiers. Each registers into the base bundle's registries as a side
     // effect of being imported, so `addSeries('point-figure')` and
     // `addIndicator('macd')` resolve afterwards.
@@ -968,6 +986,8 @@
       if (chart) chart.destroy();
       el('chart').innerHTML = '';
       chart = createChart(el('chart'), {
+        // DEFAULT_THEME is the light palette, so a dark shell needs to ask.
+        theme: darkTheme,
         priceAxisWidth: 72, // free crosshair (follows pointer)
         grid: { vertLines: el('vgrid').checked, horzLines: el('hgrid').checked },
       });
@@ -1075,6 +1095,7 @@
       chart.subscribeCrosshairMove((e) => setLegend(e.bar ?? currentBars[currentBars.length - 1]));
       setLegend(currentBars[currentBars.length - 1]);
       window.__chart = () => chart;
+      window.__draw = () => draw;
     }
 
     async function load() {
@@ -1455,49 +1476,173 @@
     // All of this is HOST ui — the engine draws on canvas and ships no DOM, so a
     // toolbar and a properties bar belong here (and, later, in a UI package).
     // Everything routes through the controller's public API.
+    // Icons are drawn on a 24x24 grid with a thin, even stroke and outlined
+    // endpoint handles — the visual language TradingView uses. The previous set
+    // was 20x20 with a 1.6 stroke, which renders chunky at 17px.
     const ICON = {
-      cursor: '<path d="M4 2l7 16 2.2-6.2L19 9.6z"/>',
-      trend: '<path d="M3 15L15 4"/><circle cx="3" cy="15" r="1.6"/><circle cx="15" cy="4" r="1.6"/>',
-      hline: '<path d="M2 10h16"/><circle cx="6" cy="10" r="1.6"/>',
-      vline: '<path d="M10 2v16"/><circle cx="10" cy="6" r="1.6"/>',
-      rect: '<rect x="3" y="5" width="14" height="10" rx="1"/>',
-      ellipse: '<ellipse cx="10" cy="10" rx="7" ry="5"/>',
-      channel: '<path d="M3 13L15 4M5 17L17 8"/>',
-      fib: '<path d="M3 4h14M3 8h14M3 12h14M3 16h14"/>',
-      position: '<rect x="3" y="4" width="14" height="5" rx="1"/><rect x="3" y="11" width="14" height="5" rx="1"/>',
-      measure: '<path d="M3 12l6-6 8 8"/><path d="M3 12h4M3 12v-4"/>',
-      text: '<path d="M4 5h12M10 5v11"/>',
-      arrow: '<path d="M4 16L15 5M15 5h-5M15 5v5"/>',
-      path: '<path d="M3 14c3-8 6 4 9-3s4 2 5 1"/>',
-      trash: '<path d="M3 5h14M7 5V3h6v2M5 5l1 12h8l1-12"/>',
-      lock: '<rect x="4" y="9" width="12" height="8" rx="1.5"/><path d="M7 9V6a3 3 0 016 0v3"/>',
-      unlock: '<rect x="4" y="9" width="12" height="8" rx="1.5"/><path d="M7 9V6a3 3 0 015.7-1.3"/>',
-      clone: '<rect x="6" y="6" width="10" height="10" rx="1.5"/><path d="M4 12V4h8"/>',
+      cursor: '<path d="M12 3.5v5M12 15.5v5M3.5 12h5M15.5 12h5"/>',
+      trend: '<path d="M7 17 17 7"/><circle cx="5.2" cy="18.8" r="1.9"/><circle cx="18.8" cy="5.2" r="1.9"/>',
+      ray: '<path d="M7 17 20.5 3.5"/><circle cx="5.2" cy="18.8" r="1.9"/>',
+      extended: '<path d="M3.5 20.5 20.5 3.5"/><circle cx="9" cy="15" r="1.9"/><circle cx="15" cy="9" r="1.9"/>',
+      arrow: '<path d="M5 19 17.6 6.4M18.5 5.5v6.2M18.5 5.5h-6.2"/>',
+      hline: '<path d="M3 12h18"/><circle cx="8.5" cy="12" r="1.9"/>',
+      hray: '<path d="M8.5 12H21"/><circle cx="5.6" cy="12" r="1.9"/>',
+      vline: '<path d="M12 3v18"/><circle cx="12" cy="8.5" r="1.9"/>',
+      cross: '<path d="M3 12h18M12 3v18"/><circle cx="12" cy="12" r="1.9"/>',
+      rect: '<rect x="3.5" y="6" width="17" height="12" rx="1.5"/>',
+      ellipse: '<ellipse cx="12" cy="12" rx="8.5" ry="6"/>',
+      channel: '<path d="M4 15 14 5M10 19 20 9"/><circle cx="4" cy="15" r="1.7"/><circle cx="20" cy="9" r="1.7"/>',
+      fib: '<path d="M3 5h18M3 10h18M3 14h18M3 19h18"/><circle cx="7.5" cy="10" r="1.6"/><circle cx="16.5" cy="14" r="1.6"/>',
+      fibext: '<path d="M3 5h18M3 12h18M3 19h18"/><path d="M7.5 5v14"/><circle cx="7.5" cy="12" r="1.6"/>',
+      position: '<rect x="3.5" y="5" width="17" height="6" rx="1.4"/><rect x="3.5" y="13" width="17" height="6" rx="1.4"/>',
+      long: '<rect x="3.5" y="5" width="17" height="6" rx="1.4"/><rect x="3.5" y="13" width="17" height="6" rx="1.4"/><path d="M12 13V5"/>',
+      short: '<rect x="3.5" y="5" width="17" height="6" rx="1.4"/><rect x="3.5" y="13" width="17" height="6" rx="1.4"/><path d="M12 11v8"/>',
+      measure: '<path d="M14.6 3 21 9.4 9.4 21 3 14.6z"/><path d="M12.2 5.4 14 7.2M9.6 8 11.4 9.8M7 10.6 8.8 12.4"/>',
+      text: '<path d="M5 5.5h14M12 5.5V19"/>',
+      path: '<path d="M3.5 16.5c2.6-8 5.6 3.6 8.6-3s4.6 2.6 8.4.6"/>',
+      trash: '<path d="M3.5 6.5h17M9.5 6.5v-3h5v3M6 6.5l1 14h10l1-14"/>',
+      lock: '<rect x="4.5" y="10.5" width="15" height="9.5" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/>',
+      unlock: '<rect x="4.5" y="10.5" width="15" height="9.5" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 7.6-1.7"/>',
+      clone: '<rect x="7.5" y="7.5" width="12" height="12" rx="2"/><path d="M4.5 14.5v-10h10"/>',
+      caret: '<path d="M9 8.5 13.5 12 9 15.5"/>',
+      circle: '<circle cx="12" cy="12" r="7.5"/><circle cx="12" cy="12" r="1.6"/>',
+      triangle: '<path d="M12 4.5 20 19H4z"/>',
+      polyline: '<path d="M3.5 16 8 9l4.5 4.5L20.5 5"/><circle cx="3.5" cy="16" r="1.5"/><circle cx="20.5" cy="5" r="1.5"/>',
+      arc: '<path d="M4 19a12 12 0 0 1 16-11"/><circle cx="4" cy="19" r="1.6"/><circle cx="20" cy="8" r="1.6"/>',
+      curve: '<path d="M4 18c4.5 0 5-11 9.5-11S20 13 20 13"/>',
+      arrowup: '<path d="M12 4.5 6.5 11h3.5v8.5h4V11h3.5z"/>',
+      arrowdown: '<path d="M12 19.5 6.5 13h3.5V4.5h4V13h3.5z"/>',
+      highlighter: '<path d="M4.5 19.5h6"/><path d="M7 16.5 15.5 8l3 3-8.5 8.5H7z"/>',
+      fibchannel: '<path d="M3 15 13 5M6 18 16 8M9 21 19 11"/>',
+      fibtime: '<path d="M4 4v16M7 4v16M11 4v16M17 4v16"/>',
+      fibfan: '<path d="M4 20 20 4M4 20h16M4 20 20 12M4 20 20 17"/>',
+      gannfan: '<path d="M4 20 20 4M4 20 20 11M4 20 20 16M4 20 13 4"/>',
+      gannbox: '<rect x="4" y="4" width="16" height="16" rx="1"/><path d="M9.3 4v16M14.6 4v16M4 9.3h16M4 14.6h16M4 20 20 4"/>',
+      pricerange: '<path d="M4 5.5h16M4 18.5h16M12 5.5v13M9.5 8 12 5.5 14.5 8M9.5 16 12 18.5 14.5 16"/>',
+      daterange: '<path d="M5.5 4v16M18.5 4v16M5.5 12h13M8 9.5 5.5 12 8 14.5M16 9.5 18.5 12 16 14.5"/>',
+      forecast: '<path d="M4 18 20 7"/><path d="M20 7v6M20 7h-6"/><circle cx="4" cy="18" r="1.9"/>',
     };
-    const svgIcon = (k) => '<svg viewBox="0 0 20 20">' + (ICON[k] || '') + '</svg>';
+    const svgIcon = (k) => '<svg viewBox="0 0 24 24">' + (ICON[k] || '') + '</svg>';
 
     // Rail groups. A group with several tools cycles them on repeat clicks, so a
     // family of 4 line tools stays one button instead of four.
+    // Rail groups. A group with a `menu` opens a flyout listing its tools —
+    // the pattern TradingView uses — and remembers the last one picked so the
+    // button re-activates it on a plain click.
     const RAIL = [
       { icon: 'cursor', title: 'Cursor (Esc)', tools: [] },
       { sep: true },
-      { icon: 'trend', title: 'Lines: trend / ray / extended / arrow', tools: ['trend-line', 'ray', 'extended-line', 'arrow'] },
-      { icon: 'hline', title: 'Horizontal line / ray', tools: ['horizontal-line', 'horizontal-ray'] },
-      { icon: 'vline', title: 'Vertical / cross line', tools: ['vertical-line', 'cross-line'] },
+      { icon: 'trend', title: 'Lines', menu: [
+        { head: 'Lines' },
+        { tool: 'trend-line', name: 'Trend line', icon: 'trend' },
+        { tool: 'ray', name: 'Ray', icon: 'ray' },
+        { tool: 'extended-line', name: 'Extended line', icon: 'extended' },
+        { tool: 'arrow', name: 'Arrow', icon: 'arrow' },
+        { head: 'Horizontal & vertical' },
+        { tool: 'horizontal-line', name: 'Horizontal line', icon: 'hline' },
+        { tool: 'horizontal-ray', name: 'Horizontal ray', icon: 'hray' },
+        { tool: 'vertical-line', name: 'Vertical line', icon: 'vline' },
+        { tool: 'cross-line', name: 'Cross line', icon: 'cross' },
+      ] },
+      { icon: 'channel', title: 'Channels', menu: [
+        { head: 'Channels' },
+        { tool: 'parallel-channel', name: 'Parallel channel', icon: 'channel' },
+        { tool: 'fib-channel', name: 'Fib channel', icon: 'fibchannel' },
+      ] },
+      { icon: 'fib', title: 'Fibonacci & Gann', menu: [
+        { head: 'Fibonacci' },
+        { tool: 'fib-retracement', name: 'Fib retracement', icon: 'fib' },
+        { tool: 'fib-extension', name: 'Fib extension', icon: 'fibext' },
+        { tool: 'fib-time-zone', name: 'Fib time zone', icon: 'fibtime' },
+        { tool: 'fib-fan', name: 'Fib speed fan', icon: 'fibfan' },
+        { head: 'Gann' },
+        { tool: 'gann-fan', name: 'Gann fan', icon: 'gannfan' },
+        { tool: 'gann-box', name: 'Gann box', icon: 'gannbox' },
+      ] },
       { sep: true },
-      { icon: 'rect', title: 'Rectangle', tools: ['rectangle'] },
-      { icon: 'ellipse', title: 'Ellipse', tools: ['ellipse'] },
-      { icon: 'channel', title: 'Parallel channel', tools: ['parallel-channel'] },
+      { icon: 'rect', title: 'Shapes', menu: [
+        { head: 'Shapes' },
+        { tool: 'rectangle', name: 'Rectangle', icon: 'rect' },
+        { tool: 'ellipse', name: 'Ellipse', icon: 'ellipse' },
+        { tool: 'circle', name: 'Circle', icon: 'circle' },
+        { tool: 'triangle', name: 'Triangle', icon: 'triangle' },
+        { head: 'Paths' },
+        { tool: 'polyline', name: 'Polyline', icon: 'polyline' },
+        { tool: 'arc', name: 'Arc', icon: 'arc' },
+        { tool: 'curve', name: 'Curve', icon: 'curve' },
+      ] },
+      { icon: 'arrowup', title: 'Arrows', menu: [
+        { head: 'Arrows' },
+        { tool: 'arrow-up', name: 'Arrow mark up', icon: 'arrowup' },
+        { tool: 'arrow-down', name: 'Arrow mark down', icon: 'arrowdown' },
+      ] },
       { sep: true },
-      { icon: 'fib', title: 'Fib retracement / extension', tools: ['fib-retracement', 'fib-extension'] },
-      { icon: 'position', title: 'Long / short position', tools: ['long-position', 'short-position'] },
-      { icon: 'measure', title: 'Measure', tools: ['measure'] },
+      { icon: 'position', title: 'Forecasting', menu: [
+        { head: 'Forecasting' },
+        { tool: 'long-position', name: 'Long position', icon: 'long' },
+        { tool: 'short-position', name: 'Short position', icon: 'short' },
+        { tool: 'forecast', name: 'Forecast', icon: 'forecast' },
+      ] },
+      { icon: 'measure', title: 'Measurers', menu: [
+        { head: 'Measurers' },
+        { tool: 'price-range', name: 'Price range', icon: 'pricerange' },
+        { tool: 'date-range', name: 'Date range', icon: 'daterange' },
+        { tool: 'measure', name: 'Date and price range', icon: 'measure' },
+      ] },
       { sep: true },
-      { icon: 'text', title: 'Text', tools: ['text'] },
-      { icon: 'path', title: 'Path', tools: ['path'] },
+      { icon: 'text', title: 'Annotation', menu: [
+        { head: 'Annotation' },
+        { tool: 'text', name: 'Text', icon: 'text' },
+        { head: 'Brushes' },
+        { tool: 'path', name: 'Brush', icon: 'path' },
+        { tool: 'highlighter', name: 'Highlighter', icon: 'highlighter' },
+      ] },
       { sep: true },
       { icon: 'trash', title: 'Remove all drawings', action: 'clear' },
     ];
+
+    let railMenu = null;   // the open flyout, if any
+
+    function closeRailMenu() {
+      if (railMenu) { railMenu.remove(); railMenu = null; }
+    }
+
+    /** Flyout listing a group's tools, anchored beside its rail button. */
+    function openRailMenu(group, btn) {
+      closeRailMenu();
+      const m = document.createElement('div');
+      m.className = 'railmenu';
+      for (const it of group.menu) {
+        if (it.head) {
+          const h = document.createElement('div');
+          h.className = 'railmenu__head';
+          h.textContent = it.head;
+          m.appendChild(h);
+          continue;
+        }
+        const row = document.createElement('button');
+        row.className = 'railmenu__item';
+        row.innerHTML = svgIcon(it.icon) + '<span>' + it.name + '</span>';
+        if (draw && draw.activeTool() === it.tool) row.classList.add('is-on');
+        row.addEventListener('click', (e) => {
+          e.stopPropagation();
+          group.last = it.tool;            // the button re-activates this next time
+          btn.innerHTML = svgIcon(it.icon) + caretEl();
+          closeRailMenu();
+          if (draw) draw.setTool(it.tool);
+        });
+        m.appendChild(row);
+      }
+      document.body.appendChild(m);
+      // Anchor to the button, then nudge up so it never runs off the bottom.
+      const r = btn.getBoundingClientRect();
+      m.style.left = (r.right + 6) + 'px';
+      const top = Math.min(r.top, window.innerHeight - m.offsetHeight - 8);
+      m.style.top = Math.max(8, top) + 'px';
+      railMenu = m;
+    }
+
+    const caretEl = () => '<i class="railcaret">' + svgIcon('caret') + '</i>';
 
     function buildRail() {
       const rail = el('rail');
@@ -1510,20 +1655,35 @@
           continue;
         }
         const b = document.createElement('button');
-        b.innerHTML = svgIcon(g.icon);
+        const tools = g.menu ? g.menu.filter((i) => i.tool).map((i) => i.tool) : (g.tools || []);
+        if (g.menu) g.last = g.last || tools[0];
+        b.innerHTML = svgIcon(g.icon) + (g.menu ? caretEl() : '');
         b.title = g.title;
-        b.dataset.tools = (g.tools || []).join(',');
-        b.addEventListener('click', () => {
+        b.dataset.tools = tools.join(',');
+        b.addEventListener('click', (e) => {
           if (!draw) return;
           if (g.action === 'clear') { draw.clear(); return; }
-          const list = g.tools;
-          if (list.length === 0) { draw.setTool(null); return; }
-          const at = list.indexOf(draw.activeTool());
-          draw.setTool(list[(at + 1) % list.length]);
+          closeRailMenu();
+          if (!g.menu) {
+            if (tools.length === 0) { draw.setTool(null); return; }
+            const at = tools.indexOf(draw.activeTool());
+            draw.setTool(tools[(at + 1) % tools.length]);
+            return;
+          }
+          // Clicking the caret opens the list; anywhere else activates the last
+          // tool picked, so the common case stays a single click.
+          const r = b.getBoundingClientRect();
+          if (e.clientX >= r.right - 13 || draw.activeTool() === g.last) openRailMenu(g, b);
+          else draw.setTool(g.last);
         });
         rail.appendChild(b);
       }
     }
+
+    document.addEventListener('click', (e) => {
+      if (railMenu && !railMenu.contains(e.target) && !e.target.closest('.rail button')) closeRailMenu();
+    });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeRailMenu(); });
 
     function syncRail(tool) {
       for (const b of el('rail').querySelectorAll('button')) {

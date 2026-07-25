@@ -28,6 +28,12 @@ export class RecordingContext {
   public moveTo(x: number, y: number): void { this.ops.push({ type: 'moveTo', args: [x, y] }); }
   public lineTo(x: number, y: number): void { this.ops.push({ type: 'lineTo', args: [x, y] }); }
   public arc(x: number, y: number, r: number): void { this.ops.push({ type: 'arc', args: [x, y, r] }); }
+  public quadraticCurveTo(cx: number, cy: number, x: number, y: number): void {
+    this.ops.push({ type: 'quadraticCurveTo', args: [cx, cy, x, y] });
+  }
+  public bezierCurveTo(c1x: number, c1y: number, c2x: number, c2y: number, x: number, y: number): void {
+    this.ops.push({ type: 'bezierCurveTo', args: [c1x, c1y, c2x, c2y, x, y] });
+  }
   public ellipse(x: number, y: number, rx: number, ry: number): void { this.ops.push({ type: 'ellipse', args: [x, y, rx, ry] }); }
   public stroke(): void { this.ops.push({ type: 'stroke', args: [], strokeStyle: this.strokeStyle, lineWidth: this.lineWidth }); }
   public fill(): void { this.ops.push({ type: 'fill', args: [], fillStyle: this.fillStyle }); }

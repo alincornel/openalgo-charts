@@ -1,13 +1,13 @@
 ---
 title: Drawing Tools
-description: 18 drawing tools, a headless controller, undo/redo, and persistence.
+description: 34 drawing tools, a headless controller, undo/redo, and persistence.
 ---
 
 import { Callout } from 'nextra/components'
 
 # Drawing Tools
 
-`openalgo-charts/draw` is a lazy tier (**5.6 KB** Brotli) with 18 tools and a headless
+`openalgo-charts/draw` is a lazy tier (**8.3 KB** Brotli) with 34 tools and a headless
 controller. It ships **no UI** — no toolbar, no dialogs. It owns the model and the
 interactions; your app supplies the buttons.
 
@@ -24,21 +24,35 @@ draw.setTool('trend-line');   // the next two clicks place it
 
 ## The tools
 
+**34 built-in tools**, all registered when the tier is imported.
+
 | Group | `id` | Anchors |
 |---|---|---|
 | Lines | `trend-line`, `ray`, `extended-line`, `arrow` | 2 |
 | Horizontal / vertical | `horizontal-line`, `horizontal-ray`, `vertical-line`, `cross-line` | 1 |
-| Shapes | `rectangle`, `ellipse` | 2 |
-| Channels | `parallel-channel` | 3 |
-| Fibonacci | `fib-retracement` (2), `fib-extension` (3) | 2–3 |
-| Positions | `long-position`, `short-position` | 3 |
-| Measurement | `measure` | 2 |
-| Annotation | `text` (1), `path` (free-form) | 1 / n |
+| Shapes | `rectangle`, `ellipse`, `circle`, `triangle` | 2 / 2 / 2 / 3 |
+| Paths | `polyline` (free-form), `arc`, `curve` | n / 3 / 3 |
+| Channels | `parallel-channel`, `fib-channel` | 3 |
+| Fibonacci | `fib-retracement` (2), `fib-extension` (3), `fib-time-zone` (2), `fib-fan` (2) | 2–3 |
+| Gann | `gann-fan`, `gann-box` | 2 |
+| Forecasting | `long-position`, `short-position` (3), `forecast` (2) | 2–3 |
+| Measurers | `price-range`, `date-range`, `measure` | 2 |
+| Arrows | `arrow-up`, `arrow-down` | 1 |
+| Annotation | `text` (1), `path`, `highlighter` (free-form) | 1 / n |
 
 `long-position` and `short-position` report **R:R** and a risk-based position size from
-`accountSize` and `risk` in their style bag. `measure` reports price change, percent, and a
-**bar count taken from logical indices** — so it matches what the gapless axis actually shows
-rather than raw elapsed time.
+`accountSize` and `risk` in their style bag.
+
+The three measurers differ only in what they report. `measure` gives price change, percent
+*and* bar count; `price-range` drops the time axis; `date-range` drops the price axis — which
+is what you want when the other axis is noise. All three take their **bar count from logical
+indices**, so it matches what the gapless axis shows rather than raw elapsed time.
+
+`circle` measures its radius in **pixels**, so it stays round on screen instead of becoming
+the ellipse that differing axis scales would otherwise produce. `arc` passes *through* its
+middle anchor; `curve` treats that anchor as a control handle, so the path only leans toward
+it. `highlighter` is `path` with a fat translucent stroke, and is grabbable anywhere across
+its width.
 
 ## Anchors live in data space
 
@@ -110,7 +124,6 @@ That is one shape with two colours: `color` strokes the outline, `fontColor` pai
 | `textAlign` | both | `'left'` \| `'center'` \| `'right'` |
 | `textVAlign` | both | `'top'` \| `'middle'` \| `'bottom'` |
 | `textPosition` | shapes only | `'inside'` the outline or `'outside'` just above it |
-
 | `background`, `backgroundColor`, `backgroundOpacity` | text tool | filled plate behind the text |
 | `border`, `borderColor` | text tool | stroked plate border |
 | `wrap`, `wrapWidth` | both | soft-wrap instead of running off the pane |

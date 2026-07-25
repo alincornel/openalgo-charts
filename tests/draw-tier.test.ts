@@ -149,9 +149,9 @@ describe('geometry', () => {
 
 describe('tool registry', () => {
   it('registers every built-in on tier import', () => {
-    expect(BUILTIN_DRAWING_TOOLS).toHaveLength(18);
+    expect(BUILTIN_DRAWING_TOOLS).toHaveLength(34);
     for (const t of BUILTIN_DRAWING_TOOLS) expect(hasDrawingTool(t.id)).toBe(true);
-    expect(registeredDrawingTools().length).toBeGreaterThanOrEqual(18);
+    expect(registeredDrawingTools().length).toBeGreaterThanOrEqual(34);
   });
 
   it('has unique ids and a sane anchor count', () => {
@@ -170,6 +170,86 @@ describe('tool registry', () => {
       draw: () => {}, distance: () => 0,
     });
     expect(hasDrawingTool('test-dot')).toBe(true);
+  });
+});
+
+describe('new tool families', () => {
+  const rc2 = {
+    timeScale: { indexToX: (i: number) => i * 5 },
+    priceScale: { priceToY: (p: number) => 300 - p, format: (p: number) => p.toFixed(2) },
+    dataLayer: { timeToIndexFloat: (t: number) => t, indexToTimeFloat: (i: number) => i },
+    plotWidth: 800, plotHeight: 600, priceAxisWidth: 60, dpr: 1, theme: darkTheme,
+  } as never;
+
+  const hit = (id: string, pts: { x: number; y: number }[], x: number, y: number): number | null => {
+    const tool = getDrawingTool(id);
+    return tool.distance(x, y, {
+      pts,
+      rc: rc2,
+      drawing: {
+        id: 'd', tool: id, paneIndex: 0,
+        style: { ...(tool.defaultStyle ?? {}) },
+        points: pts.map((_, i) => ({ time: i, price: 100 })),
+      },
+    });
+  };
+
+  it('circle measures radially, so it is round on screen not axis-stretched', () => {
+    const pts = [{ x: 100, y: 100 }, { x: 140, y: 100 }];   // r = 40
+    // Same radial distance in x and y must give the same answer.
+    expect(hit('circle', pts, 100, 140)).toBe(0);           // inside (filled)
+    expect(hit('circle', pts, 100, 200)).toBeCloseTo(60, 6); // 100px out, r 40
+    expect(hit('circle', pts, 200, 100)).toBeCloseTo(60, 6);
+  });
+
+  it('triangle is grabbable along every edge', () => {
+    const pts = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 50, y: 80 }];
+    expect(hit('triangle', pts, 50, 0)).toBeCloseTo(0, 6);   // top edge
+    expect(hit('triangle', pts, 25, 40)).toBeCloseTo(0, 6);  // left edge
+  });
+
+  it('arc passes through its middle anchor, curve only leans toward it', () => {
+    const pts = [{ x: 0, y: 0 }, { x: 50, y: 50 }, { x: 100, y: 0 }];
+    // The arc is defined to touch the middle point, so distance there is ~0.
+    expect(hit('arc', pts, 50, 50) as number).toBeLessThan(1);
+    // The curve treats it as a control handle, so the path sits well short of it.
+    expect(hit('curve', pts, 50, 50) as number).toBeGreaterThan(10);
+  });
+
+  it('fib time zone marks the Fibonacci sequence, not the ratios', () => {
+    const pts = [{ x: 100, y: 0 }, { x: 120, y: 0 }];        // unit = 20px
+    for (const n of [0, 1, 2, 3, 5, 8]) {
+      expect(hit('fib-time-zone', pts, 100 + 20 * n, 300)).toBeCloseTo(0, 6);
+    }
+    // 4 and 6 are not in the sequence.
+    expect(hit('fib-time-zone', pts, 100 + 20 * 4, 300) as number).toBeGreaterThan(0);
+  });
+
+  it('gann fan puts a ray on the 1x1 diagonal', () => {
+    const pts = [{ x: 0, y: 0 }, { x: 100, y: 100 }];
+    expect(hit('gann-fan', pts, 50, 50)).toBeCloseTo(0, 6);   // 1x1
+    expect(hit('gann-fan', pts, 100, 50)).toBeCloseTo(0, 6);  // 1x2
+  });
+
+  it('arrow markers only hit near their single anchor', () => {
+    const pts = [{ x: 200, y: 150 }];
+    expect(hit('arrow-up', pts, 200, 160)).toBe(0);      // below, where it sits
+    expect(hit('arrow-up', pts, 200, 120)).toBeNull();   // above: miss
+    expect(hit('arrow-down', pts, 200, 140)).toBe(0);
+    expect(hit('arrow-down', pts, 200, 180)).toBeNull();
+  });
+
+  it('highlighter is grabbable across its fat stroke', () => {
+    const pts = [{ x: 0, y: 0 }, { x: 100, y: 0 }];
+    expect(hit('highlighter', pts, 50, 4)).toBe(0);   // inside the 12px stroke
+    expect(hit('highlighter', pts, 50, 40) as number).toBeGreaterThan(0);
+  });
+
+  it('price range and date range each measure one axis', () => {
+    const tool = getDrawingTool('price-range');
+    expect(tool.points).toBe(2);
+    expect(getDrawingTool('date-range').points).toBe(2);
+    expect(getDrawingTool('forecast').points).toBe(2);
   });
 });
 

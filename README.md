@@ -62,7 +62,7 @@ Import only what you use. Each tier is a separate bundle that registers into the
 |---|---|---|
 | `openalgo-charts` | Engine, 13 chart types, panes &amp; scales, primitives, registries, chart state, trading overlay, OpenAlgo feeds | 32.7 KB |
 | `openalgo-charts/indicators` | 18 built-in indicators + the Tier-2 (external-data) contract | 4.5 KB |
-| `openalgo-charts/draw` | 18 drawing tools + a headless drawing controller | 6.3 KB |
+| `openalgo-charts/draw` | 34 drawing tools + a headless drawing controller | 8.3 KB |
 | `openalgo-charts/transform` | Heikin Ashi, Renko, Range bars, Line Break, Point &amp; Figure, Kagi | 2.7 KB |
 | `openalgo-charts/profile` | Volume Profile, Market Profile (TPO), Footprint, order flow | 5.5 KB |
 | `openalgo-charts/trade` | Order / position / bracket tools + DOM ladder | 6.6 KB |
@@ -97,7 +97,7 @@ const draw = new DrawingController(chart, { magnet: true });
 draw.setTool('trend-line');   // the next two clicks place it
 ```
 
-18 tools: trend line, ray, extended line, arrow, horizontal line/ray, vertical line, cross line, rectangle, ellipse, parallel channel, fib retracement/extension, long/short position (with R:R and risk-based sizing), measure, text, path.
+34 tools. Lines: trend line, ray, extended line, arrow, horizontal line/ray, vertical line, cross line. Shapes: rectangle, ellipse, circle, triangle. Paths: polyline, arc, curve. Channels: parallel channel, fib channel. Fibonacci: retracement, extension, time zone, speed fan. Gann: fan, box. Forecasting: long/short position (with R:R and risk-based sizing), forecast. Measurers: price range, date range, measure. Arrows: mark up, mark down. Annotation: text, brush, highlighter.
 
 Headless by design — no toolbar, no dialogs. Placement with live preview, selection, whole-shape and per-anchor dragging, magnet snap to O/H/L/C, undo/redo (a drag is one step), and persistence. Anchors are `{ time, price }`, never pixels, so they survive zoom and resolve inside collapsed session gaps and past the last bar.
 

@@ -2,6 +2,41 @@
 
 All notable changes to OpenAlgo Charts.
 
+## Unreleased
+
+### Added
+
+- **16 more drawing tools**, taking the built-in set from 18 to 34 (draw tier
+  6.6 KB -> 8.3 KB Brotli).
+
+  Shapes: `circle`, `triangle`. Paths: `polyline`, `arc`, `curve`. Channels:
+  `fib-channel`. Fibonacci: `fib-time-zone`, `fib-fan`. Gann: `gann-fan`,
+  `gann-box`. Forecasting: `forecast`. Measurers: `price-range`, `date-range`.
+  Arrows: `arrow-up`, `arrow-down`. Brushes: `highlighter`.
+
+  `circle` measures its radius in pixels, so it stays round on screen rather
+  than becoming the ellipse differing axis scales would otherwise produce. `arc`
+  passes *through* its middle anchor while `curve` treats that anchor as a
+  control handle. The measurers all take their bar count from logical indices,
+  so it matches the gapless axis rather than raw elapsed time.
+
+- **Rail flyout menus in the yfinance demo.** Rail groups now open a sectioned
+  list of their tools — the pattern TradingView uses — instead of cycling tools
+  on repeat clicks, which was undiscoverable past two. The button re-activates
+  the last tool picked; the caret opens the list. Icons were redrawn on a 24x24
+  grid with a thinner stroke and outlined endpoint handles.
+
+- `pane.primitives()`, matching the existing `pane.series()`.
+
+### Fixed
+
+- **The yfinance demo rendered a white chart inside dark chrome.** It never
+  passed a theme, and the library default is the light palette (since
+  `275ee1e`). It now asks for `darkTheme` explicitly.
+
+- The drawing-tools doc had a blank line splitting its style table, which broke
+  the last three rows out of the table in the rendered page.
+
 ## 1.0.10
 
 Market Profile brought up to a full TPO implementation, row height became a
