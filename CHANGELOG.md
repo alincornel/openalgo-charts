@@ -2,6 +2,23 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.0.22
+
+### Fixed
+
+- **A maximized indicator pane drew its legend through the host's overlay.**
+  `legendOffset` was pinned to one pane index, on the assumption that the host's
+  own readout always covers pane 0's corner. Maximizing a lower pane parks the
+  others at a placeholder weight, so the maximized pane moves into that same
+  corner — and, not being pane 0, kept the default corner and drew straight
+  through the host's symbol / OHLC line.
+
+  The offset now follows whichever pane actually renders at the chart's top,
+  re-evaluated on every relayout. `legendOffset.paneIndex` is gone; it described
+  a fixed answer to a question whose answer moves.
+
+  Host-added legend rows are left alone — a host positions its own.
+
 ## 1.0.21
 
 ### Fixed

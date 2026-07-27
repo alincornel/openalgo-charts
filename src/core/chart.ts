@@ -25,6 +25,12 @@ import {
  * Chosen to stay apart on both dark and light panes and to read as distinct at
  * a 1px stroke, which rules out near-neighbour hues.
  */
+/** PaneLegend's own defaults, restated so a pane can be reset to them. */
+const DEFAULT_LEGEND_TOP = 6;
+const DEFAULT_LEGEND_LEFT = 8;
+/** How close to the chart top counts as "in the host's corner", in media px. */
+const LEGEND_TOP_EPS = 12;
+
 const INSTANCE_PALETTE: readonly string[] = [
   '#f5a623', '#26a69a', '#ab47bc', '#ef5350',
   '#26c6da', '#8bc34a', '#ff7043', '#5c6bc0',
@@ -68,14 +74,15 @@ export interface ChartOptions {
    * land underneath and their settings / close buttons become invisible and
    * unclickable.
    *
-   * `paneIndex` defaults to 0, because that overlay is nearly always on the
-   * price pane. Every other pane keeps the default corner: a lower indicator
-   * pane is short, so applying a price-pane offset there would push its legend
-   * off the pane entirely.
+   * It follows whichever pane currently renders at that corner, which is
+   * normally pane 0 — but maximizing a lower pane parks the others at a
+   * placeholder weight, so the maximized pane moves into the same corner and
+   * inherits the offset. Every other pane keeps the default corner, because a
+   * short lower pane would have its legend pushed off it entirely.
    *
-   * Defaults to `{ top: 6, left: 8, paneIndex: 0 }`.
+   * Defaults to `{ top: 6, left: 8 }`.
    */
-  legendOffset?: { top?: number; left?: number; paneIndex?: number };
+  legendOffset?: { top?: number; left?: number };
   /**
    * Crosshair behaviour. 'normal' (default) — the cross follows the pointer
    * exactly. 'magnet' — the horizontal line snaps to the nearest O/H/L/C of the
@@ -244,8 +251,7 @@ export class Chart {
   /** While true, pointer gestures place anchors instead of panning. */
   private _placementMode = false;
   /** Where indicator legend rows start inside a pane (see `legendOffset`). */
-  private readonly _legendOffset: { top: number; left: number; paneIndex: number } =
-    { top: 6, left: 8, paneIndex: 0 };
+  private readonly _legendOffset: { top: number; left: number } = { top: 6, left: 8 };
   private _downPane = 0;
   private _downX = 0;
   private _downLocalY = 0;
@@ -285,9 +291,6 @@ export class Chart {
     this._priceAxisWidth = options.priceAxisWidth ?? 56;
     if (options.legendOffset?.top !== undefined) this._legendOffset.top = options.legendOffset.top;
     if (options.legendOffset?.left !== undefined) this._legendOffset.left = options.legendOffset.left;
-    if (options.legendOffset?.paneIndex !== undefined) {
-      this._legendOffset.paneIndex = options.legendOffset.paneIndex;
-    }
     this._timeAxisHeight = options.timeAxisHeight ?? 22;
     this._crosshairMode = options.crosshairMode ?? 'normal';
     const sc = options.shortcuts;
@@ -565,14 +568,9 @@ export class Chart {
           o.row === 0 && o.paneIndex > 0
             ? ['hide', 'settings', 'up', 'down', 'maximize', 'close']
             : ['hide', 'settings', 'close'];
-        // Only the pane the host actually overlays is shifted. The keys are
-        // omitted rather than set undefined for the others: PaneLegend fills
-        // its defaults by spread, so an explicit undefined would erase them.
-        const shifted = o.paneIndex === this._legendOffset.paneIndex;
-        const offset = shifted
-          ? { top: this._legendOffset.top, left: this._legendOffset.left }
-          : {};
-        const legend = new PaneLegend({ ...offset, ...o, actions: paneActions });
+        // _syncLegendOffsets decides which pane wears the offset, and runs on
+        // every relayout; this is just the initial placement.
+        const legend = new PaneLegend({ ...o, actions: paneActions });
         this._addPrimitive(o.paneIndex, legend);
         return legend;
       },
@@ -849,6 +847,34 @@ export class Chart {
       const row = rowByPane.get(entry.paneIndex) ?? 0;
       entry.legend.setOptions({ row });
       rowByPane.set(entry.paneIndex, row + 1);
+    }
+    this._syncLegendOffsets();
+  }
+
+  /**
+   * Apply `legendOffset` to whichever pane currently renders at the chart's
+   * top-left, rather than a fixed index.
+   *
+   * The offset describes a region of the *chart* the host has covered with its
+   * own overlay — a symbol line, an OHLC readout. Normally that is pane 0, but
+   * maximizing a lower pane parks the others at a placeholder weight, so the
+   * maximized pane ends up rendering in that same corner. Pinning the offset to
+   * pane 0 left it drawing its legend straight through the host's readout.
+   *
+   * Host-added legend rows are left alone: the host positions its own.
+   */
+  private _syncLegendOffsets(): void {
+    const layout = this._paneLayout();
+    for (const entry of this._legends) {
+      if (!entry.legend.options().id.startsWith('indicator:')) continue;
+      // A collapsed pane above still occupies a fraction of a pixel, so "at the
+      // top" is a tolerance rather than an equality.
+      const atTop = (layout[entry.paneIndex]?.top ?? Number.POSITIVE_INFINITY) <= LEGEND_TOP_EPS;
+      entry.legend.setOptions(
+        atTop
+          ? { top: this._legendOffset.top, left: this._legendOffset.left }
+          : { top: DEFAULT_LEGEND_TOP, left: DEFAULT_LEGEND_LEFT },
+      );
     }
   }
 
@@ -1132,6 +1158,8 @@ export class Chart {
   /** Distribute height across panes by weight; sync the shared time-scale width. */
   private _relayout(): void {
     this._syncTimeNavPane();
+    // Weights just changed, so the pane at the chart's top may have too.
+    this._syncLegendOffsets();
     const dpr = this._pixelRatio();
     const total = this._weightTotal();
     for (const pane of this._panes) {

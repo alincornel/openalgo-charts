@@ -101,10 +101,10 @@ interface ChartOptions {
   /** Hover-revealed zoom / step controls above the time axis. Default true. */
   timeNavigator?: boolean | Partial<TimeNavigatorOptions>;
   /**
-   * Where indicator legend rows start inside one pane, in media px.
-   * Default `{ top: 6, left: 8, paneIndex: 0 }`.
+   * Where indicator legend rows start in the pane at the chart's top, in media px.
+   * Default `{ top: 6, left: 8 }`.
    */
-  legendOffset?: { top?: number; left?: number; paneIndex?: number };
+  legendOffset?: { top?: number; left?: number };
 }
 ```
 
@@ -118,10 +118,10 @@ invisible and unclickable.
 createChart(el, { legendOffset: { top: 40 } });   // clear a two-line overlay
 ```
 
-It applies to **one** pane — `paneIndex`, default 0 — because that overlay is
-nearly always on the price pane. Lower indicator panes are short, so shifting
-them by a price-pane offset would push their legend, and its settings / close /
-move-pane buttons, off the pane entirely.
+It follows whichever pane currently renders at that corner — normally pane 0,
+but maximizing a lower pane moves it there instead, so the offset moves with it.
+Other panes keep the default corner, since a short lower pane would have its
+legend, and its settings / close / move-pane buttons, pushed off it entirely.
 </Callout>
 
 Options passed to `createChart(container, options)`. All fields are optional; defaults are sensible for browser use.

@@ -181,20 +181,30 @@ describe('pane legend rows', () => {
     expect(lower.legend()?.options().top).toBe(6);
   });
 
-  it('honours an explicit paneIndex for the offset', () => {
+  it('moves the offset to a maximized lower pane, which now sits at the top', () => {
+    // Maximizing parks the other panes at a placeholder weight, so the
+    // maximized pane renders in the corner the host overlay covers. Pinning the
+    // offset to pane 0 left the maximized pane drawing through that overlay.
     const el = fakeDocument().createElement('div') as unknown as FakeElement;
     const chart = new Chart(el, {
       document: fakeDocument(), raf: { schedule: () => 0 },
       pixelRatio: () => 1, shortcuts: false,
-      legendOffset: { top: 40, paneIndex: 1 },
+      legendOffset: { top: 80 },
     });
     chart.applySize(800, 600);
     chart.addSeries('candlestick').setData(bars(60));
-    chart.addIndicator('ema');   // pane 0 -> untouched now
-    chart.addIndicator('rsi');   // pane 1 -> shifted
+    chart.addIndicator('ema');   // pane 0
+    chart.addIndicator('rsi');   // own pane
     const [onchart, lower] = chart.indicators();
-    expect(onchart.legend()?.options().top).toBe(6);
-    expect(lower.legend()?.options().top).toBe(40);
+    expect(lower.legend()?.options().top).toBe(6);
+
+    chart.maximizePane(lower.paneIndex);
+    expect(lower.legend()?.options().top).toBe(80);
+    // ...and pane 0, now a sliver still at the very top, keeps it too.
+    expect(onchart.legend()?.options().top).toBe(80);
+
+    chart.maximizePane(lower.paneIndex); // toggle back
+    expect(lower.legend()?.options().top).toBe(6);
   });
 
   it('leaves legends at the default corner with no offset given', () => {

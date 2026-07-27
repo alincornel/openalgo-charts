@@ -8,6 +8,20 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 1.0.22
+
+**Fixed**
+
+- **A maximized indicator pane drew its legend through the host's overlay.**
+  `legendOffset` was pinned to one pane index. Maximizing a lower pane parks the
+  others at a placeholder weight, so the maximized pane moves into the corner
+  the host has covered — and, not being pane 0, kept the default corner and drew
+  straight through the host's symbol / OHLC line.
+
+  The offset now follows whichever pane actually renders at the chart's top,
+  re-evaluated on every relayout. `legendOffset.paneIndex` is gone: it was a
+  fixed answer to a question whose answer moves.
+
 ## 1.0.21
 
 **Fixed**
