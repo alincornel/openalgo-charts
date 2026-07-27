@@ -15,6 +15,26 @@ import { IndicatorInstance, type IndicatorHost } from '../src/model/indicator-in
 import { BUILTIN_INDICATORS } from '../src/indicators/index';
 import { createTier2Indicator, type Tier2Point } from '../src/indicators/tier2';
 import { sma, wma, rma, stdev, highest, lowest } from '../src/indicators/calc';
+import { makeCtx } from './helpers/fake-ctx';
+import { IndicatorFill } from '../src/primitives/indicator-fill';
+import { PriceScale } from '../src/scale/price-scale';
+import { TimeScale } from '../src/scale/time-scale';
+import { DataLayer } from '../src/model/data-layer';
+import { darkTheme } from '../src/theme';
+import type { PrimitiveRenderContext } from '../src/primitives/primitive';
+
+/** Minimal render context for the fill primitive's geometry. */
+function fillRc(): PrimitiveRenderContext {
+  const priceScale = new PriceScale();
+  priceScale.setHeight(400);
+  priceScale.setPriceRange({ min: 0, max: 20 });
+  const timeScale = new TimeScale();
+  timeScale.setWidth(600);
+  return {
+    timeScale, priceScale, dataLayer: new DataLayer(), plotWidth: 600, plotHeight: 400,
+    priceAxisWidth: 56, dpr: 1, theme: darkTheme,
+  };
+}
 import { Chart } from '../src/core/chart';
 import { fakeDocument } from './helpers/fake-dom';
 import type { Bar } from '../src/model/bar';
@@ -242,6 +262,8 @@ describe('IndicatorInstance runtime', () => {
     const host: IndicatorHost = {
       addIndicatorLegend: () => ({ setOptions: () => {}, setValue: () => {}, setValues: () => {} }) as never,
       removeIndicatorLegend: () => {},
+      addIndicatorFill: () => {},
+      removeIndicatorFill: () => {},
       legendRowsOn: () => 0,
       addIndicatorSeries: (type): SeriesApi => {
         const key = `${type}-${n++}`;
@@ -483,5 +505,64 @@ describe('chart.addIndicator integration', () => {
     chart.addSeries('candlestick').setData(wave(10));
     const inst = chart.addIndicator('test-double', { factor: 3 });
     expect(inst.values().out[0]).toBeCloseTo(wave(10)[0].close * 3, 10);
+  });
+});
+
+describe('indicator fills (the Ichimoku cloud)', () => {
+  it('ichimoku declares a cloud between the two spans', () => {
+    const d = registeredIndicators().find((x) => x.id === 'ichimoku');
+    expect(d?.fills?.[0].between).toEqual(['spanA', 'spanB']);
+    // Colour-by-settings, so the cloud is restyleable like any plot.
+    expect(d?.fills?.[0].colorUpKey).toBe('cloudUpColor');
+  });
+
+  it('fills one polygon per constant-sign run, split at the crossing', () => {
+    const fill = new IndicatorFill({ colorUp: '#0f0', colorDown: '#f00' });
+    // A leads, then B leads: one flip, so two filled runs.
+    fill.setPoints([
+      { index: 0, a: 10, b: 5 },
+      { index: 1, a: 8, b: 6 },
+      { index: 2, a: 4, b: 9 },
+      { index: 3, a: 2, b: 11 },
+    ]);
+    const { ctx, rec } = makeCtx();
+    fill.draw(ctx, fillRc());
+    const fills = rec.ops.filter((o) => o.type === 'fill');
+    expect(fills).toHaveLength(2);
+    // Both colours used — a single-colour band would hide which side leads.
+    const styles = fills.map((o) => o.fillStyle);
+    expect(styles).toContain('#0f0');
+    expect(styles).toContain('#f00');
+  });
+
+  it('breaks the band across a gap instead of bridging it', () => {
+    const fill = new IndicatorFill({ colorUp: '#0f0', colorDown: '#f00' });
+    // The warmup hole an Ichimoku span always has at the start.
+    fill.setPoints([
+      { index: 0, a: null, b: null },
+      { index: 1, a: 10, b: 5 },
+      { index: 2, a: 11, b: 6 },
+      { index: 3, a: null, b: null },
+      { index: 4, a: 12, b: 7 },
+      { index: 5, a: 13, b: 8 },
+    ]);
+    const { ctx, rec } = makeCtx();
+    fill.draw(ctx, fillRc());
+    // Two separate runs, not one polygon spanning the hole.
+    expect(rec.ops.filter((o) => o.type === 'fill')).toHaveLength(2);
+  });
+
+  it('draws nothing for a single point or while hidden', () => {
+    const fill = new IndicatorFill({ colorUp: '#0f0', colorDown: '#f00' });
+    fill.setPoints([{ index: 0, a: 1, b: 2 }]);
+    const a = makeCtx();
+    fill.draw(a.ctx, fillRc());
+    expect(a.rec.ops.filter((o) => o.type === 'fill')).toHaveLength(0);
+
+    fill.setPoints([{ index: 0, a: 1, b: 2 }, { index: 1, a: 3, b: 4 }]);
+    fill.setVisible(false);
+    const b = makeCtx();
+    fill.draw(b.ctx, fillRc());
+    expect(b.rec.ops.filter((o) => o.type === 'fill')).toHaveLength(0);
   });
 });

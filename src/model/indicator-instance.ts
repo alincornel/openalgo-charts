@@ -11,7 +11,8 @@ import type { Bar } from './bar';
 import type { SeriesApi } from './series';
 import type { PriceLine } from '../primitives/price-line';
 import type { PaneLegend, LegendValue } from '../primitives/pane-legend';
-import type { IndicatorPlot } from './indicator-registry';
+import type { IndicatorFillSpec, IndicatorPlot } from './indicator-registry';
+import { IndicatorFill as IndicatorFillPrimitive } from '../primitives/indicator-fill';
 
 import { withAlpha } from '../render/pill';
 import {
@@ -68,6 +69,9 @@ export interface IndicatorHost {
     paneIndex: number,
   ): PriceLine;
   removeIndicatorLevel(line: PriceLine): void;
+  /** Attach a band drawn behind the plots (an Ichimoku cloud). */
+  addIndicatorFill(fill: IndicatorFillPrimitive, paneIndex: number): void;
+  removeIndicatorFill(fill: IndicatorFillPrimitive): void;
   /** Bars of the primary price series — the calculation input. */
   sourceBars(): readonly Bar[];
   /** Index of a fresh pane for an indicator that wants its own. */
@@ -120,6 +124,8 @@ export class IndicatorInstance implements IndicatorApi {
   private readonly _ownPane: boolean;
   private _settings: IndicatorSettings;
   private readonly _series = new Map<string, SeriesApi>();
+  /** One band per declared fill, in descriptor order. */
+  private readonly _fills: IndicatorFillPrimitive[] = [];
   private _levels: PriceLine[] = [];
   private _values: IndicatorValues = {};
   private _barCount = 0;
@@ -165,6 +171,16 @@ export class IndicatorInstance implements IndicatorApi {
         plot.key,
         host.addIndicatorSeries(plot.type, this.paneIndex, this._plotStyle(plot), plot.priceScaleId),
       );
+    }
+
+    for (const fill of descriptor.fills ?? []) {
+      const band = new IndicatorFillPrimitive({
+        colorUp: this._fillColor(fill, true),
+        colorDown: this._fillColor(fill, false),
+        opacity: fill.opacity ?? 0.12,
+      });
+      this._fills.push(band);
+      host.addIndicatorFill(band, this.paneIndex);
     }
 
     this._legend = host.addIndicatorLegend({
@@ -218,6 +234,7 @@ export class IndicatorInstance implements IndicatorApi {
     if (on === this._visible) return;
     this._visible = on;
     for (const series of this._series.values()) series.applyOptions({ visible: on });
+    for (const band of this._fills) band.setVisible(on);
     this._legend?.setOptions({ hidden: !on });
   }
 
@@ -248,6 +265,38 @@ export class IndicatorInstance implements IndicatorApi {
       out.push({ text: formatValue(v), color: this._plotColor(plot) });
     }
     this._legend.setValues(out);
+  }
+
+  /** A band's colour: its settings key if it has one, else the declared value. */
+  private _fillColor(fill: IndicatorFillSpec, up: boolean): string {
+    const key = up ? fill.colorUpKey : fill.colorDownKey;
+    const fromSettings = key !== undefined ? this._settings[key] : undefined;
+    if (typeof fromSettings === 'string') return fromSettings;
+    const declared = up ? fill.colorUp : fill.colorDown;
+    return declared ?? (up ? '#26a69a' : '#ef5350');
+  }
+
+  /** Feed each band the two plots it spans, on the shared logical index. */
+  private _syncFills(): void {
+    const fills = this._d.fills ?? [];
+    for (let i = 0; i < fills.length; i++) {
+      const band = this._fills[i];
+      if (band === undefined) continue;
+      const spec = fills[i];
+      const a = this._values[spec.between[0]];
+      const b = this._values[spec.between[1]];
+      band.setOptions({
+        colorUp: this._fillColor(spec, true),
+        colorDown: this._fillColor(spec, false),
+        opacity: spec.opacity ?? 0.12,
+      });
+      if (a === undefined || b === undefined) { band.setPoints([]); continue; }
+      const pts = [];
+      for (let j = 0; j < this._barCount; j++) {
+        pts.push({ index: j, a: a[j] ?? null, b: b[j] ?? null });
+      }
+      band.setPoints(pts);
+    }
   }
 
   private _plotColor(plot: IndicatorPlot): string | undefined {
@@ -361,6 +410,7 @@ export class IndicatorInstance implements IndicatorApi {
       }
       series.setData(out);
     }
+    this._syncFills();
     this.updateLegendValues();
   }
 
@@ -398,6 +448,8 @@ export class IndicatorInstance implements IndicatorApi {
     this._levels = [];
     for (const series of this._series.values()) series.remove();
     this._series.clear();
+    for (const band of this._fills) this._host.removeIndicatorFill(band);
+    this._fills.length = 0;
     if (this._ownPane) this._host.setPaneRange(this.paneIndex, null);
   }
 }

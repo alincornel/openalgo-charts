@@ -211,6 +211,8 @@ export const ICHIMOKU: IndicatorDescriptor = {
     { key: 'spanAColor', type: 'color', label: 'Span A', default: '#26a69a' },
     { key: 'spanBColor', type: 'color', label: 'Span B', default: '#ab47bc' },
     { key: 'laggingColor', type: 'color', label: 'Lagging', default: '#8892a6' },
+    { key: 'cloudUpColor', type: 'color', label: 'Cloud up', default: '#26a69a' },
+    { key: 'cloudDownColor', type: 'color', label: 'Cloud down', default: '#ef5350' },
   ],
   plots: [
     { key: 'conversion', type: 'line', title: 'Tenkan-sen', colorKey: 'conversionColor', style: { lineWidth: 1 } },
@@ -219,6 +221,15 @@ export const ICHIMOKU: IndicatorDescriptor = {
     { key: 'spanB', type: 'line', title: 'Senkou Span B', colorKey: 'spanBColor', style: { lineWidth: 1 } },
     { key: 'lagging', type: 'line', title: 'Chikou Span', colorKey: 'laggingColor', style: { lineWidth: 1 } },
   ],
+  // The Kumo. Two lines are not the same picture as a filled cloud: the shading
+  // is what makes "price is above the cloud" and "the cloud flipped" readable,
+  // and which span leads is itself the signal, hence the two colours.
+  fills: [{
+    between: ['spanA', 'spanB'],
+    colorUpKey: 'cloudUpColor',
+    colorDownKey: 'cloudDownColor',
+    opacity: 0.14,
+  }],
   calc: (bars, s) => {
     const n = bars.length;
     const conv = num(s, 'conversionPeriod', 9);

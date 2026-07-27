@@ -163,6 +163,15 @@ function arrowHead(c: DrawContext, a: ScreenPoint, b: ScreenPoint): void {
   c.ctx.fill();
 }
 
+/** 172.79M / 1.2K — a raw volume sum is unreadable in a label. */
+function compactNumber(n: number): string {
+  const abs = Math.abs(n);
+  if (abs >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
+  if (abs >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
+  if (abs >= 1e3) return `${(n / 1e3).toFixed(2)}K`;
+  return grouped(n);
+}
+
 const UP_TINT = '#26a69a';
 const DOWN_TINT = '#ef5350';
 
@@ -428,16 +437,17 @@ export const FIB_EXTENSION = fibTool('fib-extension', 'Fib Extension', 3);
 
 export const MEASURE: DrawingTool = {
   id: 'measure', name: 'Measure', points: 2,
-  defaultStyle: { fill: true, showLabels: true, fillOpacity: 0.1 },
+  defaultStyle: { fill: true, showLabels: true, fillOpacity: 0.14 },
   draw: (c) => {
     const r = rectOf(c.pts[0], c.pts[1]);
+    const d = c.rc.dpr;
     const p = c.drawing.points;
     const chg = p[1].price - p[0].price;
     const pct = p[0].price !== 0 ? (chg / p[0].price) * 100 : 0;
     const up = chg >= 0;
-    const tint = up ? '#26a69a' : '#ef5350';
+    const tint = up ? UP_TINT : DOWN_TINT;
     c.ctx.save();
-    c.ctx.globalAlpha = c.style.fillOpacity ?? 0.1;
+    c.ctx.globalAlpha = c.style.fillOpacity ?? 0.14;
     c.ctx.fillStyle = tint;
     c.ctx.fillRect(r.x0, r.y0, r.x1 - r.x0, r.y1 - r.y0);
     c.ctx.restore();
@@ -445,16 +455,50 @@ export const MEASURE: DrawingTool = {
     c.ctx.strokeStyle = tint;
     c.ctx.strokeRect(r.x0, r.y0, r.x1 - r.x0, r.y1 - r.y0);
     c.ctx.setLineDash([]);
-    // Bars are counted on logical indices, so the count matches what the
-    // gapless axis actually shows rather than raw elapsed time.
+
+    // Two arrows: one along price at the start level, one along time. They are
+    // what make the box read as a measurement rather than a highlight.
+    const midX = (r.x0 + r.x1) / 2;
+    const y0 = c.pts[0].y;
+    const y1 = c.pts[1].y;
+    c.ctx.strokeStyle = tint;
+    c.ctx.beginPath();
+    c.ctx.moveTo(r.x0, y0);
+    c.ctx.lineTo(r.x1, y0);
+    c.ctx.stroke();
+    arrowHead(c, { x: r.x0, y: y0 }, { x: r.x1, y: y0 });
+    c.ctx.beginPath();
+    c.ctx.moveTo(midX, y0);
+    c.ctx.lineTo(midX, y1);
+    c.ctx.stroke();
+    arrowHead(c, { x: midX, y: y0 }, { x: midX, y: y1 });
+
+    if (c.style.showLabels === false) return;
+    // Bars come from logical indices, so the count matches the gapless axis
+    // rather than raw elapsed time; the calendar span comes from the times.
     const i0 = c.rc.dataLayer.timeToIndexFloat(p[0].time);
     const i1 = c.rc.dataLayer.timeToIndexFloat(p[1].time);
     const bars = Math.abs(Math.round(i1 - i0));
     const sign = up ? '+' : '';
-    label(
-      c, `${sign}${c.formatPrice(chg)}  (${sign}${pct.toFixed(2)}%)  ${bars} bars`,
-      r.x0 + 4 * c.rc.dpr, r.y0 - 10 * c.rc.dpr, tint,
-    );
+    const lines = [
+      `${sign}${c.formatPrice(chg)} (${sign}${pct.toFixed(2)}%)`,
+      `${grouped(bars)} bars, ${humanSpan(p[1].time - p[0].time)}`,
+    ];
+    // Volume over the span, when the pane can hand us the bars.
+    const src = c.rc.bars?.();
+    if (src !== undefined && src.length > 0) {
+      const lo = Math.min(p[0].time, p[1].time);
+      const hi = Math.max(p[0].time, p[1].time);
+      let vol = 0;
+      let seen = false;
+      for (const b of src) {
+        if (b.time < lo) continue;
+        if (b.time > hi) break;
+        if (b.volume !== undefined) { vol += b.volume; seen = true; }
+      }
+      if (seen) lines.push(`Vol ${compactNumber(vol)}`);
+    }
+    chip(c, lines, midX, Math.max(y0, y1) + 6 * d, tint, { align: 'center', place: 'below' });
   },
   distance: (x, y, h) => distToRect(x, y, h.pts[0], h.pts[1], true),
 };

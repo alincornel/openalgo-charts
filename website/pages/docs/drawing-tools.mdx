@@ -53,6 +53,11 @@ Anchor counts of `n` mean the tool collects anchors until you end it. **Freehand
 `n` tools (`path`, `polyline`) take one anchor per click and finish on **double-click**, or
 on `controller.finish()` if you want to bind a key to it.
 
+`measure` draws price and time arrows across its box and a chip carrying the
+change, percentage, bar count, calendar span, and the volume traded over the
+span (that last one via `rc.bars()`, so it appears only when the pane has a
+price series with volume).
+
 The three measurers differ only in what they report. `measure` gives price change, percent
 *and* bar count; `price-range` drops the time axis; `date-range` drops the price axis — which
 is what you want when the other axis is noise. All three take their **bar count from logical

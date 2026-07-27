@@ -8,6 +8,34 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 1.0.17
+
+**Added**
+
+- **Indicator fills — the Ichimoku cloud.** A descriptor can declare `fills`,
+  shading the band between two of its plots:
+
+  ```ts
+  fills: [{ between: ['spanA', 'spanB'], colorUpKey: 'cloudUpColor', colorDownKey: 'cloudDownColor' }]
+  ```
+
+  Two lines are not the same picture as a filled region — the shading is what
+  makes "price is above the cloud" and "the cloud flipped" readable, and which
+  span leads is itself the signal, hence two colours. Ichimoku ships one, and
+  `IndicatorFill` is exported for shading your own pair.
+
+  Runs split at the exact crossing rather than the nearest bar, and a gap in
+  either plot breaks the band instead of bridging it.
+
+- **`measure` reports what a measurement should** — price and time arrows plus a
+  chip with the change, percentage, bar count, calendar span and the volume over
+  the span.
+
+**Changed**
+
+- Base tier budget 35 → 36 KB, base+trade 41.5 → 42.5 KB, full 72 → 73 KB: the
+  fill primitive sits in the base bundle because `IndicatorInstance` does.
+
 ## 1.0.16
 
 **Added**

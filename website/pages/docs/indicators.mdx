@@ -182,6 +182,30 @@ registerIndicator({
 chart.addIndicator('momentum', { length: 14 });
 ```
 
+### Shaded bands between plots
+
+A pair of lines is not the same picture as a filled region, so a descriptor can
+declare `fills` — the Ichimoku cloud, a Bollinger channel:
+
+```ts
+plots: [
+  { key: 'spanA', type: 'line', title: 'Senkou Span A', colorKey: 'spanAColor' },
+  { key: 'spanB', type: 'line', title: 'Senkou Span B', colorKey: 'spanBColor' },
+],
+fills: [{
+  between: ['spanA', 'spanB'],
+  colorUpKey: 'cloudUpColor',     // settings keys, so the band is restyleable
+  colorDownKey: 'cloudDownColor',
+  opacity: 0.14,
+}],
+```
+
+Two colours, because *which* side leads is itself the signal. The band draws
+behind the plots, contributes nothing to autoscale, splits at the exact crossing
+rather than the nearest bar, and breaks across a gap in either plot instead of
+bridging it. Pass `colorUp` / `colorDown` literals instead of the `*Key` forms
+for a fixed band.
+
 `calc` must return one array per plot key, the same length as `bars`. Use `null` for warmup
 slots — the line renderer breaks across them and autoscale skips them, so a gap draws as
 nothing rather than a spike to zero.

@@ -536,6 +536,8 @@ export class Chart {
       addIndicatorLevel: (price, color, dashed, label, id, paneIndex): PriceLine =>
         this.addPriceLine({ price, color, lineWidth: 1, dashed, leftLabel: label, id }, paneIndex),
       removeIndicatorLevel: (line): void => this.removePrimitive(line),
+      addIndicatorFill: (fill, paneIndex): void => this._addPrimitive(paneIndex, fill),
+      removeIndicatorFill: (fill): void => this.removePrimitive(fill),
       sourceBars: (): readonly Bar[] =>
         this._firstDataId.value === null ? [] : this._dataLayer.seriesBars(this._firstDataId.value),
       nextPaneIndex: (): number => this._panes.length,

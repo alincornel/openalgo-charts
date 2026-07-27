@@ -99,6 +99,21 @@ export const INDICATOR_SOURCES: readonly { label: string; value: IndicatorSource
 export type IndicatorSettings = Record<string, unknown>;
 
 /** One plotted line/band/histogram. `type` is any registered chart type. */
+/** A shaded band between two of an indicator's plots. */
+export interface IndicatorFillSpec {
+  /** The two plot keys to fill between. */
+  between: readonly [string, string];
+  /** Colour where the first plot is above the second. */
+  colorUp?: string;
+  /** Colour where the second is above the first. */
+  colorDown?: string;
+  /** Settings keys holding those colours, so the band is restyleable. */
+  colorUpKey?: string;
+  colorDownKey?: string;
+  /** 0..1. Defaults to 0.12. */
+  opacity?: number;
+}
+
 export interface IndicatorPlot {
   /** Key into the `calc` result. */
   key: string;
@@ -154,6 +169,13 @@ export interface IndicatorDescriptor {
   placement: 'onchart' | 'pane';
   inputs: readonly IndicatorInput[];
   plots: readonly IndicatorPlot[];
+  /**
+   * Shaded bands between pairs of plots — the Ichimoku cloud, a Bollinger
+   * channel. A pair of lines is not the same picture as a filled region: the
+   * fill is what makes "price is above the cloud" readable at a glance, and
+   * which side leads is itself the signal, hence the two colours.
+   */
+  fills?: readonly IndicatorFillSpec[];
   /**
    * Full recompute over every bar. Must return arrays the same length as
    * `bars` (use `null` for warmup gaps — the line renderer breaks across them
