@@ -15,7 +15,20 @@ import type { TickMarkType } from '../render/axis';
 import { DataLayer } from '../model/data-layer';
 import { createSeriesRecord, type SeriesApi, type PriceScaleId } from '../model/series';
 import { getChartType, type SeriesType } from '../model/chart-type-registry';
-import { getIndicator, hasIndicator, type IndicatorSettings } from '../model/indicator-registry';
+import {
+  getIndicator, hasIndicator, plotStyleKeys,
+  type IndicatorDescriptor, type IndicatorSettings,
+} from '../model/indicator-registry';
+
+/**
+ * Colours the 2nd and later instances of the same indicator rotate through.
+ * Chosen to stay apart on both dark and light panes and to read as distinct at
+ * a 1px stroke, which rules out near-neighbour hues.
+ */
+const INSTANCE_PALETTE: readonly string[] = [
+  '#f5a623', '#26a69a', '#ab47bc', '#ef5350',
+  '#26c6da', '#8bc34a', '#ff7043', '#5c6bc0',
+];
 import { IndicatorInstance, type IndicatorApi, type IndicatorHost } from '../model/indicator-instance';
 import {
   CHART_STATE_VERSION,
@@ -471,14 +484,42 @@ export class Chart {
     settings: Readonly<IndicatorSettings> = {},
     options: { paneIndex?: number } = {},
   ): IndicatorApi {
+    const descriptor = getIndicator(indicatorId);
     const instance = new IndicatorInstance(
       this._indicatorHost(),
-      getIndicator(indicatorId),
-      settings,
+      descriptor,
+      this._distinctColors(descriptor, settings),
       options.paneIndex,
     );
     this._indicators.push(instance);
     return instance;
+  }
+
+  /**
+   * Give a repeated indicator its own colours. Three EMAs all in the
+   * descriptor's default blue are indistinguishable on the chart *and* in the
+   * legend, so the second and later instances rotate through a palette.
+   *
+   * Only fills colour keys the caller left unset, so an explicit colour always
+   * wins, and the first instance is never touched — it keeps the colours the
+   * descriptor chose.
+   */
+  private _distinctColors(
+    descriptor: IndicatorDescriptor,
+    settings: Readonly<IndicatorSettings>,
+  ): Readonly<IndicatorSettings> {
+    const nth = this._indicators.filter((i) => i.indicatorId === descriptor.id).length;
+    if (nth === 0) return settings;
+    const out: IndicatorSettings = { ...settings };
+    const plots = descriptor.plots;
+    for (let i = 0; i < plots.length; i++) {
+      const key = plotStyleKeys(plots[i]).color;
+      if (out[key] !== undefined) continue; // an explicit colour always wins
+      // Stride by the plot count so a multi-plot indicator (MACD) shifts as a
+      // block rather than landing on the previous instance's colours.
+      out[key] = INSTANCE_PALETTE[(nth * plots.length + i) % INSTANCE_PALETTE.length];
+    }
+    return out;
   }
 
   /** Every live indicator instance, in the order they were added. */

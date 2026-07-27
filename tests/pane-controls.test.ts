@@ -281,3 +281,45 @@ describe('pane removal, ordering, and maximize', () => {
     expect(chart.panes().map((p) => p.weight)).toEqual(before);
   });
 });
+
+describe('repeated indicators get distinct colours', () => {
+  // Three EMAs in the descriptor's one default blue are indistinguishable on
+  // the chart and in the legend alike.
+  const emaColor = (i: { settings(): Record<string, unknown> }): unknown => i.settings().color;
+
+  it('rotates the colour for the 2nd and later instances', () => {
+    const { chart } = makeChart();
+    chart.addSeries('candlestick').setData(bars(80));
+    const a = chart.addIndicator('ema');
+    const b = chart.addIndicator('ema');
+    const c = chart.addIndicator('ema');
+    expect(emaColor(b)).not.toBe(emaColor(a));
+    expect(emaColor(c)).not.toBe(emaColor(a));
+    expect(emaColor(c)).not.toBe(emaColor(b));
+  });
+
+  it('leaves the first instance on the descriptor colour', () => {
+    const one = makeChart().chart;
+    one.addSeries('candlestick').setData(bars(80));
+    const two = makeChart().chart;
+    two.addSeries('candlestick').setData(bars(80));
+    expect(emaColor(one.addIndicator('ema'))).toBe(emaColor(two.addIndicator('ema')));
+  });
+
+  it('never overrides a colour the caller passed', () => {
+    const { chart } = makeChart();
+    chart.addSeries('candlestick').setData(bars(80));
+    chart.addIndicator('ema');
+    expect(emaColor(chart.addIndicator('ema', { color: '#123456' }))).toBe('#123456');
+  });
+
+  it('counts per indicator id, so another indicator starts fresh', () => {
+    const { chart } = makeChart();
+    chart.addSeries('candlestick').setData(bars(80));
+    chart.addIndicator('ema');
+    chart.addIndicator('ema');
+    const other = makeChart().chart;
+    other.addSeries('candlestick').setData(bars(80));
+    expect(emaColor(chart.addIndicator('rsi'))).toBe(emaColor(other.addIndicator('rsi')));
+  });
+});

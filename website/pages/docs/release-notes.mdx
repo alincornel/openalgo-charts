@@ -8,6 +8,20 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 1.0.20
+
+**Added**
+
+- **A repeated indicator gets its own colours.** A second EMA took the
+  descriptor's one default blue, so three EMAs were indistinguishable on the
+  chart and in the legend alike. The 2nd and later instances of the same
+  `indicatorId` now rotate through a palette.
+
+  Only unset colour keys are filled, so an explicit colour always wins; the
+  first instance keeps the descriptor's own colours; and the count is per
+  indicator id, so two EMAs do not shift the first RSI. Multi-plot indicators
+  stride by their plot count, so MACD's three lines shift as a block.
+
 ## 1.0.19
 
 **Fixed**

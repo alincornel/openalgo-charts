@@ -75,6 +75,12 @@ return chart;`} />
 `onchart` indicators overlay the price pane; `pane` indicators create their own. Override
 with `chart.addIndicator('rsi', {}, { paneIndex: 2 })`.
 
+Adding the **same indicator more than once** gives each instance its own colours —
+three EMAs in one default blue are indistinguishable on the chart and in the
+legend alike. Only colour keys you leave unset are filled, so
+`chart.addIndicator('ema', { color: '#123456' })` always wins, and the first
+instance keeps whatever the descriptor chose.
+
 <Callout type="info">
 **VWAP anchors on the IST trading day** by default, matching the rest of the engine's
 session handling. Pass `{ anchor: 'continuous' }` for a running VWAP over all loaded data.
