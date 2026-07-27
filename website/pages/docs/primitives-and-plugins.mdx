@@ -160,6 +160,7 @@ return chart;`} caption="LogoWatermark: a colored badge and a tinted monochrome 
 | `background` | translucent theme bg | rounded plate behind the lockup; `'none'` to omit |
 | `borderColor` | theme axis line | plate border; `'none'` to omit |
 | `radius` | `6` | plate corner radius |
+| `padding` | `{ x: 7, y: 4 }` | plate padding in media px; a number pads both axes |
 | `revealSeconds` | `0.18` | reveal duration |
 | `href` | - | marks it clickable; the host opens `watermark.href()` |
 | `utmMedium` / `utmCampaign` | `oac-link` / `oac-chart` | attribution on the composed link |
@@ -194,6 +195,24 @@ string to compose your own and skip that entirely.
 
 A mark with neither `label` nor `href` stays out of the hit path completely, so plain
 decoration cannot swallow clicks meant for the chart.
+</Callout>
+
+#### Sizing the resting plate
+
+`height` sizes the mark; `padding` sizes the plate around it. The two together set what the
+corner looks like at rest — a 40px mark with `padding: 2.5` sits in a 45x45 square, and the
+plate widens from there as the label unrolls.
+
+```ts
+new LogoWatermark({ src: '/mark.svg', height: 40, padding: 2.5, label: 'OpenAlgo Charts' });
+```
+
+<Callout type="warning">
+Supply the **symbol on its own**, cropped tight to a square `viewBox`. An app-icon asset —
+a full-bleed background plate with the mark inset and a wordmark beneath it — scales its own
+padding along with the mark, so raising `height` grows the empty space rather than the logo.
+Whatever `tint`/`labelColor` recolors, the whole opaque silhouette becomes one shade, so a
+background baked into the file becomes a solid block.
 </Callout>
 
 ### `watermarkRect` placement helper

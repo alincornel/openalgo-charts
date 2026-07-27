@@ -57,6 +57,16 @@ export interface LogoWatermarkOptions {
   /** Plate corner radius in media px. Default 6. */
   radius?: number;
   /**
+   * Plate padding around the lockup, in media px. A number pads both axes;
+   * `{ x, y }` pads them separately. Default `{ x: 7, y: 4 }`, which keeps the
+   * revealed label clear of the plate edge.
+   *
+   * Use it to size the resting plate exactly: a 40px mark with `padding: 2.5`
+   * sits in a 45x45 square. The plate widens as the label unrolls; the padding
+   * is what stays constant.
+   */
+  padding?: number | { x: number; y: number };
+  /**
    * Where the mark points. A canvas cannot hold an anchor, so this only marks
    * it as clickable — the hit reports a pointer cursor, and the host opens
    * {@link href} from its own click handler.
@@ -73,6 +83,12 @@ export interface LogoWatermarkOptions {
 }
 
 interface ImageLike { width: number; height: number; naturalWidth?: number; naturalHeight?: number; complete?: boolean; }
+
+/** Plate padding as a pair, from either accepted form. */
+function resolvePadding(p: LogoWatermarkOptions['padding']): { x: number; y: number } {
+  if (p === undefined) return { x: 7, y: 4 };
+  return typeof p === 'number' ? { x: p, y: p } : { x: p.x, y: p.y };
+}
 
 /** Top-left placement (in media px) of a `w x h` logo within a `plotW x plotH` plot. */
 export function watermarkRect(
@@ -91,8 +107,9 @@ export function watermarkRect(
 }
 
 export class LogoWatermark implements IPrimitive {
-  private _opts: Required<Omit<LogoWatermarkOptions, 'src' | 'image' | 'tint' | 'label' | 'labelColor' | 'background' | 'borderColor' | 'href'>>
-    & Pick<LogoWatermarkOptions, 'src' | 'image' | 'tint' | 'label' | 'labelColor' | 'background' | 'borderColor' | 'href'>;
+  private _opts: Required<Omit<LogoWatermarkOptions, 'src' | 'image' | 'tint' | 'label' | 'labelColor' | 'background' | 'borderColor' | 'href' | 'padding'>>
+    & Pick<LogoWatermarkOptions, 'src' | 'image' | 'tint' | 'label' | 'labelColor' | 'background' | 'borderColor' | 'href'>
+    & { padding: { x: number; y: number } };
   /** 0..1 reveal progress, eased toward hover state each frame. */
   private _reveal = 0;
   private _lastFrameMs: number | null = null;
@@ -124,6 +141,7 @@ export class LogoWatermark implements IPrimitive {
       background: opts.background,
       borderColor: opts.borderColor,
       radius: opts.radius ?? 6,
+      padding: resolvePadding(opts.padding),
       href: opts.href,
       utmMedium: opts.utmMedium ?? 'oac-link',
       utmCampaign: opts.utmCampaign ?? 'oac-chart',
@@ -147,7 +165,10 @@ export class LogoWatermark implements IPrimitive {
 
   /** Live restyle. Pass a new `src`/`image` to swap the logo. */
   public setOptions(patch: Partial<LogoWatermarkOptions>): void {
-    this._opts = { ...this._opts, ...patch };
+    // `padding` is stored resolved, so it cannot ride along with the spread.
+    const { padding, ...rest } = patch;
+    this._opts = { ...this._opts, ...rest };
+    if (padding !== undefined) this._opts.padding = resolvePadding(padding);
     this._tintCanvas = null;
     if (patch.image) { this._img = patch.image as CanvasImageSource & ImageLike; this._ready = true; }
     else if (patch.src !== undefined) { this._ready = false; this._img = null; this.attached(this._host as PrimitiveHost); }
@@ -196,8 +217,11 @@ export class LogoWatermark implements IPrimitive {
     if (this._opts.label === undefined && this._opts.href === undefined) return null;
     const r = this._rect(rc);
     if (r === null) return null;
-    const pad = 4;
-    const inside = x >= r.x - pad && x <= r.x + r.w + pad && y >= r.y - pad && y <= r.y + r.h + pad;
+    // Match the plate the user can see, but never shrink below the old 4px
+    // slack — a tightly padded mark still needs a forgiving target.
+    const padX = Math.max(this._opts.padding.x, 4);
+    const padY = Math.max(this._opts.padding.y, 4);
+    const inside = x >= r.x - padX && x <= r.x + r.w + padX && y >= r.y - padY && y <= r.y + r.h + padY;
     return inside
       ? {
           externalId: this._opts.id,
@@ -232,18 +256,23 @@ export class LogoWatermark implements IPrimitive {
 
     ctx.save();
     // Plate first, at full alpha: it is what makes the mark legible over
-    // candles, so it must not inherit the logo's own transparency. Padded and
-    // pixel-snapped, which is also what keeps the text edges crisp.
-    const padX = Math.round(7 * dpr);
-    const padY = Math.round(4 * dpr);
-    const plateW = Math.round(r.w * dpr) + padX * 2;
-    const plateH = dh + padY * 2;
+    // candles, so it must not inherit the logo's own transparency.
+    //
+    // The four edges are snapped, rather than the padding being snapped and
+    // doubled — that way the plate measures exactly `height + 2 * padding.y`
+    // media px at every DPR, so a caller asking for a 45x45 square gets one
+    // instead of 46 on a non-retina display.
+    const pad = o.padding;
+    const plateX = Math.round((r.x - pad.x) * dpr);
+    const plateY = Math.round((r.y - pad.y) * dpr);
+    const plateW = Math.round((r.x + r.w + pad.x) * dpr) - plateX;
+    const plateH = Math.round((r.y + o.height + pad.y) * dpr) - plateY;
     const theme = rc.theme as typeof rc.theme | undefined;
     const plateBg = o.background ?? (theme ? withAlpha(theme.background, 0.82) : 'none');
     const plateBorder = o.borderColor ?? theme?.axisLine ?? 'none';
     if (plateBg !== 'none') {
       ctx.beginPath();
-      roundRectPath(ctx, dx - padX, dy - padY, plateW, plateH, Math.round(o.radius * dpr));
+      roundRectPath(ctx, plateX, plateY, plateW, plateH, Math.round(o.radius * dpr));
       ctx.fillStyle = plateBg;
       ctx.fill();
       if (plateBorder !== 'none') {

@@ -109,6 +109,62 @@ describe('hover-revealed label', () => {
   });
 });
 
+describe('plate padding', () => {
+  // A square mark, so `height` sizes both axes — the shape the hosts use.
+  const square = { width: 128, height: 128, naturalWidth: 128, naturalHeight: 128 } as never;
+
+  const ctxFor = (dpr: number): PrimitiveRenderContext => ({
+    timeScale: new TimeScale(), priceScale: new PriceScale(), dataLayer: new DataLayer(),
+    plotWidth: 600, plotHeight: 400, priceAxisWidth: 56, dpr, theme: darkTheme, hoverId: null,
+  } as PrimitiveRenderContext);
+
+  /** The plate rect, in media px, as drawn. */
+  function plate(padding: number | { x: number; y: number } | undefined, dpr: number) {
+    const w = new LogoWatermark({
+      image: square, position: 'bottom-left', margin: 10, height: 40,
+      label: 'OpenAlgo Charts', padding,
+    });
+    const { ctx, rec } = makeCtx();
+    w.draw(ctx, ctxFor(dpr));
+    const op = rec.ops.find((o) => o.type === 'roundRect');
+    if (!op) throw new Error('no plate drawn');
+    return { w: op.args[2] / dpr, h: op.args[3] / dpr };
+  }
+
+  it('wraps a 40px mark in a 45x45 plate at padding 2.5', () => {
+    expect(plate(2.5, 1)).toEqual({ w: 45, h: 45 });
+  });
+
+  it('holds that size across displays', () => {
+    // Rounding the padding and doubling it gave 46 at dpr 1; snapping the
+    // edges instead is what keeps it exactly 45.
+    for (const dpr of [1, 2, 3]) expect(plate(2.5, dpr).h).toBe(45);
+    // A fractional DPR cannot put 45 media px on a whole number of device
+    // pixels, so one device pixel of slack is the best on offer.
+    expect(Math.abs(plate(2.5, 1.5).h - 45)).toBeLessThanOrEqual(1 / 1.5);
+  });
+
+  it('accepts separate axes', () => {
+    expect(plate({ x: 10, y: 2 }, 2)).toEqual({ w: 60, h: 44 });
+  });
+
+  it('defaults to 7 x 4, the pre-existing padding', () => {
+    expect(plate(undefined, 2)).toEqual({ w: 54, h: 48 });
+  });
+
+  it('grows the hit box with the padding', () => {
+    const rc = ctxFor(1);
+    const w = new LogoWatermark({
+      image: square, position: 'bottom-left', margin: 10, height: 40,
+      label: 'X', padding: 12,
+    });
+    w.draw(makeCtx().ctx, rc);
+    // Mark occupies x 10..50, y 350..390; 12px of plate extends that.
+    expect(w.hitTest(0, 345, rc)).not.toBeNull();
+    expect(w.hitTest(-6, 345, rc)).toBeNull();
+  });
+});
+
 describe('link attribution', () => {
   const img = { width: 40, height: 20, naturalWidth: 40, naturalHeight: 20 } as never;
 

@@ -8,6 +8,20 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 1.0.25
+
+**Added**
+
+- **`LogoWatermark` plate padding is settable** via `padding` — a number for
+  both axes, or `{ x, y }`. `height` sizes the mark and `padding` sizes the
+  plate, so a 40px mark with `padding: 2.5` sits in a 45x45 square.
+
+**Fixed**
+
+- The plate now measures its requested size at every DPR; the padding was
+  rounded and doubled, so a 45px plate came out 46 on a non-retina display.
+- The hover target follows the padding rather than sitting fixed at 4px.
+
 ## 1.0.24
 
 **Added**

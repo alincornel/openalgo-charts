@@ -2,6 +2,28 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.0.25
+
+### Added
+
+- **`LogoWatermark` plate padding is settable.** `padding` takes a number for
+  both axes or `{ x, y }` for each, defaulting to the previous `{ x: 7, y: 4 }`.
+  `height` sizes the mark and `padding` sizes the plate around it, so the corner
+  at rest is now exactly specifiable: a 40px mark with `padding: 2.5` sits in a
+  45x45 square.
+
+### Fixed
+
+- **The plate is its requested size at every DPR.** The padding was rounded to
+  device pixels and then doubled, so a fractional value was rounded twice and a
+  plate asked to be 45px tall came out 46 on a non-retina display. The four
+  edges are snapped instead, which also keeps the border crisp.
+
+- **The hover target follows the padding.** It was fixed at 4px around the mark,
+  so a generously padded plate had dead margins that looked interactive; it now
+  matches the visible plate, with 4px kept as the floor so a tightly padded mark
+  is still a forgiving target.
+
 ## 1.0.24
 
 ### Added
