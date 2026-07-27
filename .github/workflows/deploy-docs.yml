@@ -16,8 +16,13 @@ permissions:
   id-token: write
 
 # Allow one concurrent deployment; don't cancel an in-progress production deploy.
+#
+# Not `pages`: run #54 hit a startup_failure on 2026-07-25 and never released
+# that group's lock. Being already completed it cannot be cancelled, so every
+# run after it queued behind a run that will never finish -- 25 of them, each
+# cancelled by the next push. A fresh group name is the only way out.
 concurrency:
-  group: pages
+  group: pages-deploy
   cancel-in-progress: false
 
 jobs:
