@@ -2,6 +2,39 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.0.12
+
+A fix for the forming candle rendering as two overlapping candles of opposite
+colour during live ticks, and `version()` catching up with the package version.
+534 unit tests.
+
+### Fixed
+
+- **The forming candle could render as two overlapping candles of opposite
+  colour** — a red body with a green one painted over it, and a wick spanning
+  both — while live ticks came in.
+
+  `setData` sorted its input by time but never de-duplicated it, while the
+  shared time axis collapses times through a `Set`. Two bars at the same time
+  therefore resolved to the same logical index, so `visibleBars` handed the
+  renderer both and they drew at the same x, the second over the first. A live
+  feed produces that pair whenever its candle builder starts unseeded: it opens
+  a fresh bar for the bucket the fetched history already ends in, and the host
+  appends it alongside the historical one. Reconnecting mid-bar does it again.
+
+  `setData` now collapses repeated times, keeping the last occurrence — the
+  newer value when a live bar arrives alongside the historical bar it
+  supersedes. `prependData` and `update` already de-duplicated.
+
+  Seed your candle builder from the last historical bar
+  (`builder.seed(bars[bars.length - 1])`) so the live bar continues it: an
+  unseeded builder still opens at the first tick price it sees rather than the
+  bucket's true open.
+
+- **`VERSION` / `version()` reported `1.0.8`** — the constant is hand-maintained
+  and was missed by the 1.0.9, 1.0.10 and 1.0.11 bumps. It now matches
+  `package.json` again.
+
 ## 1.0.11
 
 16 more drawing tools, TradingView-style rail flyouts, and the fix for a blank

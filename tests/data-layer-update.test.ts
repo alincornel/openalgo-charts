@@ -52,6 +52,33 @@ describe('DataLayer.update (live hot path)', () => {
     expect(dl.timeToIndex(200)).toBe(2);
   });
 
+  it('collapses two bars sharing a time, keeping the later one', () => {
+    // A live feed that re-opens its candle builder emits a fresh bar for the
+    // bucket history already covered, so the host hands setData two bars at the
+    // same time. The times collapse to one logical index, so without this both
+    // bars project to the same x and draw on top of each other — a red body
+    // with a green one painted over it on the forming candle.
+    const dl = new DataLayer();
+    const id = dl.createSeries();
+    const stale: Bar = { time: 200, open: 79.61, high: 79.66, low: 79.35, close: 79.48 }; // down
+    const live: Bar = { time: 200, open: 79.42, high: 79.60, low: 79.42, close: 79.53 };  // up
+    dl.setSeriesData(id, [bar(100, 1), stale, live]);
+
+    expect(dl.length).toBe(2);
+    const rows = dl.visibleBars(id, 0, dl.baseIndex);
+    expect(rows.map((r) => r.index)).toEqual([0, 1]); // one bar per index, not two
+    expect(rows[1].bar).toBe(live);                   // the newer bar wins
+    expect(dl.indexedBars(id)).toHaveLength(2);
+  });
+
+  it('keeps duplicate collapsing correct when the input is unsorted', () => {
+    const dl = new DataLayer();
+    const id = dl.createSeries();
+    // Two at 200 and two at 100, interleaved and out of order.
+    dl.setSeriesData(id, [bar(200, 2), bar(100, 1), bar(200, 22), bar(100, 11)]);
+    expect(dl.indexedBars(id).map((x) => x.bar.close)).toEqual([11, 22]);
+  });
+
   it('treats a series-local append onto an existing global time as a replace', () => {
     const dl = new DataLayer();
     const a = dl.createSeries();

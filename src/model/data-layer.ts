@@ -20,6 +20,31 @@ export interface IndexedBar {
 
 const EMPTY_BARS: readonly Bar[] = [];
 
+/**
+ * Sort ascending by time and collapse repeated times, keeping the **last**
+ * occurrence.
+ *
+ * One bar per time is an invariant every reader relies on: `_rebuild` maps times
+ * onto logical indices through a Set, so two bars sharing a time both resolve to
+ * the same index and get projected to the same x — two candles drawn on top of
+ * each other, each with its own colour. A live feed whose candle builder starts
+ * unseeded produces exactly that: it opens a fresh bar for the bucket the
+ * fetched history already ends in, and the host appends it alongside.
+ *
+ * `Array#sort` is stable, so "last" means last in the caller's array — the newer
+ * value when a live bar arrives alongside the historical one it supersedes.
+ */
+function sortedUniqueByTime(bars: readonly Bar[]): Bar[] {
+  const out = bars.slice().sort((a, b) => a.time - b.time);
+  let w = 0;
+  for (let r = 0; r < out.length; r++) {
+    if (w > 0 && out[r].time === out[w - 1].time) out[w - 1] = out[r];
+    else out[w++] = out[r];
+  }
+  out.length = w;
+  return out;
+}
+
 export class DataLayer {
   private readonly _series = new Map<SeriesId, SeriesEntry>();
   private _sortedTimes: number[] = [];
@@ -38,11 +63,14 @@ export class DataLayer {
     this._rebuild();
   }
 
-  /** Bulk-load (full replace) one series' data, then re-merge the time axis. */
+  /**
+   * Bulk-load (full replace) one series' data, then re-merge the time axis.
+   * Input is sorted and de-duplicated by time (see {@link sortedUniqueByTime}).
+   */
   public setSeriesData(id: SeriesId, bars: readonly Bar[]): void {
     const entry = this._series.get(id);
     if (entry === undefined) throw new Error(`openalgo-charts: unknown series ${id}`);
-    entry.bars = bars.slice().sort((a, b) => a.time - b.time);
+    entry.bars = sortedUniqueByTime(bars);
     this._rebuild();
   }
 

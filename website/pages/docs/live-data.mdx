@@ -40,6 +40,8 @@ import { OpenAlgoWsFeed, CandleBuilder } from 'openalgo-charts';
 
 const ws = new OpenAlgoWsFeed({ url: 'ws://127.0.0.1:8765', apiKey: 'YOUR_KEY' });
 const builder = new CandleBuilder({ intervalSec: 60, volumeMode: 'ltq-sum' });
+// Continue the bucket history already ended in, rather than opening a new one.
+builder.seed(bars[bars.length - 1]);
 
 ws.connect();
 ws.onLtp((e) => {
@@ -48,6 +50,17 @@ ws.onLtp((e) => {
 });
 ws.subscribe('LTP', 'RELIANCE', 'NSE');
 ```
+
+**Seed the builder**, and seed it again after every reconnect. History normally ends
+*inside* the bar currently forming. An unseeded builder has no current bar, so its first
+tick opens a fresh one for that same bucket — which opens at whatever tick price arrived
+first instead of the bucket's true open, and restarts its volume at zero. `seed` hands it
+the last historical bar so ticks fold into it instead.
+
+If you keep your own bar array and push the builder's output into it, an unseeded builder
+also leaves you two entries for that time. `setData` de-duplicates by time as of 1.0.12
+(keeping the later bar), so it no longer draws two candles on top of each other — but the
+open is still wrong until the bucket rolls over. Seeding is the actual fix.
 
 The WS adapter speaks the documented OpenAlgo protocol (authenticate → numeric-mode subscribe
 → `market_data`), with connection and control callbacks (`onState` / `onControl`).
