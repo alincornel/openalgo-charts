@@ -2,6 +2,37 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.0.24
+
+### Added
+
+- **`LogoWatermark` can be a hover-revealed, clickable brand lockup.** `label`
+  shows the mark alone at rest and unrolls the wording to its right on hover,
+  clipped to the revealed width so the text wipes out of the mark rather than
+  fading in place.
+
+  The mark and the label **share one colour** — whichever of `tint` or
+  `labelColor` is set drives both. Left to render independently, the mark kept
+  its source colour and sat beside the label in an unrelated shade.
+
+  A rounded `background` plate sits behind the pair, drawn at full alpha so it
+  does not inherit the logo's transparency: without one the wording lands
+  straight on the candles and is unreadable wherever the chart is busy.
+
+  `href` marks it clickable — the hit reports a pointer cursor and `href()`
+  returns the URL with `utm_medium`, `utm_campaign` and a `utm_source` naming
+  the embedding page (host and path only, never the query string). A canvas
+  cannot hold an anchor, so the host does the navigating.
+
+  A mark with neither `label` nor `href` stays out of the hit path entirely, so
+  plain decoration cannot swallow clicks meant for the chart.
+
+### Fixed
+
+- Tinting borrowed a document from the drawing context to build its offscreen
+  canvas, and threw where there was none. It now falls back to an untinted mark
+  — which matters more now that a labelled mark is always tinted.
+
 ## 1.0.23
 
 ### Fixed

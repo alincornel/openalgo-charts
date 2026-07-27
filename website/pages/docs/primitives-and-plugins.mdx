@@ -154,8 +154,47 @@ return chart;`} caption="LogoWatermark: a colored badge and a tinted monochrome 
 | `opacity` | `0.7` | 0..1 |
 | `tint` | - | recolor opaque pixels (e.g. a faint theme gray) |
 | `zOrder` | `top` | `bottom` / `normal` / `top` |
+| `label` | - | text revealed to the right of the mark on hover |
+| `labelColor` | theme text | colour of the **mark and label together** |
+| `fontSize` | `12` | label size in media px |
+| `background` | translucent theme bg | rounded plate behind the lockup; `'none'` to omit |
+| `borderColor` | theme axis line | plate border; `'none'` to omit |
+| `radius` | `6` | plate corner radius |
+| `revealSeconds` | `0.18` | reveal duration |
+| `href` | - | marks it clickable; the host opens `watermark.href()` |
+| `utmMedium` / `utmCampaign` | `oac-link` / `oac-chart` | attribution on the composed link |
 
 Swap or restyle it live with `watermark.setOptions({ ... })`.
+
+### A hover-revealed, clickable brand mark
+
+`label` turns the mark into a lockup: at rest only the mark shows, and hovering unrolls the
+wording to its right. The mark and the label always share one colour — whichever of `tint`
+or `labelColor` you set drives both — so the pair can never render in two unrelated shades.
+
+```ts
+const mark = new LogoWatermark({
+  src: '/openalgo-logo.svg', position: 'bottom-left', height: 26,
+  label: 'OpenAlgo Charts', labelColor: '#e4e8f4',
+  href: 'https://openalgo.in',
+});
+chart.addPrimitive(mark, 0);
+
+// A canvas cannot hold an anchor, so the mark reports the hit and you navigate.
+chart.subscribeClick((id) => {
+  if (id === 'watermark') window.open(mark.href(), '_blank', 'noopener,noreferrer');
+});
+```
+
+<Callout type="info">
+`href()` returns the URL with `utm_medium`, `utm_campaign` and a `utm_source` naming the
+page the chart is embedded in (host and path only — never the query string, which is the
+part most likely to carry something private). Pass an `href` that already has a query
+string to compose your own and skip that entirely.
+
+A mark with neither `label` nor `href` stays out of the hit path completely, so plain
+decoration cannot swallow clicks meant for the chart.
+</Callout>
 
 ### `watermarkRect` placement helper
 

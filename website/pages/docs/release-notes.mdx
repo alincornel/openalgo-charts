@@ -8,6 +8,25 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 1.0.24
+
+**Added**
+
+- **`LogoWatermark` can be a hover-revealed, clickable brand lockup.** `label`
+  shows the mark alone at rest and unrolls the wording to its right on hover.
+  The mark and label share one colour, so the pair cannot render in two
+  unrelated shades. A rounded `background` plate keeps the wording readable over
+  busy candles.
+
+  `href` marks it clickable: the hit reports a pointer cursor and `href()`
+  returns the URL with UTM attribution naming the embedding page. A canvas
+  cannot hold an anchor, so the host navigates.
+
+**Fixed**
+
+- Tinting threw where the drawing context had no document to borrow; it now
+  falls back to an untinted mark.
+
 ## 1.0.23
 
 **Fixed**

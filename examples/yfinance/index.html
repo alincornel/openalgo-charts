@@ -846,6 +846,11 @@
       watermark = new LogoWatermark({
         src: '/examples/openalgo-logo.svg', height: 26, opacity: 0.85,
         position: 'bottom-left', margin: 6,
+        // Mark alone at rest; the wording unrolls to its right on hover. The
+        // mark and text share one colour, so setting either sets both.
+        label: 'OpenAlgo Charts',
+        labelColor: '#e4e8f4',
+        href: 'https://openalgo.in',
       });
       chart.addPrimitive(watermark, chart.panes().length - 1);
     }
@@ -1091,6 +1096,13 @@
       });
       // Click the cancel box on a line: cancel that order, or close the position.
       chart.subscribeClick((id) => {
+        // The canvas cannot hold an anchor, so the mark reports the hit and we
+        // do the navigating. noopener: the opened tab must not reach back.
+        if (id === 'watermark') {
+          const href = watermark && watermark.href();
+          if (href) window.open(href, '_blank', 'noopener,noreferrer');
+          return;
+        }
         if (id === 'position::close') { clearPosition(); saveState(); el('status').textContent = 'position closed'; return; }
         if (id.endsWith('::close')) cancelOrder(id.slice(0, -'::close'.length));
       });
