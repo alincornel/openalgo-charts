@@ -124,6 +124,8 @@ export class IndicatorInstance implements IndicatorApi {
   private readonly _ownPane: boolean;
   private _settings: IndicatorSettings;
   private readonly _series = new Map<string, SeriesApi>();
+  /** The chart type each plot is currently drawn as (settings can override). */
+  private readonly _plotTypes = new Map<string, string>();
   /** One band per declared fill, in descriptor order. */
   private readonly _fills: IndicatorFillPrimitive[] = [];
   private _levels: PriceLine[] = [];
@@ -167,9 +169,11 @@ export class IndicatorInstance implements IndicatorApi {
     }
 
     for (const plot of descriptor.plots) {
+      const type = this._plotType(plot);
+      this._plotTypes.set(plot.key, type);
       this._series.set(
         plot.key,
-        host.addIndicatorSeries(plot.type, this.paneIndex, this._plotStyle(plot), plot.priceScaleId),
+        host.addIndicatorSeries(type, this.paneIndex, this._plotStyle(plot), plot.priceScaleId),
       );
     }
 
@@ -299,6 +303,12 @@ export class IndicatorInstance implements IndicatorApi {
     }
   }
 
+  /** The chart type to draw a plot as: the settings override, else declared. */
+  private _plotType(plot: IndicatorPlot): string {
+    const v = this._settings[plotStyleKeys(plot).type];
+    return typeof v === 'string' && v !== '' ? v : plot.type;
+  }
+
   private _plotColor(plot: IndicatorPlot): string | undefined {
     const v = this._settings[plotStyleKeys(plot).color];
     if (typeof v === 'string') return v;
@@ -361,6 +371,18 @@ export class IndicatorInstance implements IndicatorApi {
     // Restyle before recomputing — appearance is independent of the maths, so a
     // colour or thickness change must not wait on a full recalculation.
     for (const plot of this._d.plots) {
+      // A plot's chart type belongs to the series, not its style bag, so
+      // switching it means building a new series rather than restyling.
+      const wanted = this._plotType(plot);
+      if (wanted !== this._plotTypes.get(plot.key)) {
+        this._series.get(plot.key)?.remove();
+        this._series.set(
+          plot.key,
+          this._host.addIndicatorSeries(wanted, this.paneIndex, this._plotStyle(plot), plot.priceScaleId),
+        );
+        this._plotTypes.set(plot.key, wanted);
+        continue;
+      }
       this._series.get(plot.key)?.applyOptions(this._plotStyle(plot) as never);
     }
     this._legend?.setOptions({ params: this._paramSummary(), color: this._legendColor() });

@@ -8,6 +8,17 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 1.0.18
+
+**Added**
+
+- **A plot's chart type is now a setting.** `indicatorStyleInputs` generates a
+  "Plot style" select per plot (`<plot>:type`), so the same column of numbers can
+  be drawn as a line, step, area, histogram or columns — a descriptor cannot know
+  which reads best. Defaults to the declared type; `INDICATOR_PLOT_STYLES` is the
+  option list. Switching rebuilds that plot's series, because the chart type
+  belongs to the series rather than the style bag.
+
 ## 1.0.17
 
 **Added**

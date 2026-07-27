@@ -307,6 +307,27 @@ describe('IndicatorInstance runtime', () => {
     expect(inst.values().rsi[119]).not.toBe(before);
   });
 
+  it('switches a plot to another chart type by rebuilding its series', () => {
+    // The chart type belongs to the series, not the style bag, so this cannot
+    // be an applyOptions — the series has to be rebuilt.
+    const h = fakeHost(wave());
+    const inst = new IndicatorInstance(h.host, getIndicator('sma'));
+    const has = (t: string) => [...h.series.keys()].some((k) => k.startsWith(`${t}-`));
+    expect(has('line')).toBe(true);
+    inst.setSettings({ 'ma:type': 'histogram' });
+    expect(has('histogram')).toBe(true);
+    inst.remove();
+  });
+
+  it('keeps a plot on its declared type when no override is set', () => {
+    const h = fakeHost(wave());
+    const inst = new IndicatorInstance(h.host, getIndicator('sma'));
+    const has = (t: string) => [...h.series.keys()].some((k) => k.startsWith(`${t}-`));
+    expect(has('line')).toBe(true);
+    expect(has('histogram')).toBe(false);
+    inst.remove();
+  });
+
   it('remove tears down every series and level, and is idempotent', () => {
     const h = fakeHost(wave());
     const inst = new IndicatorInstance(h.host, getIndicator('rsi'));

@@ -112,8 +112,9 @@ yfinance example builds its whole picker this way, grouped by `category`.
 | `hasIndicator(id)` | `(string) -> boolean` | Guard before `addIndicator` when the id is user-supplied — `addIndicator` throws on an unknown one. |
 | `indicatorDefaults(descriptor)` | `(IndicatorDescriptor) -> IndicatorSettings` | Default settings built from the descriptor's `inputs`, for pre-filling a form. Takes the **descriptor**, not an id. |
 | `indicatorStyleInputs(descriptor)` | `(IndicatorDescriptor) -> IndicatorInput[]` | Per-plot style inputs (colour, width, line style, opacity), so a settings dialog can be generated instead of written per indicator. |
-| `plotStyleKeys(plot)` | `(IndicatorPlot) -> { color, width, lineStyle, opacity }` | The settings keys belonging to one plot, for reading or patching its style. |
+| `plotStyleKeys(plot)` | `(IndicatorPlot) -> { color, width, lineStyle, opacity, type }` | The settings keys belonging to one plot, for reading or patching its style. `type` overrides the chart type it draws as. |
 | `INDICATOR_LINE_STYLES` | `readonly { label, value }[]` | The line-style choices a generated form should offer. |
+| `INDICATOR_PLOT_STYLES` | `readonly { label, value }[]` | Chart types a plot can be re-rendered as (line, step, area, histogram, columns). |
 
 ```ts
 import {

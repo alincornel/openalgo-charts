@@ -2,6 +2,19 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.0.18
+
+### Added
+
+- **A plot's chart type is now a setting.** `indicatorStyleInputs` generates a
+  "Plot style" select per plot (`<plot>:type`), so the same column of numbers can
+  be drawn as a line, step, area, histogram or columns — a descriptor cannot know
+  which reads best for a given use. Defaults to the declared type, so nothing
+  moves unasked. `INDICATOR_PLOT_STYLES` is the option list.
+
+  Switching rebuilds that plot's series rather than restyling it: the chart type
+  belongs to the series, not the style bag.
+
 ## 1.0.17
 
 ### Added

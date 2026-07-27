@@ -37,7 +37,7 @@ export const INDICATOR_LINE_STYLES: readonly { label: string; value: string }[] 
 
 /** Settings keys the runtime derives for a plot's appearance. */
 export function plotStyleKeys(plot: IndicatorPlot): {
-  color: string; width: string; lineStyle: string; opacity: string;
+  color: string; width: string; lineStyle: string; opacity: string; type: string;
 } {
   return {
     // A descriptor that already declares a colour input owns that key — a
@@ -47,6 +47,7 @@ export function plotStyleKeys(plot: IndicatorPlot): {
     width: `${plot.key}:width`,
     lineStyle: `${plot.key}:lineStyle`,
     opacity: `${plot.key}:opacity`,
+    type: `${plot.key}:type`,
   };
 }
 
@@ -81,9 +82,29 @@ export function indicatorStyleInputs(descriptor: IndicatorDescriptor): Indicator
       default: plot.style?.lineStyle ?? 'solid',
       options: INDICATOR_LINE_STYLES, group: plot.title,
     });
+    out.push({
+      key: k.type, type: 'select', label: 'Plot style',
+      default: plot.type,
+      options: INDICATOR_PLOT_STYLES, group: plot.title,
+    });
   }
   return out;
 }
+
+/**
+ * Chart types a plot can be re-rendered as. A moving average is a line by
+ * default, but the same column of numbers reads better as a histogram or an
+ * area depending on what you are looking for — and a descriptor cannot know
+ * which. Restricted to the types that make sense for a single value column.
+ */
+export const INDICATOR_PLOT_STYLES: readonly { label: string; value: string }[] = [
+  { label: 'Line', value: 'line' },
+  { label: 'Line with markers', value: 'line-markers' },
+  { label: 'Step line', value: 'step' },
+  { label: 'Area', value: 'area' },
+  { label: 'Histogram', value: 'histogram' },
+  { label: 'Columns', value: 'column' },
+];
 
 /** Canonical option list for a `type: 'source'` input, for settings UIs. */
 export const INDICATOR_SOURCES: readonly { label: string; value: IndicatorSource }[] = [
