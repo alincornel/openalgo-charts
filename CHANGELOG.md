@@ -22,6 +22,26 @@ All notable changes to OpenAlgo Charts.
 
 ### Added
 
+- **Nine more drawing tools**, taking the built-in set from 34 to 43 (draw tier
+  8.3 KB -> 11.3 KB Brotli):
+
+  Shapes: `rotated-rectangle` (anchors 0->1 lay out an edge, 2 sets the depth
+  perpendicular, so it can follow a trend channel an axis-aligned rectangle
+  cannot) and `double-curve` (an S through three anchors, the second control
+  mirrored about the chord's midpoint). Cycles: `cyclic-lines`, `time-cycles`,
+  `sine-line`. Text and notes: `price-label` (reads its value off the anchor, so
+  dragging it re-reads rather than going stale), `callout`, `flag-mark`.
+  Brushes: `brush`.
+
+- **`path` and `polyline` can now be finished.** Both declare `points: 0`, and
+  nothing could ever complete them -- double-click reset the view instead, so
+  they collected vertices forever. Double-click now finishes the shape while a
+  tool is armed, and `controller.finish()` is public for binding a key.
+
+- `path` is a click-per-vertex shape again, with an arrowhead on its last leg --
+  what separates it from `polyline`. The freehand brush moved to its own `brush`
+  id, so the two are no longer one tool wearing two names.
+
 - **`DrawingTool.expand`** — a tool can turn the anchors actually clicked into
   its full anchor set, so it can place a complete, immediately editable default
   from fewer clicks. Receives `barSeconds` and `visibleBars`.

@@ -149,9 +149,9 @@ describe('geometry', () => {
 
 describe('tool registry', () => {
   it('registers every built-in on tier import', () => {
-    expect(BUILTIN_DRAWING_TOOLS).toHaveLength(34);
+    expect(BUILTIN_DRAWING_TOOLS).toHaveLength(43);
     for (const t of BUILTIN_DRAWING_TOOLS) expect(hasDrawingTool(t.id)).toBe(true);
-    expect(registeredDrawingTools().length).toBeGreaterThanOrEqual(34);
+    expect(registeredDrawingTools().length).toBeGreaterThanOrEqual(43);
   });
 
   it('has unique ids and a sane anchor count', () => {
@@ -193,6 +193,75 @@ describe('new tool families', () => {
       },
     });
   };
+
+  it('rotated rectangle follows its own axes, not the screen axes', () => {
+    // 0→1 is a 45° edge; anchor 2 sets the depth perpendicular to it. An
+    // axis-aligned rect would report a very different inside.
+    const pts = [{ x: 0, y: 0 }, { x: 100, y: 100 }, { x: 60, y: 100 }];
+    // Centre of the parallelogram is inside a filled shape.
+    expect(hit('rotated-rectangle', pts, 40, 60)).toBe(0);
+    // Well outside, past the far edge.
+    expect(hit('rotated-rectangle', pts, 300, -200)).toBeGreaterThan(20);
+  });
+
+  it('rotated rectangle degenerates safely when its edge has no length', () => {
+    const pts = [{ x: 50, y: 50 }, { x: 50, y: 50 }, { x: 50, y: 50 }];
+    const d = hit('rotated-rectangle', pts, 50, 50);
+    expect(d === null || Number.isFinite(d)).toBe(true);
+  });
+
+  it('double curve is grabbable along the S it actually draws', () => {
+    const pts = [{ x: 0, y: 100 }, { x: 50, y: 0 }, { x: 100, y: 100 }];
+    // Both halves bend, so points near each lobe hit.
+    const near = hit('double-curve', pts, 50, 100);
+    expect(near !== null && near < 30).toBe(true);
+    expect(hit('double-curve', pts, 50, 400)).toBeGreaterThan(100);
+  });
+
+  it('cyclic lines repeat at the anchor interval and stop after the last one', () => {
+    const pts = [{ x: 100, y: 50 }, { x: 150, y: 50 }];   // 50px period
+    expect(hit('cyclic-lines', pts, 200, 300)).toBeCloseTo(0, 6);  // 3rd line
+    expect(hit('cyclic-lines', pts, 205, 300)).toBeCloseTo(5, 6);
+    expect(hit('cyclic-lines', pts, 50, 300)).toBeNull();          // before the 1st
+    expect(hit('cyclic-lines', pts, 5000, 300)).toBeNull();        // past the last
+  });
+
+  it('cyclic lines reject a zero-width period instead of dividing by it', () => {
+    expect(hit('cyclic-lines', [{ x: 100, y: 0 }, { x: 100, y: 0 }], 100, 10)).toBeNull();
+  });
+
+  it('time cycles measure to the rim of the drawn half only', () => {
+    const pts = [{ x: 0, y: 100 }, { x: 100, y: 100 }];   // r = 50, arcs above y=100
+    expect(hit('time-cycles', pts, 50, 50)).toBeCloseTo(0, 6);   // top of the 1st arc
+    expect(hit('time-cycles', pts, 50, 300)).toBeNull();         // below the baseline
+  });
+
+  it('sine line follows the wave, not the chord', () => {
+    const pts = [{ x: 0, y: 100 }, { x: 100, y: 60 }];    // period 100, amplitude -40
+    // Quarter period is the crest: y = 100 + (-40) = 60.
+    const crest = hit('sine-line', pts, 25, 60);
+    expect(crest !== null && crest < 2).toBe(true);
+    // The chord's midpoint is NOT on the wave (the wave crosses back at x=50).
+    expect(hit('sine-line', pts, 50, 100)).toBeCloseTo(0, 0);
+    expect(hit('sine-line', pts, 50, 400)).toBeGreaterThan(200);
+  });
+
+  it('sine line rejects a zero-width span', () => {
+    expect(hit('sine-line', [{ x: 10, y: 0 }, { x: 10, y: 50 }], 10, 0)).toBeNull();
+  });
+
+  it('price label and flag mark are grabbable at their anchor', () => {
+    expect(hit('price-label', [{ x: 200, y: 200 }], 200, 200)).toBe(0);
+    expect(hit('flag-mark', [{ x: 200, y: 200 }], 200, 200)).toBe(0);
+    expect(hit('flag-mark', [{ x: 200, y: 200 }], 600, 600)).toBeNull();
+  });
+
+  it('callout is grabbable on its bubble and along its tail', () => {
+    const pts = [{ x: 100, y: 300 }, { x: 260, y: 180 }];  // target, bubble seat
+    expect(hit('callout', pts, 260, 180)).toBe(0);          // bubble
+    const onTail = hit('callout', pts, 180, 240);           // midway along the tail
+    expect(onTail !== null && onTail < 6).toBe(true);
+  });
 
   it('circle measures radially, so it is round on screen not axis-stretched', () => {
     const pts = [{ x: 100, y: 100 }, { x: 140, y: 100 }];   // r = 40
@@ -465,7 +534,7 @@ describe('DrawingController', () => {
     chart.emit('click', { id: null, time: last[0], price: last[1], paneIndex: pane, point: { x: 0, y: 0 }, viaDrag: true });
   };
 
-  for (const tool of ['path', 'highlighter'] as const) {
+  for (const tool of ['brush', 'highlighter'] as const) {
     it(`${tool} inks one stroke per press-drag-release, not a vertex per click`, () => {
       const { chart } = makeChart();
       const draw = new DrawingController(chart);
@@ -490,7 +559,7 @@ describe('DrawingController', () => {
     // burying the ink, and no way to grab the stroke itself.
     const { chart } = makeChart();
     const draw = new DrawingController(chart);
-    draw.setTool('path');
+    draw.setTool('brush');
     const pts: [number, number][] = Array.from({ length: 30 }, (_, i) => [1700000600 + i * 60, 100 + i * 0.2]);
     stroke(chart, pts);
 
@@ -513,11 +582,50 @@ describe('DrawingController', () => {
     expect(rec.ops.filter((o) => o.type === 'arc')).toHaveLength(2);
   });
 
+  // `points: 0` tools collect anchors until something ends them, and nothing
+  // could — double-click reset the view instead. They were unfinishable.
+  for (const tool of ['polyline', 'path'] as const) {
+    it(`${tool} finishes on double-click`, () => {
+      const { chart } = makeChart();
+      const draw = new DrawingController(chart);
+      draw.setTool(tool);
+      for (const [t, p] of [[1700000600, 101], [1700001200, 104], [1700001800, 102]]) {
+        chart.emit('click', { id: null, time: t, price: p, paneIndex: 0, point: { x: 0, y: 0 } });
+      }
+      expect(draw.drawings()).toHaveLength(0);   // still collecting
+
+      chart.emit('dblclick', {});
+      expect(draw.drawings()).toHaveLength(1);
+      expect(draw.drawings()[0].points).toHaveLength(3);
+      expect(draw.activeTool()).toBeNull();
+    });
+  }
+
+  it('a double-click with nothing pending is harmless', () => {
+    const { chart } = makeChart();
+    const draw = new DrawingController(chart);
+    expect(draw.finish()).toBe(false);
+    chart.emit('dblclick', {});
+    expect(draw.drawings()).toHaveLength(0);
+  });
+
+  it('does not finish a fixed-anchor tool early on double-click', () => {
+    // A rectangle needs its second anchor; a stray double-click must not commit
+    // a one-anchor degenerate shape.
+    const { chart } = makeChart();
+    const draw = new DrawingController(chart);
+    draw.setTool('rectangle');
+    chart.emit('click', { id: null, time: 1700000600, price: 101, paneIndex: 0, point: { x: 0, y: 0 } });
+    chart.emit('dblclick', {});
+    expect(draw.drawings()).toHaveLength(0);
+    expect(draw.activeTool()).toBe('rectangle');
+  });
+
   it('drops a freehand tap that never moved', () => {
     // One sample is not a stroke; committing it would leave an unclickable dot.
     const { chart } = makeChart();
     const draw = new DrawingController(chart, { stayInDrawingMode: true });
-    draw.setTool('path');
+    draw.setTool('brush');
 
     chart.emit('click', { id: null, time: 1700000600, price: 101, paneIndex: 0, point: { x: 0, y: 0 } });
     chart.emit('crosshair:move', { time: 1700000600, price: 101, paneIndex: 0, bar: null, point: { x: 0, y: 0 }, pressed: true });
@@ -542,7 +650,7 @@ describe('DrawingController', () => {
   it('keeps a stroke inside the pane it started in', () => {
     const { chart } = makeChart();
     const draw = new DrawingController(chart);
-    draw.setTool('path');
+    draw.setTool('brush');
 
     chart.emit('click', { id: null, time: 1700000600, price: 101, paneIndex: 0, point: { x: 0, y: 0 } });
     chart.emit('crosshair:move', { time: 1700000600, price: 101, paneIndex: 0, bar: null, point: { x: 0, y: 0 }, pressed: true });

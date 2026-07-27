@@ -24,7 +24,18 @@
     .topbar, .subbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 9px 14px; }
     .topbar { background: linear-gradient(180deg, var(--panel), #0c0f16); border-bottom: 1px solid var(--bd-soft); }
     .subbar { padding: 7px 14px; background: #0c0f16; border-bottom: 1px solid var(--bd-soft); color: var(--mut); }
-    .brand { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; letter-spacing: .2px; }
+    /* Mark only at rest; the wordmark unrolls to its right on hover. Animating
+       max-width (not display) keeps the reveal continuous, and the toolbar to
+       the right slides rather than jumping. */
+    .brand { display: inline-flex; align-items: center; font-weight: 700; letter-spacing: .2px;
+      gap: 0; cursor: default; }
+    .brand-mark { width: 22px; height: 22px; flex: none; display: grid; place-items: center; }
+    .brand-mark svg { width: 20px; height: 20px; fill: currentColor; color: var(--acc); }
+    .brand-name { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap;
+      max-width: 0; opacity: 0; overflow: hidden;
+      transition: max-width .28s cubic-bezier(.22,.61,.36,1), opacity .2s ease, padding-left .28s cubic-bezier(.22,.61,.36,1); }
+    .brand:hover .brand-name, .brand:focus-visible .brand-name { max-width: 220px; opacity: 1; padding-left: 8px; }
+    @media (prefers-reduced-motion: reduce) { .brand-name { transition: none; } }
     .brand em { color: var(--acc-2); font-style: normal; font-weight: 700; font-size: 11px; letter-spacing: .8px;
       border: 1px solid #17423a; background: #0e2420; padding: 1px 6px; border-radius: 5px; }
     .brand-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--acc); box-shadow: 0 0 8px var(--acc); }
@@ -1470,7 +1481,12 @@
 
       const brand = document.createElement('div');
       brand.className = 'brand';
-      brand.innerHTML = '<span class="brand-dot"></span> OpenAlgo <em>yfinance</em>';
+      brand.tabIndex = 0;
+      brand.title = 'OpenAlgo Charts · yfinance demo';
+      brand.innerHTML =
+        '<span class="brand-mark"><svg viewBox="0 0 24 24" aria-hidden="true">'
+        + '<path d="M3 17.5 9 7l4 6.5L21 3v4.2l-8 10.3-4-6.5-3.6 6.5z"/></svg></span>'
+        + '<span class="brand-name">OpenAlgo <em>yfinance</em></span>';
       bar.appendChild(brand);
       bar.appendChild(divider());
 
@@ -1645,6 +1661,15 @@
       arrowup: '<path d="M12 4.5 6.5 11h3.5v8.5h4V11h3.5z"/>',
       arrowdown: '<path d="M12 19.5 6.5 13h3.5V4.5h4V13h3.5z"/>',
       highlighter: '<path d="M4.5 19.5h6"/><path d="M7 16.5 15.5 8l3 3-8.5 8.5H7z"/>',
+      brush: '<path d="M4 19.5c3-1 3.5-3.5 5-3.5"/><path d="M9 16 17 6.5a2.2 2.2 0 0 1 3.2 3L11 19"/>',
+      rotrect: '<path d="M9.5 3.5 20.5 9 14.5 20.5 3.5 15z"/>',
+      dcurve: '<path d="M3.5 17c3.5 0 3-9 6.5-9s3 9 6.5 9 4-6 4-6"/>',
+      cyclic: '<path d="M5 4v16M10 4v16M15 4v16M20 4v16"/><circle cx="5" cy="12" r="1.4"/><circle cx="10" cy="12" r="1.4"/>',
+      timecycle: '<path d="M3 17a3.5 3.5 0 0 1 7 0 3.5 3.5 0 0 1 7 0"/><path d="M17 17a3.5 3.5 0 0 1 4 0"/>',
+      sine: '<path d="M3 12c2.5-8 5-8 7.5 0s5 8 7.5 0"/>',
+      pricelabel: '<rect x="10" y="4.5" width="10.5" height="7" rx="2"/><path d="M10 8 4 15.5"/><circle cx="4" cy="15.5" r="1.6"/>',
+      callout: '<rect x="3.5" y="4.5" width="17" height="10" rx="2.5"/><path d="M8 14.5 6.5 20l5-5.5"/>',
+      flag: '<path d="M6 20.5V4"/><path d="M6 4.5h11l-2.5 3.5L17 11.5H6z"/>',
       fibchannel: '<path d="M3 15 13 5M6 18 16 8M9 21 19 11"/>',
       fibtime: '<path d="M4 4v16M7 4v16M11 4v16M17 4v16"/>',
       fibfan: '<path d="M4 20 20 4M4 20h16M4 20 20 12M4 20 20 17"/>',
@@ -1696,12 +1721,21 @@
         { head: 'Shapes' },
         { tool: 'rectangle', name: 'Rectangle', icon: 'rect' },
         { tool: 'ellipse', name: 'Ellipse', icon: 'ellipse' },
+        { tool: 'rotated-rectangle', name: 'Rotated rectangle', icon: 'rotrect' },
         { tool: 'circle', name: 'Circle', icon: 'circle' },
         { tool: 'triangle', name: 'Triangle', icon: 'triangle' },
         { head: 'Paths' },
+        { tool: 'path', name: 'Path', icon: 'path' },
         { tool: 'polyline', name: 'Polyline', icon: 'polyline' },
         { tool: 'arc', name: 'Arc', icon: 'arc' },
         { tool: 'curve', name: 'Curve', icon: 'curve' },
+        { tool: 'double-curve', name: 'Double curve', icon: 'dcurve' },
+      ] },
+      { icon: 'sine', title: 'Cycles', menu: [
+        { head: 'Cycles' },
+        { tool: 'cyclic-lines', name: 'Cyclic lines', icon: 'cyclic' },
+        { tool: 'time-cycles', name: 'Time cycles', icon: 'timecycle' },
+        { tool: 'sine-line', name: 'Sine line', icon: 'sine' },
       ] },
       { icon: 'arrowup', title: 'Arrows', menu: [
         { head: 'Arrows' },
@@ -1722,11 +1756,14 @@
         { tool: 'measure', name: 'Date and price range', icon: 'measure' },
       ] },
       { sep: true },
-      { icon: 'text', title: 'Annotation', menu: [
-        { head: 'Annotation' },
+      { icon: 'text', title: 'Text and notes', menu: [
+        { head: 'Text and notes' },
         { tool: 'text', name: 'Text', icon: 'text' },
+        { tool: 'price-label', name: 'Price label', icon: 'pricelabel' },
+        { tool: 'callout', name: 'Callout', icon: 'callout' },
+        { tool: 'flag-mark', name: 'Flag mark', icon: 'flag' },
         { head: 'Brushes' },
-        { tool: 'path', name: 'Brush', icon: 'path' },
+        { tool: 'brush', name: 'Brush', icon: 'brush' },
         { tool: 'highlighter', name: 'Highlighter', icon: 'highlighter' },
       ] },
       { sep: true },

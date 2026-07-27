@@ -1789,7 +1789,13 @@ export class Chart {
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
   }
 
-  private readonly _onDblClick = (): void => this.resetScale();
+  private readonly _onDblClick = (): void => {
+    this.emit('dblclick', {});
+    // While a tool is armed a double-click means "finish this shape" — a
+    // variable-anchor tool has no other way to end — so it must not also throw
+    // the view back to its default mid-placement.
+    if (!this._placementMode) this.resetScale();
+  };
 
   // ── multi-touch pinch (zoom + two-finger pan) ─────────────────────────────
   private _beginPinch(): void {

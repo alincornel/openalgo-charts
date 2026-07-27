@@ -79,6 +79,7 @@ export class DrawingController {
     this._off.push(chart.on('crosshair:move', (p) => this._onCrosshair(p as Record<string, unknown>)));
     this._off.push(chart.on('drag', (p) => this._onDrag(p as DragPayload)));
     this._off.push(chart.on('drag:end', () => this._onDragEnd()));
+    this._off.push(chart.on('dblclick', () => { this.finish(); }));
     // Restore anything a previous session left in the chart state.
     const saved = chart.drawingState();
     if (Array.isArray(saved)) this._drawings = (saved as Drawing[]).map((d) => ({ ...d }));
@@ -289,6 +290,20 @@ export class DrawingController {
     this._syncPreview();
   }
 
+  /** Commit `pts` as a drawing of the armed tool and leave placement. */
+  private _commit(pts: DrawingPoint[]): void {
+    const tool = getDrawingTool(this._tool as string);
+    const created = this.add({ tool: tool.id, points: pts, style: {}, paneIndex: this._pendingPane });
+    this._pending = [];
+    if (!this._opts.stayInDrawingMode) {
+      this._tool = null;
+      this._setPlacementMode(false);   // hand panning back to the chart
+    }
+    this._syncPreview();
+    this.select(created.id);
+    this._chart.emit('draw:tool', { tool: this._tool });
+  }
+
   /** Commit the stroke a freehand gesture built, if it has any extent. */
   private _finishFreehand(): void {
     const pts = this._pending;
@@ -297,15 +312,28 @@ export class DrawingController {
       this._syncPreview();
       return;
     }
-    const tool = getDrawingTool(this._tool as string);
-    const created = this.add({ tool: tool.id, points: pts, style: {}, paneIndex: this._pendingPane });
-    if (!this._opts.stayInDrawingMode) {
-      this._tool = null;
-      this._setPlacementMode(false);
+    this._commit(pts);
+  }
+
+  /**
+   * End a variable-anchor shape (polyline, path) at the anchors placed so far.
+   * Those tools declare `points: 0`, so nothing else can ever complete them —
+   * without this they collected vertices forever. Bound to double-click, and
+   * public so a host can offer Esc / Enter too. No-op when there is nothing
+   * placeable, so a stray double-click costs nothing.
+   */
+  public finish(): boolean {
+    if (this._tool === null || this._pending.length === 0) return false;
+    const tool = getDrawingTool(this._tool);
+    if (tool.points !== 0 || tool.freehand === true) return false;
+    const pts = this._pending;
+    if (pts.length < 2) {           // a single vertex is not a shape
+      this._pending = [];
+      this._syncPreview();
+      return false;
     }
-    this._syncPreview();
-    this.select(created.id);
-    this._chart.emit('draw:tool', { tool: this._tool });
+    this._commit(pts);
+    return true;
   }
 
   private _onClick(p: ClickPayload): void {
@@ -340,17 +368,7 @@ export class DrawingController {
     this._pending.push(point);
     const tool = getDrawingTool(this._tool as string);
     if (tool.points > 0 && this._pending.length >= tool.points) {
-      const created = this.add({
-        tool: tool.id, points: this._expand(tool, this._pending), style: {}, paneIndex: this._pendingPane,
-      });
-      this._pending = [];
-      if (!this._opts.stayInDrawingMode) {
-        this._tool = null;
-        this._setPlacementMode(false);   // hand panning back to the chart
-      }
-      this._syncPreview();
-      this.select(created.id);
-      this._chart.emit('draw:tool', { tool: this._tool });
+      this._commit(this._expand(tool, this._pending));
     } else {
       this._syncPreview();
     }

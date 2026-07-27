@@ -150,6 +150,19 @@ function humanSpan(sec: number): string {
   return `${mins}m`;
 }
 
+/** Filled arrowhead at `b`, pointing away from `a`. Scales with line width. */
+function arrowHead(c: DrawContext, a: ScreenPoint, b: ScreenPoint): void {
+  const head = Math.max(8, c.style.lineWidth * 5) * c.rc.dpr;
+  const ang = Math.atan2(b.y - a.y, b.x - a.x);
+  c.ctx.beginPath();
+  c.ctx.moveTo(b.x, b.y);
+  c.ctx.lineTo(b.x - head * Math.cos(ang - 0.4), b.y - head * Math.sin(ang - 0.4));
+  c.ctx.lineTo(b.x - head * Math.cos(ang + 0.4), b.y - head * Math.sin(ang + 0.4));
+  c.ctx.closePath();
+  c.ctx.fillStyle = c.style.color;
+  c.ctx.fill();
+}
+
 const UP_TINT = '#26a69a';
 const DOWN_TINT = '#ef5350';
 
@@ -718,9 +731,12 @@ function measureContext(): CanvasRenderingContext2D | null {
   return _probe;
 }
 
-/** Brush — freehand ink: press, drag, release. */
+/**
+ * Path — click each vertex, double-click to finish, arrowhead on the last leg.
+ * The arrow is what separates it from `polyline`: a path points somewhere.
+ */
 export const PATH: DrawingTool = {
-  id: 'path', name: 'Path', points: 0, freehand: true,
+  id: 'path', name: 'Path', points: 0,
   draw: (c) => {
     if (c.pts.length < 2) return;
     applyStroke(c);
@@ -729,8 +745,413 @@ export const PATH: DrawingTool = {
     for (let i = 1; i < c.pts.length; i++) c.ctx.lineTo(c.pts[i].x, c.pts[i].y);
     c.ctx.stroke();
     c.ctx.setLineDash([]);
+    arrowHead(c, c.pts[c.pts.length - 2], c.pts[c.pts.length - 1]);
   },
   distance: (x, y, h) => (h.pts.length < 2 ? null : distToPolyline(x, y, h.pts)),
+};
+
+/** Brush — freehand ink: press, drag, release. */
+export const BRUSH: DrawingTool = {
+  id: 'brush', name: 'Brush', points: 0, freehand: true,
+  defaultStyle: { lineWidth: 2 },
+  draw: (c) => {
+    if (c.pts.length < 2) return;
+    applyStroke(c);
+    c.ctx.lineCap = 'round';
+    c.ctx.lineJoin = 'round';
+    c.ctx.beginPath();
+    c.ctx.moveTo(c.pts[0].x, c.pts[0].y);
+    for (let i = 1; i < c.pts.length; i++) c.ctx.lineTo(c.pts[i].x, c.pts[i].y);
+    c.ctx.stroke();
+    c.ctx.setLineDash([]);
+  },
+  distance: (x, y, h) => (h.pts.length < 2 ? null : distToPolyline(x, y, h.pts)),
+};
+
+/**
+ * Rotated rectangle — anchors 0→1 lay out one edge (and so the rotation), and
+ * anchor 2 sets the depth perpendicular to it. An axis-aligned `rectangle`
+ * cannot follow a trend channel; this can.
+ */
+export const ROTATED_RECTANGLE: DrawingTool = {
+  id: 'rotated-rectangle', name: 'Rotated Rectangle', points: 3,
+  defaultStyle: { fill: true, fillOpacity: 0.12 },
+  draw: (c) => {
+    if (c.pts.length < 3) return;
+    const corners = rotatedCorners(c.pts[0], c.pts[1], c.pts[2]);
+    c.ctx.beginPath();
+    c.ctx.moveTo(corners[0].x, corners[0].y);
+    for (let i = 1; i < 4; i++) c.ctx.lineTo(corners[i].x, corners[i].y);
+    c.ctx.closePath();
+    if (c.style.fill === true) {
+      c.ctx.save();
+      c.ctx.globalAlpha = c.style.fillOpacity ?? 0.12;
+      c.ctx.fillStyle = fillStyleOf(c);
+      c.ctx.fill();
+      c.ctx.restore();
+    }
+    applyStroke(c);
+    c.ctx.stroke();
+    c.ctx.setLineDash([]);
+  },
+  distance: (x, y, h) => {
+    if (h.pts.length < 3) return null;
+    const corners = rotatedCorners(h.pts[0], h.pts[1], h.pts[2]);
+    if (h.drawing.style.fill === true && pointInPolygon(x, y, corners)) return 0;
+    let best = Infinity;
+    for (let i = 0; i < 4; i++) {
+      best = Math.min(best, distToSegment(x, y, corners[i], corners[(i + 1) % 4]));
+    }
+    return best;
+  },
+};
+
+/**
+ * The four corners of a rotated rectangle: `a`→`b` is one edge, and `c` is
+ * projected onto the perpendicular to give the depth.
+ */
+function rotatedCorners(a: ScreenPoint, b: ScreenPoint, c: ScreenPoint): ScreenPoint[] {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len = Math.hypot(dx, dy) || 1;
+  // Unit normal to the a→b edge; the signed projection of `c` onto it is depth.
+  const nx = -dy / len;
+  const ny = dx / len;
+  const depth = (c.x - b.x) * nx + (c.y - b.y) * ny;
+  return [
+    a, b,
+    { x: b.x + nx * depth, y: b.y + ny * depth },
+    { x: a.x + nx * depth, y: a.y + ny * depth },
+  ];
+}
+
+/** Even-odd point-in-polygon, for filled shapes that are not axis-aligned. */
+function pointInPolygon(x: number, y: number, poly: readonly ScreenPoint[]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i];
+    const b = poly[j];
+    if ((a.y > y) !== (b.y > y) && x < ((b.x - a.x) * (y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+  }
+  return inside;
+}
+
+/**
+ * Double curve — an S through three anchors. `curve` bends one way off a single
+ * control; this mirrors that control about the midpoint so the second half bends
+ * back, which is the shape a rounded top-then-bottom actually needs.
+ */
+export const DOUBLE_CURVE: DrawingTool = {
+  id: 'double-curve', name: 'Double Curve', points: 3,
+  draw: (c) => {
+    if (c.pts.length < 3) return;
+    const [a, mid, b] = c.pts;
+    applyStroke(c);
+    c.ctx.beginPath();
+    c.ctx.moveTo(a.x, a.y);
+    // Second control is `mid` reflected through the chord's midpoint.
+    c.ctx.bezierCurveTo(mid.x, mid.y, a.x + b.x - mid.x, a.y + b.y - mid.y, b.x, b.y);
+    c.ctx.stroke();
+    c.ctx.setLineDash([]);
+  },
+  distance: (x, y, h) => {
+    if (h.pts.length < 3) return null;
+    const [a, mid, b] = h.pts;
+    const c2 = { x: a.x + b.x - mid.x, y: a.y + b.y - mid.y };
+    return distToPolyline(x, y, sampleCubic(a, mid, c2, b, 24));
+  },
+};
+
+/** Flatten a cubic bezier to `steps` segments, for hit-testing curves. */
+function sampleCubic(a: ScreenPoint, c1: ScreenPoint, c2: ScreenPoint, b: ScreenPoint, steps: number): ScreenPoint[] {
+  const out: ScreenPoint[] = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const u = 1 - t;
+    const w0 = u * u * u;
+    const w1 = 3 * u * u * t;
+    const w2 = 3 * u * t * t;
+    const w3 = t * t * t;
+    out.push({
+      x: w0 * a.x + w1 * c1.x + w2 * c2.x + w3 * b.x,
+      y: w0 * a.y + w1 * c1.y + w2 * c2.y + w3 * b.y,
+    });
+  }
+  return out;
+}
+
+// ── cycles ────────────────────────────────────────────────────────────────
+
+/** How many repeats a cycle tool draws past its two anchors. */
+const CYCLE_REPEATS = 12;
+
+/**
+ * Cyclic lines — vertical lines repeating at the interval the two anchors set,
+ * for reading a rhythm forward off a measured swing.
+ */
+export const CYCLIC_LINES: DrawingTool = {
+  id: 'cyclic-lines', name: 'Cyclic Lines', points: 2,
+  defaultStyle: { lineStyle: 'dashed' },
+  draw: (c) => {
+    const [a, b] = c.pts;
+    const step = b.x - a.x;
+    if (!Number.isFinite(step) || Math.abs(step) < 0.5) return;
+    const h = c.rc.plotHeight * c.rc.dpr;
+    const w = c.rc.plotWidth * c.rc.dpr;
+    applyStroke(c);
+    c.ctx.beginPath();
+    for (let i = 0; i <= CYCLE_REPEATS; i++) {
+      const x = Math.round(a.x + step * i) + 0.5;
+      if (x < 0 || x > w) continue;   // off-plot repeats cost nothing to skip
+      c.ctx.moveTo(x, 0);
+      c.ctx.lineTo(x, h);
+    }
+    c.ctx.stroke();
+    c.ctx.setLineDash([]);
+  },
+  distance: (x, y, h) => {
+    void y;
+    const step = h.pts[1].x - h.pts[0].x;
+    if (!Number.isFinite(step) || Math.abs(step) < 0.5) return null;
+    // Distance to the nearest repeat, clamped to the ones actually drawn.
+    const k = Math.round((x - h.pts[0].x) / step);
+    if (k < 0 || k > CYCLE_REPEATS) return null;
+    return Math.abs(x - (h.pts[0].x + step * k));
+  },
+};
+
+/**
+ * Time cycles — semicircles of the anchors' width repeating along the axis, the
+ * classic cycle-projection overlay.
+ */
+export const TIME_CYCLES: DrawingTool = {
+  id: 'time-cycles', name: 'Time Cycles', points: 2,
+  draw: (c) => {
+    const [a, b] = c.pts;
+    const step = b.x - a.x;
+    if (!Number.isFinite(step) || Math.abs(step) < 1) return;
+    const r = Math.abs(step) / 2;
+    applyStroke(c);
+    c.ctx.beginPath();
+    for (let i = 0; i < CYCLE_REPEATS; i++) {
+      const cx = a.x + step * i + step / 2;
+      if (cx + r < 0 || cx - r > c.rc.plotWidth * c.rc.dpr) continue;
+      c.ctx.moveTo(cx + r, a.y);
+      c.ctx.arc(cx, a.y, r, 0, Math.PI, true);   // upper half only
+    }
+    c.ctx.stroke();
+    c.ctx.setLineDash([]);
+  },
+  distance: (x, y, h) => {
+    const [a, b] = h.pts;
+    const step = b.x - a.x;
+    if (!Number.isFinite(step) || Math.abs(step) < 1) return null;
+    const r = Math.abs(step) / 2;
+    let best = Infinity;
+    for (let i = 0; i < CYCLE_REPEATS; i++) {
+      const cx = a.x + step * i + step / 2;
+      // Distance to the rim, and only the drawn (upper) half counts.
+      if (y > a.y + 2) continue;
+      best = Math.min(best, Math.abs(Math.hypot(x - cx, y - a.y) - r));
+    }
+    return Number.isFinite(best) ? best : null;
+  },
+};
+
+/**
+ * Sine line — a full wave between the anchors: the horizontal span is one
+ * period, the vertical offset its amplitude.
+ */
+export const SINE_LINE: DrawingTool = {
+  id: 'sine-line', name: 'Sine Line', points: 2,
+  draw: (c) => {
+    const pts = sinePoints(c.pts[0], c.pts[1]);
+    if (pts === null) return;
+    applyStroke(c);
+    c.ctx.beginPath();
+    c.ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) c.ctx.lineTo(pts[i].x, pts[i].y);
+    c.ctx.stroke();
+    c.ctx.setLineDash([]);
+  },
+  distance: (x, y, h) => {
+    const pts = sinePoints(h.pts[0], h.pts[1]);
+    return pts === null ? null : distToPolyline(x, y, pts);
+  },
+};
+
+/** One period of a sine from `a` to `a.x + span`, amplitude `b.y - a.y`. */
+function sinePoints(a: ScreenPoint, b: ScreenPoint): ScreenPoint[] | null {
+  const span = b.x - a.x;
+  const amp = b.y - a.y;
+  if (!Number.isFinite(span) || Math.abs(span) < 1) return null;
+  const steps = 64;
+  const out: ScreenPoint[] = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    out.push({ x: a.x + span * t, y: a.y + amp * Math.sin(t * Math.PI * 2) });
+  }
+  return out;
+}
+
+// ── notes & marks ─────────────────────────────────────────────────────────
+
+/**
+ * Price label — a pill of the anchored price with a tail pointing at the bar.
+ * Reads its value off the anchor, so dragging it re-reads rather than going
+ * stale the way a typed-in `text` would.
+ */
+export const PRICE_LABEL: DrawingTool = {
+  id: 'price-label', name: 'Price Label', points: 1,
+  defaultStyle: { fontSize: 12 },
+  draw: (c) => {
+    const p = c.pts[0];
+    const d = c.rc.dpr;
+    const text = c.style.text !== undefined && c.style.text !== ''
+      ? c.style.text : c.formatPrice(c.drawing.points[0].price);
+    const box = calloutBox(c, [text], p.x + 18 * d, p.y - 30 * d);
+    calloutTail(c, box, p, c.style.color);
+    calloutText(c, box, [text], c.style.color);
+  },
+  distance: (x, y, h) => {
+    // The anchor plus a generous box to its upper right — measuring the real
+    // text needs a context the hit path does not have.
+    const p = h.pts[0];
+    const w = 64;
+    const hgt = 22;
+    const x0 = p.x + 18;
+    const y0 = p.y - 30 - hgt / 2;
+    if (x >= x0 && x <= x0 + w && y >= y0 && y <= y0 + hgt) return 0;
+    return Math.hypot(x - p.x, y - p.y) <= 10 ? 0 : null;
+  },
+};
+
+/**
+ * Callout — a text bubble on its own anchor with a tail back to the point it
+ * annotates, so the note can sit clear of the price action it refers to.
+ */
+export const CALLOUT: DrawingTool = {
+  id: 'callout', name: 'Callout', points: 2,
+  defaultStyle: { fontSize: 12, text: 'Note' },
+  draw: (c) => {
+    if (c.pts.length < 2) return;
+    const [target, seat] = c.pts;
+    const lines = (c.style.text ?? 'Note').split('\n');
+    const box = calloutBox(c, lines, seat.x, seat.y);
+    calloutTail(c, box, target, c.style.color);
+    calloutText(c, box, lines, c.style.color);
+  },
+  distance: (x, y, h) => {
+    if (h.pts.length < 2) return null;
+    const [target, seat] = h.pts;
+    // Bubble body, else the tail back to the annotated point.
+    if (Math.abs(x - seat.x) <= 60 && Math.abs(y - seat.y) <= 16) return 0;
+    return distToSegment(x, y, target, seat);
+  },
+};
+
+/** Rounded bubble at (x, y) sized to `lines`; returns its device-px box. */
+function calloutBox(
+  c: DrawContext, lines: readonly string[], x: number, y: number,
+): { x: number; y: number; w: number; h: number } {
+  const d = c.rc.dpr;
+  const size = (c.style.fontSize ?? 12) * d;
+  c.ctx.save();
+  c.ctx.font = `${size}px ui-sans-serif, system-ui, sans-serif`;
+  let textW = 0;
+  for (const t of lines) textW = Math.max(textW, c.ctx.measureText(t).width);
+  c.ctx.restore();
+  const w = textW + 14 * d;
+  const h = size * 1.4 * lines.length + 8 * d;
+  return { x: x - w / 2, y: y - h / 2, w, h };
+}
+
+/** Bubble fill plus the tail from it to `tip`. */
+function calloutTail(
+  c: DrawContext, box: { x: number; y: number; w: number; h: number }, tip: ScreenPoint, color: string,
+): void {
+  const d = c.rc.dpr;
+  const cx = box.x + box.w / 2;
+  const cy = box.y + box.h / 2;
+  const ang = Math.atan2(tip.y - cy, tip.x - cx);
+  // Two base points either side of the bubble→tip direction, so the tail always
+  // leaves from the edge facing the point it annotates.
+  const base = 5 * d;
+  const bx = cx + Math.cos(ang) * (box.w / 2 - base);
+  const by = cy + Math.sin(ang) * (box.h / 2 - base);
+  c.ctx.save();
+  c.ctx.setLineDash([]);
+  c.ctx.fillStyle = color;
+  c.ctx.beginPath();
+  c.ctx.moveTo(tip.x, tip.y);
+  c.ctx.lineTo(bx - Math.sin(ang) * base, by + Math.cos(ang) * base);
+  c.ctx.lineTo(bx + Math.sin(ang) * base, by - Math.cos(ang) * base);
+  c.ctx.closePath();
+  c.ctx.fill();
+  c.ctx.beginPath();
+  roundRectPath(c.ctx, box.x, box.y, box.w, box.h, 5 * d);
+  c.ctx.fill();
+  // Anchor dot, so the exact bar being annotated stays visible.
+  c.ctx.beginPath();
+  c.ctx.arc(tip.x, tip.y, 2.5 * d, 0, Math.PI * 2);
+  c.ctx.fill();
+  c.ctx.restore();
+}
+
+/** Bubble text, centred, in the contrasting colour. */
+function calloutText(
+  c: DrawContext, box: { x: number; y: number; w: number; h: number }, lines: readonly string[], color: string,
+): void {
+  const d = c.rc.dpr;
+  const size = (c.style.fontSize ?? 12) * d;
+  c.ctx.save();
+  c.ctx.setLineDash([]);
+  c.ctx.font = `${size}px ui-sans-serif, system-ui, sans-serif`;
+  c.ctx.textAlign = 'center';
+  c.ctx.textBaseline = 'middle';
+  c.ctx.fillStyle = c.style.fontColor ?? contrastText(color);
+  const lh = size * 1.4;
+  const top = box.y + box.h / 2 - (lh * (lines.length - 1)) / 2;
+  for (let i = 0; i < lines.length; i++) c.ctx.fillText(lines[i], box.x + box.w / 2, top + lh * i);
+  c.ctx.restore();
+}
+
+/** Flag mark — a pennant on a pole at one anchor, for tagging a bar. */
+export const FLAG_MARK: DrawingTool = {
+  id: 'flag-mark', name: 'Flag Mark', points: 1,
+  defaultStyle: { fill: true, fillOpacity: 0.95 },
+  draw: (c) => {
+    const p = c.pts[0];
+    const d = c.rc.dpr;
+    const pole = 22 * d;
+    const flagW = 15 * d;
+    const flagH = 11 * d;
+    applyStroke(c);
+    c.ctx.beginPath();
+    c.ctx.moveTo(p.x, p.y);
+    c.ctx.lineTo(p.x, p.y - pole);
+    c.ctx.stroke();
+    c.ctx.setLineDash([]);
+    // Pennant off the top of the pole, notched on its trailing edge.
+    c.ctx.beginPath();
+    c.ctx.moveTo(p.x, p.y - pole);
+    c.ctx.lineTo(p.x + flagW, p.y - pole + flagH * 0.28);
+    c.ctx.lineTo(p.x + flagW * 0.72, p.y - pole + flagH * 0.5);
+    c.ctx.lineTo(p.x + flagW, p.y - pole + flagH * 0.72);
+    c.ctx.lineTo(p.x, p.y - pole + flagH);
+    c.ctx.closePath();
+    c.ctx.save();
+    c.ctx.globalAlpha = c.style.fillOpacity ?? 0.95;
+    c.ctx.fillStyle = fillStyleOf(c);
+    c.ctx.fill();
+    c.ctx.restore();
+  },
+  distance: (x, y, h) => {
+    const p = h.pts[0];
+    // Pole plus the pennant box hanging off its top.
+    if (x >= p.x - 4 && x <= p.x + 16 && y >= p.y - 24 && y <= p.y + 2) return 0;
+    return Math.hypot(x - p.x, y - p.y) <= 8 ? 0 : null;
+  },
 };
 
 /** Every built-in, in toolbar order. */
@@ -1247,9 +1668,11 @@ export const BUILTIN_DRAWING_TOOLS: readonly DrawingTool[] = [
   LONG_POSITION, SHORT_POSITION, FORECAST,
   MEASURE, PRICE_RANGE, DATE_RANGE,
   CIRCLE, TRIANGLE, POLYLINE, ARC, CURVE,
-  ARROW_UP, ARROW_DOWN, HIGHLIGHTER,
+  ROTATED_RECTANGLE, DOUBLE_CURVE,
+  ARROW_UP, ARROW_DOWN, HIGHLIGHTER, BRUSH,
   FIB_CHANNEL, FIB_TIME_ZONE, FIB_FAN, GANN_FAN, GANN_BOX,
-  TEXT, PATH,
+  CYCLIC_LINES, TIME_CYCLES, SINE_LINE,
+  TEXT, PATH, PRICE_LABEL, CALLOUT, FLAG_MARK,
 ];
 
 let _registered = false;

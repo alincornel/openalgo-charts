@@ -1,13 +1,13 @@
 ---
 title: Drawing Tools
-description: 34 drawing tools, a headless controller, undo/redo, and persistence.
+description: 43 drawing tools, a headless controller, undo/redo, and persistence.
 ---
 
 import { Callout } from 'nextra/components'
 
 # Drawing Tools
 
-`openalgo-charts/draw` is a lazy tier (**8.3 KB** Brotli) with 34 tools and a headless
+`openalgo-charts/draw` is a lazy tier (**11.3 KB** Brotli) with 43 tools and a headless
 controller. It ships **no UI** — no toolbar, no dialogs. It owns the model and the
 interactions; your app supplies the buttons.
 
@@ -24,24 +24,34 @@ draw.setTool('trend-line');   // the next two clicks place it
 
 ## The tools
 
-**34 built-in tools**, all registered when the tier is imported.
+**43 built-in tools**, all registered when the tier is imported.
 
 | Group | `id` | Anchors |
 |---|---|---|
 | Lines | `trend-line`, `ray`, `extended-line`, `arrow` | 2 |
 | Horizontal / vertical | `horizontal-line`, `horizontal-ray`, `vertical-line`, `cross-line` | 1 |
-| Shapes | `rectangle`, `ellipse`, `circle`, `triangle` | 2 / 2 / 2 / 3 |
-| Paths | `polyline` (free-form), `arc`, `curve` | n / 3 / 3 |
+| Shapes | `rectangle`, `ellipse`, `circle`, `triangle`, `rotated-rectangle` | 2 / 2 / 2 / 3 / 3 |
+| Paths | `path`, `polyline` (both free-form), `arc`, `curve`, `double-curve` | n / n / 3 / 3 / 3 |
 | Channels | `parallel-channel`, `fib-channel` | 3 |
 | Fibonacci | `fib-retracement` (2), `fib-extension` (3), `fib-time-zone` (2), `fib-fan` (2) | 2–3 |
 | Gann | `gann-fan`, `gann-box` | 2 |
 | Forecasting | `long-position`, `short-position` (3), `forecast` (2) | 2–3 |
 | Measurers | `price-range`, `date-range`, `measure` | 2 |
 | Arrows | `arrow-up`, `arrow-down` | 1 |
-| Annotation | `text` (1), `path`, `highlighter` (free-form) | 1 / n |
+| Cycles | `cyclic-lines`, `time-cycles`, `sine-line` | 2 |
+| Text and notes | `text`, `price-label`, `flag-mark` (1), `callout` (2) | 1–2 |
+| Brushes | `brush`, `highlighter` (both freehand) | n |
 
-`long-position` and `short-position` report **R:R** and a risk-based position size from
-`accountSize` and `risk` in their style bag.
+`long-position` and `short-position` place a complete **1:1** box from a single click,
+sized to about 8% of the visible range, with all three anchors draggable. They report the
+target and stop moves with percentages and cash amounts, plus **risk/reward** and a
+risk-based position size from `accountSize` and `risk` in their style bag.
+
+Anchor counts of `n` mean the tool collects anchors until you end it. **Freehand** tools
+(`brush`, `highlighter`) sample the cursor while the pointer is held and finish on release
+— one press-drag-release is one stroke, and only the two ends get grab handles. The other
+`n` tools (`path`, `polyline`) take one anchor per click and finish on **double-click**, or
+on `controller.finish()` if you want to bind a key to it.
 
 The three measurers differ only in what they report. `measure` gives price change, percent
 *and* bar count; `price-range` drops the time axis; `date-range` drops the price axis — which
