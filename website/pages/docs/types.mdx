@@ -100,8 +100,24 @@ interface ChartOptions {
   shortcuts?: ShortcutManager | Partial<ShortcutManagerOptions> | false;
   /** Hover-revealed zoom / step controls above the time axis. Default true. */
   timeNavigator?: boolean | Partial<TimeNavigatorOptions>;
+  /**
+   * Where indicator legend rows start inside a pane, in media px.
+   * Default `{ top: 6, left: 8 }`.
+   */
+  legendOffset?: { top?: number; left?: number };
 }
 ```
+
+<Callout type="info">
+Set `legendOffset` when your host draws its own overlay in a pane's top-left
+corner — an OHLC readout, a symbol line. Without it the canvas legend an
+indicator adds lands underneath yours, and its settings and close buttons end up
+invisible and unclickable.
+
+```ts
+createChart(el, { legendOffset: { top: 40 } });   // clear a two-line overlay
+```
+</Callout>
 
 Options passed to `createChart(container, options)`. All fields are optional; defaults are sensible for browser use.
 

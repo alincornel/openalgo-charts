@@ -141,6 +141,35 @@ describe('pane legend rows', () => {
     expect(ema?.options().row).toBe(1);
   });
 
+  it('starts indicator legends below a host overlay when legendOffset says so', () => {
+    // A host that draws its own OHLC readout in the corner needs the canvas
+    // rows pushed clear of it — otherwise they land underneath, and their
+    // settings / close buttons are invisible and unclickable.
+    const el = fakeDocument().createElement('div') as unknown as FakeElement;
+    const chart = new Chart(el, {
+      document: fakeDocument(), raf: { schedule: () => 0 },
+      pixelRatio: () => 1, shortcuts: false,
+      legendOffset: { top: 40, left: 14 },
+    });
+    chart.applySize(800, 600);
+    chart.addSeries('candlestick').setData(bars(60));
+    chart.addIndicator('ema');
+
+    const opts = chart.indicators()[0].legend()?.options();
+    expect(opts?.top).toBe(40);
+    expect(opts?.left).toBe(14);
+    expect(opts?.row).toBe(0); // still the first row, just lower down
+  });
+
+  it('leaves legends at the default corner with no offset given', () => {
+    const { chart } = makeChart();
+    chart.addSeries('candlestick').setData(bars(60));
+    chart.addIndicator('ema');
+    const opts = chart.indicators()[0].legend()?.options();
+    expect(opts?.top).toBe(6);
+    expect(opts?.left).toBe(8);
+  });
+
   it('closes the gap when a legend above is removed', () => {
     const { chart } = makeChart();
     chart.addSeries('candlestick').setData(bars(60));

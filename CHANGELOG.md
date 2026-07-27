@@ -2,6 +2,17 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.0.15
+
+### Added
+
+- **`legendOffset` chart option** — where indicator legend rows start inside a
+  pane, in media px. A host that draws its own overlay in the top-left corner
+  (an OHLC readout, a symbol line) had no way to push the canvas rows clear of
+  it, so adding an indicator landed its legend *underneath* the host's own text:
+  unreadable, and its settings and close buttons invisible and unclickable.
+  Defaults to `{ top: 6, left: 8 }`, so nothing moves unless you ask.
+
 ## 1.0.14
 
 The lazy tiers were unusable from TypeScript. Fixed, with a build guard so it

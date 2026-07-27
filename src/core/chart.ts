@@ -49,6 +49,14 @@ export interface ChartOptions {
   priceAxisWidth?: number;
   timeAxisHeight?: number;
   /**
+   * Where indicator legend rows start inside a pane, in media px. A host that
+   * draws its own overlay in the top-left corner — an OHLC readout, a symbol
+   * line — needs to push these clear of it, or the rows land underneath and
+   * their settings / close buttons become invisible and unclickable.
+   * Defaults to `{ top: 6, left: 8 }`.
+   */
+  legendOffset?: { top?: number; left?: number };
+  /**
    * Crosshair behaviour. 'normal' (default) — the cross follows the pointer
    * exactly. 'magnet' — the horizontal line snaps to the nearest O/H/L/C of the
    * bar under the cursor (price pane only).
@@ -215,6 +223,8 @@ export class Chart {
   private _pointerMoved = false;
   /** While true, pointer gestures place anchors instead of panning. */
   private _placementMode = false;
+  /** Where indicator legend rows start inside a pane (see `legendOffset`). */
+  private readonly _legendOffset: { top: number; left: number } = { top: 6, left: 8 };
   private _downPane = 0;
   private _downX = 0;
   private _downLocalY = 0;
@@ -252,6 +262,8 @@ export class Chart {
     this._pixelRatio = options.pixelRatio ?? defaultPixelRatio;
     this._theme = options.theme ?? DEFAULT_THEME;
     this._priceAxisWidth = options.priceAxisWidth ?? 56;
+    if (options.legendOffset?.top !== undefined) this._legendOffset.top = options.legendOffset.top;
+    if (options.legendOffset?.left !== undefined) this._legendOffset.left = options.legendOffset.left;
     this._timeAxisHeight = options.timeAxisHeight ?? 22;
     this._crosshairMode = options.crosshairMode ?? 'normal';
     const sc = options.shortcuts;
@@ -501,7 +513,12 @@ export class Chart {
           o.row === 0 && o.paneIndex > 0
             ? ['hide', 'settings', 'up', 'down', 'maximize', 'close']
             : ['hide', 'settings', 'close'];
-        const legend = new PaneLegend({ ...o, actions: paneActions });
+        const legend = new PaneLegend({
+          top: this._legendOffset.top,
+          left: this._legendOffset.left,
+          ...o,
+          actions: paneActions,
+        });
         this._addPrimitive(o.paneIndex, legend);
         return legend;
       },
