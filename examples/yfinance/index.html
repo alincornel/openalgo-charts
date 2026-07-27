@@ -845,9 +845,9 @@
       if (watermark) chart.removePrimitive(watermark);
       watermark = new LogoWatermark({
         // The symbol-only asset has a square viewBox tight to the mark, so
-        // height alone gives 36x36; 3.5 of padding puts it in a 43x43 plate.
-        src: '/examples/openalgo-glyph.svg', height: 36, opacity: 0.85,
-        position: 'bottom-left', margin: 6, padding: 3.5,
+        // height alone gives 32x32; 3 of padding puts it in a 38x38 plate.
+        src: '/examples/openalgo-glyph.svg', height: 32, opacity: 0.85,
+        position: 'bottom-left', margin: 6, padding: 3,
         // Mark alone at rest; the wording unrolls to its right on hover. The
         // mark and text share one colour, so setting either sets both.
         label: 'OpenAlgo Charts',
