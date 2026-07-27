@@ -15,7 +15,7 @@
  * `minLetterHeight`, so zooming through the threshold reads as one continuous
  * change instead of a jump.
  */
-import type { IPrimitive, PrimitiveHit, PrimitiveHost, PrimitiveRenderContext, ZOrder } from '../primitives/primitive';
+import type { IPrimitive, PrimitiveHit, PrimitiveHost, PrimitiveRenderContext, ZOrder } from 'openalgo-charts';
 import type { MarketProfileResult, MarketProfileSessionResult, MarketProfileLevel } from './market-profile';
 import { nakedLevels } from './market-profile';
 

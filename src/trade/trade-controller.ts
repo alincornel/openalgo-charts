@@ -5,7 +5,7 @@
  * reconnect, a fresh snapshot is diffed against current primitives, so vanished
  * orders are removed (STALE handling) with no special code path.
  */
-import type { IPrimitive } from '../primitives/primitive';
+import type { IPrimitive } from 'openalgo-charts';
 import type { Order, Position } from './types';
 import { isWorking } from './types';
 import { WorkingOrderLine } from './order-line';

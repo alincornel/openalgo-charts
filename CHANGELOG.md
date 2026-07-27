@@ -2,6 +2,46 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.0.14
+
+The lazy tiers were unusable from TypeScript. Fixed, with a build guard so it
+cannot come back. 556 unit tests.
+
+### Fixed
+
+- **`openalgo-charts/draw`, `/trade` and `/profile` could not be used from
+  TypeScript at all.** Passing the chart from `createChart()` to
+  `new DrawingController(chart)` failed with
+
+  > Types have separate declarations of a private property `_container`
+
+  and there was no way to fix it from outside the package.
+
+  Each tier is bundled into its own `.d.ts`. A tier that imported a shared type
+  through a *relative* path had that declaration **inlined** — so `Chart`,
+  `TimeScale`, `PriceScale` and `DataLayer` each existed twice. Those classes
+  carry private members, which makes them nominal rather than structural, so the
+  second copy was a genuinely different type to TypeScript. Plain JavaScript
+  consumers never noticed, which is why it survived this long.
+
+  Tiers now import shared types from the package entry, which tier builds
+  already leave external, so there is one declaration and one identity. The tier
+  declarations shrank as a side effect: draw 47 KB -> 17 KB, trade and profile
+  similarly.
+
+- `DrawingController` takes a structural `DrawingChartHost` — the seven members
+  it actually uses — rather than the whole `Chart` class. The real chart
+  satisfies it with nothing to cast, and the contract now states what the
+  controller needs.
+
+### Added
+
+- **`DataLayer`, `IndexedBar` and `SeriesId` are exported types.**
+  `chart.dataLayer` was public while its type was not nameable, so a consumer
+  could hold one but never declare one.
+- `npm run check:dts`, wired into `verify`: fails the build if any tier
+  re-inlines a shared declaration.
+
 ## 1.0.13
 
 Nine more drawing tools (34 -> 43), freehand brushes, one-click position tools,

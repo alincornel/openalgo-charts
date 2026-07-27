@@ -10,7 +10,7 @@
  * unit testing; the primitive draws on the top (overlay) canvas so frequent
  * depth updates only repaint the cheap overlay.
  */
-import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, PrimitiveHit, ZOrder } from '../primitives/primitive';
+import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, PrimitiveHit, ZOrder } from 'openalgo-charts';
 import type { MarketDepth } from '../feed/types';
 import { contrastText, withAlpha, parseColor } from '../render/pill';
 

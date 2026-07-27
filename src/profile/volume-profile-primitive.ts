@@ -8,7 +8,7 @@
  * price range (its `autoscaleInfo` reports its extent so a profile-only chart
  * still frames correctly).
  */
-import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, ZOrder } from '../primitives/primitive';
+import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, ZOrder } from 'openalgo-charts';
 import type { VolumeProfileFamilyResult, VolumeProfileSessionResult } from './volume-profile-family';
 
 export type VolumeDisplayMode = 'total' | 'buySell' | 'delta';

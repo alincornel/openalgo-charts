@@ -4,7 +4,7 @@
  * the left edge, and an R:R chip near entry — the core advanced-trade-management
  * visualisation. The SL/TP lines thicken on hover and are draggable (OCO modify).
  */
-import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, PrimitiveHit, ZOrder } from '../primitives/primitive';
+import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, PrimitiveHit, ZOrder } from 'openalgo-charts';
 import type { OrderSide } from './types';
 import { riskReward } from './pnl';
 import { withAlpha, drawPill } from '../render/pill';

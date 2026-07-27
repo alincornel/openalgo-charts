@@ -5,7 +5,7 @@
  *
  * The footprint renderer lives in `footprint-primitive.ts`.
  */
-import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, ZOrder } from '../primitives/primitive';
+import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, ZOrder } from 'openalgo-charts';
 
 export interface ProfileLevel { price: number; value: number; }
 

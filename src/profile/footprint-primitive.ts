@@ -15,7 +15,7 @@
  * the previous version hardcoded twelve colours and could only be restyled by
  * rebuilding the chart.
  */
-import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, PrimitiveHit, ZOrder } from '../primitives/primitive';
+import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, PrimitiveHit, ZOrder } from 'openalgo-charts';
 import type { FootprintBar, FootprintCell } from './profile-model';
 import { parseColor, withAlpha } from '../render/pill';
 

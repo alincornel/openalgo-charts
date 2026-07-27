@@ -8,7 +8,7 @@
  * Hit ids are `draw:<id>` for the body and `draw:<id>#<n>` for anchor `n`, so
  * the controller can tell "move the whole shape" from "move this handle".
  */
-import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, PrimitiveHit, ZOrder } from '../primitives/primitive';
+import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, PrimitiveHit, ZOrder } from 'openalgo-charts';
 import type { Drawing, ScreenPoint } from './types';
 import { getDrawingTool, hasDrawingTool } from './tools';
 

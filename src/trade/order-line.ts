@@ -6,7 +6,7 @@
  * (3/10). Hover thickens the line (hit-test `order:<id>`, ns-resize cursor for
  * drag-to-modify; the ✕ hit-tests as `order:<id>::close`).
  */
-import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, PrimitiveHit, ZOrder } from '../primitives/primitive';
+import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, PrimitiveHit, ZOrder } from 'openalgo-charts';
 import type { Order } from './types';
 import { contrastText, withAlpha, shade, drawPillGroup } from '../render/pill';
 

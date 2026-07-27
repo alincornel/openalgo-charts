@@ -10,7 +10,7 @@
  * gives anchors between bars and to the right of the last one — where trend
  * projections and forecasts live.
  */
-import type { PrimitiveRenderContext } from '../primitives/primitive';
+import type { PrimitiveRenderContext } from 'openalgo-charts';
 
 /** One anchor, in data space. */
 export interface DrawingPoint {

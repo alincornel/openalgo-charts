@@ -8,10 +8,39 @@
  * `drag:end`) rather than the single-slot `subscribeClick`/`subscribeDrag`
  * callbacks, so a host keeps using those for its own order lines.
  */
-import type { Chart } from '../core/chart';
+// Shared types come from the package entry, not a relative path: each tier
+// bundles its own .d.ts, so a relative import gets *inlined* as a second
+// declaration. Classes with private members are nominal, so that second copy
+// is a different type — and a consumer passing the real one got "separate
+// declarations of a private property". The entry is external to tier builds,
+// so this survives as `from 'openalgo-charts'` and stays one identity.
+import type { IPrimitive, DataLayer } from 'openalgo-charts';
 import type { Drawing, DrawingPoint, DrawingStyle, DrawingTool } from './types';
 import { DrawingLayer } from './layer';
 import { getDrawingTool, hasDrawingTool } from './tools';
+
+/**
+ * The slice of the chart this controller needs.
+ *
+ * Declared structurally rather than as `Chart` on purpose. Each tier ships its
+ * own bundled `.d.ts`, so naming the class here made the draw tier re-declare
+ * `Chart` — and because `Chart` has private members, TypeScript treats the two
+ * declarations as *different* types. A TS consumer passing the chart from
+ * `createChart()` got "separate declarations of a private property", which made
+ * the tier unusable from TypeScript at all. An interface with no private
+ * members is structural, so the real `Chart` satisfies it with nothing to cast.
+ */
+export interface DrawingChartHost {
+  on(event: string, handler: (payload: unknown) => void): () => void;
+  emit(event: string, payload: unknown): void;
+  addPrimitive(primitive: IPrimitive, paneIndex?: number): void;
+  removePrimitive(primitive: IPrimitive): void;
+  readonly dataLayer: DataLayer;
+  getVisibleLogicalRange(): { from: number; to: number } | null;
+  drawingState(): unknown;
+  setDrawingState(state: unknown): void;
+  setPlacementMode?(active: boolean): void;
+}
 
 export interface DrawingControllerOptions {
   /**
@@ -50,7 +79,7 @@ interface DragPayload {
 let nextId = 1;
 
 export class DrawingController {
-  private readonly _chart: Chart;
+  private readonly _chart: DrawingChartHost;
   private _opts: Required<Omit<DrawingControllerOptions, 'defaultStyle'>> & { defaultStyle: DrawingStyle };
   private readonly _layers = new Map<number, DrawingLayer>();
   private _drawings: Drawing[] = [];
@@ -67,7 +96,7 @@ export class DrawingController {
   /** Bar under the cursor, carried by the crosshair event — used by magnet. */
   private _lastBar: { open: number; high: number; low: number; close: number } | null = null;
 
-  public constructor(chart: Chart, options: DrawingControllerOptions = {}) {
+  public constructor(chart: DrawingChartHost, options: DrawingControllerOptions = {}) {
     this._chart = chart;
     this._opts = {
       magnet: options.magnet ?? false,

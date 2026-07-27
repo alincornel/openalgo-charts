@@ -5,7 +5,7 @@
  * P&L sign. Updates cheaply on every LTP tick. The ✕ hit-tests as
  * `position:<symbol>::close` (wire it to your square-off flow).
  */
-import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, PrimitiveHit, ZOrder } from '../primitives/primitive';
+import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, PrimitiveHit, ZOrder } from 'openalgo-charts';
 import type { Position } from './types';
 import { unrealizedPnl, unrealizedPnlPercent } from './pnl';
 import { withAlpha, shade, contrastText, drawPillGroup } from '../render/pill';

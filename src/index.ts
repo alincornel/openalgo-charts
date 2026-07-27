@@ -76,6 +76,9 @@ export type { SeriesApi, PriceScaleId } from './model/series';
 // primitives / plugin API
 export { bestHit } from './primitives/primitive';
 export type { IPrimitive, PrimitiveHit, PrimitiveHost, PrimitiveRenderContext, ZOrder } from './primitives/primitive';
+// `chart.dataLayer` is public, so its type has to be nameable by a consumer —
+// and a tier that takes one in its own public API needs to name *this* one.
+export type { DataLayer, IndexedBar, SeriesId } from './model/data-layer';
 export { PriceLine } from './primitives/price-line';
 export type { PriceLineOptions } from './primitives/price-line';
 export { SeriesMarkers, markerSizePx, effectiveMarkerPx, drawShape } from './primitives/markers';

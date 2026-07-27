@@ -72,6 +72,27 @@ changed. Anchors map through `DataLayer.timeToIndexFloat`, which also resolves p
 *between* bars (inside a collapsed gap) and *past the last bar*, where trend projections and
 forecasts live.
 
+## Using it from TypeScript
+
+`DrawingController` takes a `DrawingChartHost` — a structural interface covering
+the members it uses, which the chart from `createChart()` satisfies directly:
+
+```ts
+import { createChart } from 'openalgo-charts';
+import { DrawingController } from 'openalgo-charts/draw';
+
+const chart = createChart(el);
+const draw = new DrawingController(chart);   // no cast needed
+```
+
+<Callout type="info">
+Before 1.0.14 this failed with *"Types have separate declarations of a private
+property"*: each tier inlined its own copy of `Chart`, and private members make a
+class nominal, so the two copies were different types. If you are pinned below
+1.0.14 and see that error, upgrade — there is no workaround from outside the
+package.
+</Callout>
+
 ## Controller API
 
 | Member | Description |
