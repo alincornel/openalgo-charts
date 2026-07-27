@@ -8,6 +8,18 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 1.0.21
+
+**Fixed**
+
+- **`legendOffset` shifted every pane, not just the overlaid one.** Offsetting
+  the price pane clear of a host's OHLC readout also pushed each lower indicator
+  pane's legend down by the same amount. A lower pane is short, so its row went
+  off the pane, taking the settings, close and move-pane buttons with it — an
+  RSI pane could not be configured, moved or removed from its own legend.
+
+  The offset now applies to one pane, `paneIndex` (default 0).
+
 ## 1.0.20
 
 **Added**

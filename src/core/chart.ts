@@ -62,13 +62,20 @@ export interface ChartOptions {
   priceAxisWidth?: number;
   timeAxisHeight?: number;
   /**
-   * Where indicator legend rows start inside a pane, in media px. A host that
-   * draws its own overlay in the top-left corner — an OHLC readout, a symbol
-   * line — needs to push these clear of it, or the rows land underneath and
-   * their settings / close buttons become invisible and unclickable.
-   * Defaults to `{ top: 6, left: 8 }`.
+   * Where indicator legend rows start inside **one** pane, in media px. A host
+   * that draws its own overlay in a pane's top-left corner — an OHLC readout, a
+   * symbol line, a trade panel — needs to push these clear of it, or the rows
+   * land underneath and their settings / close buttons become invisible and
+   * unclickable.
+   *
+   * `paneIndex` defaults to 0, because that overlay is nearly always on the
+   * price pane. Every other pane keeps the default corner: a lower indicator
+   * pane is short, so applying a price-pane offset there would push its legend
+   * off the pane entirely.
+   *
+   * Defaults to `{ top: 6, left: 8, paneIndex: 0 }`.
    */
-  legendOffset?: { top?: number; left?: number };
+  legendOffset?: { top?: number; left?: number; paneIndex?: number };
   /**
    * Crosshair behaviour. 'normal' (default) — the cross follows the pointer
    * exactly. 'magnet' — the horizontal line snaps to the nearest O/H/L/C of the
@@ -237,7 +244,8 @@ export class Chart {
   /** While true, pointer gestures place anchors instead of panning. */
   private _placementMode = false;
   /** Where indicator legend rows start inside a pane (see `legendOffset`). */
-  private readonly _legendOffset: { top: number; left: number } = { top: 6, left: 8 };
+  private readonly _legendOffset: { top: number; left: number; paneIndex: number } =
+    { top: 6, left: 8, paneIndex: 0 };
   private _downPane = 0;
   private _downX = 0;
   private _downLocalY = 0;
@@ -277,6 +285,9 @@ export class Chart {
     this._priceAxisWidth = options.priceAxisWidth ?? 56;
     if (options.legendOffset?.top !== undefined) this._legendOffset.top = options.legendOffset.top;
     if (options.legendOffset?.left !== undefined) this._legendOffset.left = options.legendOffset.left;
+    if (options.legendOffset?.paneIndex !== undefined) {
+      this._legendOffset.paneIndex = options.legendOffset.paneIndex;
+    }
     this._timeAxisHeight = options.timeAxisHeight ?? 22;
     this._crosshairMode = options.crosshairMode ?? 'normal';
     const sc = options.shortcuts;
@@ -554,12 +565,14 @@ export class Chart {
           o.row === 0 && o.paneIndex > 0
             ? ['hide', 'settings', 'up', 'down', 'maximize', 'close']
             : ['hide', 'settings', 'close'];
-        const legend = new PaneLegend({
-          top: this._legendOffset.top,
-          left: this._legendOffset.left,
-          ...o,
-          actions: paneActions,
-        });
+        // Only the pane the host actually overlays is shifted. The keys are
+        // omitted rather than set undefined for the others: PaneLegend fills
+        // its defaults by spread, so an explicit undefined would erase them.
+        const shifted = o.paneIndex === this._legendOffset.paneIndex;
+        const offset = shifted
+          ? { top: this._legendOffset.top, left: this._legendOffset.left }
+          : {};
+        const legend = new PaneLegend({ ...offset, ...o, actions: paneActions });
         this._addPrimitive(o.paneIndex, legend);
         return legend;
       },

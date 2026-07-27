@@ -101,10 +101,10 @@ interface ChartOptions {
   /** Hover-revealed zoom / step controls above the time axis. Default true. */
   timeNavigator?: boolean | Partial<TimeNavigatorOptions>;
   /**
-   * Where indicator legend rows start inside a pane, in media px.
-   * Default `{ top: 6, left: 8 }`.
+   * Where indicator legend rows start inside one pane, in media px.
+   * Default `{ top: 6, left: 8, paneIndex: 0 }`.
    */
-  legendOffset?: { top?: number; left?: number };
+  legendOffset?: { top?: number; left?: number; paneIndex?: number };
 }
 ```
 
@@ -117,6 +117,11 @@ invisible and unclickable.
 ```ts
 createChart(el, { legendOffset: { top: 40 } });   // clear a two-line overlay
 ```
+
+It applies to **one** pane — `paneIndex`, default 0 — because that overlay is
+nearly always on the price pane. Lower indicator panes are short, so shifting
+them by a price-pane offset would push their legend, and its settings / close /
+move-pane buttons, off the pane entirely.
 </Callout>
 
 Options passed to `createChart(container, options)`. All fields are optional; defaults are sensible for browser use.

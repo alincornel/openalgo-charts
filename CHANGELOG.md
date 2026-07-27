@@ -2,6 +2,21 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.0.21
+
+### Fixed
+
+- **`legendOffset` shifted every pane, not just the overlaid one.** A host that
+  offsets the price pane clear of its own OHLC readout was also pushing the
+  legend on each lower indicator pane down by the same amount — and a lower pane
+  is short, so its row went off the pane entirely, taking the settings, close
+  and move-pane buttons with it. An RSI pane could not be configured, moved or
+  removed from its own legend.
+
+  The offset now applies to one pane, `paneIndex` (default 0), because that
+  overlay is nearly always on the price pane. Every other pane keeps the
+  default corner.
+
 ## 1.0.20
 
 ### Added

@@ -161,6 +161,42 @@ describe('pane legend rows', () => {
     expect(opts?.row).toBe(0); // still the first row, just lower down
   });
 
+  it('offsets only the overlaid pane, leaving lower panes at the corner', () => {
+    // A lower indicator pane is short. Applying a price-pane offset there would
+    // push its legend — and so its settings and close buttons — off the pane.
+    const el = fakeDocument().createElement('div') as unknown as FakeElement;
+    const chart = new Chart(el, {
+      document: fakeDocument(), raf: { schedule: () => 0 },
+      pixelRatio: () => 1, shortcuts: false,
+      legendOffset: { top: 80 },
+    });
+    chart.applySize(800, 600);
+    chart.addSeries('candlestick').setData(bars(60));
+    chart.addIndicator('ema');   // onchart -> pane 0, shifted
+    chart.addIndicator('rsi');   // own pane -> default corner
+
+    const [onchart, lower] = chart.indicators();
+    expect(onchart.legend()?.options().top).toBe(80);
+    expect(lower.paneIndex).toBeGreaterThan(0);
+    expect(lower.legend()?.options().top).toBe(6);
+  });
+
+  it('honours an explicit paneIndex for the offset', () => {
+    const el = fakeDocument().createElement('div') as unknown as FakeElement;
+    const chart = new Chart(el, {
+      document: fakeDocument(), raf: { schedule: () => 0 },
+      pixelRatio: () => 1, shortcuts: false,
+      legendOffset: { top: 40, paneIndex: 1 },
+    });
+    chart.applySize(800, 600);
+    chart.addSeries('candlestick').setData(bars(60));
+    chart.addIndicator('ema');   // pane 0 -> untouched now
+    chart.addIndicator('rsi');   // pane 1 -> shifted
+    const [onchart, lower] = chart.indicators();
+    expect(onchart.legend()?.options().top).toBe(6);
+    expect(lower.legend()?.options().top).toBe(40);
+  });
+
   it('leaves legends at the default corner with no offset given', () => {
     const { chart } = makeChart();
     chart.addSeries('candlestick').setData(bars(60));
