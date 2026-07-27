@@ -82,6 +82,7 @@ forecasts live.
 | `add(drawing)` | Add one directly (import, or host-authored). |
 | `update(id, patch)` | Patch `points`, `style`, `locked`, or `visible`. |
 | `remove(id)` / `clear()` | Delete one, or all. |
+| `finish()` | End a variable-anchor shape (`path`, `polyline`) at the anchors placed so far. Returns whether it committed. Double-click already calls it. |
 | `select(id \| null)` / `selected()` | Selection. |
 | `undo()` / `redo()` / `canUndo()` / `canRedo()` | History. |
 | `toJSON()` / `fromJSON(data)` | Explicit serialisation. |
@@ -204,6 +205,35 @@ draw.setTool('zigzag');
 
 Geometry helpers are exported: `distToSegment`, `distToLine`, `distToPolyline`,
 `distToRect`, `distToEllipse`, `rectOf`, `extendSegment`.
+
+Two optional fields change how a tool is *placed*:
+
+| Field | Effect |
+|---|---|
+| `freehand: true` | Sample the cursor while the pointer is held and commit on release — one press-drag-release is one stroke. Only the first and last anchors get grab handles. Requires `points: 0`. |
+| `expand(clicked, ctx)` | Turn the anchors actually clicked into the tool's full anchor set, so it can place a complete, editable default from fewer clicks. `ctx` carries `barSeconds` and `visibleBars`. |
+
+`expand` is how the position tools drop a ready 1:1 box from one click:
+
+```ts
+registerDrawingTool({
+  id: 'my-box',
+  name: 'My Box',
+  points: 1,                     // one click places it...
+  expand: (clicked, { barSeconds, visibleBars }) => {
+    const p = clicked[0];
+    const span = barSeconds * Math.max(5, Math.round(visibleBars * 0.08));
+    // ...but the drawing has three anchors, each a draggable handle.
+    return [p, { time: p.time + span, price: p.price * 1.01 },
+               { time: p.time + span, price: p.price * 0.99 }];
+  },
+  draw: (c) => { /* c.drawing.points has all three */ },
+  distance: () => null,
+});
+```
+
+Size the default against `visibleBars`, not a fixed bar count — a fixed count is a hairline
+when zoomed out and fills the pane when zoomed in.
 
 ## Building a toolbar
 

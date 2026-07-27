@@ -8,6 +8,75 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 1.0.13
+
+**Added — Drawing tools**
+
+- **Nine more tools**, taking the built-in set from 34 to 43 (draw tier 8.3 KB ->
+  11.3 KB Brotli). Shapes: `rotated-rectangle`, `double-curve`. Cycles:
+  `cyclic-lines`, `time-cycles`, `sine-line`. Text and notes: `price-label`,
+  `callout`, `flag-mark`. Brushes: `brush`. See
+  [Drawing Tools](/docs/drawing-tools#the-tools).
+- `rotated-rectangle` lays out one edge from anchors 0->1 and takes its depth
+  perpendicular from anchor 2, so it can follow a trend channel an axis-aligned
+  rectangle cannot. `double-curve` mirrors its control about the chord's
+  midpoint, so the second half bends back into an S. `price-label` reads its
+  value off the anchor, so dragging it re-reads rather than going stale the way
+  a typed-in `text` would.
+- **`DrawingTool.freehand`** — sample the cursor while the pointer is held and
+  commit on release, so one press-drag-release is one stroke. Only the two end
+  anchors get grab handles.
+- **`DrawingTool.expand`** — turn the anchors actually clicked into the tool's
+  full anchor set, so it can place a complete, editable default from fewer
+  clicks. Receives `barSeconds` and `visibleBars`.
+- **Long/Short Position place from a single click at 1:1**, sized to about 8% of
+  the visible range so the box is grabbable at any zoom, with all three anchors
+  still draggable. They previously needed three clicks and drew nothing until
+  the third.
+- **Position and Forecast readouts are chips.** Target and Stop each carry their
+  move, percentage and cash amount and sit outside their own line, so the layout
+  reads the same for a long and a short; Qty and risk/reward sit at the entry.
+  Forecast shows its anchor price/date, the projected move with duration and
+  landing price/date, and a SUCCESS/MISSED verdict once the window has elapsed.
+- **`PrimitiveRenderContext.bars()`** — the pane's primary price series, lazily,
+  for a primitive that needs what price actually did rather than just the
+  scales. See [Primitives](/docs/primitives-and-plugins#reading-the-bars).
+
+**Fixed**
+
+- **Brush and Highlighter behaved as polylines** — a vertex per click, with no
+  way to end the shape. Both declare `points: 0`, which the controller read as
+  "collect anchors until told to stop", the contract `polyline` wants. They are
+  freehand now.
+- **A selected brush showed a grab handle on every sampled point**, burying the
+  ink under dozens of circles and leaving no way to grab the stroke itself. A
+  freehand drawing handles only its two ends while keeping every sample.
+- **`path` and `polyline` could never be finished.** Nothing completed a
+  `points: 0` tool — double-click reset the view instead, so they collected
+  vertices forever. Double-click now finishes the shape while a tool is armed,
+  and `controller.finish()` is public for binding a key. A fixed-anchor tool
+  ignores it, so a stray double-click cannot commit a degenerate shape.
+- `path` is a click-per-vertex shape again with an arrowhead on its last leg —
+  what separates it from `polyline`. The freehand brush moved to its own `brush`
+  id, so the two are no longer one tool wearing two names.
+
+**Demo**
+
+- **5m / 15m / 30m drew nothing** while 1h and 1d worked. Yahoo caps intraday
+  history (~60 days for 5m–90m, ~730 for 1h) and answers an over-long request
+  with an *empty* frame rather than an error, so the default 1y range silently
+  produced no bars. The range is clamped to what the interval can serve, the
+  range menu only offers those, and the status line says when it clamped.
+- **Chart-only full screen** — a toolbar button full-screens the stage (rail +
+  chart + legend) rather than the page, with a matching exit chip inside it.
+- **The toolbar destroyed the element it depended on.** `#status` is moved into
+  the shellbar on the first render, and every later render wiped the bar before
+  reading it — so the second re-render threw, and from then on changing symbol,
+  timeframe or range silently did nothing.
+- The dev server sends `Cache-Control: no-store`. The browser keeps ES modules
+  in its own module map, so rebuilding the library and reloading still ran the
+  previous bundle with no sign anything was stale.
+
 ## 1.0.12
 
 **Fixed**

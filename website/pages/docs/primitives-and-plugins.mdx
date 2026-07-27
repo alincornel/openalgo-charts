@@ -236,6 +236,24 @@ Primitives receive a host with pixel/price/time conversions and the plot rectang
 can draw anything and participate in hit-testing and autoscale.
 </Callout>
 
+### Reading the bars
+
+`rc.bars()` returns the pane's primary price series when a primitive needs what price
+actually *did*, not just the scales — scoring a projection, shading bars that met a
+condition. It is lazy, so nothing pays for it unless called, and optional, so guard it:
+a synthetic render context (a test fake) may not supply one.
+
+```ts
+draw(ctx, rc) {
+  const bars = rc.bars?.();
+  if (bars === undefined || bars.length === 0) return;
+  const last = bars[bars.length - 1];
+  // ...
+}
+```
+
+The array is the live one the data layer holds — treat it as read-only.
+
 ## `bestHit` helper
 
 When a pane contains several independent primitives that each implement `hitTest`, the chart

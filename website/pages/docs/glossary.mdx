@@ -189,7 +189,8 @@ See also: [Scales and Panes](/docs/scales-and-panes)
 The default price-scale mode. On every render the engine calls `autoscale(low, high)` to
 fit the visible bars within the pane, with configurable top and bottom margin fractions
 (default 10% each). Dragging the price axis or calling `priceScale.setPriceRange`
-switches to manual scale; double-clicking the chart restores auto scale on all panes.
+switches to manual scale; double-clicking the chart restores auto scale on all panes
+(unless a drawing tool is armed, where a double-click finishes the shape).
 
 See also: [Scales and Panes](/docs/scales-and-panes)
 

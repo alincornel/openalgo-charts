@@ -2,7 +2,10 @@
 
 All notable changes to OpenAlgo Charts.
 
-## Unreleased
+## 1.0.13
+
+Nine more drawing tools (34 -> 43), freehand brushes, one-click position tools,
+and the fix for `path` / `polyline` being impossible to finish. 556 unit tests.
 
 ### Fixed
 
