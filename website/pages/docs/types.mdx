@@ -405,10 +405,40 @@ interface PrimitiveRenderContext {
   priceAxisWidth: number;
   dpr: number;
   theme: ChartTheme;
+  hoverId?: string | null;
+  dragId?: string | null;
+  /** The pane's primary price series, lazily. Optional — a synthetic context may omit it. */
+  bars?: () => readonly Bar[];
 }
 ```
 
 Injected into a primitive's `draw` and `hitTest` methods. All coordinates in these methods are in media (CSS) px relative to the pane plot.
+
+### `DataLayer`
+
+```ts
+class DataLayer {
+  readonly length: number;
+  readonly baseIndex: number;
+  indexToTime(index: number): number | undefined;
+  timeToIndex(time: number): number | undefined;
+  /** Fractional index -> time, interpolating between bars and past either edge. */
+  indexToTimeFloat(index: number): number;
+  /** The inverse — what maps an anchor onto the gapless axis. */
+  timeToIndexFloat(time: number): number;
+  seriesBars(id: SeriesId): readonly Bar[];
+  visibleBars(id: SeriesId, fromIndex: number, toIndex: number): IndexedBar[];
+  lastIndexedBar(id: SeriesId): IndexedBar | null;
+}
+
+interface IndexedBar { index: number; bar: Bar }
+type SeriesId = number;
+```
+
+The shared time axis: every series is merged onto one logical index space, so panes
+stay aligned and non-trading gaps collapse. Reachable as `chart.dataLayer` and on
+every `PrimitiveRenderContext`. Exported since **1.0.14** — before that the property
+was public but its type could not be named.
 
 ### `PrimitiveHit`
 

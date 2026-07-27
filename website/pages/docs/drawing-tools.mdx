@@ -93,6 +93,41 @@ class nominal, so the two copies were different types. If you are pinned below
 package.
 </Callout>
 
+The host contract, if you are wrapping the chart rather than passing it directly:
+
+```ts
+interface DrawingChartHost {
+  on(event: string, handler: (payload: unknown) => void): () => void;
+  emit(event: string, payload: unknown): void;
+  addPrimitive(primitive: IPrimitive, paneIndex?: number): void;
+  removePrimitive(primitive: IPrimitive): void;
+  readonly dataLayer: DataLayer;
+  getVisibleLogicalRange(): { from: number; to: number } | null;
+  drawingState(): unknown;
+  setDrawingState(state: unknown): void;
+  setPlacementMode?(active: boolean): void;
+}
+```
+
+### Surviving a chart rebuild
+
+A host that recreates the chart — on a timeframe switch, a chart-type change, a
+theme change — must carry the drawings across, because the controller and its
+layers belong to the chart that is going away:
+
+```ts
+// before chart.destroy()
+const saved = draw.toJSON();
+draw.destroy();
+
+// after the new chart exists
+const next = new DrawingController(newChart);
+next.fromJSON(saved);
+```
+
+Anchors are `{ time, price }`, so they land on the same bars even if the new
+chart has a different interval loaded.
+
 ## Controller API
 
 | Member | Description |
