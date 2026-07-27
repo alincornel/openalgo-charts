@@ -32,8 +32,14 @@ export function drawHistogram(
   const w = optimalBarWidth(barSpacing, dpr);
   const half = Math.floor(w / 2);
   const baseY = Math.round(valueToY(style.base) * dpr);
-  ctx.fillStyle = style.color;
+  // Set per bar rather than once: a bar may carry its own colour.
+  let current = '';
   for (const { x, bar } of items) {
+    const fill = bar.color ?? style.color;
+    if (fill !== current) {
+      ctx.fillStyle = fill;
+      current = fill;
+    }
     const cx = Math.round(x * dpr);
     const y = Math.round(valueToY(bar.close) * dpr);
     const top = Math.min(baseY, y);

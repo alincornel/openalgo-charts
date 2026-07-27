@@ -4,7 +4,7 @@
  */
 import { ema, rsi, atr, trueRange, sourceValues } from 'openalgo-charts';
 import type { IndicatorDescriptor, IndicatorSource } from 'openalgo-charts';
-import { sma, rma, highest, lowest, nulls } from './calc';
+import { sma, rma, stdev, highest, lowest, nulls } from './calc';
 
 const num = (s: Readonly<Record<string, unknown>>, k: string, d: number): number => {
   const v = s[k];
@@ -44,11 +44,39 @@ export const MACD: IndicatorDescriptor = {
     { key: 'slowPeriod', type: 'number', label: 'Slow', default: 26, min: 1, max: 500, step: 1 },
     { key: 'signalPeriod', type: 'number', label: 'Signal', default: 9, min: 1, max: 500, step: 1 },
     { key: 'source', type: 'source', label: 'Source', default: 'close' },
-    { key: 'macdColor', type: 'color', label: 'MACD', default: '#4f8cff' },
-    { key: 'signalColor', type: 'color', label: 'Signal', default: '#f5a623' },
+    { key: 'macdColor', type: 'color', label: 'MACD', default: '#2962ff' },
+    { key: 'histUpColor', type: 'color', label: 'Histogram up', default: '#26a69a' },
+    { key: 'histUpFadeColor', type: 'color', label: 'Histogram up (weakening)', default: '#a7d8d2' },
+    { key: 'histDownColor', type: 'color', label: 'Histogram down', default: '#ef5350' },
+    { key: 'histDownFadeColor', type: 'color', label: 'Histogram down (weakening)', default: '#f5b0ae' },
+    { key: 'signalColor', type: 'color', label: 'Signal', default: '#ff6d00' },
   ],
   plots: [
-    { key: 'histogram', type: 'histogram', title: 'Histogram', style: { color: '#3a4666', base: 0 } },
+    {
+      key: 'histogram', type: 'histogram', title: 'Histogram',
+      style: { color: '#3a4666', base: 0 },
+      // Four states, not one colour: sign says which side of zero, and the
+      // direction against the previous bar says whether that momentum is
+      // building or fading. A single colour throws the second half away.
+      colorBy: ({ value, index, values, settings }) => {
+        const prev = values.histogram?.[index - 1];
+        const rising = prev === null || prev === undefined || !Number.isFinite(prev)
+          ? true
+          : value >= prev;
+        const pick = (key: string, fallback: string): string => {
+          const c = settings[key];
+          return typeof c === 'string' ? c : fallback;
+        };
+        if (value >= 0) {
+          return rising
+            ? pick('histUpColor', '#26a69a')
+            : pick('histUpFadeColor', '#a7d8d2');
+        }
+        return rising
+          ? pick('histDownFadeColor', '#f5b0ae')
+          : pick('histDownColor', '#ef5350');
+      },
+    },
     { key: 'macd', type: 'line', title: 'MACD', colorKey: 'macdColor', style: { lineWidth: 1.5 } },
     { key: 'signal', type: 'line', title: 'Signal', colorKey: 'signalColor', style: { lineWidth: 1.5 } },
   ],
@@ -237,4 +265,111 @@ export const ATR: IndicatorDescriptor = {
   calc: (bars, s) => ({
     atr: nulls(atr(bars.map((b) => b.high), bars.map((b) => b.low), bars.map((b) => b.close), num(s, 'period', 14))),
   }),
+};
+
+/**
+ * CM Williams Vix Fix — a synthetic VIX from price alone.
+ *
+ * `wvf` is how far the current low sits below the highest close of the lookback,
+ * as a percentage: a spike means capitulation. The signal is not the level but
+ * the *breakout* — `wvf` piercing its own Bollinger upper band, or the top
+ * percentile of its recent range — so the histogram carries two colours and the
+ * bands are what it is measured against.
+ */
+export const WILLIAMS_VIX_FIX: IndicatorDescriptor = {
+  id: 'williams-vix-fix',
+  name: 'William VIX FIX',
+  category: 'Volatility',
+  placement: 'pane',
+  inputs: [
+    { key: 'pd', type: 'number', label: 'LookBack Period Standard Deviation High', default: 22, min: 1, max: 500, step: 1 },
+    { key: 'bbl', type: 'number', label: 'Bollinger Band Length', default: 20, min: 1, max: 500, step: 1 },
+    { key: 'mult', type: 'number', label: 'Bollinger Band Standard Deviation Up', default: 2, min: 1, max: 5, step: 0.1 },
+    { key: 'lb', type: 'number', label: 'Look Back Period Percentile High', default: 50, min: 1, max: 500, step: 1 },
+    { key: 'ph', type: 'number', label: 'Highest Percentile', default: 0.85, min: 0, max: 1, step: 0.01 },
+    { key: 'pl', type: 'number', label: 'Lowest Percentile', default: 1.01, min: 1, max: 2, step: 0.01 },
+    { key: 'hp', type: 'boolean', label: 'Show High Range', default: false },
+    { key: 'sd', type: 'boolean', label: 'Show Standard Deviation Line', default: false },
+    { key: 'highColor', type: 'color', label: 'Alert', default: '#00ff00' },
+    { key: 'normalColor', type: 'color', label: 'Normal', default: '#808080' },
+    { key: 'rangeColor', type: 'color', label: 'Range', default: '#ffa500' },
+    { key: 'bandColor', type: 'color', label: 'Band', default: '#00ffff' },
+  ],
+  plots: [
+    {
+      key: 'wvf', type: 'histogram', title: 'Williams Vix Fix',
+      style: { lineWidth: 4, base: 0 },
+      // Lime once wvf breaks its upper band or the range high, gray otherwise:
+      // the study is a state, not a level.
+      colorBy: ({ index, values, settings }) => {
+        const v = values.wvf?.[index];
+        const upper = values.alertUpper?.[index];
+        const high = values.alertHigh?.[index];
+        const str = (k: string, d: string): string =>
+          typeof settings[k] === 'string' ? (settings[k] as string) : d;
+        if (v === null || v === undefined) return undefined;
+        const hitBand = upper !== null && upper !== undefined && v >= upper;
+        const hitRange = high !== null && high !== undefined && v >= high;
+        return hitBand || hitRange ? str('highColor', '#00ff00') : str('normalColor', '#808080');
+      },
+    },
+    { key: 'rangeHigh', type: 'line', title: 'Range High Percentile', colorKey: 'rangeColor', style: { lineWidth: 4 } },
+    { key: 'rangeLow', type: 'line', title: 'Range Low Percentile', colorKey: 'rangeColor', style: { lineWidth: 4 } },
+    { key: 'upperBand', type: 'line', title: 'Upper Band', colorKey: 'bandColor', style: { lineWidth: 3 } },
+  ],
+  calc: (bars, s) => {
+    const n = bars.length;
+    const closes = bars.map((b) => b.close);
+    const lows = bars.map((b) => b.low);
+    const pd = num(s, 'pd', 22);
+    const bbl = num(s, 'bbl', 20);
+    const mult = num(s, 'mult', 2);
+    const lb = num(s, 'lb', 50);
+    const ph = num(s, 'ph', 0.85);
+    const pl = num(s, 'pl', 1.01);
+    const showRange = s.hp === true;
+    const showBand = s.sd === true;
+
+    const highestClose = highest(closes, pd);
+    const wvf = new Array<number>(n);
+    for (let i = 0; i < n; i++) {
+      const hc = highestClose[i];
+      wvf[i] = Number.isFinite(hc) && hc !== 0 ? ((hc - lows[i]) / hc) * 100 : NaN;
+    }
+
+    const dev = stdev(wvf, bbl);
+    const mid = sma(wvf, bbl);
+    const highestWvf = highest(wvf, lb);
+    const lowestWvf = lowest(wvf, lb);
+
+    // Two sets of columns. The plotted ones honour the show toggles, exactly as
+    // the Pine `sd and upperBand ? ... : na` guards do. The colour rule needs
+    // the real values whether or not they are drawn, so it reads its own pair —
+    // hiding the band must not silently stop the histogram going lime.
+    const upper: (number | null)[] = new Array(n);
+    const high: (number | null)[] = new Array(n);
+    const plotUpper: (number | null)[] = new Array(n);
+    const plotHigh: (number | null)[] = new Array(n);
+    const plotLow: (number | null)[] = new Array(n);
+    for (let i = 0; i < n; i++) {
+      const up = mid[i] + mult * dev[i];
+      const rh = highestWvf[i] * ph;
+      const rl = lowestWvf[i] * pl;
+      upper[i] = Number.isFinite(up) ? up : null;
+      high[i] = Number.isFinite(rh) ? rh : null;
+      plotUpper[i] = showBand ? upper[i] : null;
+      plotHigh[i] = showRange ? high[i] : null;
+      plotLow[i] = showRange && Number.isFinite(rl) ? rl : null;
+    }
+
+    return {
+      wvf: nulls(wvf),
+      rangeHigh: plotHigh,
+      rangeLow: plotLow,
+      upperBand: plotUpper,
+      // Colour-only columns: no plot names them, so nothing draws them.
+      alertUpper: upper,
+      alertHigh: high,
+    };
+  },
 };

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { rsi, rsiSeries } from '../src/indicators/rsi';
+import { sma } from '../src/indicators/calc';
 import { atr, trueRange } from '../src/indicators/atr';
 import { supertrend, supertrendSeries } from '../src/indicators/supertrend';
 import type { Bar } from '../src/model/bar';
@@ -92,5 +93,25 @@ describe('Supertrend', () => {
     }
     // a sustained uptrend → the up line is populated near the end
     expect(Number.isFinite(up.slice(-1)[0]!.close)).toBe(true);
+  });
+});
+
+describe('sma recovers from a warmup gap', () => {
+  it('is not poisoned forever by a leading NaN', () => {
+    // A running sum that absorbs NaN stays NaN for the rest of the series, so
+    // any indicator chained onto one with a warmup produced nothing at all.
+    const values = [NaN, NaN, 1, 2, 3, 4, 5, 6];
+    const out = sma(values, 3);
+    expect(Number.isNaN(out[3])).toBe(true);   // window still holds a NaN
+    expect(out[4]).toBeCloseTo(2, 9);          // 1+2+3 — recovered
+    expect(out[7]).toBeCloseTo(5, 9);          // 4+5+6
+  });
+
+  it('reports NaN only while the gap is inside the window', () => {
+    const out = sma([1, 2, NaN, 4, 5, 6], 2);
+    expect(out[1]).toBeCloseTo(1.5, 9);
+    expect(Number.isNaN(out[2])).toBe(true);
+    expect(Number.isNaN(out[3])).toBe(true);
+    expect(out[4]).toBeCloseTo(4.5, 9);        // the gap has left the window
   });
 });

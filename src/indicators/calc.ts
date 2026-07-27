@@ -14,11 +14,23 @@ export function sma(values: readonly number[], period: number): number[] {
   const n = values.length;
   const out = new Array<number>(n).fill(NaN);
   if (period <= 0 || n < period) return out;
+  // The running sum must never absorb a non-finite value: `sum += NaN` poisons
+  // it permanently, and subtracting the NaN back out when it leaves the window
+  // does not restore it (NaN - NaN is NaN). Any input with a warmup gap -- an
+  // indicator chained onto another -- would then be NaN for the whole series.
+  // So sum only the finite values and count the rest.
   let sum = 0;
+  let bad = 0;
   for (let i = 0; i < n; i++) {
-    sum += values[i];
-    if (i >= period) sum -= values[i - period];
-    if (i >= period - 1) out[i] = sum / period;
+    const v = values[i];
+    if (Number.isFinite(v)) sum += v;
+    else bad += 1;
+    if (i >= period) {
+      const gone = values[i - period];
+      if (Number.isFinite(gone)) sum -= gone;
+      else bad -= 1;
+    }
+    if (i >= period - 1) out[i] = bad === 0 ? sum / period : NaN;
   }
   return out;
 }

@@ -1172,6 +1172,11 @@ export class Chart {
       // boundaries, legend buttons, and crosshair mapping all landed elsewhere.
       // Deriving both from one number makes layout == hit-test by construction.
       pane.element.style.flex = `0 0 ${h}px`;
+      // A hairline between stacked panes — every pane but the first. Drawn on
+      // the DOM box, so it sits exactly on the boundary the user drags.
+      const first = pane === this._panes[0];
+      pane.element.style.borderTopWidth = first ? '0px' : '1px';
+      pane.element.style.borderTopColor = first ? 'transparent' : this._theme.paneSeparator;
       pane.resize(this._width, h, dpr);
       // Scale height is a layout property — see Pane.setScaleHeights.
       const isLast = pane === this._panes[this._panes.length - 1];

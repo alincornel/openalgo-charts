@@ -425,10 +425,17 @@ export class IndicatorInstance implements IndicatorApi {
         series.setData([]);
         continue;
       }
-      const out = new Array<{ time: number; value: number }>(n);
+      const out = new Array<{ time: number; value: number; color?: string }>(n);
+      const colorBy = plot.colorBy;
       for (let i = 0; i < n; i++) {
         const v = col[i];
-        out[i] = { time: bars[i].time, value: v === null || v === undefined ? NaN : v };
+        const value = v === null || v === undefined ? NaN : v;
+        const point: { time: number; value: number; color?: string } = { time: bars[i].time, value };
+        if (colorBy !== undefined && Number.isFinite(value)) {
+          const c = colorBy({ value, index: i, values, settings: this._settings });
+          if (c !== undefined) point.color = c;
+        }
+        out[i] = point;
       }
       series.setData(out);
     }

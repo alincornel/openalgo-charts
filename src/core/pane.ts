@@ -66,6 +66,12 @@ export class Pane {
     this.element.style.width = '100%';
     this.element.style.flex = '1 1 auto';
     this.element.style.overflow = 'hidden';
+    // The rule between stacked panes. A CSS border rather than a canvas line:
+    // it lands on the DOM box boundary, so it cannot drift from the pane it
+    // separates when weights change, and costs nothing to repaint.
+    this.element.style.borderTopStyle = 'solid';
+    this.element.style.borderTopWidth = '0px';
+    this.element.style.boxSizing = 'border-box';
     this.base = new CanvasLayer(doc, 0);
     this.top = new CanvasLayer(doc, 1);
     this.element.appendChild(this.base.element);

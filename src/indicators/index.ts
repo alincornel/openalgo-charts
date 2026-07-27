@@ -23,7 +23,7 @@
 import { registerIndicator } from 'openalgo-charts';
 import type { IndicatorDescriptor } from 'openalgo-charts';
 import { SMA, EMA, WMA, VWAP, BOLLINGER, SUPERTREND, PARABOLIC_SAR, ICHIMOKU } from './tier1-trend';
-import { RSI, MACD, STOCHASTIC, ADX, CCI, MFI, ATR } from './tier1-momentum';
+import { RSI, MACD, STOCHASTIC, ADX, CCI, MFI, ATR, WILLIAMS_VIX_FIX } from './tier1-momentum';
 import { VOLUME, OBV, ADL } from './tier1-volume';
 
 export const INDICATORS_TIER = 'indicators' as const;
@@ -31,7 +31,7 @@ export const INDICATORS_TIER = 'indicators' as const;
 /** Every built-in descriptor, in picker order. */
 export const BUILTIN_INDICATORS: readonly IndicatorDescriptor[] = [
   SMA, EMA, WMA, VWAP, BOLLINGER, SUPERTREND, PARABOLIC_SAR, ICHIMOKU,
-  RSI, MACD, STOCHASTIC, ADX, CCI, MFI, ATR,
+  RSI, MACD, STOCHASTIC, ADX, CCI, MFI, ATR, WILLIAMS_VIX_FIX,
   VOLUME, OBV, ADL,
 ];
 
@@ -51,7 +51,7 @@ export function registerBuiltinIndicators(): void {
 registerBuiltinIndicators(); // side effect on tier import
 
 export { SMA, EMA, WMA, VWAP, BOLLINGER, SUPERTREND, PARABOLIC_SAR, ICHIMOKU } from './tier1-trend';
-export { RSI, MACD, STOCHASTIC, ADX, CCI, MFI, ATR } from './tier1-momentum';
+export { RSI, MACD, STOCHASTIC, ADX, CCI, MFI, ATR, WILLIAMS_VIX_FIX } from './tier1-momentum';
 export { VOLUME, OBV, ADL } from './tier1-volume';
 export { sma, wma, rma, stdev, highest, lowest, nulls } from './calc';
 export {

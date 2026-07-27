@@ -151,6 +151,19 @@ export interface IndicatorPlot {
    * series without a full rebuild.
    */
   colorKey?: string;
+  /**
+   * Per-bar colour, for plots whose meaning changes bar to bar — a MACD
+   * histogram is four colours by sign and direction, a conditional study two.
+   * Return `undefined` to fall back to the plot's own colour.
+   *
+   * Renderer support is required: histogram and column honour it today.
+   */
+  colorBy?(ctx: {
+    value: number;
+    index: number;
+    values: IndicatorValues;
+    settings: IndicatorSettings;
+  }): string | undefined;
 }
 
 /** A horizontal reference level (RSI 70/30, Stochastic 80/20, a zero line). */

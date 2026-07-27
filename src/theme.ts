@@ -9,6 +9,8 @@ export interface ChartTheme {
   grid: string;
   axisText: string;
   axisLine: string;
+  /** 1px rule between stacked panes. Subtle: it separates, it does not divide. */
+  paneSeparator: string;
   crosshair: string;
   /** Axis label font size in px (default 11). */
   axisFontSize?: number;
@@ -52,6 +54,7 @@ export const darkTheme: ChartTheme = {
   grid: '#161a26',
   axisText: '#8b91a7',
   axisLine: '#2a3046',
+  paneSeparator: '#1e2334',
   crosshair: '#6b7280',
   upColor: '#26a69a',
   downColor: '#ef5350',
@@ -78,6 +81,7 @@ export const lightTheme: ChartTheme = {
   grid: '#eef1f6',
   axisText: '#5b6472',
   axisLine: '#d4dae3',
+  paneSeparator: '#e6eaf0',
   crosshair: '#9aa3b2',
   upColor: '#089981',
   downColor: '#e0473e',

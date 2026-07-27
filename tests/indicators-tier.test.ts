@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import '../src/indicators/index'; // side effect: registers the 18 built-ins
+import '../src/indicators/index'; // side effect: registers the built-ins
 import {
   registeredIndicators,
   getIndicator,
@@ -17,6 +17,8 @@ import { createTier2Indicator, type Tier2Point } from '../src/indicators/tier2';
 import { sma, wma, rma, stdev, highest, lowest } from '../src/indicators/calc';
 import { makeCtx } from './helpers/fake-ctx';
 import { IndicatorFill } from '../src/primitives/indicator-fill';
+import { drawHistogram } from '../src/render/histogram';
+import { toBar } from '../src/model/bar';
 import { PriceScale } from '../src/scale/price-scale';
 import { TimeScale } from '../src/scale/time-scale';
 import { DataLayer } from '../src/model/data-layer';
@@ -78,8 +80,8 @@ describe('calc helpers', () => {
 });
 
 describe('indicator registry', () => {
-  it('registers all 18 built-ins', () => {
-    expect(BUILTIN_INDICATORS).toHaveLength(18);
+  it('registers all 19 built-ins', () => {
+    expect(BUILTIN_INDICATORS).toHaveLength(19);
     const ids = registeredIndicators().map((d) => d.id);
     for (const d of BUILTIN_INDICATORS) expect(ids).toContain(d.id);
   });
@@ -585,5 +587,83 @@ describe('indicator fills (the Ichimoku cloud)', () => {
     const b = makeCtx();
     fill.draw(b.ctx, fillRc());
     expect(b.rec.ops.filter((o) => o.type === 'fill')).toHaveLength(0);
+  });
+});
+
+describe('per-bar plot colour', () => {
+  it('MACD histogram uses four states, not one colour', () => {
+    const d = getIndicator('macd');
+    const hist = d.plots.find((p) => p.key === 'histogram');
+    expect(hist?.colorBy).toBeTypeOf('function');
+    const values = { histogram: [1, 2, 1.5, -0.5, -1.5, -1] } as Record<string, (number | null)[]>;
+    const at = (i: number) =>
+      hist?.colorBy?.({ value: values.histogram[i] as number, index: i, values, settings: {} });
+    // Above zero: building vs fading are different colours.
+    expect(at(1)).not.toBe(at(2));
+    // Below zero likewise, and neither matches the positive pair.
+    expect(at(4)).not.toBe(at(5));
+    expect(new Set([at(1), at(2), at(4), at(5)]).size).toBe(4);
+  });
+
+  it('a bar carries its colour through toBar to the renderer', () => {
+    const bar = toBar({ time: 1, value: 5, color: '#abcdef' });
+    expect(bar.color).toBe('#abcdef');
+    const { ctx, rec } = makeCtx();
+    drawHistogram(ctx, [{ x: 10, bar }], (v) => 100 - v, 8, 1, { color: '#000000', base: 0 });
+    // The per-bar colour wins over the style colour.
+    const fills = rec.ops.filter((o) => o.type === 'fillRect');
+    expect(fills[0]?.fillStyle).toBe('#abcdef');
+  });
+
+  it('falls back to the plot colour when a bar has none', () => {
+    const { ctx, rec } = makeCtx();
+    drawHistogram(ctx, [{ x: 10, bar: toBar({ time: 1, value: 5 }) }], (v) => 100 - v, 8, 1,
+      { color: '#123456', base: 0 });
+    expect(rec.ops.filter((o) => o.type === 'fillRect')[0]?.fillStyle).toBe('#123456');
+  });
+});
+
+describe('William VIX FIX', () => {
+  const d = () => getIndicator('williams-vix-fix');
+
+  it('is registered under the expected id and name', () => {
+    expect(d().name).toBe('William VIX FIX');
+    expect(d().placement).toBe('pane');
+  });
+
+  it('spikes when price falls far below the lookback high', () => {
+    // A hard drop on the last bar: wvf measures the low against the highest
+    // close, so the spike belongs to the bar that made the low.
+    const flat = Array.from({ length: 60 }, (_, i) => ({
+      time: 1700000000 + i * 60, open: 100, high: 100, low: 100, close: 100, volume: 1,
+    }));
+    flat[59] = { ...flat[59], low: 80, close: 82 };
+    const out = d().calc(flat, { pd: 22, bbl: 20, mult: 2, lb: 50, ph: 0.85, pl: 1.01 }, {});
+    const wvf = out.wvf as (number | null)[];
+    expect(wvf[58]).toBeCloseTo(0, 6);
+    // low 80 against a highest close of 100 -> 20%.
+    expect(wvf[59]).toBeCloseTo(20, 6);
+  });
+
+  it('colours the histogram by breakout, not by level', () => {
+    const hist = d().plots.find((p) => p.key === 'wvf');
+    expect(hist?.colorBy).toBeTypeOf('function');
+    const values = {
+      wvf: [5, 12], alertUpper: [10, 10], alertHigh: [20, 20],
+    } as Record<string, (number | null)[]>;
+    const at = (i: number) =>
+      hist?.colorBy?.({ value: values.wvf[i] as number, index: i, values, settings: {} });
+    // Below the band: normal. Above it: alert — even though 12 < rangeHigh.
+    expect(at(0)).toBe('#808080');
+    expect(at(1)).toBe('#00ff00');
+  });
+
+  it('keeps the colour rule working when the bands are hidden', () => {
+    // The Pine `sd`/`hp` toggles hide the plots; they must not disable the
+    // alert, which is the whole point of the study.
+    const bars = wave();
+    const out = d().calc(bars, { pd: 22, bbl: 20, mult: 2, lb: 50, ph: 0.85, pl: 1.01, sd: false, hp: false }, {});
+    expect((out.upperBand as (number | null)[]).every((v) => v === null)).toBe(true);
+    expect((out.alertUpper as (number | null)[]).some((v) => v !== null)).toBe(true);
   });
 });

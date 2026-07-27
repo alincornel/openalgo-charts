@@ -1,6 +1,6 @@
 ---
 title: Indicators
-description: 18 built-in indicators via chart.addIndicator, plus the registry for your own.
+description: 19 built-in indicators via chart.addIndicator, plus the registry for your own.
 ---
 
 import RunnableExample from '../../components/RunnableExample'
@@ -12,11 +12,11 @@ There are two ways to put an indicator on a chart, and they suit different jobs.
 
 **`chart.addIndicator(id)`** is the managed path: the chart creates the series, picks the
 pane, draws reference levels, recomputes on every data change, and cleans up on removal.
-The 18 built-ins live in the lazy `openalgo-charts/indicators` tier.
+The 19 built-ins live in the lazy `openalgo-charts/indicators` tier.
 
 ```ts
 import { createChart } from 'openalgo-charts';
-import 'openalgo-charts/indicators';   // registers all 18 built-ins
+import 'openalgo-charts/indicators';   // registers all 19 built-ins
 
 const chart = createChart(el);
 chart.addSeries('candlestick').setData(bars);
@@ -71,6 +71,7 @@ return chart;`} />
 | Volume | `volume` | pane | `color` |
 | On-Balance Volume | `obv` | pane | `color` |
 | Accumulation/Distribution | `adl` | pane | `color` |
+| William VIX FIX | `williams-vix-fix` | pane | `pd`, `bbl`, `mult`, `lb`, `ph`, `pl`, `hp`, `sd` |
 
 `onchart` indicators overlay the price pane; `pane` indicators create their own. Override
 with `chart.addIndicator('rsi', {}, { paneIndex: 2 })`.
@@ -126,7 +127,7 @@ yfinance example builds its whole picker this way, grouped by `category`.
 import {
   registeredIndicators, hasIndicator, indicatorDefaults,
 } from 'openalgo-charts';
-import 'openalgo-charts/indicators';   // registers the 18 built-ins
+import 'openalgo-charts/indicators';   // registers the 19 built-ins
 
 // Group the catalog for a menu, with no per-indicator code.
 const byCategory = new Map<string, string[]>();
@@ -212,6 +213,24 @@ behind the plots, contributes nothing to autoscale, splits at the exact crossing
 rather than the nearest bar, and breaks across a gap in either plot instead of
 bridging it. Pass `colorUp` / `colorDown` literals instead of the `*Key` forms
 for a fixed band.
+
+### Colouring a plot per bar
+
+One colour for a whole series cannot express a study whose meaning changes bar
+to bar, so a plot can name a `colorBy`:
+
+```ts
+{
+  key: 'histogram', type: 'histogram', title: 'Histogram',
+  colorBy: ({ value, index, values, settings }) =>
+    value >= 0 ? '#26a69a' : '#ef5350',
+}
+```
+
+Return `undefined` to fall back to the plot's own colour. Histogram and column
+renderers honour it. `values` is the full `calc` result, so a rule can read
+columns no plot draws — MACD compares against the previous bar, and William VIX
+FIX reads its band even when the band is hidden.
 
 `calc` must return one array per plot key, the same length as `bars`. Use `null` for warmup
 slots — the line renderer breaks across them and autoscale skips them, so a gap draws as

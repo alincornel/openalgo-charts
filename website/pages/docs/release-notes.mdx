@@ -8,6 +8,27 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 1.0.23
+
+**Fixed**
+
+- **`sma` was poisoned permanently by a single non-finite value.** A running sum
+  that absorbs `NaN` stays `NaN`, and subtracting it back out when it leaves the
+  window cannot restore it — so any indicator chained onto one with a warmup gap
+  produced nothing for the entire series. It now sums finite values and counts
+  the rest, recovering as soon as the gap leaves the window.
+
+**Added**
+
+- **Per-bar plot colour** — `IndicatorPlot.colorBy` returns a colour per bar,
+  and histogram / column renderers honour a `color` on the data point.
+- **MACD's histogram is four states**: above/below zero for side, rising/falling
+  for whether momentum is building or fading. All four are settings.
+- **`William VIX FIX`** (`williams-vix-fix`) — lime when `wvf` pierces its
+  Bollinger upper band or the top percentile of its range, gray otherwise. The
+  `hp` / `sd` toggles hide the plots only; the colour rule keeps working.
+- **A hairline between stacked panes**, themed as `paneSeparator`.
+
 ## 1.0.22
 
 **Fixed**

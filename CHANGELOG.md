@@ -2,6 +2,45 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.0.23
+
+### Fixed
+
+- **`sma` was poisoned permanently by a single non-finite value.** It kept a
+  running sum, so `sum += NaN` made every later value `NaN` — and subtracting
+  the NaN back out when it left the window could not restore it. Any indicator
+  fed a series with a warmup gap, which is any indicator chained onto another,
+  produced nothing at all for the whole series. It now sums only finite values
+  and counts the rest, so it reports `NaN` while a gap is inside the window and
+  recovers the moment it leaves.
+
+### Added
+
+- **Per-bar plot colour.** `IndicatorPlot.colorBy` returns a colour per bar, and
+  histogram and column renderers honour a `color` on the data point. One colour
+  for a whole series cannot express a study whose meaning changes bar to bar.
+
+- **MACD's histogram is four states**, matching how it is normally read: above
+  or below zero says which side, and rising or falling against the previous bar
+  says whether that momentum is building or fading. All four are settings
+  (`histUpColor`, `histUpFadeColor`, `histDownColor`, `histDownFadeColor`), and
+  the MACD/signal lines default to blue and orange.
+
+- **`William VIX FIX`** (`williams-vix-fix`) — a synthetic VIX from price alone.
+  The histogram goes lime when `wvf` pierces its Bollinger upper band or the top
+  percentile of its range, gray otherwise, with the range lines and upper band
+  drawable via the `hp` / `sd` toggles. Those toggles hide the *plots* only: the
+  colour rule reads its own columns, so hiding the band cannot silently stop the
+  alert, which is the whole point of the study.
+
+- **A hairline between stacked panes**, themed as `paneSeparator`. Drawn on the
+  pane's DOM box, so it sits exactly on the boundary the user drags rather than
+  drifting from it when weights change.
+
+### Changed
+
+- Base+trade budget 42.5 -> 43 KB for the new indicator.
+
 ## 1.0.22
 
 ### Fixed
