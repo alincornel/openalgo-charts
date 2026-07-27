@@ -8,6 +8,15 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 1.0.19
+
+**Fixed**
+
+- **`BuySellButtons` painted its label outside the button at any `scale` below
+  1.** The two text baselines were fixed pixel offsets tuned for the 42px box —
+  exact at scale 1, and increasingly wrong below it (at 0.72 the label sat 3px
+  past the bottom edge). They are fractions of the button height now.
+
 ## 1.0.18
 
 **Added**

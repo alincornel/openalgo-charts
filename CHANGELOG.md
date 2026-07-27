@@ -2,6 +2,16 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.0.19
+
+### Fixed
+
+- **`BuySellButtons` painted its label outside the button at any `scale` below
+  1.** The price and label baselines were fixed pixel offsets (18 and 33) tuned
+  for the 42px box, so they were exact at scale 1 and increasingly wrong below
+  it — at 0.72 the label sat 3px past the bottom edge. They are fractions of the
+  button height now, which is the same result at scale 1.
+
 ## 1.0.18
 
 ### Added

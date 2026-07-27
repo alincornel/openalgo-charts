@@ -88,6 +88,25 @@ describe('BuySellButtons', () => {
     expect(full.hitTest(30, 48, rc())).not.toBeNull();
   });
 
+  it('keeps both text baselines inside the button at any scale', () => {
+    // The price and label baselines were fixed px tuned for the 42px button, so
+    // a scaled-down panel painted its label below its own box.
+    for (const scale of [1, 0.72, 0.6]) {
+      const p = new BuySellButtons({ id: 't', position: 'top-left', margin: 10, scale });
+      p.setPrices(99, 101);
+      const { ctx, rec } = makeCtx();
+      p.draw(ctx, rc());
+      const h = 42 * scale;
+      const texts = rec.ops.filter((o) => o.type === 'fillText');
+      expect(texts.length).toBeGreaterThan(0);
+      for (const t of texts) {
+        const y = t.args[1] as number;
+        expect(y).toBeGreaterThanOrEqual(10);
+        expect(y).toBeLessThanOrEqual(10 + h);
+      }
+    }
+  });
+
   it('clamps an absurd scale rather than drawing something unusable', () => {
     const tiny = new BuySellButtons({ id: 't', margin: 10, scale: 0.01 });
     tiny.draw(makeCtx().ctx, rc());

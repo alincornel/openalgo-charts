@@ -182,9 +182,12 @@ export class BuySellButtons implements IPrimitive {
       ctx.fillStyle = text;
       ctx.font = `${10 * this._scale * dpr}px system-ui, sans-serif`;
       ctx.textBaseline = 'alphabetic';
-      ctx.fillText(price, cx, (r.y + 18) * dpr);
+      // Baselines as a fraction of the button, not fixed px: at 18/33 of a
+      // 42px box they were exact at scale 1 and hung the label *below* the
+      // button at anything smaller.
+      ctx.fillText(price, cx, (r.y + r.h * (18 / H)) * dpr);
       ctx.font = `700 ${12 * this._scale * dpr}px system-ui, sans-serif`;
-      ctx.fillText(label, cx, (r.y + 33) * dpr);
+      ctx.fillText(label, cx, (r.y + r.h * (33 / H)) * dpr);
     } else {
       ctx.fillStyle = text;
       ctx.font = `700 ${13 * this._scale * dpr}px system-ui, sans-serif`;
