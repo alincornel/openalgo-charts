@@ -234,6 +234,16 @@
     /* ── chart stage ────────────────────────────────────────────── */
     .stage { position: relative; flex: 1 1 auto; min-height: 0; }
     #chart { position: absolute; inset: 0; cursor: crosshair; }
+    /* Full-screening the stage takes it out of the page flow, so it needs its
+       own background -- the browser backdrop is black and the panes are only
+       painted where the chart draws. */
+    .stage:fullscreen { background: var(--bg); }
+    .fsexit { position: absolute; top: 8px; right: 10px; z-index: 40; width: 30px; height: 30px;
+      display: grid; place-items: center; border: 1px solid var(--bd-soft); border-radius: 7px;
+      background: var(--elev); color: var(--mut); cursor: pointer; opacity: .35; transition: opacity .15s; }
+    .fsexit:hover { opacity: 1; color: var(--tx); }
+    .fsexit svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.6;
+      stroke-linecap: round; stroke-linejoin: round; }
     /* OHLC legend overlay, sits on top of the plot, never intercepts the crosshair */
     #legend {
       position: absolute; top: 14px; left: 16px; z-index: 10; pointer-events: none; white-space: nowrap;
@@ -1308,6 +1318,10 @@
       grid: '<path d="M3 8h14M3 12h14M8 3v14M12 3v14"/>',
       magnet: '<path d="M6 4v6a4 4 0 008 0V4"/><path d="M6 4h3v6M11 4h3v6"/>',
       chevron: '<path d="M6 8l4 4 4-4"/>',
+      // Diagonal expand/collapse arrows — deliberately unlike `fit` (four corner
+      // brackets), which is a different action and sits two buttons away.
+      fullscreen: '<path d="M11 4h5v5"/><path d="M9 16H4v-5"/><path d="M16 4l-5.5 5.5"/><path d="M4 16l5.5-5.5"/>',
+      fullscreenExit: '<path d="M16 9h-5V4"/><path d="M4 11h5v5"/><path d="M11 9l5-5"/><path d="M9 11l-5 5"/>',
     };
     const ticon = (k) => '<svg viewBox="0 0 20 20">' + (TOOLBAR_ICON[k] || '') + '</svg>';
 
@@ -1369,10 +1383,64 @@
     const chartTypeLabel = (v) => (CHART_TYPES.find((t) => t.v === v) || { label: 'Candles' }).label;
     const chartTypeIcon = (v) => (CHART_TYPES.find((t) => t.v === v) || { icon: 'candles' }).icon;
 
+    /* ── chart-only full screen ────────────────────────────────────────────
+       Full-screens the stage (rail + chart + legend) rather than the page, so
+       the toolbar and the hint strip drop away and the plot gets the whole
+       display. The chart's own ResizeObserver picks up the new box, so there is
+       nothing to re-measure by hand. */
+    const stageEl = () => document.querySelector('main.stage');
+    const isChartFull = () => document.fullscreenElement === stageEl();
+
+    function toggleChartFullscreen() {
+      const stage = stageEl();
+      if (!stage) return;
+      if (document.fullscreenElement) {
+        document.exitFullscreen();
+      } else if (stage.requestFullscreen) {
+        // Fullscreen is user-gesture gated and blocked outright in some embeds.
+        stage.requestFullscreen().catch((e) => {
+          el('status').textContent = 'full screen unavailable: ' + (e && e.message ? e.message : e);
+        });
+      } else {
+        el('status').textContent = 'full screen not supported by this browser';
+      }
+    }
+
+    // The toolbar goes with the page, so the only way back would be Esc. Put a
+    // matching exit chip inside the stage, which is the part still on screen.
+    function syncFullscreenChrome() {
+      const stage = stageEl();
+      if (!stage) return;
+      let chip = el('fsexit');
+      if (isChartFull()) {
+        if (!chip) {
+          chip = document.createElement('button');
+          chip.id = 'fsexit';
+          chip.className = 'fsexit';
+          chip.title = 'Exit full screen (Esc)';
+          chip.innerHTML = ticon('fullscreenExit');
+          chip.addEventListener('click', toggleChartFullscreen);
+          stage.appendChild(chip);
+        }
+      } else if (chip) {
+        chip.remove();
+      }
+    }
+
+    document.addEventListener('fullscreenchange', () => { syncFullscreenChrome(); renderToolbar(); });
+
     /** Rebuild the top toolbar from the current state of the hidden controls. */
     function renderToolbar() {
       const bar = el('shellbar');
       const ctype = el('ctype').value;
+      // #status starts in the hidden legacy bar and gets moved in here on the
+      // first render -- so from the second call on it is a child of `bar`, and
+      // wiping the bar would destroy it. Every el('status') after that returns
+      // null, and load()'s first line is a write to it, so changing symbol /
+      // timeframe / range silently did nothing. Detach it first, and recreate
+      // it if an earlier render already ate it.
+      const statusText = el('status') || Object.assign(document.createElement('span'), { id: 'status' });
+      if (statusText.parentElement) statusText.parentElement.removeChild(statusText);
       bar.innerHTML = '';
 
       const brand = document.createElement('div');
@@ -1469,6 +1537,11 @@
       if (el('magnet').checked) mg.classList.add('is-on');
       bar.appendChild(mg);
       bar.appendChild(iconBtn('camera', 'Save PNG', () => el('save').click()));
+      const fs = iconBtn(isChartFull() ? 'fullscreenExit' : 'fullscreen',
+        isChartFull() ? 'Exit full screen (Esc)' : 'Full screen chart', toggleChartFullscreen);
+      if (isChartFull()) fs.classList.add('is-on');
+      bar.appendChild(fs);
+
       bar.appendChild(divider());
       bar.appendChild(iconBtn('save', 'Save layout', () => el('lsave').click()));
       bar.appendChild(iconBtn('restore', 'Restore layout', () => el('lload').click()));
@@ -1476,9 +1549,7 @@
       const status = document.createElement('div');
       status.className = 'status';
       status.innerHTML = '<span class="status-dot"></span>';
-      const s = el('status');
-      s.parentElement && s.parentElement.removeChild(s);
-      status.appendChild(s);
+      status.appendChild(statusText);
       bar.appendChild(status);
     }
 
