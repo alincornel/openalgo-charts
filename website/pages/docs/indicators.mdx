@@ -97,6 +97,59 @@ session handling. Pass `{ anchor: 'continuous' }` for a running VWAP over all lo
 | `remove()` | `void` | Remove every series and level it created. |
 
 `chart.indicators()` lists the live instances; `chart.removeIndicator(id)` removes one by id.
+Removing an indicator also prunes the pane it emptied, so a host UI cannot strand a blank
+pane under the chart.
+
+## Inspecting the registry
+
+The registry is readable, so a host can build its indicator UI from what is actually
+registered rather than a hardcoded list — including anything you registered yourself. The
+yfinance example builds its whole picker this way, grouped by `category`.
+
+| Export | Signature | Use |
+|---|---|---|
+| `registeredIndicators()` | `-> IndicatorDescriptor[]` | Everything registered, in registration order. Read `id`, `name`, `category`, `inputs`, `plots`. |
+| `hasIndicator(id)` | `(string) -> boolean` | Guard before `addIndicator` when the id is user-supplied — `addIndicator` throws on an unknown one. |
+| `indicatorDefaults(descriptor)` | `(IndicatorDescriptor) -> IndicatorSettings` | Default settings built from the descriptor's `inputs`, for pre-filling a form. Takes the **descriptor**, not an id. |
+| `indicatorStyleInputs(descriptor)` | `(IndicatorDescriptor) -> IndicatorInput[]` | Per-plot style inputs (colour, width, line style, opacity), so a settings dialog can be generated instead of written per indicator. |
+| `plotStyleKeys(plot)` | `(IndicatorPlot) -> { color, width, lineStyle, opacity }` | The settings keys belonging to one plot, for reading or patching its style. |
+| `INDICATOR_LINE_STYLES` | `readonly { label, value }[]` | The line-style choices a generated form should offer. |
+
+```ts
+import {
+  registeredIndicators, hasIndicator, indicatorDefaults,
+} from 'openalgo-charts';
+import 'openalgo-charts/indicators';   // registers the 18 built-ins
+
+// Group the catalog for a menu, with no per-indicator code.
+const byCategory = new Map<string, string[]>();
+for (const d of registeredIndicators()) {
+  const list = byCategory.get(d.category) ?? [];
+  list.push(d.name);
+  byCategory.set(d.category, list);
+}
+
+// Settings are the second argument, and the defaults come off the descriptor.
+const descriptor = registeredIndicators().find((d) => d.id === wanted);
+if (descriptor !== undefined) {
+  chart.addIndicator(descriptor.id, indicatorDefaults(descriptor));
+}
+```
+
+Generating a settings form is the same shape — walk `descriptor.inputs` for the values and
+`indicatorStyleInputs(descriptor)` for the per-plot styling, and render each by its `type`:
+
+```ts
+for (const input of [...descriptor.inputs, ...indicatorStyleInputs(descriptor)]) {
+  // input.type: 'number' | 'source' | 'color' | 'select' | 'boolean' | 'text'
+  renderField(input.key, input.type, input.label, instance.settings()[input.key]);
+}
+```
+
+<Callout type="info">
+The catalog is empty until the tier is imported — `registeredIndicators()` reflects what has
+been registered *so far*, so read it after your `import 'openalgo-charts/indicators'`.
+</Callout>
 
 ## Writing your own
 

@@ -43,9 +43,12 @@ it on teardown (component unmount, route change) so listeners never leak.
 | Event | Payload | Fires when |
 |-------|---------|-----------|
 | `ready` | `{}` | Once, on the microtask after `createChart` returns. |
-| `crosshair:move` | `{ time, index, price, bar, point }` | The pointer moves over the plot (all-null when it leaves). |
+| `crosshair:move` | `{ time, index, price, bar, point, paneIndex, pressed }` | The pointer moves over the plot (all-null when it leaves). `pressed` is true while a pointer is held — the only way to observe a drag in progress, since placement mode suppresses panning. |
 | `click` | `{ id }` | A hit-testable primitive (marker, event, price line) is clicked. `id` is its `externalId`. |
 | `hover` | `{ id }` | The pointer enters (`id` = `externalId`) or leaves (`id` = `null`) a hit-testable primitive. |
+| `dblclick` | `{}` | The plot is double-clicked. The chart also resets the scale on this, *unless* a drawing tool is armed — there a double-click finishes the shape instead. |
+| `drag` | `{ id, price, time, paneIndex, fromPrice, fromTime }` | A draggable primitive is being moved. `from*` is the grab origin, so a delta starts at the press rather than the first move. |
+| `drag:end` | `{}` | The drag gesture finished. Pair with `drag` to snapshot once per gesture (undo wants the pre-drag state, not an intermediate frame). |
 | `pan` | `{ from, to, logicalFrom, logicalTo }` | The user pans (drag, two-finger, kinetic glide). |
 | `zoom` | `{ from, to, logicalFrom, logicalTo }` | The user zooms (wheel or pinch). |
 | `resize` | `{ width, height }` | The container size changes (CSS px). |
