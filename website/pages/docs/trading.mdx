@@ -71,8 +71,22 @@ chart.subscribeClick((id) => {
 
 Options: `position` (`top-left` default, any corner or `center`), `margin`,
 `qty`, `buyColor` / `sellColor` (default to the theme), `buyLabel` / `sellLabel`,
-and `showPrices`. Update at runtime with `setPrices` / `setMark`, `setQty`, and
-`setColors`.
+`showPrices`, and `scale`. Update at runtime with `setPrices` / `setMark`,
+`setQty`, and `setColors`.
+
+`scale` (default 1, clamped 0.6–1.5) resizes the whole panel — box, gaps, corner
+radius, type, and the hit rects with them. The panel is otherwise a fixed
+190×42, which crowds the pane's legend rows in a dense layout:
+
+```ts
+new BuySellButtons({ id: 'trade', scale: 0.75 })
+```
+
+<Callout type="info">
+Docking the panel below a legend is a `margin` job, and keeping indicator legend
+rows below *it* is [`legendOffset`](/docs/types#chartoptions). The two together
+are what stops a trading pane's top-left corner turning into a pile-up.
+</Callout>
 
 ## The order engine
 

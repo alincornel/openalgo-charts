@@ -2,6 +2,16 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.0.16
+
+### Added
+
+- **`BuySellButtons` takes a `scale`** (default 1, clamped 0.6–1.5). The panel
+  was a fixed 190x42, which crowds the pane's legend rows in a dense trading
+  layout and left no way to make room. Box, gaps, corner radius and type all
+  scale together, and so do the hit rects — a smaller button that still took
+  full-size clicks would be worse than no option at all.
+
 ## 1.0.15
 
 ### Added

@@ -71,4 +71,27 @@ describe('BuySellButtons', () => {
     p.setColors('#0af', '#f0a');
     expect(updates).toBe(3);
   });
+
+  it('scales the whole panel, hit rects included', () => {
+    // A dense layout needs these smaller so they do not crowd the legend rows;
+    // the hit rects must shrink with the paint or clicks land off the button.
+    const full = new BuySellButtons({ id: 't', margin: 10 });
+    const half = new BuySellButtons({ id: 't', margin: 10, scale: 0.7 });
+    full.draw(makeCtx().ctx, rc());
+    half.draw(makeCtx().ctx, rc());
+    expect(full.hitTest(12, 12, rc())).not.toBeNull();
+    // Full panel spans x 10..200 and y 10..52; at 0.7 it is x 10..144, y 10..39.
+    // Points inside the full box but outside the scaled one must miss.
+    expect(half.hitTest(170, 20, rc())).toBeNull();
+    expect(full.hitTest(170, 20, rc())).not.toBeNull();
+    expect(half.hitTest(30, 48, rc())).toBeNull();
+    expect(full.hitTest(30, 48, rc())).not.toBeNull();
+  });
+
+  it('clamps an absurd scale rather than drawing something unusable', () => {
+    const tiny = new BuySellButtons({ id: 't', margin: 10, scale: 0.01 });
+    tiny.draw(makeCtx().ctx, rc());
+    // Clamped to 0.6, so the button still covers its own top-left corner.
+    expect(tiny.hitTest(12, 12, rc())).not.toBeNull();
+  });
 });

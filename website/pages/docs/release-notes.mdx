@@ -8,6 +8,20 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 1.0.16
+
+**Added**
+
+- **`BuySellButtons` takes a `scale`** — default 1, clamped 0.6–1.5:
+
+  ```ts
+  new BuySellButtons({ id: 'trade', scale: 0.75 })
+  ```
+
+  The panel was a fixed 190x42, which crowds the pane's legend rows in a dense
+  trading layout. Box, gaps, corner radius and type scale together, and so do
+  the hit rects.
+
 ## 1.0.15
 
 **Added**

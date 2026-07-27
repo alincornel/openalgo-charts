@@ -31,6 +31,12 @@ export interface BuySellButtonsOptions {
   sellLabel?: string;
   /** Show the price line above each label. Default true. */
   showPrices?: boolean;
+  /**
+   * Uniform size multiplier for the whole panel — box, gaps and type. Default 1.
+   * A dense trading layout wants these smaller so they do not crowd the pane's
+   * legend rows. Clamped to 0.6..1.5; below that the labels stop being legible.
+   */
+  scale?: number;
 }
 
 interface Rect { x: number; y: number; w: number; h: number; }
@@ -40,12 +46,19 @@ const QTY_W = 40;
 const H = 42;
 const GAP = 1;
 const RADIUS = 7;
+/** Below ~0.6 the labels stop being legible; above 1.5 it dominates the pane. */
+const MIN_SCALE = 0.6;
+const MAX_SCALE = 1.5;
 
 export class BuySellButtons implements IPrimitive {
   private readonly _id: string;
   private readonly _position: WatermarkPosition;
   private readonly _mx: number;
   private readonly _my: number;
+  private readonly _scale: number;
+  private readonly _btnW: number;
+  private readonly _qtyW: number;
+  private readonly _h: number;
   private readonly _buyLabel: string;
   private readonly _sellLabel: string;
   private readonly _showPrices: boolean;
@@ -69,6 +82,10 @@ export class BuySellButtons implements IPrimitive {
     this._buyLabel = options.buyLabel ?? 'BUY';
     this._sellLabel = options.sellLabel ?? 'SELL';
     this._showPrices = options.showPrices ?? true;
+    this._scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, options.scale ?? 1));
+    this._btnW = BTN_W * this._scale;
+    this._qtyW = QTY_W * this._scale;
+    this._h = H * this._scale;
     this._qty = options.qty !== undefined ? String(options.qty) : '';
     this._buyColor = options.buyColor;
     this._sellColor = options.sellColor;
@@ -99,16 +116,16 @@ export class BuySellButtons implements IPrimitive {
   }
 
   private _origin(plotW: number, plotH: number): { x: number; y: number; w: number } {
-    const w = BTN_W * 2 + QTY_W + GAP * 2;
+    const w = this._btnW * 2 + this._qtyW + GAP * 2;
     const left = this._mx;
     const right = plotW - this._mx - w;
     const top = this._my;
-    const bottom = plotH - this._my - H;
+    const bottom = plotH - this._my - this._h;
     switch (this._position) {
       case 'top-right': return { x: right, y: top, w };
       case 'bottom-left': return { x: left, y: bottom, w };
       case 'bottom-right': return { x: right, y: bottom, w };
-      case 'center': return { x: (plotW - w) / 2, y: (plotH - H) / 2, w };
+      case 'center': return { x: (plotW - w) / 2, y: (plotH - this._h) / 2, w };
       case 'top-left':
       default: return { x: left, y: top, w };
     }
@@ -121,9 +138,9 @@ export class BuySellButtons implements IPrimitive {
     const sell = this._sellColor ?? rc.theme.sell;
     const buy = this._buyColor ?? rc.theme.buy;
     // media-px hit rects
-    this._sellRect = { x: o.x, y: o.y, w: BTN_W, h: H };
-    this._qtyRect = { x: o.x + BTN_W + GAP, y: o.y, w: QTY_W, h: H };
-    this._buyRect = { x: o.x + BTN_W + QTY_W + GAP * 2, y: o.y, w: BTN_W, h: H };
+    this._sellRect = { x: o.x, y: o.y, w: this._btnW, h: this._h };
+    this._qtyRect = { x: o.x + this._btnW + GAP, y: o.y, w: this._qtyW, h: this._h };
+    this._buyRect = { x: o.x + this._btnW + this._qtyW + GAP * 2, y: o.y, w: this._btnW, h: this._h };
 
     ctx.save();
     // subtle drop shadow so the panel reads as a floating control
@@ -152,7 +169,7 @@ export class BuySellButtons implements IPrimitive {
     ctx: CanvasRenderingContext2D, r: Rect, dpr: number, fill: string,
     label: string, price: string, side: 'left' | 'right',
   ): void {
-    const radius = RADIUS * dpr;
+    const radius = RADIUS * this._scale * dpr;
     // rounded on the outer edge, flat toward the qty chip
     ctx.beginPath();
     this._roundedSide(ctx, r.x * dpr, r.y * dpr, r.w * dpr, r.h * dpr, radius, side);
@@ -163,14 +180,14 @@ export class BuySellButtons implements IPrimitive {
     const cx = (r.x + r.w / 2) * dpr;
     if (price !== '') {
       ctx.fillStyle = text;
-      ctx.font = `${10 * dpr}px system-ui, sans-serif`;
+      ctx.font = `${10 * this._scale * dpr}px system-ui, sans-serif`;
       ctx.textBaseline = 'alphabetic';
       ctx.fillText(price, cx, (r.y + 18) * dpr);
-      ctx.font = `700 ${12 * dpr}px system-ui, sans-serif`;
+      ctx.font = `700 ${12 * this._scale * dpr}px system-ui, sans-serif`;
       ctx.fillText(label, cx, (r.y + 33) * dpr);
     } else {
       ctx.fillStyle = text;
-      ctx.font = `700 ${13 * dpr}px system-ui, sans-serif`;
+      ctx.font = `700 ${13 * this._scale * dpr}px system-ui, sans-serif`;
       ctx.textBaseline = 'middle';
       ctx.fillText(label, cx, (r.y + r.h / 2) * dpr);
     }
@@ -183,7 +200,7 @@ export class BuySellButtons implements IPrimitive {
     ctx.fillStyle = fill;
     ctx.fill();
     ctx.fillStyle = color;
-    ctx.font = `600 ${13 * dpr}px system-ui, sans-serif`;
+    ctx.font = `600 ${13 * this._scale * dpr}px system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(txt, (r.x + r.w / 2) * dpr, (r.y + r.h / 2) * dpr);
