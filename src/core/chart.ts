@@ -1958,6 +1958,10 @@ export class Chart {
         bar: hoveredBar,
         point: { x, y: containerY },
         paneIndex,
+        // Whether a pointer is down for this move. Placement mode swallows the
+        // pan path, so this is the only way a consumer can tell a hover from a
+        // drag while it is still happening — what freehand drawing samples.
+        pressed: this._pointers.size > 0,
       };
       this._crosshairCb?.(move);
       this.emit('crosshair:move', move);

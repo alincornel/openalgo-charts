@@ -67,6 +67,14 @@ class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=ROOT, **kwargs)
 
+    def end_headers(self):  # noqa: N802 (stdlib naming)
+        # A dev server for a library you are actively rebuilding must not cache.
+        # The browser keeps ES modules in its own module map, so a reload does
+        # not re-fetch /dist — you edit the source, rebuild, reload, and still
+        # run the previous bundle with no sign anything is stale.
+        self.send_header("Cache-Control", "no-store, must-revalidate")
+        super().end_headers()
+
     def do_GET(self):  # noqa: N802 (stdlib naming)
         parsed = urlparse(self.path)
         if parsed.path == "/api/history":

@@ -2,6 +2,54 @@
 
 All notable changes to OpenAlgo Charts.
 
+## Unreleased
+
+### Fixed
+
+- **Brush and Highlighter behaved as polylines** — a vertex per click, and no
+  way to end the shape. Both are `points: 0`, which the controller read as
+  "collect anchors until told to stop", the same contract `polyline` wants.
+
+  `DrawingTool` gains `freehand`. A freehand tool samples the cursor while the
+  pointer is held and commits on release, so one press-drag-release is one
+  stroke. `crosshair:move` now carries `pressed`, since placement mode swallows
+  the pan path and there was otherwise no way to observe a drag in progress.
+
+- **A selected brush showed a grab handle on every sampled point**, burying the
+  ink under dozens of circles and leaving no way to grab the stroke itself. A
+  freehand drawing now handles only its two ends; it still keeps every sample,
+  which is what gives it its shape.
+
+### Added
+
+- **`DrawingTool.expand`** — a tool can turn the anchors actually clicked into
+  its full anchor set, so it can place a complete, immediately editable default
+  from fewer clicks. Receives `barSeconds` and `visibleBars`.
+- **Long/Short Position place from a single click at 1:1**, sized to ~8% of the
+  visible range so the box is grabbable at any zoom, with all three anchors
+  still draggable. Previously they needed three clicks and drew nothing until
+  the third.
+- **Position and Forecast readouts** are now chips rather than one terse line.
+  Position: `Target: <Δ> (<%>), Amount: <cash>` outside the target line,
+  the same for `Stop`, and `Qty` / `Risk/reward ratio` at the entry — each
+  hugging its own line, so the layout reads the same for a long and a short.
+  Forecast: the anchor price/date, the projected move with its duration and
+  landing price/date, and a SUCCESS/MISSED verdict once the window has elapsed.
+- **`PrimitiveRenderContext.bars()`** — the pane's primary price series, lazily,
+  for a primitive that needs what price actually did rather than just the
+  scales. The forecast verdict is the first caller.
+
+### Demo
+
+- **5m / 15m / 30m drew nothing** while 1h and 1d worked. Yahoo caps intraday
+  history (~60 days for 5m–90m, ~730 for 1h) and answers an over-long request
+  with an *empty* frame rather than an error, so the default 1y range silently
+  produced no bars. The range is now clamped to what the interval can serve,
+  the range menu only offers those, and the status line says when it clamped.
+- The yfinance dev server sends `Cache-Control: no-store`. The browser keeps ES
+  modules in its own module map, so rebuilding the library and reloading still
+  ran the previous bundle with no sign anything was stale.
+
 ## 1.0.12
 
 A fix for the forming candle rendering as two overlapping candles of opposite

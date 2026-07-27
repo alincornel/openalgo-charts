@@ -113,6 +113,17 @@ export interface HitContext {
   rc: PrimitiveRenderContext;
 }
 
+/** What {@link DrawingTool.expand} needs to size a default in chart units. */
+export interface ExpandContext {
+  /** Seconds between adjacent bars, so a default can span a sane bar count. */
+  barSeconds: number;
+  /**
+   * Bars currently on screen. A default sized in fixed bars is a hairline when
+   * zoomed out and fills the pane when zoomed in, so size against this instead.
+   */
+  visibleBars: number;
+}
+
 export interface DrawingTool {
   id: string;
   name: string;
@@ -121,6 +132,23 @@ export interface DrawingTool {
    * drawing finishes on double-click.
    */
   points: number;
+  /**
+   * Sample the cursor continuously while the pointer is held, and finish on
+   * release — one press-drag-release gesture is one stroke. Brushes want this;
+   * without it a `points: 0` tool collects a vertex per click, which is
+   * polyline behaviour and never terminates on its own.
+   */
+  freehand?: boolean;
+  /**
+   * Turn the anchors actually clicked into the full anchor set. Lets a tool drop
+   * a complete, immediately editable default from fewer clicks — the position
+   * tools place a 1:1 box off a single click, which the user then drags, rather
+   * than demanding entry/target/stop be clicked in turn.
+   *
+   * The returned points become the drawing's anchors, so each one stays a
+   * draggable handle.
+   */
+  expand?(clicked: readonly DrawingPoint[], ctx: ExpandContext): DrawingPoint[];
   /** Merged under the caller's style when a drawing is created. */
   defaultStyle?: DrawingStyle;
   draw(c: DrawContext): void;

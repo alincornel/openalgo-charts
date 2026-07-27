@@ -17,6 +17,19 @@ const GRAB = 6;
 /** Anchor handle radius, in media px. */
 const HANDLE = 5;
 
+/**
+ * Which anchors get a grab handle. A freehand stroke carries one anchor per
+ * sample, so handling all of them buries the ink under dozens of circles and
+ * makes the shape itself impossible to grab — only the two ends mean anything,
+ * which is what a brush shows elsewhere.
+ */
+function handleIndices(toolId: string, count: number): number[] {
+  if (hasDrawingTool(toolId) && getDrawingTool(toolId).freehand === true && count > 2) {
+    return [0, count - 1];
+  }
+  return Array.from({ length: count }, (_, i) => i);
+}
+
 export class DrawingLayer implements IPrimitive {
   private _drawings: Drawing[] = [];
   private _host: PrimitiveHost | null = null;
@@ -85,16 +98,17 @@ export class DrawingLayer implements IPrimitive {
       });
       ctx.restore();
 
-      if (d.id === this._selected && d.locked !== true) this._drawHandles(ctx, rc, media);
+      if (d.id === this._selected && d.locked !== true) this._drawHandles(ctx, rc, media, d.tool);
     }
   }
 
-  private _drawHandles(ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext, pts: readonly ScreenPoint[]): void {
+  private _drawHandles(ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext, pts: readonly ScreenPoint[], toolId: string): void {
     const dpr = rc.dpr;
     ctx.save();
     ctx.setLineDash([]);
     ctx.lineWidth = Math.max(1, Math.round(1.5 * dpr));
-    for (const p of pts) {
+    for (const i of handleIndices(toolId, pts.length)) {
+      const p = pts[i];
       ctx.beginPath();
       ctx.arc(p.x * dpr, p.y * dpr, HANDLE * dpr, 0, Math.PI * 2);
       ctx.fillStyle = rc.theme.background;
@@ -112,7 +126,7 @@ export class DrawingLayer implements IPrimitive {
       const sel = this._drawings.find((d) => d.id === this._selected);
       if (sel !== undefined && sel.locked !== true) {
         const pts = this._points(rc, sel);
-        for (let i = 0; i < pts.length; i++) {
+        for (const i of handleIndices(sel.tool, pts.length)) {
           if (Math.hypot(x - pts[i].x, y - pts[i].y) <= HANDLE + 2) {
             return {
               externalId: `draw:${sel.id}#${i}`,

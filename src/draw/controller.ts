@@ -9,7 +9,7 @@
  * callbacks, so a host keeps using those for its own order lines.
  */
 import type { Chart } from '../core/chart';
-import type { Drawing, DrawingPoint, DrawingStyle } from './types';
+import type { Drawing, DrawingPoint, DrawingStyle, DrawingTool } from './types';
 import { DrawingLayer } from './layer';
 import { getDrawingTool, hasDrawingTool } from './tools';
 
@@ -237,13 +237,86 @@ export class DrawingController {
     this._lastCursor = time === null || price === null || paneIndex === null
       ? null : { time, price, paneIndex };
     this._lastBar = (p.bar as { open: number; high: number; low: number; close: number } | null) ?? null;
+    // Freehand tools ink while the pointer is held rather than on clicks.
+    if (this._tool !== null && p.pressed === true && this._isFreehand()
+      && time !== null && price !== null && paneIndex !== null
+      && Number.isFinite(time) && Number.isFinite(price)) {
+      this._inkPoint({ time, price }, paneIndex);
+      return;
+    }
     // A tool mid-placement previews against the live cursor.
     if (this._tool !== null && this._pending.length > 0) this._syncPreview();
+  }
+
+  /**
+   * Let a tool turn the clicked anchors into its full set (the position tools
+   * build a 1:1 box off one click). Identity for tools without the hook.
+   */
+  private _expand(tool: DrawingTool, clicked: DrawingPoint[]): DrawingPoint[] {
+    if (tool.expand === undefined) return clicked;
+    const dl = this._chart.dataLayer;
+    const n = dl.baseIndex;
+    // Bar spacing in seconds from the last gap; a one-bar chart has no gap to
+    // read, so fall back to a minute rather than producing a zero-width default.
+    const a = n > 0 ? dl.indexToTime(n - 1) : undefined;
+    const b = n >= 0 ? dl.indexToTime(n) : undefined;
+    const barSeconds = a !== undefined && b !== undefined && b > a ? b - a : 60;
+    const range = this._chart.getVisibleLogicalRange();
+    const visibleBars = range === null ? 60 : Math.max(1, range.to - range.from);
+    return tool.expand(clicked, { barSeconds, visibleBars });
+  }
+
+  private _isFreehand(): boolean {
+    return this._tool !== null && getDrawingTool(this._tool).freehand === true;
+  }
+
+  /**
+   * Append one sample to the stroke in progress. Points arriving closer than a
+   * bar-eighth apart in time carry no shape and would bloat the saved drawing,
+   * so they collapse into the last one — a pointer can fire far faster than the
+   * stroke actually changes direction.
+   */
+  private _inkPoint(point: DrawingPoint, paneIndex: number): void {
+    if (this._pending.length === 0) {
+      this._pendingPane = paneIndex;
+    } else if (paneIndex !== this._pendingPane) {
+      return;                       // a stroke belongs to the pane it started in
+    } else {
+      const last = this._pending[this._pending.length - 1];
+      if (last.time === point.time && last.price === point.price) return;
+    }
+    this._pending.push(point);
+    this._syncPreview();
+  }
+
+  /** Commit the stroke a freehand gesture built, if it has any extent. */
+  private _finishFreehand(): void {
+    const pts = this._pending;
+    this._pending = [];
+    if (pts.length < 2) {           // a tap is not a stroke
+      this._syncPreview();
+      return;
+    }
+    const tool = getDrawingTool(this._tool as string);
+    const created = this.add({ tool: tool.id, points: pts, style: {}, paneIndex: this._pendingPane });
+    if (!this._opts.stayInDrawingMode) {
+      this._tool = null;
+      this._setPlacementMode(false);
+    }
+    this._syncPreview();
+    this.select(created.id);
+    this._chart.emit('draw:tool', { tool: this._tool });
   }
 
   private _onClick(p: ClickPayload): void {
     // Placement takes precedence: while a tool is armed, a click is an anchor.
     if (this._tool !== null) {
+      // A freehand stroke was already collected move-by-move; the click pair a
+      // drag produces is its end signal, not two more anchors.
+      if (this._isFreehand()) {
+        if (p.viaDrag === true) this._finishFreehand();
+        return;
+      }
       // The release half of a drag only means something while a shape is part
       // way through. A single-anchor tool (text, horizontal line) is already
       // finished by the press, so treating the release as another anchor would
@@ -268,7 +341,7 @@ export class DrawingController {
     const tool = getDrawingTool(this._tool as string);
     if (tool.points > 0 && this._pending.length >= tool.points) {
       const created = this.add({
-        tool: tool.id, points: this._pending, style: {}, paneIndex: this._pendingPane,
+        tool: tool.id, points: this._expand(tool, this._pending), style: {}, paneIndex: this._pendingPane,
       });
       this._pending = [];
       if (!this._opts.stayInDrawingMode) {

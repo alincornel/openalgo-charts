@@ -145,6 +145,12 @@ export class Pane {
       theme: ctx.theme,
       hoverId: ctx.hoverId ?? null,
       dragId: ctx.dragId ?? null,
+      bars: () => {
+        for (const s of this._series) {
+          if (getChartType(s.type).isPriceSeries) return ctx.dataLayer.seriesBars(s.dataId);
+        }
+        return [];
+      },
     };
   }
 

@@ -7,6 +7,7 @@
 import type { TimeScale } from '../scale/time-scale';
 import type { PriceScale } from '../scale/price-scale';
 import type { DataLayer } from '../model/data-layer';
+import type { Bar } from '../model/bar';
 import type { ChartTheme } from '../theme';
 
 export type ZOrder = 'bottom' | 'normal' | 'top';
@@ -20,6 +21,12 @@ export interface PrimitiveRenderContext {
   priceAxisWidth: number;
   dpr: number;
   theme: ChartTheme;
+  /**
+   * The pane's primary price series, for a primitive that needs what price
+   * actually did rather than just the scales — a forecast scoring itself, say.
+   * Lazy, so nothing pays for it unless asked. Absent on synthetic contexts.
+   */
+  bars?: () => readonly Bar[];
   /** externalId of the primitive hit under the pointer (hover state), if any. */
   hoverId?: string | null;
   /** externalId of the line being dragged (active state), if any. */

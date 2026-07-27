@@ -11,6 +11,7 @@ import {
   distToSegment, distToLine, distToHorizontal, distToVertical,
   distToRect, distToEllipse, distToPolyline, rectOf, extendSegment,
 } from './geometry';
+import { roundRectPath, contrastText } from '../render/pill';
 
 const registry = new Map<string, DrawingTool>();
 
@@ -79,6 +80,78 @@ function label(c: DrawContext, text: string, x: number, y: number, color?: strin
   ctx.fillText(text, x, y);
   ctx.restore();
 }
+
+/**
+ * A solid rounded chip with contrasting text, one row per line — the readout
+ * style the position and forecast tools share. `align` positions the box
+ * horizontally about `x`, `place` vertically about `y`. Returns its height so a
+ * caller can stack chips.
+ */
+function chip(
+  c: DrawContext,
+  lines: readonly string[],
+  x: number,
+  y: number,
+  bg: string,
+  opts: { align?: 'left' | 'center' | 'right'; place?: 'above' | 'below' | 'middle' } = {},
+): number {
+  const { ctx, rc } = c;
+  const d = rc.dpr;
+  const size = (c.style.fontSize ?? 11) * d;
+  ctx.save();
+  ctx.setLineDash([]);
+  ctx.globalAlpha = 1;
+  ctx.font = `${size}px ui-sans-serif, system-ui, sans-serif`;
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  const padX = 5 * d;
+  const padY = 3 * d;
+  const lh = size * 1.35;
+  let textW = 0;
+  for (const t of lines) textW = Math.max(textW, ctx.measureText(t).width);
+  const w = textW + padX * 2;
+  const h = lh * lines.length + padY * 2;
+  const align = opts.align ?? 'left';
+  const bx = align === 'center' ? x - w / 2 : align === 'right' ? x - w : x;
+  const place = opts.place ?? 'above';
+  const by = place === 'above' ? y - h - 4 * d : place === 'below' ? y + 4 * d : y - h / 2;
+  ctx.beginPath();
+  roundRectPath(ctx, bx, by, w, h, 3 * d);
+  ctx.fillStyle = bg;
+  ctx.fill();
+  ctx.fillStyle = contrastText(bg);
+  for (let i = 0; i < lines.length; i++) ctx.fillText(lines[i], bx + padX, by + padY + lh * (i + 0.5));
+  ctx.restore();
+  return h;
+}
+
+/** Thousands-separated fixed-point, locale-independent so output is stable. */
+function grouped(n: number, dp = 0): string {
+  const [i, f] = Math.abs(n).toFixed(dp).split('.');
+  const sign = n < 0 ? '-' : '';
+  return sign + i.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + (f === undefined ? '' : '.' + f);
+}
+
+/** `YYYY-MM-DD` in UTC — enough to anchor a label to its bar. */
+function isoDate(sec: number): string {
+  const dt = new Date(sec * 1000);
+  const p = (n: number): string => String(n).padStart(2, '0');
+  return `${dt.getUTCFullYear()}-${p(dt.getUTCMonth() + 1)}-${p(dt.getUTCDate())}`;
+}
+
+/** Coarse elapsed span: `76d 23h`, `5h 12m`, `12m`. */
+function humanSpan(sec: number): string {
+  const s = Math.max(0, Math.round(Math.abs(sec)));
+  const days = Math.floor(s / 86400);
+  const hours = Math.floor((s % 86400) / 3600);
+  const mins = Math.floor((s % 3600) / 60);
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${mins}m`;
+  return `${mins}m`;
+}
+
+const UP_TINT = '#26a69a';
+const DOWN_TINT = '#ef5350';
 
 const DEFAULT_FIB: readonly number[] = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
 
@@ -373,12 +446,33 @@ export const MEASURE: DrawingTool = {
   distance: (x, y, h) => distToRect(x, y, h.pts[0], h.pts[1], true),
 };
 
-/** Long / short position calculator — entry, target, stop. */
+/**
+ * Long / short position calculator — entry, target, stop.
+ *
+ * One click places the whole thing at a 1:1 reward:risk and every anchor stays
+ * draggable, so the tool opens with something to adjust rather than asking for
+ * three clicks before it shows anything.
+ */
 function positionTool(id: string, name: string, long: boolean): DrawingTool {
   return {
-    id, name, points: 3,
+    id, name, points: 1,
     defaultStyle: { showLabels: true, fillOpacity: 0.13, accountSize: 100000, risk: 1 },
+    expand: (clicked, ctx) => {
+      const p = clicked[0];
+      // 1% of price gives a 1:1 box that reads sensibly on any instrument; the
+      // fallback covers a zero/near-zero price where a ratio has no meaning.
+      const off = Math.abs(p.price) * 0.01 || 1;
+      // ~8% of what is on screen, so the box is grabbable at any zoom instead
+      // of a hairline when zoomed out or pane-filling when zoomed in.
+      const bars = Math.max(5, Math.round(ctx.visibleBars * 0.08));
+      const far = p.time + Math.max(1, ctx.barSeconds) * bars;
+      return long
+        ? [p, { time: far, price: p.price + off }, { time: far, price: p.price - off }]
+        : [p, { time: far, price: p.price - off }, { time: far, price: p.price + off }];
+    },
     draw: (c) => {
+      // A single-anchor preview exists between the click and `expand`.
+      if (c.drawing.points.length < 3 || c.pts.length < 3) return;
       const [entry, target, stop] = c.drawing.points;
       const d = c.rc.dpr;
       const x0 = Math.min(c.pts[0].x, c.pts[1].x, c.pts[2].x);
@@ -393,8 +487,8 @@ function positionTool(id: string, name: string, long: boolean): DrawingTool {
         c.ctx.fillRect(x0, Math.min(yA, yB), x1 - x0, Math.abs(yB - yA));
         c.ctx.restore();
       };
-      band(yE, yT, '#26a69a');
-      band(yE, yS, '#ef5350');
+      band(yE, yT, UP_TINT);
+      band(yE, yS, DOWN_TINT);
       applyStroke(c);
       for (const y of [yE, yT, yS]) {
         const yy = Math.round(y) + 0.5;
@@ -413,10 +507,24 @@ function positionTool(id: string, name: string, long: boolean): DrawingTool {
       const account = c.style.accountSize ?? 0;
       const riskPct = c.style.risk ?? 0;
       const qty = risk > 0 && account > 0 ? Math.floor((account * riskPct / 100) / risk) : 0;
-      const dir = long ? 'LONG' : 'SHORT';
-      label(c, `${dir}  R:R ${rr.toFixed(2)}${qty > 0 ? `  qty ${qty}` : ''}`, x0 + 4 * d, yE - 10 * d);
+      const pctOf = (delta: number): string =>
+        (entry.price !== 0 ? (delta / entry.price) * 100 : 0).toFixed(3);
+      const cash = (delta: number): string => (qty > 0 ? `, Amount: ${grouped(qty * delta)}` : '');
+      const cx = (x0 + x1) / 2;
+      // Each readout hugs its own line, on the outside of the box — the target
+      // chip sits past the target line whichever side of entry it landed on, so
+      // it reads the same for a long and an inverted-drag short.
+      chip(c, [`Target: ${c.formatPrice(reward)} (${pctOf(reward)}%)${cash(reward)}`],
+        cx, yT, UP_TINT, { align: 'center', place: yT <= yE ? 'above' : 'below' });
+      chip(c, [`Stop: ${c.formatPrice(risk)} (${pctOf(risk)}%)${cash(risk)}`],
+        cx, yS, DOWN_TINT, { align: 'center', place: yS >= yE ? 'below' : 'above' });
+      chip(c, [
+        `${long ? 'Long' : 'Short'} · Qty: ${qty > 0 ? grouped(qty) : '—'}`,
+        `Risk/reward ratio: ${rr.toFixed(2)}`,
+      ], cx, yE, c.rc.theme.background, { align: 'center', place: 'middle' });
     },
     distance: (x, y, h) => {
+      if (h.pts.length < 3) return null;
       const x0 = Math.min(h.pts[0].x, h.pts[1].x, h.pts[2].x);
       const x1 = Math.max(h.pts[0].x, h.pts[1].x, h.pts[2].x);
       if (x < x0 - 4 || x > x1 + 4) return null;
@@ -610,8 +718,9 @@ function measureContext(): CanvasRenderingContext2D | null {
   return _probe;
 }
 
+/** Brush — freehand ink: press, drag, release. */
 export const PATH: DrawingTool = {
-  id: 'path', name: 'Path', points: 0,
+  id: 'path', name: 'Path', points: 0, freehand: true,
   draw: (c) => {
     if (c.pts.length < 2) return;
     applyStroke(c);
@@ -745,12 +854,28 @@ export const FORECAST: DrawingTool = {
     c.ctx.arc(a.x, a.y, 3 * d, 0, Math.PI * 2);
     c.ctx.fillStyle = tint;
     c.ctx.fill();
-    const i0 = c.rc.dataLayer.timeToIndexFloat(p[0].time);
-    const i1 = c.rc.dataLayer.timeToIndexFloat(p[1].time);
-    const bars = Math.abs(Math.round(i1 - i0));
+    if (c.style.showLabels === false) return;
     const sign = up ? '+' : '';
-    label(c, `${sign}${c.formatPrice(chg)} (${sign}${pct.toFixed(2)}%)  ${bars} bars`,
-      b.x + 6 * d, b.y, tint);
+    // Anchor chip: where the projection was struck from.
+    chip(c, [c.formatPrice(p[0].price), isoDate(p[0].time)], a.x, a.y, tint, { align: 'center' });
+    // Projection chip: the move, and what it lands on when.
+    chip(c, [
+      `${sign}${c.formatPrice(chg)} (${sign}${pct.toFixed(2)}%) in ${humanSpan(p[1].time - p[0].time)}`,
+      `${c.formatPrice(p[1].price)} · ${isoDate(p[1].time)}`,
+    ], b.x, b.y, tint, { align: 'center', place: 'below' });
+    // Verdict, once the window has actually elapsed: did price get there? A
+    // forecast nobody scores is just a line.
+    const bars = c.rc.bars?.();
+    if (bars !== undefined && bars.length > 0 && bars[bars.length - 1].time >= p[1].time) {
+      let hit = false;
+      for (const bar of bars) {
+        if (bar.time < p[0].time) continue;
+        if (bar.time > p[1].time) break;
+        if (up ? bar.high >= p[1].price : bar.low <= p[1].price) { hit = true; break; }
+      }
+      chip(c, [hit ? 'SUCCESS' : 'MISSED'], b.x, b.y + 36 * d,
+        hit ? '#4a934a' : '#8a4a4a', { align: 'center', place: 'below' });
+    }
   },
   distance: (x, y, h) => distToSegment(x, y, h.pts[0], h.pts[1]),
 };
@@ -917,7 +1042,7 @@ export const ARROW_DOWN = arrowMarker('arrow-down', 'Arrow Down', false);
 
 /** Highlighter — the brush with a fat, translucent stroke. */
 export const HIGHLIGHTER: DrawingTool = {
-  id: 'highlighter', name: 'Highlighter', points: 0,
+  id: 'highlighter', name: 'Highlighter', points: 0, freehand: true,
   defaultStyle: { lineWidth: 12, fillOpacity: 0.28 },
   draw: (c) => {
     if (c.pts.length < 2) return;

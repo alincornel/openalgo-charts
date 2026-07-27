@@ -264,9 +264,14 @@ describe('every built-in tool renders and hit-tests', () => {
   it('draws without throwing and reports a finite distance', () => {
     for (const tool of BUILTIN_DRAWING_TOOLS) {
       const n = Math.max(1, tool.points || 3);
+      const clicked = Array.from({ length: n }, (_, i) => ({ time: 1700000000 + i * 600, price: 100 + i * 5 }));
+      // A tool with `expand` is placed with fewer clicks than it has anchors
+      // (the position tools drop a 1:1 box off one click), so the real anchor
+      // set is what the hook returns — feeding it `tool.points` would render a
+      // half-built shape and prove nothing.
       const drawing: Drawing = {
         id: 'x', tool: tool.id, paneIndex: 0,
-        points: Array.from({ length: n }, (_, i) => ({ time: 1700000000 + i * 600, price: 100 + i * 5 })),
+        points: tool.expand ? tool.expand(clicked, { barSeconds: 600, visibleBars: 120 }) : clicked,
         style: { color: '#4f8cff', lineWidth: 1.5, text: 'hi' },
       };
       const pts = drawing.points.map((_, i) => ({ x: 50 + i * 40, y: 100 + i * 30 }));
@@ -446,6 +451,135 @@ describe('DrawingController', () => {
       { time: 1700003600, price: 108 },
     ]);
   });
+
+  // A brush is `points: 0` like `polyline`, so it used to collect one vertex per
+  // click and never terminate — you got a polyline instead of ink. Freehand
+  // tools sample `crosshair:move` while the pointer is held and commit on
+  // release.
+  const stroke = (chart: Chart, pts: readonly [number, number][], pane = 0): void => {
+    chart.emit('click', { id: null, time: pts[0][0], price: pts[0][1], paneIndex: pane, point: { x: 0, y: 0 } });
+    for (const [time, price] of pts) {
+      chart.emit('crosshair:move', { time, price, paneIndex: pane, bar: null, point: { x: 0, y: 0 }, pressed: true });
+    }
+    const last = pts[pts.length - 1];
+    chart.emit('click', { id: null, time: last[0], price: last[1], paneIndex: pane, point: { x: 0, y: 0 }, viaDrag: true });
+  };
+
+  for (const tool of ['path', 'highlighter'] as const) {
+    it(`${tool} inks one stroke per press-drag-release, not a vertex per click`, () => {
+      const { chart } = makeChart();
+      const draw = new DrawingController(chart);
+      draw.setTool(tool);
+
+      stroke(chart, [[1700000600, 101], [1700001200, 103], [1700001800, 102], [1700002400, 105]]);
+
+      expect(draw.drawings()).toHaveLength(1);
+      const d = draw.drawings()[0];
+      expect(d.tool).toBe(tool);
+      // Every sampled position is kept — that curve is the whole point.
+      expect(d.points).toHaveLength(4);
+      expect(d.points[0]).toEqual({ time: 1700000600, price: 101 });
+      expect(d.points[3]).toEqual({ time: 1700002400, price: 105 });
+      // ...and the gesture ended, rather than staying open for more clicks.
+      expect(draw.activeTool()).toBeNull();
+    });
+  }
+
+  it('a selected brush stroke offers only its two end handles', () => {
+    // One anchor per sample means one handle per sample — dozens of circles
+    // burying the ink, and no way to grab the stroke itself.
+    const { chart } = makeChart();
+    const draw = new DrawingController(chart);
+    draw.setTool('path');
+    const pts: [number, number][] = Array.from({ length: 30 }, (_, i) => [1700000600 + i * 60, 100 + i * 0.2]);
+    stroke(chart, pts);
+
+    const d = draw.drawings()[0];
+    expect(d.points).toHaveLength(30);   // the shape keeps every sample...
+    draw.select(d.id);
+
+    const layer = new DrawingLayer();
+    layer.setDrawings(draw.drawings());
+    layer.setSelected(d.id);
+    const rc = {
+      timeScale: { indexToX: (i: number) => i * 5 },
+      priceScale: { priceToY: (p: number) => 300 - p, format: (p: number) => p.toFixed(2) },
+      dataLayer: { timeToIndexFloat: (t: number) => (t - 1700000600) / 60, indexToTimeFloat: (i: number) => i },
+      plotWidth: W, plotHeight: H, priceAxisWidth: 60, dpr: 1, theme: darkTheme,
+    } as never;
+    const { ctx, rec } = makeCtx();
+    layer.draw(ctx, rc);
+    // ...but only two of them are drawn as grab handles.
+    expect(rec.ops.filter((o) => o.type === 'arc')).toHaveLength(2);
+  });
+
+  it('drops a freehand tap that never moved', () => {
+    // One sample is not a stroke; committing it would leave an unclickable dot.
+    const { chart } = makeChart();
+    const draw = new DrawingController(chart, { stayInDrawingMode: true });
+    draw.setTool('path');
+
+    chart.emit('click', { id: null, time: 1700000600, price: 101, paneIndex: 0, point: { x: 0, y: 0 } });
+    chart.emit('crosshair:move', { time: 1700000600, price: 101, paneIndex: 0, bar: null, point: { x: 0, y: 0 }, pressed: true });
+    chart.emit('click', { id: null, time: 1700000600, price: 101, paneIndex: 0, point: { x: 0, y: 0 }, viaDrag: true });
+
+    expect(draw.drawings()).toHaveLength(0);
+  });
+
+  it('does not ink while merely hovering with a brush armed', () => {
+    const { chart } = makeChart();
+    const draw = new DrawingController(chart, { stayInDrawingMode: true });
+    draw.setTool('highlighter');
+
+    for (let i = 0; i < 5; i++) {
+      chart.emit('crosshair:move', { time: 1700000600 + i * 60, price: 100 + i, paneIndex: 0, bar: null, point: { x: 0, y: 0 }, pressed: false });
+    }
+    chart.emit('click', { id: null, time: 1700000900, price: 103, paneIndex: 0, point: { x: 0, y: 0 }, viaDrag: true });
+
+    expect(draw.drawings()).toHaveLength(0);
+  });
+
+  it('keeps a stroke inside the pane it started in', () => {
+    const { chart } = makeChart();
+    const draw = new DrawingController(chart);
+    draw.setTool('path');
+
+    chart.emit('click', { id: null, time: 1700000600, price: 101, paneIndex: 0, point: { x: 0, y: 0 } });
+    chart.emit('crosshair:move', { time: 1700000600, price: 101, paneIndex: 0, bar: null, point: { x: 0, y: 0 }, pressed: true });
+    chart.emit('crosshair:move', { time: 1700001200, price: 55, paneIndex: 1, bar: null, point: { x: 0, y: 0 }, pressed: true });
+    chart.emit('crosshair:move', { time: 1700001800, price: 104, paneIndex: 0, bar: null, point: { x: 0, y: 0 }, pressed: true });
+    chart.emit('click', { id: null, time: 1700001800, price: 104, paneIndex: 0, point: { x: 0, y: 0 }, viaDrag: true });
+
+    const d = draw.drawings()[0];
+    expect(d.paneIndex).toBe(0);
+    expect(d.points).toHaveLength(2); // the pane-1 sample was rejected
+  });
+
+  for (const [tool, sign] of [['long-position', 1], ['short-position', -1]] as const) {
+    it(`${tool} drops a complete 1:1 box from a single click`, () => {
+      // It used to need three clicks (entry, target, stop) and showed nothing
+      // until the third. TradingView places a ready box you then drag.
+      const { chart } = makeChart();
+      const draw = new DrawingController(chart);
+      draw.setTool(tool);
+
+      chart.emit('click', { id: null, time: 1700003000, price: 100, paneIndex: 0, point: { x: 40, y: 40 } });
+
+      expect(draw.drawings()).toHaveLength(1);
+      const [entry, target, stop] = draw.drawings()[0].points;
+      expect(entry).toEqual({ time: 1700003000, price: 100 });
+      // Reward and risk equal — a 1:1 ratio out of the box.
+      expect(Math.abs(target.price - entry.price)).toBeCloseTo(Math.abs(entry.price - stop.price), 9);
+      // Target on the profitable side for the direction.
+      expect(Math.sign(target.price - entry.price)).toBe(sign);
+      expect(Math.sign(stop.price - entry.price)).toBe(-sign);
+      // ...and the box has width, or it renders as a hairline.
+      expect(target.time).toBeGreaterThan(entry.time);
+      expect(stop.time).toBeGreaterThan(entry.time);
+      // All three anchors stay draggable handles.
+      expect(draw.drawings()[0].points).toHaveLength(3);
+    });
+  }
 
   it('ignores the release click for a single-anchor tool', () => {
     // Otherwise dragging with `text` armed drops a second box where you let go.

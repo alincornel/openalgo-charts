@@ -1113,7 +1113,13 @@
 
     async function load() {
       const status = el('status');
-      req = { symbol: el('symbol').value.trim(), interval: el('interval').value, period: el('period').value };
+      // Clamp here too, not just at the interval buttons: a saved layout or a
+      // hand-set select can otherwise ask for a range the interval cannot serve.
+      const interval = el('interval').value;
+      const wanted = el('period').value;
+      const period = clampPeriod(interval, wanted);
+      if (period !== wanted) el('period').value = period;
+      req = { symbol: el('symbol').value.trim(), interval, period };
       status.textContent = `loading ${req.symbol} ${req.interval}...`;
       try {
         const bars = await feed.getBars(req);
@@ -1140,7 +1146,8 @@
           // A silent catch here hid a real restore failure once; say so.
           console.warn('[demo] layout restore failed:', e);
         }
-        status.textContent = `${req.symbol} · ${bars.length} bars · ${req.interval}/${req.period}`;
+        status.textContent = `${req.symbol} · ${bars.length} bars · ${req.interval}/${req.period}`
+          + (period !== wanted ? `  (${wanted} unavailable at ${interval})` : '');
       } catch (e) {
         status.textContent = 'error: ' + e.message;
       }
@@ -1349,6 +1356,24 @@
     const INTERVALS = ['5m', '15m', '30m', '1h', '1d', '1wk'];
     const PERIODS = ['1mo', '6mo', '1y', '5y', 'max'];
 
+    /* Yahoo caps how far back intraday data goes, and answers an over-long
+       request with an *empty* frame rather than an error — so 5m/15m/30m with
+       the default 1y range silently drew nothing while 1h and 1d worked. Clamp
+       the range to what the interval can actually serve. */
+    const PERIOD_DAYS = { '1mo': 31, '6mo': 186, '1y': 366, '5y': 1830, max: 1e6 };
+    const INTERVAL_MAX_DAYS = { '1m': 7, '2m': 60, '5m': 60, '15m': 60, '30m': 60, '90m': 60, '1h': 730 };
+    /** Periods this interval can serve, longest last. Daily and up: all of them. */
+    function periodsFor(interval) {
+      const cap = INTERVAL_MAX_DAYS[interval];
+      return cap === undefined ? PERIODS.slice() : PERIODS.filter((p) => PERIOD_DAYS[p] <= cap);
+    }
+    /** `wanted` if the interval can serve it, else the longest range it can. */
+    function clampPeriod(interval, wanted) {
+      const ok = periodsFor(interval);
+      if (ok.includes(wanted)) return wanted;
+      return ok[ok.length - 1] || PERIODS[0];
+    }
+
     /** One popup menu at a time, anchored under its button. */
     let openMenu = null;
     function popupMenu(anchor, rows) {
@@ -1467,14 +1492,21 @@
         const b = document.createElement('button');
         b.textContent = iv.toUpperCase();
         b.className = el('interval').value === iv ? 'is-on' : '';
-        b.addEventListener('click', () => { el('interval').value = iv; load(); renderToolbar(); });
+        b.addEventListener('click', () => {
+          el('interval').value = iv;
+          el('period').value = clampPeriod(iv, el('period').value);
+          load();
+          renderToolbar();
+        });
         ig.appendChild(b);
       }
       bar.appendChild(ig);
 
       // range menu
       const range = tbtn('<span>' + esc(el('period').value) + '</span>' + ticon('chevron'), 'History range');
-      range.addEventListener('click', () => popupMenu(range, PERIODS.map((p) => ({
+      // Only offer ranges this interval can actually serve — an unavailable one
+      // comes back empty from Yahoo, which reads as a broken chart.
+      range.addEventListener('click', () => popupMenu(range, periodsFor(el('interval').value).map((p) => ({
         label: p, on: p === el('period').value,
         onSelect: () => { el('period').value = p; load(); renderToolbar(); },
       }))));
