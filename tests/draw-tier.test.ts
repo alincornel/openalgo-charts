@@ -666,7 +666,7 @@ describe('DrawingController', () => {
   for (const [tool, sign] of [['long-position', 1], ['short-position', -1]] as const) {
     it(`${tool} drops a complete 1:1 box from a single click`, () => {
       // It used to need three clicks (entry, target, stop) and showed nothing
-      // until the third. TradingView places a ready box you then drag.
+      // until the third. Other packages place a ready box you then drag.
       const { chart } = makeChart();
       const draw = new DrawingController(chart);
       draw.setTool(tool);

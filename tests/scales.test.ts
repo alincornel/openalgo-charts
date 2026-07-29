@@ -54,9 +54,32 @@ describe('ticks', () => {
 
 describe('PriceScale', () => {
   it('autoscale adds margins around extremes', () => {
+    // 0.1/0.1 leaves the data 80% of the pane, so the span is 1/0.8 of 100.
     const r = autoscaleRange(100, 200, 0.1, 0.1);
-    expect(r.min).toBeCloseTo(90);
-    expect(r.max).toBeCloseTo(210);
+    expect(r.min).toBeCloseTo(87.5);
+    expect(r.max).toBeCloseTo(212.5);
+  });
+
+  it('reserves margins as a fraction of pane height, not of the data span', () => {
+    // The volume-overlay case: 0.82 must leave the series the bottom 18% of
+    // the pane. Padding the span instead left it 55%.
+    const r = autoscaleRange(0, 1000, 0.82, 0);
+    expect(r.min).toBeCloseTo(0);
+    expect(1000 / (r.max - r.min)).toBeCloseTo(0.18);
+  });
+
+  it('keeps the data centred when the margins match', () => {
+    const r = autoscaleRange(0, 100, 0.25, 0.25);
+    expect(100 / (r.max - r.min)).toBeCloseTo(0.5);
+    expect(r.min).toBeCloseTo(-50);
+    expect(r.max).toBeCloseTo(150);
+  });
+
+  it('stays finite when the margins leave no room', () => {
+    const r = autoscaleRange(0, 100, 0.7, 0.7);
+    expect(Number.isFinite(r.min)).toBe(true);
+    expect(Number.isFinite(r.max)).toBe(true);
+    expect(r.max).toBeGreaterThan(r.min);
   });
 
   it('widens a flat range so it is drawable', () => {

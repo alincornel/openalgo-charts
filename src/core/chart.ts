@@ -123,7 +123,7 @@ export interface ChartOptions {
    */
   timeFormatter?: (utcSeconds: number, tickMark?: TickMarkType) => string;
   /**
-   * Hover-revealed zoom / step controls above the time axis (TradingView-style).
+   * Hover-revealed zoom / step controls above the time axis, as terminals show.
    * `true` by default — they stay invisible until the pointer nears the bottom
    * of the chart. Pass `false` to drop them, or an options object to restyle.
    */
@@ -1574,7 +1574,7 @@ export class Chart {
     this._downLocalY = p.localY;
 
     // Pane divider: pressing within a few px of the boundary between two panes
-    // starts a resize (TradingView-style), redistributing weight between them.
+    // starts a resize, redistributing weight between them.
     const divider = this._dividerAt(p.y);
     if (divider !== null) {
       const layout = this._paneLayout();

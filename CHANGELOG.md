@@ -2,6 +2,29 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.0.26
+
+### Fixed
+
+- **Price-scale margins are fractions of the pane height, as documented.**
+  `autoscaleRange` padded the *data span* by the margin instead, so how much
+  room a margin reserved depended on how tall the data happened to be. A volume
+  overlay asking for `marginTop: 0.82` to sit in the bottom 18% of the pane got
+  `high + 0.82 * span` and drew its bars across **55%** of it, swallowing the
+  price series.
+
+  The data band now occupies the `1 - marginTop - marginBottom` left between the
+  margins. Margins totalling 1 or more keep a sliver of room rather than
+  producing an infinite range.
+
+  Existing charts on the `0.1` default shift by a few percent (the data band
+  goes from 83% of the pane to 80%); only large margins, which were the broken
+  case, move noticeably.
+
+### Changed
+
+- Third-party product names removed from source comments, docs and examples.
+
 ## 1.0.25
 
 ### Added

@@ -1,5 +1,5 @@
 /**
- * Inline Buy/Sell button panel (ARCHITECTURE.md §9). A TradingView-style trade
+ * Inline Buy/Sell button panel (ARCHITECTURE.md §9). An on-chart trade
  * panel docked inside the plot: a SELL button (bid), a quantity chip, and a BUY
  * button (ask), drawn on the overlay canvas so it stays fixed while the chart
  * pans/zooms. Clicks hit-test to `${id}:sell` / `${id}:buy` / `${id}:qty`, which

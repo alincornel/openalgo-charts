@@ -8,6 +8,16 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 1.0.26
+
+**Fixed**
+
+- **Price-scale margins are fractions of the pane height, as documented.** They
+  padded the data span instead, so a volume overlay asking for `marginTop: 0.82`
+  to sit in the bottom 18% of the pane drew across 55% of it. The data band now
+  occupies the `1 - marginTop - marginBottom` left between the margins. Charts
+  on the `0.1` default shift by a few percent; only large margins move much.
+
 ## 1.0.25
 
 **Added**
@@ -555,7 +565,7 @@ The full, authoritative changelog lives in
 
 **Added**
 
-- `BuySellButtons` — an inline, TradingView-style trade panel drawn on the chart
+- `BuySellButtons` — an inline trade panel drawn on the chart
   (`SELL` · qty · `BUY`, docked to a corner and fixed while the chart moves).
   Clicks hit-test to `${id}:sell` / `${id}:buy` / `${id}:qty` (routed through
   `chart.subscribeClick`); `setPrices` / `setMark` update prices per tick,
@@ -605,7 +615,7 @@ theme-aware visual pass plus real interaction feedback.
 
 ## 1.0.3
 
-Cosmetic parity — the last visual gaps for a lightweight-charts migration.
+Cosmetic parity — the last visual gaps for a migration from another canvas charting library.
 
 **Added**
 

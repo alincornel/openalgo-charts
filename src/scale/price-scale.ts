@@ -41,6 +41,14 @@ export const DEFAULT_PRICE_SCALE_OPTIONS: PriceScaleOptions = {
 /**
  * Pure: compute a price range from data extremes plus top/bottom margins.
  * Returns a padded [min,max]; widens a degenerate (flat) range so it's drawable.
+ *
+ * The margins are fractions of the **pane height**, so the data band occupies
+ * the `1 - marginTop - marginBottom` left between them. Padding the data span
+ * by the margin instead — which is what this did — makes the reserved space
+ * depend on how tall the data happens to be: an overlay asking for `0.82` to
+ * sit in the bottom 18% got `high + 0.82 * span`, leaving its bars 55% of the
+ * pane. The difference only shows at large margins; at the 0.1 default the two
+ * readings land within a few percent of each other.
  */
 export function autoscaleRange(low: number, high: number, marginTop: number, marginBottom: number): PriceRange {
   if (!isFinite(low) || !isFinite(high)) return { min: 0, max: 1 };
@@ -49,7 +57,11 @@ export function autoscaleRange(low: number, high: number, marginTop: number, mar
     return { min: low - pad, max: high + pad };
   }
   const span = high - low;
-  return { min: low - span * marginBottom, max: high + span * marginTop };
+  // Margins totalling >= 1 would leave the data no room at all; keep a sliver
+  // so the range stays finite and the series remains drawable.
+  const visible = Math.max(1 - marginTop - marginBottom, 0.01);
+  const total = span / visible;
+  return { min: low - total * marginBottom, max: high + total * marginTop };
 }
 
 export class PriceScale {

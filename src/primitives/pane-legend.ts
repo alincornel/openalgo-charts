@@ -1,5 +1,5 @@
 /**
- * Pane legend (ARCHITECTURE.md §8) — the TradingView-style row at the top-left
+ * Pane legend (ARCHITECTURE.md §8) — the row at the top-left
  * of a pane: a color swatch, the source's name, its parameters, the value under
  * the crosshair, and inline action buttons on the right.
  *

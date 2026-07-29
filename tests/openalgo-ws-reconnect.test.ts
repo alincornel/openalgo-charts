@@ -69,7 +69,7 @@ describe('OpenAlgoWsFeed reconnect', () => {
 
 describe('OpenAlgoWsFeed order updates', () => {
   const rawUpdate = {
-    type: 'order_update', user_id: 'u', mode: 'analyze', broker: 'upstox',
+    type: 'order_update', user_id: 'u', mode: 'analyze', broker: 'demo',
     orderid: '240221025997024', symbol: 'RELIANCE', exchange: 'NSE', action: 'BUY',
     quantity: 10, price: 1424.0, trigger_price: 0, pricetype: 'LIMIT', product: 'MIS',
     order_status: 'Complete', filled_quantity: 10, pending_quantity: 0,

@@ -208,7 +208,7 @@
     .poprow output { font-size: 12px; color: var(--mut); min-width: 40px; text-align: right; }
 
 
-    /* ── TradingView-style shell bar ─────────────────────────────── */
+    /* ── Terminal shell bar ─────────────────────────────── */
     .shellbar { display: flex; align-items: center; gap: 6px; padding: 6px 10px; flex-wrap: wrap;
       background: linear-gradient(180deg, var(--panel), #0c0f16); border-bottom: 1px solid var(--bd-soft); }
     .legacy { display: none !important; }
@@ -1639,7 +1639,7 @@
     // toolbar and a properties bar belong here (and, later, in a UI package).
     // Everything routes through the controller's public API.
     // Icons are drawn on a 24x24 grid with a thin, even stroke and outlined
-    // endpoint handles — the visual language TradingView uses. The previous set
+    // endpoint handles — the conventional visual language. The previous set
     // was 20x20 with a 1.6 stroke, which renders chunky at 17px.
     const ICON = {
       cursor: '<path d="M12 3.5v5M12 15.5v5M3.5 12h5M15.5 12h5"/>',
@@ -1698,7 +1698,7 @@
     // Rail groups. A group with several tools cycles them on repeat clicks, so a
     // family of 4 line tools stays one button instead of four.
     // Rail groups. A group with a `menu` opens a flyout listing its tools —
-    // the pattern TradingView uses — and remembers the last one picked so the
+    // the conventional pattern — and remembers the last one picked so the
     // button re-activates it on a plain click.
     const RAIL = [
       { icon: 'cursor', title: 'Cursor (Esc)', tools: [] },
@@ -2062,7 +2062,7 @@
           '<label class="td-check"><input type="checkbox" id="td-wrap" /> <span>Text wrap</span>' +
             '<input type="number" id="td-wrapw" min="60" max="900" step="10" title="Wrap width (px)" /></label>' +
           // Shapes place their label relative to the outline, so they get the
-          // Inside/Outside + Left/Centre/Right pair TradingView shows.
+          // Inside/Outside + Left/Centre/Right pair such panels show.
           (isShape
             ? '<div class="td-row"><span style="flex:1 1 auto;color:var(--mut);font-size:12px">Text alignment</span>' +
               '<select id="td-pos"><option value="inside">Inside</option><option value="outside">Outside</option></select>' +

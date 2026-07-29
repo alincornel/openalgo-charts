@@ -102,7 +102,7 @@ draw.setTool('trend-line');   // the next two clicks place it
 Headless by design — no toolbar, no dialogs. Placement with live preview, selection, whole-shape and per-anchor dragging, magnet snap to O/H/L/C, undo/redo (a drag is one step), and persistence. Anchors are `{ time, price }`, never pixels, so they survive zoom and resolve inside collapsed session gaps and past the last bar.
 
 ### Panes &amp; legends
-Draggable pane dividers, move / maximize / remove, and TradingView-style pane legends showing one reading per plot in that plot's own colour, with inline show-hide / settings / move / delete controls revealed on hover.
+Draggable pane dividers, move / maximize / remove, and pane legends showing one reading per plot in that plot's own colour, with inline show-hide / settings / move / delete controls revealed on hover.
 
 ### Trading
 Order, position, and bracket lines with live P&amp;L, one-click and drag-to-modify, OCO, validation, an order state machine, analyzer (sandbox) mode, and a depth-of-market ladder (5 to 200 levels).
@@ -145,7 +145,7 @@ cd website && npm install && npm run dev    # http://localhost:3000/openalgo-cha
 
 ## Examples
 
-Runnable demos in [`examples/`](./examples), including a full **yfinance terminal** ([`examples/yfinance`](./examples/yfinance)) with a TradingView-style shell: symbol search, interval pills, chart-type picker, indicator menu, a vertical drawing rail, a floating properties bar, generated indicator settings, and layout persistence.
+Runnable demos in [`examples/`](./examples), including a full **yfinance terminal** ([`examples/yfinance`](./examples/yfinance)) with a full terminal shell: symbol search, interval pills, chart-type picker, indicator menu, a vertical drawing rail, a floating properties bar, generated indicator settings, and layout persistence.
 
 ```bash
 npm run build
