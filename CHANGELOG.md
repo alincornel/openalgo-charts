@@ -2,6 +2,17 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.0.27
+
+### Added
+
+- **`PriceLine.setOptions()`** restyles a line in place — colour, width, dash,
+  labels, badges — and repaints. Only `setPrice`, `setLeftLabel` and
+  `setDragGhost` were updatable, so a line's colour was fixed at construction
+  and a last-price line could not follow the tick direction. `id` is excluded:
+  it is the handle the chart routes clicks and drags through, and swapping it
+  under a live drag would strand the gesture.
+
 ## 1.0.26
 
 ### Fixed

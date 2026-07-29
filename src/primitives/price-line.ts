@@ -78,6 +78,20 @@ export class PriceLine implements IPrimitive {
   }
 
   /**
+   * Restyle in place; repaints. `id` is the hit-test handle the chart routes
+   * clicks and drags through, so it is not patchable — swapping it under a
+   * live drag would strand the gesture.
+   *
+   * A last-price line is the case this exists for: it has to follow the tick
+   * direction, and only `setPrice` was updatable, so the colour was stuck at
+   * whatever it was constructed with.
+   */
+  public setOptions(patch: Partial<Omit<PriceLineOptions, 'id'>>): void {
+    this._opts = { ...this._opts, ...patch };
+    this._host?.requestUpdate();
+  }
+
+  /**
    * Show a dimmed reference line at the pre-drag price while the user drags
    * (pass the original price on drag start, null on drag end to clear).
    */

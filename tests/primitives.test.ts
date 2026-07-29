@@ -65,6 +65,29 @@ describe('PriceLine primitive', () => {
     expect(updates).toBe(1);
   });
 
+  it('setOptions restyles in place and repaints', () => {
+    let updates = 0;
+    const pl = new PriceLine({ price: 50, color: '#e0b020', lineWidth: 1, dashed: true, id: 'ltp' });
+    pl.attached({ requestUpdate: () => { updates++; } });
+    pl.setOptions({ color: '#26a69a' });
+    expect(pl.options().color).toBe('#26a69a');
+    expect(updates).toBe(1);
+    // Untouched keys survive, and the id stays the hit-test handle.
+    expect(pl.options().dashed).toBe(true);
+    expect(pl.options().price).toBe(50);
+    expect(pl.options().id).toBe('ltp');
+  });
+
+  it('setOptions colour reaches the canvas', () => {
+    const { rc } = makeRc();
+    const pl = new PriceLine({ price: 50, color: '#e0b020', lineWidth: 1, dashed: false, id: 'ltp' });
+    pl.setOptions({ color: '#ef5350' });
+    const { ctx, rec } = makeCtx();
+    pl.draw(ctx, rc);
+    expect(rec.ops.some((o) => o.strokeStyle === '#ef5350')).toBe(true);
+    expect(rec.ops.some((o) => o.strokeStyle === '#e0b020')).toBe(false);
+  });
+
   it('extentFromRight draws only the rightmost fraction; leftLabel adds an end tag', () => {
     const { rc } = makeRc(); // plotWidth 600, dpr 1
     const full = makeCtx();
