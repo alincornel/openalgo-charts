@@ -399,6 +399,7 @@
       <button id="lload" class="btn" title="chart.restoreState() from localStorage">Restore</button>
       <label class="chk"><input type="checkbox" id="vgrid" checked /> <span>V Grid</span></label>
       <label class="chk"><input type="checkbox" id="hgrid" checked /> <span>H Grid</span></label>
+      <label class="chk" title="show the volume histogram"><input type="checkbox" id="volshow" checked /> <span>Volume</span></label>
     </div>
     <div class="divider"></div>
     <span class="lbl">Order</span>
@@ -1079,6 +1080,9 @@
           priceFormat: { type: 'volume' },
         });
         volume.priceScale().setOptions({ marginTop: 0.82, marginBottom: 0 });
+        // A rebuild makes a fresh series, so the checkbox has to be re-applied
+        // rather than assumed -- a chart-type switch would show it again.
+        if (!el('volshow').checked) volume.applyOptions({ visible: false });
         volume.setData(currentBars.map((b) => ({ time: b.time, open: 0, high: b.volume, low: 0, close: b.volume })));
         volLegend = new PaneLegend({ id: 'volume', title: 'Vol', params: '', actions: [] });
         chart.addPrimitive(volLegend, 0);
@@ -1281,6 +1285,11 @@
     const applyGrid = () => chart && chart.setGridOptions({ vertLines: el('vgrid').checked, horzLines: el('hgrid').checked });
     el('vgrid').addEventListener('change', applyGrid);
     el('hgrid').addEventListener('change', applyGrid);
+    // Volume is hidden, not removed: the series keeps its data and its overlay
+    // price scale, so switching it back on is instant.
+    el('volshow').addEventListener('change', () => {
+      if (volume) volume.applyOptions({ visible: el('volshow').checked });
+    });
 
     // Add an indicator live — no chart rebuild, no refetch. The handle it returns
     // is what a settings dialog or an objects panel would drive.
