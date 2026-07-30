@@ -112,11 +112,17 @@ sl.setPrice(19600);
 
 // update the info segment, e.g. live P&L
 sl.setLeftLabel('-150');
+
+// restyle in place -- e.g. a last-price line following the candle's direction
+sl.setOptions({ color: ltp >= bar.open ? '#26a69a' : '#ef5350' });
 ```
 
 `setPrice(price: number)` moves the horizontal line and calls `requestUpdate()` on the host.
 `setLeftLabel(text: string)` updates the info segment of the pill group and repaints.
 `setDragGhost(price | null)` shows/clears a dimmed reference line while dragging.
+`setOptions(patch)` restyles in place — colour, width, dash, labels, badges — and repaints.
+`id` is not patchable: it is the handle the chart routes clicks and drags through, so
+swapping it under a live drag would strand the gesture.
 
 See [PriceLineOptions](/docs/types) for the full option set including `badge`, `qty`,
 `extentFromRight`, `closeButton`, and `label`.
