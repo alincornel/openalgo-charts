@@ -6,6 +6,7 @@ import { darkTheme } from '../src/theme';
 import {
   DrawingController, DrawingLayer,
   registeredDrawingTools, getDrawingTool, hasDrawingTool, registerDrawingTool,
+  matchDrawingShortcut, drawingShortcuts,
   BUILTIN_DRAWING_TOOLS,
   distToSegment, distToLine, distToRect, distToEllipse, rectOf, extendSegment,
 } from '../src/draw/index';
@@ -948,5 +949,42 @@ describe('DrawingLayer hit-testing', () => {
     const { ctx, rec } = makeCtx();
     layer.draw(ctx, rc);
     expect(rec.count('stroke')).toBe(2);
+  });
+});
+
+describe('drawing shortcuts', () => {
+  it('exposes the shortcuts TradingView uses for the line tools', () => {
+    const map = drawingShortcuts();
+    expect(map['trend-line']).toBe('Alt+T');
+    expect(map['horizontal-line']).toBe('Alt+H');
+    expect(map['horizontal-ray']).toBe('Alt+J');
+    expect(map['vertical-line']).toBe('Alt+V');
+    expect(map['cross-line']).toBe('Alt+C');
+  });
+
+  it('matches a key event to its tool, case-insensitively', () => {
+    expect(matchDrawingShortcut({ key: 't', altKey: true })).toBe('trend-line');
+    expect(matchDrawingShortcut({ key: 'T', altKey: true })).toBe('trend-line');
+    expect(matchDrawingShortcut({ key: 'h', altKey: true })).toBe('horizontal-line');
+  });
+
+  it('requires the modifiers to match exactly, so it cannot shadow a host chord', () => {
+    // Ctrl+Alt+T is a terminal shortcut on Linux; it must not arm a tool.
+    expect(matchDrawingShortcut({ key: 't', altKey: true, ctrlKey: true })).toBeNull();
+    expect(matchDrawingShortcut({ key: 't', altKey: true, shiftKey: true })).toBeNull();
+  });
+
+  it('never fires on a bare letter, so typing is unaffected', () => {
+    expect(matchDrawingShortcut({ key: 't' })).toBeNull();
+    expect(matchDrawingShortcut({ key: 'h', shiftKey: true })).toBeNull();
+  });
+
+  it('returns null for an unbound combination and an empty key', () => {
+    expect(matchDrawingShortcut({ key: 'q', altKey: true })).toBeNull();
+    expect(matchDrawingShortcut({ key: '', altKey: true })).toBeNull();
+  });
+
+  it('treats Cmd as Ctrl, so a Mac chord does not arm a tool either', () => {
+    expect(matchDrawingShortcut({ key: 't', altKey: true, metaKey: true })).toBeNull();
   });
 });

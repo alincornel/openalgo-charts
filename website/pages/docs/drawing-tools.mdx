@@ -179,6 +179,50 @@ reports the gesture as two `click` events — the press point, then the release 
 things (alerts, annotations) without the draw tier.
 </Callout>
 
+## Keyboard shortcuts
+
+Each tool can declare a `shortcut`. The built-in line tools ship the standard chords:
+
+| Shortcut | Tool |
+|---|---|
+| `Alt+T` | Trend line |
+| `Alt+H` | Horizontal line |
+| `Alt+J` | Horizontal ray |
+| `Alt+V` | Vertical line |
+| `Alt+C` | Cross line |
+
+`drawingShortcuts()` returns the `id -> shortcut` map, which is what a palette renders beside
+each tool's name. `matchDrawingShortcut(event)` resolves a key event to a tool id:
+
+```ts
+import { matchDrawingShortcut } from 'openalgo-charts/draw';
+
+window.addEventListener('keydown', (e) => {
+  // Your call, not the library's: skip while typing or with a dialog open.
+  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+  const id = matchDrawingShortcut(e);
+  if (id) {
+    e.preventDefault();
+    controller.setTool(id);
+  }
+});
+```
+
+<Callout type="info">
+The library installs **no** key listener. Only the host knows whether the chart has focus, a
+dialog is open, or the user is typing, so binding is left to you.
+
+Modifiers must match **exactly**: `Alt+T` does not fire for `Ctrl+Alt+T`, so a tool cannot
+shadow a browser or host chord, and `metaKey` (Cmd) counts as Ctrl. A bare letter never
+matches, so ordinary typing is never swallowed.
+</Callout>
+
+Give a custom tool a chord the same way:
+
+```ts
+registerDrawingTool({ id: 'my-band', name: 'My band', points: 2, shortcut: 'Alt+B', draw, distance });
+```
+
 ## Text and labels
 
 The `text` tool draws a standalone text box, but **shapes carry labels too** — set

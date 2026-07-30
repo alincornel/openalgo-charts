@@ -2,6 +2,25 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.0.28
+
+### Added
+
+- **Drawing tools carry a keyboard `shortcut`.** The built-in line tools ship
+  the standard chords — `Alt+T` trend line, `Alt+H` horizontal line, `Alt+J`
+  horizontal ray, `Alt+V` vertical line, `Alt+C` cross line — and any tool
+  registered with `registerDrawingTool` can declare its own.
+
+- **`matchDrawingShortcut(event)`** resolves a key event to a tool id, and
+  **`drawingShortcuts()`** returns the `id -> shortcut` map for rendering the
+  chord beside a tool's name in a palette.
+
+  The library installs no listener: only the host knows whether the chart has
+  focus, a dialog is open, or the user is typing. Modifiers must match exactly,
+  so `Alt+T` does not fire for `Ctrl+Alt+T` and a tool cannot shadow a browser
+  or host chord; a bare letter never matches, so ordinary typing is unaffected.
+  `metaKey` counts as Ctrl.
+
 ## 1.0.27
 
 ### Added

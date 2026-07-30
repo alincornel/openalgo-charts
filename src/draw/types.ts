@@ -149,6 +149,14 @@ export interface DrawingTool {
    * draggable handle.
    */
   expand?(clicked: readonly DrawingPoint[], ctx: ExpandContext): DrawingPoint[];
+  /**
+   * Keyboard shortcut that arms this tool, as `'Alt+T'` / `'Shift+Alt+F'` —
+   * modifiers in `Ctrl`, `Alt`, `Shift` order, then a single key. Hosts render
+   * it beside the tool's name in a palette and bind it with
+   * `matchDrawingShortcut`; the library itself installs no listener, since only
+   * the host knows whether the chart has focus or a dialog is open.
+   */
+  shortcut?: string;
   /** Merged under the caller's style when a drawing is created. */
   defaultStyle?: DrawingStyle;
   draw(c: DrawContext): void;

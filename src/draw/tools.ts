@@ -33,6 +33,65 @@ export function registeredDrawingTools(): DrawingTool[] {
   return Array.from(registry.values());
 }
 
+/** Keyboard event fields a shortcut is matched against. */
+export interface ShortcutEvent {
+  key: string;
+  altKey?: boolean;
+  ctrlKey?: boolean;
+  metaKey?: boolean;
+  shiftKey?: boolean;
+}
+
+/** `'Shift+Alt+F'` -> its parts, for comparison against an event. */
+function parseShortcut(spec: string): { key: string; alt: boolean; ctrl: boolean; shift: boolean } {
+  const parts = spec.split('+').map((p) => p.trim().toLowerCase());
+  const key = parts[parts.length - 1] ?? '';
+  return {
+    key,
+    alt: parts.includes('alt'),
+    ctrl: parts.includes('ctrl') || parts.includes('control'),
+    shift: parts.includes('shift'),
+  };
+}
+
+/**
+ * The id of the tool whose `shortcut` matches this key event, or `null`.
+ *
+ * Pure, so a host can bind one `keydown` listener and decide for itself when
+ * shortcuts apply — the library installs no listener, because only the host
+ * knows whether the chart has focus, a dialog is open, or the user is typing.
+ *
+ * Modifiers must match exactly: `Alt+T` will not fire for `Ctrl+Alt+T`, so a
+ * tool shortcut cannot shadow a browser or host chord. `metaKey` (Cmd) is
+ * treated as Ctrl, which is what a Mac user expects.
+ */
+export function matchDrawingShortcut(e: ShortcutEvent): string | null {
+  const key = (e.key ?? '').toLowerCase();
+  if (key === '') return null;
+  const alt = e.altKey === true;
+  const ctrl = e.ctrlKey === true || e.metaKey === true;
+  const shift = e.shiftKey === true;
+  // A bare letter is never a shortcut: it would swallow ordinary typing.
+  if (!alt && !ctrl) return null;
+  for (const tool of registry.values()) {
+    if (tool.shortcut === undefined) continue;
+    const want = parseShortcut(tool.shortcut);
+    if (want.key === key && want.alt === alt && want.ctrl === ctrl && want.shift === shift) {
+      return tool.id;
+    }
+  }
+  return null;
+}
+
+/** Every registered tool that has a shortcut, as `id -> shortcut`. */
+export function drawingShortcuts(): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const tool of registry.values()) {
+    if (tool.shortcut !== undefined) out[tool.id] = tool.shortcut;
+  }
+  return out;
+}
+
 // ── shared drawing helpers ────────────────────────────────────────────────
 
 function applyStroke(c: DrawContext): void {
@@ -206,7 +265,7 @@ function lineTool(id: string, name: string, left: boolean, right: boolean): Draw
   };
 }
 
-export const TREND_LINE = lineTool('trend-line', 'Trend Line', false, false);
+export const TREND_LINE: DrawingTool = { ...lineTool('trend-line', 'Trend Line', false, false), shortcut: 'Alt+T' };
 export const RAY = lineTool('ray', 'Ray', false, true);
 export const EXTENDED_LINE = lineTool('extended-line', 'Extended Line', true, true);
 
@@ -235,7 +294,7 @@ export const ARROW: DrawingTool = {
 };
 
 export const HORIZONTAL_LINE: DrawingTool = {
-  id: 'horizontal-line', name: 'Horizontal Line', points: 1,
+  id: 'horizontal-line', name: 'Horizontal Line', points: 1, shortcut: 'Alt+H',
   defaultStyle: { showLabels: true },
   draw: (c) => {
     const y = Math.round(c.pts[0].y) + 0.5;
@@ -253,7 +312,7 @@ export const HORIZONTAL_LINE: DrawingTool = {
 };
 
 export const HORIZONTAL_RAY: DrawingTool = {
-  id: 'horizontal-ray', name: 'Horizontal Ray', points: 1,
+  id: 'horizontal-ray', name: 'Horizontal Ray', points: 1, shortcut: 'Alt+J',
   defaultStyle: { showLabels: true },
   draw: (c) => {
     const y = Math.round(c.pts[0].y) + 0.5;
@@ -271,7 +330,7 @@ export const HORIZONTAL_RAY: DrawingTool = {
 };
 
 export const VERTICAL_LINE: DrawingTool = {
-  id: 'vertical-line', name: 'Vertical Line', points: 1,
+  id: 'vertical-line', name: 'Vertical Line', points: 1, shortcut: 'Alt+V',
   draw: (c) => {
     const x = Math.round(c.pts[0].x) + 0.5;
     applyStroke(c);
@@ -285,7 +344,7 @@ export const VERTICAL_LINE: DrawingTool = {
 };
 
 export const CROSS_LINE: DrawingTool = {
-  id: 'cross-line', name: 'Cross Line', points: 1,
+  id: 'cross-line', name: 'Cross Line', points: 1, shortcut: 'Alt+C',
   draw: (c) => {
     const x = Math.round(c.pts[0].x) + 0.5;
     const y = Math.round(c.pts[0].y) + 0.5;

@@ -8,6 +8,18 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 1.0.28
+
+**Added**
+
+- **Drawing tools carry a keyboard `shortcut`** — `Alt+T` trend line, `Alt+H`
+  horizontal line, `Alt+J` horizontal ray, `Alt+V` vertical line, `Alt+C` cross
+  line, and whatever a custom tool declares.
+- **`matchDrawingShortcut(event)`** resolves a key event to a tool id and
+  **`drawingShortcuts()`** returns the `id -> shortcut` map. The library binds no
+  listener, and modifiers must match exactly so a tool cannot shadow a host
+  chord.
+
 ## 1.0.27
 
 **Added**

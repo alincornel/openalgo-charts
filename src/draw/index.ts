@@ -34,6 +34,8 @@ export {
   getDrawingTool,
   hasDrawingTool,
   registeredDrawingTools,
+  matchDrawingShortcut,
+  drawingShortcuts,
   registerBuiltinDrawingTools,
   BUILTIN_DRAWING_TOOLS,
   TREND_LINE, RAY, EXTENDED_LINE, ARROW,
@@ -56,6 +58,8 @@ export type {
   HitContext,
   ScreenPoint,
 } from './types';
+
+export type { ShortcutEvent } from './tools';
 
 export {
   distToSegment, distToLine, distToPolyline,
