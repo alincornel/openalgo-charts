@@ -5,10 +5,18 @@
 import type { Bar } from '../model/bar';
 import type { SeriesId } from '../model/data-layer';
 import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, PrimitiveHit, ZOrder } from './primitive';
+import { roundRectPath, contrastText } from '../render/pill';
 
+/**
+ * `labelUp` / `labelDown` are text plates with a tail, for named signals ("Buy",
+ * "Sell") rather than bare glyphs. The tail points *at* the anchor price and the
+ * body sits clear of it: `labelUp`'s tail points up so its body hangs below the
+ * anchor, `labelDown` is the mirror. Both require `text`.
+ */
 export type MarkerShape =
   | 'arrowUp' | 'arrowDown' | 'circle' | 'square'
-  | 'triangleUp' | 'triangleDown' | 'diamond' | 'flag' | 'text';
+  | 'triangleUp' | 'triangleDown' | 'diamond' | 'flag' | 'text'
+  | 'labelUp' | 'labelDown';
 export type MarkerPosition = 'aboveBar' | 'belowBar' | 'inBar' | 'atPrice';
 export type MarkerSize = 'tiny' | 'small' | 'medium' | 'big';
 
@@ -74,9 +82,52 @@ export function drawShape(
       ctx.fillRect(cx, cy - r, r, r * 0.8); // flag
       break;
     case 'text':
-      // text-only marker: nothing drawn here; label handled by caller
+    case 'labelUp':
+    case 'labelDown':
+      // text-bearing markers: nothing drawn here; the caller has the string,
+      // the font, and the device ratio. See `drawLabel`.
       break;
   }
+}
+
+/**
+ * A signal label: rounded plate, contrasting text, and a tail that points at
+ * `anchorY`. All coordinates are bitmap px — the caller has already applied dpr.
+ * `up` puts the tail on the top edge and the body below the anchor.
+ */
+export function drawLabel(
+  ctx: CanvasRenderingContext2D,
+  up: boolean,
+  cx: number,
+  anchorY: number,
+  text: string,
+  color: string,
+  fontPx: number,
+): void {
+  ctx.font = `600 ${fontPx}px system-ui, sans-serif`;
+  const padX = fontPx * 0.5;
+  const w = ctx.measureText(text).width + padX * 2;
+  const h = fontPx + fontPx * 0.64;
+  const tail = fontPx * 0.42;
+  const top = up ? anchorY + tail : anchorY - tail - h;
+
+  ctx.fillStyle = color;
+  roundRectPath(ctx, cx - w / 2, top, w, h, Math.min(fontPx * 0.3, h / 2));
+  ctx.fill();
+  // The tail overlaps the plate edge by a pixel so the two fills read as one
+  // shape instead of showing a hairline seam at fractional dpr.
+  const base = up ? top + 1 : top + h - 1;
+  ctx.beginPath();
+  ctx.moveTo(cx, anchorY);
+  ctx.lineTo(cx - tail, base);
+  ctx.lineTo(cx + tail, base);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = contrastText(color);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, cx, top + h / 2);
 }
 
 export class SeriesMarkers implements IPrimitive {
@@ -128,6 +179,14 @@ export class SeriesMarkers implements IPrimitive {
         continue;
       }
       stackByTime.set(m.time, stack + 1);
+      if (m.shape === 'labelUp' || m.shape === 'labelDown') {
+        if (m.text !== undefined) {
+          drawLabel(ctx, m.shape === 'labelUp', x, y, m.text, m.color,
+            Math.max(9, markerSizePx(m.size)) * rc.dpr);
+        }
+        if (m.id !== undefined) this._lastPositions.push({ id: m.id, x: x / rc.dpr, y: y / rc.dpr });
+        continue;
+      }
       drawShape(ctx, m.shape, x, y, px, m.color);
       if (m.text !== undefined) {
         ctx.fillStyle = m.color;

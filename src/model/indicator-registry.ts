@@ -15,6 +15,7 @@ import type { Bar } from './bar';
 import type { SeriesType } from './chart-type-registry';
 import type { SeriesStyle } from '../render/series-style';
 import type { PriceScaleId } from './series';
+import type { SeriesMarker } from '../primitives/markers';
 
 /** Which price a calculation reads from each bar. */
 export type IndicatorSource = 'open' | 'high' | 'low' | 'close' | 'hl2' | 'hlc3' | 'ohlc4' | 'volume';
@@ -250,6 +251,20 @@ export interface IndicatorDescriptor {
     previous: IndicatorValues,
     store: IndicatorStore,
   ): IndicatorValues | null;
+  /**
+   * Optional bar-anchored signal markers — a named "Buy"/"Sell" plate, an arrow
+   * at a crossover. Runs after every `calc`, so it reads the values it just
+   * produced rather than recomputing anything.
+   *
+   * A plot cannot express this: a plot is a column of prices drawn as a line or
+   * histogram, whereas a signal is a discrete event with a label. Returning `[]`
+   * (when a `showLabels`-style input is off, say) clears the layer.
+   */
+  markers?(ctx: {
+    bars: readonly Bar[];
+    values: IndicatorValues;
+    settings: Readonly<IndicatorSettings>;
+  }): readonly SeriesMarker[];
   /** Optional horizontal reference levels drawn in the indicator's pane. */
   levels?(settings: Readonly<IndicatorSettings>): readonly IndicatorLevel[];
   /**

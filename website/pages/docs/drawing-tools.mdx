@@ -245,15 +245,21 @@ That is one shape with two colours: `color` strokes the outline, `fontColor` pai
 | `wrap`, `wrapWidth` | both | soft-wrap instead of running off the pane |
 
 ```ts
-draw.add('rectangle', [a, b], {
-  color: '#8b5cf6',
-  text: 'Supply zone',
-  fontColor: '#ffffff',
-  fontSize: 13,
-  fontWeight: 'bold',
-  textPosition: 'inside',
-  textVAlign: 'top',
-  textAlign: 'center',
+// `add` takes a single drawing object (id is generated when omitted).
+draw.add({
+  tool: 'rectangle',
+  points: [a, b],
+  paneIndex: 0,
+  style: {
+    color: '#8b5cf6',
+    text: 'Supply zone',
+    fontColor: '#ffffff',
+    fontSize: 13,
+    fontWeight: 'bold',
+    textPosition: 'inside',
+    textVAlign: 'top',
+    textAlign: 'center',
+  },
 });
 ```
 

@@ -2,6 +2,99 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.0.29
+
+### Added
+
+- **HalfTrend** joins the indicator tier as `halftrend`, bringing the built-in
+  count to 20. A trend-following level that holds flat through noise: two state
+  machines run at once, and a flip only fires when the mean high (or low) crosses
+  the tracked extreme **and** the bar closes beyond the previous bar's low (or
+  high). Requiring both is what keeps the level still where a moving average
+  wobbles. Ships with half-ATR channel bands, per-side ribbons, and Buy/Sell
+  labels, each independently toggleable.
+
+  Original implementation written from the algorithm's published behaviour, per
+  ARCHITECTURE.md §0.1 — not ported from any third-party source.
+
+- **`IndicatorDescriptor.markers`** — an optional hook returning bar-anchored
+  `SeriesMarker`s, run after every `calc` so it reads the values it just
+  produced. A plot cannot express a named signal: a plot is a column of prices,
+  whereas a flip is a discrete event with a label. The runtime creates the marker
+  layer lazily on the first plot's series, so an indicator without the hook pays
+  nothing.
+
+- **`INDICATOR_PLOT_STYLES` is now exported** from the package root. The docs
+  already listed it as an import, but it was only declared internally, so the
+  documented call failed. It is the plot-style option list a generated settings
+  form offers alongside `INDICATOR_LINE_STYLES` and `INDICATOR_SOURCES`.
+
+- **`labelUp` / `labelDown` marker shapes** — text plates with a tail that points
+  at the anchor price, for named signals rather than bare glyphs. `labelUp` puts
+  its body below the anchor, `labelDown` above. `drawLabel` is exported for
+  custom primitives that want the same plate.
+
+### Fixed
+
+- **`VERSION` had drifted four patches behind `package.json`** (it read `1.0.24`
+  at the 1.0.28 release), so anything displaying the library version showed the
+  wrong one. A test now pins the two together.
+
+- **Pane legends no longer print `true true true`.** `_paramSummary` included
+  boolean inputs, so an indicator with visibility toggles rendered them as bare
+  words. Booleans are now excluded for the same reason colours already were: the
+  value names nothing, and what the toggle did is already visible on the chart.
+
+### Changed
+
+- Size budgets raised for the new feature: base 37 -> 38 KB, base+trade 44 -> 45
+  KB, everything 73.5 -> 76 KB. Measured: base 37.00 KB, everything 74.17 KB.
+
+### Documentation
+
+Corrected claims that no longer matched the source. The library behaved
+correctly in every case below; the docs did not.
+
+- README: version (said 1.0.8), test counts (said 468 across 47 files, now 619
+  across 50), and both size tables, which disagreed with each other because they
+  were snapshots from different releases.
+- README + ARCHITECTURE.md §13a: the four stated **Footprint gaps are all
+  stale** — the renderer is theme-driven, has `setOptions`, three display modes,
+  and draws stacked imbalances. Replaced with the real remaining gap: only
+  `Footprint` reads `rc.theme`; `VolumeProfile`, `MarketProfile` and
+  `HorizontalProfile` do not.
+- README + ARCHITECTURE.md §13a: **overlay price scales are implemented**
+  (`priceScaleId: ''`). Only `percentage` and `indexed-to-100` are absent.
+- `ChartOptions.theme` JSDoc said `darkTheme` was the default; `DEFAULT_THEME`
+  is `lightTheme`. This one shipped in the typings.
+- The event-bus comment claimed `chart.trading.on('order_modify')` was
+  equivalent to the prefixed name. `TradingController` keys its listener map on
+  the full `trading:order_modify`, so the bare name never fired.
+- `events.mdx`: `click` carries `{ id, price, time, paneIndex, point }` and `id`
+  is **`null`** for a click on empty space; `drag:end` carries the same shape
+  minus `point`. Both were documented as near-empty payloads.
+- `data-feeds.mdx`: `TradeFeed` was documented with `orderBook()` /
+  `positionBook()` / `marketDepth()`; it actually declares `subscribeOrders` /
+  `subscribePositions`. Added the `OrderFeed` vs `TradeFeed` split, since
+  `OrderEngine` takes the smaller one.
+- `trading.mdx` called `eng.placeLimit(...)`, which does not exist — corrected to
+  `placeOrder` with a real `PlaceRequest`.
+- `drawing-tools.mdx` showed `draw.add('rectangle', [a, b], style)`; `add` takes
+  a single drawing object.
+- `primitives-and-plugins.mdx` showed `zOrder` as a property in one snippet and
+  as a method in another. It is a method.
+- `market-profile.mdx` used `colorMode: 'heat'` and `showLetters`, neither of
+  which exists — the heat modes are `count` and `volume`, and letters are
+  controlled by `blockDisplay`.
+- `scales-and-panes.mdx` documented `timeScale.scrollToRealtime()`, which does
+  not exist.
+- `keyboard-shortcuts.mdx` said the arrow keys pan one bar; they pan two.
+- `live-data.mdx` referenced an exported `mapOrderStatus`; the mapping is
+  internal.
+- Stale built-in counts corrected across the source comments, README,
+  `getting-started.mdx` and `.size-limit.json`, plus the draw tier's header,
+  which still said 18 tools when 43 are registered.
+
 ## 1.0.28
 
 ### Added

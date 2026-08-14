@@ -11,6 +11,7 @@ import type { Bar } from './bar';
 import type { SeriesApi } from './series';
 import type { PriceLine } from '../primitives/price-line';
 import type { PaneLegend, LegendValue } from '../primitives/pane-legend';
+import type { SeriesMarkers } from '../primitives/markers';
 import type { IndicatorFillSpec, IndicatorPlot } from './indicator-registry';
 import { IndicatorFill as IndicatorFillPrimitive } from '../primitives/indicator-fill';
 
@@ -72,6 +73,12 @@ export interface IndicatorHost {
   /** Attach a band drawn behind the plots (an Ichimoku cloud). */
   addIndicatorFill(fill: IndicatorFillPrimitive, paneIndex: number): void;
   removeIndicatorFill(fill: IndicatorFillPrimitive): void;
+  /**
+   * Detach a signal-marker layer. There is no matching `add`: the layer comes
+   * from `series.createMarkers()` on a plot's own series, so it already lands in
+   * the right pane. Removing a series does not remove its primitives, hence this.
+   */
+  removeIndicatorMarkers(markers: SeriesMarkers): void;
   /** Bars of the primary price series — the calculation input. */
   sourceBars(): readonly Bar[];
   /** Index of a fresh pane for an indicator that wants its own. */
@@ -135,6 +142,7 @@ export class IndicatorInstance implements IndicatorApi {
   private readonly _store: IndicatorStore = {};
   private _detach: (() => void) | null = null;
   private _legend: PaneLegend | null = null;
+  private _markers: SeriesMarkers | null = null;
   private _visible = true;
 
   public constructor(
@@ -205,12 +213,14 @@ export class IndicatorInstance implements IndicatorApi {
   /**
    * The numeric/select inputs as a compact string (`14 close`), the way a
    * charting legend abbreviates an indicator's configuration. Colors are
-   * excluded — the swatch already carries that.
+   * excluded — the swatch already carries that. Booleans are excluded for the
+   * same reason in reverse: a bare `true true true` names nothing, and what a
+   * visibility toggle did is already visible on the chart.
    */
   private _paramSummary(): string {
     const out: string[] = [];
     for (const input of this._d.inputs) {
-      if (input.type === 'color') continue;
+      if (input.type === 'color' || input.type === 'boolean') continue;
       const v = this._settings[input.key];
       if (v === undefined || v === null || v === '') continue;
       out.push(String(v));
@@ -239,6 +249,9 @@ export class IndicatorInstance implements IndicatorApi {
     this._visible = on;
     for (const series of this._series.values()) series.applyOptions({ visible: on });
     for (const band of this._fills) band.setVisible(on);
+    // Markers are a separate primitive, so hiding the plots does not hide them;
+    // re-running the sync clears the layer (or repopulates it) explicitly.
+    this._syncMarkers(this._host.sourceBars());
     this._legend?.setOptions({ hidden: !on });
   }
 
@@ -301,6 +314,26 @@ export class IndicatorInstance implements IndicatorApi {
       }
       band.setPoints(pts);
     }
+  }
+
+  /**
+   * Refresh the descriptor's signal markers. The layer is created lazily on the
+   * first plot's series — so it shares the indicator's pane and price scale —
+   * and is only created once the descriptor actually returns a marker, which
+   * keeps the common no-marker indicator free of an extra primitive.
+   */
+  private _syncMarkers(bars: readonly Bar[]): void {
+    if (this._d.markers === undefined) return;
+    const markers = this._visible
+      ? this._d.markers({ bars, values: this._values, settings: this._settings })
+      : [];
+    if (this._markers === null) {
+      if (markers.length === 0) return;
+      const first = this._series.get(this._d.plots[0]?.key ?? '');
+      if (first === undefined) return;
+      this._markers = first.createMarkers();
+    }
+    this._markers.setMarkers(markers);
   }
 
   /** The chart type to draw a plot as: the settings override, else declared. */
@@ -440,6 +473,7 @@ export class IndicatorInstance implements IndicatorApi {
       series.setData(out);
     }
     this._syncFills();
+    this._syncMarkers(bars);
     this.updateLegendValues();
   }
 
@@ -479,6 +513,7 @@ export class IndicatorInstance implements IndicatorApi {
     this._series.clear();
     for (const band of this._fills) this._host.removeIndicatorFill(band);
     this._fills.length = 0;
+    if (this._markers !== null) { this._host.removeIndicatorMarkers(this._markers); this._markers = null; }
     if (this._ownPane) this._host.setPaneRange(this.paneIndex, null);
   }
 }

@@ -5,13 +5,17 @@
  * `ema`, `supertrend`, and the `sourceValues` helper come from the base bundle
  * (`../index`), not deep paths — see the note in `src/indicators/index.ts`.
  */
-import { ema, supertrend, sourceValues, isNewIstDay } from 'openalgo-charts';
+import { ema, supertrend, atr, sourceValues, isNewIstDay } from 'openalgo-charts';
 import type { IndicatorDescriptor, IndicatorSource } from 'openalgo-charts';
-import { sma, wma, stdev, nulls } from './calc';
+import { sma, wma, stdev, highest, lowest, nulls } from './calc';
 
 const num = (s: Readonly<Record<string, unknown>>, k: string, d: number): number => {
   const v = s[k];
   return typeof v === 'number' && Number.isFinite(v) ? v : d;
+};
+const str = (s: Readonly<Record<string, unknown>>, k: string, d: string): string => {
+  const v = s[k];
+  return typeof v === 'string' && v !== '' ? v : d;
 };
 const src = (s: Readonly<Record<string, unknown>>, k = 'source'): IndicatorSource =>
   (s[k] as IndicatorSource) ?? 'close';
@@ -264,5 +268,192 @@ export const ICHIMOKU: IndicatorDescriptor = {
       spanB: nulls(shift(spanB, disp)),
       lagging: nulls(shift(closes, -disp)),
     };
+  },
+};
+
+/**
+ * HalfTrend — a trend-following level that only moves against the trend once
+ * the opposing side of the range genuinely gives way, so it holds flat through
+ * noise where a moving average would wobble.
+ *
+ * Two state machines run at once. `trend` is what is drawn; `nextTrend` is which
+ * flip is currently *armed*. While a down-flip is armed the indicator tracks the
+ * running maximum of the `amplitude`-bar low; the flip only fires when the mean
+ * high drops under that maximum **and** the bar closes below the previous bar's
+ * low. The up-flip is the mirror. Requiring both a mean crossing and a close
+ * beyond the prior bar's extreme is what keeps the level still.
+ *
+ * On a flip the new level starts from the level the other side ended on, which
+ * is why the line steps rather than jumping to price. `channelDeviation` half-ATR
+ * bands ride the level as a channel, and the flip bar is marked half an ATR
+ * inside the channel.
+ *
+ * Original implementation written from the algorithm's published behaviour, per
+ * ARCHITECTURE.md §0.1 — not ported from any third-party source.
+ */
+export const HALFTREND: IndicatorDescriptor = {
+  id: 'halftrend',
+  name: 'HalfTrend',
+  category: 'Trend',
+  placement: 'onchart',
+  inputs: [
+    { key: 'amplitude', type: 'number', label: 'Amplitude', default: 2, min: 1, max: 100, step: 1 },
+    { key: 'channelDeviation', type: 'number', label: 'Channel Deviation', default: 2, min: 0, max: 20, step: 0.1 },
+    { key: 'atrPeriod', type: 'number', label: 'ATR Period', default: 100, min: 1, max: 500, step: 1 },
+    { key: 'showChannels', type: 'boolean', label: 'Show Channels', default: true },
+    { key: 'showSignals', type: 'boolean', label: 'Show Signals', default: true },
+    { key: 'showLabels', type: 'boolean', label: 'Show Buy/Sell Labels', default: true },
+    { key: 'upColor', type: 'color', label: 'Uptrend', default: '#2962ff' },
+    { key: 'downColor', type: 'color', label: 'Downtrend', default: '#ef5350' },
+  ],
+  // The level is split across two plots so it recolours at a flip, exactly as
+  // Supertrend does: each carries null while the other is active and the line
+  // renderer breaks across the gap.
+  plots: [
+    { key: 'up', type: 'line', title: 'HalfTrend Up', colorKey: 'upColor', style: { lineWidth: 2 } },
+    { key: 'down', type: 'line', title: 'HalfTrend Down', colorKey: 'downColor', style: { lineWidth: 2 } },
+    {
+      key: 'atrHigh', type: 'line', title: 'Channel High', colorKey: 'downColor',
+      style: { markersOnly: true, markerRadius: 1 },
+    },
+    {
+      key: 'atrLow', type: 'line', title: 'Channel Low', colorKey: 'upColor',
+      style: { markersOnly: true, markerRadius: 1 },
+    },
+    {
+      key: 'buySignal', type: 'line', title: 'Buy', colorKey: 'upColor',
+      style: { markersOnly: true, markerRadius: 3.5 },
+    },
+    {
+      key: 'sellSignal', type: 'line', title: 'Sell', colorKey: 'downColor',
+      style: { markersOnly: true, markerRadius: 3.5 },
+    },
+  ],
+  // One ribbon per side. Both endpoints must be non-null for a fill to appear,
+  // and only the active side's level is non-null, so the tint follows the trend
+  // without any per-bar colour logic.
+  fills: [
+    { between: ['up', 'atrLow'], colorUpKey: 'upColor', colorDownKey: 'upColor', opacity: 0.15 },
+    { between: ['down', 'atrHigh'], colorUpKey: 'downColor', colorDownKey: 'downColor', opacity: 0.15 },
+  ],
+  // The flip is an event with a name, not a column of prices, so it is a
+  // marker rather than a plot. The plate hangs off the channel edge it belongs
+  // to, tail pointing at it, which is why buy is a labelUp and sell a labelDown.
+  markers: ({ bars, values, settings }) => {
+    if (settings.showLabels === false) return [];
+    const buy = values.buySignal ?? [];
+    const sell = values.sellSignal ?? [];
+    const out = [];
+    for (let i = 0; i < bars.length; i++) {
+      const b = buy[i];
+      if (b !== null && b !== undefined) {
+        out.push({
+          time: bars[i].time, position: 'atPrice' as const, price: b,
+          shape: 'labelUp' as const, size: 'small' as const,
+          color: str(settings, 'upColor', '#2962ff'), text: 'Buy',
+        });
+        continue;
+      }
+      const sg = sell[i];
+      if (sg !== null && sg !== undefined) {
+        out.push({
+          time: bars[i].time, position: 'atPrice' as const, price: sg,
+          shape: 'labelDown' as const, size: 'small' as const,
+          color: str(settings, 'downColor', '#ef5350'), text: 'Sell',
+        });
+      }
+    }
+    return out;
+  },
+  calc: (bars, s) => {
+    const n = bars.length;
+    const up: (number | null)[] = new Array(n).fill(null);
+    const down: (number | null)[] = new Array(n).fill(null);
+    const chHigh: (number | null)[] = new Array(n).fill(null);
+    const chLow: (number | null)[] = new Array(n).fill(null);
+    const buy: (number | null)[] = new Array(n).fill(null);
+    const sell: (number | null)[] = new Array(n).fill(null);
+    const out = { up, down, atrHigh: chHigh, atrLow: chLow, buySignal: buy, sellSignal: sell };
+    if (n === 0) return out;
+
+    const amp = Math.max(1, Math.round(num(s, 'amplitude', 2)));
+    const chDev = num(s, 'channelDeviation', 2);
+    const showChannels = s.showChannels !== false;
+    const showSignals = s.showSignals !== false;
+
+    const highs = bars.map((b) => b.high);
+    const lows = bars.map((b) => b.low);
+    const halfAtr = atr(highs, lows, bars.map((b) => b.close), Math.max(1, Math.round(num(s, 'atrPeriod', 100))));
+    const meanHigh = sma(highs, amp);
+    const meanLow = sma(lows, amp);
+    const rollHigh = highest(highs, amp);
+    const rollLow = lowest(lows, amp);
+
+    // 0 = uptrend, 1 = downtrend. `armed` is the flip currently being tracked.
+    let trend = 0;
+    let armed = 0;
+    let maxLow = lows[0];
+    let minHigh = highs[0];
+    let upLevel = 0;
+    let downLevel = 0;
+    let seeded = false;
+
+    for (let i = 0; i < n; i++) {
+      const half = halfAtr[i] / 2;
+      const dev = chDev * half;
+      const barHigh = rollHigh[i];
+      const barLow = rollLow[i];
+      // Bar 0 has no predecessor; comparing against itself can never satisfy the
+      // flip condition, which is the correct no-signal answer for a single bar.
+      const prevHigh = i > 0 ? highs[i - 1] : highs[0];
+      const prevLow = i > 0 ? lows[i - 1] : lows[0];
+      const wasTrend = seeded ? trend : -1;
+
+      if (armed === 1) {
+        if (Number.isFinite(barLow)) maxLow = Math.max(barLow, maxLow);
+        if (Number.isFinite(meanHigh[i]) && meanHigh[i] < maxLow && bars[i].close < prevLow) {
+          trend = 1;
+          armed = 0;
+          minHigh = barHigh;
+        }
+      } else {
+        if (Number.isFinite(barHigh)) minHigh = Math.min(barHigh, minHigh);
+        if (Number.isFinite(meanLow[i]) && meanLow[i] > minHigh && bars[i].close > prevHigh) {
+          trend = 0;
+          armed = 1;
+          maxLow = barLow;
+        }
+      }
+
+      let level: number;
+      if (trend === 0) {
+        if (wasTrend === 1) {
+          upLevel = downLevel; // step across from where the other side ended
+          if (showSignals && Number.isFinite(half)) buy[i] = upLevel - half;
+        } else {
+          upLevel = wasTrend === -1 ? maxLow : Math.max(maxLow, upLevel);
+        }
+        level = upLevel;
+      } else {
+        if (wasTrend === 0) {
+          downLevel = upLevel;
+          if (showSignals && Number.isFinite(half)) sell[i] = downLevel + half;
+        } else {
+          downLevel = wasTrend === -1 ? minHigh : Math.min(minHigh, downLevel);
+        }
+        level = downLevel;
+      }
+      seeded = true;
+
+      if (!Number.isFinite(level)) continue;
+      if (trend === 0) up[i] = level;
+      else down[i] = level;
+      // The level needs no ATR, so it starts well before the channel does.
+      if (showChannels && Number.isFinite(dev)) {
+        chHigh[i] = level + dev;
+        chLow[i] = level - dev;
+      }
+    }
+    return out;
   },
 };

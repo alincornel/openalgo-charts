@@ -8,6 +8,42 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 1.0.29
+
+**Added**
+
+- **HalfTrend** (`halftrend`) joins the indicator tier, taking the built-in count
+  to 20. A trend level that holds flat through noise: a flip needs both a mean
+  crossing *and* a close beyond the previous bar's extreme, and the new level
+  starts from where the other side ended, so the line steps rather than chasing
+  price. Ships with half-ATR channel bands, per-side ribbons, and Buy/Sell label
+  plates, each independently toggleable.
+- **`IndicatorDescriptor.markers`** — an optional hook returning bar-anchored
+  markers, run after every `calc`. A plot is a column of prices; a signal is a
+  discrete event with a name, and no plot expresses that. The layer is created
+  lazily, so an indicator without the hook costs nothing.
+- **`labelUp` / `labelDown` marker shapes** — text plates with a tail pointing at
+  the anchor price. `drawLabel` is exported for custom primitives.
+
+**Fixed**
+
+- **The exported `VERSION` had drifted four patches behind `package.json`**, so
+  anything displaying the library version showed the wrong one. A test now pins
+  them together.
+- **Pane legends no longer print `true true true`** — the parameter summary
+  included boolean inputs, whose bare values name nothing.
+
+**Documentation**
+
+- A pass over claims that no longer matched the source: the stated Footprint gaps
+  were all stale (the renderer is theme-driven, has `setOptions`, three display
+  modes, and draws stacked imbalances), overlay price scales *are* implemented
+  (`priceScaleId: ''`), `DEFAULT_THEME` is `lightTheme` rather than the
+  documented `darkTheme`, and the `click` / `drag:end` payloads, `TradeFeed`
+  shape, `OrderEngine.placeOrder`, `DrawingController.add`, `IPrimitive.zOrder`,
+  Market Profile colour modes, and arrow-key pan distance were all documented
+  wrong. See the changelog for the itemised list.
+
 ## 1.0.28
 
 **Added**

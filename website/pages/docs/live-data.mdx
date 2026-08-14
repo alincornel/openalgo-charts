@@ -86,8 +86,8 @@ ws.subscribeOrders();                     // replayed automatically on reconnect
 ```
 
 `status` is OpenAlgo's lowercase order vocabulary (`open`, `trigger pending`,
-`complete`, `rejected`, `cancelled`, …); `mapOrderStatus` (exported from the
-base package) converts it to the chart's `Order['status']`. Keep a slow
+`complete`, `rejected`, `cancelled`, …); the adapter maps it to the chart's
+`Order['status']` internally (the mapping itself is not a package export). Keep a slow
 order-book poll as reconciliation — brokers can deliver the same transition
 twice (dedupe on `orderId` + `status` + `filledQuantity`).
 

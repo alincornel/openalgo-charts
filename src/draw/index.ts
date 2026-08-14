@@ -1,8 +1,10 @@
 /**
  * Drawing tier (opt-in: "openalgo-charts/draw").
  *
- * 18 built-in tools plus a headless controller. Importing this module registers
- * every built-in tool as a side effect.
+ * 43 built-in tools plus a headless controller. Importing this module registers
+ * every built-in tool as a side effect. The named descriptor re-exports below
+ * cover the most-customised subset; `BUILTIN_DRAWING_TOOLS` is the full list and
+ * `registeredDrawingTools()` reads the live registry.
  *
  * ```ts
  * import { createChart } from 'openalgo-charts';

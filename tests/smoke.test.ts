@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import pkg from '../package.json';
 import { version, VERSION } from '../src/index';
 import { clamp, lerp, roundToTick } from '../src/helpers/math';
 import { generateBars } from '../src/feed/fake-feed';
@@ -8,6 +9,12 @@ describe('package smoke', () => {
   it('exposes a version string', () => {
     expect(typeof version()).toBe('string');
     expect(version()).toBe(VERSION);
+  });
+
+  it('keeps the exported VERSION in step with package.json', () => {
+    // `VERSION` is hand-maintained and had drifted four patches behind the
+    // published version, so consumers reading it were told the wrong release.
+    expect(VERSION).toBe(pkg.version);
   });
 });
 

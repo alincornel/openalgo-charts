@@ -63,7 +63,7 @@ export interface ChartOptions {
   document?: Document;
   pixelRatio?: () => number;
   raf?: { schedule: RafScheduler; cancel?: RafCanceller };
-  /** Full palette; pass `darkTheme` (default), `lightTheme`, or a custom ChartTheme. */
+  /** Full palette; pass `lightTheme` (the default), `darkTheme`, or a custom ChartTheme. */
   theme?: ChartTheme;
   priceAxisWidth?: number;
   timeAxisHeight?: number;
@@ -590,6 +590,7 @@ export class Chart {
       removeIndicatorLevel: (line): void => this.removePrimitive(line),
       addIndicatorFill: (fill, paneIndex): void => this._addPrimitive(paneIndex, fill),
       removeIndicatorFill: (fill): void => this.removePrimitive(fill),
+      removeIndicatorMarkers: (markers): void => this.removePrimitive(markers),
       sourceBars: (): readonly Bar[] =>
         this._firstDataId.value === null ? [] : this._dataLayer.seriesBars(this._firstDataId.value),
       nextPaneIndex: (): number => this._panes.length,
@@ -683,9 +684,14 @@ export class Chart {
   // ── unified event bus ─────────────────────────────────────────────────────
   // One `on(name, cb)` surface for every chart event, complementing the typed
   // `subscribe*` helpers. Names emitted by the core: 'ready', 'crosshair:move',
-  // 'click', 'hover', 'pan', 'zoom', 'resize', 'lazy-load'. The trade layer routes its
-  // 'trading:*' events through here too, so `chart.on('trading:order_modify')`
-  // and `chart.trading.on('order_modify')` are equivalent.
+  // 'click', 'dblclick', 'hover', 'drag', 'drag:end', 'pan', 'zoom', 'resize',
+  // 'lazy-load', 'paneRemoved', 'paneMoved', 'paneMaximized', 'paneResized',
+  // 'indicatorRemoved', 'indicatorSettings'. The trading layer routes its
+  // 'trading:*' events through here too, and the draw tier emits 'draw:*'.
+  //
+  // Event names are the same string on both buses: `TradingController` keys its
+  // own listener map on the full name, so it is `chart.trading.on(
+  // 'trading:order_modify')`, never the bare 'order_modify'.
   private readonly _listeners = new Map<string, Set<(payload: unknown) => void>>();
 
   /** Subscribe to a named chart event. Returns an unsubscribe function. */

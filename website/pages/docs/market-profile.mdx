@@ -70,8 +70,10 @@ return chart;`} caption="Day sessions: a separate profile per IST day, each with
 
 ## Color modes & volume sub-profile
 
-`colorMode` is `valueArea` (default), `uniform`, or `heat` (opacity scales with TPO count).
-Turn letters off for a solid histogram, and overlay a volume-at-price sub-profile:
+`colorMode` is `period` (the default), `valueArea`, `uniform`, or the two heat modes
+`count` and `volume`, where opacity scales with the row's TPO count or volume. Use
+`blockDisplay` to swap letters for solid blocks, and overlay a volume-at-price
+sub-profile:
 
 <RunnableExample height={380} tiers={['profile']} code={`const chart = lib.createChart(el);
 const bars = lib.generateBars(1700000000, 40, 1800);
@@ -79,8 +81,8 @@ chart.addSeries('candlestick').setData(bars);
 
 const mp = lib.computeMarketProfile(bars, { tickSize: 1, session: 'composite', blockMinutes: 30 });
 chart.addPrimitive(new lib.MarketProfile(mp, {
-  colorMode: 'heat',
-  showLetters: false,        // solid blocks instead of letters
+  colorMode: 'count',        // heat: opacity scales with TPO count
+  blockDisplay: 'blocks',    // solid blocks instead of letters
   showVolumeProfile: true,   // volume-at-price on the right edge
   volumeProfileWidth: 70,
 }));
@@ -237,7 +239,7 @@ chart.addPrimitive(profile);
 
 // later, as bars grow:
 profile.setData(computeMarketProfile(bars, opts));
-profile.setOptions({ colorMode: 'heat' }); // restyle without recomputing
+profile.setOptions({ colorMode: 'count' }); // restyle without recomputing
 ```
 
 <Callout type="info">

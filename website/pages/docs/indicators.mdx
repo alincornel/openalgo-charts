@@ -59,6 +59,7 @@ return chart;`} />
 | VWAP | `vwap` | onchart | `anchor` (`session` / `continuous`), `source` |
 | Bollinger Bands | `bollinger` | onchart | `length`, `stdDev`, `source` |
 | Supertrend | `supertrend` | onchart | `period`, `multiplier` |
+| HalfTrend | `halftrend` | onchart | `amplitude`, `channelDeviation`, `atrPeriod`, `showChannels`, `showSignals`, `showLabels` |
 | Parabolic SAR | `parabolic-sar` | onchart | `start`, `increment`, `maximum` |
 | Ichimoku Cloud | `ichimoku` | onchart | `conversionPeriod`, `basePeriod`, `laggingSpanPeriod`, `displacement` |
 | RSI | `rsi` | pane | `length`, `source`, `overbought`, `oversold` |
@@ -86,6 +87,61 @@ instance keeps whatever the descriptor chose.
 **VWAP anchors on the IST trading day** by default, matching the rest of the engine's
 session handling. Pass `{ anchor: 'continuous' }` for a running VWAP over all loaded data.
 </Callout>
+
+### HalfTrend
+
+A trend level that deliberately does not move with price. Two state machines run at once:
+`trend` is what is drawn, and a flip is *armed* before it fires. While a down-flip is armed
+the indicator tracks the running maximum of the `amplitude`-bar low, and the flip only
+happens when the mean high drops under that maximum **and** the bar closes below the
+previous bar's low. Needing both a mean crossing and a close beyond the prior extreme is
+what keeps the line flat through noise. On a flip the new level starts from where the other
+side ended, which is why it steps instead of jumping to price.
+
+Every visual layer is independently toggleable: `showChannels` for the half-ATR bands,
+`showSignals` for the flip dots, `showLabels` for the Buy/Sell plates.
+
+<RunnableExample height={380} tiers={['indicators']} code={`const chart = lib.createChart(el);
+const bars = lib.generateBars(1700000000, 200, 3600);
+chart.addSeries('candlestick').setData(bars);
+
+chart.addIndicator('halftrend', { amplitude: 2, channelDeviation: 2 });
+
+chart.timeScale.fitContent(bars.length);
+return chart;`} caption="HalfTrend: stepped level, half-ATR channel, trend-tinted ribbon, and Buy/Sell labels." />
+
+## Signal markers
+
+A descriptor can return bar-anchored markers as well as plots. A plot is a column of
+prices drawn as a line or a histogram; a signal is a discrete event with a name, and no
+plot expresses that. `markers` runs after every `calc`, so it reads the values it just
+produced:
+
+```ts
+registerIndicator({
+  id: 'my-cross',
+  name: 'My Cross',
+  placement: 'onchart',
+  inputs: [{ key: 'showLabels', type: 'boolean', label: 'Show Labels', default: true }],
+  plots: [{ key: 'signal', type: 'line', title: 'Signal', colorKey: 'color' }],
+  calc: (bars, s) => ({ signal: /* ... */ [] }),
+  markers: ({ bars, values, settings }) => {
+    if (settings.showLabels === false) return [];   // returning [] clears the layer
+    return values.signal.flatMap((v, i) =>
+      v === null ? [] : [{
+        time: bars[i].time, position: 'atPrice' as const, price: v,
+        shape: 'labelUp' as const, size: 'small' as const,
+        color: '#2962ff', text: 'Buy',
+      }]);
+  },
+});
+```
+
+The runtime creates the marker layer lazily on the first plot's series, so an indicator
+without the hook costs nothing. Marker `time` values must match a real bar time or
+`SeriesMarkers` drops them silently. Hiding the indicator clears its markers too.
+
+See [markers](/docs/primitives-and-plugins#markers--event-badges) for the shape catalogue.
 
 ## The IndicatorApi handle
 
@@ -121,7 +177,17 @@ yfinance example builds its whole picker this way, grouped by `category`.
 | `indicatorStyleInputs(descriptor)` | `(IndicatorDescriptor) -> IndicatorInput[]` | Per-plot style inputs (colour, width, line style, opacity), so a settings dialog can be generated instead of written per indicator. |
 | `plotStyleKeys(plot)` | `(IndicatorPlot) -> { color, width, lineStyle, opacity, type }` | The settings keys belonging to one plot, for reading or patching its style. `type` overrides the chart type it draws as. |
 | `INDICATOR_LINE_STYLES` | `readonly { label, value }[]` | The line-style choices a generated form should offer. |
-| `INDICATOR_PLOT_STYLES` | `readonly { label, value }[]` | Chart types a plot can be re-rendered as (line, step, area, histogram, columns). |
+| `INDICATOR_PLOT_STYLES` | `readonly { label, value }[]` | Chart types a plot can be re-rendered as (line, line with markers, step, area, histogram, columns). |
+| `INDICATOR_SOURCES` | `readonly { label, value }[]` | The price-source choices for a `type: 'source'` input. |
+
+The same plot-style list also arrives on the generated `<plotKey>:type` input, so a form
+built from `indicatorStyleInputs(descriptor)` already has it without a second import:
+
+```ts
+const typeInput = indicatorStyleInputs(getIndicator('rsi'))
+  .find((i) => i.key === 'rsi:type');
+typeInput.options;   // same list as INDICATOR_PLOT_STYLES
+```
 
 ```ts
 import {
@@ -248,6 +314,7 @@ nothing rather than a spike to zero.
 | `plots` | `IndicatorPlot[]` | One per drawn series. `type` is any registered chart type. |
 | `calc` | `(bars, settings, store) => IndicatorValues` | Full recompute. |
 | `calcTail` | `(bars, settings, fromIndex, previous, store) => IndicatorValues \| null` | Optional incremental path. |
+| `markers` | `({ bars, values, settings }) => SeriesMarker[]` | Optional bar-anchored signal markers, run after every `calc`. |
 | `levels` | `(settings) => IndicatorLevel[]` | Optional horizontal reference lines. |
 | `range` | `(settings) => \{ min, max \} \| null` | Optional fixed pane range (RSI 0..100). |
 | `attach` | `(ctx) => (() => void) \| void` | Optional lifecycle for external data (Tier 2). |

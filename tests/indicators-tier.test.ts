@@ -80,8 +80,8 @@ describe('calc helpers', () => {
 });
 
 describe('indicator registry', () => {
-  it('registers all 19 built-ins', () => {
-    expect(BUILTIN_INDICATORS).toHaveLength(19);
+  it('registers all 20 built-ins', () => {
+    expect(BUILTIN_INDICATORS).toHaveLength(20);
     const ids = registeredIndicators().map((d) => d.id);
     for (const d of BUILTIN_INDICATORS) expect(ids).toContain(d.id);
   });
@@ -255,36 +255,51 @@ describe('built-in descriptors', () => {
   });
 });
 
+function fakeHost(source: Bar[]): {
+  host: IndicatorHost; series: Map<string, unknown[]>; removed: string[]; levels: number;
+  markers: unknown[][]; markerLayers: number; markersRemoved: number;
+} {
+  const series = new Map<string, unknown[]>();
+  const removed: string[] = [];
+  const markers: unknown[][] = [];
+  let n = 0;
+  let levels = 0;
+  let markerLayers = 0;
+  let markersRemoved = 0;
+  const markerLayer = { setMarkers: (m: readonly unknown[]) => { markers.push(m.slice()); } };
+  const host: IndicatorHost = {
+    addIndicatorLegend: () => ({ setOptions: () => {}, setValue: () => {}, setValues: () => {} }) as never,
+    removeIndicatorLegend: () => {},
+    addIndicatorFill: () => {},
+    removeIndicatorFill: () => {},
+    removeIndicatorMarkers: () => { markersRemoved += 1; },
+    legendRowsOn: () => 0,
+    addIndicatorSeries: (type): SeriesApi => {
+      const key = `${type}-${n++}`;
+      series.set(key, []);
+      return {
+        setData: (d) => { series.set(key, d as unknown[]); },
+        prependData: () => {}, update: () => {}, getData: () => [],
+        applyOptions: () => {}, remove: () => { removed.push(key); },
+        priceScale: () => ({}) as never,
+        createMarkers: () => { markerLayers += 1; return markerLayer as never; },
+      };
+    },
+    addIndicatorLevel: (): PriceLine => { levels += 1; return {} as PriceLine; },
+    removeIndicatorLevel: () => { levels -= 1; },
+    sourceBars: () => source,
+    nextPaneIndex: () => 1,
+    setPaneRange: () => {},
+  };
+  return {
+    host, series, removed, markers,
+    get levels() { return levels; },
+    get markerLayers() { return markerLayers; },
+    get markersRemoved() { return markersRemoved; },
+  };
+}
+
 describe('IndicatorInstance runtime', () => {
-  function fakeHost(source: Bar[]): { host: IndicatorHost; series: Map<string, unknown[]>; removed: string[]; levels: number } {
-    const series = new Map<string, unknown[]>();
-    const removed: string[] = [];
-    let n = 0;
-    let levels = 0;
-    const host: IndicatorHost = {
-      addIndicatorLegend: () => ({ setOptions: () => {}, setValue: () => {}, setValues: () => {} }) as never,
-      removeIndicatorLegend: () => {},
-      addIndicatorFill: () => {},
-      removeIndicatorFill: () => {},
-      legendRowsOn: () => 0,
-      addIndicatorSeries: (type): SeriesApi => {
-        const key = `${type}-${n++}`;
-        series.set(key, []);
-        return {
-          setData: (d) => { series.set(key, d as unknown[]); },
-          prependData: () => {}, update: () => {}, getData: () => [],
-          applyOptions: () => {}, remove: () => { removed.push(key); },
-          priceScale: () => ({}) as never, createMarkers: () => ({}) as never,
-        };
-      },
-      addIndicatorLevel: (): PriceLine => { levels += 1; return {} as PriceLine; },
-      removeIndicatorLevel: () => { levels -= 1; },
-      sourceBars: () => source,
-      nextPaneIndex: () => 1,
-      setPaneRange: () => {},
-    };
-    return { host, series, removed, get levels() { return levels; } };
-  }
 
   it('creates one series per plot and fills it on construction', () => {
     const data = wave();
@@ -665,5 +680,158 @@ describe('William VIX FIX', () => {
     const out = d().calc(bars, { pd: 22, bbl: 20, mult: 2, lb: 50, ph: 0.85, pl: 1.01, sd: false, hp: false }, {});
     expect((out.upperBand as (number | null)[]).every((v) => v === null)).toBe(true);
     expect((out.alertUpper as (number | null)[]).some((v) => v !== null)).toBe(true);
+  });
+});
+
+describe('HalfTrend', () => {
+  const d = () => getIndicator('halftrend');
+  const defaults = () => indicatorDefaults(d());
+
+  it('is registered as an on-chart trend study', () => {
+    expect(d().name).toBe('HalfTrend');
+    expect(d().placement).toBe('onchart');
+    expect(d().category).toBe('Trend');
+  });
+
+  it('holds exactly one side of the level per bar', () => {
+    const out = d().calc(wave(), defaults(), {});
+    const up = out.up as (number | null)[];
+    const down = out.down as (number | null)[];
+    for (let i = 0; i < up.length; i++) {
+      // Never both — the split is what recolours the line at a flip.
+      expect(up[i] === null || down[i] === null, `both set at ${i}`).toBe(true);
+    }
+    // A 120-bar sine crosses often enough that both sides must appear.
+    expect(up.some((v) => v !== null)).toBe(true);
+    expect(down.some((v) => v !== null)).toBe(true);
+  });
+
+  it('never moves the up level down while the uptrend holds', () => {
+    const out = d().calc(wave(), defaults(), {});
+    const up = out.up as (number | null)[];
+    let prev: number | null = null;
+    for (let i = 0; i < up.length; i++) {
+      const v = up[i];
+      if (v === null) { prev = null; continue; } // trend ended, next run restarts
+      if (prev !== null) expect(v).toBeGreaterThanOrEqual(prev - 1e-9);
+      prev = v;
+    }
+  });
+
+  it('holds the level flat through noise that does not close beyond the prior bar', () => {
+    // A rising staircase whose bars never close below the previous bar's low,
+    // so the down-flip can never arm and the level must only ratchet up.
+    const rising = bars(80, (i) => 100 + i);
+    const out = d().calc(rising, defaults(), {});
+    const down = out.down as (number | null)[];
+    expect(down.every((v) => v === null)).toBe(true);
+  });
+
+  it('brackets the level with the channel at the configured deviation', () => {
+    const data = wave();
+    const out = d().calc(data, { ...defaults(), channelDeviation: 3, atrPeriod: 14 }, {});
+    const level = (i: number): number | null =>
+      (out.up as (number | null)[])[i] ?? (out.down as (number | null)[])[i];
+    const hi = out.atrHigh as (number | null)[];
+    const lo = out.atrLow as (number | null)[];
+    let checked = 0;
+    for (let i = 0; i < data.length; i++) {
+      const l = level(i);
+      if (l === null || hi[i] === null || lo[i] === null) continue;
+      // Symmetric about the level, and the channel widens with deviation.
+      expect(hi[i]! - l).toBeCloseTo(l - lo[i]!, 9);
+      expect(hi[i]!).toBeGreaterThan(l);
+      checked += 1;
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+
+  it('hides the channel and the signals when their toggles are off', () => {
+    const out = d().calc(wave(), { ...defaults(), showChannels: false, showSignals: false }, {});
+    expect((out.atrHigh as (number | null)[]).every((v) => v === null)).toBe(true);
+    expect((out.atrLow as (number | null)[]).every((v) => v === null)).toBe(true);
+    expect((out.buySignal as (number | null)[]).every((v) => v === null)).toBe(true);
+    expect((out.sellSignal as (number | null)[]).every((v) => v === null)).toBe(true);
+    // The level itself is not a toggle — it must still be there.
+    const up = out.up as (number | null)[];
+    const down = out.down as (number | null)[];
+    expect(up.some((v) => v !== null) || down.some((v) => v !== null)).toBe(true);
+  });
+
+  it('marks a signal only on the bar the trend flips', () => {
+    const data = wave();
+    const out = d().calc(data, { ...defaults(), atrPeriod: 14 }, {});
+    const up = out.up as (number | null)[];
+    const down = out.down as (number | null)[];
+    const buy = out.buySignal as (number | null)[];
+    const sell = out.sellSignal as (number | null)[];
+    for (let i = 1; i < data.length; i++) {
+      const flippedUp = up[i] !== null && up[i - 1] === null;
+      const flippedDown = down[i] !== null && down[i - 1] === null;
+      if (buy[i] !== null) expect(flippedUp, `buy at ${i} without an up flip`).toBe(true);
+      if (sell[i] !== null) expect(flippedDown, `sell at ${i} without a down flip`).toBe(true);
+    }
+    expect(buy.some((v) => v !== null) || sell.some((v) => v !== null)).toBe(true);
+  });
+
+  it('exposes a restyleable colour key per plot and a ribbon per side', () => {
+    const keys = d().plots.map((p) => p.colorKey);
+    expect(keys).not.toContain(undefined);
+    expect(d().fills?.map((f) => f.between)).toEqual([['up', 'atrLow'], ['down', 'atrHigh']]);
+  });
+});
+
+describe('indicator signal markers', () => {
+  const d = () => getIndicator('halftrend');
+
+  it('HalfTrend labels every flip and nothing else', () => {
+    const data = wave();
+    const out = d().calc(data, { ...indicatorDefaults(d()), atrPeriod: 14 }, {});
+    const markers = d().markers?.({ bars: data, values: out, settings: indicatorDefaults(d()) }) ?? [];
+    expect(markers.length).toBeGreaterThan(0);
+    const buys = out.buySignal.filter((v) => v !== null).length;
+    const sells = out.sellSignal.filter((v) => v !== null).length;
+    expect(markers).toHaveLength(buys + sells);
+    for (const m of markers) {
+      expect(m.position).toBe('atPrice');
+      expect(m.text === 'Buy' ? m.shape : 'labelUp').toBe('labelUp');
+      expect(m.text === 'Sell' ? m.shape : 'labelDown').toBe('labelDown');
+      // Anchored to a real bar time, or SeriesMarkers drops it silently.
+      expect(data.some((b) => b.time === m.time)).toBe(true);
+    }
+  });
+
+  it('the showLabels toggle clears the labels but not the plotted signals', () => {
+    const data = wave();
+    const s = { ...indicatorDefaults(d()), showLabels: false };
+    const out = d().calc(data, s, {});
+    expect(d().markers?.({ bars: data, values: out, settings: s })).toEqual([]);
+    const any = out.buySignal.some((v) => v !== null) || out.sellSignal.some((v) => v !== null);
+    expect(any).toBe(true);
+  });
+
+  it('the runtime creates one marker layer and feeds it on recompute', () => {
+    const h = fakeHost(wave());
+    const inst = new IndicatorInstance(h.host, d());
+    expect(h.markerLayers).toBe(1);
+    expect(h.markers.length).toBeGreaterThan(0);
+    expect(h.markers[h.markers.length - 1].length).toBeGreaterThan(0);
+    inst.remove();
+    expect(h.markersRemoved).toBe(1);
+  });
+
+  it('hiding the indicator clears its markers, showing it restores them', () => {
+    const h = fakeHost(wave());
+    const inst = new IndicatorInstance(h.host, d());
+    inst.setVisible(false);
+    expect(h.markers[h.markers.length - 1]).toEqual([]);
+    inst.setVisible(true);
+    expect(h.markers[h.markers.length - 1].length).toBeGreaterThan(0);
+  });
+
+  it('a descriptor with no markers hook never creates a layer', () => {
+    const h = fakeHost(wave());
+    new IndicatorInstance(h.host, getIndicator('sma'));
+    expect(h.markerLayers).toBe(0);
   });
 });

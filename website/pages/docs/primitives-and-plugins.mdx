@@ -28,6 +28,33 @@ markers.setMarkers([
 chart.timeScale.fitContent(bars.length);
 return chart;`} />
 
+Shapes are `arrowUp`, `arrowDown`, `circle`, `square`, `triangleUp`, `triangleDown`,
+`diamond`, `flag`, `text`, and the two label plates `labelUp` / `labelDown`.
+
+A **label plate** is a rounded box with a tail that points at the anchor price, for a signal
+with a name rather than a bare glyph. `labelUp` hangs its body below the anchor (tail
+pointing up), `labelDown` sits above it. Both require `text`, and both read best with
+`position: 'atPrice'` so the tail lands exactly on the level being called out. The text
+colour is derived automatically to contrast with the plate fill.
+
+<RunnableExample height={320} code={`const chart = lib.createChart(el);
+const bars = lib.generateBars(1700000000, 120, 3600);
+const series = chart.addSeries('candlestick');
+series.setData(bars);
+
+const markers = series.createMarkers();
+markers.setMarkers([
+  { time: bars[30].time, position: 'atPrice', price: bars[30].low,  shape: 'labelUp',   size: 'small', color: '#2962ff', text: 'Buy' },
+  { time: bars[82].time, position: 'atPrice', price: bars[82].high, shape: 'labelDown', size: 'small', color: '#ef5350', text: 'Sell' },
+]);
+
+chart.timeScale.fitContent(bars.length);
+return chart;`} caption="Label plates: the tail points at the anchor price, the body clears it." />
+
+`drawLabel(ctx, up, cx, anchorY, text, color, fontPx)` is exported if you want the same
+plate inside a custom primitive. Coordinates are bitmap px — multiply media px by `dpr`
+first.
+
 Corporate-action badges (earnings / dividend / split) attach at the chart level:
 
 ```ts
@@ -283,7 +310,7 @@ layer are built on:
 import type { IPrimitive } from 'openalgo-charts';
 
 const watermark: IPrimitive = {
-  zOrder: 'bottom',
+  zOrder: () => 'bottom' as const,   // a method, not a property
   draw(ctx, host) {
     ctx.fillStyle = 'rgba(255,255,255,0.05)';
     ctx.font = '700 48px system-ui';

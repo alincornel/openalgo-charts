@@ -181,7 +181,16 @@ ladder.setDepth(marketDepth);    // call again on every book update
 chart.subscribeClick((id) => {
   if (!id.startsWith('ladder-')) return;
   const [side, price] = id.slice('ladder-'.length).split(':');
-  eng.placeLimit(sym, side === 'bid' ? 'buy' : 'sell', qty, Number(price));
+  // `placeOrder` is the general form; `placeMarket(symbol, side, qty)` is the shorthand.
+  eng.placeOrder({
+    symbol: sym,
+    side: side === 'bid' ? 'BUY' : 'SELL',
+    type: 'LIMIT',
+    qty,
+    price: Number(price),
+    product: 'MIS',
+    clientToken: `dom-${price}-${qty}`,   // idempotency: a retry never double-sends
+  });
 });
 ```
 

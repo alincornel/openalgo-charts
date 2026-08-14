@@ -891,11 +891,13 @@ Two principles: **(1) the API reference is generated, never hand-maintained** (i
 
 ## 13a. Deferred / not-yet-implemented (honest status)
 
-These are designed-for but **not implemented** in the current 1.0.1 release.
-They are documented here so the architecture doesn't over-promise:
+These are designed-for but **not implemented** as of 1.0.28. They are documented
+here so the architecture doesn't over-promise:
 
-- **Price-scale `percentage`, `indexed-to-100`, and overlay scales** - only
-  `linear` + `logarithmic` + `inverted` are implemented.
+- **Price-scale `percentage` and `indexed-to-100`** - only `linear` +
+  `logarithmic` + `inverted` are implemented. Hidden **overlay scales** shipped:
+  a series added with `priceScaleId: ''` gets its own autoscaled, axis-less
+  scale (see `Pane._scaleFor`).
 - **Separate price/time axis-widget canvases** - axes draw within the pane
   canvas by design (small-engine simplification).
 - **Primitive price/time axis *views*** - primitives draw in the pane + hit-test
@@ -908,7 +910,9 @@ Shipped since the first draft (were previously deferred): a Playwright/Chromium
 E2E smoke suite (`npm run e2e`), multi-touch pinch (zoom + two-finger pan),
 binary-search visible-range lookup, WebSocket auto-reconnect with resubscribe, a
 unified `chart.on(...)` event bus, a data-driven trading overlay, custom price
-and time formatters, and per-pane price-scale options.
+and time formatters, per-pane price-scale options, hidden overlay price scales,
+and the Footprint renderer's visual pass (`setOptions`, three display modes,
+theme-driven colours, drawn stacked imbalances).
 
 ## 14. Revision log — v2 (implementation-review responses)
 

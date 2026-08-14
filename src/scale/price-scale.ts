@@ -13,8 +13,10 @@ export interface PriceRange {
 
 /**
  * Price-scale mode. `linear` and `logarithmic` are full coordinate transforms;
- * `percentage`/`indexed-to-100` (rebase to a baseline) and overlay scales are
- * not yet implemented (see the README known limitations).
+ * `percentage`/`indexed-to-100` (rebase to a baseline) are not yet implemented
+ * (see the README known limitations). Overlay scales *are* supported — a series
+ * added with `priceScaleId: ''` gets a hidden scale with its own autoscale, see
+ * `Pane._scaleFor`.
  */
 export type PriceScaleMode = 'linear' | 'logarithmic';
 

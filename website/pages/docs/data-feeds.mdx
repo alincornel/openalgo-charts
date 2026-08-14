@@ -42,23 +42,38 @@ class MyFeed implements DataFeed {
 
 ## TradeFeed
 
-The trade tier targets a `TradeFeed` for order management - place / modify / cancel plus
-order, position, and depth snapshots:
+There are **two** interfaces here and they are not interchangeable. `OrderEngine` takes the
+smaller `OrderFeed`; `TradeFeed` is the higher-level broker abstraction with its own
+subscriptions.
+
+`OrderFeed` (from `openalgo-charts/trade`) is what the engine's write path needs, and the
+only one you must implement to place orders. Note that `place` receives the engine's
+`mode`, so an adapter can route analyzer traffic differently from live:
+
+```ts
+interface OrderFeed {
+  place(req: PlaceRequest & { mode: 'live' | 'analyzer' }): Promise<{ orderId: string }>;
+  modify(orderId: string, patch: { price?: number; triggerPrice?: number; qty?: number }): Promise<void>;
+  cancel(orderId: string): Promise<void>;
+}
+```
+
+`TradeFeed` (from the base package) is the broader broker surface, with push subscriptions
+rather than snapshot getters:
 
 ```ts
 interface TradeFeed {
   placeOrder(o: PlaceOrder): Promise<{ orderId: string }>;
-  modifyOrder(id: string, changes: Partial<PlaceOrder>): Promise<void>;
-  cancelOrder(id: string): Promise<void>;
-  orderBook(): Promise<Order[]>;
-  positionBook(): Promise<Position[]>;
-  marketDepth?(symbol: string, exchange: string): Promise<MarketDepth>;
+  modifyOrder(orderId: string, patch: Partial<PlaceOrder>): Promise<void>;
+  cancelOrder(orderId: string): Promise<void>;
+  subscribeOrders(cb: (orders: unknown[]) => void): UnsubscribeFn;
+  subscribePositions(cb: (positions: unknown[]) => void): UnsubscribeFn;
 }
 ```
 
-Implement these against your broker, hand the feed to `OrderEngine`, and the entire on-chart
-trading layer works unchanged. The bundled `OpenAlgoTradeFeed` is a reference implementation;
-`FakeBroker` is an in-memory feed for tests and demos.
+Implement against your broker and the entire on-chart trading layer works unchanged. The
+bundled `OpenAlgoTradeFeed` implements `OrderFeed` and is the reference implementation;
+`FakeBroker` is an in-memory `OrderFeed` for tests and demos.
 
 ## Time conversion helpers
 

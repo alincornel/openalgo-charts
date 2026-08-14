@@ -40,6 +40,7 @@ export {
   indicatorStyleInputs,
   plotStyleKeys,
   INDICATOR_LINE_STYLES,
+  INDICATOR_PLOT_STYLES,
   sourceValue,
   sourceValues,
   INDICATOR_SOURCES,
@@ -84,7 +85,7 @@ export type { IndicatorFillOptions, FillPoint } from './primitives/indicator-fil
 export type { DataLayer, IndexedBar, SeriesId } from './model/data-layer';
 export { PriceLine } from './primitives/price-line';
 export type { PriceLineOptions } from './primitives/price-line';
-export { SeriesMarkers, markerSizePx, effectiveMarkerPx, drawShape } from './primitives/markers';
+export { SeriesMarkers, markerSizePx, effectiveMarkerPx, drawShape, drawLabel } from './primitives/markers';
 export type { SeriesMarker, MarkerShape, MarkerPosition, MarkerSize } from './primitives/markers';
 export { LogoWatermark, watermarkRect } from './primitives/watermark';
 export type { LogoWatermarkOptions, WatermarkPosition } from './primitives/watermark';
