@@ -369,3 +369,63 @@ describe('repeated indicators get distinct colours', () => {
     expect(emaColor(chart.addIndicator('rsi'))).toBe(emaColor(other.addIndicator('rsi')));
   });
 });
+
+describe('a pane scale forgets a departed series', () => {
+  it('clears the range when the last series on a scale is removed', () => {
+    const { chart } = makeChart();
+    const s = chart.addSeries('line');
+    s.setData(bars(60).map((b) => ({ time: b.time, value: b.close })));
+    chart.priceToCoordinate(0); // forces the on-demand autoscale
+    const scale = chart.panes()[0].priceScale;
+    expect(scale.scaled).toBe(true);
+
+    s.remove();
+    // The old range described something no longer on the chart, and whatever
+    // arrives next may plot nothing at all.
+    expect(scale.scaled).toBe(false);
+    expect(scale.priceRange()).toEqual({ min: 0, max: 1 });
+  });
+
+  it('leaves a manually scaled axis alone, since nothing would recompute it', () => {
+    const { chart } = makeChart();
+    const s = chart.addSeries('line');
+    s.setData(bars(60).map((b) => ({ time: b.time, value: b.close })));
+    chart.priceToCoordinate(0); // forces the on-demand autoscale
+    const scale = chart.panes()[0].priceScale;
+    scale.setPriceRange({ min: 10, max: 20 });
+    scale.setAutoScale(false);
+
+    s.remove();
+    expect(scale.scaled).toBe(true);
+    expect(scale.priceRange()).toEqual({ min: 10, max: 20 });
+  });
+
+  it('keeps the range while another series still uses the scale', () => {
+    const { chart } = makeChart();
+    const a = chart.addSeries('line');
+    const b = chart.addSeries('line');
+    const data = bars(60).map((x) => ({ time: x.time, value: x.close }));
+    a.setData(data);
+    b.setData(data);
+    chart.priceToCoordinate(0); // forces the on-demand autoscale
+    const scale = chart.panes()[0].priceScale;
+
+    a.remove();
+    expect(scale.scaled).toBe(true);
+  });
+
+  it('gives a table-only indicator a pane with no price ladder', () => {
+    const { chart } = makeChart();
+    const s = chart.addSeries('candlestick');
+    s.setData(bars(400));
+    // An oscillator scales the second pane 0..100, then leaves.
+    const rsi = chart.addIndicator('rsi');
+    chart.priceToCoordinate(0, 1); // forces the on-demand autoscale on the RSI pane
+    chart.removeIndicator(rsi.id);
+    // Seasonality's only column is all-null: its output is the table.
+    chart.addIndicator('seasonality');
+    chart.priceToCoordinate(0); // forces the on-demand autoscale
+    const pane = chart.panes()[chart.panes().length - 1];
+    expect(pane.priceScale.scaled).toBe(false);
+  });
+});

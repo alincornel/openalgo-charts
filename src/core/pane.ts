@@ -105,6 +105,12 @@ export class Pane {
     const i = this._series.indexOf(record);
     if (i < 0) return false;
     this._series.splice(i, 1);
+    // A scale with nothing left on it keeps describing what just left, and a
+    // pane is reused when one indicator replaces another. Forget the range so
+    // the next occupant is measured on its own terms, or not labelled at all.
+    if (!this._series.some((s) => s.scaleId === record.scaleId)) {
+      this._scaleFor(record.scaleId).reset();
+    }
     return true;
   }
 
@@ -260,7 +266,9 @@ export class Pane {
 
     // Left price axis strip (absolute coords), drawn before the plot is shifted.
     if (this._leftScale && layout.plotLeft > 0) {
-      drawLeftPriceAxis(g, this._leftScale, layout.plotLeft, layout.plotHeight, dpr, axisStyle);
+      if (this._leftScale.scaled) {
+        drawLeftPriceAxis(g, this._leftScale, layout.plotLeft, layout.plotHeight, dpr, axisStyle);
+      }
     }
 
     // Shift the plot right by the reserved left-axis width (0 = a no-op).
@@ -317,7 +325,11 @@ export class Pane {
 
     // axis ticks first, then the last-price line/tag, then trading primitives —
     // order/position pill groups stay legible when the LTP crosses them
-    drawPriceAxis(g, this.priceScale, layout, dpr, axisStyle);
+    // A scale nothing has measured still holds the placeholder 0..1, and
+    // labelling it prints a price ladder the pane has no prices for: an
+    // indicator whose whole output is a table or a set of markers plots no
+    // values, so its pane came up reading 0.00 to 1.00.
+    if (this.priceScale.scaled) drawPriceAxis(g, this.priceScale, layout, dpr, axisStyle);
     if (lastEntry !== null) {
       drawLastPriceLabel(g, this.priceScale, lastEntry.close, lastEntry.up, layout, dpr, axisStyle, {
         up: ctx.theme.lastPriceUp, down: ctx.theme.lastPriceDown, text: ctx.theme.lastPriceText,

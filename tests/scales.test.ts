@@ -155,3 +155,27 @@ describe('optimalBarWidth', () => {
     expect(optimalBarWidth(10, 1) % 2).toBe(1);
   });
 });
+
+describe('PriceScale.scaled gates the axis ladder', () => {
+  it('starts unmeasured, holding a placeholder rather than a measurement', () => {
+    // A pane whose only indicator output is a table or a set of markers plots
+    // no values, so nothing ever calls autoscale and the range stays 0..1.
+    // Labelling that prints a price ladder the pane has no prices for.
+    const scale = new PriceScale();
+    expect(scale.scaled).toBe(false);
+    expect(scale.priceRange()).toEqual({ min: 0, max: 1 });
+  });
+
+  it('becomes measured once a series gives it a range', () => {
+    const scale = new PriceScale();
+    scale.autoscale(100, 200);
+    expect(scale.scaled).toBe(true);
+    expect(scale.priceRange().min).toBeLessThan(100);
+  });
+
+  it('becomes measured when a range is set by hand', () => {
+    const scale = new PriceScale();
+    scale.setPriceRange({ min: 10, max: 20 });
+    expect(scale.scaled).toBe(true);
+  });
+});

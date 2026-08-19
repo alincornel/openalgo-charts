@@ -126,6 +126,25 @@ export class PriceScale {
   }
 
   /**
+   * Forget the measured range and go back to the placeholder.
+   *
+   * Called when a scale loses its last series: the range it holds described
+   * something that is no longer on the chart, and whatever arrives next may
+   * plot nothing at all. An indicator whose entire output is a table plots no
+   * values, and inheriting a departed oscillator's 0..100 left its pane
+   * labelled with a ladder it had no prices for.
+   *
+   * A manually scaled axis is left alone: the user set that range, and nothing
+   * would recompute it if it were thrown away.
+   */
+  public reset(): void {
+    if (!this._autoScale) return;
+    this._min = 0;
+    this._max = 1;
+    this._scaled = false;
+  }
+
+  /**
    * Manually scale the visible range around its centre. `factor` > 1 widens the
    * range (compress / zoom out), < 1 narrows it (expand / zoom in). Switches the
    * scale to manual mode so autoscale stops overriding it.
