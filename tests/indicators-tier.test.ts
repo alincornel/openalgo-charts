@@ -80,8 +80,8 @@ describe('calc helpers', () => {
 });
 
 describe('indicator registry', () => {
-  it('registers all 86 built-ins', () => {
-    expect(BUILTIN_INDICATORS).toHaveLength(86);
+  it('registers all 91 built-ins', () => {
+    expect(BUILTIN_INDICATORS).toHaveLength(91);
     const ids = registeredIndicators().map((d) => d.id);
     for (const d of BUILTIN_INDICATORS) expect(ids).toContain(d.id);
   });
@@ -258,6 +258,7 @@ describe('built-in descriptors', () => {
 function fakeHost(source: Bar[]): {
   host: IndicatorHost; series: Map<string, unknown[]>; removed: string[]; levels: number;
   markers: unknown[][]; markerLayers: number; markersRemoved: number;
+  tableLayers: number; tablesRemoved: number; tableRows: unknown[][];
 } {
   const series = new Map<string, unknown[]>();
   const removed: string[] = [];
@@ -266,6 +267,13 @@ function fakeHost(source: Bar[]): {
   let levels = 0;
   let markerLayers = 0;
   let markersRemoved = 0;
+  let tableLayers = 0;
+  let tablesRemoved = 0;
+  const tableRows: unknown[][] = [];
+  const tableLayer = {
+    setRows: (r: readonly unknown[]) => { tableRows.push(r.slice()); },
+    setOptions: () => {},
+  };
   const markerLayer = { setMarkers: (m: readonly unknown[]) => { markers.push(m.slice()); } };
   const host: IndicatorHost = {
     addIndicatorLegend: () => ({ setOptions: () => {}, setValue: () => {}, setValues: () => {} }) as never,
@@ -273,6 +281,8 @@ function fakeHost(source: Bar[]): {
     addIndicatorFill: () => {},
     removeIndicatorFill: () => {},
     removeIndicatorMarkers: () => { markersRemoved += 1; },
+    addIndicatorTable: () => { tableLayers += 1; return tableLayer as never; },
+    removeIndicatorTable: () => { tablesRemoved += 1; },
     legendRowsOn: () => 0,
     addIndicatorSeries: (type): SeriesApi => {
       const key = `${type}-${n++}`;
@@ -296,6 +306,9 @@ function fakeHost(source: Bar[]): {
     get levels() { return levels; },
     get markerLayers() { return markerLayers; },
     get markersRemoved() { return markersRemoved; },
+    get tableLayers() { return tableLayers; },
+    get tablesRemoved() { return tablesRemoved; },
+    tableRows,
   };
 }
 

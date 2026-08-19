@@ -16,6 +16,7 @@ import type { SeriesType } from './chart-type-registry';
 import type { SeriesStyle } from '../render/series-style';
 import type { PriceScaleId } from './series';
 import type { SeriesMarker } from '../primitives/markers';
+import type { TableCell, ChartTableOptions } from '../primitives/table';
 
 /** Which price a calculation reads from each bar. */
 export type IndicatorSource = 'open' | 'high' | 'low' | 'close' | 'hl2' | 'hlc3' | 'ohlc4' | 'volume';
@@ -265,6 +266,22 @@ export interface IndicatorDescriptor {
     values: IndicatorValues;
     settings: Readonly<IndicatorSettings>;
   }): readonly SeriesMarker[];
+  /**
+   * Optional summary grid pinned to a corner of the pane.
+   *
+   * Some studies are not a value per bar at all: a seasonality heatmap is a
+   * matrix of monthly returns, a scoreboard is a handful of statistics. Those
+   * have no place in `calc`, whose contract is one column per plot aligned to
+   * the bars, so they come back through here instead. Runs after every `calc`.
+   *
+   * Return `null` (or a zero-row grid) to draw nothing, which is how a
+   * `showTable`-style input should switch it off.
+   */
+  table?(ctx: {
+    bars: readonly Bar[];
+    values: IndicatorValues;
+    settings: Readonly<IndicatorSettings>;
+  }): { rows: readonly (readonly TableCell[])[]; options?: Partial<ChartTableOptions> } | null;
   /** Optional horizontal reference levels drawn in the indicator's pane. */
   levels?(settings: Readonly<IndicatorSettings>): readonly IndicatorLevel[];
   /**

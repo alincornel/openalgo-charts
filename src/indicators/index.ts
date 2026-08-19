@@ -37,6 +37,9 @@ import { STRENGTH_INDICATORS } from './strength';
 import { INDEX_INDICATORS } from './indices';
 import { RANGE_INDICATORS } from './ranges';
 import { SIGNAL_INDICATORS } from './signals';
+import { STUDY_INDICATORS } from './studies';
+import { WAVETREND_INDICATORS } from './wavetrend';
+import { SEASONALITY_INDICATORS } from './seasonality';
 
 export const INDICATORS_TIER = 'indicators' as const;
 
@@ -55,6 +58,9 @@ export const BUILTIN_INDICATORS: readonly IndicatorDescriptor[] = [
   ...INDEX_INDICATORS,
   ...RANGE_INDICATORS,
   ...SIGNAL_INDICATORS,
+  ...STUDY_INDICATORS,
+  ...WAVETREND_INDICATORS,
+  ...SEASONALITY_INDICATORS,
 ];
 
 let _registered = false;
@@ -85,6 +91,9 @@ export * from './strength';
 export * from './indices';
 export * from './ranges';
 export * from './signals';
+export * from './studies';
+export * from './wavetrend';
+export * from './seasonality';
 export { sma, wma, rma, stdev, highest, lowest, nulls } from './calc';
 export {
   createTier2Indicator,

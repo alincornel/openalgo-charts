@@ -57,6 +57,7 @@ import { PriceLine, type PriceLineOptions } from '../primitives/price-line';
 import { SeriesMarkers } from '../primitives/markers';
 import { EventMarkers } from '../primitives/event-markers';
 import { PaneLegend, type PaneLegendAction } from '../primitives/pane-legend';
+import { ChartTable } from '../primitives/table';
 import { TimeNavigator, type TimeNavigatorOptions } from '../primitives/time-navigator';
 
 export interface ChartOptions {
@@ -591,6 +592,12 @@ export class Chart {
       addIndicatorFill: (fill, paneIndex): void => this._addPrimitive(paneIndex, fill),
       removeIndicatorFill: (fill): void => this.removePrimitive(fill),
       removeIndicatorMarkers: (markers): void => this.removePrimitive(markers),
+      addIndicatorTable: (paneIndex): ChartTable => {
+        const t = new ChartTable();
+        this._addPrimitive(paneIndex, t);
+        return t;
+      },
+      removeIndicatorTable: (table): void => this.removePrimitive(table),
       sourceBars: (): readonly Bar[] =>
         this._firstDataId.value === null ? [] : this._dataLayer.seriesBars(this._firstDataId.value),
       nextPaneIndex: (): number => this._panes.length,

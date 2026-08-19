@@ -12,6 +12,7 @@ import type { SeriesApi } from './series';
 import type { PriceLine } from '../primitives/price-line';
 import type { PaneLegend, LegendValue } from '../primitives/pane-legend';
 import type { SeriesMarkers } from '../primitives/markers';
+import type { ChartTable } from '../primitives/table';
 import type { IndicatorFillSpec, IndicatorPlot } from './indicator-registry';
 import { IndicatorFill as IndicatorFillPrimitive } from '../primitives/indicator-fill';
 
@@ -79,6 +80,9 @@ export interface IndicatorHost {
    * the right pane. Removing a series does not remove its primitives, hence this.
    */
   removeIndicatorMarkers(markers: SeriesMarkers): void;
+  /** Attach a corner-pinned summary grid to a pane, and detach it again. */
+  addIndicatorTable(paneIndex: number): ChartTable;
+  removeIndicatorTable(table: ChartTable): void;
   /** Bars of the primary price series — the calculation input. */
   sourceBars(): readonly Bar[];
   /** Index of a fresh pane for an indicator that wants its own. */
@@ -143,6 +147,7 @@ export class IndicatorInstance implements IndicatorApi {
   private _detach: (() => void) | null = null;
   private _legend: PaneLegend | null = null;
   private _markers: SeriesMarkers | null = null;
+  private _table: ChartTable | null = null;
   private _visible = true;
 
   public constructor(
@@ -252,6 +257,7 @@ export class IndicatorInstance implements IndicatorApi {
     // Markers are a separate primitive, so hiding the plots does not hide them;
     // re-running the sync clears the layer (or repopulates it) explicitly.
     this._syncMarkers(this._host.sourceBars());
+    this._syncTable(this._host.sourceBars());
     this._legend?.setOptions({ hidden: !on });
   }
 
@@ -334,6 +340,24 @@ export class IndicatorInstance implements IndicatorApi {
       this._markers = first.createMarkers();
     }
     this._markers.setMarkers(markers);
+  }
+
+  /**
+   * Refresh the descriptor's summary grid, created lazily on first use so an
+   * indicator without the hook never costs an extra primitive.
+   */
+  private _syncTable(bars: readonly Bar[]): void {
+    if (this._d.table === undefined) return;
+    const spec = this._visible
+      ? this._d.table({ bars, values: this._values, settings: this._settings })
+      : null;
+    const rows = spec?.rows ?? [];
+    if (this._table === null) {
+      if (rows.length === 0) return;
+      this._table = this._host.addIndicatorTable(this.paneIndex);
+    }
+    if (spec?.options !== undefined) this._table.setOptions(spec.options);
+    this._table.setRows(rows);
   }
 
   /** The chart type to draw a plot as: the settings override, else declared. */
@@ -474,6 +498,7 @@ export class IndicatorInstance implements IndicatorApi {
     }
     this._syncFills();
     this._syncMarkers(bars);
+    this._syncTable(bars);
     this.updateLegendValues();
   }
 
@@ -514,6 +539,7 @@ export class IndicatorInstance implements IndicatorApi {
     for (const band of this._fills) this._host.removeIndicatorFill(band);
     this._fills.length = 0;
     if (this._markers !== null) { this._host.removeIndicatorMarkers(this._markers); this._markers = null; }
+    if (this._table !== null) { this._host.removeIndicatorTable(this._table); this._table = null; }
     if (this._ownPane) this._host.setPaneRange(this.paneIndex, null);
   }
 }
