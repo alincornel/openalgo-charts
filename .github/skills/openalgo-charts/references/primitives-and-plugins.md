@@ -125,13 +125,13 @@ Keep it cheap: it runs on every `Full` invalidation, which includes every `serie
 | Primitive | z | Purpose | Key options / methods |
 |---|---|---|---|
 | `PriceLine` | `normal` | Horizontal level with a right-axis tag and an optional broker-style pill group. | `price`, `color`, `lineWidth`, `dashed`, `id`, `label`, `badge`, `qty`, `leftLabel`, `extentFromRight`, `closeButton`, `cursor`; `setPrice`, `setOptions`, `setLeftLabel`, `setDragGhost`, `options()` |
-| `SeriesMarkers` | `normal` | Bar-anchored signal glyphs, visible-range culled and stacked per bar. | `setMarkers(SeriesMarker[])` |
+| `SeriesMarkers` | `normal` | Bar-anchored signal glyphs, visible-range culled and stacked per bar. `MarkerShape` covers `arrowUp`/`arrowDown`, `circle`, `square`, `triangleUp`/`triangleDown`, `diamond`, `flag`, `text`, and the `labelUp`/`labelDown` text plates (tail pointing at the anchor price, `text` required). | `setMarkers(SeriesMarker[])`; renderers `drawShape`, `drawLabel`, `markerSizePx`, `effectiveMarkerPx` |
 | `EventMarkers` | `normal` | Corporate-action badge strip near the plot bottom. | `setEvents(ChartEvent[])` |
 | `LogoWatermark` | `top` (option) | Corner brand mark with an optional hover-revealed label and link. | `src`/`image`, `position`, `height` (28), `margin` (12), `opacity` (0.7), `tint`, `label`, `padding`, `href`; `setOptions`, `href()` |
 | `BuySellButtons` | `top` | Docked in-plot BUY / qty / SELL panel. | `id` (`trade`), `position` (`top-left`), `margin` (12), `qty`, `buyColor`, `sellColor`, `showPrices`, `scale` (0.6–1.5); `setPrices`, `setMark`, `setQty`, `setColors` |
 | `PaneLegend` | `top` | Canvas-drawn legend row: swatch, title, params, live values, action buttons. | `id`, `title`, `params`, `color`, `valueColor`, `row`, `actions`, `hidden`, `maximized`, `font` (11), `left` (8), `top` (6); `setValue`, `setValues`, `setOptions` |
 | `TimeNavigator` | `top` (option) | Hover-revealed zoom / step controls above the time axis. | Created by the chart itself from `ChartOptions.timeNavigator` (default `true`); `buttons`, `size` (26), `bottomMargin` (10), `revealHeight` (64), `labels`, `hints`, `showTooltip` |
-| `IndicatorFill` | `bottom` | Two-tone band between two indicator plots (Ichimoku cloud, Bollinger, Keltner), split at exact crossings. | `colorUp`, `colorDown`, `opacity` (0.12); `setPoints(FillPoint[])`, `setOptions`, `setVisible` |
+| `IndicatorFill` | `bottom` | Two-tone band between two indicator `calc` columns (Ichimoku cloud, Keltner, a shaded overbought/oversold band), split at exact crossings. The columns need not be plotted. | `colorUp`, `colorDown`, `opacity` (0.12); `setPoints(FillPoint[])`, `setOptions`, `setVisible` |
 
 Attachment:
 

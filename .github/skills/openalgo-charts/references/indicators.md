@@ -6,7 +6,7 @@
 
 ```ts
 import { createChart } from 'openalgo-charts';
-import 'openalgo-charts/indicators'; // side effect: registers all 19 built-ins
+import 'openalgo-charts/indicators'; // side effect: registers all 86 built-ins
 ```
 
 - The base bundle ships **only** the registry (`registerIndicator`, `getIndicator`, ...) and the runtime (`IndicatorInstance`). The catalog lives in the lazy `openalgo-charts/indicators` tier.
@@ -16,39 +16,132 @@ import 'openalgo-charts/indicators'; // side effect: registers all 19 built-ins
 
 **A tier must import the registry from the package entry (`'openalgo-charts'`), never a deep path.** Each tier is its own rollup bundle with `openalgo-charts` marked external (`rollup.config.js`, `tierExternal`). A deep import is *inlined* instead — a second, private `Map` — so the tier registers into a registry `createChart` never reads. This applies to any tier bundle you build yourself.
 
-## The 19 built-ins
+## The 86 built-ins
 
 `onchart` overlays the price pane (pane 0); `pane` claims a fresh pane. Defaults shown are the descriptor's declared `input.default`.
 
-| id | Name | Category | Placement | Inputs (defaults) | Plot keys |
-|---|---|---|---|---|---|
-| `sma` | SMA | Trend | onchart | `length` 20, `source` `'close'`, `color` `'#4f8cff'` | `ma` |
-| `ema` | EMA | Trend | onchart | `length` 20, `source` `'close'`, `color` `'#f5a623'` | `ma` |
-| `wma` | WMA | Trend | onchart | `length` 20, `source` `'close'`, `color` `'#ab47bc'` | `ma` |
-| `vwap` | VWAP | Volume | onchart | `anchor` `'session'` (or `'continuous'`), `source` `'hlc3'`, `color` `'#26c6da'` | `vwap` |
-| `bollinger` | Bollinger Bands | Volatility | onchart | `length` 20, `stdDev` 2, `source` `'close'`, `basisColor` `'#f5a623'`, `bandColor` `'#4f8cff'` | `upper`, `basis`, `lower` |
-| `supertrend` | Supertrend | Trend | onchart | `period` 10, `multiplier` 3, `upColor` `'#26a69a'`, `downColor` `'#ef5350'` | `up`, `down` |
-| `parabolic-sar` | Parabolic SAR | Trend | onchart | `start` 0.02, `increment` 0.02, `maximum` 0.2, `color` `'#e0b020'` | `sar` |
-| `ichimoku` | Ichimoku Cloud | Trend | onchart | `conversionPeriod` 9, `basePeriod` 26, `laggingSpanPeriod` 52, `displacement` 26, `conversionColor`, `baseColor`, `spanAColor`, `spanBColor`, `laggingColor`, `cloudUpColor`, `cloudDownColor` | `conversion`, `base`, `spanA`, `spanB`, `lagging` |
-| `rsi` | RSI | Momentum | pane | `length` 14, `source` `'close'`, `color` `'#e0b020'`, `overbought` 70, `oversold` 30 | `rsi` |
-| `macd` | MACD | Momentum | pane | `fastPeriod` 12, `slowPeriod` 26, `signalPeriod` 9, `source` `'close'`, `macdColor`, `signalColor`, `histUpColor`, `histUpFadeColor`, `histDownColor`, `histDownFadeColor` | `histogram`, `macd`, `signal` |
-| `stochastic` | Stochastic | Momentum | pane | `kPeriod` 14, `kSmoothing` 3, `dPeriod` 3, `kColor`, `dColor` | `k`, `d` |
-| `adx` | ADX / DMI | Trend | pane | `period` 14, `adxPeriod` 14, `adxColor`, `plusColor`, `minusColor` | `plusDi`, `minusDi`, `adx` |
-| `cci` | CCI | Momentum | pane | `period` 20, `constant` 0.015, `color` `'#26c6da'` | `cci` |
-| `mfi` | Money Flow Index | Momentum | pane | `period` 14, `color` `'#ab47bc'` | `mfi` |
-| `atr` | ATR | Volatility | pane | `period` 14, `color` `'#f5a623'` | `atr` |
-| `williams-vix-fix` | William VIX FIX | Volatility | pane | `pd` 22, `bbl` 20, `mult` 2, `lb` 50, `ph` 0.85, `pl` 1.01, `hp` `false`, `sd` `false`, `highColor`, `normalColor`, `rangeColor`, `bandColor` | `wvf`, `rangeHigh`, `rangeLow`, `upperBand` |
-| `volume` | Volume | Volume | pane | `color` `'#3a4666'` | `volume` |
-| `obv` | On-Balance Volume | Volume | pane | `color` `'#26c6da'` | `obv` |
-| `adl` | Accumulation/Distribution | Volume | pane | `color` `'#4f8cff'` | `adl` |
+**Colour inputs are omitted from these tables on purpose.** Every descriptor declares its own colour keys (`color`, `upColor`, `macdColor`, `bandColor`, ...), and the only safe way to read one is `plotStyleKeys(plot).color`. Hand-composing `` `${plotKey}:color` `` is the single most common way to write an indicator patch that is silently ignored. See the settings model below.
+
+`category` is one of exactly four strings, used only to group a picker UI: Trend (28), Momentum (28), Volatility (16), Volume (14).
+
+### Trend (28)
+
+| id | Name | Placement | Plot keys | Inputs (defaults) |
+|---|---|---|---|---|
+| `sma` | SMA | onchart | `ma` | `length` 20, `source` `'close'` |
+| `ema` | EMA | onchart | `ma` | `length` 20, `source` `'close'` |
+| `wma` | WMA | onchart | `ma` | `length` 20, `source` `'close'` |
+| `supertrend` | Supertrend | onchart | `up`, `down` | `period` 10, `multiplier` 3 |
+| `halftrend` | HalfTrend | onchart | `up`, `down`, `atrHigh`, `atrLow`, `buySignal`, `sellSignal` | `amplitude` 2, `channelDeviation` 2, `atrPeriod` 100, `showChannels` `true`, `showSignals` `true`, `showLabels` `true` |
+| `parabolic-sar` | Parabolic SAR | onchart | `sar` | `start` 0.02, `increment` 0.02, `maximum` 0.2 |
+| `ichimoku` | Ichimoku Cloud | onchart | `conversion`, `base`, `spanA`, `spanB`, `lagging` | `conversionPeriod` 9, `basePeriod` 26, `laggingSpanPeriod` 52, `displacement` 26 |
+| `adx` | ADX / DMI | pane | `plusDi`, `minusDi`, `adx` | `period` 14, `adxPeriod` 14 |
+| `alma` | Arnaud Legoux Moving Average | onchart | `alma` | `length` 9, `offset` 0.85, `sigma` 6 |
+| `dema` | Double EMA | onchart | `dema` | `length` 9, `source` `'close'` |
+| `hma` | Hull Moving Average | onchart | `hma` | `length` 9, `source` `'close'` |
+| `chande-kroll-stop` | Chande Kroll Stop | onchart | `stopLong`, `stopShort` | `p` 10, `x` 1, `q` 9 |
+| `chandelier-exit` | Chandelier Exit | onchart | `longExit`, `shortExit` | `length` 22, `atrLength` 22, `atrMultiplier` 3 |
+| `aroon` | Aroon | pane | `up`, `down` | `length` 14 |
+| `aroon-oscillator` | Aroon Oscillator | pane | `osc` | `length` 14 |
+| `kama` | Kaufman's Adaptive Moving Average | onchart | `kama` | `erLength` 10, `fastLength` 2, `slowLength` 30, `source` `'close'` |
+| `lsma` | Least Squares Moving Average | onchart | `lsma` | `length` 25, `offset` 0, `source` `'close'` |
+| `ma-cross` | MA Cross | onchart | `short`, `long`, `cross` | `shortLength` 9, `longLength` 21 |
+| `mcginley-dynamic` | McGinley Dynamic | onchart | `mg` | `length` 14 |
+| `median` | Median | onchart | `median`, `upper`, `lower`, `medianEma` | `source` `'hl2'`, `length` 3, `atrLength` 14, `atrMult` 2 |
+| `ma-ribbon` | Moving Average Ribbon | onchart | `ma1`, `ma2`, `ma3`, `ma4` | `showMa1` `true`, `ma1Type` `'SMA'`, `ma1Source` `'close'`, `ma1Length` 20, `showMa2` `true`, `ma2Type` `'SMA'`, `ma2Source` `'close'`, `ma2Length` 50, `showMa3` `true`, `ma3Type` `'SMA'`, `ma3Source` `'close'`, `ma3Length` 100, `showMa4` `true`, `ma4Type` `'SMA'`, `ma4Source` `'close'`, `ma4Length` 200 |
+| `tema` | Triple EMA | onchart | `tema` | `length` 9 |
+| `twap` | Time Weighted Average Price | onchart | `twap` | `anchor` `'session'`, `source` `'ohlc4'`, `offset` 0 |
+| `alligator` | Williams Alligator | onchart | `jaw`, `teeth`, `lips` | `jawLength` 13, `teethLength` 8, `lipsLength` 5, `jawOffset` 8, `teethOffset` 5, `lipsOffset` 3 |
+| `vortex` | Vortex Indicator | pane | `vip`, `vim` | `length` 14 |
+| `volatility-stop` | Volatility Stop | onchart | `up`, `down` | `length` 20, `source` `'close'`, `factor` 2 |
+| `trend-strength-index` | Trend Strength Index | pane | `tsi` | `length` 14 |
+| `williams-fractals` | Williams Fractals | onchart | `fractals` | `periods` 2, `showUp` `true`, `showDown` `true` |
+
+### Momentum (28)
+
+| id | Name | Placement | Plot keys | Inputs (defaults) |
+|---|---|---|---|---|
+| `rsi` | RSI | pane | `rsi` | `length` 14, `source` `'close'`, `overbought` 70, `oversold` 30 |
+| `macd` | MACD | pane | `histogram`, `macd`, `signal` | `fastPeriod` 12, `slowPeriod` 26, `signalPeriod` 9, `source` `'close'` |
+| `stochastic` | Stochastic | pane | `k`, `d` | `kPeriod` 14, `kSmoothing` 3, `dPeriod` 3 |
+| `cci` | CCI | pane | `cci`, `ma`, `bbUpper`, `bbLower` | `period` 20, `constant` 0.015, `maType` `'SMA'`, `maLength` 14, `bbMult` 2 |
+| `mfi` | Money Flow Index | pane | `mfi` | `period` 14 |
+| `awesome-oscillator` | Awesome Oscillator | pane | `ao` | (none) |
+| `balance-of-power` | Balance of Power | pane | `bop` | (none) |
+| `chande-momentum` | Chande Momentum Oscillator | pane | `cmo` | `length` 9, `source` `'close'` |
+| `coppock-curve` | Coppock Curve | pane | `curve` | `wmaLength` 10, `longRoCLength` 14, `shortRoCLength` 11 |
+| `dpo` | Detrended Price Oscillator | pane | `dpo` | `period` 21, `isCentered` `false` |
+| `fisher-transform` | Fisher Transform | pane | `fisher`, `trigger` | `length` 9 |
+| `connors-rsi` | Connors RSI | pane | `crsi` | `lenrsi` 3, `lenupdown` 2, `lenroc` 100 |
+| `know-sure-thing` | Know Sure Thing | pane | `kst`, `signal` | `roclen1` 10, `roclen2` 15, `roclen3` 20, `roclen4` 30, `smalen1` 10, `smalen2` 10, `smalen3` 10, `smalen4` 15, `siglen` 9 |
+| `momentum` | Momentum | pane | `mom` | `len` 10, `source` `'close'` |
+| `roc` | Rate Of Change | pane | `roc` | `length` 9, `source` `'close'` |
+| `ppo` | Percentage Price Oscillator | pane | `hist`, `ppo`, `signal` | `source` `'close'`, `fastLength` 12, `slowLength` 26, `signalLength` 9, `oscType` `'EMA'`, `sigType` `'EMA'` |
+| `trix` | TRIX | pane | `trix` | `length` 18 |
+| `tsi` | True Strength Index | pane | `tsi`, `signal` | `long` 25, `short` 13, `signal` 13 |
+| `smi-ergodic-indicator` | SMI Ergodic Indicator | pane | `erg`, `sig` | `longlen` 20, `shortlen` 5, `siglen` 5 |
+| `smi-ergodic-oscillator` | SMI Ergodic Oscillator | pane | `osc` | `longlen` 20, `shortlen` 5, `siglen` 5 |
+| `smi` | Stochastic Momentum Index | pane | `smi`, `ema` | `lengthK` 10, `lengthD` 3, `lengthEMA` 3 |
+| `stochastic-rsi` | Stochastic RSI | pane | `k`, `d` | `smoothK` 3, `smoothD` 3, `lengthRSI` 14, `lengthStoch` 14, `source` `'close'` |
+| `williams-percent-r` | Williams Percent Range | pane | `percentR` | `length` 14, `source` `'close'` |
+| `ultimate-oscillator` | Ultimate Oscillator | pane | `uo` | `length1` 7, `length2` 14, `length3` 28 |
+| `relative-vigor-index` | Relative Vigor Index | pane | `rvgi`, `signal` | `length` 10, `offset` 0 |
+| `woodies-cci` | Woodies CCI | pane | `hist`, `turbo`, `cci14` | `cciTurboLength` 6, `cci14Length` 14 |
+| `special-k` | Pring's Special K | pane | `specialK`, `signal` | `source` `'close'`, `length1` 100, `length2` 100 |
+| `rsi-divergence` | RSI Divergence Indicator | pane | `rsi` | `length` 14, `source` `'close'`, `lbR` 5, `lbL` 5, `rangeUpper` 60, `rangeLower` 5, `plotBull` `true`, `plotHiddenBull` `false`, `plotBear` `true`, `plotHiddenBear` `false` |
+
+### Volatility (16)
+
+| id | Name | Placement | Plot keys | Inputs (defaults) |
+|---|---|---|---|---|
+| `bollinger` | Bollinger Bands | onchart | `upper`, `basis`, `lower` | `length` 20, `stdDev` 2, `source` `'close'` |
+| `atr` | ATR | pane | `atr` | `period` 14 |
+| `williams-vix-fix` | William VIX FIX | pane | `wvf`, `rangeHigh`, `rangeLow`, `upperBand` | `pd` 22, `bbl` 20, `mult` 2, `lb` 50, `ph` 0.85, `pl` 1.01, `hp` `false`, `sd` `false` |
+| `envelope` | Envelope | onchart | `upper`, `basis`, `lower` | `length` 20, `percent` 10, `source` `'close'`, `exponential` `false` |
+| `donchian` | Donchian Channels | onchart | `upper`, `basis`, `lower` | `length` 20, `offset` 0 |
+| `bollinger-percent-b` | Bollinger Bands %b | pane | `percentB` | `length` 20, `source` `'close'`, `mult` 2 |
+| `bollinger-bandwidth` | Bollinger BandWidth | pane | `bandwidth`, `expansion`, `contraction` | `length` 20, `source` `'close'`, `mult` 2, `expansionLength` 125, `contractionLength` 125 |
+| `bb-trend` | BBTrend | pane | `bbtrend` | `shortLength` 20, `longLength` 50, `stdDevMult` 2 |
+| `choppiness-index` | Choppiness Index | pane | `chop` | `length` 14, `offset` 0 |
+| `historical-volatility` | Historical Volatility | pane | `hv` | `length` 10, `per` 1 |
+| `average-daily-range` | Average Daily Range | pane | `adr` | `length` 14 |
+| `chop-zone` | Chop Zone | pane | `chopZone` | (none) |
+| `keltner-channel` | Keltner Channels | onchart | `upper`, `basis`, `lower` | `length` 20, `mult` 2, `source` `'close'`, `exp` `true`, `bandsStyle` `'Average True Range'`, `atrlength` 10 |
+| `mass-index` | Mass Index | pane | `mi` | `length` 10 |
+| `ulcer-index` | Ulcer Index | pane | `ui` | `source` `'close'`, `length` 14 |
+| `relative-volatility-index` | Relative Volatility Index | pane | `rvi`, `ma`, `bbUpper`, `bbLower` | `length` 10, `offset` 0, `maType` `'SMA'`, `maLength` 14, `bbMult` 2 |
+
+### Volume (14)
+
+| id | Name | Placement | Plot keys | Inputs (defaults) |
+|---|---|---|---|---|
+| `vwap` | VWAP | onchart | `vwap`, `upper1`, `lower1`, `upper2`, `lower2`, `upper3`, `lower3` | `anchor` `'session'`, `source` `'hlc3'`, `offset` 0, `calcMode` `'stdev'`, `showBand1` `true`, `bandMult1` 1, `showBand2` `false`, `bandMult2` 2, `showBand3` `false`, `bandMult3` 3 |
+| `volume` | Volume | pane | `volume` | (none) |
+| `obv` | On-Balance Volume | pane | `obv`, `ma`, `bbUpper`, `bbLower` | `maType` `'None'`, `maLength` 14, `bbMult` 2 |
+| `adl` | Accumulation/Distribution | pane | `adl` | (none) |
+| `chaikin-money-flow` | Chaikin Money Flow | pane | `cmf` | `length` 20 |
+| `chaikin-oscillator` | Chaikin Oscillator | pane | `osc` | `short` 3, `long` 10 |
+| `ease-of-movement` | Ease of Movement | pane | `eom` | `length` 14, `divisor` 10000 |
+| `elder-force-index` | Elder Force Index | pane | `efi` | `length` 13 |
+| `klinger-oscillator` | Klinger Oscillator | pane | `kvo`, `signal` | (none) |
+| `vwma` | Volume Weighted Moving Average | onchart | `vwma` | `length` 20, `source` `'close'`, `offset` 0 |
+| `nvi` | Negative Volume Index | pane | `nvi`, `ema` | `maLength` 255 |
+| `pvi` | Positive Volume Index | pane | `pvi`, `ema` | `maLength` 255 |
+| `pvt` | Price Volume Trend | pane | `pvt` | (none) |
+| `pvo` | Percentage Volume Oscillator | pane | `hist`, `pvo`, `signal` | `fastLength` 12, `slowLength` 26, `signalLength` 9, `oscType` `'EMA'`, `sigType` `'EMA'` |
 
 Notes that bite:
 
-- The three moving averages share the plot key `ma`. Style patches are per-instance, so this is not a collision, but do not key host state on the plot key alone.
-- `vwap` defaults to `source: 'hlc3'`, not `'close'`, and anchors on the **IST trading day** (`isNewIstDay`). Pass `{ anchor: 'continuous' }` for a running VWAP.
-- `supertrend` splits one band into two plots. Each carries `null` while the other is active so the line renderer breaks at flips. Direction convention: `-1` = uptrend (`up` plot), `+1` = downtrend (`down` plot).
-- `williams-vix-fix` also returns `alertUpper` and `alertHigh` columns that no plot names. They exist so `colorBy` keeps working when `sd`/`hp` hide the bands. They appear in `values()` but are never drawn.
+- **Ids are hyphenated lowercase and are not derivable from the display name.** `williams-percent-r`, not `willr`. `bollinger-percent-b`, not `bbpercentb`. `special-k` is named `Pring's Special K`. `momentum` takes `len`, not `length`. Resolve an id with `hasIndicator(id)` before calling `addIndicator`.
+- Plot keys are namespaced per instance, not globally. `ma` is a plot key on `sma`, `ema`, `wma`, `cci`, `obv` and `relative-volatility-index`; `up`/`down` on `supertrend`, `halftrend`, `aroon` and `volatility-stop`; `signal` on `macd`, `ppo`, `pvo`, `tsi`, `klinger-oscillator`, `know-sure-thing`, `relative-vigor-index` and `special-k`. Style patches are per-instance, so this is not a collision, but do not key host state on the plot key alone.
+- `select` inputs carry their own `options`. The recurring ones: `maType` on `cci`/`obv`/`relative-volatility-index` is `None | SMA | SMA + Bollinger Bands | EMA | SMMA (RMA) | WMA | VWMA`; `ma1Type`..`ma4Type` on `ma-ribbon` drop the first two; `oscType`/`sigType` on `ppo`/`pvo` are `EMA | SMA`; `bandsStyle` on `keltner-channel` is `Average True Range | True Range | Range`; `calcMode` on `vwap` is `stdev | percent`.
+- `vwap` defaults to `source: 'hlc3'`, not `'close'`, and its session anchor is the **IST trading day** (`isNewIstDay`). `anchor` accepts `session | week | month | quarter | year | continuous`. It also declares six band plots (`upper1`/`lower1` .. `upper3`/`lower3`) with only band 1 shown by default. `twap` has the shorter `session | continuous`.
+- `supertrend` splits one band into two plots. Each carries `null` while the other is active so the line renderer breaks at flips. Direction convention: `-1` = uptrend (`up` plot), `+1` = downtrend (`down` plot). `halftrend` and `volatility-stop` use the same two-plot split.
+- **A `calc` result may carry columns that no plot names.** `williams-vix-fix` returns `alertUpper`/`alertHigh` so `colorBy` keeps working when `sd`/`hp` hide the bands; `supertrend` returns `bodyMid`; the shaded-band indicators return constant `upperLevel`/`lowerLevel`/`bandHigh`/`bandLow`/`zero` columns purely so a fill has something to reference. They appear in `values()` and are never drawn.
+- Eight plots use `colorBy` for per-bar colour: `macd:histogram`, `williams-vix-fix:wvf`, `awesome-oscillator:ao`, `bb-trend:bbtrend`, `chop-zone:chopZone`, `ppo:hist`, `pvo:hist`, `woodies-cci:hist`. Only the `histogram` and `column` renderers honour it; everything else is a `line`.
+- No built-in implements `calcTail`. Every one of them is a full O(n) recompute per data change, so a live pane with a dozen indicators is a dozen full passes per tick.
 - Source values: `'open' | 'high' | 'low' | 'close' | 'hl2' | 'hlc3' | 'ohlc4' | 'volume'`. `INDICATOR_SOURCES` is the option list for a UI and deliberately omits `'volume'`.
+- The descriptors are ports of well-known published formulas, faithful down to the warmup gap, so the numbers match a reference implementation bar for bar. They live in `src/indicators/` split by family: `trend.ts`, `momentum.ts`, `volume.ts`, `overlay.ts`, `oscillators.ts`, `volatility.ts`, `flow.ts`, `adaptive.ts`, `averages.ts`, `strength.ts`, `indices.ts`, `ranges.ts`, `signals.ts`, plus `external.ts` for the Tier-2 contract and `calc.ts` for the shared math. `index.ts` is a manifest that concatenates them into `BUILTIN_INDICATORS`.
 
 ## `chart.addIndicator`
 
@@ -135,24 +228,105 @@ chart.on('indicatorSettings', (p) => {
 
 `chart.on` returns an unsubscribe function and payloads are `unknown` — cast at the boundary. Legend actions `close`, `hide`, `up`, `down`, `maximize` are handled **inside** the chart; only `settings` is delegated. `removeIndicator` also emits `indicatorRemoved` with the same payload shape. See [events-and-state](./events-and-state.md).
 
-**`indicatorStyleInputs` is exported from the package entry; `INDICATOR_PLOT_STYLES` is not.** It is declared in `src/model/indicator-registry.ts` but absent from `src/index.ts`, so import it nowhere — read the plot-style option list off the generated `<plotKey>:type` input's `options` instead.
+`indicatorStyleInputs`, `plotStyleKeys`, `indicatorDefaults`, `INDICATOR_SOURCES`, `INDICATOR_LINE_STYLES` and `INDICATOR_PLOT_STYLES` are all exported from the package entry (`src/model/indicator-registry.ts`). `INDICATOR_PLOT_STYLES` is the `{ label, value }[]` behind the generated `<plotKey>:type` input, so a settings UI can render the plot-style dropdown without reading the input's `options`.
 
 ## Levels, fixed ranges, fills
 
-`levels(settings)` returns horizontal reference lines drawn as `PriceLine`s in the indicator's pane (`{ price, color?, title?, dashed? }`, defaults `#8892a6` and dashed). `range(settings)` pins the pane's price scale.
+`levels(settings)` returns horizontal reference lines drawn as `PriceLine`s in the indicator's pane (`{ price, color?, title?, dashed? }`, defaults `#8892a6` and dashed). `range(settings)` pins the pane's price scale. 36 built-ins declare `levels`, 12 declare `range`, and levels are computed from the live settings, so `rsi`'s are `overbought` / 50 / `oversold`, not the literals below.
 
-| id | Levels | Fixed range |
+| id | Levels (at default settings) | Fixed range |
 |---|---|---|
-| `rsi` | `overbought` (70), 50, `oversold` (30) | 0..100 |
-| `stochastic` | 80, 20 | 0..100 |
-| `mfi` | 80, 20 | 0..100 |
+| `rsi` | 70, 50, 30 | 0..100 |
 | `macd` | 0 | none |
+| `stochastic` | 80, 20 | 0..100 |
 | `adx` | 25 | none |
 | `cci` | 100, 0, -100 | none |
+| `mfi` | 80, 20 | 0..100 |
+| `aroon` | 50 | 0..100 |
+| `aroon-oscillator` | 90, 0, -90 | -100..100 |
+| `awesome-oscillator` | 0 | none |
+| `balance-of-power` | 0 | none |
+| `chande-momentum` | 0 | none |
+| `dpo` | 0 | none |
+| `fisher-transform` | 1.5, 0.75, 0, -0.75, -1.5 | none |
+| `connors-rsi` | 70, 50, 30 | 0..100 |
+| `bollinger-percent-b` | 1, 0.5, 0 | none |
+| `bb-trend` | 0 | none |
+| `choppiness-index` | 61.8, 50, 38.2 | 0..100 |
+| `chop-zone` | none | 0..1 |
+| `chaikin-money-flow` | 0 | none |
+| `chaikin-oscillator` | 0 | none |
+| `elder-force-index` | 0 | none |
+| `klinger-oscillator` | 0 | none |
+| `know-sure-thing` | 0 | none |
+| `roc` | 0 | none |
+| `ppo` | 0 | none |
+| `trix` | 0 | none |
+| `tsi` | 0 | none |
+| `smi` | 40, 0, -40 | none |
+| `pvo` | 0 | none |
+| `ulcer-index` | 0 | none |
+| `stochastic-rsi` | 80, 50, 20 | 0..100 |
+| `williams-percent-r` | -20, -50, -80 | -100..0 |
+| `relative-volatility-index` | 80, 50, 20 | none |
+| `woodies-cci` | 100, 0, -100 | none |
+| `special-k` | 0 | none |
+| `trend-strength-index` | 1, 0, -1 | -1..1 |
+| `rsi-divergence` | 70, 50, 30 | 0..100 |
 
 **`range()` is applied only when the instance created its own pane.** Two indicators sharing a pane would otherwise fight over it, so an RSI added with `{ paneIndex: 1 }` onto someone else's pane will not pin 0..100.
 
-`fills` shade a band between two plot keys — `ichimoku` is the only built-in that declares one (`between: ['spanA', 'spanB']`, `colorUpKey: 'cloudUpColor'`, `colorDownKey: 'cloudDownColor'`, `opacity: 0.14`). The band draws at `zOrder: 'bottom'`, returns `null` from `autoscaleInfo` (the plots already drive the scale), splits at the exact crossing rather than the nearest bar, and breaks across a gap in either plot instead of bridging it. Default opacity when unset is `0.12`; default colours `#26a69a` / `#ef5350`. See `src/primitives/indicator-fill.ts`.
+### Fills
+
+`fills` shade a band between two columns. 22 built-ins declare one, 28 fills in total. The band draws at `zOrder: 'bottom'`, returns `null` from `autoscaleInfo` (the plots already drive the scale), splits at the exact crossing rather than the nearest bar, and breaks across a gap in either column instead of bridging it. Default opacity when unset is `0.12`; default colours `#26a69a` / `#ef5350`. See `src/primitives/indicator-fill.ts`.
+
+**`IndicatorFillSpec.between` resolves against `calc` output columns, not against declared plots.** That is the idiom behind every shaded overbought/oversold band in the catalogue: the descriptor returns two constant columns that no plot names, and fills between them.
+
+```ts
+// RSI: a shaded 70..30 band, drawn without plotting either edge.
+plots: [{ key: 'rsi', type: 'line', title: 'RSI', colorKey: 'color' }],
+fills: [{ between: ['upperLevel', 'lowerLevel'], colorUpKey: 'bandColor', colorDownKey: 'bandColor', opacity: 0.1 }],
+calc: (bars, s) => ({
+  rsi: /* ... */,
+  upperLevel: bars.map(() => num(s, 'overbought', 70)),  // never plotted
+  lowerLevel: bars.map(() => num(s, 'oversold', 30)),    // never plotted
+}),
+```
+
+The three shapes actually used by the built-ins:
+
+| Shape | Between | Used by |
+|---|---|---|
+| Background band between two constant columns | `upperLevel`/`lowerLevel`, `bandHigh`/`bandLow`, or a series against a constant `zero` | `rsi`, `stochastic`, `cci`, `mfi`, `connors-rsi`, `bollinger-percent-b`, `choppiness-index`, `smi`, `stochastic-rsi`, `williams-percent-r`, `relative-volatility-index`, `aroon-oscillator`, `ulcer-index` |
+| Channel between two plotted edges | `upper`/`lower`, `spanA`/`spanB`, `bbUpper`/`bbLower`, `median`/`medianEma` | `ichimoku`, `envelope`, `donchian`, `keltner-channel`, `median`, `cci`, `obv`, `relative-volatility-index`, `vwap` (three band pairs) |
+| Trend ribbon between a stop line and a reference column | `bodyMid`/`up`, `bodyMid`/`down`, `up`/`atrLow`, `down`/`atrHigh` | `supertrend`, `halftrend` |
+
+`colorUpKey` and `colorDownKey` are settings keys, so a fill is restyleable like anything else. Setting them to the same key (which most of these do) gives a single-colour band rather than a two-tone one.
+
+## Signal markers
+
+`IndicatorDescriptor.markers` is an optional hook returning bar-anchored `SeriesMarker[]`. It runs after every `calc` and reads the values `calc` just produced, so it recomputes nothing.
+
+```ts
+markers?(ctx: {
+  bars: readonly Bar[];
+  values: IndicatorValues;
+  settings: Readonly<IndicatorSettings>;
+}): readonly SeriesMarker[];
+```
+
+A plot cannot express this: a plot is a column of prices drawn as a line or a histogram, whereas a signal is a discrete named event at one bar.
+
+- Three built-ins use it: `halftrend` (Buy/Sell plates at flips, suppressed by `showLabels: false`), `williams-fractals` (up/down triangles at pivots), `rsi-divergence` (Bull / H Bull / Bear / H Bear plates at pivots).
+- Returning `[]` clears the layer. That is how a `showLabels`-style boolean input turns markers off without a rebuild.
+- The layer comes from `series.createMarkers()` on the **first plot's** series and is created lazily, only once the descriptor actually returns a marker, so a no-marker indicator costs no extra primitive.
+- **Markers are a separate primitive from the plots.** `setVisible(false)` hides both because the runtime re-runs the hook with an empty result, but a plot-level style patch does not touch them.
+
+`MarkerShape` includes two label shapes for named signals: `labelUp` and `labelDown` are rounded text plates with a tail that points **at** the anchor price, so the body sits clear of the bar. `labelUp`'s tail is on the top edge and its body hangs below the anchor; `labelDown` is the mirror. Both require `text`. The renderer is exported as `drawLabel(ctx, up, cx, anchorY, text, color, fontPx)` alongside `drawShape`, `markerSizePx` and `effectiveMarkerPx`, all in bitmap px with dpr already applied by the caller.
+
+```ts
+{ time: bar.time, position: 'atPrice', price, shape: 'labelUp', size: 'small', color: '#2962ff', text: 'Buy' }
+```
 
 ## Writing a custom indicator
 
@@ -162,8 +336,8 @@ An indicator is data, not code in the core: the chart never switches on an id, a
 import { registerIndicator, sourceValues, type IndicatorSource } from 'openalgo-charts';
 
 registerIndicator({
-  id: 'momentum',
-  name: 'Momentum',
+  id: 'my-momentum',                 // `momentum` is taken: registering it would replace the built-in
+  name: 'My Momentum',
   category: 'Momentum',
   placement: 'pane',
   inputs: [
@@ -180,14 +354,14 @@ registerIndicator({
   levels: () => [{ price: 0, color: '#5a6b8c', dashed: true }],
 });
 
-chart.addIndicator('momentum', { length: 14 });
+chart.addIndicator('my-momentum', { length: 14 });
 ```
 
-Optional descriptor members: `fills`, `colorBy` on a plot (per-bar colour; histogram and column renderers honour it, return `undefined` to fall back), `priceScaleId` on a plot, `range`, `attach`, and `calcTail`.
+Optional descriptor members: `fills`, `markers`, `levels`, `range`, `attach`, `calcTail`, plus `colorBy` (per-bar colour; histogram and column renderers honour it, return `undefined` to fall back) and `priceScaleId` on an individual plot.
 
 **Implement `calcTail` for anything running in a live pane.** Without it every tick costs a full `calc` — O(n) per tick *per indicator*. Return values for `[fromIndex, bars.length)` and the runtime splices them onto the previous result; return `null` to fall back. The runtime only takes the tail path when the bar count is unchanged or grew by exactly one, and `fromIndex` is `previousCount - 1` because the previously-last bar may have been replaced. Any settings change or external-data arrival resets the tail state to force a full recompute.
 
-`registerIndicator` overwrites an existing id — later registration wins. Register before `addIndicator`.
+`registerIndicator` overwrites an existing id, later registration wins. With 86 built-ins the id space is crowded, so namespace a custom id (`my-momentum`, `acme-vwap`) unless you intend to replace a built-in. Register before `addIndicator`.
 
 ## Tier 2: indicators with their own data
 
@@ -244,6 +418,8 @@ import { ema, emaSeries, rsi, rsiSeries, atr, trueRange, supertrend, supertrendS
 | `supertrend` | `(bars, period = 10, multiplier = 3) => SupertrendPoint[]` | `{ value, direction }`; `value` is `NaN` during ATR warmup. `direction` `-1` = uptrend, `+1` = downtrend. |
 | `supertrendSeries` | `(bars, period, multiplier) => { up: Bar[]; down: Bar[] }` | inactive leg carries `NaN` so the line breaks at flips. |
 
-The tier additionally exports pure helpers used by the descriptors: `sma`, `wma`, `rma`, `stdev`, `highest`, `lowest`, `nulls` from `openalgo-charts/indicators` (`src/indicators/calc.ts`). All return arrays the same length as their input with `NaN` in warmup slots; `nulls` converts `NaN` to `null` for a plot column. `sma` never lets a non-finite value poison its running sum, so chaining it onto another indicator's output works.
+The tier additionally exports pure helpers used by the descriptors: `sma`, `wma`, `rma`, `stdev`, `highest`, `lowest`, `nulls` and `connorsStreak` from `openalgo-charts/indicators` (`src/indicators/calc.ts`). All return arrays the same length as their input with `NaN` in warmup slots; `nulls` converts `NaN` to `null` for a plot column. `sma` never lets a non-finite value poison its running sum, so chaining it onto another indicator's output works. `src/indicators/calc.ts` holds more (`rollingSum`, `correlation`, `pivotHigh`, `pivotLow`, `barsSince`, `valueWhen`, ...) but the tier index re-exports only the list above, so anything else is internal.
+
+The tier also exports every descriptor by name in SCREAMING_SNAKE form (`RSI`, `MACD`, `HALFTREND`, ...), the per-family arrays (`OVERLAY_INDICATORS`, `OSCILLATOR_INDICATORS`, `VOLATILITY_INDICATORS`, `FLOW_INDICATORS`, `ADAPTIVE_INDICATORS`, `AVERAGE_INDICATORS`, `STRENGTH_INDICATORS`, `INDEX_INDICATORS`, `RANGE_INDICATORS`, `SIGNAL_INDICATORS`), and the flat `BUILTIN_INDICATORS`. Read `BUILTIN_INDICATORS` rather than hard-coding a list of ids.
 
 Related: [core-api](./core-api.md), [chart-types](./chart-types.md), [scales-and-panes](./scales-and-panes.md), [events-and-state](./events-and-state.md), [bundling-and-tiers](./bundling-and-tiers.md), [transforms](./transforms.md), [pitfalls](./pitfalls.md).

@@ -5,7 +5,10 @@
  * `ema`, `supertrend`, and the `sourceValues` helper come from the base bundle
  * (`../index`), not deep paths — see the note in `src/indicators/index.ts`.
  */
-import { ema, supertrend, atr, sourceValues, isNewIstDay } from 'openalgo-charts';
+import {
+  ema, supertrend, atr, sourceValues, isNewIstDay,
+  utcSecondsToIstParts, IST_OFFSET_SECONDS,
+} from 'openalgo-charts';
 import type { IndicatorDescriptor, IndicatorSource } from 'openalgo-charts';
 import { sma, wma, stdev, highest, lowest, nulls } from './calc';
 
@@ -75,6 +78,43 @@ export const BOLLINGER: IndicatorDescriptor = {
   },
 };
 
+/**
+ * Which calendar boundary restarts the accumulation. The reference also offers
+ * Earnings, Dividends and Splits, which need a corporate-actions feed this
+ * layer has no access to, so they are not offered rather than silently wrong.
+ */
+type VwapAnchor = 'session' | 'week' | 'month' | 'quarter' | 'year' | 'continuous';
+
+/** Epoch day in IST, so a period test never straddles the UTC midnight seam. */
+const istDay = (t: number): number => Math.floor((t + IST_OFFSET_SECONDS) / 86400);
+
+/** Monday-based week index. Epoch day 4 is Monday 1970-01-05. */
+const istWeek = (t: number): number => Math.floor((istDay(t) - 4) / 7);
+
+function startsNewPeriod(kind: VwapAnchor, prev: number, now: number): boolean {
+  if (kind === 'continuous') return false;
+  if (kind === 'session') return isNewIstDay(prev, now);
+  if (kind === 'week') return istWeek(prev) !== istWeek(now);
+  const a = utcSecondsToIstParts(prev);
+  const b = utcSecondsToIstParts(now);
+  if (kind === 'year') return a.year !== b.year;
+  if (kind === 'quarter') {
+    return a.year !== b.year || Math.floor((a.month - 1) / 3) !== Math.floor((b.month - 1) / 3);
+  }
+  return a.year !== b.year || a.month !== b.month;
+}
+
+/** Shift a column forward by `by` bars, the way a plot offset would draw it. */
+function shiftColumn(col: readonly number[], by: number): number[] {
+  if (by === 0) return col.slice();
+  const out = new Array<number>(col.length).fill(NaN);
+  for (let i = 0; i < col.length; i++) {
+    const to = i + by;
+    if (to >= 0 && to < col.length) out[to] = col[i];
+  }
+  return out;
+}
+
 export const VWAP: IndicatorDescriptor = {
   id: 'vwap',
   name: 'VWAP',
@@ -82,27 +122,110 @@ export const VWAP: IndicatorDescriptor = {
   placement: 'onchart',
   inputs: [
     {
-      key: 'anchor', type: 'select', label: 'Anchor', default: 'session',
-      options: [{ label: 'Session (IST day)', value: 'session' }, { label: 'Continuous', value: 'continuous' }],
+      key: 'anchor', type: 'select', label: 'Anchor Period', default: 'session',
+      options: [
+        { label: 'Session', value: 'session' },
+        { label: 'Week', value: 'week' },
+        { label: 'Month', value: 'month' },
+        { label: 'Quarter', value: 'quarter' },
+        { label: 'Year', value: 'year' },
+        { label: 'Continuous', value: 'continuous' },
+      ],
     },
     { key: 'source', type: 'source', label: 'Source', default: 'hlc3' },
-    { key: 'color', type: 'color', label: 'Color', default: '#26c6da' },
+    { key: 'offset', type: 'number', label: 'Offset', default: 0, min: -500, max: 500, step: 1 },
+    {
+      key: 'calcMode', type: 'select', label: 'Bands Calculation Mode', default: 'stdev',
+      options: [
+        { label: 'Standard Deviation', value: 'stdev' },
+        { label: 'Percentage', value: 'percent' },
+      ],
+      group: 'Bands',
+    },
+    { key: 'showBand1', type: 'boolean', label: 'Band #1', default: true, group: 'Bands' },
+    { key: 'bandMult1', type: 'number', label: 'Bands Multiplier #1', default: 1, min: 0, step: 0.5, group: 'Bands' },
+    { key: 'showBand2', type: 'boolean', label: 'Band #2', default: false, group: 'Bands' },
+    { key: 'bandMult2', type: 'number', label: 'Bands Multiplier #2', default: 2, min: 0, step: 0.5, group: 'Bands' },
+    { key: 'showBand3', type: 'boolean', label: 'Band #3', default: false, group: 'Bands' },
+    { key: 'bandMult3', type: 'number', label: 'Bands Multiplier #3', default: 3, min: 0, step: 0.5, group: 'Bands' },
+    { key: 'color', type: 'color', label: 'VWAP', default: '#2962ff' },
+    { key: 'band1Color', type: 'color', label: 'Band #1', default: '#4caf50', group: 'Bands' },
+    { key: 'band2Color', type: 'color', label: 'Band #2', default: '#808000', group: 'Bands' },
+    { key: 'band3Color', type: 'color', label: 'Band #3', default: '#00bcd4', group: 'Bands' },
   ],
-  plots: [{ key: 'vwap', type: 'line', title: 'VWAP', colorKey: 'color', style: { lineWidth: 1.5 } }],
+  plots: [
+    { key: 'vwap', type: 'line', title: 'VWAP', colorKey: 'color', style: { lineWidth: 1.5 } },
+    { key: 'upper1', type: 'line', title: 'Upper Band #1', colorKey: 'band1Color', style: { lineWidth: 1 } },
+    { key: 'lower1', type: 'line', title: 'Lower Band #1', colorKey: 'band1Color', style: { lineWidth: 1 } },
+    { key: 'upper2', type: 'line', title: 'Upper Band #2', colorKey: 'band2Color', style: { lineWidth: 1 } },
+    { key: 'lower2', type: 'line', title: 'Lower Band #2', colorKey: 'band2Color', style: { lineWidth: 1 } },
+    { key: 'upper3', type: 'line', title: 'Upper Band #3', colorKey: 'band3Color', style: { lineWidth: 1 } },
+    { key: 'lower3', type: 'line', title: 'Lower Band #3', colorKey: 'band3Color', style: { lineWidth: 1 } },
+  ],
+  // Each band pair shades between its own two edges. A hidden band's columns are
+  // all null, so its fill resolves to nothing without needing a second switch.
+  fills: [
+    { between: ['upper1', 'lower1'], colorUpKey: 'band1Color', colorDownKey: 'band1Color', opacity: 0.05 },
+    { between: ['upper2', 'lower2'], colorUpKey: 'band2Color', colorDownKey: 'band2Color', opacity: 0.05 },
+    { between: ['upper3', 'lower3'], colorUpKey: 'band3Color', colorDownKey: 'band3Color', opacity: 0.05 },
+  ],
   calc: (bars, s) => {
+    const n = bars.length;
     const values = sourceValues(bars, src(s));
-    const perSession = s.anchor !== 'continuous';
-    const out = new Array<number>(bars.length).fill(NaN);
+    const anchor = (typeof s.anchor === 'string' ? s.anchor : 'session') as VwapAnchor;
+    const percentMode = s.calcMode === 'percent';
+    const offset = Math.round(num(s, 'offset', 0));
+
+    const vwap = new Array<number>(n).fill(NaN);
+    // The band half-width in price terms, before the multiplier. Kept as its own
+    // column so all three bands share one accumulation pass.
+    const basis = new Array<number>(n).fill(NaN);
+
     let pv = 0;
     let vol = 0;
-    for (let i = 0; i < bars.length; i++) {
-      if (perSession && i > 0 && isNewIstDay(bars[i - 1].time, bars[i].time)) { pv = 0; vol = 0; }
+    let pv2 = 0;
+    for (let i = 0; i < n; i++) {
+      if (i > 0 && startsNewPeriod(anchor, bars[i - 1].time, bars[i].time)) { pv = 0; vol = 0; pv2 = 0; }
       const v = bars[i].volume ?? 0;
-      pv += values[i] * v;
+      const x = values[i];
+      pv += x * v;
+      pv2 += x * x * v;
       vol += v;
-      out[i] = vol > 0 ? pv / vol : NaN;
+      if (vol <= 0) continue;
+      const mean = pv / vol;
+      vwap[i] = mean;
+      // Volume-weighted variance. Clamped at zero because accumulated rounding
+      // can drive an all-but-flat window a hair negative.
+      const variance = Math.max(0, pv2 / vol - mean * mean);
+      basis[i] = percentMode ? mean * 0.01 : Math.sqrt(variance);
     }
-    return { vwap: nulls(out) };
+
+    const band = (show: boolean, mult: number, sign: number): number[] => {
+      const out = new Array<number>(n).fill(NaN);
+      if (!show) return out;
+      for (let i = 0; i < n; i++) {
+        if (Number.isFinite(vwap[i]) && Number.isFinite(basis[i])) {
+          out[i] = vwap[i] + sign * basis[i] * mult;
+        }
+      }
+      return out;
+    };
+    const b1 = s.showBand1 !== false;
+    const b2 = s.showBand2 === true;
+    const b3 = s.showBand3 === true;
+    const m1 = num(s, 'bandMult1', 1);
+    const m2 = num(s, 'bandMult2', 2);
+    const m3 = num(s, 'bandMult3', 3);
+
+    return {
+      vwap: nulls(shiftColumn(vwap, offset)),
+      upper1: nulls(shiftColumn(band(b1, m1, 1), offset)),
+      lower1: nulls(shiftColumn(band(b1, m1, -1), offset)),
+      upper2: nulls(shiftColumn(band(b2, m2, 1), offset)),
+      lower2: nulls(shiftColumn(band(b2, m2, -1), offset)),
+      upper3: nulls(shiftColumn(band(b3, m3, 1), offset)),
+      lower3: nulls(shiftColumn(band(b3, m3, -1), offset)),
+    };
   },
 };
 
@@ -123,16 +246,35 @@ export const SUPERTREND: IndicatorDescriptor = {
     { key: 'up', type: 'line', title: 'Supertrend Up', colorKey: 'upColor', style: { lineWidth: 2 } },
     { key: 'down', type: 'line', title: 'Supertrend Down', colorKey: 'downColor', style: { lineWidth: 2 } },
   ],
+  /**
+   * The reference shades the gap between the stop and the candle bodies, using a
+   * hidden body-middle plot as the far edge. `bodyMid` is that edge: a value
+   * column with no plot of its own, so the band has something to fill against
+   * without drawing a second line through the candles.
+   *
+   * Only one side is live at a time, so the inactive side's fill resolves to
+   * nothing and the shading recolours at the flip along with the stop.
+   */
+  fills: [
+    { between: ['bodyMid', 'up'], colorUpKey: 'upColor', colorDownKey: 'upColor', opacity: 0.1 },
+    { between: ['bodyMid', 'down'], colorUpKey: 'downColor', colorDownKey: 'downColor', opacity: 0.1 },
+  ],
   calc: (bars, s) => {
     const st = supertrend(bars, num(s, 'period', 10), num(s, 'multiplier', 3));
     const up: (number | null)[] = [];
     const down: (number | null)[] = [];
-    for (const p of st) {
+    const bodyMid: (number | null)[] = [];
+    for (let i = 0; i < st.length; i++) {
+      const p = st[i];
       const live = Number.isFinite(p.value);
       up.push(live && p.direction === -1 ? p.value : null);
       down.push(live && p.direction === 1 ? p.value : null);
+      // Null wherever the stop is, so the shaded region starts where the line
+      // does rather than running back through the warmup.
+      const bar = bars[i];
+      bodyMid.push(live && bar !== undefined ? (bar.open + bar.close) / 2 : null);
     }
-    return { up, down };
+    return { up, down, bodyMid };
   },
 };
 

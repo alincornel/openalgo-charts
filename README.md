@@ -8,8 +8,8 @@ Professional interactive charts, indicators, drawing tools, order flow, and on-c
 
 [![npm version](https://img.shields.io/npm/v/openalgo-charts.svg?color=cb3837&label=npm)](https://www.npmjs.com/package/openalgo-charts)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
-[![bundle](https://img.shields.io/badge/brotli-37%20KB%20base%20%C2%B7%2074%20KB%20all%20tiers-brightgreen.svg)](#size-budget)
-[![tests](https://img.shields.io/badge/tests-620%20passing-brightgreen.svg)](#develop)
+[![bundle](https://img.shields.io/badge/brotli-37%20KB%20base%20%C2%B7%2088%20KB%20all%20tiers-brightgreen.svg)](#size-budget)
+[![tests](https://img.shields.io/badge/tests-1001%20passing-brightgreen.svg)](#develop)
 [![dependencies](https://img.shields.io/badge/runtime%20deps-0-brightgreen.svg)](#principles)
 
 [**Documentation**](https://marketcalls.github.io/openalgo-charts/) &nbsp;·&nbsp; [**Live examples**](https://marketcalls.github.io/openalgo-charts/examples) &nbsp;·&nbsp; [**Getting started**](./docs/getting-started.md) &nbsp;·&nbsp; [**Architecture**](./ARCHITECTURE.md)
@@ -61,13 +61,13 @@ Import only what you use. Each tier is a separate bundle that registers into the
 | Import | Contents | Brotli |
 |---|---|---|
 | `openalgo-charts` | Engine, 13 chart types, panes &amp; scales, primitives, registries, chart state, trading overlay, OpenAlgo feeds | 37.0 KB |
-| `openalgo-charts/indicators` | 20 built-in indicators + the Tier-2 (external-data) contract | 6.1 KB |
+| `openalgo-charts/indicators` | 86 built-in indicators + the Tier-2 (external-data) contract | 20.1 KB |
 | `openalgo-charts/draw` | 43 drawing tools + a headless drawing controller | 11.7 KB |
 | `openalgo-charts/transform` | Heikin Ashi, Renko, Range bars, Line Break, Point &amp; Figure, Kagi | 2.7 KB |
 | `openalgo-charts/profile` | Volume Profile, Market Profile (TPO), Footprint, order flow | 10.1 KB |
 | `openalgo-charts/trade` | Order / position / bracket tools + DOM ladder | 6.6 KB |
 
-Everything together is **74.2 KB Brotli**. Figures are the measured `size-limit` output; the trade tier is a delta over the base, which is why base + trade (43.6 KB) is less than their listed sum.
+Everything together is **88.2 KB Brotli**. Figures are the measured `size-limit` output; the trade tier is a delta over the base, which is why base + trade (43.6 KB) is less than their listed sum.
 
 ## What's built
 
@@ -84,7 +84,7 @@ const macd = chart.addIndicator('macd', { fastPeriod: 8 });   // gets its own pa
 macd.setSettings({ 'macd:width': 2, 'macd:lineStyle': 'dashed' });
 ```
 
-20 built-ins: SMA, EMA, WMA, VWAP, Bollinger Bands, Supertrend, HalfTrend, Parabolic SAR, Ichimoku Cloud, RSI, MACD, Stochastic, ADX/DMI, CCI, MFI, ATR, William VIX FIX, Volume, OBV, A/D.
+86 built-ins across Trend, Momentum, Volatility and Volume, from the everyday (SMA, EMA, WMA, VWAP, Bollinger Bands, RSI, MACD, Stochastic, ADX/DMI, ATR) through Supertrend, HalfTrend, Ichimoku, Keltner, Donchian and Chandelier Exit to Connors RSI, Fisher Transform, Woodies CCI, Klinger, Vortex, Chop Zone and Williams Fractals. Twenty-two of them draw shaded bands, and three emit named buy/sell markers. The full catalogue with ids and defaults is in the docs.
 
 The chart owns the whole lifecycle — series, pane placement, reference levels, fixed ranges (RSI 0..100), recompute on data change, teardown. Every plot gets colour, opacity, thickness, and line style for free, generated from the descriptor. Write your own with `registerIndicator`, or use the **Tier-2 contract** for indicators whose data isn't derived from OHLCV (open interest, CVD, any external feed).
 
@@ -122,13 +122,13 @@ Enforced in CI by [`size-limit`](./.size-limit.json) — nothing is excluded, be
 
 | Bundle | Limit | Actual |
 |---|---|---|
-| Base engine | 40 KB | 37.01 KB |
-| Base + trade | 47 KB | 43.59 KB |
-| Indicators tier | 9 KB | 6.08 KB |
+| Base engine | 40 KB | 37.04 KB |
+| Base + trade | 47 KB | 43.62 KB |
+| Indicators tier | 21 KB | 20.09 KB |
 | Draw tier | 14 KB | 11.73 KB |
 | Transform tier | 5 KB | 2.66 KB |
 | Profile tier | 11 KB | 10.12 KB |
-| **Everything** | **90 KB** | **74.18 KB** |
+| **Everything** | **90 KB** | **88.21 KB** |
 
 ## Documentation
 
@@ -168,7 +168,7 @@ cd examples/yfinance && pip install -r requirements.txt && python server.py
 ```bash
 npm install        # install dev toolchain
 npm run typecheck  # strict TypeScript check
-npm test           # unit tests (vitest) - 620 across 50 files
+npm test           # unit tests (vitest) - 1001 across 61 files
 npm run build      # Rollup -> dist/ (minified ESM per tier + types)
 npm run size       # size-limit (Brotli) against the budget
 npm run e2e        # Playwright Chromium smoke tests
@@ -185,7 +185,7 @@ npm run verify     # typecheck + test + build + size
 
 ## Status &amp; limitations
 
-Version **1.0.29**. All engine build phases are implemented with 620 unit tests across 50 files.
+Version **1.1.0**. All engine build phases are implemented with 1001 unit tests across 61 files.
 
 Known gaps, stated plainly:
 

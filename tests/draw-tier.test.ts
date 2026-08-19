@@ -953,7 +953,7 @@ describe('DrawingLayer hit-testing', () => {
 });
 
 describe('drawing shortcuts', () => {
-  it('exposes the shortcuts TradingView uses for the line tools', () => {
+  it('exposes the shortcuts the reference platform uses for the line tools', () => {
     const map = drawingShortcuts();
     expect(map['trend-line']).toBe('Alt+T');
     expect(map['horizontal-line']).toBe('Alt+H');

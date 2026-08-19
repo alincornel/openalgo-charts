@@ -4,13 +4,87 @@
  */
 import { ema, rsi, atr, trueRange, sourceValues } from 'openalgo-charts';
 import type { IndicatorDescriptor, IndicatorSource } from 'openalgo-charts';
-import { sma, rma, stdev, highest, lowest, nulls } from './calc';
+import { sma, wma, rma, vwma, smaSeededEma, stdev, highest, lowest, nulls } from './calc';
 
 const num = (s: Readonly<Record<string, unknown>>, k: string, d: number): number => {
   const v = s[k];
   return typeof v === 'number' && Number.isFinite(v) ? v : d;
 };
+/** A window length is whole by construction; a settings blob carries whatever a UI wrote. */
+const int = (s: Readonly<Record<string, unknown>>, k: string, d: number, min = 1): number =>
+  Math.max(min, Math.round(num(s, k, d)));
+const str = (s: Readonly<Record<string, unknown>>, k: string, d: string): string => {
+  const v = s[k];
+  return typeof v === 'string' && v !== '' ? v : d;
+};
 const src = (s: Readonly<Record<string, unknown>>): IndicatorSource => (s.source as IndicatorSource) ?? 'close';
+
+/**
+ * A column holding one value on every bar, warmup slots included.
+ *
+ * The shaded band between two reference levels is a fill between two such
+ * columns: `fills` resolves its keys out of the `calc` result rather than out
+ * of the declared plots, so a level that is never plotted can still anchor a
+ * band. It must stay non-null throughout, because the background covers the
+ * whole pane and not just the stretch where the study prints.
+ */
+const constant = (n: number, value: number): (number | null)[] =>
+  new Array<number | null>(n).fill(value);
+
+/** The selectable smoothing kernels of the "Smoothing" block. */
+const SMOOTHING_MA_TYPES: readonly { label: string; value: string }[] = [
+  { label: 'None', value: 'None' },
+  { label: 'SMA', value: 'SMA' },
+  { label: 'SMA + Bollinger Bands', value: 'SMA + Bollinger Bands' },
+  { label: 'EMA', value: 'EMA' },
+  { label: 'SMMA (RMA)', value: 'SMMA (RMA)' },
+  { label: 'WMA', value: 'WMA' },
+  { label: 'VWMA', value: 'VWMA' },
+];
+
+/** Set by `maType` when the two Bollinger band plots become visible. */
+const BOLLINGER_MA = 'SMA + Bollinger Bands';
+
+/**
+ * Run `smooth` over the tail that begins at the series' first real value, then
+ * pad the answer back to full length.
+ *
+ * Chaining a smoother straight onto a series that already has a warmup gap gets
+ * the wrong answer: a recursive average carries one NaN forever, and a windowed
+ * one counts holes as bars. A study simply does not exist before its first
+ * value, and the smoother's window has to start counting there.
+ */
+function fromFirstValue(
+  values: readonly number[],
+  smooth: (tail: readonly number[], start: number) => number[],
+): number[] {
+  const n = values.length;
+  const out = new Array<number>(n).fill(NaN);
+  let start = 0;
+  while (start < n && !Number.isFinite(values[start])) start += 1;
+  if (start >= n) return out;
+  const tail = smooth(values.slice(start), start);
+  for (let i = 0; i < tail.length && start + i < n; i++) out[start + i] = tail[i];
+  return out;
+}
+
+/** The smoothing block's kernel switch, applied to an indicator's own output. */
+function smoothingMa(
+  kind: string,
+  values: readonly number[],
+  volumes: readonly number[],
+  length: number,
+): number[] {
+  switch (kind) {
+    case 'EMA': return fromFirstValue(values, (t) => smaSeededEma(t, length));
+    case 'SMMA (RMA)': return fromFirstValue(values, (t) => rma(t, length));
+    case 'WMA': return fromFirstValue(values, (t) => wma(t, length));
+    case 'VWMA': return fromFirstValue(values, (t, start) => vwma(t, volumes.slice(start), length));
+    // 'SMA', the Bollinger variant, and (because a settings blob can carry
+    // anything) everything else.
+    default: return fromFirstValue(values, (t) => sma(t, length));
+  }
+}
 
 export const RSI: IndicatorDescriptor = {
   id: 'rsi',
@@ -23,9 +97,22 @@ export const RSI: IndicatorDescriptor = {
     { key: 'color', type: 'color', label: 'Color', default: '#e0b020' },
     { key: 'overbought', type: 'number', label: 'Overbought', default: 70, min: 50, max: 100, step: 1 },
     { key: 'oversold', type: 'number', label: 'Oversold', default: 30, min: 0, max: 50, step: 1 },
+    { key: 'bandColor', type: 'color', label: 'Background', default: '#7e57c2' },
   ],
   plots: [{ key: 'rsi', type: 'line', title: 'RSI', colorKey: 'color', style: { lineWidth: 1.5 } }],
-  calc: (bars, s) => ({ rsi: nulls(rsi(sourceValues(bars, src(s)), num(s, 'length', 14))) }),
+  fills: [{
+    between: ['upperLevel', 'lowerLevel'],
+    colorUpKey: 'bandColor',
+    colorDownKey: 'bandColor',
+    opacity: 0.1,
+  }],
+  calc: (bars, s) => ({
+    rsi: nulls(rsi(sourceValues(bars, src(s)), num(s, 'length', 14))),
+    // The two band edges track the overbought / oversold inputs so the shading
+    // stays glued to the reference lines when either is moved.
+    upperLevel: constant(bars.length, num(s, 'overbought', 70)),
+    lowerLevel: constant(bars.length, num(s, 'oversold', 30)),
+  }),
   levels: (s) => [
     { price: num(s, 'overbought', 70), color: '#ef5350', title: 'OB', dashed: true },
     { price: 50, color: '#5a6b8c', title: '', dashed: true },
@@ -103,11 +190,18 @@ export const STOCHASTIC: IndicatorDescriptor = {
     { key: 'dPeriod', type: 'number', label: '%D Smoothing', default: 3, min: 1, max: 100, step: 1 },
     { key: 'kColor', type: 'color', label: '%K', default: '#4f8cff' },
     { key: 'dColor', type: 'color', label: '%D', default: '#f5a623' },
+    { key: 'bandColor', type: 'color', label: 'Background', default: '#2196f3' },
   ],
   plots: [
     { key: 'k', type: 'line', title: '%K', colorKey: 'kColor', style: { lineWidth: 1.5 } },
     { key: 'd', type: 'line', title: '%D', colorKey: 'dColor', style: { lineWidth: 1.5 } },
   ],
+  fills: [{
+    between: ['upperLevel', 'lowerLevel'],
+    colorUpKey: 'bandColor',
+    colorDownKey: 'bandColor',
+    opacity: 0.1,
+  }],
   calc: (bars, s) => {
     const hi = highest(bars.map((b) => b.high), num(s, 'kPeriod', 14));
     const lo = lowest(bars.map((b) => b.low), num(s, 'kPeriod', 14));
@@ -117,7 +211,14 @@ export const STOCHASTIC: IndicatorDescriptor = {
     });
     const k = sma(raw, num(s, 'kSmoothing', 3));
     const d = sma(k, num(s, 'dPeriod', 3));
-    return { k: nulls(k), d: nulls(d) };
+    // The 80 / 20 band edges are fixed in the definition, so they are literals
+    // here rather than inputs.
+    return {
+      k: nulls(k),
+      d: nulls(d),
+      upperLevel: constant(bars.length, 80),
+      lowerLevel: constant(bars.length, 20),
+    };
   },
   levels: () => [
     { price: 80, color: '#ef5350', title: 'OB', dashed: true },
@@ -192,21 +293,74 @@ export const CCI: IndicatorDescriptor = {
     { key: 'period', type: 'number', label: 'Length', default: 20, min: 1, max: 500, step: 1 },
     { key: 'constant', type: 'number', label: 'Constant', default: 0.015, min: 0.001, max: 1, step: 0.001 },
     { key: 'color', type: 'color', label: 'Color', default: '#26c6da' },
+    { key: 'bandColor', type: 'color', label: 'Background', default: '#2196f3' },
+    {
+      key: 'maType', type: 'select', label: 'Type', default: 'SMA',
+      options: SMOOTHING_MA_TYPES, group: 'Smoothing',
+    },
+    { key: 'maLength', type: 'number', label: 'Length', default: 14, min: 1, max: 500, step: 1, group: 'Smoothing' },
+    { key: 'bbMult', type: 'number', label: 'BB StdDev', default: 2, min: 0.001, max: 50, step: 0.5, group: 'Smoothing' },
+    { key: 'maColor', type: 'color', label: 'CCI-based MA', default: '#ffeb3b', group: 'Smoothing' },
+    { key: 'bbUpperColor', type: 'color', label: 'Upper Bollinger Band', default: '#4caf50', group: 'Smoothing' },
+    { key: 'bbLowerColor', type: 'color', label: 'Lower Bollinger Band', default: '#4caf50', group: 'Smoothing' },
   ],
-  plots: [{ key: 'cci', type: 'line', title: 'CCI', colorKey: 'color', style: { lineWidth: 1.5 } }],
+  plots: [
+    { key: 'cci', type: 'line', title: 'CCI', colorKey: 'color', style: { lineWidth: 1.5 } },
+    { key: 'ma', type: 'line', title: 'CCI-based MA', colorKey: 'maColor', style: { lineWidth: 1.5 } },
+    { key: 'bbUpper', type: 'line', title: 'Upper Bollinger Band', colorKey: 'bbUpperColor', style: { lineWidth: 1 } },
+    { key: 'bbLower', type: 'line', title: 'Lower Bollinger Band', colorKey: 'bbLowerColor', style: { lineWidth: 1 } },
+  ],
+  // Background first, so the Bollinger shading sits on top of it rather than
+  // underneath.
+  fills: [
+    {
+      between: ['upperLevel', 'lowerLevel'],
+      colorUpKey: 'bandColor',
+      colorDownKey: 'bandColor',
+      opacity: 0.1,
+    },
+    {
+      between: ['bbUpper', 'bbLower'],
+      colorUpKey: 'bbUpperColor',
+      colorDownKey: 'bbUpperColor',
+      opacity: 0.1,
+    },
+  ],
   calc: (bars, s) => {
+    const n = bars.length;
     const period = num(s, 'period', 20);
     const k = num(s, 'constant', 0.015);
     const tp = bars.map((b) => (b.high + b.low + b.close) / 3);
     const avg = sma(tp, period);
-    const out = new Array<number>(bars.length).fill(NaN);
-    for (let i = period - 1; i < bars.length; i++) {
+    const out = new Array<number>(n).fill(NaN);
+    for (let i = period - 1; i < n; i++) {
       let dev = 0;
       for (let j = 0; j < period; j++) dev += Math.abs(tp[i - j] - avg[i]);
       const md = dev / period;
       out[i] = md > 0 ? (tp[i] - avg[i]) / (k * md) : 0;
     }
-    return { cci: nulls(out) };
+
+    const maType = str(s, 'maType', 'SMA');
+    const maLength = int(s, 'maLength', 14);
+    const mult = num(s, 'bbMult', 2);
+    const ma = maType === 'None'
+      ? new Array<number>(n).fill(NaN)
+      : smoothingMa(maType, out, bars.map((b) => b.volume ?? 0), maLength);
+    // The band offset exists only for the Bollinger kernel, and an absent
+    // offset makes both band columns absent too, which is how the reference
+    // keeps the two plots and their fill hidden for every other type.
+    const band = maType === BOLLINGER_MA
+      ? fromFirstValue(out, (t) => stdev(t, maLength)).map((v) => v * mult)
+      : new Array<number>(n).fill(NaN);
+
+    return {
+      cci: nulls(out),
+      ma: nulls(ma),
+      bbUpper: nulls(ma.map((v, i) => v + band[i])),
+      bbLower: nulls(ma.map((v, i) => v - band[i])),
+      upperLevel: constant(n, 100),
+      lowerLevel: constant(n, -100),
+    };
   },
   levels: () => [
     { price: 100, color: '#ef5350', dashed: true },
@@ -223,8 +377,15 @@ export const MFI: IndicatorDescriptor = {
   inputs: [
     { key: 'period', type: 'number', label: 'Length', default: 14, min: 1, max: 500, step: 1 },
     { key: 'color', type: 'color', label: 'Color', default: '#ab47bc' },
+    { key: 'bandColor', type: 'color', label: 'Background', default: '#7e57c2' },
   ],
   plots: [{ key: 'mfi', type: 'line', title: 'MFI', colorKey: 'color', style: { lineWidth: 1.5 } }],
+  fills: [{
+    between: ['upperLevel', 'lowerLevel'],
+    colorUpKey: 'bandColor',
+    colorDownKey: 'bandColor',
+    opacity: 0.1,
+  }],
   calc: (bars, s) => {
     const n = bars.length;
     const period = num(s, 'period', 14);
@@ -243,7 +404,13 @@ export const MFI: IndicatorDescriptor = {
       for (let j = 0; j < period; j++) { p += pos[i - j]; q += neg[i - j]; }
       out[i] = q === 0 ? 100 : 100 - 100 / (1 + p / q);
     }
-    return { mfi: nulls(out) };
+    // The 80 / 20 band edges are fixed in the definition, so they are literals
+    // here rather than inputs.
+    return {
+      mfi: nulls(out),
+      upperLevel: constant(n, 80),
+      lowerLevel: constant(n, 20),
+    };
   },
   levels: () => [
     { price: 80, color: '#ef5350', title: 'OB', dashed: true },
@@ -343,7 +510,7 @@ export const WILLIAMS_VIX_FIX: IndicatorDescriptor = {
     const lowestWvf = lowest(wvf, lb);
 
     // Two sets of columns. The plotted ones honour the show toggles, exactly as
-    // the Pine `sd and upperBand ? ... : na` guards do. The colour rule needs
+    // the reference `sd and upperBand ? ... : na` guards do. The colour rule needs
     // the real values whether or not they are drawn, so it reads its own pair —
     // hiding the band must not silently stop the histogram going lime.
     const upper: (number | null)[] = new Array(n);

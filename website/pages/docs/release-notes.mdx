@@ -8,6 +8,49 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 1.1.0
+
+**Added**
+
+- **66 new built-in indicators**, taking the catalogue from 20 to **86**. Moving
+  averages and overlays (ALMA, DEMA, TEMA, HMA, KAMA, LSMA, VWMA, McGinley
+  Dynamic, Median, MA Cross, MA Ribbon, TWAP, Envelope, Donchian, Keltner,
+  Chande Kroll Stop, Chandelier Exit, Alligator), momentum and strength (Aroon,
+  Awesome Oscillator, Balance of Power, Chande MO, Coppock, DPO, Fisher, Connors
+  RSI, Momentum, ROC, PPO, TRIX, TSI, SMI and both Ergodic variants, KST),
+  ranges (Stochastic RSI, Williams %R, Ultimate Oscillator, RVGI, RVI, Woodies
+  CCI, Special K), volatility (Bollinger %b, BandWidth, BBTrend, Choppiness,
+  Historical Volatility, ADR, Chop Zone, Mass Index, Ulcer), volume and flow
+  (Chaikin Money Flow and Oscillator, Ease of Movement, Elder Force Index,
+  Klinger, NVI, PVI, PVT, PVO), and signals (Vortex, Volatility Stop, Trend
+  Strength Index, Williams Fractals, RSI Divergence).
+- **Shaded fill regions on 22 descriptors**, 28 fills in all, including the
+  overbought and oversold background bands on RSI, Stochastic, Stochastic RSI,
+  MFI, CCI, Connors RSI, Choppiness, Williams %R, RVI, SMI and Bollinger %b.
+  `IndicatorFillSpec.between` resolves against `calc` output columns rather than
+  declared plots, so a band between two levels is a fill between two constant
+  columns that are never drawn.
+- **A smoothing block on CCI and OBV**: a selectable moving average over the
+  indicator's own output, with optional Bollinger Bands around it.
+
+**Changed**
+
+- **VWAP gained standard-deviation bands** (three pairs at multipliers 1, 2 and
+  3, only the first shown by default), a Standard Deviation or Percentage
+  `calcMode`, six anchor periods, an `offset`, and a fill per band pair. The
+  cumulative maths is unchanged. Note the bands collapse onto the line on daily
+  bars with the session anchor, because each bar is then its own session.
+- **Supertrend draws its shaded band** between the stop and the candle body
+  midpoint, recolouring at each flip.
+
+**Fixed**
+
+- **The `column` renderer ignored per-bar colour.** `drawColumns` always used the
+  series style's up/down pair and discarded the `color` set on each point, even
+  though `colorBy` is documented as supported by both the histogram and column
+  renderers. Chop Zone, Awesome Oscillator and BBTrend were each painting one
+  flat colour across the whole series.
+
 ## 1.0.29
 
 **Added**

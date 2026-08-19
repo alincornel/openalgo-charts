@@ -63,14 +63,14 @@ Import only what you use. Each tier is a separate entry point that registers int
 
 | Import | Contents | Brotli limit |
 |---|---|---|
-| `openalgo-charts` | Engine, 13 chart types, panes and scales, primitives, registries, chart state, trading visualization, OpenAlgo feeds, EMA/RSI/ATR/Supertrend calculators | 37 KB |
-| `openalgo-charts/indicators` | 19 built-in indicators + the Tier-2 external-data contract | 9 KB |
+| `openalgo-charts` | Engine, 13 chart types, panes and scales, primitives, registries, chart state, trading visualization, OpenAlgo feeds, EMA/RSI/ATR/Supertrend calculators | 40 KB |
+| `openalgo-charts/indicators` | 86 built-in indicators + the Tier-2 external-data contract | 21 KB |
 | `openalgo-charts/draw` | 43 drawing tools + a headless `DrawingController` | 14 KB |
 | `openalgo-charts/transform` | Heikin Ashi, Renko, Range bars, Line Break, Point and Figure, Kagi | 5 KB |
 | `openalgo-charts/profile` | Volume Profile, Market Profile (TPO), Footprint, order flow | 11 KB |
-| `openalgo-charts/trade` | Order engine, state machine, order/position/bracket lines, DOM ladder | +7 KB over base |
+| `openalgo-charts/trade` | Order engine, state machine, order/position/bracket lines, DOM ladder | 47 KB with base |
 
-Limits are the CI-enforced budgets in `.size-limit.json`. Nothing is excluded from them because there are no runtime dependencies to exclude.
+Limits are the CI-enforced budgets in `.size-limit.json`; the whole package measures about 88 KB Brotli against a 90 KB budget. Nothing is excluded from them because there are no runtime dependencies to exclude.
 
 ## The 60-second chart
 
@@ -117,7 +117,7 @@ Detailed reference for each topic is in `references/`. Read the one that matches
 | [data-and-time](references/data-and-time.md) | `Bar` shape, UTC seconds, setData/update/prependData, the logical-index model, history paging, tick and volume bars |
 | [feeds-and-live](references/feeds-and-live.md) | `DataFeed` contract, OpenAlgo REST/WS/live feeds, `CandleBuilder`, writing a custom feed |
 | [events-and-state](references/events-and-state.md) | The full event catalogue with payloads, `getState`/`restoreState`, saved layouts |
-| [indicators](references/indicators.md) | The 19 built-ins with ids and defaults, the settings model, `registerIndicator`, the Tier-2 external-data contract |
+| [indicators](references/indicators.md) | The 86 built-ins with exact ids, placements and input defaults, the settings model, levels/ranges/fills, signal markers, `registerIndicator`, the Tier-2 external-data contract |
 | [transforms](references/transforms.md) | Heikin Ashi, Renko, Range, Line Break, Point and Figure, Kagi |
 | [drawing-tools](references/drawing-tools.md) | The 43 tools, `DrawingController`, anchors, magnet, undo, persistence, shortcuts, custom tools |
 | [primitives-and-plugins](references/primitives-and-plugins.md) | `IPrimitive`, z-order, hit-testing, the dpr contract, built-in primitives, `registerChartType` |
@@ -139,6 +139,7 @@ Detailed reference for each topic is in `references/`. Read the one that matches
 | Realtime ticks | last-bar vs full replace | `series.update(bar)` | `setData` on every tick |
 | Loading older history | `setHistoryLoader` | `prependData` + `historyLoadComplete` | rebuilding and re-fitting |
 | Indicator not found | is the tier imported | `import 'openalgo-charts/indicators'` | registering it by hand |
+| Which indicator id to use | the catalogue in [indicators](references/indicators.md) | the exact id from the 86-row table, guarded with `hasIndicator(id)` | guessing an id from the display name |
 | Indicator settings UI | descriptor `inputs` + generated style keys | build the form from the descriptor, apply with `setSettings` | expecting a built-in dialog |
 | Drawing tools | `DrawingController` | headless controller + host toolbar | expecting a built-in toolbar |
 | Volume in its own pane | `paneIndex` and `priceScaleId` | `addSeries('histogram', { paneIndex: 1 })` | a second chart |

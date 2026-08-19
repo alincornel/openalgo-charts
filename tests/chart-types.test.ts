@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { getChartType, registeredChartTypes, type SeriesType, type DrawItem } from '../src/model/chart-type-registry';
 import type { Bar } from '../src/model/bar';
 import { stepPoints, valuePoints } from '../src/render/line';
-import { barGeometry } from '../src/render/bars';
+import { barGeometry, drawColumns } from '../src/render/bars';
 import { makeCtx } from './helpers/fake-ctx';
 
 // Base-tier types (point-figure/kagi register only with the transform tier).
@@ -112,5 +112,23 @@ describe('renderers draw expected primitives (recording context)', () => {
       const { ctx } = makeCtx();
       expect(() => getChartType(t).draw(ctx, data, identityY, bs, dpr, getChartType(t).defaultStyle, { plotHeight: 1000, maxVolume: 100, theme: darkTheme })).not.toThrow();
     }
+  });
+});
+
+describe('column per-bar colour', () => {
+  it('honours bar.color over the up/down pair, as the histogram renderer does', () => {
+    // The indicator registry documents colorBy as supported by both histogram
+    // and column. Column ignored it, so every Chop Zone / Awesome Oscillator
+    // bar painted one colour regardless of what the descriptor computed.
+    const { ctx, rec } = makeCtx();
+    const items = [
+      { x: 10, bar: { time: 1, open: 0, high: 1, low: 0, close: 1, color: '#123456' } },
+      { x: 20, bar: { time: 2, open: 0, high: 1, low: 0, close: 1 } },
+    ];
+    drawColumns(ctx, items, (v) => 100 - v * 10, 8, 1, { base: 0, upColor: '#aaaaaa' });
+    const rects = rec.ops.filter((o) => o.type === 'fillRect');
+    expect(rects).toHaveLength(2);
+    expect(rects[0].fillStyle).toBe('#123456'); // per-bar colour wins
+    expect(rects[1].fillStyle).toBe('#aaaaaa'); // falls back to the up colour
   });
 });

@@ -1,5 +1,5 @@
 /**
- * Relative Strength Index — Wilder's RSI, matching `openalgo.ta.rsi(close, 14)`.
+ * Relative Strength Index — Wilder's RSI, matching `openalgo.rsi(close, 14)`.
  *
  * Uses Wilder smoothing (RMA): the first average gain/loss is the simple mean of
  * the first `period` deltas, then each subsequent average carries

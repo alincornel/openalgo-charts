@@ -22,6 +22,24 @@ jobs:
       - run: npm run size
       - name: Verify NOTICE ships in the package
         run: npm pack --dry-run 2>&1 | grep -q "NOTICE" || (echo "NOTICE missing from the npm package (add it to package.json files)" && exit 1)
+      - name: No third-party product names in source
+        # The codebase is deliberately free of other vendors' product names, in
+        # comments as well as identifiers. A port of a well-known formula
+        # describes the formula, not where it was read.
+        #
+        # Two patterns, because case matters. The case-insensitive one is safe
+        # for whole words. The case-sensitive one catches camelCase identifiers
+        # like `withPineAlpha` and `pineEmaSeeded`, which a word match
+        # misses entirely, while still ignoring "Choppiness" (whose embedded
+        # "pine" has no word boundary in front of it).
+        run: |
+          hit=0
+          grep -rniE 'tradingview|pine ?script' src tests && hit=1
+          grep -rnE 'Pine|pine|PINE' src tests && hit=1
+          if [ "$hit" = "1" ]; then
+            echo "Third-party product name found above. Describe the behaviour instead."
+            exit 1
+          fi
 
   docs:
     name: docs site build

@@ -73,7 +73,12 @@ export function drawColumns(
   ctx.save();
   for (const item of items) {
     const g = barGeometry(item, toY, dpr);
-    ctx.fillStyle = g.up ? (style.upColor ?? '#26a69a') : (style.downColor ?? '#ef5350');
+    // A per-bar colour wins over the up/down pair, matching the histogram
+    // renderer. Indicators whose meaning changes bar to bar set it through the
+    // descriptor's `colorBy`, and a column plot that ignored it would silently
+    // paint the whole series one colour.
+    ctx.fillStyle = item.bar.color
+      ?? (g.up ? (style.upColor ?? '#26a69a') : (style.downColor ?? '#ef5350'));
     const top = Math.min(baseY, g.yClose);
     ctx.fillRect(g.cx - half, top, w, Math.max(1, Math.abs(baseY - g.yClose)));
   }

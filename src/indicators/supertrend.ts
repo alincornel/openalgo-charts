@@ -1,5 +1,5 @@
 /**
- * Supertrend — matching `openalgo.ta.supertrend(high, low, close, period=10, multiplier=3.0)`,
+ * Supertrend — matching `openalgo.supertrend(high, low, close, period=10, multiplier=3.0)`,
  * which returns (supertrend value, direction). Direction follows the OpenAlgo
  * convention: -1 = uptrend (line is support below price), +1 = downtrend (line
  * is resistance above price). ATR uses Wilder smoothing (see ./atr).

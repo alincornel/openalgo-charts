@@ -22,9 +22,21 @@
  */
 import { registerIndicator } from 'openalgo-charts';
 import type { IndicatorDescriptor } from 'openalgo-charts';
-import { SMA, EMA, WMA, VWAP, BOLLINGER, SUPERTREND, PARABOLIC_SAR, ICHIMOKU, HALFTREND } from './tier1-trend';
-import { RSI, MACD, STOCHASTIC, ADX, CCI, MFI, ATR, WILLIAMS_VIX_FIX } from './tier1-momentum';
-import { VOLUME, OBV, ADL } from './tier1-volume';
+import { SMA, EMA, WMA, VWAP, BOLLINGER, SUPERTREND, PARABOLIC_SAR, ICHIMOKU, HALFTREND } from './trend';
+import { RSI, MACD, STOCHASTIC, ADX, CCI, MFI, ATR, WILLIAMS_VIX_FIX } from './momentum';
+import { VOLUME, OBV, ADL } from './volume';
+// The ported built-in indicators. Grouped by family in their own modules so the
+// tier index stays a manifest rather than a wall of descriptors.
+import { OVERLAY_INDICATORS } from './overlay';
+import { OSCILLATOR_INDICATORS } from './oscillators';
+import { VOLATILITY_INDICATORS } from './volatility';
+import { FLOW_INDICATORS } from './flow';
+import { ADAPTIVE_INDICATORS } from './adaptive';
+import { AVERAGE_INDICATORS } from './averages';
+import { STRENGTH_INDICATORS } from './strength';
+import { INDEX_INDICATORS } from './indices';
+import { RANGE_INDICATORS } from './ranges';
+import { SIGNAL_INDICATORS } from './signals';
 
 export const INDICATORS_TIER = 'indicators' as const;
 
@@ -33,6 +45,16 @@ export const BUILTIN_INDICATORS: readonly IndicatorDescriptor[] = [
   SMA, EMA, WMA, VWAP, BOLLINGER, SUPERTREND, HALFTREND, PARABOLIC_SAR, ICHIMOKU,
   RSI, MACD, STOCHASTIC, ADX, CCI, MFI, ATR, WILLIAMS_VIX_FIX,
   VOLUME, OBV, ADL,
+  ...OVERLAY_INDICATORS,
+  ...OSCILLATOR_INDICATORS,
+  ...VOLATILITY_INDICATORS,
+  ...FLOW_INDICATORS,
+  ...ADAPTIVE_INDICATORS,
+  ...AVERAGE_INDICATORS,
+  ...STRENGTH_INDICATORS,
+  ...INDEX_INDICATORS,
+  ...RANGE_INDICATORS,
+  ...SIGNAL_INDICATORS,
 ];
 
 let _registered = false;
@@ -50,13 +72,23 @@ export function registerBuiltinIndicators(): void {
 
 registerBuiltinIndicators(); // side effect on tier import
 
-export { SMA, EMA, WMA, VWAP, BOLLINGER, SUPERTREND, HALFTREND, PARABOLIC_SAR, ICHIMOKU } from './tier1-trend';
-export { RSI, MACD, STOCHASTIC, ADX, CCI, MFI, ATR, WILLIAMS_VIX_FIX } from './tier1-momentum';
-export { VOLUME, OBV, ADL } from './tier1-volume';
+export { SMA, EMA, WMA, VWAP, BOLLINGER, SUPERTREND, HALFTREND, PARABOLIC_SAR, ICHIMOKU } from './trend';
+export { RSI, MACD, STOCHASTIC, ADX, CCI, MFI, ATR, WILLIAMS_VIX_FIX } from './momentum';
+export { VOLUME, OBV, ADL } from './volume';
+export * from './overlay';
+export * from './oscillators';
+export * from './volatility';
+export * from './flow';
+export * from './adaptive';
+export * from './averages';
+export * from './strength';
+export * from './indices';
+export * from './ranges';
+export * from './signals';
 export { sma, wma, rma, stdev, highest, lowest, nulls } from './calc';
 export {
   createTier2Indicator,
   type Tier2Descriptor,
   type Tier2Context,
   type Tier2Point,
-} from './tier2';
+} from './external';

@@ -15,9 +15,9 @@ return chart;`;
 
 const STATS: Array<[string, string]> = [
   ['0', 'runtime dependencies'],
-  ['< 40 KB', 'Brotli, full package'],
+  ['< 90 KB', 'Brotli, full package'],
   ['25+', 'chart types'],
-  ['297', 'tests, green'],
+  ['1001', 'tests, green'],
 ];
 
 export function Hero() {
@@ -67,7 +67,7 @@ const FEATURES: Feature[] = [
   { title: '25+ chart types', body: 'Candles, bars, line, area, baseline, columns, Heikin Ashi, Renko, Range, Line Break, Point & Figure, Kagi.' },
   { title: 'Tick & second timeframes', body: 'Sub-minute and tick/volume bars are first-class: build them live from a tick stream with the candle and tick aggregators.' },
   { title: 'On-chart trading', body: 'Order, position, and bracket lines with live P&L, one-click and drag-to-modify, OCO, validation, and a depth-of-market ladder.' },
-  { title: 'Indicators & profiles', body: 'EMA, RSI, ATR, Supertrend (matching openalgo.ta), plus Volume Profile, Market Profile (TPO), and Footprint / order flow.' },
+  { title: 'Indicators & profiles', body: '86 built-in indicators across trend, momentum, volatility, and volume, with EMA/RSI/ATR/Supertrend matching openalgo.ta, plus Volume Profile, Market Profile (TPO), and Footprint / order flow.' },
   { title: 'OpenAlgo-native data', body: 'REST history + WebSocket live + candle builder adapters speak the OpenAlgo protocol. Any broker fits behind a small DataFeed.' },
   { title: 'Loadable tiers', body: 'Ship only what you use - base, /trade, /transform, /profile are separate entry points, each independently sized.' },
   { title: 'Plugin / primitive API', body: 'The same API markers, trading, and profiles are built on is open to you: implement IPrimitive and draw anything on the chart.' },

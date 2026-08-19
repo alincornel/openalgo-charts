@@ -13,7 +13,7 @@ import {
 import type { IndicatorDescriptor } from '../src/model/indicator-registry';
 import { IndicatorInstance, type IndicatorHost } from '../src/model/indicator-instance';
 import { BUILTIN_INDICATORS } from '../src/indicators/index';
-import { createTier2Indicator, type Tier2Point } from '../src/indicators/tier2';
+import { createTier2Indicator, type Tier2Point } from '../src/indicators/external';
 import { sma, wma, rma, stdev, highest, lowest } from '../src/indicators/calc';
 import { makeCtx } from './helpers/fake-ctx';
 import { IndicatorFill } from '../src/primitives/indicator-fill';
@@ -80,8 +80,8 @@ describe('calc helpers', () => {
 });
 
 describe('indicator registry', () => {
-  it('registers all 20 built-ins', () => {
-    expect(BUILTIN_INDICATORS).toHaveLength(20);
+  it('registers all 86 built-ins', () => {
+    expect(BUILTIN_INDICATORS).toHaveLength(86);
     const ids = registeredIndicators().map((d) => d.id);
     for (const d of BUILTIN_INDICATORS) expect(ids).toContain(d.id);
   });
@@ -674,7 +674,7 @@ describe('William VIX FIX', () => {
   });
 
   it('keeps the colour rule working when the bands are hidden', () => {
-    // The Pine `sd`/`hp` toggles hide the plots; they must not disable the
+    // The reference `sd`/`hp` toggles hide the plots; they must not disable the
     // alert, which is the whole point of the study.
     const bars = wave();
     const out = d().calc(bars, { pd: 22, bbl: 20, mult: 2, lb: 50, ph: 0.85, pl: 1.01, sd: false, hp: false }, {});
@@ -833,5 +833,128 @@ describe('indicator signal markers', () => {
     const h = fakeHost(wave());
     new IndicatorInstance(h.host, getIndicator('sma'));
     expect(h.markerLayers).toBe(0);
+  });
+});
+
+describe('restored background fills', () => {
+  const data = wave();
+
+  /** Every column key the descriptor's fills name, deduplicated. */
+  const fillKeys = (d: IndicatorDescriptor): string[] =>
+    [...new Set((d.fills ?? []).flatMap((f) => [f.between[0], f.between[1]]))];
+
+  /** How many shaded regions each restored descriptor should now declare. */
+  const expected: readonly (readonly [string, number])[] = [
+    ['rsi', 1],
+    ['cci', 2], // the level background plus the Bollinger band
+    ['mfi', 1],
+    ['stochastic', 1],
+    ['obv', 1],
+  ];
+
+  for (const [id, count] of expected) {
+    it(`${id} declares ${count} fill(s), all of them backed by real columns`, () => {
+      const d = getIndicator(id);
+      expect(d.fills ?? []).toHaveLength(count);
+      const out = d.calc(data, indicatorDefaults(d), {});
+      for (const key of fillKeys(d)) {
+        // A fill naming a column that does not exist draws nothing and throws
+        // nothing, so this is the only place the mistake can be caught.
+        expect(out[key], `${id} fills between '${key}', which calc never returns`).toBeDefined();
+        expect(out[key].length, `${id}.${key} length`).toBe(data.length);
+      }
+    });
+  }
+
+  it('holds the band edges at their level on every bar', () => {
+    const levels: readonly (readonly [string, number, number])[] = [
+      ['rsi', 70, 30],
+      ['mfi', 80, 20],
+      ['stochastic', 80, 20],
+      ['cci', 100, -100],
+    ];
+    for (const [id, up, down] of levels) {
+      const d = getIndicator(id);
+      const out = d.calc(data, indicatorDefaults(d), {});
+      expect(out.upperLevel, id).toEqual(new Array(data.length).fill(up));
+      expect(out.lowerLevel, id).toEqual(new Array(data.length).fill(down));
+    }
+  });
+
+  it('shades the pane across the warmup, where the study itself is still empty', () => {
+    const mains: readonly (readonly [string, string])[] = [
+      ['rsi', 'rsi'], ['mfi', 'mfi'], ['stochastic', 'k'], ['cci', 'cci'],
+    ];
+    for (const [id, main] of mains) {
+      const d = getIndicator(id);
+      const out = d.calc(data, indicatorDefaults(d), {});
+      const first = out[main].findIndex((v) => v !== null);
+      expect(first, `${id} has no warmup gap left to test`).toBeGreaterThan(0);
+      for (let i = 0; i < first; i++) {
+        expect(out.upperLevel[i], `${id}.upperLevel[${i}]`).not.toBeNull();
+        expect(out.lowerLevel[i], `${id}.lowerLevel[${i}]`).not.toBeNull();
+      }
+    }
+  });
+
+  it('moves the RSI band edges with the overbought / oversold inputs', () => {
+    const d = getIndicator('rsi');
+    const out = d.calc(data, { ...indicatorDefaults(d), overbought: 65, oversold: 35 }, {});
+    expect(out.upperLevel.every((v) => v === 65)).toBe(true);
+    expect(out.lowerLevel.every((v) => v === 35)).toBe(true);
+  });
+
+  it('leaves the Bollinger bands empty unless that smoothing type is picked', () => {
+    for (const id of ['cci', 'obv']) {
+      const d = getIndicator(id);
+      for (const type of ['None', 'SMA', 'EMA', 'SMMA (RMA)', 'WMA', 'VWMA']) {
+        const off = d.calc(data, { ...indicatorDefaults(d), maType: type }, {});
+        expect(off.bbUpper.every((v) => v === null), `${id} ${type} bbUpper`).toBe(true);
+        expect(off.bbLower.every((v) => v === null), `${id} ${type} bbLower`).toBe(true);
+        // 'None' switches the average off too; every other kernel prints one.
+        expect(off.ma.some((v) => v !== null), `${id} ${type} ma`).toBe(type !== 'None');
+      }
+      const on = d.calc(data, { ...indicatorDefaults(d), maType: 'SMA + Bollinger Bands' }, {});
+      expect(on.bbUpper.some((v) => v !== null), `${id} bbUpper on`).toBe(true);
+      expect(on.bbLower.some((v) => v !== null), `${id} bbLower on`).toBe(true);
+      const i = data.length - 1;
+      expect(on.bbUpper[i] as number, `${id} bbUpper straddles`).toBeGreaterThan(on.ma[i] as number);
+      expect(on.bbLower[i] as number, `${id} bbLower straddles`).toBeLessThan(on.ma[i] as number);
+    }
+  });
+
+  it('keeps every new column null-or-finite, never NaN', () => {
+    for (const [id] of expected) {
+      const d = getIndicator(id);
+      const s = { ...indicatorDefaults(d), maType: 'SMA + Bollinger Bands' };
+      for (const key of Object.keys(d.calc(data, s, {}))) {
+        for (const v of d.calc(data, s, {})[key]) {
+          expect(v === null || Number.isFinite(v), `${id}.${key} holds ${String(v)}`).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('survives no bars and a single bar', () => {
+    for (const [id] of expected) {
+      const d = getIndicator(id);
+      const s = indicatorDefaults(d);
+      for (const key of fillKeys(d)) {
+        expect(d.calc([], s, {})[key], `${id}.${key} on no bars`).toEqual([]);
+        expect(d.calc(data.slice(0, 1), s, {})[key].length, `${id}.${key} on one bar`).toBe(1);
+      }
+    }
+  });
+
+  it('every built-in fill names a column its own calc returns', () => {
+    for (const d of BUILTIN_INDICATORS) {
+      const out = d.calc(data, indicatorDefaults(d), {});
+      for (const fill of d.fills ?? []) {
+        for (const key of fill.between) {
+          expect(out[key], `${d.id} fills between '${key}', which calc never returns`).toBeDefined();
+          expect(out[key].length, `${d.id}.${key} length`).toBe(data.length);
+        }
+      }
+    }
   });
 });

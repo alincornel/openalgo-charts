@@ -10,12 +10,12 @@ Source of truth: `package.json` (`exports`, `sideEffects`, `files`), `rollup.con
 
 | Specifier | Emitted file | Contents | Brotli budget | Import has side effects |
 |---|---|---|---|---|
-| `openalgo-charts` | `dist/openalgo-charts.mjs` | engine, 13 chart types, indicator + chart-type registries, primitives, feeds, trading controller, shortcuts, TimeNavigator | 37 KB | no |
-| `openalgo-charts/trade` | `dist/openalgo-charts.trade.mjs` | order/position/bracket primitives, DOM ladder, `OrderEngine`, `TradeController`, `FakeBroker` | no standalone row; 44 KB for base + trade | no |
-| `openalgo-charts/transform` | `dist/openalgo-charts.transform.mjs` | Renko, Range, Point & Figure, Kagi, Line Break, Heikin Ashi, `runTransform` | 5 KB | **yes** — registers the `point-figure` and `kagi` chart types |
+| `openalgo-charts` | `dist/openalgo-charts.mjs` | engine, 13 chart types, indicator + chart-type registries, primitives, feeds, trading controller, shortcuts, TimeNavigator | 40 KB | no |
+| `openalgo-charts/trade` | `dist/openalgo-charts.trade.mjs` | order/position/bracket primitives, DOM ladder, `OrderEngine`, `TradeController`, `FakeBroker` | no standalone row; 47 KB for base + trade | no |
+| `openalgo-charts/transform` | `dist/openalgo-charts.transform.mjs` | Renko, Range, Point & Figure, Kagi, Line Break, Heikin Ashi, `runTransform` | 5 KB | **yes**, registers the `point-figure` and `kagi` chart types |
 | `openalgo-charts/profile` | `dist/openalgo-charts.profile.mjs` | Volume Profile, TPO / Market Profile, Footprint, orderflow | 11 KB | no |
-| `openalgo-charts/indicators` | `dist/openalgo-charts.indicators.mjs` | 18 Tier-1 built-ins plus the Tier-2 contract | 9 KB | **yes** — registers all 18 descriptors |
-| `openalgo-charts/draw` | `dist/openalgo-charts.draw.mjs` | 43 drawing tools, `DrawingController`, `DrawingLayer` | 14 KB | **yes** — registers every built-in tool |
+| `openalgo-charts/indicators` | `dist/openalgo-charts.indicators.mjs` | 86 Tier-1 built-ins plus the Tier-2 contract | 21 KB | **yes**, registers all 86 descriptors |
+| `openalgo-charts/draw` | `dist/openalgo-charts.draw.mjs` | 43 drawing tools, `DrawingController`, `DrawingLayer` | 14 KB | **yes**, registers every built-in tool |
 
 Types resolve per tier: `dist/index.d.ts`, `dist/trade/index.d.ts`, `dist/transform/index.d.ts`, `dist/profile/index.d.ts`, `dist/indicators/index.d.ts`, `dist/draw/index.d.ts`.
 
@@ -32,7 +32,7 @@ const tierExternal = (id) => id === PKG;
 
 Every registry — chart types, indicators, drawing tools — is a module-level `Map` inside exactly one module instance. `createChart` reads the base bundle's copy. A deep import creates a second module instance with a second, empty `Map`:
 
-- `import 'openalgo-charts/dist/openalgo-charts.indicators.mjs'` alongside `import { createChart } from 'openalgo-charts'` in a bundler that resolves the two to different graph nodes registers 18 descriptors into a Map nobody reads. `chart.addIndicator('macd')` then throws as if the tier were never loaded.
+- `import 'openalgo-charts/dist/openalgo-charts.indicators.mjs'` alongside `import { createChart } from 'openalgo-charts'` in a bundler that resolves the two to different graph nodes registers 86 descriptors into a Map nobody reads. `chart.addIndicator('macd')` then throws as if the tier were never loaded.
 - The same failure for `openalgo-charts/transform` shows up as `series type "point-figure" needs the transform tier — import 'openalgo-charts/transform' first`, on a page that plainly did import it.
 - For `openalgo-charts/draw` you get two `DrawingController` classes and two tool tables; `instanceof` checks and tool ids stop lining up across them.
 
@@ -131,13 +131,13 @@ Enforced by `npm run size` (`size-limit`, Brotli, `@size-limit/file`), from `.si
 
 | Budget row | Files measured | Limit |
 |---|---|---|
-| Base engine | `openalgo-charts.mjs` | 37 KB |
-| Base + trade layer | base + `trade.mjs` | 44 KB |
-| Indicator tier | `indicators.mjs` | 9 KB |
+| Base engine | `openalgo-charts.mjs` | 40 KB |
+| Base + trade layer | base + `trade.mjs` | 47 KB |
+| Indicator tier | `indicators.mjs` | 21 KB |
 | Draw tier | `draw.mjs` | 14 KB |
 | Transform tier | `transform.mjs` | 5 KB |
 | Profile tier | `profile.mjs` | 11 KB |
-| Everything | all six bundles | 73.5 KB |
+| Everything | all six bundles | 90 KB |
 
 **Nothing is excluded from these numbers.** The package has zero runtime dependencies (`dependencies` is absent; everything in `devDependencies` is build tooling), so the measured file *is* the shipped payload. There is no CSS to import, no peer dependency, no web-component registration.
 

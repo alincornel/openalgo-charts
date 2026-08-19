@@ -2,6 +2,99 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.1.0
+
+### Added
+
+- **66 new built-in indicators**, taking the catalogue from 20 to **86**. Every
+  one is an original implementation written from the published definition of a
+  well-known formula, verified against hand-computed values rather than
+  transcribed.
+
+  - *Moving averages and overlays*: ALMA, DEMA, TEMA, HMA, KAMA, LSMA, VWMA,
+    McGinley Dynamic, Median, MA Cross, MA Ribbon, TWAP, Envelope, Donchian
+    Channels, Keltner Channels, Chande Kroll Stop, Chandelier Exit, Williams
+    Alligator.
+  - *Momentum and strength*: Aroon, Aroon Oscillator, Awesome Oscillator,
+    Balance of Power, Chande Momentum Oscillator, Coppock Curve, DPO, Fisher
+    Transform, Connors RSI, Momentum, Rate of Change, PPO, TRIX, True Strength
+    Index, SMI Ergodic Indicator, SMI Ergodic Oscillator, Stochastic Momentum
+    Index, Know Sure Thing.
+  - *Ranges and oscillators*: Stochastic RSI, Williams Percent Range, Ultimate
+    Oscillator, Relative Vigor Index, Relative Volatility Index, Woodies CCI,
+    Pring's Special K.
+  - *Volatility*: Bollinger Bands %b, Bollinger BandWidth, BBTrend, Choppiness
+    Index, Historical Volatility, Average Daily Range, Chop Zone, Mass Index,
+    Ulcer Index.
+  - *Volume and flow*: Chaikin Money Flow, Chaikin Oscillator, Ease of Movement,
+    Elder Force Index, Klinger Oscillator, NVI, PVI, Price Volume Trend, PVO.
+  - *Signals*: Vortex, Volatility Stop, Trend Strength Index, Williams Fractals,
+    RSI Divergence.
+
+- **Shaded fill regions on 22 descriptors** (28 fills in all), including the
+  overbought/oversold background bands on RSI, Stochastic, Stochastic RSI, MFI,
+  CCI, Connors RSI, Choppiness, Williams %R, Relative Volatility Index, SMI and
+  Bollinger %b.
+
+  The idiom is worth knowing if you write your own: `IndicatorFillSpec.between`
+  resolves against **`calc` output columns, not declared plots**, so a band
+  between two constant levels is a fill between two constant columns that are
+  never plotted.
+
+- **A smoothing block on CCI and OBV** matching the reference: a selectable MA
+  over the indicator's own output, with optional Bollinger Bands around it.
+
+### Changed
+
+- **VWAP is substantially extended.** It now ships standard-deviation bands
+  (three pairs at multipliers 1, 2 and 3, only the first shown by default), a
+  `calcMode` of Standard Deviation or Percentage, six anchor periods (session,
+  week, month, quarter, year, continuous), an `offset` input, and a fill per
+  band pair. Its line colour is now `#2962ff`.
+
+  The cumulative maths is unchanged, so existing VWAP plots are unaffected. Note
+  that on daily bars with the session anchor each bar is its own session, so the
+  bands collapse onto the line; they are an intraday tool.
+
+- **Supertrend draws its shaded band** between the stop and the candle body
+  midpoint, recolouring at each flip.
+
+- Pane legends no longer print `Balance of Power` style parameter summaries
+  containing bare booleans.
+
+### Fixed
+
+- **The `column` renderer ignored per-bar colour.** `drawColumns` always used
+  the up/down pair from the series style, discarding the `color` set on each
+  point, even though the indicator registry documents `colorBy` as supported by
+  both the histogram and column renderers. Three indicators were silently
+  painting a single colour across the whole series: Chop Zone, Awesome
+  Oscillator and BBTrend. Chop Zone's nine-colour ladder was the visible symptom.
+
+### Internal
+
+- The indicator source modules were reorganised and renamed by family:
+  `trend`, `momentum`, `volume`, `overlay`, `oscillators`, `volatility`, `flow`,
+  `adaptive`, `averages`, `strength`, `ranges`, `indices`, `signals`, and
+  `external` (formerly `tier2.ts`). These are internal paths, not published
+  entry points, so nothing consumers import has moved.
+
+- New calculation helpers shared by the ports: a standard SMA-seeded EMA (which
+  differs from the base bundle's `ema` for roughly the first `length` bars),
+  plus `change`, `roc`, `dev`, `percentRank`, `alma`, `vwma`, `highestBars`,
+  `lowestBars`, `rollingSum`, `cumulative`, `linreg`, `swma`, `stoch`,
+  `percentileNearestRank`, `correlation`, `cci`, `pivotHigh`, `pivotLow`,
+  `barsSince` and `valueWhen`.
+
+- Third-party product names removed from source and tests, with a CI step that
+  fails the build if one reappears. The check is case-aware so it catches
+  camelCase identifiers without tripping on legitimate names like Choppiness.
+
+- Size budgets raised for the new catalogue: indicators tier 9 to 21 KB,
+  everything 76 to 90 KB. Measured: indicators tier 20.1 KB, everything 88.2 KB.
+
+- Test suite grew from 620 to 1001 across 61 files.
+
 ## 1.0.29
 
 ### Added
