@@ -50,7 +50,7 @@ fill so the page shows through. Crosshair styling: `crosshairStyle`
 
 ## Dark / light at runtime
 
-Swap the palette live with `chart.setTheme(theme)` — no recreate, no flicker. Click the
+Swap the palette live with `chart.setTheme(theme)`: no recreate, no flicker. Click the
 chart below to toggle:
 
 <RunnableExample height={340} code={`const chart = lib.createChart(el, { theme: lib.darkTheme });
@@ -61,8 +61,8 @@ let dark = true;
 el.onclick = () => { dark = !dark; chart.setTheme(dark ? lib.darkTheme : lib.lightTheme); };
 return chart;`} />
 
-`applyOptions` swaps several options at once — theme, grid visibility, formatters, and
-crosshair mode — at runtime:
+`applyOptions` swaps several options at once (theme, grid visibility, formatters, and
+crosshair mode) at runtime:
 
 ```ts
 chart.applyOptions({ theme: lightTheme, grid: { vertLines: false } });

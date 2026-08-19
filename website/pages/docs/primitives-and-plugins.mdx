@@ -52,7 +52,7 @@ chart.timeScale.fitContent(bars.length);
 return chart;`} caption="Label plates: the tail points at the anchor price, the body clears it." />
 
 `drawLabel(ctx, up, cx, anchorY, text, color, fontPx)` is exported if you want the same
-plate inside a custom primitive. Coordinates are bitmap px — multiply media px by `dpr`
+plate inside a custom primitive. Coordinates are bitmap px. Multiply media px by `dpr`
 first.
 
 Corporate-action badges (earnings / dividend / split) attach at the chart level:
@@ -147,7 +147,7 @@ sl.setOptions({ color: ltp >= bar.open ? '#26a69a' : '#ef5350' });
 `setPrice(price: number)` moves the horizontal line and calls `requestUpdate()` on the host.
 `setLeftLabel(text: string)` updates the info segment of the pill group and repaints.
 `setDragGhost(price | null)` shows/clears a dimmed reference line while dragging.
-`setOptions(patch)` restyles in place — colour, width, dash, labels, badges — and repaints.
+`setOptions(patch)` restyles in place (colour, width, dash, labels, badges) and repaints.
 `id` is not patchable: it is the handle the chart routes clicks and drags through, so
 swapping it under a live drag would strand the gesture.
 
@@ -203,8 +203,8 @@ Swap or restyle it live with `watermark.setOptions({ ... })`.
 ### A hover-revealed, clickable brand mark
 
 `label` turns the mark into a lockup: at rest only the mark shows, and hovering unrolls the
-wording to its right. The mark and the label always share one colour — whichever of `tint`
-or `labelColor` you set drives both — so the pair can never render in two unrelated shades.
+wording to its right. The mark and the label always share one colour (whichever of `tint`
+or `labelColor` you set drives both), so the pair can never render in two unrelated shades.
 
 ```ts
 const mark = new LogoWatermark({
@@ -222,7 +222,7 @@ chart.subscribeClick((id) => {
 
 <Callout type="info">
 `href()` returns the URL with `utm_medium`, `utm_campaign` and a `utm_source` naming the
-page the chart is embedded in (host and path only — never the query string, which is the
+page the chart is embedded in (host and path only, never the query string, which is the
 part most likely to carry something private). Pass an `href` that already has a query
 string to compose your own and skip that entirely.
 
@@ -233,7 +233,7 @@ decoration cannot swallow clicks meant for the chart.
 #### Sizing the resting plate
 
 `height` sizes the mark; `padding` sizes the plate around it. The two together set what the
-corner looks like at rest — a 40px mark with `padding: 2.5` sits in a 45x45 square, and the
+corner looks like at rest: a 40px mark with `padding: 2.5` sits in a 45x45 square, and the
 plate widens from there as the label unrolls.
 
 ```ts
@@ -241,8 +241,8 @@ new LogoWatermark({ src: '/mark.svg', height: 40, padding: 2.5, label: 'OpenAlgo
 ```
 
 <Callout type="warning">
-Supply the **symbol on its own**, cropped tight to a square `viewBox`. An app-icon asset —
-a full-bleed background plate with the mark inset and a wordmark beneath it — scales its own
+Supply the **symbol on its own**, cropped tight to a square `viewBox`. An app-icon asset
+(a full-bleed background plate with the mark inset and a wordmark beneath it) scales its own
 padding along with the mark, so raising `height` grows the empty space rather than the logo.
 Whatever `tint`/`labelColor` recolors, the whole opaque silhouette becomes one shade, so a
 background baked into the file becomes a solid block.
@@ -330,7 +330,7 @@ can draw anything and participate in hit-testing and autoscale.
 ### Reading the bars
 
 `rc.bars()` returns the pane's primary price series when a primitive needs what price
-actually *did*, not just the scales — scoring a projection, shading bars that met a
+actually *did*, not just the scales: scoring a projection, shading bars that met a
 condition. It is lazy, so nothing pays for it unless called, and optional, so guard it:
 a synthetic render context (a test fake) may not supply one.
 
@@ -343,7 +343,7 @@ draw(ctx, rc) {
 }
 ```
 
-The array is the live one the data layer holds — treat it as read-only.
+The array is the live one the data layer holds. Treat it as read-only.
 
 ## `bestHit` helper
 

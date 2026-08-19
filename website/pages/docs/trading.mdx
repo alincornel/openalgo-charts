@@ -47,7 +47,7 @@ return chart;`} caption="Entry, stop-loss and target as segmented, draggable pil
 
 ## Inline Buy/Sell buttons
 
-`BuySellButtons` is a trade panel drawn **inside** the plot — a
+`BuySellButtons` is a trade panel drawn **inside** the plot: a
 `SELL` button, a quantity chip, and a `BUY` button, docked to a corner and fixed
 while the chart pans/zooms. It draws on the overlay canvas (so it lands in
 screenshots) and routes clicks through `chart.subscribeClick`.
@@ -74,7 +74,7 @@ Options: `position` (`top-left` default, any corner or `center`), `margin`,
 `showPrices`, and `scale`. Update at runtime with `setPrices` / `setMark`,
 `setQty`, and `setColors`.
 
-`scale` (default 1, clamped 0.6–1.5) resizes the whole panel — box, gaps, corner
+`scale` (default 1, clamped 0.6-1.5) resizes the whole panel: box, gaps, corner
 radius, type, and the hit rects with them. The panel is otherwise a fixed
 190×42, which crowds the pane's legend rows in a dense layout:
 
@@ -125,7 +125,7 @@ chart.subscribeDrag(
 
 ## Interaction feedback (hover, drag, ghost)
 
-The chart renders the interaction states itself — no app code needed:
+The chart renders the interaction states itself (no app code needed):
 
 - **Cursor hints.** Hovering a draggable line shows `ns-resize`; the cancel
   button and DOM-ladder rows show `pointer`. A `hover` event
@@ -134,10 +134,10 @@ The chart renders the interaction states itself — no app code needed:
 - **Hover.** A draggable order line thickens and its pill brightens; the cancel
   `×` fills solid.
 - **Dragging.** The grabbed line gets a soft emphasis halo, and a **drag
-  ghost** — a dimmed line at the pre-drag price — marks where the order was, so
+  ghost** (a dimmed line at the pre-drag price) marks where the order was, so
   the trader always sees what a release will change.
-- **Pills.** Order lines carry a broker-style segmented group —
-  `[badge][qty][label][✕]` — a solid colored badge (`BUY`, `SL`, `TP`), boxed
+- **Pills.** Order lines carry a broker-style segmented group,
+  `[badge][qty][label][✕]`: a solid colored badge (`BUY`, `SL`, `TP`), boxed
   qty and info segments, and an integrated cancel `✕`. Pending (un-acked)
   orders draw dimmed; partial fills show progress (`3/10`). Badge text
   auto-contrasts with its fill, so custom colors stay legible on any theme.
@@ -375,8 +375,8 @@ building a custom controller or a headless rendering pipeline.
 ### WorkingOrderLine
 
 A horizontal dashed line at the order price, coloured by side (theme `buy` /
-`sell`), with a segmented pill group — `[SIDE][qty][TYPE price ±LTP-distance][✕]`
-— and a compact price tag on the axis. The hit-test returns `order:<id>` with an
+`sell`), with a segmented pill group (`[SIDE][qty][TYPE price ±LTP-distance][✕]`)
+and a compact price tag on the axis. The hit-test returns `order:<id>` with an
 `ns-resize` cursor within 4 px of the line (or anywhere on the pill group), and
 `order:<id>::close` with a `pointer` cursor on the ✕ segment.
 

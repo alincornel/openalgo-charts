@@ -419,7 +419,7 @@ function autoscaleRange(
 ```
 
 Pure function: returns a `PriceRange { min, max }` in which `[low, high]` occupies the
-`1 - marginTop - marginBottom` of the pane left between the margins — both are fractions of the
+`1 - marginTop - marginBottom` of the pane left between the margins. Both are fractions of the
 **pane height**, so `{ marginTop: 0.82, marginBottom: 0 }` puts the data in the bottom 18%.
 Widens a degenerate (flat) range to ensure it is drawable, and keeps a sliver of room if the
 margins would total 1 or more.

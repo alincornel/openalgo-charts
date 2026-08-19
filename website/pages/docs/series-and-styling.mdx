@@ -28,7 +28,7 @@ series.remove();                           // detach from the pane + free its da
 ```
 
 `addSeries` also accepts `priceScaleId` (`'right'` / `'left'` / `''` overlay) and
-`priceFormat` — see [Scales & panes](/docs/scales-and-panes#left-right--overlay-price-scales).
+`priceFormat`. See [Scales & panes](/docs/scales-and-panes#left-right--overlay-price-scales).
 `applyOptions` / `remove` make dynamic charts (add, restyle, hide, and remove series at
 runtime) straightforward without recreating the chart.
 
@@ -66,7 +66,7 @@ return chart;`} />
 
 ## Dynamic series & dashed lines
 
-Series are mutable at runtime — restyle, hide, or remove without recreating the chart.
+Series are mutable at runtime: restyle, hide, or remove without recreating the chart.
 `lineStyle: 'dashed'` renders a reference line dashed:
 
 <RunnableExample height={340} code={`const chart = lib.createChart(el);

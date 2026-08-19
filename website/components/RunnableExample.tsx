@@ -25,9 +25,9 @@ interface Props {
 
 const LOGO_SRC = '/openalgo-charts/openalgo-logo.svg';
 
-// One combined module instance (base + every tier) so tier-registered types —
-// the transform tier's point-figure/kagi renderers and the indicator tier's
-// built-in descriptors — share the registries createChart reads. See src/all.ts.
+// One combined module instance (base + every tier) so tier-registered types
+// (the transform tier's point-figure/kagi renderers and the indicator tier's
+// built-in descriptors) share the registries createChart reads. See src/all.ts.
 async function loadLib(): Promise<Record<string, unknown>> {
   const lib = await import('../lib/oac/openalgo-charts.all.mjs');
   return lib as unknown as Record<string, unknown>;

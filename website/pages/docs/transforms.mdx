@@ -22,7 +22,7 @@ chart.addSeries('candlestick').setData(bricks); // Renko renders as candles
 <Callout type="warning">
 **Every series on a chart shares one time axis.** A transformed series (Renko /
 Range / Line Break / Kagi / P&amp;F) emits fewer elements than the raw bars, so
-if another series — typically a volume pane — is fed the *raw* bars, all the
+if another series, typically a volume pane, is fed the *raw* bars, all the
 raw timestamps come back onto the shared axis and the bricks render scattered
 with gaps between them. Re-bucket companion series onto the **transformed
 times** instead (e.g. sum the raw volume of the source bars behind each brick,

@@ -43,10 +43,10 @@ it on teardown (component unmount, route change) so listeners never leak.
 | Event | Payload | Fires when |
 |-------|---------|-----------|
 | `ready` | `{}` | Once, on the microtask after `createChart` returns. |
-| `crosshair:move` | `{ time, index, price, bar, point, paneIndex, pressed }` | The pointer moves over the plot (all-null when it leaves). `pressed` is true while a pointer is held — the only way to observe a drag in progress, since placement mode suppresses panning. |
+| `crosshair:move` | `{ time, index, price, bar, point, paneIndex, pressed }` | The pointer moves over the plot (all-null when it leaves). `pressed` is true while a pointer is held: the only way to observe a drag in progress, since placement mode suppresses panning. |
 | `click` | `{ id, price, time, paneIndex, point }` | The plot was clicked. `id` is the hit primitive's `externalId`, or **`null`** for a click on empty chart space. `point` is container-relative media px. |
 | `hover` | `{ id }` | The pointer enters (`id` = `externalId`) or leaves (`id` = `null`) a hit-testable primitive. |
-| `dblclick` | `{}` | The plot is double-clicked. The chart also resets the scale on this, *unless* a drawing tool is armed — there a double-click finishes the shape instead. |
+| `dblclick` | `{}` | The plot is double-clicked. The chart also resets the scale on this, *unless* a drawing tool is armed. There a double-click finishes the shape instead. |
 | `drag` | `{ id, price, time, paneIndex, fromPrice, fromTime }` | A draggable primitive is being moved. `from*` is the grab origin, so a delta starts at the press rather than the first move. |
 | `drag:end` | `{ id, price, time, paneIndex }` | The drag gesture finished. Pair with `drag` to snapshot once per gesture (undo wants the pre-drag state, not an intermediate frame). |
 | `pan` | `{ from, to, logicalFrom, logicalTo }` | The user pans (drag, two-finger, kinetic glide). |
@@ -117,7 +117,7 @@ The typed helper `chart.subscribeCrosshairMove(cb)` delivers the same
 
 ### click
 
-Fires on every plot click, not only on a hit. **Null-check `id`** — it is `null`
+Fires on every plot click, not only on a hit. **Null-check `id`**: it is `null`
 when the click landed on empty space rather than a primitive. The payload `id` is the
 `externalId` you set on the marker, event marker, or price line, so you can route
 the click without a lookup.
@@ -133,7 +133,7 @@ chart.on('click', ({ id }) => {
 ### hover
 
 Fires when the pointer enters or leaves a hit-testable primitive (`id` is the
-primitive's `externalId`, or `null` on leave) — at state-change rate, not
+primitive's `externalId`, or `null` on leave), at state-change rate, not
 pointer rate. The chart already renders hover states (thicker line, brighter
 pill, cursor hint) by itself; use this event for app-side affordances such as
 an order tooltip or a details panel.
@@ -180,7 +180,7 @@ chart.setHistoryLoader(() => {
 ```
 
 <Callout type="info">
-`setHistoryLoader` is the direct hook — it fires the loader with no payload.
+`setHistoryLoader` is the direct hook: it fires the loader with no payload.
 `lazy-load` is the observable form of the same trigger, carrying the time window
 so a single handler can serve multiple series.
 </Callout>

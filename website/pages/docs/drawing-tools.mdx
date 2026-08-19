@@ -8,7 +8,7 @@ import { Callout } from 'nextra/components'
 # Drawing Tools
 
 `openalgo-charts/draw` is a lazy tier (**11.7 KB** Brotli) with 43 tools and a headless
-controller. It ships **no UI** — no toolbar, no dialogs. It owns the model and the
+controller. It ships **no UI**: no toolbar, no dialogs. It owns the model and the
 interactions; your app supplies the buttons.
 
 ```ts
@@ -33,13 +33,13 @@ draw.setTool('trend-line');   // the next two clicks place it
 | Shapes | `rectangle`, `ellipse`, `circle`, `triangle`, `rotated-rectangle` | 2 / 2 / 2 / 3 / 3 |
 | Paths | `path`, `polyline` (both free-form), `arc`, `curve`, `double-curve` | n / n / 3 / 3 / 3 |
 | Channels | `parallel-channel`, `fib-channel` | 3 |
-| Fibonacci | `fib-retracement` (2), `fib-extension` (3), `fib-time-zone` (2), `fib-fan` (2) | 2–3 |
+| Fibonacci | `fib-retracement` (2), `fib-extension` (3), `fib-time-zone` (2), `fib-fan` (2) | 2-3 |
 | Gann | `gann-fan`, `gann-box` | 2 |
-| Forecasting | `long-position`, `short-position` (3), `forecast` (2) | 2–3 |
+| Forecasting | `long-position`, `short-position` (3), `forecast` (2) | 2-3 |
 | Measurers | `price-range`, `date-range`, `measure` | 2 |
 | Arrows | `arrow-up`, `arrow-down` | 1 |
 | Cycles | `cyclic-lines`, `time-cycles`, `sine-line` | 2 |
-| Text and notes | `text`, `price-label`, `flag-mark` (1), `callout` (2) | 1–2 |
+| Text and notes | `text`, `price-label`, `flag-mark` (1), `callout` (2) | 1-2 |
 | Brushes | `brush`, `highlighter` (both freehand) | n |
 
 `long-position` and `short-position` place a complete **1:1** box from a single click,
@@ -48,8 +48,8 @@ target and stop moves with percentages and cash amounts, plus **risk/reward** an
 risk-based position size from `accountSize` and `risk` in their style bag.
 
 Anchor counts of `n` mean the tool collects anchors until you end it. **Freehand** tools
-(`brush`, `highlighter`) sample the cursor while the pointer is held and finish on release
-— one press-drag-release is one stroke, and only the two ends get grab handles. The other
+(`brush`, `highlighter`) sample the cursor while the pointer is held and finish on release:
+one press-drag-release is one stroke, and only the two ends get grab handles. The other
 `n` tools (`path`, `polyline`) take one anchor per click and finish on **double-click**, or
 on `controller.finish()` if you want to bind a key to it.
 
@@ -59,7 +59,7 @@ span (that last one via `rc.bars()`, so it appears only when the pane has a
 price series with volume).
 
 The three measurers differ only in what they report. `measure` gives price change, percent
-*and* bar count; `price-range` drops the time axis; `date-range` drops the price axis — which
+*and* bar count; `price-range` drops the time axis; `date-range` drops the price axis, which
 is what you want when the other axis is noise. All three take their **bar count from logical
 indices**, so it matches what the gapless axis shows rather than raw elapsed time.
 
@@ -71,15 +71,15 @@ its width.
 
 ## Anchors live in data space
 
-A drawing's points are `{ time, price }`, never pixels. The time axis is gapless — weekends,
-holidays, and session breaks collapse — so a pixel anchor would slide the moment the viewport
+A drawing's points are `{ time, price }`, never pixels. The time axis is gapless (weekends,
+holidays, and session breaks collapse), so a pixel anchor would slide the moment the viewport
 changed. Anchors map through `DataLayer.timeToIndexFloat`, which also resolves positions
 *between* bars (inside a collapsed gap) and *past the last bar*, where trend projections and
 forecasts live.
 
 ## Using it from TypeScript
 
-`DrawingController` takes a `DrawingChartHost` — a structural interface covering
+`DrawingController` takes a `DrawingChartHost`, a structural interface covering
 the members it uses, which the chart from `createChart()` satisfies directly:
 
 ```ts
@@ -94,7 +94,7 @@ const draw = new DrawingController(chart);   // no cast needed
 Before 1.0.14 this failed with *"Types have separate declarations of a private
 property"*: each tier inlined its own copy of `Chart`, and private members make a
 class nominal, so the two copies were different types. If you are pinned below
-1.0.14 and see that error, upgrade — there is no workaround from outside the
+1.0.14 and see that error, upgrade. There is no workaround from outside the
 package.
 </Callout>
 
@@ -116,8 +116,8 @@ interface DrawingChartHost {
 
 ### Surviving a chart rebuild
 
-A host that recreates the chart — on a timeframe switch, a chart-type change, a
-theme change — must carry the drawings across, because the controller and its
+A host that recreates the chart (on a timeframe switch, a chart-type change, a
+theme change) must carry the drawings across, because the controller and its
 layers belong to the chart that is going away:
 
 ```ts
@@ -152,29 +152,29 @@ chart has a different interval loaded.
 
 ### Events
 
-`draw:tool`, `draw:add`, `draw:update`, `draw:remove`, `draw:select` — all on
+`draw:tool`, `draw:add`, `draw:update`, `draw:remove`, `draw:select` all fire on
 `chart.on(...)`.
 
 <Callout type="info">
 The controller listens on the **event bus** (`click`, `crosshair:move`, `drag`, `drag:end`),
-not the single-slot `subscribeClick` / `subscribeDrag` callbacks — so your app keeps using
+not the single-slot `subscribeClick` / `subscribeDrag` callbacks, so your app keeps using
 those for its own order lines without the two fighting over one channel.
 </Callout>
 
 ## Interaction
 
-- **Place** — click once per anchor, or **press-drag-release** to lay down a two-point shape
+- **Place**: click once per anchor, or **press-drag-release** to lay down a two-point shape
   in one gesture. A live preview follows the cursor between clicks.
-- **Select** — click a drawing; click empty space to deselect.
-- **Move** — drag the body to translate every anchor, or drag a handle to move one.
-- **Magnet** — `{ magnet: true }` snaps new anchors to the nearest O/H/L/C of the hovered bar.
-- **Undo** — a whole drag is **one** undo step, not one per frame.
-- **Lock** — a locked drawing renders but cannot be selected or dragged.
+- **Select**: click a drawing; click empty space to deselect.
+- **Move**: drag the body to translate every anchor, or drag a handle to move one.
+- **Magnet**: `{ magnet: true }` snaps new anchors to the nearest O/H/L/C of the hovered bar.
+- **Undo**: a whole drag is **one** undo step, not one per frame.
+- **Lock**: a locked drawing renders but cannot be selected or dragged.
 
 <Callout>
 While a tool is armed the controller puts the chart in **placement mode**
 (`chart.setPlacementMode(true)`), so a press starts a shape instead of panning. The chart
-reports the gesture as two `click` events — the press point, then the release point tagged
+reports the gesture as two `click` events: the press point, then the release point tagged
 `viaDrag`. `DrawingController` manages this for you; you only need it if you are placing
 things (alerts, annotations) without the draw tier.
 </Callout>
@@ -225,7 +225,7 @@ registerDrawingTool({ id: 'my-band', name: 'My band', points: 2, shortcut: 'Alt+
 
 ## Text and labels
 
-The `text` tool draws a standalone text box, but **shapes carry labels too** — set
+The `text` tool draws a standalone text box, but **shapes carry labels too**: set
 `style.text` on a rectangle, ellipse, or parallel channel and it renders inside the outline.
 That is one shape with two colours: `color` strokes the outline, `fontColor` paints the label.
 
@@ -321,7 +321,7 @@ Two optional fields change how a tool is *placed*:
 
 | Field | Effect |
 |---|---|
-| `freehand: true` | Sample the cursor while the pointer is held and commit on release — one press-drag-release is one stroke. Only the first and last anchors get grab handles. Requires `points: 0`. |
+| `freehand: true` | Sample the cursor while the pointer is held and commit on release: one press-drag-release is one stroke. Only the first and last anchors get grab handles. Requires `points: 0`. |
 | `expand(clicked, ctx)` | Turn the anchors actually clicked into the tool's full anchor set, so it can place a complete, editable default from fewer clicks. `ctx` carries `barSeconds` and `visibleBars`. |
 
 `expand` is how the position tools drop a ready 1:1 box from one click:
@@ -343,7 +343,7 @@ registerDrawingTool({
 });
 ```
 
-Size the default against `visibleBars`, not a fixed bar count — a fixed count is a hairline
+Size the default against `visibleBars`, not a fixed bar count: a fixed count is a hairline
 when zoomed out and fills the pane when zoomed in.
 
 ## Building a toolbar

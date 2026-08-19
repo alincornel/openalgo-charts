@@ -110,7 +110,7 @@ interface ChartOptions {
 
 <Callout type="info">
 Set `legendOffset` when your host draws its own overlay in a pane's top-left
-corner — an OHLC readout, a symbol line. Without it the canvas legend an
+corner: an OHLC readout, a symbol line. Without it the canvas legend an
 indicator adds lands underneath yours, and its settings and close buttons end up
 invisible and unclickable.
 
@@ -118,7 +118,7 @@ invisible and unclickable.
 createChart(el, { legendOffset: { top: 40 } });   // clear a two-line overlay
 ```
 
-It follows whichever pane currently renders at that corner — normally pane 0,
+It follows whichever pane currently renders at that corner: normally pane 0,
 but maximizing a lower pane moves it there instead, so the offset moves with it.
 Other panes keep the default corner, since a short lower pane would have its
 legend, and its settings / close / move-pane buttons, pushed off it entirely.
@@ -140,7 +140,7 @@ interface AddSeriesOptions {
 }
 ```
 
-Options passed to `chart.addSeries(type, options)`. `paneIndex` defaults to `0` (price pane); higher indices create sub-panes on demand. `priceScaleId` picks the axis: `'right'` (default) and `'left'` autoscale independently and each draw an axis; `''` is a hidden overlay scale (volume-in-price-pane). `priceFormat` sets that series' axis and crosshair-tag formatting — see [Scales & panes](/docs/scales-and-panes#left-right--overlay-price-scales).
+Options passed to `chart.addSeries(type, options)`. `paneIndex` defaults to `0` (price pane); higher indices create sub-panes on demand. `priceScaleId` picks the axis: `'right'` (default) and `'left'` autoscale independently and each draw an axis; `''` is a hidden overlay scale (volume-in-price-pane). `priceFormat` sets that series' axis and crosshair-tag formatting. See [Scales & panes](/docs/scales-and-panes#left-right--overlay-price-scales).
 
 ### `CrosshairMoveEvent`
 
@@ -428,7 +428,7 @@ interface PrimitiveRenderContext {
   theme: ChartTheme;
   hoverId?: string | null;
   dragId?: string | null;
-  /** The pane's primary price series, lazily. Optional — a synthetic context may omit it. */
+  /** The pane's primary price series, lazily. Optional: a synthetic context may omit it. */
   bars?: () => readonly Bar[];
 }
 ```
@@ -445,7 +445,7 @@ class DataLayer {
   timeToIndex(time: number): number | undefined;
   /** Fractional index -> time, interpolating between bars and past either edge. */
   indexToTimeFloat(index: number): number;
-  /** The inverse — what maps an anchor onto the gapless axis. */
+  /** The inverse: what maps an anchor onto the gapless axis. */
   timeToIndexFloat(time: number): number;
   seriesBars(id: SeriesId): readonly Bar[];
   visibleBars(id: SeriesId, fromIndex: number, toIndex: number): IndexedBar[];
@@ -458,7 +458,7 @@ type SeriesId = number;
 
 The shared time axis: every series is merged onto one logical index space, so panes
 stay aligned and non-trading gaps collapse. Reachable as `chart.dataLayer` and on
-every `PrimitiveRenderContext`. Exported since **1.0.14** — before that the property
+every `PrimitiveRenderContext`. Exported since **1.0.14**. Before that the property
 was public but its type could not be named.
 
 ### `PrimitiveHit`
@@ -518,7 +518,7 @@ interface PriceLineOptions {
 }
 ```
 
-Options for `chart.addPriceLine(opts, paneIndex)`. `id` is the `externalId` returned by hit-tests and routed to click/drag callbacks. `extentFromRight` (0..1) controls how far the line spans from the right axis (`1` = full width, the default). `badge`, `qty`, `leftLabel`, and `closeButton` compose the broker-style segmented pill group at the left end of the line — `[badge][qty][leftLabel][✕]` — where `badge` is a solid segment in the line color (e.g. `BUY`, `SL`), `qty` and `leftLabel` are neutral boxed segments, and the `✕` segment hit-tests as `${id}::close`. `PriceLine.setDragGhost(price | null)` shows a dimmed reference line at the pre-drag price while dragging.
+Options for `chart.addPriceLine(opts, paneIndex)`. `id` is the `externalId` returned by hit-tests and routed to click/drag callbacks. `extentFromRight` (0..1) controls how far the line spans from the right axis (`1` = full width, the default). `badge`, `qty`, `leftLabel`, and `closeButton` compose the broker-style segmented pill group at the left end of the line (`[badge][qty][leftLabel][✕]`), where `badge` is a solid segment in the line color (e.g. `BUY`, `SL`), `qty` and `leftLabel` are neutral boxed segments, and the `✕` segment hit-tests as `${id}::close`. `PriceLine.setDragGhost(price | null)` shows a dimmed reference line at the pre-drag price while dragging.
 
 ### `SeriesMarker`
 

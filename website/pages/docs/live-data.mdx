@@ -53,13 +53,13 @@ ws.subscribe('LTP', 'RELIANCE', 'NSE');
 
 **Seed the builder**, and seed it again after every reconnect. History normally ends
 *inside* the bar currently forming. An unseeded builder has no current bar, so its first
-tick opens a fresh one for that same bucket — which opens at whatever tick price arrived
+tick opens a fresh one for that same bucket, which opens at whatever tick price arrived
 first instead of the bucket's true open, and restarts its volume at zero. `seed` hands it
 the last historical bar so ticks fold into it instead.
 
 If you keep your own bar array and push the builder's output into it, an unseeded builder
 also leaves you two entries for that time. `setData` de-duplicates by time as of 1.0.12
-(keeping the later bar), so it no longer draws two candles on top of each other — but the
+(keeping the later bar), so it no longer draws two candles on top of each other, but the
 open is still wrong until the bucket rolls over. Seeding is the actual fix.
 
 The WS adapter speaks the documented OpenAlgo protocol (authenticate → numeric-mode subscribe
@@ -67,8 +67,8 @@ The WS adapter speaks the documented OpenAlgo protocol (authenticate → numeric
 
 ## Real-time order updates
 
-OpenAlgo also streams **order lifecycle events** — fills, partial fills,
-rejections, cancellations — over the same socket (`subscribe_orders`). This is
+OpenAlgo also streams **order lifecycle events** (fills, partial fills,
+rejections, cancellations) over the same socket (`subscribe_orders`). This is
 an account-level stream (no symbols/modes), pushed by the broker in live mode
 or by the sandbox engine in analyze mode. Use it to update on-chart order lines
 instantly instead of polling the order book:
@@ -88,7 +88,7 @@ ws.subscribeOrders();                     // replayed automatically on reconnect
 `status` is OpenAlgo's lowercase order vocabulary (`open`, `trigger pending`,
 `complete`, `rejected`, `cancelled`, …); the adapter maps it to the chart's
 `Order['status']` internally (the mapping itself is not a package export). Keep a slow
-order-book poll as reconciliation — brokers can deliver the same transition
+order-book poll as reconciliation: brokers can deliver the same transition
 twice (dedupe on `orderId` + `status` + `filledQuantity`).
 
 After an unexpected close it **auto-reconnects** with exponential backoff, then

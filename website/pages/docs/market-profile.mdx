@@ -99,7 +99,7 @@ computeMarketProfile(bars, options): MarketProfileResult
 | Option | Default | Description |
 |---|---|---|
 | `tickSize` | `0.05` | the instrument's real tick |
-| `rowTicks` | `1` | ticks per TPO row — see [Row size](#row-size) |
+| `rowTicks` | `1` | ticks per TPO row (see [Row size](#row-size)) |
 | `session` | `'day'` | `'day'` / `'week'` / `'month'` / `'composite'` |
 | `blockMinutes` | `30` | period length (one letter per period) |
 | `valueAreaPercent` | `0.7` | fraction of TPOs inside the value area (0..1) |
@@ -111,7 +111,7 @@ computeMarketProfile(bars, options): MarketProfileResult
 ### Row size
 
 TPO row height is `tickSize * rowTicks`. Keeping the two separate means widening rows never
-means lying about the instrument's tick — which matters, because the tick is what imbalance
+means lying about the instrument's tick, which matters because the tick is what imbalance
 and single-print logic are counted on.
 
 `rowTicks` is the multiplier a trader already thinks in. Nifty trades in 0.1 and you want
@@ -132,18 +132,18 @@ profile rows can share one grid: `computeFootprint(time, trades, 0.1, 20)` and
 
 ### Session windows
 
-A `window` drops bars outside a trading session and anchors period `A` to the window's open —
+A `window` drops bars outside a trading session and anchors period `A` to the window's open,
 not to whatever bar happened to arrive first, which otherwise shifts every letter. Windows
 that cross midnight are handled as one session, not two halves.
 
 ```ts
 import { computeMarketProfile, TRADING_HOURS } from 'openalgo-charts/profile';
 
-computeMarketProfile(bars, { window: TRADING_HOURS['india'] });          // 09:15–15:30 IST
+computeMarketProfile(bars, { window: TRADING_HOURS['india'] });          // 09:15-15:30 IST
 computeMarketProfile(bars, { window: { startMinute: 9 * 60 + 15, endMinute: 15 * 60 + 30, name: 'RTH' } });
 ```
 
-Built-ins: `all-hours`, `india`, `asia`, `london`, `new-york`, `us-regular` — all in IST
+Built-ins: `all-hours`, `india`, `asia`, `london`, `new-york`, `us-regular`. All are in IST
 minutes-from-midnight, since the library's calendar is IST (§5.3).
 
 ## `MarketProfile` primitive options
@@ -153,7 +153,7 @@ Pass in the constructor (`new MarketProfile(result, options)`) or update live wi
 
 | Option | Default | Description |
 |---|---|---|
-| `blockDisplay` | `'auto'` | `auto` / `blocks+letters` / `letters` / `blocks` — see [Letters and bricks](#letters-and-bricks) |
+| `blockDisplay` | `'auto'` | `auto` / `blocks+letters` / `letters` / `blocks` (see [Letters and bricks](#letters-and-bricks)) |
 | `minLetterHeight` / `letterFade` | `7` / `4` | row height (px) where letters give way to bricks, and the fade band |
 | `letterWidth` | `8` | width of one TPO column, px |
 | `font` | `10` | letter font size, px (auto-shrinks to fit short rows) |
@@ -184,7 +184,7 @@ Rather than clip glyphs or make you toggle a setting, `blockDisplay: 'auto'` (th
 `minLetterHeight`. Zooming through the threshold reads as one continuous change rather than a
 jump, and the profile stays readable at every scale.
 
-Pin the behaviour when you want it fixed — `'letters'` for glyphs only, `'blocks'` for a pure
+Pin the behaviour when you want it fixed: `'letters'` for glyphs only, `'blocks'` for a pure
 brick profile, `'blocks+letters'` to force both regardless of room.
 
 <Callout>

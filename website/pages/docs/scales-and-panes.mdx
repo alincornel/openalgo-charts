@@ -78,7 +78,7 @@ return chart;`} />
 
 ## Resizing, reordering & removing panes
 
-Pane heights are relative **weights**, not pixels — only the ratio matters. Users drag the
+Pane heights are relative **weights**, not pixels. Only the ratio matters. Users drag the
 boundary between two panes (the cursor becomes `row-resize` within 4px of it) and the height
 moves from one to the other, conserving their combined weight so the rest of the stack is
 untouched and neither side can collapse.
@@ -103,7 +103,7 @@ Events: `paneResized`, `paneMoved`, `paneMaximized`, `paneRemoved`.
 
 ## Pane legends
 
-Every indicator gets a legend row at the top-left of its pane — a colour swatch, the name,
+Every indicator gets a legend row at the top-left of its pane: a colour swatch, the name,
 its parameters, and one reading per plot in that plot's own colour, tracking the crosshair.
 Hovering the row reveals inline controls; the chart handles the presses itself, so you get
 show/hide, move, maximize, and delete without wiring anything.
@@ -111,7 +111,7 @@ show/hide, move, maximize, and delete without wiring anything.
 | Control | Effect |
 |---|---|
 | Eye | Show / hide the source's plots (it stays on the chart). |
-| Gear | Emits `indicatorSettings` — see below. |
+| Gear | Emits `indicatorSettings` (see below). |
 | Up / Down | Move this pane one slot. |
 | Maximize | Expand this pane; press again to restore. |
 | Trash | Remove the source, and its pane if that empties it. |
@@ -119,7 +119,7 @@ show/hide, move, maximize, and delete without wiring anything.
 The first legend on a non-price pane also carries the pane-level controls (move, maximize),
 so extra rows on the same pane stay uncluttered.
 
-The engine ships no DOM, so the gear has no built-in dialog — it emits and you render one.
+The engine ships no DOM, so the gear has no built-in dialog: it emits and you render one.
 Everything needed to *generate* a settings form already lives on the descriptor's `inputs`:
 
 ```ts
@@ -135,7 +135,7 @@ chart.on('indicatorSettings', ({ instanceId }) => {
 
 ### Your own legend rows
 
-`PaneLegend` is a public primitive, so a host can add its own rows — a symbol / OHLC header,
+`PaneLegend` is a public primitive, so a host can add its own rows: a symbol / OHLC header,
 a volume readout. Rows added to the same pane stack automatically in insertion order, and
 removing one closes the gap.
 
@@ -157,7 +157,7 @@ symbol.setValues([
 `chart.subscribeClick`.
 
 <Callout type="info">
-Legends draw on the **canvas**, not in the DOM — like `BuySellButtons` and the DOM ladder.
+Legends draw on the **canvas**, not in the DOM, like `BuySellButtons` and the DOM ladder.
 They composite into `takeScreenshot()`, cost no DOM per pane, and their icons are vector
 strokes rather than text glyphs (`⛶` and `🗑` render as emoji on some platforms).
 </Callout>
@@ -167,8 +167,8 @@ strokes rather than text glyphs (`⛶` and `🗑` render as emoji on some platfo
 Assign a series to a price axis with `priceScaleId`:
 
 - **`'right'`** (default) and **`'left'`** each draw their own axis and autoscale
-  independently — spot price on one side, a premium or spread on the other.
-- **`''`** (empty string) is a hidden overlay scale with no axis, autoscaled on its own —
+  independently: spot price on one side, a premium or spread on the other.
+- **`''`** (empty string) is a hidden overlay scale with no axis, autoscaled on its own:
   the standard way to pin a volume histogram inside the price pane.
 
 Reach a series' scale with `series.priceScale()` and tune it via `.setOptions(...)`.

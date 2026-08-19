@@ -33,7 +33,7 @@ return chart;`} caption="Volume Profile with POC (gold) and value area on the ri
 
 ## Market Profile (TPO)
 
-A real market profile draws **letter blocks** — one letter per time period, stacked at every
+A real market profile draws **letter blocks**: one letter per time period, stacked at every
 price that period traded. `computeMarketProfile` builds them and the `MarketProfile` primitive
 renders them:
 
@@ -69,7 +69,7 @@ Cells are filled proportionally to volume rather than outlined, so a column read
 ladder at a glance; imbalanced cells fill **saturated** instead of gaining a border, and runs
 of consecutive same-side imbalances get a bracket down the edge. Column width is derived from
 the chart's bar spacing unless you pin `cellWidth`, and when rows get shorter than
-`minTextHeight` the numbers drop out and the column degrades to a pure heatmap — so zooming
+`minTextHeight` the numbers drop out and the column degrades to a pure heatmap, so zooming
 out never turns into unreadable overlap.
 
 The demo below **replays a classified tape** into a `FootprintAggregator`: ticks arrive a few
@@ -166,7 +166,7 @@ classification for illustration.
 
 | Mode | Columns | Reads as |
 | --- | --- | --- |
-| `bidask` (default) | two — bid on the left, ask on the right | classic footprint; diagonal imbalances are visible |
+| `bidask` (default) | two: bid on the left, ask on the right | classic footprint; diagonal imbalances are visible |
 | `delta` | one, signed | net aggression per price; green above zero, red below |
 | `volume` | one, unsigned | where trade actually happened, side ignored |
 
@@ -181,7 +181,7 @@ block. Pass `[]` to hide the table.
 | `volume` | total bar volume |
 | `delta` | `askVol - bidVol` summed over the bar |
 | `deltaPct` | that delta as a percentage of bar volume |
-| `cvd` | cumulative delta — a running total across all loaded bars |
+| `cvd` | cumulative delta, a running total across all loaded bars |
 | `trades` | number of prints in the bar |
 
 ### Runtime restyling and hit-testing
@@ -193,7 +193,7 @@ fp.setOptions({ displayMode: 'delta', imbalanceRatio: 5, statsRows: ['volume', '
 ```
 
 `hitTest(x, y)` and `hoverAt(x, y)` map a pointer position back to the bar and price row under
-the cursor — enough to build a hover inspector without the library owning any DOM. `hoverAt`
+the cursor, enough to build a hover inspector without the library owning any DOM. `hoverAt`
 returns `{ time, price, cell, stats }`, where `cell` is `null` when the pointer is over the
 stats table rather than a price row:
 
@@ -208,7 +208,7 @@ chart.on('crosshair:move', (e) => {
 ```
 
 <Callout>
-`examples/orderflow/index.html` in the repo wires all of this to a live synthetic tape — the
+`examples/orderflow/index.html` in the repo wires all of this to a live synthetic tape: the
 forming bar updates in place as ticks arrive, which is the same path a real WebSocket trade
 feed takes.
 </Callout>
