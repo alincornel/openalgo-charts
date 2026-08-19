@@ -113,3 +113,109 @@ export function isNewIstDay(prevUtcSeconds: number, utcSeconds: number): boolean
   const b = utcSecondsToIstParts(utcSeconds);
   return a.year !== b.year || a.month !== b.month || a.day !== b.day;
 }
+
+const HOUR_SECONDS = 3600;
+const DAY_SECONDS = 86400;
+
+/**
+ * Median gap between consecutive timestamps. Median and not mean: a weekend, a
+ * holiday or an outage leaves a handful of gaps orders of magnitude wider than
+ * the timeframe, and an average would chase them.
+ */
+function medianGap(times: readonly number[]): number {
+  const gaps: number[] = [];
+  for (let i = 1; i < times.length; i++) {
+    const d = times[i] - times[i - 1];
+    if (d > 0) gaps.push(d);
+  }
+  if (gaps.length === 0) return 0;
+  gaps.sort((a, b) => a - b);
+  return gaps[gaps.length >> 1];
+}
+
+/**
+ * Bar indices that open a new trading session, read back from the timestamps.
+ *
+ * An exchange's overnight break is the widest recurring gap in an intraday
+ * series, and it is the only thing in the bars themselves that says where one
+ * trading day ends. Reading it back beats assuming a timezone: the same code
+ * has to serve an exchange in Mumbai and one in New York, and a fixed midnight
+ * lands mid-session for one of them. Getting it wrong splices the tail of one
+ * session onto the head of the next across the overnight gap, which inflates
+ * that period's high-low range and throws anything measured from it a long way
+ * off.
+ *
+ * Returns null when the series shows no readable session break: a market that
+ * never closes, bars already a day or coarser, or a feed whose only gaps are
+ * weekends. The caller then falls back to a calendar rule, which is the right
+ * answer in exactly those cases.
+ */
+export function sessionStartIndices(times: readonly number[]): number[] | null {
+  const gap = medianGap(times);
+  if (gap <= 0 || gap >= DAY_SECONDS) return null;
+  // At least four hours and at least four bars: every market that has both a
+  // lunch break and an overnight break has the shorter one well under this.
+  const threshold = Math.max(4 * gap, 4 * HOUR_SECONDS);
+  const starts: number[] = [];
+  for (let i = 1; i < times.length; i++) {
+    if (times[i] - times[i - 1] >= threshold) starts.push(i);
+  }
+  if (starts.length === 0) return null;
+  // Spot FX breaks only at weekends and clears the same threshold, so its
+  // "sessions" would be whole weeks. Accept the reading only when the breaks
+  // recur at roughly daily cadence. The trailing partial session is left out:
+  // it is short by construction and would drag the median down.
+  const opens = [times[0], ...starts.map((i) => times[i])];
+  const spans: number[] = [];
+  for (let i = 1; i < opens.length; i++) spans.push(opens[i] - opens[i - 1]);
+  spans.sort((a, b) => a - b);
+  if (spans[spans.length >> 1] > 36 * HOUR_SECONDS) return null;
+  return starts;
+}
+
+/**
+ * Per-bar flags marking the first bar of each trading session.
+ *
+ * Falls back to the IST calendar day when the series has no readable session
+ * break, which is the only answer available for daily bars and a defensible one
+ * for a market that never closes.
+ */
+export function sessionStartFlags(times: readonly number[]): boolean[] {
+  const out = new Array<boolean>(times.length).fill(false);
+  const starts = sessionStartIndices(times);
+  if (starts === null) {
+    for (let i = 1; i < times.length; i++) out[i] = isNewIstDay(times[i - 1], times[i]);
+    return out;
+  }
+  for (const i of starts) out[i] = true;
+  return out;
+}
+
+/**
+ * Per-bar flags marking the first bar of each calendar period, where `isNew`
+ * decides what "period" means for two instants.
+ *
+ * The test runs on session opens rather than on every bar, so a session that
+ * straddles the boundary is not cut in half: the last ninety minutes of a New
+ * York Friday fall on a Saturday in IST, and testing bar to bar would start the
+ * next week partway through Friday's session. With no readable sessions the
+ * test runs bar to bar, which is the same thing when each bar is its own
+ * session.
+ */
+export function calendarPeriodFlags(
+  times: readonly number[],
+  isNew: (prevUtcSeconds: number, utcSeconds: number) => boolean,
+): boolean[] {
+  const out = new Array<boolean>(times.length).fill(false);
+  const starts = sessionStartIndices(times);
+  if (starts === null) {
+    for (let i = 1; i < times.length; i++) out[i] = isNew(times[i - 1], times[i]);
+    return out;
+  }
+  let prevOpen = times[0];
+  for (const i of starts) {
+    if (isNew(prevOpen, times[i])) out[i] = true;
+    prevOpen = times[i];
+  }
+  return out;
+}

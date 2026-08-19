@@ -12,7 +12,7 @@
  * `atr`, `isNewIstDay`, and the `sourceValues` helper come from the base bundle
  * (`openalgo-charts`), not deep paths — see the note in `src/indicators/index.ts`.
  */
-import { atr, sourceValues, isNewIstDay } from 'openalgo-charts';
+import { atr, sourceValues, sessionStartFlags } from 'openalgo-charts';
 import type { Bar, IndicatorDescriptor, IndicatorInput, IndicatorSource } from 'openalgo-charts';
 import { sma, wma, rma, nulls, smaSeededEma, vwma, percentileNearestRank } from './calc';
 
@@ -397,11 +397,14 @@ export const TWAP: IndicatorDescriptor = {
   calc: (bars, s) => {
     const values = sourceValues(bars, src(s));
     const perSession = s.anchor !== 'continuous';
+    // Read from the bar gaps rather than a fixed midnight, so the average
+    // restarts when the exchange opens and not partway through its afternoon.
+    const restarts = perSession ? sessionStartFlags(bars.map((b) => b.time)) : null;
     const out = new Array<number>(bars.length).fill(NaN);
     let sum = 0;
     let count = 0;
     for (let i = 0; i < bars.length; i++) {
-      if (perSession && i > 0 && isNewIstDay(bars[i - 1].time, bars[i].time)) { sum = 0; count = 0; }
+      if (restarts !== null && restarts[i]) { sum = 0; count = 0; }
       sum += values[i];
       count += 1;
       out[i] = sum / count;

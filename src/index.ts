@@ -91,6 +91,8 @@ export { LogoWatermark, watermarkRect } from './primitives/watermark';
 export type { LogoWatermarkOptions, WatermarkPosition } from './primitives/watermark';
 export { BuySellButtons } from './primitives/buy-sell-buttons';
 export type { BuySellButtonsOptions } from './primitives/buy-sell-buttons';
+export { ChartTable, tableOrigin, DEFAULT_CHART_TABLE_OPTIONS } from './primitives/table';
+export type { TableCell, TablePosition, ChartTableOptions } from './primitives/table';
 export { PaneLegend } from './primitives/pane-legend';
 export type { PaneLegendOptions, PaneLegendAction, LegendValue } from './primitives/pane-legend';
 export { TimeNavigator, DEFAULT_TIME_NAVIGATOR_OPTIONS } from './primitives/time-navigator';
@@ -135,6 +137,9 @@ export {
   formatIstTimeSeconds,
   formatIstDate,
   isNewIstDay,
+  sessionStartIndices,
+  sessionStartFlags,
+  calendarPeriodFlags,
   IST_OFFSET_SECONDS,
 } from './feed/time';
 

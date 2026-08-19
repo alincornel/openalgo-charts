@@ -7,9 +7,10 @@
  */
 import {
   ema, supertrend, atr, sourceValues, isNewIstDay,
+  sessionStartFlags, calendarPeriodFlags,
   utcSecondsToIstParts, IST_OFFSET_SECONDS,
 } from 'openalgo-charts';
-import type { IndicatorDescriptor, IndicatorSource } from 'openalgo-charts';
+import type { Bar, IndicatorDescriptor, IndicatorSource } from 'openalgo-charts';
 import { sma, wma, stdev, highest, lowest, nulls } from './calc';
 
 const num = (s: Readonly<Record<string, unknown>>, k: string, d: number): number => {
@@ -104,6 +105,15 @@ function startsNewPeriod(kind: VwapAnchor, prev: number, now: number): boolean {
   return a.year !== b.year || a.month !== b.month;
 }
 
+/** Per-bar flags for the first bar of each anchor period. */
+function anchorRestarts(bars: readonly Bar[], anchor: VwapAnchor): boolean[] {
+  if (anchor === 'continuous') return new Array<boolean>(bars.length).fill(false);
+  const times = bars.map((b) => b.time);
+  return anchor === 'session'
+    ? sessionStartFlags(times)
+    : calendarPeriodFlags(times, (prev, now) => startsNewPeriod(anchor, prev, now));
+}
+
 /** Shift a column forward by `by` bars, the way a plot offset would draw it. */
 function shiftColumn(col: readonly number[], by: number): number[] {
   if (by === 0) return col.slice();
@@ -181,11 +191,19 @@ export const VWAP: IndicatorDescriptor = {
     // column so all three bands share one accumulation pass.
     const basis = new Array<number>(n).fill(NaN);
 
+    // Where the accumulation restarts. A session anchor comes from the bar
+    // gaps, not from a calendar: the reference's "session" is the exchange's
+    // trading day, and a fixed midnight lands inside it for every exchange but
+    // one, restarting VWAP partway through the afternoon. The coarser anchors
+    // are calendar tests, but they are applied to session opens for the same
+    // reason: a New York Friday runs into IST Saturday.
+    const restarts = anchorRestarts(bars, anchor);
+
     let pv = 0;
     let vol = 0;
     let pv2 = 0;
     for (let i = 0; i < n; i++) {
-      if (i > 0 && startsNewPeriod(anchor, bars[i - 1].time, bars[i].time)) { pv = 0; vol = 0; pv2 = 0; }
+      if (restarts[i]) { pv = 0; vol = 0; pv2 = 0; }
       const v = bars[i].volume ?? 0;
       const x = values[i];
       pv += x * v;
