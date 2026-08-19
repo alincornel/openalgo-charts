@@ -314,17 +314,42 @@ describe('pane removal, ordering, and maximize', () => {
     expect(chart.movePane(1, -1)).toBe(false); // ...and cannot be displaced
   });
 
-  it('maximizePane expands one pane and restores the previous weights', () => {
+  it('maximizePane gives one pane the whole chart and hides the rest', () => {
     const { chart } = makeChart();
     chart.addSeries('candlestick').setData(bars(60));
     chart.addIndicator('rsi');
     const before = chart.panes().map((p) => p.weight);
+
     chart.maximizePane(1);
     expect(chart.maximizedPane()).toBe(1);
-    expect(chart.paneWeight(1)).toBeGreaterThan(chart.paneWeight(0));
+    // Hidden outright, not collapsed to a sliver: a sliver still paints a strip
+    // of squeezed candles and a separator hairline above the maximized pane.
+    expect(chart.panes()[0].element.style.display).toBe('none');
+    expect(chart.panes()[0].element.style.flex).toBe('0 0 0px');
+    expect(chart.panes()[1].element.style.display).toBe('');
+    expect(chart.panes()[1].element.style.flex).toBe(`0 0 ${H}px`);
+    // The maximized pane is now against the top edge, so it wears no separator.
+    expect(chart.panes()[1].element.style.borderTopWidth).toBe('0px');
+    // Stored weights are never disturbed, so nothing can be stranded.
+    expect(chart.panes().map((p) => p.weight)).toEqual(before);
+
     chart.maximizePane(1);
     expect(chart.maximizedPane()).toBeNull();
     expect(chart.panes().map((p) => p.weight)).toEqual(before);
+    expect(chart.panes()[0].element.style.display).toBe('');
+  });
+
+  it('hands the time axis to the maximized pane', () => {
+    const { chart } = makeChart();
+    chart.addSeries('candlestick').setData(bars(60));
+    chart.addIndicator('rsi');
+    // Normally the bottom pane owns the time axis and gives up height for it.
+    const full = (i: number): string => chart.panes()[i].element.style.flex;
+    chart.maximizePane(0);
+    expect(full(0)).toBe(`0 0 ${H}px`);
+    // Pane 0 is now the bottom visible pane, so its scale stops short of the
+    // time axis rather than running the full height.
+    expect(chart.panes()[0].priceScale.height).toBeLessThan(H);
   });
 });
 

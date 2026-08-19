@@ -239,7 +239,6 @@ export class Chart {
   private _drawingState: unknown = undefined;
   /** Pane currently maximized, and the weights to restore when it un-maximizes. */
   private _maximizedPane: number | null = null;
-  private _savedWeights: number[] | null = null;
   /** Legend rows per pane, so new ones stack below existing ones. */
   private readonly _legends: { legend: PaneLegend; paneIndex: number }[] = [];
   /** Pane holding the primary price series (only this pane gets magnet snapping). */
@@ -670,7 +669,7 @@ export class Chart {
   private _ensureScaled(paneIndex: number): void {
     const pane = this._panes[paneIndex];
     if (pane === undefined || pane.priceScale.scaled) return;
-    pane.autoscale(this._renderContext(paneIndex === this._panes.length - 1));
+    pane.autoscale(this._renderContext(paneIndex === this._bottomPaneIndex()));
   }
 
   /** Container-relative x (media px) → UTC seconds on the (gapless) time axis. */
@@ -1175,8 +1174,14 @@ export class Chart {
     this._syncLegendOffsets();
     const dpr = this._pixelRatio();
     const total = this._weightTotal();
-    for (const pane of this._panes) {
-      const h = (this._height * pane.weight) / total;
+    const topPane = this._topPaneIndex();
+    const bottomPane = this._bottomPaneIndex();
+    this._panes.forEach((pane, paneIndex) => {
+      const share = this._layoutWeight(paneIndex);
+      const h = (this._height * share) / total;
+      // No share means gone, not merely short: a zero-height box still paints
+      // its separator hairline, and its canvases still answer hit tests.
+      pane.element.style.display = share > 0 ? '' : 'none';
       // The DOM box is given the SAME pixel height the canvas is sized to,
       // rather than a flex ratio. With `flex: w 1 0` the browser distributed the
       // container's *real* height while the canvas used `this._height` — so any
@@ -1187,14 +1192,14 @@ export class Chart {
       pane.element.style.flex = `0 0 ${h}px`;
       // A hairline between stacked panes — every pane but the first. Drawn on
       // the DOM box, so it sits exactly on the boundary the user drags.
-      const first = pane === this._panes[0];
+      const first = paneIndex === topPane;
       pane.element.style.borderTopWidth = first ? '0px' : '1px';
       pane.element.style.borderTopColor = first ? 'transparent' : this._theme.paneSeparator;
       pane.resize(this._width, h, dpr);
       // Scale height is a layout property — see Pane.setScaleHeights.
-      const isLast = pane === this._panes[this._panes.length - 1];
+      const isLast = paneIndex === bottomPane;
       pane.setScaleHeights(Math.max(0, h - (isLast ? this._timeAxisHeight : 0)));
-    }
+    })
     this._timeScale.setWidth(Math.max(0, this._width - this._priceAxisWidth - this._leftAxisWidth));
   }
 
@@ -1207,9 +1212,38 @@ export class Chart {
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
   }
 
+  /**
+   * The share of the chart a pane gets. While one pane is maximized it takes
+   * everything and the rest take nothing, so they lay out at zero height and
+   * are hidden outright rather than collapsed to a sliver. A sliver still
+   * paints a strip of squeezed candles and a separator hairline above the very
+   * pane the user asked to see on its own.
+   *
+   * Stored weights are never touched, so restoring is exact and `getState`
+   * cannot persist a placeholder.
+   */
+  private _layoutWeight(index: number): number {
+    const pane = this._panes[index];
+    if (pane === undefined) return 0;
+    if (this._maximizedPane === null) return pane.weight;
+    return index === this._maximizedPane ? 1 : 0;
+  }
+
+  /** First pane with a share of the chart: the one that sits against the top edge. */
+  private _topPaneIndex(): number {
+    for (let i = 0; i < this._panes.length; i++) if (this._layoutWeight(i) > 0) return i;
+    return 0;
+  }
+
+  /** Last pane with a share of the chart: the one that owns the time axis. */
+  private _bottomPaneIndex(): number {
+    for (let i = this._panes.length - 1; i >= 0; i--) if (this._layoutWeight(i) > 0) return i;
+    return this._panes.length - 1;
+  }
+
   private _weightTotal(): number {
     let total = 0;
-    for (const pane of this._panes) total += pane.weight;
+    for (let i = 0; i < this._panes.length; i++) total += this._layoutWeight(i);
     return total <= 0 ? 1 : total;
   }
 
@@ -1270,13 +1304,13 @@ export class Chart {
     }
     pane.destroy();
     this._panes.splice(index, 1);
-    // Keep the maximize snapshot aligned. It is indexed by pane position, so
-    // dropping a pane without splicing it leaves un-maximize restoring the
-    // wrong weights — which is how panes end up stranded at the 0.001
-    // placeholder maximize parks them at, and `getState` then persists that.
-    if (this._savedWeights !== null) {
-      this._savedWeights.splice(index, 1);
-      if (this._savedWeights.length <= 1) this._savedWeights = null;
+    // Keep the maximize target on the pane it named. Removing the maximized
+    // pane leaves nothing maximized; removing one above it shifts it up. Left
+    // alone, the index would point at whichever pane inherited the slot and
+    // the wrong one would fill the chart.
+    if (this._maximizedPane !== null) {
+      if (this._maximizedPane === index) this._maximizedPane = null;
+      else if (this._maximizedPane > index) this._maximizedPane -= 1;
     }
     // Indicators below the removed pane shift up one.
     for (const indicator of this._indicators) {
@@ -1300,6 +1334,9 @@ export class Chart {
     if (index <= 0 || target <= 0 || index >= this._panes.length || target >= this._panes.length) return false;
     const panes = this._panes;
     [panes[index], panes[target]] = [panes[target], panes[index]];
+    // The target names a slot, and the two panes just swapped slots.
+    if (this._maximizedPane === index) this._maximizedPane = target;
+    else if (this._maximizedPane === target) this._maximizedPane = index;
     for (const indicator of this._indicators) {
       if (indicator.paneIndex === index) indicator.shiftPane(direction);
       else if (indicator.paneIndex === target) indicator.shiftPane(-direction);
@@ -1313,21 +1350,13 @@ export class Chart {
   }
 
   /**
-   * Expand one pane to fill the chart, collapsing the others to a sliver.
-   * Calling it again (or on another pane) restores the previous weights.
+   * Expand one pane to fill the chart, hiding the others. Calling it again (or
+   * on another pane) puts the stack back exactly as it was, since the stored
+   * weights were never disturbed.
    */
   public maximizePane(index: number): boolean {
     if (index < 0 || index >= this._panes.length) return false;
-    if (this._maximizedPane === index) {
-      const saved = this._savedWeights;
-      if (saved !== null) this._panes.forEach((p, i) => { p.weight = saved[i] ?? p.weight; });
-      this._maximizedPane = null;
-      this._savedWeights = null;
-    } else {
-      if (this._savedWeights === null) this._savedWeights = this._panes.map((p) => p.weight);
-      this._panes.forEach((p, i) => { p.weight = i === index ? 1 : 0.001; });
-      this._maximizedPane = index;
-    }
+    this._maximizedPane = this._maximizedPane === index ? null : index;
     this._relayout();
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
     this.emit('paneMaximized', { paneIndex: this._maximizedPane });
@@ -1388,8 +1417,8 @@ export class Chart {
     const total = this._weightTotal();
     const out: { top: number; height: number }[] = [];
     let top = 0;
-    for (const pane of this._panes) {
-      const h = (this._height * pane.weight) / total;
+    for (let i = 0; i < this._panes.length; i++) {
+      const h = (this._height * this._layoutWeight(i)) / total;
       out.push({ top, height: h });
       top += h;
     }
@@ -1419,7 +1448,7 @@ export class Chart {
    */
   private _syncTimeNavPane(): void {
     if (this._timeNav === null) return;
-    const target = this._panes.length - 1;
+    const target = this._bottomPaneIndex();
     if (target === this._timeNavPane || target < 0) return;
     if (this._timeNavPane >= 0) this._panes[this._timeNavPane]?.removePrimitive(this._timeNav);
     this._addPrimitive(target, this._timeNav);
@@ -1476,7 +1505,7 @@ export class Chart {
       const pane = this._panes[i];
       const perPane = mask.paneInvalidation(i);
       const level = Math.max(global, perPane?.level ?? InvalidationLevel.None);
-      const isBottom = i === this._panes.length - 1;
+      const isBottom = i === this._bottomPaneIndex();
       const ctx = this._renderContext(isBottom);
       if (level >= InvalidationLevel.Full || perPane?.autoScale) pane.autoscale(ctx);
       if (level >= InvalidationLevel.Light) pane.paintBase(ctx);
@@ -1607,7 +1636,7 @@ export class Chart {
     // dragging the time axis (bottom strip of the last pane) rescales X.
     const plotWidth = Math.max(0, this._width - this._priceAxisWidth);
     const onPriceAxis = p.x >= plotWidth;
-    const onTimeAxis = p.pane === this._panes.length - 1 && p.localY >= p.paneHeight - this._timeAxisHeight;
+    const onTimeAxis = p.pane === this._bottomPaneIndex() && p.localY >= p.paneHeight - this._timeAxisHeight;
     if (onPriceAxis) {
       this._axisDrag = 'price';
       this._axisStartCoord = p.localY;
@@ -1635,7 +1664,7 @@ export class Chart {
     }
 
     // If the press lands on a draggable line (order/SL/TP), drag it — don't pan.
-    const hit = this._panes[p.pane]?.hitTestPrimitives(p.x - this._leftAxisWidth, p.localY, this._renderContext(p.pane === this._panes.length - 1));
+    const hit = this._panes[p.pane]?.hitTestPrimitives(p.x - this._leftAxisWidth, p.localY, this._renderContext(p.pane === this._bottomPaneIndex()));
     // `draggable` primitives (drawing anchors/shapes) arm regardless of a host
     // callback — they publish through the `drag` event bus. The `ns-resize`
     // form is the original price-line path and still needs `subscribeDrag`.
@@ -1796,7 +1825,7 @@ export class Chart {
       // touch has no pointer any more) and drop the dragging visual state.
       const hit = e.pointerType === 'touch'
         ? null
-        : this._panes[p.pane]?.hitTestPrimitives(p.x - this._leftAxisWidth, p.localY, this._renderContext(p.pane === this._panes.length - 1)) ?? null;
+        : this._panes[p.pane]?.hitTestPrimitives(p.x - this._leftAxisWidth, p.localY, this._renderContext(p.pane === this._bottomPaneIndex())) ?? null;
       this._setHover(hit);
       this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Light));
       return;
@@ -1830,7 +1859,7 @@ export class Chart {
     // Always hit-test a clean click: the chart's own chrome (pane-legend
     // buttons) must work whether or not the host subscribed to clicks.
     if (!this._pointerMoved) {
-      const isBottom = this._downPane === this._panes.length - 1;
+      const isBottom = this._downPane === this._bottomPaneIndex();
       const hit = this._panes[this._downPane]?.hitTestPrimitives(this._downX - this._leftAxisWidth, this._downLocalY, this._renderContext(isBottom));
       // Pane-legend buttons are the chart's own chrome — handle them here so
       // the host doesn't have to re-implement remove/hide/move/maximize.
@@ -2041,7 +2070,7 @@ export class Chart {
       return;
     }
     const pane = this._panes[paneIndex];
-    const hit = pane.hitTestPrimitives(plotX, localY, this._renderContext(paneIndex === this._panes.length - 1)) ?? null;
+    const hit = pane.hitTestPrimitives(plotX, localY, this._renderContext(paneIndex === this._bottomPaneIndex())) ?? null;
     // A pane boundary beats a primitive hit: the divider is a thin target and
     // the legend rows sit right below one.
     if (hit === null && this._dividerAt(containerY) !== null) {
@@ -2052,7 +2081,7 @@ export class Chart {
     this._setHover(hit);
     // The navigator reveals on pointer position, not on hover id — see the note
     // in time-navigator.ts. Only the bottom pane carries it.
-    this._feedTimeNav(paneIndex === this._panes.length - 1 ? { x: plotX, y: localY } : null);
+    this._feedTimeNav(paneIndex === this._bottomPaneIndex() ? { x: plotX, y: localY } : null);
     let y = localY;
     const index = Math.round(this._timeScale.xToIndex(plotX));
     let hoveredBar: Bar | null = null;

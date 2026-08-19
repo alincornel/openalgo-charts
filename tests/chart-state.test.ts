@@ -294,27 +294,42 @@ describe('an emptied indicator pane never survives', () => {
 });
 
 describe('maximize bookkeeping survives pane removal', () => {
-  // maximizePane parks the other panes at a 0.001 placeholder and snapshots the
-  // real weights by index. Removing a pane without splicing that snapshot left
-  // un-maximize restoring the wrong weights, stranding panes at 0.001 — which
-  // getState then persisted.
-  it('splices the saved-weight snapshot when a pane goes', () => {
+  // Maximize names a pane rather than rewriting weights, so what has to survive
+  // a removal is the index. Left alone it points at whichever pane inherited
+  // the slot, and the wrong one fills the chart.
+  const threePaneChart = (): ReturnType<typeof makeChart> => {
     const chart = makeChart();
     chart.addSeries('candlestick').setData(bars(40));
     chart.addSeries('line', { paneIndex: 1 })
       .setData([{ time: 1700000000, open: 1, high: 1, low: 1, close: 1 }]);
     chart.addSeries('line', { paneIndex: 2 })
       .setData([{ time: 1700000000, open: 2, high: 2, low: 2, close: 2 }]);
-    expect(chart.panes()).toHaveLength(3);
+    return chart;
+  };
 
+  it('leaves the stored weights untouched while maximized', () => {
+    const chart = threePaneChart();
+    const before = chart.panes().map((p) => p.weight);
     chart.maximizePane(0);
-    expect(chart.panes()[1].weight).toBeCloseTo(0.001, 6);
+    expect(chart.panes().map((p) => p.weight)).toEqual(before);
+    // getState therefore cannot persist a placeholder weight.
+    const state = chart.getState() as { panes: { weight: number }[] };
+    expect(state.panes.map((p) => p.weight)).toEqual(before);
+  });
 
+  it('drops the maximize when the maximized pane is removed', () => {
+    const chart = threePaneChart();
+    chart.maximizePane(2);
     chart.removePane(2);
-    chart.maximizePane(0);          // toggle off — restores the snapshot
-
-    // Every surviving pane must be back to a real weight, not the placeholder.
+    expect(chart.maximizedPane()).toBeNull();
     for (const p of chart.panes()) expect(p.weight).toBeGreaterThan(0.01);
+  });
+
+  it('shifts the maximize up when a pane above it is removed', () => {
+    const chart = threePaneChart();
+    chart.maximizePane(2);
+    chart.removePane(1);
+    expect(chart.maximizedPane()).toBe(1);
   });
 });
 
