@@ -5,7 +5,7 @@ argument-hint: "[indicator-id] [pane]"
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep
 ---
 
-Add or author an indicator. Read [indicators](../openalgo-charts/references/indicators.md) for the full built-in catalogue with exact ids, inputs and defaults before writing code - do not guess an id. There are 86 built-ins and the ids are hyphenated lowercase, not derivable from the display name (`williams-percent-r`, not `willr`).
+Add or author an indicator. Read [indicators](../openalgo-charts/references/indicators.md) for the full built-in catalogue with exact ids, inputs and defaults before writing code - do not guess an id. There are 91 built-ins and the ids are hyphenated lowercase, not derivable from the display name (`williams-percent-r`, not `willr`).
 
 ## Arguments
 
@@ -15,7 +15,7 @@ Add or author an indicator. Read [indicators](../openalgo-charts/references/indi
 ## Step 0 - the tier must be imported
 
 ```ts
-import 'openalgo-charts/indicators';   // side effect: registers the 86 built-ins
+import 'openalgo-charts/indicators';   // side effect: registers the 91 built-ins
 ```
 
 Without it `chart.addIndicator` throws. Add this import once, at the app entry, not in every module. Verify it is present before adding an indicator:
@@ -79,7 +79,7 @@ Two optional hooks are worth knowing before you reach for a plot that cannot exp
 - `markers(ctx)` returns bar-anchored `SeriesMarker[]` and runs after every `calc`, so it reads the values `calc` just produced. Use it for discrete named events (a crossover arrow, a "Buy" plate) rather than trying to encode them as a price column. The `labelUp` / `labelDown` shapes are text plates whose tail points at the anchor price; both require `text`. Return `[]` to clear the layer. `halftrend`, `williams-fractals` and `rsi-divergence` are the built-in examples.
 - `fills` shades a band, and `between` resolves against `calc` output columns rather than declared plots. A background band is therefore a fill between two constant columns that are never plotted.
 
-`registerIndicator` overwrites an existing id. With 86 built-ins registered, namespace a custom id (`my-momentum`, `acme-vwap`) unless replacing a built-in is the intent.
+`registerIndicator` overwrites an existing id. With 91 built-ins registered, namespace a custom id (`my-momentum`, `acme-vwap`) unless replacing a built-in is the intent.
 
 ## Path D - Tier-2, data not derived from OHLCV
 

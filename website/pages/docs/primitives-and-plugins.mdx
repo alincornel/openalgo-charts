@@ -154,6 +154,52 @@ swapping it under a live drag would strand the gesture.
 See [PriceLineOptions](/docs/types) for the full option set including `badge`, `qty`,
 `extentFromRight`, `closeButton`, and `label`.
 
+## Tables
+
+`ChartTable` is a grid pinned to a corner of a pane. Like the watermark and the pane
+legend it is screen-space: no time anchor, no part in autoscale, and a zoom leaves it
+where it was. Seasonality heatmaps, performance summaries and signal scoreboards are all
+the same shape, so they are all this primitive.
+
+<RunnableExample height={320} watermark={false} code={`const chart = lib.createChart(el);
+chart.addSeries('candlestick').setData(lib.generateBars(1700000000, 140, 3600));
+
+const table = new lib.ChartTable({
+  position: 'top-right',
+  cellWidth: [78, 62],
+  cellHeight: 20,
+  borderColor: 'rgba(255,255,255,0.08)',
+  background: 'rgba(0,0,0,0.35)',
+});
+table.setRows([
+  [{ text: 'Metric', bold: true }, { text: 'Value', bold: true }],
+  [{ text: 'Trend' }, { text: 'Up', bgColor: '#089981' }],
+  [{ text: 'Momentum' }, { text: 'Weak', bgColor: '#f23745' }],
+  [{ text: 'Bars' }, { text: '140' }],
+]);
+chart.addPrimitive(table);
+chart.timeScale.fitContent(140);
+return chart;`} />
+
+| Method | Description |
+|---|---|
+| `setRows(rows)` | Replace the grid. Rows may be ragged; each is drawn to its own length. |
+| `rows()` | Read the current rows back. |
+| `setOptions(patch)` | Merge option changes and request a repaint. |
+| `options()` | The resolved options. |
+
+Sizing has two modes. Fixed: `cellWidth` (a number, or an array for per-column widths)
+and `cellHeight`, in media px. Proportional: `widthPercent` and `heightPercent` stretch
+the grid to a share of the plot, preserving the column proportions declared in
+`cellWidth`, with `rowWeights` giving individual rows a larger or smaller share. Font size
+shrinks automatically rather than overflowing a stretched row that came out short.
+
+Set `id` to make the table hit-testable, and it reports through `chart.on('click')` like
+any other primitive.
+
+Indicators get at the same thing through the `table` hook rather than constructing one
+directly. See [indicators](/docs/indicators#tables).
+
 ## Logo / brand watermark
 
 `LogoWatermark` stamps a small image in a corner of the plot. It draws on the canvas (so it

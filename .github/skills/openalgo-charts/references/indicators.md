@@ -6,7 +6,7 @@
 
 ```ts
 import { createChart } from 'openalgo-charts';
-import 'openalgo-charts/indicators'; // side effect: registers all 86 built-ins
+import 'openalgo-charts/indicators'; // side effect: registers all 91 built-ins
 ```
 
 - The base bundle ships **only** the registry (`registerIndicator`, `getIndicator`, ...) and the runtime (`IndicatorInstance`). The catalog lives in the lazy `openalgo-charts/indicators` tier.
@@ -16,7 +16,7 @@ import 'openalgo-charts/indicators'; // side effect: registers all 86 built-ins
 
 **A tier must import the registry from the package entry (`'openalgo-charts'`), never a deep path.** Each tier is its own rollup bundle with `openalgo-charts` marked external (`rollup.config.js`, `tierExternal`). A deep import is *inlined* instead — a second, private `Map` — so the tier registers into a registry `createChart` never reads. This applies to any tier bundle you build yourself.
 
-## The 86 built-ins
+## The 91 built-ins
 
 `onchart` overlays the price pane (pane 0); `pane` claims a fresh pane. Defaults shown are the descriptor's declared `input.default`.
 
@@ -24,10 +24,11 @@ import 'openalgo-charts/indicators'; // side effect: registers all 86 built-ins
 
 `category` is one of exactly four strings, used only to group a picker UI: Trend (28), Momentum (28), Volatility (16), Volume (14).
 
-### Trend (28)
+### Trend (31)
 
 | id | Name | Placement | Plot keys | Inputs (defaults) |
 |---|---|---|---|---|
+| `seasonality` | Seasonality | pane | `seasonality` (all-null; the output is a table) | `startYear` 2015, `cutoffPercent` 10, `tablePosition` `'Center'`, `tableWidth` 100, `tableHeight` 95 |
 | `sma` | SMA | onchart | `ma` | `length` 20, `source` `'close'` |
 | `ema` | EMA | onchart | `ma` | `length` 20, `source` `'close'` |
 | `wma` | WMA | onchart | `ma` | `length` 20, `source` `'close'` |
@@ -36,6 +37,7 @@ import 'openalgo-charts/indicators'; // side effect: registers all 86 built-ins
 | `parabolic-sar` | Parabolic SAR | onchart | `sar` | `start` 0.02, `increment` 0.02, `maximum` 0.2 |
 | `ichimoku` | Ichimoku Cloud | onchart | `conversion`, `base`, `spanA`, `spanB`, `lagging` | `conversionPeriod` 9, `basePeriod` 26, `laggingSpanPeriod` 52, `displacement` 26 |
 | `adx` | ADX / DMI | pane | `plusDi`, `minusDi`, `adx` | `period` 14, `adxPeriod` 14 |
+| `alphatrend` | AlphaTrend | onchart | `alphatrend`, `lagged` | `coeff` 1, `AP` 14, `source` `'close'`, `showsignalsk` `true`, `novolumedata` `false` |
 | `alma` | Arnaud Legoux Moving Average | onchart | `alma` | `length` 9, `offset` 0.85, `sigma` 6 |
 | `dema` | Double EMA | onchart | `dema` | `length` 9, `source` `'close'` |
 | `hma` | Hull Moving Average | onchart | `hma` | `length` 9, `source` `'close'` |
@@ -46,6 +48,7 @@ import 'openalgo-charts/indicators'; // side effect: registers all 86 built-ins
 | `kama` | Kaufman's Adaptive Moving Average | onchart | `kama` | `erLength` 10, `fastLength` 2, `slowLength` 30, `source` `'close'` |
 | `lsma` | Least Squares Moving Average | onchart | `lsma` | `length` 25, `offset` 0, `source` `'close'` |
 | `ma-cross` | MA Cross | onchart | `short`, `long`, `cross` | `shortLength` 9, `longLength` 21 |
+| `cpr` | CPR with Floor Pivot | onchart | 27: `{d,w,m}` x `Pivot`, `S1`-`S3`, `R1`-`R3`, `Bc`, `Tc` | `pivotMode` `'auto'`, `showDaily` `true`, `showWeekly` `false`, `showMonthly` `false`, `displayS1R1` `false` |
 | `mcginley-dynamic` | McGinley Dynamic | onchart | `mg` | `length` 14 |
 | `median` | Median | onchart | `median`, `upper`, `lower`, `medianEma` | `source` `'hl2'`, `length` 3, `atrLength` 14, `atrMult` 2 |
 | `ma-ribbon` | Moving Average Ribbon | onchart | `ma1`, `ma2`, `ma3`, `ma4` | `showMa1` `true`, `ma1Type` `'SMA'`, `ma1Source` `'close'`, `ma1Length` 20, `showMa2` `true`, `ma2Type` `'SMA'`, `ma2Source` `'close'`, `ma2Length` 50, `showMa3` `true`, `ma3Type` `'SMA'`, `ma3Source` `'close'`, `ma3Length` 100, `showMa4` `true`, `ma4Type` `'SMA'`, `ma4Source` `'close'`, `ma4Length` 200 |
@@ -57,7 +60,7 @@ import 'openalgo-charts/indicators'; // side effect: registers all 86 built-ins
 | `trend-strength-index` | Trend Strength Index | pane | `tsi` | `length` 14 |
 | `williams-fractals` | Williams Fractals | onchart | `fractals` | `periods` 2, `showUp` `true`, `showDown` `true` |
 
-### Momentum (28)
+### Momentum (29)
 
 | id | Name | Placement | Plot keys | Inputs (defaults) |
 |---|---|---|---|---|
@@ -83,6 +86,7 @@ import 'openalgo-charts/indicators'; // side effect: registers all 86 built-ins
 | `smi-ergodic-oscillator` | SMI Ergodic Oscillator | pane | `osc` | `longlen` 20, `shortlen` 5, `siglen` 5 |
 | `smi` | Stochastic Momentum Index | pane | `smi`, `ema` | `lengthK` 10, `lengthD` 3, `lengthEMA` 3 |
 | `stochastic-rsi` | Stochastic RSI | pane | `k`, `d` | `smoothK` 3, `smoothD` 3, `lengthRSI` 14, `lengthStoch` 14, `source` `'close'` |
+| `wavetrend` | WaveTrend Pro | pane | `mom`, `wt1`, `wt2` | `source` `'hlc3'`, `n1` 10, `n2` 21, `sigLen` 4, `obLevel1` 60, `osLevel1` -60, `showMom` `true`, `showRegDiv` `true`, `showHidDiv` `false` |
 | `williams-percent-r` | Williams Percent Range | pane | `percentR` | `length` 14, `source` `'close'` |
 | `ultimate-oscillator` | Ultimate Oscillator | pane | `uo` | `length1` 7, `length2` 14, `length3` 28 |
 | `relative-vigor-index` | Relative Vigor Index | pane | `rvgi`, `signal` | `length` 10, `offset` 0 |
@@ -90,7 +94,7 @@ import 'openalgo-charts/indicators'; // side effect: registers all 86 built-ins
 | `special-k` | Pring's Special K | pane | `specialK`, `signal` | `source` `'close'`, `length1` 100, `length2` 100 |
 | `rsi-divergence` | RSI Divergence Indicator | pane | `rsi` | `length` 14, `source` `'close'`, `lbR` 5, `lbL` 5, `rangeUpper` 60, `rangeLower` 5, `plotBull` `true`, `plotHiddenBull` `false`, `plotBear` `true`, `plotHiddenBear` `false` |
 
-### Volatility (16)
+### Volatility (17)
 
 | id | Name | Placement | Plot keys | Inputs (defaults) |
 |---|---|---|---|---|
@@ -109,6 +113,7 @@ import 'openalgo-charts/indicators'; // side effect: registers all 86 built-ins
 | `keltner-channel` | Keltner Channels | onchart | `upper`, `basis`, `lower` | `length` 20, `mult` 2, `source` `'close'`, `exp` `true`, `bandsStyle` `'Average True Range'`, `atrlength` 10 |
 | `mass-index` | Mass Index | pane | `mi` | `length` 10 |
 | `ulcer-index` | Ulcer Index | pane | `ui` | `source` `'close'`, `length` 14 |
+| `range-analysis` | Range Analysis | pane | `range`, `avgRange` | `showAverage` `false`, `avgLength` 3 |
 | `relative-volatility-index` | Relative Volatility Index | pane | `rvi`, `ma`, `bbUpper`, `bbLower` | `length` 10, `offset` 0, `maType` `'SMA'`, `maLength` 14, `bbMult` 2 |
 
 ### Volume (14)
@@ -328,6 +333,68 @@ A plot cannot express this: a plot is a column of prices drawn as a line or a hi
 { time: bar.time, position: 'atPrice', price, shape: 'labelUp', size: 'small', color: '#2962ff', text: 'Buy' }
 ```
 
+## Tables
+
+`table` is an optional hook beside `markers`, for an indicator whose output is a matrix
+rather than a column of prices: a plot is one price per bar, and a monthly return heatmap
+is neither. It runs after every `calc`, so it reads the values it just produced. Return
+`null` to draw nothing.
+
+```ts
+registerIndicator({
+  id: 'my-scoreboard',
+  name: 'My Scoreboard',
+  placement: 'pane',
+  inputs: [],
+  // A pane needs a plot to exist. An all-null column draws nothing and
+  // contributes nothing to autoscale, so the pane gets no price axis at all.
+  plots: [{ key: 'placeholder', type: 'line', title: 'Scoreboard' }],
+  calc: (bars) => ({ placeholder: new Array(bars.length).fill(null) }),
+  table: ({ bars, values, settings }) => ({
+    rows: [
+      [{ text: 'Metric', bold: true }, { text: 'Value', bold: true }],
+      [{ text: 'Bars' }, { text: String(bars.length) }],
+    ],
+    options: { position: 'top-right', cellWidth: [80, 60], cellHeight: 18 },
+  }),
+});
+```
+
+Cells take `text`, `bgColor`, `textColor`, `align`, `fontSize` and `bold`; `textColor` is
+derived from `bgColor` for contrast when omitted. Options take `position` (nine keywords),
+`margin`, `cellWidth` (number or per-column array), `cellHeight`, `widthPercent`,
+`heightPercent`, `rowWeights`, `fontSize`, `borderColor`, `borderWidth`, `background` and
+`id`. The percentage sizes stretch the grid to a share of the plot while preserving the
+column proportions; `rowWeights` keeps a separator row thin when it does.
+
+One built-in uses the hook: `seasonality`, whose entire output is the grid.
+
+## Trading sessions
+
+Anything that accumulates within a trading day (VWAP, TWAP, daily pivots) has to know
+where the day ends, and a calendar midnight is the wrong answer for every exchange but
+the one whose timezone you picked. 00:00 IST is 18:30 UTC, which is the middle of a New
+York session: anchoring there restarts a VWAP every afternoon and builds a "daily" range
+out of one session's tail plus the next session's head across the overnight gap.
+
+Read the session out of the bar gaps instead:
+
+```ts
+import { sessionStartFlags, calendarPeriodFlags } from 'openalgo-charts';
+
+const newSession = sessionStartFlags(bars.map((b) => b.time));  // boolean per bar
+```
+
+| Export | Returns |
+|---|---|
+| `sessionStartIndices(times)` | Bar indices that open a session, or `null` when unreadable. |
+| `sessionStartFlags(times)` | One flag per bar; falls back to IST calendar days when unreadable. |
+| `calendarPeriodFlags(times, isNew)` | A week/month/year boundary tested on session opens, so a session is never cut in half. |
+
+Unreadable means bars already a day or coarser, a market that never closes, or a feed
+whose only gaps are weekends. An intraday lunch break is under the four-hour floor, so it
+is not mistaken for a close.
+
 ## Writing a custom indicator
 
 An indicator is data, not code in the core: the chart never switches on an id, and each plot names a registered chart type, so you add no drawing code. `calc` must return one array per plot key, exactly `bars.length` long, with `null` in warmup slots (the line renderer breaks across them and autoscale skips them).
@@ -361,7 +428,7 @@ Optional descriptor members: `fills`, `markers`, `levels`, `range`, `attach`, `c
 
 **Implement `calcTail` for anything running in a live pane.** Without it every tick costs a full `calc` — O(n) per tick *per indicator*. Return values for `[fromIndex, bars.length)` and the runtime splices them onto the previous result; return `null` to fall back. The runtime only takes the tail path when the bar count is unchanged or grew by exactly one, and `fromIndex` is `previousCount - 1` because the previously-last bar may have been replaced. Any settings change or external-data arrival resets the tail state to force a full recompute.
 
-`registerIndicator` overwrites an existing id, later registration wins. With 86 built-ins the id space is crowded, so namespace a custom id (`my-momentum`, `acme-vwap`) unless you intend to replace a built-in. Register before `addIndicator`.
+`registerIndicator` overwrites an existing id, later registration wins. With 91 built-ins the id space is crowded, so namespace a custom id (`my-momentum`, `acme-vwap`) unless you intend to replace a built-in. Register before `addIndicator`.
 
 ## Tier 2: indicators with their own data
 

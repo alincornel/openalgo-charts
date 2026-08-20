@@ -8,6 +8,43 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 1.2.0
+
+**Added**
+
+- **Tables over the chart.** `ChartTable` is a new screen-space primitive: a
+  grid pinned to a pane corner that stays put while the chart pans underneath.
+  Columns size from a fixed width, a per-column array, or a percentage of the
+  plot; rows size from a fixed height, a percentage, or per-row weights.
+- **`IndicatorDescriptor.table`**, an optional hook beside `markers`, returning
+  rows of cells and the options to draw them with. It runs after `calc`, so it
+  reads the values it just produced.
+- **Five new built-in indicators**, taking the catalogue from 86 to **91**:
+  Seasonality (a monthly return heatmap, and the first indicator whose entire
+  output is a table), CPR with Floor Pivot (Daily, Weekly and Monthly frames
+  with an Auto mode), AlphaTrend, Range Analysis, and WaveTrend Pro.
+- **`sessionStartIndices`, `sessionStartFlags` and `calendarPeriodFlags`** on
+  the package root, which read an exchange's trading day back out of the bar
+  timestamps.
+
+**Changed**
+
+- **VWAP, TWAP and CPR read the trading session from the bars.** They anchored
+  to an IST calendar day, which is 18:30 UTC and therefore the middle of a New
+  York session: VWAP restarted every afternoon, and CPR built each daily frame
+  out of one session's tail plus the next session's head. Behaviour on NSE data
+  is unchanged, since its session date and IST date always agree.
+- **`maximizePane` hides the other panes** rather than collapsing them to a
+  sliver, and the bottom visible pane owns the time axis. Stored weights are no
+  longer rewritten, so un-maximizing restores the stack exactly.
+
+**Fixed**
+
+- A pane kept the price range of a departed indicator, so a table-only
+  indicator inherited a price ladder it had no prices for. A scale now forgets
+  its range when it loses its last series, and the axis is drawn only for a
+  scale that has been measured.
+
 ## 1.1.0
 
 **Added**

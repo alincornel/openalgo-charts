@@ -88,7 +88,7 @@ untouched and neither side can collapse.
 | `chart.setPaneWeight(index, weight)` | Set a pane's relative height. |
 | `chart.paneWeight(index)` | Read it back. |
 | `chart.movePane(index, -1 \| 1)` | Move a pane one slot up or down. |
-| `chart.maximizePane(index)` | Expand one pane to fill the chart; call again to restore. |
+| `chart.maximizePane(index)` | Give one pane the whole chart and hide the rest; call again to restore. |
 | `chart.maximizedPane()` | The maximized pane index, or `null`. |
 | `chart.removePane(index)` | Remove a pane with its series and indicators. |
 
@@ -97,6 +97,18 @@ untouched and neither side can collapse.
 `removePane(0)` and any `movePane` that would displace it return `false` rather than
 silently doing something surprising. Removing a pane re-indexes the panes below it, and the
 indicators living there move with them.
+</Callout>
+
+<Callout type="info">
+**Maximizing hides the other panes, it does not shrink them.** They lay out at zero
+height and are hidden outright, so no separator hairline and no strip of squeezed
+candles survives above the pane you asked to see on its own. The bottom *visible* pane
+owns the time axis, so maximizing the price pane with indicators beneath it still gets
+a date axis.
+
+Stored weights are never touched while maximized, so restoring is exact and `getState`
+captures the real stack rather than a placeholder. The maximized index is not part of
+the saved state: `restoreState` brings back the layout unmaximized.
 </Callout>
 
 Events: `paneResized`, `paneMoved`, `paneMaximized`, `paneRemoved`.

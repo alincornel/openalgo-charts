@@ -61,7 +61,7 @@ Import only what you use. Each tier is a separate bundle that registers into the
 | Import | Contents | Brotli |
 |---|---|---|
 | `openalgo-charts` | Engine, 13 chart types, panes &amp; scales, primitives, registries, chart state, trading overlay, OpenAlgo feeds | 37.0 KB |
-| `openalgo-charts/indicators` | 86 built-in indicators + the Tier-2 (external-data) contract | 20.1 KB |
+| `openalgo-charts/indicators` | 91 built-in indicators + the Tier-2 (external-data) contract | 24.7 KB |
 | `openalgo-charts/draw` | 43 drawing tools + a headless drawing controller | 11.7 KB |
 | `openalgo-charts/transform` | Heikin Ashi, Renko, Range bars, Line Break, Point &amp; Figure, Kagi | 2.7 KB |
 | `openalgo-charts/profile` | Volume Profile, Market Profile (TPO), Footprint, order flow | 10.1 KB |
@@ -84,7 +84,7 @@ const macd = chart.addIndicator('macd', { fastPeriod: 8 });   // gets its own pa
 macd.setSettings({ 'macd:width': 2, 'macd:lineStyle': 'dashed' });
 ```
 
-86 built-ins across Trend, Momentum, Volatility and Volume, from the everyday (SMA, EMA, WMA, VWAP, Bollinger Bands, RSI, MACD, Stochastic, ADX/DMI, ATR) through Supertrend, HalfTrend, Ichimoku, Keltner, Donchian and Chandelier Exit to Connors RSI, Fisher Transform, Woodies CCI, Klinger, Vortex, Chop Zone and Williams Fractals. Twenty-two of them draw shaded bands, and three emit named buy/sell markers. The full catalogue with ids and defaults is in the docs.
+91 built-ins across Trend, Momentum, Volatility and Volume, from the everyday (SMA, EMA, WMA, VWAP, Bollinger Bands, RSI, MACD, Stochastic, ADX/DMI, ATR) through Supertrend, HalfTrend, Ichimoku, Keltner, Donchian, Chandelier Exit and CPR with floor pivots to Connors RSI, Fisher Transform, Woodies CCI, Klinger, Vortex, WaveTrend Pro, Chop Zone and Williams Fractals. Twenty-five of them draw shaded bands, five emit named buy/sell markers, and Seasonality draws a monthly return heatmap as a table over the chart. The full catalogue with ids and defaults is in the docs.
 
 The chart owns the whole lifecycle — series, pane placement, reference levels, fixed ranges (RSI 0..100), recompute on data change, teardown. Every plot gets colour, opacity, thickness, and line style for free, generated from the descriptor. Write your own with `registerIndicator`, or use the **Tier-2 contract** for indicators whose data isn't derived from OHLCV (open interest, CVD, any external feed).
 

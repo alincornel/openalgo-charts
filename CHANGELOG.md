@@ -2,6 +2,118 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.2.0
+
+### Added
+
+- **Tables over the chart.** `ChartTable` is a new screen-space primitive: a
+  grid pinned to a pane corner that stays put while the chart pans underneath,
+  like the watermark and the pane legend. It has no time anchor, takes no part
+  in autoscale, and survives a zoom untouched.
+
+  Columns size from a fixed width, a per-column array, or a percentage of the
+  plot; rows size from a fixed height, a percentage, or per-row weights, so a
+  separator row can be a rule rather than a full-height gap. Type shrinks rather
+  than overflowing when a stretched row is shorter than the declared font.
+
+- **`IndicatorDescriptor.table`**, an optional hook beside `markers`, returning
+  rows of cells and the table options to draw them with. It runs after `calc`,
+  so it reads the values it just produced. An indicator whose output is a matrix
+  rather than a column of prices had nowhere to put it: a plot is a price per
+  bar, and a monthly return heatmap is neither. The runtime creates the table
+  lazily, so an indicator without the hook pays nothing.
+
+- **Five new built-in indicators**, taking the catalogue from 86 to **91**:
+
+  - **Seasonality** (`seasonality`) - a monthly return heatmap, one row per
+    year, with average, standard deviation and percent-positive summary rows.
+    The first indicator to use the table hook, and the only one whose entire
+    output is the grid. Months can be excluded by `YYYY-MM` key.
+  - **CPR with Floor Pivot** (`cpr`) - the central pivot range and floor pivots
+    across Daily, Weekly and Monthly frames, 27 plots in all. Auto mode picks
+    one frame from the bar spacing; Manual stacks any combination.
+  - **AlphaTrend** (`alphatrend`) - an ATR-offset trailing level gated by MFI
+    (or RSI when the feed carries no volume), with the level shaded against its
+    own two-bar lag and Buy/Sell plates at each crossover.
+  - **Range Analysis** (`range-analysis`) - session range against its rolling
+    average, as a two-column study.
+  - **WaveTrend Pro** (`wavetrend`) - the channel oscillator with its signal
+    line and momentum histogram, overbought and oversold bands, and cross
+    markers.
+
+- **Session boundaries are exported**: `sessionStartIndices`,
+  `sessionStartFlags` and `calendarPeriodFlags` on the package root. They read
+  an exchange's trading day back out of the bar timestamps, which is what the
+  session-anchored indicators now use, and what a custom indicator should use
+  rather than assuming a timezone.
+
+### Changed
+
+- **VWAP, TWAP and CPR read the trading session from the bars.** They anchored
+  to an IST calendar day, which is 18:30 UTC. That is the middle of a New York
+  session, so on US intraday bars VWAP restarted every afternoon, and CPR built
+  each daily frame out of one session's tail plus the next session's head across
+  the overnight gap.
+
+  On a month of AAPL five-minute bars the old rule found 27 "days" with a widest
+  range of 34.75 points, against 22 real sessions with a widest range of 11.14.
+  S3 came out 37 points low, which stretched the price scale far past the
+  candles.
+
+  Sessions are now found from the widest recurring gap in the timestamps. The
+  reading is declined, and the calendar rule kept, when there is nothing to
+  read: bars already a day or coarser, a market that never closes, or a feed
+  whose only gaps are weekends. An intraday lunch break is shorter than the
+  four-hour floor, so it is not mistaken for a close.
+
+  The coarser anchors (week, month, quarter, year) now compare session opens
+  rather than every bar, for the same reason in the other direction: the last
+  ninety minutes of a New York Friday fall on a Saturday in IST, which started
+  the next week partway through Friday's session.
+
+  **Behaviour on NSE data is unchanged.** Its session runs 03:45 to 10:00 UTC,
+  so the session date and the IST date are always the same day.
+
+- **`maximizePane` hides the other panes** instead of collapsing them to a
+  sliver. They were parked at a 0.001 weight, which left a strip of squeezed
+  candles and a separator hairline above the pane you had asked to see on its
+  own.
+
+  A maximized pane now takes the whole chart through the layout rather than by
+  rewriting weights, and panes with no share are hidden outright, so their box
+  paints no border and their canvases answer no hit tests. The bottom *visible*
+  pane owns the time axis, so maximizing the price pane with indicators beneath
+  it still gets a date axis. Stored weights are never disturbed, so
+  un-maximizing restores the stack exactly and `getState` can no longer persist
+  the placeholder.
+
+### Fixed
+
+- **A pane kept the price range of a departed indicator.** Panes are reused when
+  one indicator replaces another, so swapping RSI for Seasonality left the table
+  pane labelled 0.00 to 1.00 from a scale that had been 0 to 100. An indicator
+  whose entire output is a table or a set of markers plots no values, so nothing
+  ever autoscales its pane.
+
+  A scale now forgets its range when it loses its last series, and the axis is
+  drawn only for a scale that has actually been measured. A manually scaled axis
+  is left alone, since nothing would recompute a range the user set by hand.
+
+### Internal
+
+- The yfinance demo gained a search box on the indicator menu, which 91 entries
+  needs, and its saved layout now records the symbol, interval and period it was
+  captured on. A viewport is a range of bar indices and a manual price range is
+  a range of prices, and neither survives a change of dataset: restoring a day
+  chart's view onto five-minute bars left the candles off-screen, which read as
+  the chart having loaded nothing at all.
+
+- Size budgets raised for the new capability: base 40 to 42 KB, base plus trade
+  47 to 49 KB, indicators tier 21 to 27 KB, everything 90 to 96 KB. Measured:
+  base 38.2 KB, indicators tier 24.7 KB, everything 94.0 KB.
+
+- Test suite grew from 1001 to 1129 across 66 files.
+
 ## 1.1.0
 
 ### Added

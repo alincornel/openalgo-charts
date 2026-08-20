@@ -14,7 +14,7 @@ Source of truth: `package.json` (`exports`, `sideEffects`, `files`), `rollup.con
 | `openalgo-charts/trade` | `dist/openalgo-charts.trade.mjs` | order/position/bracket primitives, DOM ladder, `OrderEngine`, `TradeController`, `FakeBroker` | no standalone row; 47 KB for base + trade | no |
 | `openalgo-charts/transform` | `dist/openalgo-charts.transform.mjs` | Renko, Range, Point & Figure, Kagi, Line Break, Heikin Ashi, `runTransform` | 5 KB | **yes**, registers the `point-figure` and `kagi` chart types |
 | `openalgo-charts/profile` | `dist/openalgo-charts.profile.mjs` | Volume Profile, TPO / Market Profile, Footprint, orderflow | 11 KB | no |
-| `openalgo-charts/indicators` | `dist/openalgo-charts.indicators.mjs` | 86 Tier-1 built-ins plus the Tier-2 contract | 21 KB | **yes**, registers all 86 descriptors |
+| `openalgo-charts/indicators` | `dist/openalgo-charts.indicators.mjs` | 91 Tier-1 built-ins plus the Tier-2 contract | 25 KB | **yes**, registers all 91 descriptors |
 | `openalgo-charts/draw` | `dist/openalgo-charts.draw.mjs` | 43 drawing tools, `DrawingController`, `DrawingLayer` | 14 KB | **yes**, registers every built-in tool |
 
 Types resolve per tier: `dist/index.d.ts`, `dist/trade/index.d.ts`, `dist/transform/index.d.ts`, `dist/profile/index.d.ts`, `dist/indicators/index.d.ts`, `dist/draw/index.d.ts`.
@@ -32,7 +32,7 @@ const tierExternal = (id) => id === PKG;
 
 Every registry — chart types, indicators, drawing tools — is a module-level `Map` inside exactly one module instance. `createChart` reads the base bundle's copy. A deep import creates a second module instance with a second, empty `Map`:
 
-- `import 'openalgo-charts/dist/openalgo-charts.indicators.mjs'` alongside `import { createChart } from 'openalgo-charts'` in a bundler that resolves the two to different graph nodes registers 86 descriptors into a Map nobody reads. `chart.addIndicator('macd')` then throws as if the tier were never loaded.
+- `import 'openalgo-charts/dist/openalgo-charts.indicators.mjs'` alongside `import { createChart } from 'openalgo-charts'` in a bundler that resolves the two to different graph nodes registers 91 descriptors into a Map nobody reads. `chart.addIndicator('macd')` then throws as if the tier were never loaded.
 - The same failure for `openalgo-charts/transform` shows up as `series type "point-figure" needs the transform tier — import 'openalgo-charts/transform' first`, on a page that plainly did import it.
 - For `openalgo-charts/draw` you get two `DrawingController` classes and two tool tables; `instanceof` checks and tool ids stop lining up across them.
 

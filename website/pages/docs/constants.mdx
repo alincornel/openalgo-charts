@@ -649,7 +649,34 @@ function formatIstDate(utcSeconds: number): string
 
 // True when two UTC-second instants fall on different IST calendar days
 function isNewIstDay(prevUtcSeconds: number, utcSeconds: number): boolean
+
+// Bar indices that open a trading session, read back from the timestamps.
+// null when the series shows no readable break.
+function sessionStartIndices(times: readonly number[]): number[] | null
+
+// One flag per bar, true on the first bar of each session.
+// Falls back to IST calendar days when sessions are unreadable.
+function sessionStartFlags(times: readonly number[]): boolean[]
+
+// One flag per bar, true where `isNew` says a new week/month/year began.
+// Tested on session opens, so a session is never cut in half.
+function calendarPeriodFlags(
+  times: readonly number[],
+  isNew: (prevUtcSeconds: number, utcSeconds: number) => boolean,
+): boolean[]
 ```
+
+**Sessions come from the bars, not from a timezone.** An exchange's overnight break is
+the widest recurring gap in an intraday series, and it is the only thing in the data
+that says where one trading day ends. A fixed midnight is mid-session for every
+exchange but the one it was chosen for: 00:00 IST is 18:30 UTC, which falls inside a
+New York session. Anything that accumulates within a day (VWAP, TWAP, daily pivots)
+should use these rather than `isNewIstDay`.
+
+The reading is declined, and `sessionStartFlags` falls back to the calendar, in exactly
+the cases where there is nothing to read: bars already a day or coarser, a market that
+never closes, or a feed whose only gaps are weekends. An intraday lunch break is
+shorter than the four-hour floor, so it is not mistaken for a close.
 
 ---
 

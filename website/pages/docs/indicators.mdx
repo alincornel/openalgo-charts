@@ -1,6 +1,6 @@
 ---
 title: Indicators
-description: 86 built-in indicators via chart.addIndicator, plus the registry for your own.
+description: 91 built-in indicators via chart.addIndicator, plus the registry for your own.
 ---
 
 import RunnableExample from '../../components/RunnableExample'
@@ -12,11 +12,11 @@ There are two ways to put an indicator on a chart, and they suit different jobs.
 
 **`chart.addIndicator(id)`** is the managed path: the chart creates the series, picks the
 pane, draws reference levels, recomputes on every data change, and cleans up on removal.
-The 86 built-ins live in the lazy `openalgo-charts/indicators` tier, about 20 KB Brotli.
+The 91 built-ins live in the lazy `openalgo-charts/indicators` tier, about 25 KB Brotli.
 
 ```ts
 import { createChart } from 'openalgo-charts';
-import 'openalgo-charts/indicators';   // registers all 86 built-ins
+import 'openalgo-charts/indicators';   // registers all 91 built-ins
 
 const chart = createChart(el);
 chart.addSeries('candlestick').setData(bars);
@@ -51,8 +51,8 @@ chart.addIndicator('macd');
 chart.timeScale.fitContent(bars.length);
 return chart;`} />
 
-86 descriptors ship in the tier, split across the four categories a picker reads off
-`descriptor.category`: Trend (28), Momentum (28), Volatility (16), and Volume (14).
+91 descriptors ship in the tier, split across the four categories a picker reads off
+`descriptor.category`: Trend (31), Momentum (29), Volatility (17), and Volume (14).
 
 `onchart` indicators overlay the price pane; `pane` indicators create their own. Override
 with `chart.addIndicator('rsi', {}, { paneIndex: 2 })`.
@@ -63,11 +63,12 @@ here; read them off `indicatorStyleInputs(descriptor)` rather than hardcoding th
 are exact: `addIndicator` throws on one it does not know, so guard a user-supplied id
 with `hasIndicator(id)`.
 
-### Trend (28)
+### Trend (31)
 
 | Indicator | `id` | Placement | Key settings |
 |---|---|---|---|
 | ADX / DMI | `adx` | pane | `period=14`, `adxPeriod=14` |
+| AlphaTrend | `alphatrend` | onchart | `coeff=1`, `AP=14`, `source=close`, `showsignalsk=true`, `novolumedata=false` |
 | Arnaud Legoux Moving Average | `alma` | onchart | `length=9`, `offset=0.85`, `sigma=6` |
 | Aroon | `aroon` | pane | `length=14` |
 | Aroon Oscillator | `aroon-oscillator` | pane | `length=14` |
@@ -81,10 +82,12 @@ with `hasIndicator(id)`.
 | Kaufman's Adaptive Moving Average | `kama` | onchart | `erLength=10`, `fastLength=2`, `slowLength=30`, `source=close` |
 | Least Squares Moving Average | `lsma` | onchart | `length=25`, `offset=0`, `source=close` |
 | MA Cross | `ma-cross` | onchart | `shortLength=9`, `longLength=21` |
+| CPR with Floor Pivot | `cpr` | onchart | `pivotMode=auto`, `showDaily=true`, `showWeekly=false`, `showMonthly=false`, `displaypivots=true`, `displaysupport=true`, `displayresistance=true`, `displaycpr=true`, `displayS1R1=false` |
 | McGinley Dynamic | `mcginley-dynamic` | onchart | `length=14` |
 | Median | `median` | onchart | `source=hl2`, `length=3`, `atrLength=14`, `atrMult=2` |
 | Moving Average Ribbon | `ma-ribbon` | onchart | four groups `showMaN=true`, `maNType=SMA`, `maNSource=close`, `maNLength` (20 / 50 / 100 / 200) for `N` = 1..4 |
 | Parabolic SAR | `parabolic-sar` | onchart | `start=0.02`, `increment=0.02`, `maximum=0.2` |
+| Seasonality | `seasonality` | pane | `startYear=2015`, `cutoffPercent=10`, `tablePosition=Center`, `tableWidth=100`, `tableHeight=95`, `showAvg=true`, `showStDev=true`, `showPos=true`, `ignoredMonths='YYYY-MM, YYYY-MM'` |
 | SMA | `sma` | onchart | `length=20`, `source=close` |
 | Supertrend | `supertrend` | onchart | `period=10`, `multiplier=3` |
 | Time Weighted Average Price | `twap` | onchart | `anchor=session`, `source=ohlc4`, `offset=0` |
@@ -96,7 +99,7 @@ with `hasIndicator(id)`.
 | Williams Fractals | `williams-fractals` | onchart | `periods=2`, `showUp=true`, `showDown=true` |
 | WMA | `wma` | onchart | `length=20`, `source=close` |
 
-### Momentum (28)
+### Momentum (29)
 
 | Indicator | `id` | Placement | Key settings |
 |---|---|---|---|
@@ -126,10 +129,11 @@ with `hasIndicator(id)`.
 | TRIX | `trix` | pane | `length=18` |
 | True Strength Index | `tsi` | pane | `long=25`, `short=13`, `signal=13` |
 | Ultimate Oscillator | `ultimate-oscillator` | pane | `length1=7`, `length2=14`, `length3=28` |
+| WaveTrend Pro | `wavetrend` | pane | `source=hlc3`, `n1=10`, `n2=21`, `sigLen=4`, `obLevel1=60`, `obLevel2=53`, `osLevel1=-60`, `osLevel2=-53`, `filterZone=true`, `useInner=true`, `showMom=true`, `showRegDiv=true`, `showHidDiv=false`, `lbL=3`, `lbR=3`, `rangeUpper=60`, `rangeLower=5` |
 | Williams Percent Range | `williams-percent-r` | pane | `length=14`, `source=close` |
 | Woodies CCI | `woodies-cci` | pane | `cciTurboLength=6`, `cci14Length=14` |
 
-### Volatility (16)
+### Volatility (17)
 
 | Indicator | `id` | Placement | Key settings |
 |---|---|---|---|
@@ -146,6 +150,7 @@ with `hasIndicator(id)`.
 | Historical Volatility | `historical-volatility` | pane | `length=10`, `per=1` |
 | Keltner Channels | `keltner-channel` | onchart | `length=20`, `mult=2`, `source=close`, `exp=true`, `bandsStyle=Average True Range`, `atrlength=10` |
 | Mass Index | `mass-index` | pane | `length=10` |
+| Range Analysis | `range-analysis` | pane | `showAverage=false`, `avgLength=3` |
 | Relative Volatility Index | `relative-volatility-index` | pane | `length=10`, `offset=0`, `maType=SMA`, `maLength=14`, `bbMult=2` |
 | Ulcer Index | `ulcer-index` | pane | `source=close`, `length=14` |
 | William VIX FIX | `williams-vix-fix` | pane | `pd=22`, `bbl=20`, `mult=2`, `lb=50`, `ph=0.85`, `pl=1.01`, `hp=false`, `sd=false` |
@@ -264,15 +269,126 @@ The runtime creates the marker layer lazily on the first plot's series, so an in
 without the hook costs nothing. Marker `time` values must match a real bar time or
 `SeriesMarkers` drops them silently. Hiding the indicator clears its markers too.
 
-Three built-ins use the hook:
+Five built-ins use the hook:
 
 | Indicator | What it marks |
 |---|---|
 | `halftrend` | A Buy or Sell plate at each trend flip, suppressed by `showLabels: false`. |
 | `williams-fractals` | An up or down triangle at each confirmed fractal, filtered by `showUp` / `showDown`. |
 | `rsi-divergence` | `Bull`, `Bear`, `H Bull`, and `H Bear` labels on the RSI line, one per enabled `plot*` input. |
+| `alphatrend` | A Buy or Sell plate where the level crosses its own two-bar lag. |
+| `wavetrend` | A tinted dot at each signal-line cross, plus `R` and `H` plates for regular and hidden divergences, filtered by `showRegDiv` / `showHidDiv`. |
 
 See [markers](/docs/primitives-and-plugins#markers--event-badges) for the shape catalogue.
+
+## Tables
+
+An indicator whose output is a matrix rather than a column of prices has nowhere to put
+it: a plot is one price per bar, and a monthly return heatmap is neither. `table` is an
+optional hook beside `markers`, returning rows of cells and the options to draw them
+with. Like `markers`, it runs after every `calc`, so it reads the values it just
+produced:
+
+```ts
+registerIndicator({
+  id: 'my-scoreboard',
+  name: 'My Scoreboard',
+  placement: 'pane',
+  inputs: [],
+  // A pane needs at least one plot to exist. An all-null column draws nothing
+  // and contributes nothing to autoscale, which is what a table-only indicator
+  // wants: the pane gets no price axis at all.
+  plots: [{ key: 'placeholder', type: 'line', title: 'Scoreboard' }],
+  calc: (bars) => ({ placeholder: new Array(bars.length).fill(null) }),
+  table: ({ bars, values, settings }) => ({
+    rows: [
+      [{ text: 'Metric', bold: true }, { text: 'Value', bold: true }],
+      [{ text: 'Bars' }, { text: String(bars.length) }],
+      [{ text: 'Last' }, { text: bars.at(-1).close.toFixed(2), bgColor: '#089981' }],
+    ],
+    options: { position: 'top-right', cellWidth: [80, 60], cellHeight: 18 },
+  }),
+});
+```
+
+Returning `null` draws nothing, which is how an indicator says it has too little data to
+tabulate. A header row on its own reads as a broken table rather than an empty one.
+
+**`TableCell`**
+
+| Field | Type | Description |
+|---|---|---|
+| `text` | `string` | Cell contents. An empty string draws the fill without any label. |
+| `bgColor` | `string?` | Cell fill. Transparent when omitted, so the pane shows through. |
+| `textColor` | `string?` | Derived from `bgColor` for contrast when omitted. |
+| `align` | `'left' \| 'center' \| 'right'` | Default `center`. |
+| `fontSize` | `number?` | Overrides the table's `fontSize` for this cell, for a heading row. |
+| `bold` | `boolean?` | |
+
+**`ChartTableOptions`**
+
+| Option | Default | Description |
+|---|---|---|
+| `position` | `'bottom-right'` | One of nine keywords: `top`/`middle`/`bottom` crossed with `left`/`center`/`right`. |
+| `margin` | `8` | Gap from the pane edge, media px. |
+| `cellWidth` | `64` | Column width in media px. A per-column array sizes each one separately. |
+| `cellHeight` | `18` | Row height in media px. |
+| `widthPercent` | unset | Total width as a percentage of the plot. Column proportions are preserved, so a per-column array still controls the relative widths. `0` or unset sizes from `cellWidth`. |
+| `heightPercent` | unset | Total height as a percentage of the plot. `0` or unset sizes from `cellHeight`. |
+| `rowWeights` | unset | Relative row heights, one per row, defaulting to `1`. A separator row wants something like `0.3`, or a stretched table makes the rule between two sections as tall as the sections. |
+| `fontSize` | `11` | Shrinks automatically when a stretched row is shorter than this. |
+| `borderColor` | unset | Grid line colour. Omit to draw no grid. |
+| `borderWidth` | `1` | |
+| `background` | unset | Backdrop behind the whole grid, drawn before the cells. |
+| `id` | unset | Hit-test id, so a host can route clicks the way it does for other primitives. |
+
+The table is a screen-space primitive: it is pinned to the pane, not to bars, so it stays
+put while the chart pans underneath and survives a zoom untouched. It takes no part in
+autoscale.
+
+One built-in uses the hook: `seasonality`, whose entire output is the grid. Its
+`tableWidth` and `tableHeight` inputs default to 100% and 95%, so it fills the pane.
+
+`ChartTable` is also usable directly as a primitive without an indicator. See
+[primitives](/docs/primitives-and-plugins).
+
+## Trading sessions
+
+An indicator that accumulates within a trading day (VWAP, TWAP, daily pivots) has to know
+where one day ends. A calendar midnight is the wrong answer for every exchange but the
+one whose timezone you picked: 00:00 IST is 18:30 UTC, which is the middle of a New York
+session. Anchoring there restarts a VWAP every afternoon, and builds a "daily" range out
+of one session's tail plus the next session's head across the overnight gap.
+
+The session is visible in the bars themselves, as the widest recurring gap, so read it
+back rather than assuming:
+
+```ts
+import { sessionStartFlags, calendarPeriodFlags } from 'openalgo-charts';
+
+calc: (bars) => {
+  const times = bars.map((b) => b.time);
+  const newSession = sessionStartFlags(times);      // first bar of each trading day
+  let sum = 0;
+  const out = bars.map((b, i) => {
+    if (newSession[i]) sum = 0;
+    sum += b.close;
+    return sum;
+  });
+  return { running: out };
+}
+```
+
+| Export | Returns | Use |
+|---|---|---|
+| `sessionStartIndices(times)` | `number[] \| null` | The bar indices that open a session, or `null` when the series shows no readable break. |
+| `sessionStartFlags(times)` | `boolean[]` | One flag per bar. Falls back to IST calendar days when sessions are unreadable. |
+| `calendarPeriodFlags(times, isNew)` | `boolean[]` | A week, month or year boundary, tested on session opens so a session is never cut in half. |
+
+`sessionStartIndices` returns `null`, and the flag helpers fall back to a calendar day,
+in exactly the cases where there is nothing to read: bars already a day or coarser, a
+market that never closes, or a feed whose only gaps are weekends. An intraday lunch break
+is shorter than the four-hour floor, so it is not mistaken for a close.
 
 ## The IndicatorApi handle
 
@@ -327,7 +443,7 @@ typeInput.options;   // same list as INDICATOR_PLOT_STYLES
 import {
   registeredIndicators, hasIndicator, indicatorDefaults,
 } from 'openalgo-charts';
-import 'openalgo-charts/indicators';   // registers the 86 built-ins
+import 'openalgo-charts/indicators';   // registers the 91 built-ins
 
 // Group the catalog for a menu, with no per-indicator code.
 const byCategory = new Map<string, string[]>();
@@ -393,7 +509,7 @@ chart.addIndicator('momentum', { length: 14 });
 ### Shaded bands between plots
 
 A pair of lines is not the same picture as a filled region, so a descriptor can
-declare `fills`: the Ichimoku cloud, a Bollinger channel. 22 of the 86 built-ins
+declare `fills`: the Ichimoku cloud, a Bollinger channel. 25 of the 91 built-ins
 declare one or more, 28 fills in total.
 
 ```ts
