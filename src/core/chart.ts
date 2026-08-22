@@ -10,10 +10,11 @@ import { Pane, type PaneRenderContext } from './pane';
 import { type ChartTheme, DEFAULT_THEME } from '../theme';
 import { TimeScale } from '../scale/time-scale';
 import type { LogicalRange } from '../scale/time-scale';
-import type { PriceScaleOptions, PriceScale } from '../scale/price-scale';
-import type { TickMarkType } from '../render/axis';
+import type { PriceScaleOptions, PriceScaleMode, PriceScale } from '../scale/price-scale';
+import { medianBarInterval, type TickMarkType, type SessionClockOptions, type BarCountdownOptions } from '../render/axis';
+import { resolvePlotMargins, type CanvasOptions, type GridOptions } from '../render/grid';
 import { DataLayer } from '../model/data-layer';
-import { createSeriesRecord, type SeriesApi, type PriceScaleId } from '../model/series';
+import { createSeriesRecord, type SeriesApi, type SeriesRecord, type PriceScaleId } from '../model/series';
 import { getChartType, type SeriesType } from '../model/chart-type-registry';
 import {
   getIndicator, hasIndicator, plotStyleKeys,
@@ -50,15 +51,64 @@ import { KineticAnimation } from '../input/kinetic';
 import { magnetSnapPrice, type CrosshairMode } from '../input/crosshair';
 import { ShortcutManager } from '../input/shortcuts';
 import type { ShortcutManagerOptions } from '../input/shortcuts';
-import { TradingController } from './trading-controller';
+import { TradingController, DEFAULT_TRADING_COLORS, type TradingColors, type TradingSettings } from './trading-controller';
 import { pinchState, pinchDelta, type PinchState } from '../input/touch';
 import type { IPrimitive, PrimitiveHost, PrimitiveHit } from '../primitives/primitive';
 import { PriceLine, type PriceLineOptions } from '../primitives/price-line';
 import { SeriesMarkers } from '../primitives/markers';
-import { EventMarkers } from '../primitives/event-markers';
-import { PaneLegend, type PaneLegendAction } from '../primitives/pane-legend';
+import { EventMarkers, type ChartEvent } from '../primitives/event-markers';
+import { PaneLegend, type PaneLegendAction, type LegendStatusLineOptions } from '../primitives/pane-legend';
 import { ChartTable } from '../primitives/table';
 import { TimeNavigator, type TimeNavigatorOptions } from '../primitives/time-navigator';
+import type { ChartSettingsState } from '../model/chart-settings';
+import { DEFAULT_TIMEZONE, isValidTimezone } from '../feed/time';
+import { clamp } from '../helpers/math';
+
+/** A zone name the runtime recognises, or a readable failure at the call site. */
+function checkedTimezone(zone: string): string {
+  if (!isValidTimezone(zone)) {
+    throw new Error(`openalgo-charts: unknown IANA time zone "${zone}"`);
+  }
+  return zone;
+}
+
+/**
+ * Which corporate-action / news markers the chart draws. Every type defaults to
+ * on; an unlisted type is always drawn. Only filters the strip the chart owns
+ * (`setEvents`), not an `EventMarkers` a host drives itself.
+ */
+export interface ChartEventOptions {
+  earnings?: boolean;
+  dividend?: boolean;
+  split?: boolean;
+  news?: boolean;
+}
+
+/**
+ * Chrome that lives on the axis strips rather than in the plot: a live clock in
+ * the corner where the two axes meet, and a countdown to the current bar's close
+ * inside the last-price tag.
+ *
+ * Both default to off. Neither is a thing a chart should start showing because
+ * it upgraded, and a chart that sets none of this draws the axes it always drew.
+ */
+export interface AxisChromeOptions {
+  /**
+   * Live clock in the corner between the price and time axes. `true` takes the
+   * defaults; the object form is there for the one thing worth choosing, the
+   * second row carrying the zone's offset from UTC.
+   */
+  sessionClock?: boolean | { showOffset?: boolean };
+  /** Second row in the last-price tag counting down to the bar's close. */
+  barCountdown?: boolean;
+  /**
+   * Wall-clock UTC seconds. Both readings are times of day, so neither can use
+   * `now`, which is a monotonic animation clock and not a calendar. Defaults to
+   * the system clock; pass the feed's clock to keep a delayed or replayed chart
+   * honest about what time its data thinks it is.
+   */
+  clock?: () => number;
+}
 
 export interface ChartOptions {
   document?: Document;
@@ -90,14 +140,31 @@ export interface ChartOptions {
    * bar under the cursor (price pane only).
    */
   crosshairMode?: CrosshairMode;
+  /**
+   * Optional chrome on the axis strips: the corner clock and the bar-close
+   * countdown. Both are off unless asked for, so a chart that omits this block
+   * draws the axes it always drew.
+   */
+  axisChrome?: AxisChromeOptions;
   /** Time source for kinetic animation (defaults to performance.now). */
   now?: () => number;
   /** Enable OHLC-preserving conflation when zoomed out (§4.4). Default false. */
   conflate?: boolean;
   /** Conflation aggressiveness (default 1). */
   conflationFactor?: number;
-  /** Grid line visibility. Both default to true. */
-  grid?: { vertLines?: boolean; horzLines?: boolean };
+  /**
+   * Grid lines: visibility (both default to true) plus per-axis colour, dash,
+   * width and spacing. Unset colours/dashes fall through to the theme.
+   */
+  grid?: Partial<GridOptions>;
+  /**
+   * The settings dialog's Canvas block: grid, crosshair, scale text/lines and
+   * plot margins. Every field is an override of the theme, so a later
+   * `setTheme` still restyles anything the dialog did not touch.
+   */
+  canvas?: CanvasOptions;
+  /** Per-field status-line switches applied to every pane legend on the chart. */
+  statusLine?: LegendStatusLineOptions;
   /** Accessible label for the chart container (screen readers). */
   ariaLabel?: string;
   /**
@@ -113,7 +180,8 @@ export interface ChartOptions {
   priceFormatter?: (price: number) => string;
   /**
    * Default price-scale options applied to every pane (tick size `minMove`,
-   * `mode: 'linear' | 'logarithmic'`, `inverted`, and top/bottom margins).
+   * `mode: 'linear' | 'logarithmic' | 'percentage' | 'indexed-to-100'`,
+   * `inverted`, and top/bottom margins).
    * Tune a single pane later via `chart.panes()[n].priceScale.setOptions(...)`.
    */
   priceScale?: Partial<PriceScaleOptions>;
@@ -123,6 +191,20 @@ export interface ChartOptions {
    * `(s) => new Date(s * 1000).toISOString().slice(11, 16)`.
    */
   timeFormatter?: (utcSeconds: number, tickMark?: TickMarkType) => string;
+  /**
+   * IANA zone the time axis and crosshair label in, e.g. 'America/New_York' or
+   * 'Europe/London'. Defaults to 'Asia/Kolkata': a caller who passes nothing
+   * gets exactly the labels the chart produced before this option existed.
+   *
+   * An IANA name and not a fixed offset, because a zone that observes DST is a
+   * different offset in July than in January and a fixed one is silently wrong
+   * for half the year. Change it at runtime with `setTimezone` when the terminal
+   * moves between an NSE symbol and a US one. An explicit `timeFormatter`
+   * outranks this: a host that formats its own labels has settled the question.
+   *
+   * Throws if the runtime does not recognise the name.
+   */
+  timezone?: string;
   /**
    * Hover-revealed zoom / step controls above the time axis, as terminals show.
    * `true` by default — they stay invisible until the pointer nears the bottom
@@ -183,8 +265,95 @@ export interface CrosshairMoveEvent {
   paneIndex?: number | null;
 }
 
+/**
+ * What the pointer was over when the context menu was raised. The chart cannot
+ * know which menu items an app wants, but it does know what was hit, which is
+ * the part an app cannot work out for itself: a canvas gives it a pixel, not an
+ * object. `primitive` is anything hit-testable that is not one of the named
+ * kinds (a price line, an order pill, a marker).
+ */
+export type ContextMenuTargetKind =
+  | 'drawing' | 'indicator' | 'legend' | 'primitive' | 'series' | 'price-scale' | 'time-scale' | 'empty';
+
+export interface ContextMenuTarget {
+  kind: ContextMenuTargetKind;
+  /** Hit-test id of the thing under the pointer, when there was one. */
+  id: string | null;
+  /** Indicator instance id, when `kind` is 'indicator'. */
+  instanceId?: string;
+  /** Series type, when `kind` is 'series'. */
+  seriesType?: SeriesType;
+  /** Which axis strip was hit, when `kind` is 'price-scale'. */
+  side?: 'right' | 'left';
+  /**
+   * Which of the pane's scales that strip acts on, when `kind` is
+   * 'price-scale': the side's own scale, or the hidden overlay scale ('') when
+   * the side carries no series of its own and the pane's values are all on the
+   * overlay. It is the argument the `priceAxis*` calls take.
+   */
+  scaleId?: PriceScaleId;
+}
+
+/** The four price-scale modes, in the order a menu lists them. */
+export const PRICE_SCALE_MODES: readonly PriceScaleMode[] =
+  ['linear', 'logarithmic', 'percentage', 'indexed-to-100'];
+
+/**
+ * What a host needs to render a menu over one price axis: which items are on,
+ * and which of them mean anything on this axis. See `Chart.priceAxisState`.
+ */
+export interface PriceAxisState {
+  paneIndex: number;
+  scaleId: PriceScaleId;
+  /** Strip this scale is drawn in. The overlay scale reports 'right' and draws none. */
+  side: 'right' | 'left';
+  /** Some series on the pane maps to this scale. */
+  active: boolean;
+  /** Auto-fit: the range tracks the data rather than staying where it was put. */
+  autoFit: boolean;
+  inverted: boolean;
+  mode: PriceScaleMode;
+  /** False while the scale still sits on its 0..1 placeholder (nothing measured). */
+  scaled: boolean;
+  lockRatio: boolean;
+  /** Whether `movePriceAxis` would do anything: something to move, and a free side. */
+  movable: boolean;
+}
+
+/** Payload of the `contextmenu` event (`chart.on('contextmenu', ...)`). */
+export interface ContextMenuEvent {
+  paneIndex: number;
+  /** Cursor position in container media px, for placing the menu. */
+  point: { x: number; y: number };
+  /** Price under the pointer on that pane, or null off the plot. */
+  price: number | null;
+  /** UTC seconds under the pointer, or null when there is no data. */
+  time: number | null;
+  /** Logical bar index under the pointer, or null off the plot. */
+  index: number | null;
+  target: ContextMenuTarget;
+  /** Suppress the browser's own menu. Call it to show your own. */
+  preventDefault(): void;
+}
+
 function defaultPixelRatio(): number {
   return typeof window !== 'undefined' && window.devicePixelRatio ? window.devicePixelRatio : 1;
+}
+
+/**
+ * The frame scheduler for the chart's own one-shot callbacks, resolved the same
+ * way `RenderLoop` resolves its painting one. It has to be the injected
+ * scheduler wherever a host supplies one: a test that drives frames by hand
+ * would otherwise be waiting on a browser rAF that never comes.
+ */
+function resolveRaf(
+  opts?: { schedule: RafScheduler; cancel?: RafCanceller },
+): { schedule: RafScheduler; cancel: RafCanceller } {
+  if (opts) return { schedule: opts.schedule, cancel: opts.cancel ?? ((): void => {}) };
+  if (typeof requestAnimationFrame === 'function') {
+    return { schedule: (cb) => requestAnimationFrame(cb), cancel: (h) => cancelAnimationFrame(h) };
+  }
+  return { schedule: (cb) => setTimeout(cb, 16) as unknown as number, cancel: (h) => clearTimeout(h) };
 }
 
 export class Chart {
@@ -194,6 +363,9 @@ export class Chart {
   private _theme: ChartTheme;
   private readonly _panes: Pane[] = [];
   private readonly _loop: RenderLoop;
+  /** The frame scheduler, kept for the one-shot re-measure after construction. */
+  private readonly _raf: { schedule: RafScheduler; cancel: RafCanceller };
+  private _remeasureHandle: number | null = null;
   private readonly _dataLayer = new DataLayer();
   private readonly _timeScale = new TimeScale();
   private readonly _priceAxisWidth: number;
@@ -215,6 +387,35 @@ export class Chart {
   private readonly _conflationFactor: number;
   private _gridVert = true;
   private _gridHorz = true;
+  /** The Canvas option block: overrides of the theme, never a copy of it. */
+  private readonly _canvas: CanvasOptions = {};
+  /** Status-line switches pushed onto every pane legend, host-added ones included. */
+  private readonly _statusLine: LegendStatusLineOptions = {};
+  /** Axis-strip chrome switches. Empty is the shipped chart: neither drawn. */
+  // Both switches explicitly off rather than absent: "off" is the shipped
+  // default and a state capture should say so, so that turning one on and off
+  // again lands back on the state that was saved before it was ever touched.
+  private readonly _axisChrome: AxisChromeOptions = { sessionClock: false, barCountdown: false };
+  /**
+   * The corner clock's object form, kept across an off/on toggle. A switch that
+   * turns the clock off must not also throw away the `showOffset` a host chose
+   * for it: switching it back on would silently be a different clock, and
+   * nothing on the switch could put the choice back.
+   */
+  private _sessionClockForm: { showOffset?: boolean } | null = null;
+  /** Wall-clock UTC seconds for the two axis readings, injectable for tests. */
+  private _wallClock: () => number = () => Date.now() / 1000;
+  /**
+   * Trade-layer colours held here rather than on the controller, so reading or
+   * setting them never has to instantiate one. `chart.trading` hands them over
+   * when the controller is finally created.
+   */
+  private readonly _tradingSettings: TradingSettings = {};
+  /** Chart-owned event strip (see `setEvents`), plus which types it draws. */
+  private _events: readonly ChartEvent[] = [];
+  private _eventMarkers: EventMarkers | null = null;
+  private _eventPane = 0;
+  private readonly _eventVisible: ChartEventOptions = {};
   private _cursorPane: number | null = null;
   private _cursor: { x: number; y: number } | null = null;
   private _dragging = false;
@@ -232,6 +433,8 @@ export class Chart {
   private _dragVelocity = 0;
   private _kineticHandle: number | null = null;
   private readonly _firstDataId: { value: number | null } = { value: null };
+  /** Handle + record of the primary price series (see `primarySeries`). */
+  private _primary: { api: SeriesApi; record: SeriesRecord } | null = null;
   private readonly _indicators: IndicatorInstance[] = [];
   /** Guards indicator recompute against re-entry via its own `series.setData`. */
   private _recomputing = false;
@@ -262,6 +465,8 @@ export class Chart {
   private _dragEndCb: ((externalId: string, price: number, time: number) => void) | null = null;
   // axis-drag rescale (price axis = vertical, time axis = horizontal)
   private _axisDrag: 'price' | 'time' | null = null;
+  /** The scale a price-axis drag is rescaling: either side's, whichever strip was grabbed. */
+  private _axisDragScale: PriceScale | null = null;
   /** Active pane-divider drag: which boundary, and the weights/heights at grab time. */
   /** True once a primitive drag has actually moved — see the pointerup note. */
   private _dragMoved = false;
@@ -278,7 +483,9 @@ export class Chart {
   private _priceFormatter: ((price: number) => string) | null = null;
   private _priceScaleOptions: Partial<PriceScaleOptions> | null = null;
   private _timeFormatter: ((utcSeconds: number, tickMark?: TickMarkType) => string) | undefined = undefined;
+  private _timezone: string = DEFAULT_TIMEZONE;
   private _leftAxisWidth = 0; // chart-wide reserved left-axis column (0 = none)
+  private _rightAxisWidth = 0; // chart-wide reserved right-axis column (0 = none)
   private _timeNav: TimeNavigator | null = null;
   /** Pane the navigator is currently attached to, so it can follow the bottom. */
   private _timeNavPane = -1;
@@ -289,10 +496,19 @@ export class Chart {
     this._pixelRatio = options.pixelRatio ?? defaultPixelRatio;
     this._theme = options.theme ?? DEFAULT_THEME;
     this._priceAxisWidth = options.priceAxisWidth ?? 56;
+    this._rightAxisWidth = this._priceAxisWidth; // the right axis is the default one
+
     if (options.legendOffset?.top !== undefined) this._legendOffset.top = options.legendOffset.top;
     if (options.legendOffset?.left !== undefined) this._legendOffset.left = options.legendOffset.left;
     this._timeAxisHeight = options.timeAxisHeight ?? 22;
     this._crosshairMode = options.crosshairMode ?? 'normal';
+    // Assigned rather than pushed through `setAxisChromeOptions`: the setter
+    // asks for a repaint, and the render loop does not exist yet.
+    Object.assign(this._axisChrome, options.axisChrome);
+    if (typeof options.axisChrome?.sessionClock === 'object') {
+      this._sessionClockForm = { ...options.axisChrome.sessionClock };
+    }
+    if (options.axisChrome?.clock !== undefined) this._wallClock = options.axisChrome.clock;
     const sc = options.shortcuts;
     this._shortcuts = sc === false ? null : (sc instanceof ShortcutManager ? sc : new ShortcutManager(sc ?? {}));
     this._now = options.now ?? (() => (typeof performance !== 'undefined' ? performance.now() : 0));
@@ -301,8 +517,21 @@ export class Chart {
     this._priceFormatter = options.priceFormatter ?? null;
     this._priceScaleOptions = options.priceScale ?? null;
     this._timeFormatter = options.timeFormatter;
+    // Assigned rather than routed through `setTimezone`: the render loop does
+    // not exist yet, and there is nothing painted to invalidate.
+    if (options.timezone !== undefined) this._timezone = checkedTimezone(options.timezone);
     this._gridVert = options.grid?.vertLines ?? true;
     this._gridHorz = options.grid?.horzLines ?? true;
+    Object.assign(this._canvas, options.canvas);
+    if (options.grid) this._canvas.grid = { ...this._canvas.grid, ...options.grid };
+    Object.assign(this._statusLine, options.statusLine);
+    // Margins are the price scale's own state in fraction units; the canvas
+    // block only carries the dialog's percentages. Fold them in before the
+    // first pane exists, so `_addPane` applies both together.
+    const margins = resolvePlotMargins(this._canvas.margins);
+    if (margins.marginTop !== undefined || margins.marginBottom !== undefined) {
+      this._priceScaleOptions = { ...this._priceScaleOptions, ...margins };
+    }
     const nav = options.timeNavigator ?? true;
     if (nav !== false) {
       this._timeNav = new TimeNavigator(
@@ -338,9 +567,8 @@ export class Chart {
     container.appendChild(live);
     this._liveRegion = live;
 
-    this._loop = options.raf
-      ? new RenderLoop(() => this._onFrame(), options.raf.schedule, options.raf.cancel)
-      : new RenderLoop(() => this._onFrame());
+    this._raf = resolveRaf(options.raf);
+    this._loop = new RenderLoop(() => this._onFrame(), this._raf.schedule, this._raf.cancel);
 
     this._addPane();
     this._observeSize();
@@ -349,6 +577,10 @@ export class Chart {
     // preserve zoom across a data reload) still triggers a repaint.
     this._timeScale.setChangeHandler(() => this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full)));
     this.applySize(container.clientWidth, container.clientHeight);
+    this._remeasureHandle = this._raf.schedule(() => {
+      this._remeasureHandle = null;
+      this._remeasure();
+    });
     // 'ready' fires on a microtask so `createChart(el).on('ready', ...)` — a
     // subscription registered on the very next line — still receives it.
     if (typeof queueMicrotask === 'function') queueMicrotask(() => this.emit('ready', {}));
@@ -400,8 +632,45 @@ export class Chart {
    * on first access.
    */
   public get trading(): TradingController {
-    if (this._trading === null) this._trading = new TradingController(this);
+    if (this._trading === null) {
+      this._trading = new TradingController(this);
+      this._trading.setSettings(this._tradingSettings);
+    }
     return this._trading;
+  }
+
+  /**
+   * Whether the trade layer exists yet. Reading `chart.trading` creates one,
+   * and creating one claims the click/drag subscriptions, so anything that
+   * merely inspects the chart (a settings dialog) asks this first.
+   */
+  public hasTrading(): boolean {
+    return this._trading !== null;
+  }
+
+  /**
+   * Trade-layer colours, whether or not the controller has been created. Once
+   * it exists it is the single answer (a host may set colours on it directly);
+   * before that, the held patch is folded onto the defaults. The fold is needed
+   * because the two shapes name a colour differently: the patch says
+   * `longColor`, the resolved palette says `long`.
+   */
+  public tradingSettings(): TradingColors {
+    if (this._trading !== null) return this._trading.getSettings();
+    const out = { ...DEFAULT_TRADING_COLORS };
+    for (const [key, value] of Object.entries(this._tradingSettings)) {
+      if (typeof value === 'string') out[key.slice(0, -'Color'.length) as keyof TradingColors] = value;
+    }
+    return out;
+  }
+
+  /**
+   * Recolour the trade layer. Safe before it exists: the patch is held and
+   * handed over the moment `chart.trading` builds the controller.
+   */
+  public setTradingSettings(patch: TradingSettings): void {
+    Object.assign(this._tradingSettings, patch);
+    this._trading?.setSettings(patch);
   }
 
   /** Add a series and return its data handle. */
@@ -418,16 +687,17 @@ export class Chart {
     const dataId = this._dataLayer.createSeries();
     const paneIndex = options.paneIndex ?? 0;
     this._ensurePane(paneIndex);
+    const record = createSeriesRecord(dataId, type, options.style, options.priceScaleId ?? 'right');
     // The first price-type series drives the magnet crosshair + OHLC legend.
-    if (claimPrimary && this._firstDataId.value === null && getChartType(type).isPriceSeries) {
+    const isPrimary = claimPrimary && this._firstDataId.value === null && getChartType(type).isPriceSeries;
+    if (isPrimary) {
       this._firstDataId.value = dataId;
       this._firstPaneIndex = paneIndex;
     }
-    const record = createSeriesRecord(dataId, type, options.style, options.priceScaleId ?? 'right');
     this._panes[paneIndex].addSeries(record);
-    this._recomputeLeftAxis(); // reserve/free the left-axis column
+    this._recomputeAxisColumns(); // reserve/free the axis columns
+    const scale = this._panes[paneIndex].scaleOf(record);
     if (options.priceFormat) {
-      const scale = this._panes[paneIndex].scaleOf(record);
       const pf = options.priceFormat;
       if (pf.type === 'custom') scale.setPriceFormatter(pf.formatter);
       else if (pf.type === 'volume') scale.setPriceFormatter(compactVolume);
@@ -436,22 +706,28 @@ export class Chart {
         if (minMove !== undefined) scale.setOptions({ minMove });
       }
     }
+    if (record.style.precision !== undefined) this._applyPrecision(scale, record.style.precision);
 
-    return {
+    const api: SeriesApi = {
       setData: (bars: readonly SeriesDataItem[]): void => this._setData(dataId, bars.map(toBar)),
       prependData: (bars: readonly SeriesDataItem[]): void => this._prependData(dataId, bars.map(toBar)),
       update: (bar: SeriesDataItem): void => this._updateBar(dataId, toBar(bar)),
       getData: (): Bar[] => this._dataLayer.indexedBars(dataId).map((ib) => ib.bar),
       applyOptions: (patch: Partial<SeriesStyle>): void => {
         Object.assign(record.style, patch);
+        // Precision is a label override on the scale, not a style the renderer
+        // reads, so it needs pushing across when it changes (including back to
+        // "Default", which is the key present and undefined).
+        if ('precision' in patch) this._applyPrecision(this._panes[paneIndex].scaleOf(record), patch.precision);
         this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
       },
       remove: (): void => {
         this._panes[paneIndex].removeSeries(record);
         this._dataLayer.removeSeries(dataId);
         if (this._firstDataId.value === dataId) this._firstDataId.value = null;
+        if (this._primary?.record === record) this._primary = null;
         this._timeScale.setBaseIndex(this._dataLayer.baseIndex);
-        this._recomputeLeftAxis();
+        this._recomputeAxisColumns();
         this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
       },
       priceScale: (): PriceScale => this._panes[paneIndex].scaleOf(record),
@@ -461,6 +737,45 @@ export class Chart {
         return m;
       },
     };
+    if (isPrimary) this._primary = { api, record };
+    return api;
+  }
+
+  /**
+   * The primary price series: the first one added, and the one the magnet
+   * crosshair, the OHLC legend, the market-replay controller and a settings
+   * dialog's Symbol tab all describe. Null until a price series exists.
+   */
+  public primarySeries(): SeriesApi | null {
+    return this._primary?.api ?? null;
+  }
+
+  /**
+   * Type and live style of the primary series, for a settings dialog: the type
+   * decides which controls apply (a candle has borders, a line has a dash), and
+   * the style is the object `applyOptions` patches.
+   */
+  public primarySeriesInfo(): { type: SeriesType; style: Readonly<SeriesStyle> } | null {
+    const p = this._primary;
+    return p === null ? null : { type: p.record.type, style: p.record.style };
+  }
+
+  /**
+   * Push a series' `precision` override onto the price scale it maps to.
+   *
+   * It rides the scale's *formatter* rather than `minMove` because minMove also
+   * drives `snapToTick`: precision 0 would start snapping every price to whole
+   * numbers. Going through the formatter covers the axis ticks, the last-value
+   * tag, the crosshair label and the drawing-tool labels at once, since they all
+   * call `priceScale.format`. Clearing it restores the chart-wide formatter.
+   */
+  private _applyPrecision(scale: PriceScale, precision: number | undefined): void {
+    if (precision === undefined || !isFinite(precision)) {
+      scale.setPriceFormatter(this._priceFormatter);
+      return;
+    }
+    const digits = clamp(Math.round(precision), 0, 8);
+    scale.setPriceFormatter((v) => v.toFixed(digits));
   }
 
   /** Add a horizontal price line (order/SL/TP/alert/level) to a pane. */
@@ -475,6 +790,38 @@ export class Chart {
     const em = new EventMarkers();
     this._addPrimitive(paneIndex, em);
     return em;
+  }
+
+  /**
+   * Hand the chart the corporate-action / news calendar and let it own the
+   * strip. The difference from `addEventMarkers` is who filters: holding the
+   * full list here is what lets `setEventOptions` (the settings dialog's Events
+   * switches) turn a type off and back on without the host re-supplying data.
+   */
+  public setEvents(events: readonly ChartEvent[], paneIndex = 0): void {
+    this._events = events;
+    this._eventPane = paneIndex;
+    this._syncEvents();
+  }
+
+  /** Turn event types on/off. Unlisted types stay visible. */
+  public setEventOptions(patch: ChartEventOptions): void {
+    Object.assign(this._eventVisible, patch);
+    this._syncEvents();
+  }
+
+  public eventOptions(): ChartEventOptions {
+    return { ...this._eventVisible };
+  }
+
+  private _syncEvents(): void {
+    if (this._eventMarkers === null) {
+      if (this._events.length === 0) return; // nothing to show, nothing to build
+      this._eventMarkers = new EventMarkers();
+      this._addPrimitive(this._eventPane, this._eventMarkers);
+    }
+    const visible = this._eventVisible as Record<string, boolean | undefined>;
+    this._eventMarkers.setEvents(this._events.filter((e) => visible[e.type] !== false));
   }
 
   /**
@@ -600,15 +947,21 @@ export class Chart {
       sourceBars: (): readonly Bar[] =>
         this._firstDataId.value === null ? [] : this._dataLayer.seriesBars(this._firstDataId.value),
       nextPaneIndex: (): number => this._panes.length,
+      // The calendar a session anchor resets on and the calendar the axis is
+      // labelled in have to be the same one, or a VWAP restarts in the middle
+      // of the afternoon the axis is showing.
+      timezone: (): string => this._timezone,
+      // The calendar a session anchor resets on and the calendar the axis is
+      // labelled in have to be the same one, or a VWAP restarts in the middle
+      // of the afternoon the axis is showing.
       setPaneRange: (paneIndex, range): void => {
         const pane = this._panes[paneIndex];
         if (pane === undefined) return;
-        if (range === null) {
-          pane.priceScale.setAutoScale(true);
-        } else {
-          pane.priceScale.setAutoScale(false);
-          pane.priceScale.setPriceRange(range);
-        }
+        // Declared, not measured: the scale remembers the band so a later
+        // auto-fit request comes back to it instead of re-measuring an
+        // oscillator against its own values (see `PriceScale.setFixedRange`).
+        pane.priceScale.setFixedRange(range);
+        if (range === null) pane.priceScale.setAutoScale(true);
       },
     };
   }
@@ -668,7 +1021,7 @@ export class Chart {
    */
   private _ensureScaled(paneIndex: number): void {
     const pane = this._panes[paneIndex];
-    if (pane === undefined || pane.priceScale.scaled) return;
+    if (pane === undefined || pane.readoutScale().scaled) return;
     pane.autoscale(this._renderContext(paneIndex === this._bottomPaneIndex()));
   }
 
@@ -692,7 +1045,7 @@ export class Chart {
   // `subscribe*` helpers. Names emitted by the core: 'ready', 'crosshair:move',
   // 'click', 'dblclick', 'hover', 'drag', 'drag:end', 'pan', 'zoom', 'resize',
   // 'lazy-load', 'paneRemoved', 'paneMoved', 'paneMaximized', 'paneResized',
-  // 'indicatorRemoved', 'indicatorSettings'. The trading layer routes its
+  // 'priceAxisMoved', 'indicatorRemoved', 'indicatorSettings'. The trading layer routes its
   // 'trading:*' events through here too, and the draw tier emits 'draw:*'.
   //
   // Event names are the same string on both buses: `TradingController` keys its
@@ -769,7 +1122,7 @@ export class Chart {
     const pane = this._panes[paneIndex];
     if (pane === undefined) return null;
     const top = this._paneLayout()[paneIndex]?.top ?? 0;
-    return top + pane.priceScale.priceToY(price);
+    return top + pane.priceToY(price);
   }
 
   /** Map a container-relative media-px Y back to a price on a pane (inverse of priceToCoordinate). */
@@ -778,22 +1131,250 @@ export class Chart {
     const pane = this._panes[paneIndex];
     if (pane === undefined) return null;
     const top = this._paneLayout()[paneIndex]?.top ?? 0;
-    return pane.priceScale.yToPrice(y - top);
+    return pane.yToPrice(y - top);
   }
 
   /**
-   * Toggle the vertical (time) and/or horizontal (price) grid lines at runtime.
-   * Omitted fields keep their current visibility. Repaints every pane.
+   * Grid lines at runtime: visibility of each axis, plus its colour, dash,
+   * width and spacing. Omitted fields keep their current value. Repaints every
+   * pane.
    */
-  public setGridOptions(opts: { vertLines?: boolean; horzLines?: boolean }): void {
+  public setGridOptions(opts: Partial<GridOptions>): void {
     if (opts.vertLines !== undefined) this._gridVert = opts.vertLines;
     if (opts.horzLines !== undefined) this._gridHorz = opts.horzLines;
+    this._canvas.grid = { ...this._canvas.grid, ...opts };
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
   }
 
-  /** Current grid line visibility. */
-  public gridOptions(): { vertLines: boolean; horzLines: boolean } {
-    return { vertLines: this._gridVert, horzLines: this._gridHorz };
+  /** Current grid options, visibility first (it is the one field always set). */
+  public gridOptions(): { vertLines: boolean; horzLines: boolean } & Partial<GridOptions> {
+    return { ...this._canvas.grid, vertLines: this._gridVert, horzLines: this._gridHorz };
+  }
+
+  /**
+   * The Canvas option block (grid, crosshair, scale text/lines, plot margins).
+   * Each sub-block merges field by field, so setting one grid colour leaves the
+   * rest of the grid alone.
+   */
+  public setCanvasOptions(patch: CanvasOptions): void {
+    if (patch.grid) this.setGridOptions(patch.grid); // keeps the visibility pair in step
+    if (patch.crosshair) this._canvas.crosshair = { ...this._canvas.crosshair, ...patch.crosshair };
+    if (patch.scales) this._canvas.scales = { ...this._canvas.scales, ...patch.scales };
+    if (patch.margins) {
+      this._canvas.margins = { ...this._canvas.margins, ...patch.margins };
+      // No second margin state: the price scale already owns marginTop/Bottom
+      // as fractions, and this only converts the dialog's percentages.
+      this.setPriceScaleOptions(resolvePlotMargins(this._canvas.margins), 'axes');
+    }
+    this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
+  }
+
+  /** The Canvas option block as it stands (theme fallbacks are not folded in). */
+  public canvasOptions(): CanvasOptions {
+    return { ...this._canvas };
+  }
+
+  /**
+   * Price-scale options for every pane (mode, inverted, tick size, margins),
+   * and the default new panes inherit.
+   *
+   * `scope` says how far a chart-wide setting reaches:
+   *  - `'primary'` (default): each pane's right scale only. A mode change
+   *    wants this: rebasing a volume overlay quotes percent change in lots.
+   *  - `'axes'`: every scale that draws a ladder, so the left axis moves with
+   *    the right. Plot margins want this.
+   *  - `'all'`: the hidden overlay scales too. Almost nothing should: an
+   *    overlay's margins are its creator's placement, see `Pane.axisScales`.
+   */
+  public setPriceScaleOptions(
+    patch: Partial<PriceScaleOptions>,
+    scope: 'primary' | 'axes' | 'all' = 'primary',
+  ): void {
+    this._priceScaleOptions = { ...this._priceScaleOptions, ...patch };
+    for (const pane of this._panes) {
+      const scales = scope === 'all' ? pane.scales() : scope === 'axes' ? pane.axisScales() : [pane.priceScale];
+      for (const scale of scales) scale.setOptions(patch);
+    }
+    this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
+  }
+
+  /** The primary pane's price-scale options (what the Scales tab reads). */
+  public priceScaleOptions(): PriceScaleOptions {
+    return { ...this._panes[0].priceScale.options };
+  }
+
+  /**
+   * Put every pane's price axis back under autoscale, or pin it where it is.
+   * `PriceScale.setAutoScale` alone changes nothing on screen until something
+   * else asks for a frame; this re-measures and repaints.
+   */
+  public setAutoScale(on: boolean): void {
+    for (const pane of this._panes) {
+      // Auto-fit and a pinned price-per-bar ratio ask opposite things of the
+      // same range, so the one just asked for wins.
+      if (on) pane.setRatioLock('right', false, 0, 0);
+      pane.priceScale.setAutoScale(on);
+    }
+    this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
+  }
+
+  // ── one price axis at a time (what a price-axis menu acts on) ─────────────
+  // The setters above are chart-wide, which is what a settings dialog wants. A
+  // menu raised on one axis strip is the other case: it names a pane and a
+  // scale, and every item it offers has to be readable back to draw its own
+  // ticks and to grey what does not apply.
+
+  /**
+   * State of one price axis, for a host rendering a menu over it: what is
+   * currently on, and which items are worth offering. Null for a pane that does
+   * not exist.
+   *
+   * `active` false is a scale no series maps to: the ladder on an empty chart,
+   * or the side a menu was raised on before anything was plotted there. That is
+   * a row to render disabled with its state visible, not one to leave out.
+   */
+  public priceAxisState(paneIndex = 0, scaleId: PriceScaleId = 'right'): PriceAxisState | null {
+    const pane = this._panes[paneIndex];
+    if (pane === undefined) return null;
+    const scale = pane.scaleFor(scaleId);
+    const side: 'right' | 'left' = scaleId === 'left' ? 'left' : 'right';
+    const other: 'right' | 'left' = side === 'left' ? 'right' : 'left';
+    return {
+      paneIndex,
+      scaleId,
+      side,
+      active: pane.usesScale(scaleId),
+      autoFit: scale.autoScale,
+      inverted: scale.options.inverted,
+      mode: scale.options.mode,
+      scaled: scale.scaled,
+      lockRatio: pane.ratioLocked(scaleId),
+      movable: scaleId !== '' && pane.usesScale(scaleId) && !pane.usesScale(other),
+    };
+  }
+
+  /**
+   * Options for one pane's scale (mode, invert, tick size, margins) rather than
+   * every pane's. The four modes are one field, so picking one drops the
+   * previous by construction: a menu renders them as a single choice.
+   */
+  public setPriceAxisOptions(paneIndex: number, scaleId: PriceScaleId, patch: Partial<PriceScaleOptions>): void {
+    const pane = this._panes[paneIndex];
+    if (pane === undefined) return;
+    pane.scaleFor(scaleId).setOptions(patch);
+    this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
+  }
+
+  /**
+   * Auto-fit one axis: its range tracks the data again, or stays where the user
+   * left it. Turning it on releases any ratio lock on that axis, for the reason
+   * given in `setAutoScale`.
+   */
+  public setPriceAxisAutoFit(paneIndex: number, scaleId: PriceScaleId, on: boolean): void {
+    const pane = this._panes[paneIndex];
+    if (pane === undefined) return;
+    if (on) pane.setRatioLock(scaleId, false, 0, 0);
+    pane.scaleFor(scaleId).setAutoScale(on);
+    this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
+  }
+
+  /**
+   * Pin one axis' price-per-bar ratio: zooming the time axis then rescales the
+   * prices with it, so a trend drawn at 45 degrees stays at 45 degrees. The
+   * axis goes manual, because auto-fit would re-fit the data every frame and
+   * undo the ratio being held.
+   *
+   * Returns whether the axis is now in the state asked for. Locking fails on a
+   * scale nothing has measured: there is no ratio to hold on an empty pane, or
+   * on one whose series plot no values at all.
+   */
+  public setPriceAxisLockRatio(paneIndex: number, scaleId: PriceScaleId, on: boolean): boolean {
+    const pane = this._panes[paneIndex];
+    if (pane === undefined) return false;
+    if (on) this._ensureScaledFor(paneIndex, scaleId);
+    const ok = pane.setRatioLock(scaleId, on, this._timeScale.barSpacing, pane.scaleFor(scaleId).height);
+    this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
+    return ok;
+  }
+
+  /**
+   * Move a pane's price axis to the other strip, taking the series that map to
+   * it and everything the axis was set to. Returns false when that side carries
+   * nothing, or when the other side is already occupied: one strip draws one
+   * axis (see `Pane.moveSeriesScale`), which is what `movable` reports.
+   */
+  public movePriceAxis(paneIndex: number, from: 'right' | 'left', to: 'right' | 'left'): boolean {
+    const pane = this._panes[paneIndex];
+    if (pane === undefined || !pane.moveSeriesScale(from, to)) return false;
+    // The moved axis keeps its own formatting (the scale object travels with
+    // it); the strip it vacated starts again from the chart-wide defaults, the
+    // way a scale used for the first time does.
+    const vacated = pane.scaleFor(from);
+    if (this._priceScaleOptions) vacated.setOptions(this._priceScaleOptions);
+    vacated.setPriceFormatter(this._priceFormatter);
+    this._recomputeAxisColumns(); // the columns are reserved by what is in use
+    this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
+    this.emit('priceAxisMoved', { paneIndex, from, to });
+    return true;
+  }
+
+  /** Measure one scale on demand, the way `_ensureScaled` does for the pane's right one. */
+  private _ensureScaledFor(paneIndex: number, scaleId: PriceScaleId): void {
+    const pane = this._panes[paneIndex];
+    if (pane === undefined || pane.scaleFor(scaleId).scaled) return;
+    pane.autoscale(this._renderContext(paneIndex === this._bottomPaneIndex()));
+  }
+
+  /**
+   * Per-field status-line switches, applied to every pane legend on the chart:
+   * the host's symbol row and the indicator rows alike, which is what makes one
+   * switch mean the same thing everywhere. Merges field by field.
+   */
+  public setStatusLineOptions(patch: LegendStatusLineOptions): void {
+    Object.assign(this._statusLine, patch);
+    for (const entry of this._legends) entry.legend.setOptions({ statusLine: this._statusLine });
+    this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
+  }
+
+  public statusLineOptions(): LegendStatusLineOptions {
+    return { ...this._statusLine };
+  }
+
+  /**
+   * Turn the axis-strip chrome on or off, and hand it a clock. Merges field by
+   * field, so switching the countdown on leaves the corner clock alone.
+   */
+  public setAxisChromeOptions(patch: AxisChromeOptions): void {
+    if (patch.sessionClock !== undefined) {
+      if (typeof patch.sessionClock === 'object') this._sessionClockForm = { ...patch.sessionClock };
+      // A bare `true` means "on with whatever this clock was configured as",
+      // not "on with the defaults, and forget what you were told" (see
+      // `_sessionClockForm`).
+      this._axisChrome.sessionClock = patch.sessionClock === true
+        ? this._sessionClockForm ?? true
+        : patch.sessionClock;
+    }
+    if (patch.barCountdown !== undefined) this._axisChrome.barCountdown = patch.barCountdown;
+    if (patch.clock !== undefined) {
+      this._axisChrome.clock = patch.clock;
+      this._wallClock = patch.clock;
+    }
+    this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
+  }
+
+  /** The axis-chrome switches as they stand. */
+  public axisChromeOptions(): AxisChromeOptions {
+    return { ...this._axisChrome };
+  }
+
+  /** Crosshair behaviour ('normal' or 'magnet'). Set it via `applyOptions`. */
+  public crosshairMode(): CrosshairMode {
+    return this._crosshairMode;
+  }
+
+  /** The active palette. Swap it with `setTheme`. */
+  public theme(): ChartTheme {
+    return this._theme;
   }
 
   /**
@@ -831,6 +1412,15 @@ export class Chart {
     // symbol/OHLC row) and indicator legends must stack beneath it.
     if (primitive instanceof PaneLegend) {
       this._legends.push({ legend: primitive, paneIndex });
+      // A row added after the switches were set still obeys them; a legend that
+      // brought its own `statusLine` keeps whatever it set on top. Skipped when
+      // the chart has no switches to push, which is the usual case: `setOptions`
+      // asks for a repaint, and asking for one to write an empty object is a
+      // frame nobody needed.
+      if (Object.keys(this._statusLine).length > 0) {
+        const own = primitive.options().statusLine;
+        primitive.setOptions({ statusLine: { ...this._statusLine, ...own } });
+      }
       this._restackLegends();
     }
     this.invalidate((m) => m.invalidatePane(paneIndex, { level: InvalidationLevel.Light, autoScale: false }));
@@ -927,7 +1517,7 @@ export class Chart {
     this._dataLayer.setSeriesData(dataId, bars);
     this._timeScale.setBaseIndex(this._dataLayer.baseIndex);
     if (!this._hasFitContent && this._dataLayer.length > 0) {
-      this._timeScale.setWidth(Math.max(0, this._width - this._priceAxisWidth - this._leftAxisWidth));
+      this._timeScale.setWidth(Math.max(0, this._width - this._rightAxisWidth - this._leftAxisWidth));
       this._timeScale.fitContent(this._dataLayer.length);
       this._hasFitContent = true;
     }
@@ -965,6 +1555,13 @@ export class Chart {
   public setPriceFormatter(fn: ((price: number) => string) | null): void {
     this._priceFormatter = fn;
     for (const pane of this._panes) pane.priceScale.setPriceFormatter(fn);
+    // A per-series precision override outranks the chart-wide formatter on its
+    // own scale, so re-assert it: the loop above just replaced it.
+    for (const pane of this._panes) {
+      for (const record of pane.series()) {
+        if (record.style.precision !== undefined) this._applyPrecision(pane.scaleOf(record), record.style.precision);
+      }
+    }
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
   }
 
@@ -974,6 +1571,29 @@ export class Chart {
    */
   public setTimeFormatter(fn: ((utcSeconds: number, tickMark?: TickMarkType) => string) | undefined): void {
     this._timeFormatter = fn;
+    this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
+  }
+
+  /** The IANA zone the chart labels time in. */
+  public timezone(): string {
+    return this._timezone;
+  }
+
+  /**
+   * Change the zone the time axis and crosshair label in, without rebuilding the
+   * chart: a terminal switching from an NSE symbol to a US one needs exactly
+   * this. Throws on a name the runtime does not recognise, rather than quietly
+   * labelling in the old zone, because a chart showing the wrong hours is the
+   * kind of wrong nobody notices until it costs money.
+   */
+  public setTimezone(zone: string): void {
+    const next = checkedTimezone(zone);
+    if (next === this._timezone) return;
+    this._timezone = next;
+    // Not only a relabelling: a session-anchored indicator (VWAP, CPR, TWAP,
+    // seasonality) resets on the chart's calendar, so moving the calendar
+    // changes the numbers and not just the axis under them.
+    this._recomputeIndicators();
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
   }
 
@@ -1001,15 +1621,23 @@ export class Chart {
    */
   public applyOptions(opts: {
     theme?: ChartTheme;
-    grid?: { vertLines?: boolean; horzLines?: boolean };
+    grid?: Partial<GridOptions>;
+    canvas?: CanvasOptions;
+    statusLine?: LegendStatusLineOptions;
+    priceScale?: Partial<PriceScaleOptions>;
     priceFormatter?: ((price: number) => string) | null;
     timeFormatter?: ((utcSeconds: number, tickMark?: TickMarkType) => string) | undefined;
+    timezone?: string;
     crosshairMode?: CrosshairMode;
   }): void {
     if (opts.theme) this.setTheme(opts.theme);
     if (opts.grid) this.setGridOptions(opts.grid);
+    if (opts.canvas) this.setCanvasOptions(opts.canvas);
+    if (opts.statusLine) this.setStatusLineOptions(opts.statusLine);
+    if (opts.priceScale) this.setPriceScaleOptions(opts.priceScale);
     if (opts.priceFormatter !== undefined) this.setPriceFormatter(opts.priceFormatter);
     if ('timeFormatter' in opts) this.setTimeFormatter(opts.timeFormatter);
+    if (opts.timezone !== undefined) this.setTimezone(opts.timezone);
     if (opts.crosshairMode) this._crosshairMode = opts.crosshairMode;
   }
 
@@ -1026,7 +1654,7 @@ export class Chart {
    * the timeframe, and the feed). Series *descriptors* are, so an app that
    * rebuilds its own series can re-apply their styling and placement.
    */
-  public getState(): ChartState {
+  public getState(): ChartState & ChartSettingsState & { timezone: string } {
     const panes: PaneState[] = this._panes.map((pane) => {
       const scale = pane.priceScale;
       const o = scale.options;
@@ -1048,11 +1676,27 @@ export class Chart {
       }
     });
 
-    const state: ChartState = {
+    const state: ChartState & ChartSettingsState & { timezone: string } = {
       version: CHART_STATE_VERSION,
+      // Saved unconditionally, including the default: a layout restored after
+      // the default itself changes should still read the hours it was saved with.
+      timezone: this._timezone,
       viewport: { ...this.getVisibleLogicalRange() },
       barSpacing: this._timeScale.barSpacing,
       grid: this.gridOptions(),
+      // The settings dialog's own slice. It lives beside `grid` rather than
+      // inside it because these are chart-wide overrides, and it is declared by
+      // the settings module so `ChartState` stays the shape of the core.
+      canvas: this.canvasOptions(),
+      statusLine: this.statusLineOptions(),
+      trading: { ...this._tradingSettings },
+      // The two switches, never the clock function: a callback does not survive
+      // JSON, and the host that supplied one supplies it again on the way back.
+      axisChrome: {
+        sessionClock: this._axisChrome.sessionClock,
+        barCountdown: this._axisChrome.barCountdown,
+      },
+      events: this.eventOptions(),
       crosshairMode: this._crosshairMode,
       panes,
       series,
@@ -1081,7 +1725,7 @@ export class Chart {
    * (or `setVisibleLogicalRange`) once the series are populated.
    */
   public restoreState(state: unknown): RestoreReport {
-    const s = state as ChartState | null;
+    const s = state as (ChartState & ChartSettingsState & { timezone?: unknown }) | null;
     if (s === null || typeof s !== 'object' || typeof s.version !== 'number') {
       return { applied: false, series: [], indicators: 0, reason: 'not a chart state object' };
     }
@@ -1090,20 +1734,27 @@ export class Chart {
     }
 
     if (s.grid) this.setGridOptions(s.grid);
+    // Canvas before the panes: its margins are chart-wide, and a pane's own
+    // saved marginTop/marginBottom is the more specific answer, so it must land
+    // last and win.
+    if (s.canvas) this.setCanvasOptions(s.canvas);
+    if (s.statusLine) this.setStatusLineOptions(s.statusLine);
+    if (s.trading) this.setTradingSettings(s.trading);
+    if (s.axisChrome) this.setAxisChromeOptions(s.axisChrome);
+    if (s.events) this.setEventOptions(s.events);
     if (s.crosshairMode) this._crosshairMode = s.crosshairMode;
+    // A saved zone is data of unknown provenance, so an unrecognised name is
+    // skipped rather than thrown: the rest of the layout is still restorable,
+    // and a whole saved workspace should not be lost to one stale zone name.
+    if (typeof s.timezone === 'string' && isValidTimezone(s.timezone)) this.setTimezone(s.timezone);
 
+    // The panes themselves first: the indicators below are placed by index, so
+    // the panes have to exist and be weighted before they are rebuilt. Their
+    // price scales are *not* set here, see below.
     if (s.panes) {
       s.panes.forEach((ps, i) => {
         this._ensurePane(i);
-        const pane = this._panes[i];
-        pane.weight = ps.weight;
-        const scale = pane.priceScale;
-        scale.setOptions({
-          marginTop: ps.priceScale.marginTop, marginBottom: ps.priceScale.marginBottom,
-          minMove: ps.priceScale.minMove, mode: ps.priceScale.mode, inverted: ps.priceScale.inverted,
-        });
-        scale.setAutoScale(ps.priceScale.autoScale);
-        if (!ps.priceScale.autoScale && ps.priceScale.range) scale.setPriceRange(ps.priceScale.range);
+        this._panes[i].weight = ps.weight;
       });
       this._relayout();
     }
@@ -1114,13 +1765,46 @@ export class Chart {
     if (s.indicators) {
       for (const instance of this._indicators) instance.remove();
       this._indicators.length = 0;
+      // The band an oscillator declares for its own pane (RSI 0..100) is
+      // declared by the instance that *claimed* that pane. A restored instance
+      // is handed its pane index instead of claiming one, so it declares
+      // nothing, while the outgoing instance withdrew its band on the way out:
+      // the pane was left free-autoscaling and re-measured itself against the
+      // oscillator's own values. Re-declare it here, taking the first indicator
+      // on each pane as the one that made it, which is what creation order
+      // means and what the saved order preserves.
+      const declared = new Set<number>();
       for (const spec of s.indicators) {
         if (!hasIndicator(spec.indicatorId)) continue; // tier not loaded — skip, don't throw
+        const descriptor = getIndicator(spec.indicatorId);
         this._indicators.push(new IndicatorInstance(
-          this._indicatorHost(), getIndicator(spec.indicatorId), spec.settings, spec.paneIndex,
+          this._indicatorHost(), descriptor, spec.settings, spec.paneIndex,
         ));
         indicators += 1;
+        if (spec.paneIndex > 0 && !declared.has(spec.paneIndex)) {
+          declared.add(spec.paneIndex);
+          this._panes[spec.paneIndex]?.priceScale.setFixedRange(descriptor.range?.(spec.settings) ?? null);
+        }
       }
+    }
+
+    // Price scales last of all, for the same reason the canvas block goes
+    // first: this is the most specific answer for each pane, and everything
+    // above moves ranges around. Rebuilding an indicator in particular takes a
+    // pane's axis with it, so a scale restored before that step is a scale the
+    // restore then throws away.
+    if (s.panes) {
+      s.panes.forEach((ps, i) => {
+        const pane = this._panes[i];
+        if (pane === undefined) return;
+        const scale = pane.priceScale;
+        scale.setOptions({
+          marginTop: ps.priceScale.marginTop, marginBottom: ps.priceScale.marginBottom,
+          minMove: ps.priceScale.minMove, mode: ps.priceScale.mode, inverted: ps.priceScale.inverted,
+        });
+        scale.setAutoScale(ps.priceScale.autoScale);
+        if (!ps.priceScale.autoScale && ps.priceScale.range) scale.setPriceRange(ps.priceScale.range);
+      });
     }
 
     // A saved pane only exists to hold an indicator, and an indicator is skipped
@@ -1156,6 +1840,29 @@ export class Chart {
     if (this._pending === null) this._pending = new InvalidateMask();
     build(this._pending);
     this._loop.requestFrame();
+  }
+
+  /**
+   * Measure the container once more, a frame after construction.
+   *
+   * The size read in the constructor is only what the browser has resolved so
+   * far. A chart created from a script that runs before the flex/grid layout
+   * settles measures a pre-layout box, lays its panes into it, and then hears
+   * the *same* stale contentRect from the ResizeObserver in that frame, so
+   * nothing corrects it until an unrelated resize: the reported symptom is a
+   * large empty band under the chart that a refresh makes go away.
+   *
+   * Only a real measurement is allowed to win. Zero or absent means a container
+   * that is hidden or not in the document yet, and overwriting a size the host
+   * applied by hand with that would be a worse bug than the one being fixed;
+   * the ResizeObserver still picks such a container up when it appears.
+   */
+  private _remeasure(): void {
+    if (this._panes.length === 0) return; // destroyed before the frame ran
+    const width = this._container.clientWidth;
+    const height = this._container.clientHeight;
+    if (!(width > 0) || !(height > 0)) return;
+    this.applySize(width, height);
   }
 
   public applySize(width: number, height: number): void {
@@ -1200,14 +1907,25 @@ export class Chart {
       const isLast = paneIndex === bottomPane;
       pane.setScaleHeights(Math.max(0, h - (isLast ? this._timeAxisHeight : 0)));
     })
-    this._timeScale.setWidth(Math.max(0, this._width - this._priceAxisWidth - this._leftAxisWidth));
+    this._timeScale.setWidth(Math.max(0, this._width - this._rightAxisWidth - this._leftAxisWidth));
   }
 
-  /** Reserve a chart-wide left-axis column when any pane has a left price scale. */
-  private _recomputeLeftAxis(): void {
-    const w = this._panes.some((p) => p.hasLeftScale()) ? this._priceAxisWidth : 0;
-    if (w === this._leftAxisWidth) return;
-    this._leftAxisWidth = w;
+  /**
+   * Reserve the chart-wide axis columns: a left one as soon as any pane has a
+   * left price scale in use, and the right one unless every scale in use has
+   * moved off it. A chart with nothing on any scale keeps its right column,
+   * which is where an empty chart's ladder belongs; the columns are chart-wide
+   * rather than per pane because the panes share one time axis and their plots
+   * have to start and end at the same x.
+   */
+  private _recomputeAxisColumns(): void {
+    const anyLeft = this._panes.some((p) => p.hasLeftScale());
+    const anyRight = this._panes.some((p) => p.usesScale('right'));
+    const left = anyLeft ? this._priceAxisWidth : 0;
+    const right = anyRight || !anyLeft ? this._priceAxisWidth : 0;
+    if (left === this._leftAxisWidth && right === this._rightAxisWidth) return;
+    this._leftAxisWidth = left;
+    this._rightAxisWidth = right;
     this._relayout();
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
   }
@@ -1317,7 +2035,7 @@ export class Chart {
       if (indicator.paneIndex > index) indicator.shiftPane(-1);
     }
     this._timeScale.setBaseIndex(this._dataLayer.baseIndex);
-    this._recomputeLeftAxis();
+    this._recomputeAxisColumns();
     this._relayout();
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
     this.emit('paneRemoved', { paneIndex: index });
@@ -1471,7 +2189,7 @@ export class Chart {
       timeScale: this._timeScale,
       dataLayer: this._dataLayer,
       dpr: this._pixelRatio(),
-      priceAxisWidth: this._priceAxisWidth,
+      priceAxisWidth: this._rightAxisWidth,
       timeAxisHeight: this._timeAxisHeight,
       showTimeAxis,
       conflate: this._conflate,
@@ -1479,10 +2197,47 @@ export class Chart {
       theme: this._theme,
       showVertGrid: this._gridVert,
       showHorzGrid: this._gridHorz,
+      canvasOptions: this._canvas,
       timeFormatter: this._timeFormatter,
+      timezone: this._timezone,
       leftAxisWidth: this._leftAxisWidth,
       hoverId: this._hoverId,
       dragId: this._dragId,
+      sessionClock: this._sessionClockOptions(),
+      barCountdown: this._barCountdownOptions(),
+    };
+  }
+
+  /**
+   * The corner clock's options, or undefined when it is off. Built per frame so
+   * a zone change reaches it without the pane holding a stale copy.
+   */
+  private _sessionClockOptions(): SessionClockOptions | undefined {
+    const on = this._axisChrome.sessionClock;
+    if (on === undefined || on === false) return undefined;
+    return {
+      visible: true,
+      now: this._wallClock,
+      timezone: this._timezone,
+      showOffset: on === true ? undefined : on.showOffset,
+    };
+  }
+
+  /**
+   * The countdown row's options, or undefined when it is off or there is
+   * nothing to count. The interval is read back from the bars rather than
+   * configured: the chart is never told its own timeframe, and a chart that
+   * switched timeframe mid-session has to follow within a screen of bars.
+   */
+  private _barCountdownOptions(): BarCountdownOptions | undefined {
+    if (this._axisChrome.barCountdown !== true) return undefined;
+    const last = this._dataLayer.indexToTime(this._dataLayer.baseIndex);
+    if (last === undefined) return undefined;
+    return {
+      visible: true,
+      now: this._wallClock,
+      lastBarTime: last,
+      intervalSec: medianBarInterval(this._dataLayer),
     };
   }
 
@@ -1557,11 +2312,24 @@ export class Chart {
    * Apps that present their own menu (preventDefault on contextmenu) are
    * unaffected. Multi-pane note: the native save captures the clicked pane
    * only — use `downloadScreenshot()` for the full multi-pane composite.
+   *
+   * A listener on the `contextmenu` **chart** event takes over entirely: it is
+   * told what was hit, and the snapshot is skipped, since the app is raising a
+   * menu of its own instead of the browser's.
    */
   private readonly _onContextMenu = (e: MouseEvent): void => {
     if (e.defaultPrevented) return; // app shows its own menu (e.g. order entry)
-    const pane = this._panes[this._localPoint(e).pane];
+    const p = this._localPoint(e);
+    const pane = this._panes[p.pane];
     if (pane === undefined) return;
+    // Size, not presence: `off` leaves an empty set behind, and treating that
+    // as "an app is handling it" would silently retire the snapshot fallback
+    // for the rest of the chart's life.
+    const listeners = this._listeners.get('contextmenu');
+    if (listeners !== undefined && listeners.size > 0) {
+      this.emit('contextmenu', this._contextMenuEvent(e, p));
+      return;
+    }
     // Null the crosshair without invalidating: a pointerleave fired while the
     // native menu is open must not schedule a repaint that wipes the snapshot.
     this._cursor = null;
@@ -1575,6 +2343,103 @@ export class Chart {
       this._overlayFrozen = true;
     } catch { /* zero-sized or detached canvas — nothing to snapshot */ }
   };
+
+  /** Build the `contextmenu` payload: where the pointer is, and what it is over. */
+  private _contextMenuEvent(
+    e: MouseEvent,
+    p: { x: number; y: number; pane: number; localY: number; paneHeight: number },
+  ): ContextMenuEvent {
+    const plotX = p.x - this._leftAxisWidth;
+    const onPlot = plotX >= 0 && p.x < this._width - this._rightAxisWidth;
+    const index = onPlot ? Math.round(this._timeScale.xToIndex(plotX)) : null;
+    if (onPlot) this._ensureScaled(p.pane); // a menu can be raised before the first paint
+    return {
+      paneIndex: p.pane,
+      point: { x: p.x, y: p.y },
+      price: onPlot ? this._panes[p.pane].yToPrice(p.localY) : null,
+      time: index === null ? null : (this._dataLayer.indexToTime(index) ?? null),
+      index,
+      target: this._contextTarget(p, plotX, onPlot, index),
+      preventDefault: (): void => e.preventDefault(),
+    };
+  }
+
+  /**
+   * Classify what the pointer is over. A canvas hands an app a pixel, not an
+   * object, so this is the part it cannot work out for itself, and the part
+   * that decides which menu items make sense.
+   */
+  private _contextTarget(
+    p: { x: number; pane: number; localY: number; paneHeight: number },
+    plotX: number,
+    onPlot: boolean,
+    index: number | null,
+  ): ContextMenuTarget {
+    const isBottom = p.pane === this._bottomPaneIndex();
+    const onRightAxis = p.x >= this._width - this._rightAxisWidth;
+    const onTimeAxis = isBottom && p.localY >= p.paneHeight - this._timeAxisHeight;
+    // The time axis spans the full width, including the left column: a click in
+    // the bottom-left corner is on the dates, not on a price ladder that stops
+    // above them. The bottom-*right* corner stays the price axis', which is
+    // where its own labels run out.
+    if (onTimeAxis && !onRightAxis) return { kind: 'time-scale', id: null };
+    if (!onPlot) {
+      const side: 'right' | 'left' = onRightAxis ? 'right' : 'left';
+      return { kind: 'price-scale', id: null, side, scaleId: this._axisScaleId(p.pane, side) };
+    }
+
+    const hit = this._panes[p.pane]?.hitTestPrimitives(plotX, p.localY, this._renderContext(isBottom));
+    if (hit != null) {
+      const id = hit.externalId;
+      if (id.startsWith('draw:')) return { kind: 'drawing', id };
+      if (id.startsWith('indicator:')) {
+        const sep = id.lastIndexOf('::');
+        const instanceId = id.slice('indicator:'.length, sep < 0 ? undefined : sep);
+        return { kind: 'indicator', id, instanceId };
+      }
+      // A host-owned legend (the symbol/OHLC row) hit-tests as `${id}::row`.
+      if (id.endsWith('::row')) return { kind: 'legend', id };
+      return { kind: 'primitive', id };
+    }
+    const type = index === null ? null : this._seriesAt(p.pane, index, p.localY);
+    return type === null ? { kind: 'empty', id: null } : { kind: 'series', id: null, seriesType: type };
+  }
+
+  /**
+   * Which of a pane's scales an axis strip acts on. Normally the side's own
+   * one, but a pane whose only values sit on the hidden overlay scale (a volume
+   * pane, an indicator that plots against nothing else) has no series on either
+   * side, and the overlay is the scale a menu raised there has to act on.
+   */
+  private _axisScaleId(paneIndex: number, side: 'right' | 'left'): PriceScaleId {
+    const pane = this._panes[paneIndex];
+    if (pane === undefined || pane.usesScale(side)) return side;
+    return pane.usesScale('') ? '' : side;
+  }
+
+  /**
+   * Which series the pointer sits on, if any. A pane is one bitmap, so "on the
+   * candle" has to be recomputed rather than looked up: take each series'
+   * autoscale extents for the bar under the cursor and test the band they span,
+   * with a few px of slack so a 1px line is still a target.
+   */
+  private _seriesAt(paneIndex: number, index: number, localY: number): SeriesType | null {
+    const pane = this._panes[paneIndex];
+    if (pane === undefined) return null;
+    const tol = 3;
+    for (const record of pane.series()) {
+      if (record.style.visible === false) continue;
+      const bars = this._dataLayer.visibleBars(record.dataId, index, index);
+      if (bars.length === 0) continue;
+      const ext = getChartType(record.type).extents(bars[0].bar, record.style);
+      if (!isFinite(ext.min) || !isFinite(ext.max)) continue;
+      const scale = pane.scaleOf(record);
+      const a = scale.priceToY(ext.max);
+      const b = scale.priceToY(ext.min);
+      if (localY >= Math.min(a, b) - tol && localY <= Math.max(a, b) + tol) return record.type;
+    }
+    return null;
+  }
 
   /** Resume overlay repaints after the native context menu closes. */
   private _unfreezeOverlay(): void {
@@ -1634,13 +2499,20 @@ export class Chart {
 
     // Axis-drag rescale: dragging the price axis (right strip) rescales Y;
     // dragging the time axis (bottom strip of the last pane) rescales X.
-    const plotWidth = Math.max(0, this._width - this._priceAxisWidth);
-    const onPriceAxis = p.x >= plotWidth;
+    const plotWidth = Math.max(0, this._width - this._rightAxisWidth);
+    // Either strip rescales the axis drawn in it: a pane whose scale was moved
+    // to the left has no right ladder to grab, and before the move the left one
+    // was drawn but not draggable.
+    const onLeftAxis = this._leftAxisWidth > 0 && p.x < this._leftAxisWidth;
+    const onPriceAxis = p.x >= plotWidth || onLeftAxis;
     const onTimeAxis = p.pane === this._bottomPaneIndex() && p.localY >= p.paneHeight - this._timeAxisHeight;
     if (onPriceAxis) {
       this._axisDrag = 'price';
+      this._axisDragScale = onLeftAxis
+        ? this._panes[p.pane].scaleFor('left')
+        : this._panes[p.pane].priceScale;
       this._axisStartCoord = p.localY;
-      const r = this._panes[p.pane].priceScale.priceRange();
+      const r = this._axisDragScale.priceRange();
       this._axisStartMin = r.min;
       this._axisStartMax = r.max;
       this._dragging = false;
@@ -1674,7 +2546,7 @@ export class Chart {
       this._ensureScaled(p.pane);
       this._dragFrom = {
         time: this._xToTime(p.x),
-        price: this._panes[p.pane].priceScale.yToPrice(p.localY),
+        price: this._panes[p.pane].yToPrice(p.localY),
       };
       this._setHover(hit); // active state + cursor even when no hover preceded (touch)
       // Hide the crosshair while dragging a line — a frozen crosshair at the
@@ -1715,7 +2587,7 @@ export class Chart {
       const factor = Math.exp(dy * 0.005);
       const centre = (this._axisStartMin + this._axisStartMax) / 2;
       const half = ((this._axisStartMax - this._axisStartMin) / 2) * factor;
-      const ps = this._panes[this._downPane].priceScale;
+      const ps = this._axisDragScale ?? this._panes[this._downPane].priceScale;
       ps.setPriceRange({ min: centre - half, max: centre + half });
       ps.setAutoScale(false);
       this.invalidate((m) => m.invalidatePane(this._downPane, { level: InvalidationLevel.Light, autoScale: false }));
@@ -1752,7 +2624,7 @@ export class Chart {
     }
     if (this._dragId !== null) {
       if (Math.abs(p.x - this._downX) > 3 || Math.abs(p.localY - this._downLocalY) > 3) this._dragMoved = true;
-      const price = this._panes[this._downPane].priceScale.yToPrice(p.localY);
+      const price = this._panes[this._downPane].yToPrice(p.localY);
       const time = this._xToTime(p.x);
       this._dragCb?.(this._dragId, price, time);
       this.emit('drag', {
@@ -1799,11 +2671,12 @@ export class Chart {
     }
     if (this._axisDrag !== null) {
       this._axisDrag = null;
+      this._axisDragScale = null;
       return;
     }
     if (this._dragId !== null) {
       const p = this._localPoint(e);
-      const price = this._panes[this._downPane].priceScale.yToPrice(p.localY);
+      const price = this._panes[this._downPane].yToPrice(p.localY);
       const time = this._xToTime(p.x);
       this._dragEndCb?.(this._dragId, price, time);
       this.emit('drag:end', { id: this._dragId, price, time, paneIndex: this._downPane });
@@ -1841,14 +2714,14 @@ export class Chart {
       this._ensureScaled(this._downPane);
       this.emit('click', {
         id: null,
-        price: this._panes[this._downPane]?.priceScale.yToPrice(this._downLocalY) ?? null,
+        price: this._panes[this._downPane]?.yToPrice(this._downLocalY) ?? null,
         time: this._xToTime(this._downX),
         paneIndex: this._downPane,
         point: { x: this._downX, y: this._downLocalY },
       });
       this.emit('click', {
         id: null,
-        price: this._panes[this._downPane]?.priceScale.yToPrice(p.localY) ?? null,
+        price: this._panes[this._downPane]?.yToPrice(p.localY) ?? null,
         time: this._xToTime(p.x),
         paneIndex: this._downPane,
         point: { x: p.x, y: p.localY },
@@ -1871,7 +2744,7 @@ export class Chart {
       this._ensureScaled(this._downPane);
       this.emit('click', {
         id: hit?.externalId ?? null,
-        price: this._panes[this._downPane]?.priceScale.yToPrice(this._downLocalY) ?? null,
+        price: this._panes[this._downPane]?.yToPrice(this._downLocalY) ?? null,
         time: this._xToTime(this._downX),
         paneIndex: this._downPane,
         point: { x: this._downX, y: this._downLocalY },
@@ -1933,7 +2806,12 @@ export class Chart {
    */
   public resetScale(): void {
     if (this._dataLayer.length > 0) this._timeScale.fitContent(this._dataLayer.length);
-    for (const pane of this._panes) pane.priceScale.setAutoScale(true);
+    for (const pane of this._panes) {
+      // "Back to the default view" includes the ratio locks: one would otherwise
+      // sit in the map holding a scale that has just been told to auto-fit.
+      pane.clearRatioLocks();
+      pane.priceScale.setAutoScale(true);
+    }
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
   }
 
@@ -1951,7 +2829,7 @@ export class Chart {
     this._pinch = pinchState(pts[0], pts[1]);
     this._pinchPane = pts[0].pane;
     // abort any single-pointer interaction so it doesn't fight the pinch
-    this._dragging = false; this._axisDrag = null; this._dragId = null; this._pointerMoved = true;
+    this._dragging = false; this._axisDrag = null; this._axisDragScale = null; this._dragId = null; this._pointerMoved = true;
   }
 
   private _updatePinch(): void {
@@ -2062,7 +2940,7 @@ export class Chart {
 
   private _updateCursor(paneIndex: number, x: number, localY: number, containerY = localY): void {
     // Plot spans [leftAxisWidth, width - priceAxisWidth]; work in plot-relative x.
-    const rightEdge = this._width - this._priceAxisWidth;
+    const rightEdge = this._width - this._rightAxisWidth;
     const plotX = x - this._leftAxisWidth;
     const plotWidth = Math.max(0, rightEdge - this._leftAxisWidth);
     if (plotX < 0 || plotX > plotWidth) {
@@ -2093,7 +2971,7 @@ export class Chart {
         // in the volume/indicator panes (their scale isn't a price scale).
         if (this._crosshairMode === 'magnet' && paneIndex === this._firstPaneIndex) {
           const snapped = magnetSnapPrice(pane.yToPrice(localY), hoveredBar);
-          y = pane.priceScale.priceToY(snapped);
+          y = pane.priceToY(snapped);
         }
       }
     }
@@ -2167,6 +3045,10 @@ export class Chart {
 
   public destroy(): void {
     this._loop.stop();
+    if (this._remeasureHandle !== null) {
+      this._raf.cancel(this._remeasureHandle);
+      this._remeasureHandle = null;
+    }
     this._stopKinetic();
     for (const indicator of this._indicators) indicator.remove();
     this._indicators.length = 0;

@@ -17,6 +17,7 @@ import type { IndicatorFillSpec, IndicatorPlot } from './indicator-registry';
 import { IndicatorFill as IndicatorFillPrimitive } from '../primitives/indicator-fill';
 
 import { withAlpha } from '../render/pill';
+import { DEFAULT_TIMEZONE } from '../feed/time';
 import {
   indicatorDefaults,
   indicatorStyleInputs,
@@ -87,6 +88,15 @@ export interface IndicatorHost {
   sourceBars(): readonly Bar[];
   /** Index of a fresh pane for an indicator that wants its own. */
   nextPaneIndex(): number;
+  /**
+   * The chart's configured IANA zone. Optional so a host predating the option
+   * still satisfies this interface; absent means the shipped default.
+   *
+   * A descriptor is handed bars and settings and never the chart, so this is
+   * how the calendar an anchor resets on (a VWAP session, a seasonality month)
+   * reaches the calculation. See `IndicatorInstance._descriptorSettings`.
+   */
+  timezone?(): string;
   /** Pin a pane's price scale to a fixed range, or release it with `null`. */
   setPaneRange(paneIndex: number, range: { min: number; max: number } | null): void;
 }
@@ -134,6 +144,8 @@ export class IndicatorInstance implements IndicatorApi {
   private readonly _d: IndicatorDescriptor;
   private readonly _ownPane: boolean;
   private _settings: IndicatorSettings;
+  /** Memo for `_descriptorSettings`, keyed on the zone and the settings identity. */
+  private _zoned: { zone: string; base: IndicatorSettings; merged: IndicatorSettings } | null = null;
   private readonly _series = new Map<string, SeriesApi>();
   /** The chart type each plot is currently drawn as (settings can override). */
   private readonly _plotTypes = new Map<string, string>();
@@ -331,7 +343,7 @@ export class IndicatorInstance implements IndicatorApi {
   private _syncMarkers(bars: readonly Bar[]): void {
     if (this._d.markers === undefined) return;
     const markers = this._visible
-      ? this._d.markers({ bars, values: this._values, settings: this._settings })
+      ? this._d.markers({ bars, values: this._values, settings: this._descriptorSettings() })
       : [];
     if (this._markers === null) {
       if (markers.length === 0) return;
@@ -349,7 +361,7 @@ export class IndicatorInstance implements IndicatorApi {
   private _syncTable(bars: readonly Bar[]): void {
     if (this._d.table === undefined) return;
     const spec = this._visible
-      ? this._d.table({ bars, values: this._values, settings: this._settings })
+      ? this._d.table({ bars, values: this._values, settings: this._descriptorSettings() })
       : null;
     const rows = spec?.rows ?? [];
     if (this._table === null) {
@@ -398,7 +410,7 @@ export class IndicatorInstance implements IndicatorApi {
    */
   private _attach(): void {
     const detach = this._d.attach?.({
-      settings: () => this._settings,
+      settings: () => this._descriptorSettings(),
       bars: () => this._host.sourceBars(),
       requestRecompute: () => {
         if (this._removed) return;
@@ -412,6 +424,32 @@ export class IndicatorInstance implements IndicatorApi {
 
   public settings(): IndicatorSettings {
     return { ...this._settings };
+  }
+
+  /**
+   * Settings as a *descriptor* sees them: the chart's zone rides along under
+   * the reserved `timezone` key, because a `calc` is handed settings and never
+   * the chart.
+   *
+   * It is deliberately not folded into `_settings`. That object is the user's
+   * own values, it is what `settings()` returns and what `getState()` persists,
+   * and baking the zone into it would mean a layout saved on a New York chart
+   * kept computing on New York after being restored onto an IST one, silently
+   * out of step with the axis beside it.
+   *
+   * The default zone returns `_settings` untouched, so every existing caller
+   * allocates nothing and computes exactly what it computed before.
+   */
+  private _descriptorSettings(): Readonly<IndicatorSettings> {
+    const zone = this._host.timezone?.() ?? DEFAULT_TIMEZONE;
+    if (zone === DEFAULT_TIMEZONE) return this._settings;
+    const cached = this._zoned;
+    // `_settings` is replaced wholesale by `setSettings`, so identity is a
+    // sufficient staleness check and costs one compare per recompute.
+    if (cached !== null && cached.zone === zone && cached.base === this._settings) return cached.merged;
+    const merged = { ...this._settings, timezone: zone };
+    this._zoned = { zone, base: this._settings, merged };
+    return merged;
   }
 
   public series(plotKey: string): SeriesApi | undefined {
@@ -461,15 +499,18 @@ export class IndicatorInstance implements IndicatorApi {
     if (this._removed) return;
     const bars = this._host.sourceBars();
     const n = bars.length;
+    // Resolved once: the zone is fixed for the frame, and calc, calcTail and
+    // every colorBy below must be told the same calendar.
+    const settings = this._descriptorSettings();
 
     let values: IndicatorValues | null = null;
     const tailOnly = n > 0 && this._barCount > 0 && (n === this._barCount || n === this._barCount + 1);
     if (tailOnly && this._d.calcTail !== undefined) {
       const from = this._barCount - 1; // the previously-last bar may have been replaced
-      const tail = this._d.calcTail(bars, this._settings, from, this._values, this._store);
+      const tail = this._d.calcTail(bars, settings, from, this._values, this._store);
       if (tail !== null) values = spliceTail(this._values, tail, from, n);
     }
-    if (values === null) values = this._d.calc(bars, this._settings, this._store);
+    if (values === null) values = this._d.calc(bars, settings, this._store);
 
     this._values = values;
     this._barCount = n;
@@ -489,7 +530,7 @@ export class IndicatorInstance implements IndicatorApi {
         const value = v === null || v === undefined ? NaN : v;
         const point: { time: number; value: number; color?: string } = { time: bars[i].time, value };
         if (colorBy !== undefined && Number.isFinite(value)) {
-          const c = colorBy({ value, index: i, values, settings: this._settings });
+          const c = colorBy({ value, index: i, values, settings });
           if (c !== undefined) point.color = c;
         }
         out[i] = point;
@@ -505,7 +546,7 @@ export class IndicatorInstance implements IndicatorApi {
   private _applyLevels(): void {
     for (const line of this._levels) this._host.removeIndicatorLevel(line);
     this._levels = [];
-    const levels = this._d.levels?.(this._settings) ?? [];
+    const levels = this._d.levels?.(this._descriptorSettings()) ?? [];
     let i = 0;
     for (const l of levels) {
       this._levels.push(
@@ -523,7 +564,7 @@ export class IndicatorInstance implements IndicatorApi {
 
   private _applyRange(): void {
     if (!this._ownPane) return; // a shared pane belongs to whoever created it
-    this._host.setPaneRange(this.paneIndex, this._d.range?.(this._settings) ?? null);
+    this._host.setPaneRange(this.paneIndex, this._d.range?.(this._descriptorSettings()) ?? null);
   }
 
   public remove(): void {

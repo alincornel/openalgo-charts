@@ -15,8 +15,12 @@ export interface SeriesStyle {
   borderVisible?: boolean;
   wickVisible?: boolean;
   hollow?: boolean;
-  /** Scale candle body width by volume / maxVisibleVolume (volume candles). */
-  volumeScaled?: boolean;
+  /**
+   * Color bars by close-versus-previous-close instead of close-versus-own-open,
+   * which is how most terminals paint a bar. Body, border and wick switch
+   * together. Default false.
+   */
+  colorByPreviousClose?: boolean;
 
   /** Whether the series is drawn and counted in autoscale. Default true. */
   visible?: boolean;
@@ -26,6 +30,17 @@ export interface SeriesStyle {
   priceLineVisible?: boolean;
   /** Show the last-value tag on the price axis. Default true. */
   lastValueVisible?: boolean;
+  /**
+   * Decimal places for every price the scale this series maps to formats: the
+   * axis ticks, the last-value tag, the crosshair label and the drawing-tool
+   * labels. It overrides the precision the price scale infers from the tick
+   * size or the visible range. Undefined is the "Default" entry of the
+   * Precision dropdown: keep inferring. Valid range 0 to 8.
+   *
+   * It does not reach a legend row: a `PaneLegend` is handed finished strings,
+   * so whoever builds those readings owns their formatting.
+   */
+  precision?: number;
 
   // line / area / baseline / hlc-area family
   color?: string;
@@ -42,7 +57,12 @@ export interface SeriesStyle {
   baseValue?: number;
   topColor?: string;
   bottomColor?: string;
+  /**
+   * Stroke for the top edge of an HLC area's band. Undefined leaves the edge
+   * unstroked, which is how the band has always drawn.
+   */
   highColor?: string;
+  /** Stroke for the bottom edge of an HLC area's band. See `highColor`. */
   lowColor?: string;
   closeColor?: string;
 
@@ -52,8 +72,8 @@ export interface SeriesStyle {
   // point & figure / kagi family
   /**
    * Fallback box size for stacking P&F X/O glyphs. Columns from
-   * `PointFigureTransform` carry their own `boxSize`, which wins — set this only
-   * for hand-built column data.
+   * `PointFigureTransform` carry their own `boxSize`, which wins, so set this
+   * only for hand-built column data.
    */
   boxSize?: number;
   /** Kagi thick (yang) line color. */

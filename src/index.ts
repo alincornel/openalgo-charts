@@ -3,8 +3,12 @@
 
 export { VERSION, version } from './version';
 
-export { createChart, Chart, compactVolume } from './core/chart';
-export type { ChartOptions, AddSeriesOptions, CrosshairMoveEvent } from './core/chart';
+export { createChart, Chart, compactVolume, PRICE_SCALE_MODES } from './core/chart';
+export type {
+  ChartOptions, AddSeriesOptions, CrosshairMoveEvent, ChartEventOptions,
+  ContextMenuEvent, ContextMenuTarget, ContextMenuTargetKind, PriceAxisState,
+  AxisChromeOptions,
+} from './core/chart';
 export { Pane } from './core/pane';
 export { darkTheme, lightTheme, DEFAULT_THEME } from './theme';
 export type { ChartTheme } from './theme';
@@ -14,12 +18,22 @@ export type { PaneInvalidation, TimeScaleOp } from './core/invalidate-mask';
 export { bitmapSize, snapToDevicePixel } from './core/canvas';
 export type { Size } from './core/canvas';
 
-export { PriceScale, autoscaleRange, DEFAULT_PRICE_SCALE_OPTIONS } from './scale/price-scale';
+export { PriceScale, autoscaleRange, isRebasing, DEFAULT_PRICE_SCALE_OPTIONS } from './scale/price-scale';
 export type { PriceRange, PriceScaleOptions, PriceScaleMode } from './scale/price-scale';
 export { TimeScale, DEFAULT_TIME_SCALE_OPTIONS } from './scale/time-scale';
 export type { LogicalRange, TimeScaleOptions } from './scale/time-scale';
 export { niceTicks, precisionForStep } from './scale/ticks';
 export type { TickMarkType } from './render/axis';
+
+// canvas option block (grid, crosshair, scales, margins). The resolvers are
+// values because a host building its own settings dialog previews with them.
+export { dashPattern, resolveGridStyle, resolveScaleStyle, resolvePlotMargins, SCALE_FONT_MIN, SCALE_FONT_MAX } from './render/grid';
+export type {
+  CanvasOptions, CanvasLineStyle, GridOptions, GridStyle, GridAxisStyle,
+  ScaleCanvasOptions, PlotMarginOptions,
+} from './render/grid';
+export { resolveCrosshairStyle } from './render/crosshair';
+export type { CrosshairOptions, CrosshairStyle } from './render/crosshair';
 
 export { DEFAULT_CANDLE_STYLE, optimalBarWidth } from './render/candles';
 export type { CandleStyle } from './render/candles';
@@ -70,6 +84,28 @@ export type {
   RestoreReport,
 } from './model/chart-state';
 
+// settings dialog: a declarative schema in the same control vocabulary the
+// indicator form already uses, plus its round-trip pair
+export { chartSettingsSchema, readChartSettings, applyChartSettings } from './model/chart-settings';
+export type {
+  ChartSettingsTab, ChartSettingsTabId, ChartSettingsValue, ChartSettingsValues, ChartSettingsState,
+} from './model/chart-settings';
+
+// headless market replay (host renders its own transport bar)
+export { ReplayController } from './replay/controller';
+export type {
+  ReplayOptions, ReplayState, ReplayScheduler, ReplayChartHost, ReplayViewport,
+} from './replay/controller';
+
+// headless multi-symbol comparison (host renders its own symbol chips)
+export { addComparison, comparisonController, ComparisonController } from './compare/controller';
+export type {
+  ComparisonOptions, ComparisonHandle, ComparisonMode,
+  ComparisonControllerOptions, ComparisonChartHost, ComparisonPane,
+} from './compare/controller';
+export { alignToPrimary } from './compare/align';
+export type { ComparisonAlignment } from './compare/align';
+
 export { CandleBuilder, DEFAULT_CANDLE_BUILDER_OPTIONS } from './feed/candle-builder';
 export type { CandleBuilderOptions, Tick, CandleUpdate, VolumeMode, LateTickPolicy } from './feed/candle-builder';
 
@@ -85,6 +121,16 @@ export type { IndicatorFillOptions, FillPoint } from './primitives/indicator-fil
 export type { DataLayer, IndexedBar, SeriesId } from './model/data-layer';
 export { PriceLine } from './primitives/price-line';
 export type { PriceLineOptions } from './primitives/price-line';
+// price-level family: previous close, session high/low, extended-hours opens
+// and closes, bid/ask: each a line and an axis tag that toggle together.
+export {
+  PriceLevels, PRICE_LEVEL_KINDS, computePriceLevels,
+  lastPriceLevelFromSeriesStyle, seriesStyleForLastPriceLevel,
+} from './primitives/price-levels';
+export type {
+  PriceLevelKind, PriceLevelStyle, PriceLevelsOptions, PriceLevelValues,
+  PriceLevelInput, PriceLevelQuote, MarketPhase, MarketPhaseFn,
+} from './primitives/price-levels';
 export { SeriesMarkers, markerSizePx, effectiveMarkerPx, drawShape, drawLabel } from './primitives/markers';
 export type { SeriesMarker, MarkerShape, MarkerPosition, MarkerSize } from './primitives/markers';
 export { LogoWatermark, watermarkRect } from './primitives/watermark';
@@ -94,7 +140,10 @@ export type { BuySellButtonsOptions } from './primitives/buy-sell-buttons';
 export { ChartTable, tableOrigin, DEFAULT_CHART_TABLE_OPTIONS } from './primitives/table';
 export type { TableCell, TablePosition, ChartTableOptions } from './primitives/table';
 export { PaneLegend } from './primitives/pane-legend';
-export type { PaneLegendOptions, PaneLegendAction, LegendValue } from './primitives/pane-legend';
+export type {
+  PaneLegendOptions, PaneLegendAction, LegendValue, LegendField, LegendTitleMode,
+  LegendStatusData, LegendStatusSource, LegendStatusLineOptions,
+} from './primitives/pane-legend';
 export { TimeNavigator, DEFAULT_TIME_NAVIGATOR_OPTIONS } from './primitives/time-navigator';
 export type { TimeNavigatorOptions, TimeNavigatorAction } from './primitives/time-navigator';
 export { EventMarkers } from './primitives/event-markers';
@@ -136,12 +185,37 @@ export {
   formatIstTime,
   formatIstTimeSeconds,
   formatIstDate,
+  formatIstCrosshairLabel,
   isNewIstDay,
   sessionStartIndices,
   sessionStartFlags,
   calendarPeriodFlags,
   IST_OFFSET_SECONDS,
+  // zone-aware forms: the general case the IST helpers above are one instance of
+  DEFAULT_TIMEZONE,
+  isValidTimezone,
+  utcSecondsToZonedParts,
+  utcSecondsToZonedDateString,
+  zonedStringToUtcSeconds,
+  zonedWallClockToUtcSeconds,
+  zoneOffsetSeconds,
+  zonedDayIndex,
+  zonedWeekIndex,
+  startOfZonedDay,
+  startOfZonedWeek,
+  startOfZonedMonth,
+  isNewZonedDay,
+  isNewZonedWeek,
+  isNewZonedMonth,
+  isNewZonedQuarter,
+  isNewZonedYear,
+  isNewZonedPeriod,
+  formatZonedTime,
+  formatZonedTimeSeconds,
+  formatZonedDate,
+  formatZonedCrosshairLabel,
 } from './feed/time';
+export type { IstParts, ZonedParts, ZonedPeriod } from './feed/time';
 
 export { clamp, lerp, roundToTick } from './helpers/math';
 

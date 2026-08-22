@@ -32,6 +32,12 @@ export type SeriesType =
 export interface DrawItem {
   x: number; // bar center, media px
   bar: Bar;
+  /**
+   * Close of the bar left of the visible range, carried on the first item only.
+   * Previous-close candle colouring is the one renderer that reads it, because
+   * it is the one that needs a reference the visible window does not hold.
+   */
+  prevClose?: number;
 }
 
 export interface SeriesRenderContext {
@@ -68,6 +74,7 @@ function candleStyle(s: SeriesStyle, theme: ChartTheme, extra: Partial<CandleSty
     wickDownColor: s.wickDownColor ?? theme.wickDownColor,
     borderVisible: s.borderVisible ?? DEFAULT_CANDLE_STYLE.borderVisible,
     wickVisible: s.wickVisible ?? DEFAULT_CANDLE_STYLE.wickVisible,
+    colorByPreviousClose: s.colorByPreviousClose,
     ...extra,
   };
 }

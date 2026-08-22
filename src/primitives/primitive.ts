@@ -58,6 +58,17 @@ export interface IPrimitive {
   draw(ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext): void;
   /** Optional: expand the pane's autoscale range so this primitive isn't clipped. */
   autoscaleInfo?(): { min: number; max: number } | null;
+  /**
+   * Optional: run once per frame after every scale on the pane has been
+   * measured, and before anything is painted.
+   *
+   * `draw` is too late for anything that has to change a scale, because the
+   * price axis is painted near the top of `paintBase` while primitives draw
+   * further down: a range corrected in `draw` labels its axis one frame late,
+   * and on a static chart that frame never comes. A comparison overlay lining
+   * its scale up with the pane's own is the case this exists for.
+   */
+  afterAutoscale?(): void;
   /** Optional: topmost hit under (x,y) in media px (relative to the pane plot). */
   hitTest?(x: number, y: number, rc: PrimitiveRenderContext): PrimitiveHit | null;
   attached?(host: PrimitiveHost): void;

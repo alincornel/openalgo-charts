@@ -193,5 +193,16 @@ export function drawHlcArea(
   ctx.fillStyle = style.areaTopColor ?? 'rgba(79,140,255,0.15)';
   ctx.fill();
   ctx.restore();
+  // The two edges of the band, each drawn only when the caller named a colour
+  // for it. They have no default: an HLC area is a filled band plus a close
+  // line, so a caller who never set these gets exactly the frame it always got.
+  for (const [color, pts] of [[style.highColor, highs], [style.lowColor, lows]] as const) {
+    if (color === undefined) continue;
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = Math.max(1, Math.round((style.lineWidth ?? 1.5) * dpr));
+    strokePolyline(ctx, pts, dpr);
+    ctx.restore();
+  }
   drawLine(ctx, items, toY, dpr, { color: style.closeColor ?? '#4f8cff', lineWidth: style.lineWidth ?? 1.5 });
 }

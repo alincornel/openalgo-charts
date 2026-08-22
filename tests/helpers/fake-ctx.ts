@@ -9,6 +9,15 @@ export interface Op {
   fillStyle?: string;
   strokeStyle?: string;
   lineWidth?: number;
+  /** The string a fillText op drew, so label content is assertable. */
+  text?: string;
+  /**
+   * The font in force when the op ran. Recorded because `font` is a context
+   * property, not an argument: without it a text size change leaves an
+   * identical op stream, which is exactly how an inert font-size option would
+   * pass a green suite.
+   */
+  font?: string;
 }
 
 export class RecordingContext {
@@ -47,11 +56,28 @@ export class RecordingContext {
   public rect(x: number, y: number, w: number, h: number): void { this.ops.push({ type: 'rect', args: [x, y, w, h] }); }
   public roundRect(x: number, y: number, w: number, h: number, r: number): void { this.ops.push({ type: 'roundRect', args: [x, y, w, h, r] }); }
   public clip(): void { this.ops.push({ type: 'clip', args: [] }); }
+  /**
+   * The returned handle names its own stops through `toString`, because that is
+   * how a gradient reaches an assertion: it is set as `fillStyle`, so the op
+   * records the object, and a gradient that stringifies as `[object Object]`
+   * makes every area fill compare equal to every other. Gradients are also
+   * cached per context, so the `addColorStop` ops appear on one frame only and
+   * cannot be relied on to tell two fills apart.
+   */
   public createLinearGradient(): { addColorStop(o: number, c: string): void } {
     this.ops.push({ type: 'createLinearGradient', args: [] });
-    return { addColorStop: () => { this.ops.push({ type: 'addColorStop', args: [] }); } };
+    const stops: string[] = [];
+    return {
+      addColorStop: (o: number, c: string) => {
+        stops.push(`${o}:${c}`);
+        this.ops.push({ type: 'addColorStop', args: [o], text: c });
+      },
+      toString: () => `gradient(${stops.join(' ')})`,
+    } as { addColorStop(o: number, c: string): void };
   }
-  public fillText(_t: string, x: number, y: number): void { this.ops.push({ type: 'fillText', args: [x, y], fillStyle: this.fillStyle }); }
+  public fillText(t: string, x: number, y: number): void {
+    this.ops.push({ type: 'fillText', args: [x, y], fillStyle: this.fillStyle, text: t, font: this.font });
+  }
   public measureText(t: string): { width: number } { return { width: t.length * 6 }; }
   public setTransform(): void { this.ops.push({ type: 'setTransform', args: [] }); }
   public translate(x: number, y: number): void { this.ops.push({ type: 'translate', args: [x, y] }); }

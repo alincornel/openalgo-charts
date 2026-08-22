@@ -7,6 +7,43 @@
  * under the cursor; the time tag is drawn on the bottom pane's axis strip.
  * Lines are a 1-device-px hairline so they stay thin/subtle on HiDPI.
  */
+import { dashPattern } from './grid';
+import type { CanvasLineStyle } from './grid';
+import type { ChartTheme } from '../theme';
+
+/**
+ * The Canvas tab's crosshair controls. Same precedence as the rest of the
+ * canvas block (see grid.ts): set overrides the theme, unset falls through.
+ */
+export interface CrosshairOptions {
+  /** Line colour. Unset falls back to `theme.crosshair`. */
+  color?: string;
+  /** Line dash. Unset falls back to `theme.crosshairStyle`, then dashed. */
+  style?: CanvasLineStyle;
+  /** Line width in device px (1 = hairline). Unset falls back to the theme. */
+  width?: number;
+}
+
+/** Resolved crosshair line style, ready for `drawCrosshair`. */
+export interface CrosshairStyle {
+  color: string;
+  width: number;
+  dash: number[];
+}
+
+/** Fold the crosshair options over the theme. */
+export function resolveCrosshairStyle(
+  theme: Pick<ChartTheme, 'crosshair' | 'crosshairStyle' | 'crosshairWidth'>,
+  opts: CrosshairOptions | undefined,
+  dpr: number,
+): CrosshairStyle {
+  return {
+    color: opts?.color ?? theme.crosshair,
+    width: opts?.width ?? theme.crosshairWidth ?? 1,
+    // The crosshair reads as dashed by default; the grid reads as solid.
+    dash: dashPattern(opts?.style ?? theme.crosshairStyle ?? 'dashed', dpr),
+  };
+}
 
 /** Draw the crosshair lines. `y === null` draws the vertical line only. */
 export function drawCrosshair(
