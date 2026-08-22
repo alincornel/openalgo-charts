@@ -6,9 +6,14 @@ description: >-
   and time scales, panes, indicators, drawing tools, primitives and custom
   renderers, volume/market profile and footprint, on-chart trading and order
   lines, DOM ladder, OpenAlgo REST history and WebSocket live ticks, chart state
-  persistence, themes, keyboard shortcuts, or React/Next.js integration. Covers
-  the six-tier bundle model and the time, scale, registry, indicator, drawing,
-  trading, and bundling foot-guns.
+  persistence, themes, keyboard shortcuts, or React/Next.js integration. Also
+  market replay, multi-symbol comparison, rebasing price scales, the chart
+  timezone, reference price levels (previous close, session high/low, bid/ask),
+  axis chrome (session clock, bar-close countdown), the settings schema with
+  its paired up/down colour control, and context menus including one raised on
+  a price axis. Covers the six-tier bundle model, the UI standard for host
+  chrome, and the time, scale, registry, indicator, drawing, trading and
+  bundling foot-guns.
 ---
 
 # OpenAlgo Charts skill
@@ -63,14 +68,14 @@ Import only what you use. Each tier is a separate entry point that registers int
 
 | Import | Contents | Brotli limit |
 |---|---|---|
-| `openalgo-charts` | Engine, 13 chart types, panes and scales, primitives, registries, chart state, trading visualization, OpenAlgo feeds, EMA/RSI/ATR/Supertrend calculators | 40 KB |
-| `openalgo-charts/indicators` | 91 built-in indicators + the Tier-2 external-data contract | 25 KB |
+| `openalgo-charts` | Engine, 13 chart types, panes and scales, primitives, registries, chart state and settings schema, market replay, symbol comparison, chart timezone, trading visualization, OpenAlgo feeds, EMA/RSI/ATR/Supertrend calculators | 55 KB |
+| `openalgo-charts/indicators` | 91 built-in indicators + the Tier-2 external-data contract | 27 KB |
 | `openalgo-charts/draw` | 43 drawing tools + a headless `DrawingController` | 14 KB |
 | `openalgo-charts/transform` | Heikin Ashi, Renko, Range bars, Line Break, Point and Figure, Kagi | 5 KB |
 | `openalgo-charts/profile` | Volume Profile, Market Profile (TPO), Footprint, order flow | 11 KB |
-| `openalgo-charts/trade` | Order engine, state machine, order/position/bracket lines, DOM ladder | 47 KB with base |
+| `openalgo-charts/trade` | Order engine, state machine, order/position/bracket lines, DOM ladder | 62 KB with base |
 
-Limits are the CI-enforced budgets in `.size-limit.json`; the whole package measures about 88 KB Brotli against a 90 KB budget. Nothing is excluded from them because there are no runtime dependencies to exclude.
+Limits are the CI-enforced budgets in `.size-limit.json`; the whole package measures 105.9 KB Brotli against a 120 KB budget. Nothing is excluded from them because there are no runtime dependencies to exclude.
 
 ## The 60-second chart
 
@@ -92,7 +97,7 @@ chart.fitContent();
 
 ## Non-negotiable rules
 
-1. **Time is UTC seconds everywhere, never milliseconds.** `Math.floor(Date.now() / 1000)`, not `Date.now()`. Feed adapters convert broker formats at the edge.
+1. **Time is UTC seconds everywhere, never milliseconds.** `Math.floor(Date.now() / 1000)`, not `Date.now()`. Feed adapters convert broker formats at the edge. Which wall clock those seconds are *labelled* in is `ChartOptions.timezone`, an IANA name defaulting to `Asia/Kolkata`; never offset the timestamps themselves to fake a zone, or every session anchor and gap moves with them.
 2. **The time axis is gapless and index-based, not timestamp-proportional.** x is `logicalIndex * barSpacing`, so weekends, holidays and session breaks have no index and collapse to nothing. Never compute an x from a timestamp difference; use `chart.timeToCoordinate(t)` or `chart.timeScale`.
 3. **One bar per time per series, ascending.** Duplicate times collapse to the last one written.
 4. **Never deep-import.** `import { X } from 'openalgo-charts'` or a published tier specifier only. A deep path into `dist/` internals inlines a second copy of the registry Map, and `createChart` will never see what your tier registered. See `rollup.config.js`.
@@ -101,8 +106,9 @@ chart.fitContent();
 7. **Drawing anchors are `{ time, price }`, never pixels.** Pixel anchors slide the moment a gap collapses or the user zooms.
 8. **Canvas drawing happens in bitmap pixels.** Multiply media px by `dpr` in any custom primitive, or it blurs and misaligns on HiDPI.
 9. **`chart.trading` renders trade state; it does not place orders.** The host pushes exchange state in and turns the emitted `trading:*` events into broker calls. The transactional path is `openalgo-charts/trade`.
-10. **The library ships no DOM chrome.** No toolbar, no dialogs, no settings forms, no command palette. Drawing tools, indicator settings and order menus are the host's UI, driven by descriptors and events. Do not look for a built-in one.
-11. **Never use emojis or icons in code, comments, logs, or generated UI text.** Project rule.
+10. **The library ships no DOM chrome.** No toolbar, no dialogs, no settings forms, no command palette. Drawing tools, indicator settings, replay transports and order menus are the host's UI, driven by descriptors and events. Do not look for a built-in one. What it does ship is the *description* of that UI: `chartSettingsSchema(chart)` for a settings dialog, the `contextmenu` event for a right-click menu, and `chart.priceAxisState(...)` for a menu raised on a price axis. Chrome you write is held to the UI standard in [themes-and-styling](references/themes-and-styling.md#host-chrome-the-ui-standard): styled scrollbars, small square swatches, paired up/down colours on one row, themed form controls, and no control with nothing behind it.
+11. **A control with no data in the current context is rendered disabled, not hidden.** `PriceLevels.available(kind)` and `PriceAxisState.active` / `scaled` / `movable` exist to be read for exactly this. Hiding it loses the information that the state is off.
+12. **Never use emojis or icons in code, comments, logs, or generated UI text.** Project rule.
 
 ## References
 
@@ -112,15 +118,17 @@ Detailed reference for each topic is in `references/`. Read the one that matches
 |---|---|
 | [core-api](references/core-api.md) | `createChart`, `ChartOptions`, `SeriesApi`, lifecycle, coordinate conversion, the render/invalidation model |
 | [chart-types](references/chart-types.md) | All 13 base series types, their styles and autoscale rules, runtime type switching |
-| [scales-and-panes](references/scales-and-panes.md) | Price/time scale options, log and inverted modes, left/right/overlay scales, pane weights and layout |
-| [themes-and-styling](references/themes-and-styling.md) | `ChartTheme` keys, dark/light, gradients, `SeriesStyle` precedence, price formatting |
-| [data-and-time](references/data-and-time.md) | `Bar` shape, UTC seconds, setData/update/prependData, the logical-index model, history paging, tick and volume bars |
+| [scales-and-panes](references/scales-and-panes.md) | Price/time scale options, log and inverted modes, left/right/overlay scales, per-axis state and moves, axis chrome (corner clock, bar countdown, tick priority), pane weights and layout |
+| [themes-and-styling](references/themes-and-styling.md) | `ChartTheme` keys, dark/light, gradients, `SeriesStyle` precedence, price formatting, and the UI standard for host chrome |
+| [data-and-time](references/data-and-time.md) | `Bar` shape, UTC seconds, the chart timezone and the time helpers, setData/update/prependData, the logical-index model, history paging, tick and volume bars |
 | [feeds-and-live](references/feeds-and-live.md) | `DataFeed` contract, OpenAlgo REST/WS/live feeds, `CandleBuilder`, writing a custom feed |
 | [events-and-state](references/events-and-state.md) | The full event catalogue with payloads, `getState`/`restoreState`, saved layouts |
 | [indicators](references/indicators.md) | The 91 built-ins with exact ids, placements and input defaults, the settings model, levels/ranges/fills, signal markers, `registerIndicator`, the Tier-2 external-data contract |
 | [transforms](references/transforms.md) | Heikin Ashi, Renko, Range, Line Break, Point and Figure, Kagi |
 | [drawing-tools](references/drawing-tools.md) | The 43 tools, `DrawingController`, anchors, magnet, undo, persistence, shortcuts, custom tools |
-| [primitives-and-plugins](references/primitives-and-plugins.md) | `IPrimitive`, z-order, hit-testing, the dpr contract, built-in primitives, `registerChartType` |
+| [primitives-and-plugins](references/primitives-and-plugins.md) | `IPrimitive`, z-order, hit-testing, the dpr contract, built-in primitives including the `PriceLevels` reference-level family, `registerChartType` |
+| [replay-and-compare](references/replay-and-compare.md) | `ReplayController` and its transport events, `addComparison`, the overlay-scale mechanism, timestamp alignment |
+| [settings-and-menus](references/settings-and-menus.md) | `chartSettingsSchema` and its round trip, the five tabs, the `colorPair` row, the timezone control, canvas options (grid, crosshair, scales, margins), status-line switches, the `contextmenu` event and the price-axis menu |
 | [trading](references/trading.md) | The data-driven on-chart trading layer, `trading:*` events, order/position/bracket lines |
 | [trade-tier](references/trade-tier.md) | `OrderEngine`, order state machine, validation, analyzer mode, DOM ladder, broker adapters |
 | [profiles-and-orderflow](references/profiles-and-orderflow.md) | Volume Profile, Market Profile (TPO), Footprint, cumulative delta, the trade-data dependency |
@@ -135,6 +143,7 @@ Detailed reference for each topic is in `references/`. Read the one that matches
 |---|---|---|---|
 | First chart / blank chart | container size, `dist` present | `createChart` + `addSeries` + `setData` | assuming a CSS import or web component |
 | Bars in the wrong place | units of `time` | UTC seconds | `Date.now()` milliseconds |
+| Axis shows the wrong hours | `chart.timezone()` | `timezone: 'America/New_York'` on `createChart`, or `setTimezone` | shifting bar timestamps, or a `timeFormatter` that only relabels |
 | Gaps for weekends | the gapless-axis rule | it is intended; whitespace points if you want a gap | shifting timestamps |
 | Realtime ticks | last-bar vs full replace | `series.update(bar)` | `setData` on every tick |
 | Loading older history | `setHistoryLoader` | `prependData` + `historyLoadComplete` | rebuilding and re-fitting |
@@ -147,6 +156,15 @@ Detailed reference for each topic is in `references/`. Read the one that matches
 | Placing real orders | which layer | `openalgo-charts/trade` `OrderEngine` | `chart.trading` (visualization only) |
 | Order lines on the chart | which layer | `chart.trading` sync + `trading:*` events | drawing your own price lines |
 | Custom overlay | primitive vs chart type | `IPrimitive` + `addPrimitive` | a custom chart type for decoration |
+| Bar-by-bar replay | `ReplayController` | headless controller + host transport bar; indicators rebuild from the prefix | a second chart, or slicing data by hand |
+| Two symbols on one chart | `addComparison` | hidden overlay scale + a rebasing pane mode | a second series on the same price axis |
+| Percent / rebased axis | `priceScale.mode` | `'percentage'` or `'indexed-to-100'` plus a baseline | recomputing the data into percentages |
+| Settings dialog | `chartSettingsSchema(chart)` | render the tabs, round-trip with `read`/`applyChartSettings` | hardcoding a control list |
+| Right-click menu | `contextmenu` event | `preventDefault()` + `target.kind` | hit-testing the pointer yourself |
+| Menu on a price axis | `target.side` / `target.scaleId` | `chart.priceAxisState(pane, scaleId)`, acted on by the `setPriceAxis*` calls | assuming pane 0's right scale |
+| Previous close, session high/low, bid/ask lines | `PriceLevels` | one primitive, one options group per level, `line` and `label` together | a `PriceLine` per level with its own tag bookkeeping |
+| A level or axis row with no data | `available(kind)`, `state.active` | render it disabled with its state visible | hiding the control |
+| Corner clock, bar-close countdown | `ChartOptions.axisChrome` | `{ sessionClock: true, barCountdown: true }`, plus a `clock` for a delayed feed | a DOM overlay positioned over the axis |
 | Saved layouts | `getState` / `restoreState` | one JSON payload | hand-rolled serialisation |
 | React lifecycle | where the chart instance lives | create in an effect, hold in a ref, `chart.destroy()` on cleanup | chart instance in state |
 | Bundle size | which tiers are imported | drop the unused tier import | code-splitting the base |
@@ -163,9 +181,21 @@ chart.addIndicator(id, settings, { paneIndex });   // needs the indicators tier
 chart.addPriceLine(opts, paneIndex);
 chart.addPrimitive(primitive, paneIndex);
 chart.fitContent();
-chart.applyOptions({ theme, grid, priceFormatter, timeFormatter, crosshairMode });
+chart.applyOptions({ theme, grid, canvas, statusLine, priceScale, priceFormatter, timeFormatter, timezone, crosshairMode });
 chart.setTheme(theme);
+chart.setTimezone('America/New_York') / chart.timezone();   // IANA name, default 'Asia/Kolkata'
 chart.panes();                          // readonly Pane[]
+chart.primarySeries() / chart.primarySeriesInfo();
+chart.setCanvasOptions(opts) / chart.setStatusLineOptions(opts) / chart.setPriceScaleOptions(opts);
+chart.setAxisChromeOptions({ sessionClock: true, barCountdown: true }) / chart.axisChromeOptions();
+
+// one price axis at a time (what a menu on an axis strip acts on)
+chart.priceAxisState(paneIndex, scaleId);               // PriceAxisState | null
+chart.setPriceAxisOptions(paneIndex, scaleId, patch);
+chart.setPriceAxisAutoFit(paneIndex, scaleId, on);
+chart.setPriceAxisLockRatio(paneIndex, scaleId, on);    // boolean
+chart.movePriceAxis(paneIndex, 'right', 'left');        // boolean
+PRICE_SCALE_MODES;                      // ['linear','logarithmic','percentage','indexed-to-100']
 chart.getState() / chart.restoreState(state);
 chart.on(event, cb);                    // returns an unsubscribe function
 chart.subscribeCrosshairMove(cb);
@@ -188,6 +218,17 @@ series.applyOptions({ visible: false });   // not setStyle
 series.priceScale();
 series.createMarkers();
 series.remove();
+
+// headless controllers, base bundle, no tier import
+new ReplayController(chart, { bars, startIndex, barMs });  // seek/step/play/pause/stop/state
+addComparison(chart, { symbol, bars });                    // setBars/remove/list/alignment
+chartSettingsSchema(chart) / readChartSettings(chart) / applyChartSettings(chart, patch);
+
+// reference levels (a primitive: previous close, session high/low, bid/ask, ...)
+const levels = new PriceLevels({ levels: { previousClose: { line: true, label: true } } });
+chart.addPrimitive(levels, 0);
+levels.setLevel(kind, patch) / levels.setQuote(q) / levels.values() / levels.available(kind);
+computePriceLevels({ bars, anchorTime });   // the same numbers, pure, no canvas
 ```
 
 `chart.fitContent()` takes no arguments; `chart.timeScale.fitContent(barCount)` does.

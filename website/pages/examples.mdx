@@ -66,6 +66,39 @@ return chart;`} />
 </div>
 
 <div>
+### Symbol comparison
+<RunnableExample hideCode height={280} code={`const chart = lib.createChart(el);
+const spot = lib.generateBars(1700000000, 200, 3600);
+chart.addSeries('candlestick').setData(spot);
+
+// A second instrument, two orders of magnitude away in price.
+const other = spot.map((b, i) => {
+  const c = 46000 * (1 + Math.sin(i / 13) * 0.018 + i * 0.0004);
+  return { time: b.time, open: c, high: c, low: c, close: c };
+});
+lib.addComparison(chart, { symbol: 'BANKNIFTY', bars: other, color: '#f0b90b' });
+chart.fitContent();
+return chart;`} />
+</div>
+
+<div>
+### Market replay
+<RunnableExample hideCode height={280} code={`const chart = lib.createChart(el);
+const bars = lib.generateBars(1700000000, 320, 3600);
+const series = chart.addSeries('candlestick');
+series.setData(bars);
+chart.timeScale.setBarSpacing(7);
+
+const replay = new lib.ReplayController(chart, { series, bars, startIndex: 200, barMs: 220 });
+replay.play();
+chart.on('replay:end', () => { replay.seek(200); replay.play(); });   // loop the demo
+
+const destroy = chart.destroy.bind(chart);
+chart.destroy = () => { replay.stop(); destroy(); };
+return chart;`} />
+</div>
+
+<div>
 ### Supertrend overlay
 <RunnableExample hideCode height={280} code={`const chart = lib.createChart(el);
 const bars = lib.generateBars(1700000000, 200, 3600);
@@ -210,6 +243,35 @@ for (let i = 0; i < 12000; i++) {
 }
 series.setData(bars);
 chart.timeScale.fitContent(bars.length);
+return chart;`} />
+</div>
+
+<div>
+### Timezone switcher
+<RunnableExample hideCode height={280} code={`const chart = lib.createChart(el, { timezone: 'Asia/Kolkata' });
+const bars = lib.generateBars(1717594200, 180, 900);
+chart.addSeries('candlestick').setData(bars);
+chart.timeScale.fitContent(bars.length);
+
+el.style.position = 'relative';
+const wrap = document.createElement('div');
+wrap.style.cssText = 'position:absolute;left:10px;top:8px;z-index:5;display:flex;gap:6px;flex-wrap:wrap';
+el.appendChild(wrap);
+
+['Asia/Kolkata', 'America/New_York', 'Europe/London', 'Asia/Tokyo', 'UTC'].forEach(function (zone, i) {
+  const b = document.createElement('button');
+  b.textContent = zone;
+  b.style.cssText = 'padding:4px 10px;border-radius:6px;border:1px solid #2a3046;background:#1c2030;color:#c7ccd8;cursor:pointer;font-size:11px';
+  b.onclick = function () {
+    chart.setTimezone(zone);
+    Array.prototype.forEach.call(wrap.children, function (c) {
+      c.style.background = c === b ? '#2962ff' : '#1c2030';
+      c.style.color = c === b ? '#fff' : '#c7ccd8';
+    });
+  };
+  if (i === 0) { b.style.background = '#2962ff'; b.style.color = '#fff'; }
+  wrap.appendChild(b);
+});
 return chart;`} />
 </div>
 

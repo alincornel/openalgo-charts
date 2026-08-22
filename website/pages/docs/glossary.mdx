@@ -39,9 +39,12 @@ See also: [Core Concepts](/docs/core-concepts), [Series and Styling](/docs/serie
 
 The library's universal time unit: a plain integer counting seconds since the Unix epoch.
 Feed adapters convert IST strings and epoch-millisecond timestamps to UTC seconds at the
-boundary so application code never handles timezones internally.
+boundary so application code never handles timezones internally. A chart's
+[timezone](#timezone) decides how those seconds are labelled and bucketed, and never
+changes the seconds.
 
-See also: [Core Concepts](/docs/core-concepts), [Data Feeds](/docs/data-feeds)
+See also: [Core Concepts](/docs/core-concepts), [Data Feeds](/docs/data-feeds),
+[Timezones](/docs/timezones)
 
 ---
 
@@ -216,6 +219,50 @@ See also: [Scales and Panes](/docs/scales-and-panes)
 
 ---
 
+### Rebasing scale (percent, indexed to 100)
+
+The two price-scale modes that quote every price against a baseline instead of as a level:
+`percentage` labels the axis `+3.42%`, `indexed-to-100` labels it `103.42`. They are one
+ladder a hundred points apart. A rebase is affine over a price range, so it relabels a pane
+without reshaping it.
+
+See also: [Scales and Panes](/docs/scales-and-panes#percent-and-indexed-to-100)
+
+---
+
+### Baseline
+
+The price a rebasing scale quotes against. It is data rather than geometry, so the pane's
+autoscale pass supplies it every frame as the close of the first visible bar, which is why
+panning re-bases the axis. `priceScale.setBaseline(value)` overrides it; a null, zero or
+negative baseline makes the scale fall back to linear.
+
+See also: [Scales and Panes](/docs/scales-and-panes#percent-and-indexed-to-100)
+
+---
+
+### Comparison (symbol comparison)
+
+A second instrument drawn on the primary one's pane, aligned to its bars by timestamp and
+put on the pane's hidden overlay scale. The overlay mirrors the primary axis' band of
+percent, so equal moves land on equal pixels and the divergence between the two is the
+thing you see. `addComparison(chart, { symbol, bars })`.
+
+See also: [Symbol Comparison](/docs/symbol-comparison)
+
+---
+
+### Market replay
+
+Walking a loaded session forward bar by bar. `ReplayController` feeds the chart a prefix of
+the bar array through the ordinary `setData` path, so every indicator recomputes to exactly
+what it was at that bar. Headless: the host renders the transport bar from `state()` and
+the `replay:*` events.
+
+See also: [Market Replay](/docs/market-replay)
+
+---
+
 ## Data layer
 
 ### DataLayer
@@ -262,6 +309,20 @@ levels, open positions, stop-loss, and take-profit markers. Added with
 `chart.addPriceLine(options, paneIndex)`.
 
 See also: [Primitives and Plugins](/docs/primitives-and-plugins), [Trading API](/docs/trading-api)
+
+---
+
+### Price level
+
+A reference price a chart is read against: previous close, the session high and low, the
+last price, the four extended-hours opens and closes, and the top-of-book bid and ask. All
+ten are one `PriceLevels` primitive, and each kind is a single options group carrying both
+`line` (drawn across the plot) and `label` (a tag on the price axis), so the two halves
+cannot drift apart. A level with no data in the current context is `null` rather than `0`,
+so nothing draws at zero and `available(kind)` tells a host to grey the control rather than
+hide it.
+
+See also: [Price Levels and Axis Chrome](/docs/price-levels)
 
 ---
 
@@ -554,6 +615,32 @@ See also: [Crosshair and Legend](/docs/crosshair-and-legend)
 
 ---
 
+### Settings schema
+
+The declarative description of a chart settings dialog that `chartSettingsSchema(chart)`
+returns: five tabs (Price, Readout, Axes, Appearance, Trading), each a list of controls in
+the same widget vocabulary the indicator settings form uses, plus a `colorPair` row that
+carries a bullish and a bearish colour together. `readChartSettings` and
+`applyChartSettings` are its round trip, over a flat, JSON-safe map of dotted keys. The
+engine ships no dialog, only the description of one.
+
+See also: [Settings and Menus](/docs/settings-and-menus)
+
+---
+
+### Axis chrome
+
+Two optional readings on the axis strips, both off unless asked for: a **session clock** in
+the corner where the price and time axes meet, formatted in the chart's own zone with its
+UTC offset underneath, and a **bar countdown**, a second row inside the last-price tag
+counting down to the close of the bar being built. Both take an injectable clock rather than
+reaching for the system one, so a delayed or replayed chart can stay honest about what time
+its data thinks it is.
+
+See also: [Price Levels and Axis Chrome](/docs/price-levels#axis-chrome)
+
+---
+
 ## Feeds
 
 ### DataFeed
@@ -627,7 +714,41 @@ See also: [Trading API](/docs/trading-api), [Data Feeds](/docs/data-feeds)
 
 `IST_OFFSET_SECONDS` is a named constant (19800, i.e., +05:30 in seconds) exported from
 the time-utilities module. The feed adapters add it when converting an IST timestamp to
-UTC seconds and subtract it when formatting axis labels back to IST. Application code
-using the built-in adapters never needs to reference it directly.
+UTC seconds, and it is also the arithmetic the default zone uses on the per-bar paths,
+which India observing no DST makes safe. Application code using the built-in adapters
+never needs to reference it directly, and a chart in another zone does not use it at all.
 
-See also: [Data Feeds](/docs/data-feeds), [Core Concepts](/docs/core-concepts)
+See also: [Data Feeds](/docs/data-feeds), [Core Concepts](/docs/core-concepts),
+[Timezones](/docs/timezones)
+
+---
+
+## Time and timezones
+
+### Timezone
+
+The IANA zone a chart labels time in, `ChartOptions.timezone`, defaulting to
+`Asia/Kolkata`. It drives the time-axis labels, the crosshair time tag, and the calendar
+units that session-anchored studies (VWAP, CPR, TWAP, Seasonality) and the profiles reset
+on. `chart.setTimezone(zone)` changes it at runtime and recomputes those studies, which is
+what a terminal switching between an NSE symbol and a US one needs.
+
+It is an IANA name rather than a fixed offset because a zone that observes DST is a
+different offset in July than in January, and a fixed one is silently wrong for half the
+year. It is display and bucketing only: `Bar.time` stays UTC seconds.
+
+See also: [Timezones](/docs/timezones), [UTC seconds](#utc-seconds)
+
+---
+
+### Session window
+
+A `SessionWindow` restricts a profile to a trading session: `startMinute` and `endMinute`,
+minutes from midnight, plus an optional `zone` naming the IANA clock those minutes are
+written on. The window's own zone beats the profile's display zone for both the window test
+and the day/week/month grouping, so a session pinned to its market selects the same real
+instants no matter where it is being read. `TRADING_HOURS` holds the presets, each carrying
+its market's zone: `us-regular` is 09:30 to 16:00 `America/New_York`.
+
+See also: [Market Profile](/docs/market-profile#session-windows),
+[Timezones](/docs/timezones#session-windows-and-trading_hours)

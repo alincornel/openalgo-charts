@@ -1,6 +1,6 @@
 ---
 name: openalgo-chart-terminal
-description: Build a full trading terminal on openalgo-charts - symbol search, interval switcher, chart-type picker, indicator menu, drawing rail, live OpenAlgo REST plus WebSocket data, on-chart order lines with drag-to-modify, market depth, and layout persistence. Use when the user asks for a trading terminal, a charting workstation, on-chart trading, or to wire orders onto a chart.
+description: Build a full trading terminal on openalgo-charts - symbol search, interval switcher, chart-type picker, indicator menu, drawing rail, live OpenAlgo REST plus WebSocket data, on-chart order lines with drag-to-modify, market depth, a settings dialog and context menu, market replay, symbol comparison, and layout persistence. Use when the user asks for a trading terminal, a charting workstation, on-chart trading, or to wire orders onto a chart.
 argument-hint: "[feature]"
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep
 ---
@@ -29,6 +29,8 @@ Load history, then subscribe, seeding the builder from the last historical bar s
 ### 2. Symbol and interval switching
 
 Switching either one is a full data reload, not a chart rebuild. Tear down the old subscription first, then `setData`, then resubscribe. Do not create a second chart.
+
+**Switch the clock with the symbol.** `chart.setTimezone(zoneForExchange(exchange))` takes an IANA name (default `Asia/Kolkata`) and moves the axis labels, the crosshair tag *and* every session-anchored study, so a US symbol stops restarting its VWAP in the middle of the afternoon. Hold the chosen zone in your own state if anything in the terminal rebuilds the chart, and offer it as a control: a user watching a US symbol from Mumbai may want either clock. The settings schema ships that control (`time.timezone`, step 10), so mirror the zone rather than building a second picker. It throws on a name the runtime does not know, so guard user input with `isValidTimezone`. See [data-and-time](../openalgo-charts/references/data-and-time.md).
 
 ### 3. History paging
 
@@ -76,7 +78,45 @@ localStorage.setItem('layout', JSON.stringify(chart.getState()));
 chart.restoreState(JSON.parse(localStorage.getItem('layout')!));
 ```
 
-One payload covers viewport, grid, panes, price scales, indicator instances and drawings. Indicators whose tier is not loaded are skipped on restore rather than throwing, so restore after your tier imports. See [events-and-state](../openalgo-charts/references/events-and-state.md).
+One payload covers viewport, grid, panes, price scales, indicator instances, drawings and the settings block (canvas, status line, trading colours, event filters). Indicators whose tier is not loaded are skipped on restore rather than throwing, so restore after your tier imports. See [events-and-state](../openalgo-charts/references/events-and-state.md).
+
+### 10. Settings dialog and context menu
+
+```ts
+const tabs = chartSettingsSchema(chart);                        // render these
+applyChartSettings(chart, { 'canvas.grid.vertLines': false });  // patch on change
+chart.on('contextmenu', (e) => { (e as ContextMenuEvent).preventDefault(); showMenu(e); });
+```
+
+Render the tabs from the schema rather than hardcoding controls: the inputs are the `IndicatorInput` union your indicator settings form already handles plus one extra kind, `colorPair`, and every control maps to a real option. Five tabs: Price, Readout, Axes, Appearance, Trading. See [settings-and-menus](../openalgo-charts/references/settings-and-menus.md).
+
+**Build the `colorPair` widget before anything else in the dialog.** It is a bullish/bearish pair on one labelled row (switch, up swatch, down swatch), and it is what keeps a dense tab fitting without a scrollbar. Its `enabled` half is optional: a candle Body has no visibility flag, so that row renders with two swatches and an empty switch slot rather than a checkbox that does nothing.
+
+**The timezone is a schema control now**, `time.timezone` on the Axes tab. Drive it through `applyChartSettings` like every other key and let Cancel restore it with the rest; do not add a second zone row of your own.
+
+A menu raised on a price axis is the other half of step 10. It is a branch of the same handler, not a second listener:
+
+```ts
+chart.on('contextmenu', (e) => {
+  const ev = e as ContextMenuEvent;
+  if (ev.target.kind !== 'price-scale') return;
+  ev.preventDefault();
+  renderAxisMenu(ev.point, chart.priceAxisState(ev.paneIndex, ev.target.scaleId ?? 'right'));
+});
+```
+
+Every row it draws is readable back from `priceAxisState` and actionable through `setPriceAxisOptions`, `setPriceAxisAutoFit`, `setPriceAxisLockRatio` and `movePriceAxis`, so no row is drawn with a checkmark and nothing behind it. Reference levels (previous close, session high and low) belong in the same menu, driven by a `PriceLevels` primitive: each level's plot line and axis tag are two flags in one group, and a level whose `available(kind)` is false is a **disabled** row, not a missing one.
+
+**Hold your chrome to the UI standard** in [themes-and-styling](../openalgo-charts/references/themes-and-styling.md#host-chrome-the-ui-standard): styled scrollbars on every dark surface, colour inputs as small squares, paired colours on one row, themed checkboxes and selects, tab glyphs, and no control with nothing behind it.
+
+### 11. Replay and comparison
+
+```ts
+const replay = new ReplayController(chart, { bars, startIndex, barMs: 500 });
+addComparison(chart, { symbol: 'BANKNIFTY', bars: otherBars });
+```
+
+Both are headless: draw the transport bar from `replay.state()` plus the `replay:*` events, and the symbol chips from `list()`. Detach the live feed while replaying, and pass every series on the timeline (volume included) to the replay controller. See [replay-and-compare](../openalgo-charts/references/replay-and-compare.md).
 
 ## Rules
 

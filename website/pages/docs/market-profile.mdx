@@ -27,7 +27,9 @@ chart.addPrimitive(new MarketProfile(result));
 ## Concepts
 
 - **Session** - how bars are grouped into profiles: `day`, `week`, `month`, or `composite`
-  (one profile over everything). Grouping is by the IST calendar.
+  (one profile over everything). Grouping is by the calendar of the `timezone` option,
+  which defaults to `Asia/Kolkata`. Pass `chart.timezone()` to make the profile and the
+  axis agree. See [Timezones](/docs/timezones).
 - **Period / letter** - each `blockMinutes` slice of a session is one TPO letter (`A`, `B`,
   ... `Z`, then `a`..`z`).
 - **POC** - Point of Control, the price with the most TPOs (the longest row).
@@ -66,7 +68,7 @@ const mp = lib.computeMarketProfile(bars, { tickSize: 1, session: 'day', blockMi
 chart.addPrimitive(new lib.MarketProfile(mp)); // IB bracket on the left of each session
 
 chart.timeScale.fitContent(bars.length);
-return chart;`} caption="Day sessions: a separate profile per IST day, each with its own POC, value area, and initial-balance bracket." />
+return chart;`} caption="Day sessions: a separate profile per calendar day, on the default Asia/Kolkata, each with its own POC, value area, and initial-balance bracket." />
 
 ## Color modes & volume sub-profile
 
@@ -105,6 +107,7 @@ computeMarketProfile(bars, options): MarketProfileResult
 | `valueAreaPercent` | `0.7` | fraction of TPOs inside the value area (0..1) |
 | `initialBalancePeriods` | `2` | opening periods that form the Initial Balance |
 | `window` | none | restrict each session to a `SessionWindow`; see [Sessions](#session-windows) |
+| `timezone` | `'Asia/Kolkata'` | IANA zone the session / day / week / month calendar resolves on; a `window` naming its own `zone` overrides it. See [Timezones](/docs/timezones) |
 | `compositeSessions` | `1` | merge N consecutive sessions into one profile |
 | `tailEdges` | `0` | min run of single prints that promotes a buying / selling tail |
 
@@ -139,12 +142,22 @@ that cross midnight are handled as one session, not two halves.
 ```ts
 import { computeMarketProfile, TRADING_HOURS } from 'openalgo-charts/profile';
 
-computeMarketProfile(bars, { window: TRADING_HOURS['india'] });          // 09:15-15:30 IST
-computeMarketProfile(bars, { window: { startMinute: 9 * 60 + 15, endMinute: 15 * 60 + 30, name: 'RTH' } });
+computeMarketProfile(bars, { window: TRADING_HOURS['india'] });       // 09:15-15:30 Asia/Kolkata
+computeMarketProfile(bars, { window: TRADING_HOURS['us-regular'] });  // 09:30-16:00 America/New_York
+
+// A hand-written window is minutes from midnight on the profile's `timezone`.
+computeMarketProfile(bars, {
+  timezone: 'America/New_York',
+  window: { startMinute: 9 * 60 + 30, endMinute: 16 * 60, name: 'RTH' },
+});
 ```
 
-Built-ins: `all-hours`, `india`, `asia`, `london`, `new-york`, `us-regular`. All are in IST
-minutes-from-midnight, since the library's calendar is IST (§5.3).
+Built-ins: `all-hours`, `india`, `asia`, `london`, `new-york`, `us-regular`. **Each preset
+carries the zone its numbers are written in**, so `us-regular` reads as 09:30-16:00
+`America/New_York` and follows EST/EDT instead of freezing at whatever offset New York had
+when the table was written. A window's own `zone` wins over the profile's `timezone` for
+both the window test and the day/week/month grouping, so a preset selects the same real
+instants whichever zone the chart is displayed on. See [Timezones](/docs/timezones#session-windows-and-trading_hours).
 
 ## `MarketProfile` primitive options
 

@@ -41,13 +41,17 @@ chart.fitContent();
 | `now` | `() => number` | `performance.now` | Time source for kinetic pan / navigator fade. |
 | `conflate` | `boolean` | `false` | OHLC-preserving downsampling when bars fall under ~0.5 device px. |
 | `conflationFactor` | `number` | `1` | Conflation aggressiveness. |
-| `grid` | `{ vertLines?, horzLines? }` | both `true` | |
+| `grid` | `Partial<GridOptions>` | `vertLines`/`horzLines` `true` | Visibility plus per-axis colour, dash, width and spacing. Unset colours fall through to the theme. |
+| `canvas` | `CanvasOptions` | `{}` | Grid, crosshair, scale text/lines, plot margins in one block. See [settings-and-menus](settings-and-menus.md). |
+| `statusLine` | `LegendStatusLineOptions` | all on | Per-field status-line switches applied to every pane legend. |
 | `ariaLabel` | `string` | `'Interactive financial chart'` | |
 | `shortcuts` | `ShortcutManager \| Partial<ShortcutManagerOptions> \| false` | built-in keymap | `false` disables keyboard control. |
 | `priceFormatter` | `(price: number) => string` | tick-size-aware `toFixed` | Applies to each pane's **right** scale: axis labels, last-price tag, price-line labels. |
 | `priceScale` | `Partial<PriceScaleOptions>` | `DEFAULT_PRICE_SCALE_OPTIONS` | Applied to each pane's **right** scale as the pane is created. See [scales-and-panes](scales-and-panes.md). |
-| `timeFormatter` | `(utcSeconds, tickMark?) => string` | IST labels | Time axis and crosshair time tag. |
+| `timeFormatter` | `(utcSeconds, tickMark?) => string` | built-in labels in `timezone` | Time axis and crosshair time tag. Outranks `timezone` for labels. |
+| `timezone` | `string` (IANA name) | `'Asia/Kolkata'` | Zone the axis, crosshair tag and calendar-anchored indicators resolve in. **Throws** on a name the runtime does not recognise. See [data-and-time](data-and-time.md). |
 | `timeNavigator` | `boolean \| Partial<TimeNavigatorOptions>` | `true` | Hover-revealed zoom/step controls above the time axis. |
+| `axisChrome` | `AxisChromeOptions` | `{}` (nothing drawn) | `sessionClock` (corner clock in the chart's zone), `barCountdown` (second row in the last-price tag), and `clock`, a **wall-clock UTC seconds** source defaulting to the system clock. Not re-appliable through `applyOptions`; use `setAxisChromeOptions`. See [scales-and-panes](scales-and-panes.md). |
 
 **`DEFAULT_THEME` is `lightTheme`, not `darkTheme`.** A dark shell must pass `{ theme: darkTheme }` explicitly even though the `theme` JSDoc says otherwise.
 
@@ -96,7 +100,7 @@ Items are `{ time, open, high, low, close, volume?, color? }`, `{ time, value, c
 
 - `chart.destroy()` — the only teardown method. **There is no `chart.remove()`.** It stops the render loop and kinetic animation, removes every indicator, disconnects the `ResizeObserver`, unbinds all pointer/wheel/keyboard listeners, destroys every pane, and clears the container's cursor hint.
 - `chart.applySize(width, height)` — media px; no-ops when unchanged. A `ResizeObserver` on the container calls it automatically, so manual calls are only needed in hosts without `ResizeObserver`.
-- `chart.applyOptions(opts)` — runtime subset only: `theme`, `grid`, `priceFormatter`, `timeFormatter`, `crosshairMode`. Nothing else from `ChartOptions` is re-appliable.
+- `chart.applyOptions(opts)` takes a runtime subset only: `theme`, `grid`, `canvas`, `statusLine`, `priceScale`, `priceFormatter`, `timeFormatter`, `timezone`, `crosshairMode`. Nothing else from `ChartOptions` is re-appliable.
 
 ## Viewport
 
@@ -118,8 +122,8 @@ chart.setVisibleLogicalRange(range);           // restore the user's zoom
 |---|---|---|
 | `timeToCoordinate(time)` | UTC seconds -> container x, media px | Interpolates and extrapolates past the right edge. |
 | `coordinateToTime(x)` | container x -> UTC seconds | |
-| `priceToCoordinate(price, paneIndex = 0)` | price -> container y, media px \| `null` | `null` when the pane does not exist. |
-| `coordinateToPrice(y, paneIndex = 0)` | container y -> price \| `null` | |
+| `priceToCoordinate(price, paneIndex = 0)` | price -> container y, media px \| `null` | `null` when the pane does not exist. Uses the pane's **readout** scale, which is the one its first visible price series maps to, so it is right on a pane whose axis was moved to the left strip. |
+| `coordinateToPrice(y, paneIndex = 0)` | container y -> price \| `null` | Same scale as above. |
 
 Both price conversions force an autoscale pass first, so they are correct before the first paint.
 
@@ -129,10 +133,14 @@ Both price conversions force an autoscale pass first, so they are correct before
 chart.setPriceFormatter((p) => 'Rs ' + p.toFixed(2)); // every pane's right scale
 chart.setPriceFormatter(null);                        // back to tick-size default
 chart.setTimeFormatter((s) => new Date(s * 1000).toISOString().slice(11, 16));
-chart.setTimeFormatter(undefined);                    // back to IST
+chart.setTimeFormatter(undefined);                    // back to the built-in labels
+chart.setTimezone('America/New_York');                // which zone those labels are in
+chart.timezone();                                     // read it back
 ```
 
 Per-series formatting goes through `addSeries({ priceFormat })` or `series.priceScale().setPriceFormatter(fn)`.
+
+**`setTimezone` is not only a relabelling.** It also recomputes every calendar-anchored indicator (VWAP, TWAP, CPR, Seasonality), because moving the calendar moves where a session, week or month starts. It throws on a name the runtime does not recognise, so validate with `isValidTimezone(zone)` first if the name comes from user input. The default is `'Asia/Kolkata'`; a chart that sets no zone labels exactly as it always did. See [data-and-time](data-and-time.md).
 
 ## Screenshots
 
@@ -153,7 +161,7 @@ chart.subscribeDrag(
 
 **The `subscribe*` helpers store exactly one callback each and return `void`.** A second call replaces the first and there is no unsubscribe. For multiple listeners or teardown use the bus: `chart.on(name, cb)` returns an unsubscribe function; `chart.once`, `chart.off(name, cb?)` and `chart.emit(name, payload)` are also public.
 
-Core event names: `ready`, `crosshair:move`, `click`, `hover`, `drag`, `drag:end`, `pan`, `zoom`, `resize`, `dblclick`, `lazy-load`, `paneResized`, `paneMoved`, `paneMaximized`, `paneRemoved`, `indicatorRemoved`, `indicatorSettings`. The trading tier routes `trading:*` through the same bus. See [events-and-state](events-and-state.md).
+Core event names: `ready`, `crosshair:move`, `click`, `hover`, `drag`, `drag:end`, `pan`, `zoom`, `resize`, `dblclick`, `contextmenu`, `lazy-load`, `paneResized`, `paneMoved`, `paneMaximized`, `paneRemoved`, `indicatorRemoved`, `indicatorSettings`. `ReplayController` adds `replay:start|frame|play|pause|end|stop`, and the trading tier routes `trading:*` through the same bus. See [events-and-state](events-and-state.md).
 
 `CrosshairMoveEvent`: `time: number | null`, `index: number | null`, `price: number | null`, `bar: Bar | null`, `point: { x, y } | null`, `paneIndex?: number | null`. Every field is `null` on pointer-leave. The emitted payload also carries a `pressed: boolean` that the declared interface does not list.
 
@@ -173,7 +181,11 @@ Fires when the visible range's `from` drops below logical index 10, and re-fires
 
 `chart.panes(): readonly Pane[]` exposes the live panes (each with `.priceScale`, `.weight`, `.series()`, `.primitives()`, `.base`, `.top`). Pane management lives in [scales-and-panes](scales-and-panes.md); `chart.addPrimitive(primitive, paneIndex = 0)` and `chart.removePrimitive(primitive)` in [primitives-and-plugins](primitives-and-plugins.md).
 
-`chart.getState()` / `chart.restoreState(state)` serialise viewport, grid, crosshair mode, pane weights and price scales, indicators, and an opaque `drawings` slot. **Series data is never captured** — `restoreState` returns a `RestoreReport` listing series descriptors for the host to rebuild.
+`chart.getState()` / `chart.restoreState(state)` serialise viewport, grid, crosshair mode, timezone, pane weights and price scales, indicators, the settings block (canvas, status line, trading colours, event filters), and an opaque `drawings` slot. **Series data is never captured**: `restoreState` returns a `RestoreReport` listing series descriptors for the host to rebuild.
+
+## Option accessors
+
+Beyond `applyOptions`, the chart reads and writes its own option blocks so a settings dialog has something to bind to: `setCanvasOptions` / `canvasOptions`, `setGridOptions` / `gridOptions`, `setStatusLineOptions` / `statusLineOptions`, `setPriceScaleOptions` / `priceScaleOptions`, `setAutoScale`, `setAxisChromeOptions` / `axisChromeOptions`, `setEvents` / `setEventOptions` / `eventOptions`, `tradingSettings` / `setTradingSettings`, `primarySeries` / `primarySeriesInfo`, `theme`, `crosshairMode`, `setTimezone` / `timezone`. One axis at a time there is `priceAxisState`, `setPriceAxisOptions`, `setPriceAxisAutoFit`, `setPriceAxisLockRatio` and `movePriceAxis`. The declarative schema over all of them is in [settings-and-menus](settings-and-menus.md).
 
 ## Render model
 

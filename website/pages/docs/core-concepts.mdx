@@ -73,5 +73,12 @@ every event.
 ## Time at the edge
 
 Internally everything is UTC seconds. The OpenAlgo adapters convert at the boundary - IST
-date/time strings and epoch milliseconds become UTC seconds on the way in, and axis labels
-are formatted back to IST on the way out. Your application code never juggles timezones.
+date/time strings and epoch milliseconds become UTC seconds on the way in, because that is
+what the broker API speaks. On the way out, labels are formatted in the chart's
+**timezone**, an IANA name that defaults to `Asia/Kolkata` and is one option to change:
+`createChart(el, { timezone: 'America/New_York' })`, or `chart.setTimezone(...)` at runtime.
+
+The zone is a lens, never a rewrite. It moves axis labels, the crosshair tag, and the
+calendar units that session-anchored studies reset on; it never touches a `Bar.time`, which
+is UTC seconds always. Your application code never juggles timezones. See
+[Timezones](/docs/timezones).

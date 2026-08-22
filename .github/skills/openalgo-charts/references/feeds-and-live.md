@@ -48,7 +48,7 @@ const bars = await feed.getBars({
 ```
 
 - `POST ${baseUrl}/api/v1/history` with `{ apikey, symbol, exchange, interval, start_date, end_date }`.
-- **`from` and `to` are mandatory.** `getBars` throws without them — OpenAlgo history requires a date range. They are UTC seconds; the adapter converts to IST `YYYY-MM-DD` via `utcSecondsToIstDateString`.
+- **`from` and `to` are mandatory.** `getBars` throws without them: OpenAlgo history requires a date range. They are UTC seconds; the adapter converts to IST `YYYY-MM-DD` via `utcSecondsToIstDateString`. That is the OpenAlgo server's own convention, not the chart's display zone: `chart.setTimezone(...)` does not change what date this adapter asks for, so widen the range by a day rather than assuming the two agree.
 - A non-OK response throws `history request failed (<status>)`.
 - `fetchImpl` is injectable so the adapter is unit-testable offline. The default binds global `fetch` to `globalThis` (an unbound `window.fetch` throws "Illegal invocation").
 
@@ -158,7 +158,7 @@ const off = live.subscribeBars(req, (bar) => series.update(bar), {
 
 **Seed the builder from the last history bar, and seed it again after every reconnect.** History normally ends *inside* the forming bucket. An unseeded builder opens a fresh bar for that same bucket at whatever tick arrived first — wrong open, volume restarted at zero, and (if you also keep your own array) a duplicate entry for that time. `seed(lastBar, cumDayVolumeSoFar?)` is the fix; the optional second argument sets the `day-delta` baseline to `cumDayVolumeSoFar - (lastBar.volume ?? 0)`.
 
-**Set `sessionAnchorSec` for any interval that does not divide the trading day evenly.** The default anchors buckets to the epoch, so 5-minute bars start at :00/:05 rather than at a 09:15 IST open.
+**Set `sessionAnchorSec` for any interval that does not divide the trading day evenly.** The default anchors buckets to the epoch, so 5-minute bars start at :00/:05 rather than at the session open: 09:15 in Mumbai, 09:30 in New York. The anchor is UTC seconds and knows nothing about the chart's `timezone`, so compute it from the session open you actually want. `zonedWallClockToUtcSeconds(y, m, d, 9, 30, 0, 'America/New_York')` resolves one on a changeover day without an offset table.
 
 ```ts
 import { CandleBuilder } from 'openalgo-charts';
@@ -248,7 +248,7 @@ const off = feed.subscribeBars({ symbol: 'X', exchange: 'NSE', interval: '1m' },
 
 ## Related
 
-- [data-and-time](data-and-time.md) — `Bar`, UTC seconds, `update` vs `prependData`, tick bars, IST helpers.
+- [data-and-time](data-and-time.md): `Bar`, UTC seconds, `update` vs `prependData`, tick bars, the chart timezone and the time helpers.
 - [events-and-state](events-and-state.md) — `lazy-load` and the rest of the event bus.
 - [trading](trading.md) / [trade-tier](trade-tier.md) — `OrderFeed`, `OrderEngine`, on-chart order lines.
 - [pitfalls](pitfalls.md).

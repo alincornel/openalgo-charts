@@ -57,10 +57,11 @@ Semantics, identical in `computeVolumeProfile`, `computeTpo` and the session fam
 | `session` | `VolumeProfileSession` | `'composite'` | `'composite' \| 'day' \| 'week' \| 'month'`. |
 | `valueAreaPercent` | `number` | `0.7` | Clamped to 0..1. |
 | `deltaFromBarDirection` | `boolean` | `true` | Split volume buy/sell by `close >= open`. |
+| `timezone` | `string` | `'Asia/Kolkata'` | IANA zone the day / week / month buckets resolve on. Pass `chart.timezone()` to keep a profile and its chart on one clock. |
 
 `VolumeProfileSessionResult`: `{ startTime, endTime, levels, poc, vah, val, totalVolume, buyVolume, sellVolume, delta }`. `VolumeProfileLevel`: `{ price, volume, buyVolume, sellVolume, delta }`, high to low.
 
-Sessions group on the **IST calendar** (`src/feed/time.ts`), weeks starting Monday — see [data-and-time](data-and-time.md). A visible-range profile is just the visible slice with `session: 'composite'`.
+Sessions group on the calendar of the `timezone` option, which **defaults to `Asia/Kolkata`** rather than being fixed to it, weeks starting Monday (see [data-and-time](data-and-time.md)). The module is a pure calculation and is never handed the chart, so pass `chart.timezone()` yourself if the two must agree. A visible-range profile is just the visible slice with `session: 'composite'`.
 
 **`buyVolume` / `sellVolume` are not bid/ask delta.** An up bar's entire volume is called buying, a down bar's entire volume selling. `deltaFromBarDirection: false` leaves all three at zero.
 
@@ -86,9 +87,10 @@ Sessions group on the **IST calendar** (`src/feed/time.ts`), weeks starting Mond
 
 ### The session and period model
 
-1. Bars are dropped if a `window` is set and `inWindow(bar.time, window)` is false.
-2. Surviving bars group into sessions by IST calendar key (`day` / `week` / `month`), or one group for `composite`. `compositeSessions: N` then folds every N consecutive groups into one profile.
-3. Within a session, each bar's **period index** is `floor((bar.time - anchor) / (blockMinutes * 60))`. `anchor` is the session's first bar time, unless a real window is set, in which case it is that IST day's window open — so a session whose first bar arrives late does not shift every letter.
+0. One clock is chosen for the whole profile: the `window`'s own `zone` when it names one, otherwise `options.timezone` (default `Asia/Kolkata`). A window's zone wins so that a preset selects the same real instants and forms the same sessions however the chart is displayed.
+1. Bars are dropped if a `window` is set and `inWindow(bar.time, window, zone)` is false.
+2. Surviving bars group into sessions by calendar key on that clock (`day` / `week` / `month`), or one group for `composite`. `compositeSessions: N` then folds every N consecutive groups into one profile.
+3. Within a session, each bar's **period index** is `floor((bar.time - anchor) / (blockMinutes * 60))`. `anchor` is the session's first bar time, unless a real window is set, in which case it is that day's window open resolved as **wall clock** in the window's zone, so a session whose first bar arrives late does not shift every letter, and a daylight-saving changeover does not shift them either.
 4. Period index maps to a letter via `tpoLetter`: `0..25` to `A..Z`, `26..51` to `a..z`, then wraps (`tpoLetter(52) === 'A'`).
 5. For each bar, every row in `priceBuckets(bar.low, bar.high, tickSize * rowTicks)` records the period index in a **Set** and accumulates `bar.volume / rowCount`. A level's `count` is therefore the number of **distinct periods** at that price, not the number of bars.
 
@@ -104,7 +106,8 @@ Returns `MarketProfileResult` = `{ sessions: MarketProfileSessionResult[], optio
 | `blockMinutes` | `number` | `30` | One letter per block. |
 | `valueAreaPercent` | `number` | `0.7` | Clamped to 0..1. |
 | `initialBalancePeriods` | `number` | `2` | Opening periods forming the IB. |
-| `window` | `SessionWindow \| undefined` | none | Drops out-of-window bars and anchors letters. |
+| `window` | `SessionWindow \| undefined` | none | Drops out-of-window bars and anchors letters. Its own `zone` outranks `timezone`. |
+| `timezone` | `string` | `'Asia/Kolkata'` | IANA zone for the window test and the day / week / month keys, when the window names none. |
 | `compositeSessions` | `number` | `1` | Merge N consecutive sessions. |
 | `tailEdges` | `number` | `0` | Min run of single prints promoting a tail. 0 disables. |
 
@@ -133,10 +136,36 @@ Returns `MarketProfileResult` = `{ sessions: MarketProfileSessionResult[], optio
 | `tpoLetter(period)` | Period index to `A-Z`/`a-z`, mod 52. |
 | `rowTicksFor(rowSize, tickSize)` | `max(1, round(rowSize / tickSize))`; returns 1 on non-positive input. |
 | `rowOf(price, options)` | Snaps a price onto the profile's row grid — use it to hit-test against `levels`. |
-| `inWindow(utcSeconds, window)` | Wrap-aware; `startMinute === endMinute` means all hours. |
+| `inWindow(utcSeconds, window, zone?)` | Wrap-aware; `startMinute === endMinute` means all hours. `zone` (default `Asia/Kolkata`) is consulted only when the window names none of its own. |
 | `nakedLevels(result)` | Prior `poc`/`vah`/`val` no later session traded through, oldest first, tagged `{ time, price, kind }`. The last session's three levels are always naked. |
 
-`SessionWindow` is `{ startMinute, endMinute, name? }` in **IST minutes from midnight**; `end <= start` means an overnight window, which is kept as one session. `TRADING_HOURS` keys: `all-hours` (0/0), `india` (555/930), `asia` (330/690), `london` (690/1050), `new-york` (1050/60), `us-regular` (1140/90).
+`SessionWindow` is `{ startMinute, endMinute, name?, zone? }`. The minutes are **minutes from midnight in the window's own zone**, falling back to the profile's `timezone` (default `Asia/Kolkata`) when `zone` is absent; `end <= start` means an overnight window, which is kept as one session.
+
+`TRADING_HOURS` presets, each carrying the zone its numbers are written in:
+
+| Key | Window | Zone |
+|---|---|---|
+| `all-hours` | 0 to 0 (all hours) | none needed |
+| `india` | 09:15 to 15:30 | `Asia/Kolkata` |
+| `asia` | 09:00 to 15:00 | `Asia/Tokyo` |
+| `london` | 07:00 to 13:00 | `Europe/London` |
+| `new-york` | 08:00 to 15:30 | `America/New_York` |
+| `us-regular` | 09:30 to 16:00 | `America/New_York` |
+
+**A window's own zone outranks the display zone, for the window test and for the session keys alike.** Bucketing on the display zone would cut a 09:15-15:30 Kolkata session in half when the chart is read from New York, because that session genuinely straddles New York midnight. A preset therefore selects the same real instants on any display; only labels move.
+
+**These presets changed instants in 1.3.0 for the DST markets.** They were previously written as fixed IST minutes authored in EDT terms, so `london`, `new-york` and `us-regular` were an hour wrong for the months either side of summer. They now reproduce the old instants through a summer week and are deliberately an hour later in winter, which is the point. `india`, `asia` and `all-hours` are unchanged year-round.
+
+A window you write by hand should name its own zone for the same reason:
+
+```ts
+import { computeMarketProfile } from 'openalgo-charts/profile';
+
+const result = computeMarketProfile(bars, {
+  window: { startMinute: 9 * 60 + 30, endMinute: 16 * 60, zone: 'America/New_York', name: 'RTH' },
+  timezone: chart.timezone(),   // only settles a window with no zone of its own
+});
+```
 
 ### `MarketProfile` primitive
 

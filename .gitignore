@@ -11,3 +11,6 @@ tests/**/__screenshots__/*.diff.png
 test-results/
 playwright-report/
 .playwright/
+
+# Browser-validation screenshots written by the e2e/validation runs.
+artifacts/

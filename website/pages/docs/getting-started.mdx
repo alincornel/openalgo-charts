@@ -52,7 +52,10 @@ series.setData([
 
 <Callout type="info">
 Internal time is always **UTC seconds**. Feed adapters convert broker formats (IST date
-strings, epoch milliseconds) at the edge - see [Live Data](/docs/live-data).
+strings, epoch milliseconds) at the edge - see [Live Data](/docs/live-data). How those
+seconds are *labelled* is a separate setting: the chart's `timezone` defaults to
+`Asia/Kolkata` and takes any IANA name, at construction or at runtime - see
+[Timezones](/docs/timezones).
 </Callout>
 
 ## Live updates

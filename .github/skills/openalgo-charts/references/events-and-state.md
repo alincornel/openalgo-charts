@@ -24,7 +24,7 @@ chart.off('crosshair:move');            // drop every listener for the name
 
 ## Event catalogue
 
-Every name emitted by the engine, verified against the `emit(` call sites in `src/core/chart.ts`, `src/core/trading-controller.ts`, and `src/draw/controller.ts`.
+Every name emitted by the engine, verified against the `emit(` call sites in `src/core/chart.ts`, `src/core/trading-controller.ts`, `src/draw/controller.ts`, and `src/replay/controller.ts`.
 
 | Event | Payload | Fires when |
 |---|---|---|
@@ -44,8 +44,15 @@ Every name emitted by the engine, verified against the `emit(` call sites in `sr
 | `paneMoved` | `{ from, to }` | A pane swapped position. |
 | `paneMaximized` | `{ paneIndex }` | A pane was maximized; `paneIndex` is `null` when un-maximizing. |
 | `paneResized` | `{ paneIndex }` | A pane-divider drag released. |
+| `priceAxisMoved` | `{ paneIndex, from, to }` | `movePriceAxis` succeeded: a pane's prices and their scale changed strip. Re-read `priceAxisState` for any menu still open on that axis. |
 | `indicatorRemoved` | `{ instanceId, indicatorId, paneIndex }` | An indicator instance was removed (legend button or `removeIndicator`). |
 | `indicatorSettings` | `{ instanceId, indicatorId, paneIndex }` | The legend's settings button was clicked. The engine ships no form — render your own. |
+| `contextmenu` | `ContextMenuEvent`: `{ paneIndex, point, price, time, index, target, preventDefault }` | The chart was right-clicked, axis strips included. `target.kind` classifies what is under the pointer, and a `price-scale` hit adds `side` and `scaleId` for the axis it names. With no listener the save-image snapshot stays as the fallback. See [settings-and-menus](settings-and-menus.md). |
+| `replay:start` | `ReplayState` | The first frame a `ReplayController` applies. |
+| `replay:frame` | `ReplayState` | Every playhead move: seek, step, and each played bar. |
+| `replay:play` / `replay:pause` | `ReplayState` | Playback armed or halted. |
+| `replay:end` | `ReplayState` | The playhead reached the last bar (also emitted by `play()` called there). |
+| `replay:stop` | `ReplayState` | Replay was left; data and viewport are already restored. |
 | `trading:order_modify` | `{ orderId, newPrice, previousPrice }` | An order line was dragged and released. |
 | `trading:order_cancel` | `{ orderId }` | An order's cancel box was clicked. |
 | `trading:order_click` | `{ order }` | An order pill was clicked. |
@@ -69,14 +76,16 @@ Notes:
 
 ## getState and restoreState
 
-`chart.getState(): ChartState` returns a JSON-safe snapshot; `chart.restoreState(state): RestoreReport` puts it back.
+`chart.getState(): ChartState & ChartSettingsState` returns a JSON-safe snapshot; `chart.restoreState(state): RestoreReport` puts it back. The widened return type is still a `ChartState` to every existing consumer.
 
 | Captured in `ChartState` | Restored |
 |---|---|
 | `version` (`CHART_STATE_VERSION`) | validated |
 | `viewport` `{ from, to }` (logical range), `barSpacing` | yes, viewport only when the chart already has data |
-| `grid` `{ vertLines, horzLines }` | yes |
+| `grid` `{ vertLines, horzLines }` plus the grid style keys | yes |
+| `canvas` (grid, crosshair, scales, margins), `statusLine`, `trading` colours, `events` filters | yes; `canvas` is applied **before** the panes, so a pane's own saved margins are the more specific answer and win |
 | `crosshairMode` `'normal' \| 'magnet'` | yes |
+| `timezone` (IANA name) | yes, but a name this runtime does not recognise is **skipped**, not thrown, so one stale zone cannot cost the whole layout |
 | `panes[]` — `weight`, and per-pane `priceScale` `{ marginTop, marginBottom, minMove, mode, inverted, autoScale, range? }` | yes; panes are created as needed, `range` only present when `autoScale` is false |
 | `indicators[]` — `{ indicatorId, settings, paneIndex }` | yes, replaced not appended |
 | `drawings` | round-tripped opaquely; only present when a drawing state has been set |
@@ -144,4 +153,6 @@ Ordering matters when the controller already exists: `restoreState` overwrites t
 - [data-and-time](data-and-time.md) — history paging behind `lazy-load`.
 - [trading](trading.md) — the `trading:*` data model.
 - [indicators](indicators.md) — `indicatorSettings` and building a settings form.
+- [replay-and-compare](replay-and-compare.md): the `replay:*` payload, and the comparison controller's own state.
+- [settings-and-menus](settings-and-menus.md): the settings slice of the state, and the `contextmenu` target.
 - [react-integration](react-integration.md) — unsubscribing on unmount.

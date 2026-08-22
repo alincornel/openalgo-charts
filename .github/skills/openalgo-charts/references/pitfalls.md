@@ -17,7 +17,11 @@ series.setData([{ time: Math.floor(Date.now() / 1000), value: 1 }]); // right
 
 **A whitespace item `{ time }` is kept as a NaN OHLC bar, not dropped.** `toBar` gives it `close: NaN` so the line renderer breaks and autoscale skips it — but `getData().length` still counts it. Any length- or reduce-based logic over `getData()` must tolerate `NaN`.
 
-**Default axis and crosshair labels are IST (UTC+5:30), not UTC and not the host locale.** `IST_OFFSET_SECONDS = 19800` is hardcoded in `src/feed/time.ts`. Pass `timeFormatter` to change it — the formatter receives **raw UTC seconds**, so do not offset again inside it, and it takes a second `tickMarkType` argument (`year|month|day|time|timeWithSeconds`) that a one-arg formatter silently discards along with year/month boundary labelling.
+**Axis and crosshair labels default to IST (`Asia/Kolkata`), not UTC and not the host locale.** It is a default, not a fixed property: set `timezone` on `createChart` or call `chart.setTimezone('America/New_York')`. An unrecognised name **throws** at the call site (a saved layout's stale zone is skipped instead), so validate with `isValidTimezone` when the name comes from user input.
+
+**Setting `timeFormatter` relabels the axis but does not move the calendar.** Session anchors and pivot frames resolve on `chart.timezone()`, so a formatter that prints New York hours on a chart still set to `Asia/Kolkata` draws a VWAP that restarts in the middle of its own drawn day. Set the zone too. The formatter also receives **raw UTC seconds**, so do not offset again inside it, and it takes a second `tickMarkType` argument (`year|month|day|time|timeWithSeconds`) that a one-arg formatter silently discards along with year/month boundary labelling.
+
+**Profile session windows do not follow the chart's zone, and that is deliberate.** `SessionWindow.startMinute` / `endMinute` are minutes from midnight in the window's *own* zone (`TRADING_HOURS` presets each name one); the profile's `timezone` option only settles a window that names none. Bucketing on the display zone would cut a 09:15-15:30 Kolkata session in half when viewed from New York. See [profiles-and-orderflow](./profiles-and-orderflow.md).
 
 **`intervalToSeconds` returns 60 for any token it does not recognise — it never throws.** A typo'd interval (`'5min'`, `'1H'`) silently produces 1-minute bucketing. Validate interval strings yourself before handing them to the feed.
 
@@ -68,15 +72,21 @@ See [bundling-and-tiers](./bundling-and-tiers.md).
 
 **Any manual price-axis gesture disables autoscale for that scale permanently.** `panByPixels`, `scaleAroundCenter` and the axis drag all set `autoScale = false`, and `Pane.autoscale` then skips the scale entirely. Recover with `chart.resetScale()` (also bound to double-click) or `scale.setAutoScale(true)`. While autoscale *is* on, it reads only the **visible** bars (`dataLayer.visibleBars(from, to)`), so the range moves as you pan.
 
-**`priceScaleId: ''` is a real hidden overlay scale with its own autoscale; `percentage` and `indexed-to-100` modes genuinely do not exist.** `PriceScaleMode` is `'linear' | 'logarithmic'` only, and log mode clamps non-positive prices to `1e-10` rather than producing NaN. Note that only the **right** scale expands for primitives — a price line or custom primitive on a left or overlay scale can be clipped out of view (`src/core/pane.ts:199`).
+**`priceScaleId: ''` is a real hidden overlay scale with its own autoscale, and there is exactly one per pane.** The volume histogram usually owns it already, which is why the comparison controller falls back to the left axis when it is taken. Note that only the **right** scale expands for primitives, so a price line or custom primitive on a left or overlay scale can be clipped out of view (`src/core/pane.ts:199`).
+
+**`percentage` and `indexed-to-100` behave exactly like `linear` until something calls `setBaseline`.** The baseline is data, so the scale cannot find it alone; the pane feeds it the first visible value each frame. A null, zero or negative baseline falls back to the identity transform on purpose, so an axis that "ignores" percentage mode is an axis with no usable baseline, not a broken transform. While a rebase is in force, `format()` outranks a custom `priceFormatter`. Log mode is unaffected and still clamps non-positive prices to `1e-10` rather than producing NaN.
 
 **Adding any series with `priceScaleId: 'left'` shrinks `chart.timeScale.width` for the whole chart.** A left-axis column is reserved chart-wide and released when the series is removed. Never cache pixel math across `addSeries`/`remove`.
 
-**`addSeries(type, { paneIndex: 3 })` silently creates panes 1..3 — it does not throw.** A typo'd pane index produces blank panes that also get persisted by `getState()`. In the other direction, `removePane(0)` and a `movePane` that would displace pane 0 return `false` rather than throwing, `maximizePane` parks the other panes at weight `0.001` (not 0), and `setPaneWeight` clamps to a 0.05 floor.
+**`addSeries(type, { paneIndex: 3 })` silently creates panes 1..3; it does not throw.** A typo'd pane index produces blank panes that also get persisted by `getState()`. In the other direction, `removePane(0)` and a `movePane` that would displace pane 0 return `false` rather than throwing, `maximizePane` **hides** the other panes rather than shrinking them (their stored weights are untouched, and the bottom *visible* pane takes the time axis), and `setPaneWeight` clamps to a 0.05 floor.
 
 **A `SeriesApi` captures its pane index at creation, and `removePane`/`movePane` re-index panes.** Indicators are re-pointed automatically; host-added series are not. Call `series.remove()` before restructuring panes, or re-add the series afterwards.
 
 **With the default `minMove: 0`, price precision is inferred from the visible range, so label decimals change as you zoom, and `snapToTick` is a no-op.** Set `priceFormat: { type: 'price', minMove: 0.05 }` (or `precision`) per series for a stable instrument tick.
+
+**`movePriceAxis` and `setPriceAxisLockRatio` return `false` instead of throwing.** A move is refused when the source side carries nothing or the target side is already occupied (one strip draws one axis), and a ratio lock is refused on a scale nothing has measured. Read `priceAxisState(...)`'s `movable` and `scaled` before offering the row, and honour the return value rather than assuming the call took.
+
+**A right-click on an axis is not a plot right-click.** `target.kind` is `'price-scale'` or `'time-scale'`, `price`/`index` are `null` off the plot, and the bottom-left corner belongs to the **time** axis while the bottom-right belongs to the price axis. Pass `target.scaleId` (which can be `''` for the hidden overlay) into the `priceAxis*` calls instead of defaulting to `'right'`.
 
 See [scales-and-panes](./scales-and-panes.md).
 
@@ -148,6 +158,10 @@ ctx.fillRect(rc.timeScale.indexToX(i) * rc.dpr, y * rc.dpr, 4 * rc.dpr, 4 * rc.d
 
 **`zOrder: 'top'` moves the primitive to a different canvas, not just later in the paint order.** Top-layer primitives repaint on every crosshair move and are frozen while the native context menu is open. `bottom`/`normal` share the base canvas with the series.
 
+**`rc.priceScale` is the pane's *right* scale, not its readout scale.** A primitive on a pane whose series were moved to the left strip is drawing against a scale nothing has measured, so its output lands at the `0..1` placeholder. Coordinate conversions on the chart (`priceToCoordinate`) follow the readout scale; the primitive context does not.
+
+**`PriceLevels` drawing nothing is usually correct, not broken.** A level with no data is `null` and draws nothing: `previousClose` on a series holding one session, the four extended-hours levels with no `marketPhase` classifier, `bid` and `ask` with no `quote`. `available(kind)` is the check, and `lastPrice` is **off by default** because the pane already draws it from `SeriesStyle.priceLineVisible` / `lastValueVisible`. Turning it on as well paints the line twice.
+
 See [primitives-and-plugins](./primitives-and-plugins.md).
 
 ## Events and state
@@ -159,6 +173,18 @@ See [primitives-and-plugins](./primitives-and-plugins.md).
 **`chart.off('click')` with no callback removes *every* listener for that event, including the drawing tier's and the trade layer's.** Always pass the callback, or keep the unsubscribe function `on()` returns.
 
 See [events-and-state](./events-and-state.md), [interactions](./interactions.md).
+
+## Replay and comparison
+
+**Constructing a `ReplayController` enters replay immediately.** It snapshots the driven series' data and the viewport and jumps to `startIndex`; there is no separate `start()`. `stop()` is what puts the data, bar spacing and right offset back.
+
+**Replay drives series through `setData`, so a live feed fights it.** Detach the feed (or stop calling `series.update`) for the duration, and pass *every* series that shares the timeline in `options.series`: one left at full length keeps future timestamps on the shared axis and the replay appears not to hide anything.
+
+**A comparison must not be fed or removed through its own series.** `handle.series.setData` skips alignment (a foreign timestamp then shifts the primary's bars), and `handle.series.remove()` leaves the pane rebased with nothing on it. Use `handle.setBars` and `handle.remove`.
+
+**A comparison print with no primary bar is dropped, not inserted.** Check `handle.alignment().dropped` before concluding the second symbol "has no data": a different exchange calendar or a different interval drops everything, because matching is on the exact timestamp with no tolerance window.
+
+See [replay-and-compare](./replay-and-compare.md).
 
 ## Trading
 

@@ -382,7 +382,10 @@ Each `MarketProfileLevel` in `levels` (sorted high to low) carries:
 Each `MarketProfileSessionResult` also exposes `poorHigh` / `poorLow` booleans (the session
 extreme printed in more than one period, indicating a weak rejection) and `singlePrints`
 (prices that printed in exactly one period away from the session extremes). Session
-boundaries are computed in IST (UTC+5:30), matching NSE/BSE intraday calendars.
+boundaries are computed on the `timezone` option's calendar, which defaults to
+`Asia/Kolkata` and so matches NSE/BSE intraday calendars out of the box. Set it to
+`America/New_York` for a US instrument, or pass a `window` that names its own zone. See
+[Timezones](/docs/timezones).
 
 The `MarketProfile` canvas primitive exported from the profile tier consumes
 `MarketProfileResult` directly and handles the letter-based display.

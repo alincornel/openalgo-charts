@@ -211,9 +211,11 @@ chart.timeScale.fitContent(bars.length);
 return chart;`} caption="VWAP with two standard-deviation band pairs, each shading the region it encloses." />
 
 <Callout type="info">
-**Every anchor resets on the IST calendar**, matching the rest of the engine's session
-handling, so a period test never straddles the UTC midnight seam. `week` is Monday-based;
-`continuous` never resets, giving a running VWAP over all loaded data.
+**Every anchor resets on the chart's calendar**, which is `Asia/Kolkata` until you set
+[`timezone`](/docs/timezones) to something else, so a period test never straddles the UTC
+midnight seam and a US symbol can be anchored on New York's days rather than India's.
+`chart.setTimezone(...)` recomputes the study, so the bands move with the axis. `week` is
+Monday-based; `continuous` never resets, giving a running VWAP over all loaded data.
 </Callout>
 
 ## HalfTrend
@@ -360,15 +362,22 @@ one whose timezone you picked: 00:00 IST is 18:30 UTC, which is the middle of a 
 session. Anchoring there restarts a VWAP every afternoon, and builds a "daily" range out
 of one session's tail plus the next session's head across the overnight gap.
 
+Setting the chart's [`timezone`](/docs/timezones) fixes which calendar is consulted, and on
+a US symbol you should. It does not remove the need to read the session, though: a calendar
+day is still not a trading day, and the bars know better than either.
+
 The session is visible in the bars themselves, as the widest recurring gap, so read it
 back rather than assuming:
 
 ```ts
-import { sessionStartFlags, calendarPeriodFlags } from 'openalgo-charts';
+import { sessionStartFlags, calendarPeriodFlags, DEFAULT_TIMEZONE } from 'openalgo-charts';
 
-calc: (bars) => {
+calc: (bars, settings) => {
+  // The chart puts its zone on the settings blob under the reserved `timezone`
+  // key, so the calendar fallback follows the axis without threading a global.
+  const zone = typeof settings.timezone === 'string' ? settings.timezone : DEFAULT_TIMEZONE;
   const times = bars.map((b) => b.time);
-  const newSession = sessionStartFlags(times);      // first bar of each trading day
+  const newSession = sessionStartFlags(times, zone); // first bar of each trading day
   let sum = 0;
   const out = bars.map((b, i) => {
     if (newSession[i]) sum = 0;
@@ -382,7 +391,7 @@ calc: (bars) => {
 | Export | Returns | Use |
 |---|---|---|
 | `sessionStartIndices(times)` | `number[] \| null` | The bar indices that open a session, or `null` when the series shows no readable break. |
-| `sessionStartFlags(times)` | `boolean[]` | One flag per bar. Falls back to IST calendar days when sessions are unreadable. |
+| `sessionStartFlags(times, zone?)` | `boolean[]` | One flag per bar. Falls back to calendar days in `zone` (default `Asia/Kolkata`) when sessions are unreadable. |
 | `calendarPeriodFlags(times, isNew)` | `boolean[]` | A week, month or year boundary, tested on session opens so a session is never cut in half. |
 
 `sessionStartIndices` returns `null`, and the flag helpers fall back to a calendar day,

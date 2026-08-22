@@ -25,14 +25,25 @@ The rule: **the chart serialises what the chart owns.**
 | Captured | Restored | Notes |
 |---|---|---|
 | Visible logical range, bar spacing | Yes | Applied only when the chart has data - see below. |
-| Grid visibility | Yes | |
+| Grid (visibility, colours, styles, width, spacing) | Yes | |
+| Canvas options (crosshair, scale text and lines, plot margins) | Yes | The Appearance tab's block. See [Theming and chart options](/docs/themes#canvas-options). |
+| Status-line switches | Yes | Applied to every pane legend. |
+| Trading colours | Yes | Held on the chart, so reading them never instantiates the trade layer. |
+| Event-type visibility | Yes | Which of earnings / dividends / splits / news the strip draws. |
 | Crosshair mode | Yes | |
+| [Timezone](/docs/timezones) | Yes | A saved zone the runtime no longer recognises is skipped, not thrown: one stale name must not cost the whole layout. |
 | Pane weights | Yes | Panes are created as needed. |
 | Price scales (margins, `minMove`, mode, inverted, auto-scale, pinned range) | Yes | Per pane. |
 | Indicator instances (id, settings, pane) | Yes | Fully derivable from the source data, so they can be rebuilt. |
 | Drawings | Round-tripped | An opaque slot the drawing tier owns; the base engine only carries it. |
 | Series descriptors (type, style, pane, price scale) | **No** | Reported back to you - see below. |
 | Series **data** | **No** | Yours. The chart does not know your symbol, timeframe, or feed. |
+
+The settings blocks are restored before the panes, deliberately: the chart-wide plot
+margins land first so a pane's own saved `marginTop` / `marginBottom` is the more specific
+answer and wins. A layout saved by a host that built its dialog from the
+[settings schema](/docs/themes#the-settings-schema) therefore brings the dialog's settings
+back with it, with no second store.
 
 <Callout type="warning">
 **`restoreState` never recreates series.** The chart has no way to know what data belongs in

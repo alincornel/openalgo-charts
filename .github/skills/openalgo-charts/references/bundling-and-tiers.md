@@ -10,11 +10,11 @@ Source of truth: `package.json` (`exports`, `sideEffects`, `files`), `rollup.con
 
 | Specifier | Emitted file | Contents | Brotli budget | Import has side effects |
 |---|---|---|---|---|
-| `openalgo-charts` | `dist/openalgo-charts.mjs` | engine, 13 chart types, indicator + chart-type registries, primitives, feeds, trading controller, shortcuts, TimeNavigator | 40 KB | no |
-| `openalgo-charts/trade` | `dist/openalgo-charts.trade.mjs` | order/position/bracket primitives, DOM ladder, `OrderEngine`, `TradeController`, `FakeBroker` | no standalone row; 47 KB for base + trade | no |
+| `openalgo-charts` | `dist/openalgo-charts.mjs` | engine, 13 chart types, indicator + chart-type registries, primitives, feeds, trading controller, shortcuts, TimeNavigator, `ReplayController`, comparison controller, settings schema, chart timezone | 55 KB | no |
+| `openalgo-charts/trade` | `dist/openalgo-charts.trade.mjs` | order/position/bracket primitives, DOM ladder, `OrderEngine`, `TradeController`, `FakeBroker` | no standalone row; 62 KB for base + trade | no |
 | `openalgo-charts/transform` | `dist/openalgo-charts.transform.mjs` | Renko, Range, Point & Figure, Kagi, Line Break, Heikin Ashi, `runTransform` | 5 KB | **yes**, registers the `point-figure` and `kagi` chart types |
 | `openalgo-charts/profile` | `dist/openalgo-charts.profile.mjs` | Volume Profile, TPO / Market Profile, Footprint, orderflow | 11 KB | no |
-| `openalgo-charts/indicators` | `dist/openalgo-charts.indicators.mjs` | 91 Tier-1 built-ins plus the Tier-2 contract | 25 KB | **yes**, registers all 91 descriptors |
+| `openalgo-charts/indicators` | `dist/openalgo-charts.indicators.mjs` | 91 Tier-1 built-ins plus the Tier-2 contract | 27 KB | **yes**, registers all 91 descriptors |
 | `openalgo-charts/draw` | `dist/openalgo-charts.draw.mjs` | 43 drawing tools, `DrawingController`, `DrawingLayer` | 14 KB | **yes**, registers every built-in tool |
 
 Types resolve per tier: `dist/index.d.ts`, `dist/trade/index.d.ts`, `dist/transform/index.d.ts`, `dist/profile/index.d.ts`, `dist/indicators/index.d.ts`, `dist/draw/index.d.ts`.
@@ -129,15 +129,15 @@ An import map is optional here. Because the tier bundles reference `./openalgo-c
 
 Enforced by `npm run size` (`size-limit`, Brotli, `@size-limit/file`), from `.size-limit.json`:
 
-| Budget row | Files measured | Limit |
-|---|---|---|
-| Base engine | `openalgo-charts.mjs` | 40 KB |
-| Base + trade layer | base + `trade.mjs` | 47 KB |
-| Indicator tier | `indicators.mjs` | 21 KB |
-| Draw tier | `draw.mjs` | 14 KB |
-| Transform tier | `transform.mjs` | 5 KB |
-| Profile tier | `profile.mjs` | 11 KB |
-| Everything | all six bundles | 90 KB |
+| Budget row | Files measured | Limit | Measured |
+|---|---|---|---|
+| Base engine | `openalgo-charts.mjs` | 55 KB | 49.37 KB |
+| Base + trade layer | base + `trade.mjs` | 62 KB | 55.95 KB |
+| Indicator tier | `indicators.mjs` | 27 KB | 24.88 KB |
+| Draw tier | `draw.mjs` | 14 KB | 11.73 KB |
+| Transform tier | `transform.mjs` | 5 KB | 2.66 KB |
+| Profile tier | `profile.mjs` | 11 KB | 10.66 KB |
+| Everything | all six bundles | 120 KB | 105.88 KB |
 
 **Nothing is excluded from these numbers.** The package has zero runtime dependencies (`dependencies` is absent; everything in `devDependencies` is build tooling), so the measured file *is* the shipped payload. There is no CSS to import, no peer dependency, no web-component registration.
 

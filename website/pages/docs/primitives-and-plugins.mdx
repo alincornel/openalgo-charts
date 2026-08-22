@@ -118,6 +118,14 @@ on the host automatically.
 chart.addPriceLine({ price: 101.5, color: '#3b82f6', lineWidth: 2, dashed: false, id: 'vwap' });
 ```
 
+<Callout type="info">
+For the *reference* levels a chart is read against, previous close, session high and low,
+extended hours, bid and ask, use `PriceLevels` rather than ten hand-managed price lines. It
+computes each level from the session in the viewport, keeps the line and its axis tag as one
+toggleable group, and reports which levels have no data so a host can grey their controls.
+See [Price Levels & Axis Chrome](/docs/price-levels).
+</Callout>
+
 ### `PriceLine` direct construction
 
 `chart.addPriceLine(opts)` is a convenience wrapper. For live updates (such as a moving

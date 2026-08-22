@@ -1,6 +1,6 @@
 # Themes and styling
 
-*When to read this: picking or building a palette, swapping dark/light at runtime, overriding colours on one series, or controlling how values are formatted on an axis.*
+*When to read this: picking or building a palette, swapping dark/light at runtime, overriding colours on one series, controlling how values are formatted on an axis, or styling the host's own chrome (dialogs, menus, rails) to sit beside the chart.*
 
 Source of truth: `src/theme.ts`, `src/render/series-style.ts`, `src/model/chart-type-registry.ts`, `src/render/gradient.ts`, `src/core/pane.ts`.
 
@@ -165,3 +165,52 @@ chart.addSeries('area',      { priceFormat: { type: 'custom', formatter: (v) => 
 - `'custom'` — installs `formatter` directly. The variant accepts **only** `type` and `formatter`; to also change tick precision call `series.priceScale().setOptions({ minMove })`.
 
 Chart-wide formatting is `ChartOptions.priceFormatter` / `chart.setPriceFormatter(fn | null)`, which overrides every pane's right-scale formatter — see [core-api](core-api.md).
+
+## Host chrome: the UI standard
+
+The engine ships no DOM, so the settings dialog, the context menus, the toolbars and the rails are all yours. The chart is finished work; chrome that is not held to the same bar is what makes the whole app look unfinished. Each rule below is here because it was got wrong once.
+
+**Borrow the craft, not the design.** Professional terminals set the bar for density, crispness and finish, and that bar is the one to clear. They do not set the layout, the grouping or the words. Shared domain vocabulary is plain property and should be used plainly: logarithmic, percent, indexed to 100, auto, invert, precision, timezone, session. Another product's turns of phrase and its particular way of carving settings into tabs are not; write your own labels and your own grouping.
+
+**Never leave a default scrollbar on a dark surface.** A white OS scrollbar against a dark panel is the single most obvious tell that a UI was not finished. Style it once at the root so every scrollable surface inherits it:
+
+```css
+* { scrollbar-width: thin; scrollbar-color: #2c3547 transparent; }
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: #2c3547; border-radius: 4px; }
+*::-webkit-scrollbar-thumb:hover { background: #3a465c; }
+```
+
+The thumb belongs a step lighter than the panel, never white; the track should read as part of the panel.
+
+**A colour control is a small rounded square, not a bar.** Roughly 26 to 28 px with a 5 to 6 px radius. A full-width 140 px colour block is a bug, not a style choice.
+
+**Up and down colours share one row**, with the row's switch in front of them:
+
+```text
+[x] Body      [up] [down]
+[x] Borders   [up] [down]
+[x] Wick      [up] [down]
+```
+
+Not a BODY section header followed by separate Up and Down rows. The stacked form triples the height of every panel and is what forces a scrollbar to appear at all. The settings schema's `colorPair` control exists so this shape is renderable straight from the descriptor, including the case where a pair has **no** switch behind it: leave the switch slot empty and keep the swatches aligned. See [settings-and-menus](settings-and-menus.md).
+
+**No browser-default form controls on a dark panel.** A native blue checkbox and a native `<select>` chevron both break the theme. Style checkboxes (dark fill, subtle border, a clear tick when checked) and selects (`appearance: none`, panel background, an inline-SVG chevron).
+
+**Crisp and compact beats roomy.** Prefer a panel that fits without scrolling. Section headers small, uppercase and muted; rows tight; a tab rail with a small glyph per tab, inline SVG rather than an icon font.
+
+**Dialog furniture.** Title left, close affordance top right, actions bottom right with the confirming action last, and any secondary control (a template picker, a "restore defaults" for the visible tab) bottom left.
+
+**Never ship a control with nothing behind it.** A checkbox that does nothing is worse than an absent one. If the engine cannot back a control another terminal offers, leave it out.
+
+**A control with no data in the current context is a different case: render it disabled with its state visible, never hidden.** "No previous session yet" is information; a missing checkbox is not. The engine reports this for you:
+
+| Reading | Disable when |
+|---|---|
+| `PriceLevels.available(kind)` | `false`: that level has no data (no previous session, no quote feed, no market-phase classifier). |
+| `PriceAxisState.active` | `false`: no series maps to that scale. |
+| `PriceAxisState.scaled` | `false`: nothing has measured it yet, so a price-per-bar lock cannot be taken. |
+| `PriceAxisState.movable` | `false`: nothing to move, or the other side is occupied. |
+
+**No emoji and no icon-font glyphs in labels, code, comments or logs.** Plain text, everywhere.

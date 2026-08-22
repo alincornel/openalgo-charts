@@ -8,6 +8,88 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 1.3.0
+
+**Added**
+
+- **Market replay.** `ReplayController` walks a historical session forward one bar at a
+  time so a setup can be practised on it. Headless, in the same sense `DrawingController`
+  is: it owns the playhead and ships no DOM, and the host renders its transport bar from
+  `state()` and the `replay:*` events. See [Market Replay](/docs/market-replay).
+- **Multi-symbol comparison.** `addComparison(chart, { symbol, bars })` puts a second
+  instrument on the primary one's pane. Comparability comes from the scale rather than from
+  the data, so the legend and crosshair still speak in real prices while equal percentage
+  moves land on equal pixels. See [Symbol Comparison](/docs/symbol-comparison).
+- **A chart settings schema.** `chartSettingsSchema(chart)` describes a dialog in the same
+  control vocabulary the indicator form already uses, with `readChartSettings` and
+  `applyChartSettings` as its round trip. Five tabs of our own (Price, Readout, Axes,
+  Appearance, Trading), no Alerts and no Events, because the first is not built and the
+  second has no data source. See [Settings & Menus](/docs/settings-and-menus).
+- **A paired colour control, `colorPair`.** A bullish and a bearish colour are one labelled
+  row carrying both swatches and, where a flag exists behind it, its switch. Its value keys
+  are ordinary flat keys, so nothing about the patch protocol, JSON-safety or state restore
+  had to change to carry it.
+- **The chart timezone is a control**, `time.timezone` on the Axes tab, so a generated
+  dialog gets a zone picker instead of the host bolting one on. See
+  [Timezones](/docs/timezones).
+- **Reference price levels as one family.** `PriceLevels` is a primitive over ten kinds
+  (previous close, session high and low, last price, four extended-hours levels, bid and
+  ask). Each kind is one options group carrying independent `line` and `label` flags, so a
+  level's line and its axis tag cannot drift apart. Levels with no data are `null`, never
+  `0`, and `available(kind)` is what lets a host grey the control with its state still
+  visible. See [Price Levels & Axis Chrome](/docs/price-levels).
+- **Axis chrome: a corner session clock and a bar-close countdown.** Both off unless asked
+  for. The clock reads in the chart's zone with its UTC offset underneath; the countdown is
+  a second row in the last-price tag, its cadence read back from the bars as a median so a
+  backfilled duplicate cannot halve it, rolling into the next bar rather than stalling at
+  zero when a feed is late.
+- **A `contextmenu` event** carrying the pane, the price, the time and a classified target,
+  which is the part a canvas cannot work out for itself. A price-scale hit now says which
+  strip was hit and which of the pane's scales it draws.
+- **A price-axis menu the host can build without guessing.** `chart.priceAxisState(pane,
+  scaleId)` returns everything such a menu renders, and `setPriceAxisOptions`,
+  `setPriceAxisAutoFit`, `setPriceAxisLockRatio` and `movePriceAxis` act on one axis at a
+  time. See [Scales & Panes](/docs/scales-and-panes#one-axis-at-a-time).
+- **Price-scale `percentage` and `indexed-to-100` modes**, and `colorByPreviousClose` plus
+  `precision` on `SeriesStyle`.
+- **The Canvas option block**: grid, crosshair, scale text and lines, and plot margins, with
+  the resolvers exported so a host previews with the code that paints. See
+  [Theming & Chart Options](/docs/themes#canvas-options).
+- **Status-line options on the pane legend**, switchable field by field per legend or
+  chart-wide.
+
+**Changed**
+
+- **Price-axis labels no longer draw underneath the last-price tag.** The tag reserves its
+  band before the ladder is drawn, so the tick it would have painted over is dropped instead
+  of the two becoming illegible. Turning the countdown on makes the tag taller and can cost
+  one more tick, which is the honest trade for the second row.
+- **The price scale owns its tick ladder**, because a nice price is an ugly percentage in
+  the rebasing modes: the values have to be chosen in label space.
+- **One settings key moved.** `scales.lastValueVisible` is now `symbol.lastValueVisible`, so
+  it names the `SeriesStyle` field it patches and sits beside the price line it contradicts
+  when the two disagree. Every other dotted key stayed put.
+- **`setGridOptions` takes the whole grid block**, not just the two visibility flags.
+- **Session windows are wall clock in a zone they name**, never a fixed offset.
+
+**Fixed**
+
+- **Half the chart ignored a price axis that had moved.** Moving a pane's prices to the left
+  strip relabelled the axis and left the crosshair tag, the last-price line and tag, the
+  coordinate API and the axis drag all reading the right scale, and the left strip could not
+  be dragged at all. Each now follows the scale the pane's values actually sit on.
+- **A chart could measure itself before its container had a size**, leaving every price
+  scale on its `0..1` placeholder. The chart now re-applies the container size one frame
+  after construction, and only when the container reports a real positive box, so a
+  host-applied size and a still-hidden container are both left alone.
+- **The zone stopped at the axis.** Four wiring gaps: the pane pre-baked its own labeller
+  instead of handing the zone to the time axis, nothing put the chart's zone on an
+  indicator's settings, `colorByPreviousClose` was copied into the candle style and nowhere
+  else, and the demo's readings carried no `field` tag so three status-line switches reached
+  nothing.
+- **Hollow candles ignored two of their own colour options**: the up outline used `upColor`
+  rather than `borderUpColor`, and `borderVisible` was never consulted.
+
 ## 1.2.0
 
 **Added**

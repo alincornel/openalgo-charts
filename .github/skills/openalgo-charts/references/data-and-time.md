@@ -102,14 +102,63 @@ The loader fires from `_maybeLoadHistory` whenever the visible logical range's `
 
 The same trigger also emits the observable `lazy-load` event (`{ from, to, direction: 'backward' }`) — see [events-and-state](events-and-state.md). Only `'backward'` is ever emitted.
 
-## Time formatting
+## Timezone
 
-Internal time is UTC seconds; the default axis and crosshair labels are **IST** (fixed UTC+5:30, no DST). Helpers exported from the package root (`src/feed/time.ts`):
+Internal time is UTC seconds. What the chart *labels* it in is `ChartOptions.timezone`, an IANA name that **defaults to `Asia/Kolkata`**. IST is the default, not a property of the engine: any zone the runtime recognises works, and daylight saving is followed rather than approximated because the name is resolved per instant.
+
+```ts
+import { createChart } from 'openalgo-charts';
+
+const chart = createChart(el, { timezone: 'America/New_York' });
+
+chart.timezone();                        // 'America/New_York'
+chart.setTimezone('Europe/London');      // relabels and recomputes on the next frame
+chart.applyOptions({ timezone: 'UTC' }); // same thing through the options path
+```
+
+| API | Contract |
+|---|---|
+| `ChartOptions.timezone` | IANA name. Default `'Asia/Kolkata'`. **Throws** on a name the runtime does not recognise. |
+| `chart.timezone()` | The resolved zone. |
+| `chart.setTimezone(zone)` | Relabels *and* recomputes every calendar-anchored indicator. No-ops when the zone is unchanged. Throws on an unknown name. |
+| `chart.applyOptions({ timezone })` | Same as `setTimezone`. |
+| `getState()` / `restoreState()` | The zone rides in the payload. A saved zone the runtime does not recognise is **skipped**, not thrown, so one stale name cannot cost a whole layout. |
+| `applyChartSettings(chart, { 'time.timezone': zone })` | The settings schema's own control, on the Axes tab, so a dialog does not need a zone row of its own. An invalid name is skipped here too, rather than throwing away the rest of the patch. See [settings-and-menus](settings-and-menus.md). |
+
+What the zone drives:
+
+- Time-axis tick labels, **including which tick escalates** to a day, month or year mark: a New York chart escalates at New York's midnight, not at IST's.
+- The crosshair time tag.
+- Every calendar-anchored indicator: `vwap` (`session`, `week`, `month`, `quarter`, `year` anchors), `twap`, `cpr` (weekly and monthly frames), `seasonality` (which month a close is counted in). See [indicators](indicators.md).
+
+What it does **not** drive: `SessionWindow` in the profile tier carries its own zone, so a preset selects the same real instants on any display. See [profiles-and-orderflow](profiles-and-orderflow.md).
+
+**An explicit `timeFormatter` outranks the zone.** A host that formats its own labels has settled the question; the formatter receives raw UTC seconds either way.
+
+```ts
+// Pick the zone from the instrument, so switching symbol switches the clock.
+const ZONES: Record<string, string> = {
+  NSE: 'Asia/Kolkata', BSE: 'Asia/Kolkata', NFO: 'Asia/Kolkata',
+  NASDAQ: 'America/New_York', NYSE: 'America/New_York',
+  LSE: 'Europe/London', TSE: 'Asia/Tokyo',
+};
+
+function loadSymbol(exchange: string, bars: readonly Bar[]): void {
+  chart.setTimezone(ZONES[exchange] ?? 'UTC');   // before or after setData, either way
+  series.setData(bars);
+}
+```
+
+**The default costs nothing extra.** On `Asia/Kolkata` the engine keeps its original fixed-offset arithmetic and never reaches `Intl`, so labels are byte-identical to pre-1.3.0 output and independent of the host's ICU build. A named zone goes through a per-zone `Intl.DateTimeFormat` memoised by UTC second, so a pan resolves each visible tick once, not once per frame.
+
+## Time helpers
+
+Two families, both exported from the package root (`src/feed/time.ts`). The IST family is the fixed-offset special case and is unchanged; the zoned family is the general one, every function taking `zone` as a trailing argument defaulting to `DEFAULT_TIMEZONE`.
 
 | Function | Purpose |
 |---|---|
+| `epochMsToUtcSeconds(ms)` | `Math.floor(ms / 1000)`. Zone-free. |
 | `IST_OFFSET_SECONDS` | `19800` (5h30m). |
-| `epochMsToUtcSeconds(ms)` | `Math.floor(ms / 1000)`. |
 | `istStringToUtcSeconds(s)` | Parses `YYYY-MM-DD`, `YYYY-MM-DD HH:MM[:SS]`, and the `T`-separated variant as IST wall clock. Locale-independent; throws on an unparseable string. |
 | `utcSecondsToIstParts(s)` | `{ year, month (1-12), day, hour, minute, second, weekday (0=Sun) }`. |
 | `utcSecondsToIstDateString(s)` | `YYYY-MM-DD`, the form OpenAlgo history requests need. |
@@ -117,7 +166,25 @@ Internal time is UTC seconds; the default axis and crosshair labels are **IST** 
 | `formatIstDate(s)` | `DD Mon`. |
 | `isNewIstDay(a, b)` | True when two instants fall on different IST calendar days. |
 
-For any other market, pass `timeFormatter` to `createChart` or call `chart.setTimeFormatter(fn)`. It drives both the axis ticks and the crosshair pill.
+| Zoned function | Purpose |
+|---|---|
+| `DEFAULT_TIMEZONE` | `'Asia/Kolkata'`. |
+| `isValidTimezone(zone)` | True when the runtime resolves the name. Use it to validate before `setTimezone` if you do not want the throw. |
+| `utcSecondsToZonedParts(s, zone?)` | `ZonedParts` (same shape as `IstParts`). |
+| `utcSecondsToZonedDateString(s, zone?)` | `YYYY-MM-DD` in the zone. |
+| `zonedStringToUtcSeconds(str, zone?)` | Wall-clock string in the zone to UTC seconds. |
+| `zonedWallClockToUtcSeconds(y, m, d, h?, min?, sec?, zone?)` | Wall-clock components to UTC seconds. Two-pass, so a changeover day resolves to the offset in force at the answer. |
+| `zoneOffsetSeconds(s, zone?)` | The zone's offset **at that instant**. |
+| `zonedDayIndex(s, zone?)` / `zonedWeekIndex(s, zone?)` | Calendar day / Monday-week index. Cheaper than a midnight timestamp and immune to a 169-hour DST week. |
+| `startOfZonedDay/Week/Month(s, zone?)` | UTC seconds of the local midnight opening that period. |
+| `isNewZonedDay/Week/Month/Quarter/Year(a, b, zone?)` | Boundary tests. |
+| `isNewZonedPeriod(a, b, period, zone?)` | The same, with `ZonedPeriod = 'day' \| 'week' \| 'month' \| 'quarter' \| 'year'`. |
+| `formatZonedTime/TimeSeconds/Date(s, zone?)` | `HH:MM` / `HH:MM:SS` / `DD Mon`. |
+| `formatZonedCrosshairLabel(s, zone?)` | The crosshair tag form, e.g. `Wed 05 Jun '24 09:30`. |
+
+## Custom time formatting
+
+A formatter replaces the zone-aware labeller outright, for both the axis ticks and the crosshair pill:
 
 ```ts
 const chart = createChart(el, {
@@ -128,7 +195,9 @@ const chart = createChart(el, {
 });
 ```
 
-`tickMark: TickMarkType` is `'year' | 'month' | 'day' | 'time' | 'timeWithSeconds'`. The axis computes it by comparing each tick against the previous one in IST parts, and picks `timeWithSeconds` when the label step is under 60 seconds. The first visible tick is always `'day'`. Pass `undefined` to `setTimeFormatter` to restore the IST default.
+`tickMark: TickMarkType` is `'year' | 'month' | 'day' | 'time' | 'timeWithSeconds'`. The axis computes it by comparing each tick against the previous one **in the chart's zone**, and picks `timeWithSeconds` when the label step is under 60 seconds. The first visible tick is always `'day'`. Pass `undefined` to `setTimeFormatter` to go back to the built-in labels in the chart's zone.
+
+**A `timeFormatter` overrides labels only, never the calendar.** Session anchors and pivot frames still resolve on `chart.timezone()`, so a formatter that renders New York hours on a chart left at `Asia/Kolkata` puts a VWAP restart in the middle of the drawn day. Set the zone as well.
 
 ## Tick and volume bars
 

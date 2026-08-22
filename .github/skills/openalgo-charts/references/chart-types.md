@@ -28,6 +28,10 @@ All 13 are registered by importing `openalgo-charts`. `isPriceSeries` marks the 
 
 Every type also honours the universal keys `visible`, `priceLineVisible`, `lastValueVisible` and `title` from `SeriesStyle`. Colour keys left unset fall back to the theme — see [themes-and-styling](themes-and-styling.md) for the exact mapping.
 
+**`colorByPreviousClose` colours a bar against the previous bar's close** instead of its own open, which is how most terminals paint one. Body, border and wick take a single verdict per bar, so the candle cannot disagree with itself. The leftmost drawn bar has no predecessor in the batch, so the pane supplies the close of the bar left of the visible range and it does not flip colour as you scroll; with nothing to compare against (the first bar of history, or a whitespace gap) it falls back to open-vs-close.
+
+**`precision` overrides the decimals a series' labels get** (0 to 8; undefined keeps inferring from tick size or range). It rides the price scale's *formatter*, not its `minMove`, so `precision: 0` formats to whole numbers without also snapping prices to them.
+
 **`baseline` uses `baseValue`; `column` and `histogram` use `base`.** They are separate `SeriesStyle` keys and setting the wrong one silently leaves the default of `0`.
 
 **Only `histogram` honours per-bar `bar.color`.** `column` always colours by `close >= open`, so a two-tone column series needs `histogram` plus a `color` on each data item.
@@ -36,7 +40,9 @@ Every type also honours the universal keys `visible`, `priceLineVisible`, `lastV
 
 **`area` ignores `lineStyle`, `markers` and `markersOnly`.** Its internal stroke is issued with only `color` and `lineWidth`.
 
-Declared in `SeriesStyle` but read by no base renderer: `hollow`, `volumeScaled`, `highColor`, `lowColor`. Use the `hollow-candle` and `volume-candle` types instead of the flags.
+**`hlc-area` strokes its band edges only when asked.** `highColor` and `lowColor` have no default: leave them unset and the band is a fill plus the close line, as it has always drawn.
+
+`hollow` is read by `drawCandles`, but the `hollow-candle` type sets it for you. There is no `volumeScaled` flag: body-width scaling by volume is what the `volume-candle` type does, driven by the visible maximum volume.
 
 ## Registry defaults
 
@@ -70,7 +76,7 @@ A whitespace item `{ time }` becomes a NaN bar: it claims a logical index, is sk
 ## Renderer geometry
 
 - Body/column width is `optimalBarWidth(barSpacing, dpr)` — `floor(barSpacing * dpr * 0.8)`, minimum 1 device px, parity-matched to the 1px wick so the body stays centred. Exported if a custom renderer needs to line up with it.
-- Candle borders draw only when the body is at least 3 device px wide and `hollow` is off, so `borderUpColor` has no visible effect when zoomed out.
+- A **filled** candle body takes its border only when `borderVisible` is on and the body is at least 3 device px wide, so `borderUpColor` has no visible effect zoomed right out (a 1px inset stroke would swallow the body). In hollow mode the up candle's outline *is* the body, so it always draws: `borderUpColor` when borders are on, `upColor` when they are off. Down candles are ordinary filled bodies in hollow mode and take `borderDownColor` the same way.
 - Line strokes are not rounded to whole device px, and use round caps and joins; `lineWidth` is honoured fractionally.
 - `volume-candle` scales the body by `volume / maxVisibleVolume` **of the currently visible bars**, clamped to `[0.05, 1]`, so the same bar changes width as you pan.
 

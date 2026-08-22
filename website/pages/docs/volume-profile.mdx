@@ -24,8 +24,10 @@ chart.addPrimitive(new VolumeProfile(result));
 
 - **Visible-range** - pass the currently visible slice of bars with `session: 'composite'`.
   One profile spanning the view.
-- **Session** - `session: 'day' | 'week' | 'month'` builds one profile per period (grouped by
-  the IST calendar), each drawn under its own bars with its own POC and value area.
+- **Session** - `session: 'day' | 'week' | 'month'` builds one profile per period, each
+  drawn under its own bars with its own POC and value area. Periods are grouped on the
+  calendar of the `timezone` option, which defaults to `Asia/Kolkata`; pass
+  `chart.timezone()` so the buckets match the axis. See [Timezones](/docs/timezones).
 
 Every session reports a **POC** (highest-volume price), a **Value Area** (the band holding
 `valueAreaPercent` of volume), and - optionally - a **buy/sell split**.
@@ -87,7 +89,7 @@ const vp = lib.computeVolumeProfileSessions(bars, { tickSize: 1, session: 'day' 
 chart.addPrimitive(new lib.VolumeProfile(vp, { side: 'right', width: 70 }));
 
 chart.timeScale.fitContent(bars.length);
-return chart;`} caption="A separate volume profile per IST day, each with its own POC and value area." />
+return chart;`} caption="A separate volume profile per calendar day, on the default Asia/Kolkata, each with its own POC and value area." />
 
 ## `computeVolumeProfileSessions` options
 
@@ -101,6 +103,7 @@ computeVolumeProfileSessions(bars, options): VolumeProfileFamilyResult
 | `session` | `'composite'` | `'composite'` / `'day'` / `'week'` / `'month'` |
 | `valueAreaPercent` | `0.7` | fraction of volume in the value area (0..1) |
 | `deltaFromBarDirection` | `true` | split volume into buy/sell by bar direction |
+| `timezone` | `'Asia/Kolkata'` | IANA zone the day / week / month buckets resolve on. See [Timezones](/docs/timezones) |
 
 ## `VolumeProfile` primitive options
 

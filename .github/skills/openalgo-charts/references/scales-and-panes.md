@@ -16,7 +16,7 @@ import { DEFAULT_PRICE_SCALE_OPTIONS } from 'openalgo-charts';
 | `marginTop` | `number` | `0.1` | Fraction of **pane height** kept empty above the data band. |
 | `marginBottom` | `number` | `0.1` | Fraction of **pane height** kept empty below the data band. |
 | `minMove` | `number` | `0` | Instrument tick size (e.g. `0.05`). `0` infers precision from the visible range. |
-| `mode` | `'linear' \| 'logarithmic'` | `'linear'` | `logarithmic` maps through `log10`, clamped at `1e-10`. |
+| `mode` | `'linear' \| 'logarithmic' \| 'percentage' \| 'indexed-to-100'` | `'linear'` | `logarithmic` maps through `log10`, clamped at `1e-10`. The last two rebase against a baseline, below. |
 | `inverted` | `boolean` | `false` | Price increases downward. |
 
 `ChartOptions.priceScale` is applied to each pane's **right** scale as that pane is created; left and overlay scales always start from the defaults. Per scale at runtime:
@@ -28,7 +28,25 @@ chart.panes()[0].priceScale.setOptions({ minMove: 0.05, mode: 'logarithmic' });
 
 **Margins are fractions of pane height, not of the data span.** Since 1.0.26 `autoscaleRange(low, high, marginTop, marginBottom)` gives the data band exactly `1 - marginTop - marginBottom` of the pane: `total = span / visible`, `min = low - total * marginBottom`, `max = high + total * marginTop`. Before 1.0.26 it padded the span, so `marginTop: 0.82` left the series 55% of the pane instead of 18%. Margins summing to 1 or more are clamped to a 0.01 sliver so the range stays finite.
 
-**`percentage` and `indexed-to-100` modes are NOT implemented.** `PriceScaleMode` is `'linear' | 'logarithmic'` and nothing else; there is no baseline-rebasing mode in this library.
+### The rebasing modes
+
+`percentage` and `indexed-to-100` quote every price against a **baseline**: percent change from it (`+3.42%`), or the baseline rebased to 100 (`103.42`). They share one transform, since percent change is the index minus the 100 it rebases to.
+
+```ts
+const ps = chart.panes()[0].priceScale;
+ps.setOptions({ mode: 'percentage' });
+ps.setBaseline(firstVisibleClose);   // data, so the pane supplies it per frame
+ps.baseline;                          // number | null
+```
+
+- **The baseline is data, not geometry**, so the scale cannot find it alone. The pane's autoscale pass feeds it the first value of the visible range each frame, which is what makes panning re-base: the axis always reads as change measured from the left edge of what is on screen.
+- **No baseline means the identity transform**, so the scale behaves exactly like `linear` rather than answering with nonsense before the first frame. `setBaseline(null)` is the deliberate way to say "nothing to measure".
+- **Zero and negative baselines are refused** the same way. Percent change from zero is undefined, and a negative baseline flips the sign of the transform, so a rising price would draw downward on an axis still labelling itself normally.
+- **Labels switch to the rebased domain and outrank a custom price formatter.** `precision()` comes from the transformed span with two decimals as the floor; `format()` renders `+3.42%` (explicit sign, no `-0.00`) or `103.42`. A currency prefix on a percent change would read as money that is not there.
+- **`reset()` drops the baseline** along with the range, so a pane that loses its last series does not keep quoting the next one against a departed price.
+- **A rebase relabels the pane, it does not reshape it.** The transform is affine over a price-space range, so one series looks identical to its linear self by definition. Two instruments become comparable only when each sits on its own scale with its own baseline, which is what [replay-and-compare](replay-and-compare.md) builds on.
+
+`PriceScale.ticks(maxTicks = 6)` is the axis ladder and belongs to the scale, not the axis renderer. Linear and log get `niceTicks` over the price range; the rebasing modes get nice values chosen over the **transformed** range and mapped back, because a nice price is an ugly percentage (`+3.47%, +6.94%` instead of `+5.00%, +10.00%`).
 
 ### Range control
 
@@ -53,6 +71,8 @@ ps.setAutoScale(true);                     // hand it back to the data
 ```
 
 `chart.resetScale()` (also double-click) re-enables autoscale on every pane and fits content.
+
+Chart-wide equivalents, for a settings dialog: `chart.setPriceScaleOptions(patch, allScales = false)` writes each pane's right scale (`allScales` includes left and overlay), `chart.priceScaleOptions()` reads pane 0's, and `chart.setAutoScale(on)` flips every pane at once. See [settings-and-menus](settings-and-menus.md).
 
 ### Conversion and formatting
 
@@ -82,7 +102,11 @@ const vol = chart.addSeries('histogram', {
 vol.priceScale().setOptions({ marginTop: 0.82, marginBottom: 0 });  // bottom ~18%
 ```
 
-**`pane.priceScale` is the `'right'` scale only.** The left and overlay scales are private; reach them with `series.priceScale()` or `pane.scaleOf(record)`. Consequences: the crosshair price tag, `chart.priceToCoordinate`, `PrimitiveRenderContext.priceScale` and the `getState` snapshot all read the right scale, whatever the pointer is over.
+**`pane.priceScale` is the `'right'` scale only.** The left and overlay scales are private; reach them with `series.priceScale()` or `pane.scaleOf(record)`.
+
+**Prices quoted for a pane follow its readout scale**, which is the scale its first visible price series maps to and falls back to the right one. That covers the crosshair price tag, the last-price line and tag, `chart.priceToCoordinate` / `coordinateToPrice`, and the axis drag, so a pane whose series were moved to the left strip is labelled and read in the same scale rather than tagging the cursor with the right scale's untouched `0..1` placeholder. `pane.readoutScale()` returns it.
+
+**`PrimitiveRenderContext.priceScale` and the `getState` snapshot still read the right scale.** A primitive on a pane whose prices live on the left axis therefore draws against a scale nothing has measured. Keep primitives on panes whose values sit on the right scale until that context carries the readout scale too.
 
 ## TimeScaleOptions
 
@@ -122,13 +146,62 @@ Details in [interactions](interactions.md); what matters here is which gesture l
 |---|---|---|
 | Wheel | `timeScale.zoomAtX(x, 1.1 or 1/1.1)` | no |
 | Drag inside the plot | horizontal: `setRightOffset`; vertical: `panByPixels` on the pressed pane | **yes** (price scale) |
-| Drag the price axis strip (`x >= width - priceAxisWidth`) | `setPriceRange` around the centre by `exp(dy * 0.005)`, then `setAutoScale(false)` | **yes** |
+| Drag either price axis strip (right, or the reserved left column) | `setPriceRange` around the centre by `exp(dy * 0.005)` on **that strip's** scale, then `setAutoScale(false)` | **yes** |
 | Drag the time axis strip (bottom pane, last `timeAxisHeight` px) | `setBarSpacing(start * exp(dx * 0.005))` | no |
 | Two-finger pinch | zoom time, pan time, `panByPixels` on the pinched pane | **yes** (price scale) |
 | Double-click | `chart.resetScale()` | no — restores autoscale everywhere |
 | `panUp` / `panDown` shortcuts | `panByPixels(±20)` on **pane 0 only** | **yes** |
 
 **Once a pane goes manual it stops tracking new data.** A live feed that keeps printing highs will run off the top of a pane whose axis the user dragged. Call `pane.priceScale.setAutoScale(true)` or `chart.resetScale()` to recover.
+
+**Both strips are draggable.** The gesture reads and writes the scale the strip actually draws, so dragging a left axis rescales the prices labelled there.
+
+## One axis at a time
+
+`setPriceScaleOptions` and `setAutoScale` are chart-wide. A menu or an inspector raised on one strip wants one scale, and wants to read every item back so it can draw its own ticks:
+
+```ts
+const st = chart.priceAxisState(paneIndex, scaleId);   // PriceAxisState | null
+chart.setPriceAxisOptions(paneIndex, scaleId, { mode: 'logarithmic' });
+chart.setPriceAxisAutoFit(paneIndex, scaleId, true);   // also releases the ratio lock
+chart.setPriceAxisLockRatio(paneIndex, scaleId, true); // false when it could not be taken
+chart.movePriceAxis(paneIndex, 'right', 'left');       // false when the move is impossible
+```
+
+`PriceAxisState` is `{ paneIndex, scaleId, side, active, autoFit, inverted, mode, scaled, lockRatio, movable }`, and `PRICE_SCALE_MODES` lists the four modes in menu order. `scaleId` comes straight off a `contextmenu` target, including the `''` overlay case.
+
+- **Moving an axis swaps the two side scales** rather than copying their state, so range, mode, margins and formatter travel with it. The vacated strip restarts from the chart-wide defaults, the axis columns are recomputed so a strip no pane uses any more is released and the plot reclaims its width, a `priceAxisMoved` event is emitted, and a move onto an occupied side is refused: one strip draws one axis.
+- **The ratio lock pins price-per-bar.** The pane remembers the geometry the lock was taken at and rescales the visible span by height over bar spacing each frame, in transformed space, so a logarithmic axis keeps its angle too. Auto-fit and `resetScale` release it, and it is refused on a scale nothing has measured (`scaled: false`), because there is no ratio to hold.
+- **`active: false`** means no series maps to that scale. It is a row to render disabled with its state showing, not one to leave out.
+
+See [settings-and-menus](settings-and-menus.md) for the menu around these.
+
+## Axis chrome
+
+Two optional readings on the axis strips, both **off** unless a chart asks for them, so a chart that omits the block draws the axes it always drew.
+
+```ts
+const chart = createChart(el, {
+  axisChrome: {
+    sessionClock: true,                    // or { showOffset: false }
+    barCountdown: true,
+    clock: () => feedTimeUtcSeconds(),     // defaults to the system clock
+  },
+});
+
+chart.setAxisChromeOptions({ barCountdown: false });   // merged field by field
+chart.axisChromeOptions();
+```
+
+| Option | Draws |
+|---|---|
+| `sessionClock` | A live clock in the corner where the price and time strips meet, formatted in the **chart's** timezone with that zone's offset from UTC on a second row. `{ showOffset: false }` drops the row, and it drops itself in a strip too short to carry it. Nothing is drawn when either strip is hidden. |
+| `barCountdown` | A second row inside the last-price tag counting down to the current bar's close. The tag grows from 16 to 28 media px and its width follows the wider row. |
+| `clock` | Wall-clock **UTC seconds**, not a monotonic animation clock. Pass the feed's clock to keep a delayed or replayed chart honest about the time its data thinks it is. |
+
+**The bar interval is read back off the bars**, as a median of the recent gaps, not configured: the chart is never told its own timeframe, and one that switches mid-session has to follow. A median rather than a minimum, so a backfilled duplicate two seconds apart cannot halve the cadence; and only the tail is sampled, so a year of daily history does not outvote the intraday feed running now. Past a bar's close the count rolls into the next bar's cycle instead of stalling at `00:00:00`, because a feed a second late with the new bar should still show a running clock. With no readable cadence the row reads `--:--:--` rather than vanishing.
+
+**Price-axis ticks give way to the labels above them.** The pane reserves the band the last-price tag will occupy before the ladder is drawn, and a tick colliding with it is dropped instead of drawn through. The priority order is crosshair, then last price, then a price line, then a session level, then previous close, then a plain tick, on the principle that the label a reader could interpolate from its neighbours is the one to lose. A chart whose last price sits clear of every tick draws exactly the ladder it always did.
 
 ## Panes
 
@@ -148,7 +221,7 @@ Heights are **relative weights**, not pixels: pane height is `chartHeight * weig
 | `chart.paneWeight(index)` | `number` | `0` for an unknown index. |
 | `chart.removePane(index)` | `boolean` | Removes its series, data rows and indicators. |
 | `chart.movePane(index, -1 \| 1)` | `boolean` | Swaps with the neighbour and re-appends the DOM in order. |
-| `chart.maximizePane(index)` | `boolean` | Toggle: expands one pane, parks the rest at weight `0.001`. |
+| `chart.maximizePane(index)` | `boolean` | Toggle: one pane takes the whole chart and the rest are **hidden**, not shrunk. Stored weights are untouched, so un-maximizing restores the stack exactly. |
 | `chart.maximizedPane()` | `number \| null` | |
 | `chart.panes()` | `readonly Pane[]` | Live array. |
 

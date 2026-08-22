@@ -139,7 +139,9 @@ const builder = new CandleBuilder({
   intervalSec: 60,          // 1-minute bars
   volumeMode: 'ltq-sum',    // accumulate last-traded qty per tick
   lateTickPolicy: 'foldIntoBar',
-  sessionAnchorSec: 0,      // align buckets to epoch; set to session open for IST alignment
+  sessionAnchorSec: 0,      // align buckets to epoch; set to a session open (UTC seconds)
+                            // to align to the exchange instead. Independent of the
+                            // chart's display timezone.
 });
 
 // Seed from the last historical bar so the first live tick continues it

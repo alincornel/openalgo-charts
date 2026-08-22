@@ -47,12 +47,17 @@ it on teardown (component unmount, route change) so listeners never leak.
 | `click` | `{ id, price, time, paneIndex, point }` | The plot was clicked. `id` is the hit primitive's `externalId`, or **`null`** for a click on empty chart space. `point` is container-relative media px. |
 | `hover` | `{ id }` | The pointer enters (`id` = `externalId`) or leaves (`id` = `null`) a hit-testable primitive. |
 | `dblclick` | `{}` | The plot is double-clicked. The chart also resets the scale on this, *unless* a drawing tool is armed. There a double-click finishes the shape instead. |
+| `contextmenu` | `{ paneIndex, point, price, time, index, target, preventDefault }` | The plot is right-clicked. `target` classifies what is under the pointer, so an app can raise its own menu. See below. |
 | `drag` | `{ id, price, time, paneIndex, fromPrice, fromTime }` | A draggable primitive is being moved. `from*` is the grab origin, so a delta starts at the press rather than the first move. |
 | `drag:end` | `{ id, price, time, paneIndex }` | The drag gesture finished. Pair with `drag` to snapshot once per gesture (undo wants the pre-drag state, not an intermediate frame). |
 | `pan` | `{ from, to, logicalFrom, logicalTo }` | The user pans (drag, two-finger, kinetic glide). |
 | `zoom` | `{ from, to, logicalFrom, logicalTo }` | The user zooms (wheel or pinch). |
 | `resize` | `{ width, height }` | The container size changes (CSS px). |
 | `lazy-load` | `{ from, to, direction }` | The viewport nears the oldest bar and history paging should run. |
+| `priceAxisMoved` | `{ paneIndex, from, to }` | A pane's price axis moved to the other strip, via `chart.movePriceAxis`. The scale object travels with it, so a menu holding a `scaleId` should follow. |
+| `paneRemoved` / `paneMaximized` / `paneResized` | `{ paneIndex }` | The pane layout changed through a legend button or a divider drag. `paneMoved` reports `{ from, to }` instead. |
+| `indicatorRemoved` / `indicatorSettings` | `{ instanceId, indicatorId, paneIndex }` | An indicator legend's close or gear button was pressed. |
+| `replay:*` | `ReplayState` | The [market replay](/docs/market-replay) playhead starts, moves, plays, pauses, ends or stops. |
 | `trading:*` | see [Trading events](#trading-events) | The user interacts with a position, order, or bracket. |
 
 `from` / `to` on the viewport and data events are **UTC seconds** (or `null`
@@ -144,6 +149,50 @@ chart.on('hover', ({ id }) => {
 });
 ```
 
+### contextmenu
+
+Fires on a right-click over the plot, with everything a menu needs: where the pointer is,
+what is under it, and the `preventDefault` that suppresses the browser's own menu.
+
+```ts
+chart.on('contextmenu', (e) => {
+  e.preventDefault();
+  if (e.target.kind === 'drawing') return drawingMenu(e.point, e.target.id);
+  if (e.target.kind === 'indicator') return indicatorMenu(e.point, e.target.instanceId);
+  chartMenu(e.point, { price: e.price, time: e.time });
+});
+```
+
+`target.kind` is `'drawing' | 'indicator' | 'legend' | 'primitive' | 'series' |
+'price-scale' | 'time-scale' | 'empty'`, and carries the hit-test `id`, an `instanceId` for
+an indicator, and a `seriesType` for a series. A canvas hands an app a pixel rather than an
+object, so this classification is the part it cannot work out for itself, and the part that
+decides which menu items make sense.
+
+A `'price-scale'` hit also carries `side` (`'right'` or `'left'`, the strip that was hit)
+and `scaleId` (which of the pane's scales that strip acts on, `''` when the pane's values
+all sit on the hidden overlay scale). `scaleId` is the argument the `priceAxis*` calls take,
+so a menu should pass it through rather than deriving one from `side`:
+
+```ts
+if (e.target.kind === 'price-scale') {
+  const state = chart.priceAxisState(e.paneIndex, e.target.scaleId);
+  return openAxisMenu(e.point, state);
+}
+```
+
+The **bottom-left** corner belongs to the time axis, not to a left price ladder, because the
+time axis spans the full width including the left column. The bottom-right corner stays the
+price axis'. Building the axis menu itself is covered on
+[Settings & Menus](/docs/settings-and-menus#the-price-axis-menu).
+
+<Callout type="info">
+With no `contextmenu` listener the chart keeps its save-image fallback: it composites the
+clicked pane's layers so the browser's own "Save image as" produces the visible chart
+rather than a blank overlay. The first listener takes that over; dropping the last one
+restores it. See [Theming and chart options](/docs/themes#building-the-context-menu).
+</Callout>
+
 ## Viewport events
 
 `pan` and `zoom` report the new visible window after the gesture. `resize` fires
@@ -184,6 +233,29 @@ chart.setHistoryLoader(() => {
 `lazy-load` is the observable form of the same trigger, carrying the time window
 so a single handler can serve multiple series.
 </Callout>
+
+## Replay events
+
+`ReplayController` reports through the same bus, and every payload is the same
+`ReplayState`, so one handler can drive a whole transport bar.
+
+| Event | Fires |
+|---|---|
+| `replay:start` | The controller puts its first bar on the chart. |
+| `replay:frame` | Every playhead move: seek, step, stepBack, and each played bar. |
+| `replay:play` / `replay:pause` | Playback armed or halted. |
+| `replay:end` | The playhead reached the last bar. |
+| `replay:stop` | Replay left; data and viewport restored. |
+
+```ts
+chart.on('replay:frame', ({ index, total, bar }) => {
+  scrub.max = String(total - 1);
+  scrub.value = String(index);
+  clock.textContent = new Date(bar.time * 1000).toLocaleString();
+});
+```
+
+See [Market Replay](/docs/market-replay) for the controller itself.
 
 ## Lifecycle events
 
@@ -245,11 +317,12 @@ event surface stays deliberately small and stable. Concerns that belong to your
 application layer are composed from the primitives above rather than shipped as
 built-in events:
 
-- **Drawing tools, annotations, context menus.** Build them as
-  [primitives / plugins](/docs/primitives-and-plugins) and hit-test with `click`.
-- **Indicator lifecycle.** Indicators here are plain series and transforms you
-  add and remove yourself, so there is no separate add/remove/settings event
-  stream to subscribe to.
+- **Menus, toolbars, dialogs and transport bars are yours.** The engine emits what it
+  knows and draws none of the chrome: `contextmenu` classifies the right-click target,
+  `indicatorSettings` fires when a legend's gear is pressed, and the `replay:*` events
+  drive a transport bar. You render the UI.
+- **Annotations.** Build them as [primitives / plugins](/docs/primitives-and-plugins) and
+  hit-test with `click`.
 - **Data-feed reconnection, gap-fill, timezone, theme families, undo/redo,
   state persistence.** These live in your app or your feed. The engine exposes
   the hooks (`setData`, `update`, `prependData`, `setHistoryLoader`,

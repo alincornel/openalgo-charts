@@ -24,6 +24,8 @@ You need the version and the exact set of tier imports before you can reason abo
 | Nothing renders after `setData` | data is empty, or times are not numbers | log `series.getData().length` and the first item |
 | Bars bunched at the far left or right | `time` is in milliseconds | a value above 1e12 is milliseconds |
 | Bars overlap or a candle draws twice | two bars share a time | times must be unique and ascending per series |
+| Axis and crosshair show the wrong hours | the chart is on its default zone, `Asia/Kolkata` | `chart.timezone()`; set `timezone` or call `setTimezone` |
+| VWAP restarts mid-afternoon, or a pivot frame spans two sessions | the chart's zone is not the instrument's | `chart.timezone()`; a `timeFormatter` relabels but does not move the calendar |
 | `unknown series type "kagi"` | transform tier not imported | `rg "openalgo-charts/transform"` |
 | `addIndicator` throws | indicators tier not imported | `rg "openalgo-charts/indicators"` |
 | A tier is imported but its feature is missing | deep import created a second registry | check for any path containing `/dist/` or `/src/` in an import |

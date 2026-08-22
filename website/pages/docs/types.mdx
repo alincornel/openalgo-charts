@@ -25,7 +25,7 @@ The core structures for time-series price data.
 type UTCSeconds = number;
 ```
 
-All internal time values are UTC seconds (integers). Feed adapters convert broker formats (IST strings, epoch milliseconds) at the edge.
+All internal time values are UTC seconds (integers). Feed adapters convert broker formats (IST strings, epoch milliseconds) at the edge. Display is a separate matter: the chart's [`timezone`](/docs/timezones) decides how a UTC second is labelled and which calendar day it falls in, and never changes the number itself.
 
 ### `OriginalTime`
 
@@ -97,6 +97,13 @@ interface ChartOptions {
   conflationFactor?: number;
   grid?: { vertLines?: boolean; horzLines?: boolean };
   ariaLabel?: string;
+  /**
+   * IANA zone the time axis and crosshair label in. Default 'Asia/Kolkata'.
+   * An IANA name and not a fixed offset, because a zone that observes DST is a
+   * different offset in July than in January. Throws on a name the runtime does
+   * not recognise. Change it later with `chart.setTimezone(zone)`.
+   */
+  timezone?: string;
   shortcuts?: ShortcutManager | Partial<ShortcutManagerOptions> | false;
   /** Hover-revealed zoom / step controls above the time axis. Default true. */
   timeNavigator?: boolean | Partial<TimeNavigatorOptions>;
@@ -105,6 +112,27 @@ interface ChartOptions {
    * Default `{ top: 6, left: 8 }`.
    */
   legendOffset?: { top?: number; left?: number };
+  /**
+   * Optional chrome on the axis strips: the corner session clock and the row
+   * counting down to the bar's close. Both off unless asked for, so a chart that
+   * omits this block draws the axes it always drew.
+   * See [Price Levels & Axis Chrome](/docs/price-levels#axis-chrome).
+   */
+  axisChrome?: AxisChromeOptions;
+}
+
+interface AxisChromeOptions {
+  /** Live clock in the corner between the price and time axes. */
+  sessionClock?: boolean | { showOffset?: boolean };
+  /** Second row in the last-price tag counting down to the bar's close. */
+  barCountdown?: boolean;
+  /**
+   * Wall-clock UTC seconds. Both readings are times of day, so neither can use
+   * `now`, which is a monotonic animation clock and not a calendar. Defaults to
+   * the system clock; pass the feed's clock to keep a delayed or replayed chart
+   * honest about what time its data thinks it is.
+   */
+  clock?: () => number;
 }
 ```
 
@@ -173,6 +201,54 @@ interface SeriesApi {
 
 The public handle returned by `chart.addSeries(...)`. Use `setData` for the initial load, `update` for live bar ticks, and `prependData` when paging older history. `applyOptions` merges a partial style and repaints (recolor, `{ visible: false }` to hide); `remove` detaches the series and frees its data; `priceScale()` returns the scale this series maps to; `createMarkers()` attaches a buy/sell signal layer bound to this series.
 
+### `ContextMenuEvent`
+
+```ts
+interface ContextMenuEvent {
+  paneIndex: number;
+  point: { x: number; y: number };
+  price: number | null;
+  time: number | null;
+  index: number | null;
+  target: ContextMenuTarget;
+  preventDefault(): void;
+}
+
+type ContextMenuTargetKind =
+  | 'drawing' | 'indicator' | 'legend' | 'primitive'
+  | 'series' | 'price-scale' | 'time-scale' | 'empty';
+
+interface ContextMenuTarget {
+  kind: ContextMenuTargetKind;
+  id: string | null;
+  instanceId?: string;        // kind === 'indicator'
+  seriesType?: SeriesType;    // kind === 'series'
+  side?: 'right' | 'left';    // kind === 'price-scale'
+  scaleId?: PriceScaleId;     // kind === 'price-scale'
+}
+```
+
+Payload of `chart.on('contextmenu', ...)`. `target` is the part a canvas cannot work out for itself: it hands your app an object rather than a pixel. On a `'price-scale'` hit, `scaleId` is the scale that strip actually draws, which is `''` when the pane's values all live on the hidden overlay scale, and it is the argument the `priceAxis*` calls take. See [Settings & Menus](/docs/settings-and-menus#the-right-click-menu).
+
+### `PriceAxisState`
+
+```ts
+interface PriceAxisState {
+  paneIndex: number;
+  scaleId: PriceScaleId;
+  side: 'right' | 'left';
+  active: boolean;      // some series on the pane maps to this scale
+  autoFit: boolean;
+  inverted: boolean;
+  mode: PriceScaleMode;
+  scaled: boolean;      // false while the scale still sits on its 0..1 placeholder
+  lockRatio: boolean;
+  movable: boolean;     // something to move, and a free side
+}
+```
+
+Returned by `chart.priceAxisState(paneIndex, scaleId)`, or `null` for a pane that does not exist. Everything a menu over one axis needs to tick its own rows and grey what does not apply. The writers are `setPriceAxisOptions`, `setPriceAxisAutoFit`, `setPriceAxisLockRatio` and `movePriceAxis`; the last two return whether the axis is now in the state asked for. See [Settings & Menus](/docs/settings-and-menus#the-price-axis-menu).
+
 ---
 
 ## Scales
@@ -191,10 +267,13 @@ A visible price range (min/max pair).
 ### `PriceScaleMode`
 
 ```ts
-type PriceScaleMode = 'linear' | 'logarithmic';
+type PriceScaleMode = 'linear' | 'logarithmic' | 'percentage' | 'indexed-to-100';
 ```
 
-The coordinate mapping mode for a pane's price scale.
+The coordinate mapping mode for a pane's price scale. `percentage` and `indexed-to-100`
+rebase every price against a baseline (the close of the first visible bar, so panning
+re-bases) and relabel the axis in that domain. See
+[Scales and panes](/docs/scales-and-panes#percent-and-indexed-to-100).
 
 ### `PriceScaleOptions`
 
@@ -252,8 +331,6 @@ interface SeriesStyle {
   borderVisible?: boolean;
   wickVisible?: boolean;
   hollow?: boolean;
-  /** Scale candle body width by volume / maxVisibleVolume (volume candles). */
-  volumeScaled?: boolean;
 
   // line / area / baseline / hlc-area family
   color?: string;
@@ -266,7 +343,9 @@ interface SeriesStyle {
   baseValue?: number;
   topColor?: string;
   bottomColor?: string;
+  /** Stroke for the top edge of an HLC band. Unset leaves the edge unstroked. */
   highColor?: string;
+  /** Stroke for the bottom edge of an HLC band. Unset leaves it unstroked. */
   lowColor?: string;
   closeColor?: string;
 
@@ -519,6 +598,29 @@ interface PriceLineOptions {
 ```
 
 Options for `chart.addPriceLine(opts, paneIndex)`. `id` is the `externalId` returned by hit-tests and routed to click/drag callbacks. `extentFromRight` (0..1) controls how far the line spans from the right axis (`1` = full width, the default). `badge`, `qty`, `leftLabel`, and `closeButton` compose the broker-style segmented pill group at the left end of the line (`[badge][qty][leftLabel][✕]`), where `badge` is a solid segment in the line color (e.g. `BUY`, `SL`), `qty` and `leftLabel` are neutral boxed segments, and the `✕` segment hit-tests as `${id}::close`. `PriceLine.setDragGhost(price | null)` shows a dimmed reference line at the pre-drag price while dragging.
+
+### `PriceLevelStyle`
+
+```ts
+type PriceLevelKind =
+  | 'previousClose' | 'sessionHigh' | 'sessionLow' | 'lastPrice'
+  | 'preMarketOpen' | 'preMarketClose' | 'postMarketOpen' | 'postMarketClose'
+  | 'bid' | 'ask';
+
+interface PriceLevelStyle {
+  line: boolean;               // the horizontal line across the plot
+  label: boolean;              // the matching tag on the price axis
+  color?: string;
+  lineWidth?: number;
+  lineStyle?: 'solid' | 'dashed' | 'dotted';
+  text?: string;
+  extentFromRight?: number;
+}
+
+type PriceLevelValues = Record<PriceLevelKind, number | null>;
+```
+
+One level of the `PriceLevels` family. `line` and `label` are two flags on the **same** group, so a level's line and its axis tag cannot drift apart. A level with no data in the current context reads `null`, never `0`, so nothing draws at zero and `levels.available(kind)` is the signal to render a control disabled with its state still visible. See [Price Levels & Axis Chrome](/docs/price-levels).
 
 ### `SeriesMarker`
 

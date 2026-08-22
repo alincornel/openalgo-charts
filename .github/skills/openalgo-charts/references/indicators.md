@@ -140,7 +140,8 @@ Notes that bite:
 - **Ids are hyphenated lowercase and are not derivable from the display name.** `williams-percent-r`, not `willr`. `bollinger-percent-b`, not `bbpercentb`. `special-k` is named `Pring's Special K`. `momentum` takes `len`, not `length`. Resolve an id with `hasIndicator(id)` before calling `addIndicator`.
 - Plot keys are namespaced per instance, not globally. `ma` is a plot key on `sma`, `ema`, `wma`, `cci`, `obv` and `relative-volatility-index`; `up`/`down` on `supertrend`, `halftrend`, `aroon` and `volatility-stop`; `signal` on `macd`, `ppo`, `pvo`, `tsi`, `klinger-oscillator`, `know-sure-thing`, `relative-vigor-index` and `special-k`. Style patches are per-instance, so this is not a collision, but do not key host state on the plot key alone.
 - `select` inputs carry their own `options`. The recurring ones: `maType` on `cci`/`obv`/`relative-volatility-index` is `None | SMA | SMA + Bollinger Bands | EMA | SMMA (RMA) | WMA | VWMA`; `ma1Type`..`ma4Type` on `ma-ribbon` drop the first two; `oscType`/`sigType` on `ppo`/`pvo` are `EMA | SMA`; `bandsStyle` on `keltner-channel` is `Average True Range | True Range | Range`; `calcMode` on `vwap` is `stdev | percent`.
-- `vwap` defaults to `source: 'hlc3'`, not `'close'`, and its session anchor is the **IST trading day** (`isNewIstDay`). `anchor` accepts `session | week | month | quarter | year | continuous`. It also declares six band plots (`upper1`/`lower1` .. `upper3`/`lower3`) with only band 1 shown by default. `twap` has the shorter `session | continuous`.
+- `vwap` defaults to `source: 'hlc3'`, not `'close'`. **Its `session` anchor is the trading session read back from the bar gaps** (`sessionStartFlags`), not a calendar day: see [Trading sessions](#trading-sessions) below. The coarser anchors (`week`, `month`, `quarter`, `year`) are calendar boundaries tested on the chart's `timezone` (default `Asia/Kolkata`) and compared at session opens, so a Friday session that ends after midnight in that zone is not split. `anchor` accepts `session | week | month | quarter | year | continuous`. It also declares six band plots (`upper1`/`lower1` .. `upper3`/`lower3`) with only band 1 shown by default. `twap` has the shorter `session | continuous`, with the same gap-read session.
+- The other calendar-anchored built-ins follow the same rule: `cpr`'s Daily frame comes from the bar gaps while its Weekly and Monthly frames are calendar boundaries in the chart's zone, and `seasonality` attributes a bar's close to the month it closed in **in that zone**, which is why the last ninety minutes of a 30 April New York session count as April on `America/New_York` and as May on the IST default.
 - `supertrend` splits one band into two plots. Each carries `null` while the other is active so the line renderer breaks at flips. Direction convention: `-1` = uptrend (`up` plot), `+1` = downtrend (`down` plot). `halftrend` and `volatility-stop` use the same two-plot split.
 - **A `calc` result may carry columns that no plot names.** `williams-vix-fix` returns `alertUpper`/`alertHigh` so `colorBy` keeps working when `sd`/`hp` hide the bands; `supertrend` returns `bodyMid`; the shaded-band indicators return constant `upperLevel`/`lowerLevel`/`bandHigh`/`bandLow`/`zero` columns purely so a fill has something to reference. They appear in `values()` and are never drawn.
 - Eight plots use `colorBy` for per-bar colour: `macd:histogram`, `williams-vix-fix:wvf`, `awesome-oscillator:ao`, `bb-trend:bbtrend`, `chop-zone:chopZone`, `ppo:hist`, `pvo:hist`, `woodies-cci:hist`. Only the `histogram` and `column` renderers honour it; everything else is a `line`.
@@ -373,27 +374,58 @@ One built-in uses the hook: `seasonality`, whose entire output is the grid.
 
 Anything that accumulates within a trading day (VWAP, TWAP, daily pivots) has to know
 where the day ends, and a calendar midnight is the wrong answer for every exchange but
-the one whose timezone you picked. 00:00 IST is 18:30 UTC, which is the middle of a New
-York session: anchoring there restarts a VWAP every afternoon and builds a "daily" range
-out of one session's tail plus the next session's head across the overnight gap.
+the one whose zone you picked. 00:00 in `Asia/Kolkata` is 18:30 UTC, which is the middle
+of a New York session: anchoring there restarts a VWAP every afternoon and builds a
+"daily" range out of one session's tail plus the next session's head across the overnight
+gap.
 
 Read the session out of the bar gaps instead:
 
 ```ts
-import { sessionStartFlags, calendarPeriodFlags } from 'openalgo-charts';
+import { sessionStartFlags, calendarPeriodFlags, isNewZonedPeriod } from 'openalgo-charts';
 
-const newSession = sessionStartFlags(bars.map((b) => b.time));  // boolean per bar
+const times = bars.map((b) => b.time);
+const zone = chart.timezone();                                  // 'Asia/Kolkata' by default
+const newSession = sessionStartFlags(times, zone);              // boolean per bar
+const newWeek = calendarPeriodFlags(times, (a, b) => isNewZonedPeriod(a, b, 'week', zone));
 ```
 
 | Export | Returns |
 |---|---|
-| `sessionStartIndices(times)` | Bar indices that open a session, or `null` when unreadable. |
-| `sessionStartFlags(times)` | One flag per bar; falls back to IST calendar days when unreadable. |
-| `calendarPeriodFlags(times, isNew)` | A week/month/year boundary tested on session opens, so a session is never cut in half. |
+| `sessionStartIndices(times)` | Bar indices that open a session, or `null` when unreadable. Zone-free: a gap is a gap in any zone. |
+| `sessionStartFlags(times, zone?)` | One flag per bar. `zone` (default `Asia/Kolkata`) is used **only** for the calendar-day fallback when the gaps are unreadable. |
+| `calendarPeriodFlags(times, isNew)` | A week/month/year boundary tested on session opens, so a session is never cut in half. Put the zone inside the `isNew` you pass. |
 
 Unreadable means bars already a day or coarser, a market that never closes, or a feed
 whose only gaps are weekends. An intraday lunch break is under the four-hour floor, so it
 is not mistaken for a close.
+
+### The zone inside a `calc`
+
+A descriptor is handed `(bars, settings, store)` and **never the chart**, so the chart's
+timezone travels on the settings blob under a reserved `timezone` key that the chart
+populates. A custom indicator with a calendar anchor should read it the same way the
+built-ins do:
+
+```ts
+import { DEFAULT_TIMEZONE, isValidTimezone } from 'openalgo-charts';
+
+const zoneOf = (s: Readonly<Record<string, unknown>>): string => {
+  const v = s.timezone;
+  if (typeof v !== 'string' || v === '' || v === DEFAULT_TIMEZONE) return DEFAULT_TIMEZONE;
+  return isValidTimezone(v) ? v : DEFAULT_TIMEZONE;   // fall back, never throw in a calc
+};
+```
+
+Three rules behind that shape:
+
+- **Fall back, do not throw.** `chart.setTimezone` already rejects a bad name at the call
+  site; a `calc` that throws takes the whole repaint down with it.
+- **Treat a missing key as the default.** Every settings blob written before the option
+  existed has no `timezone`, and must keep computing what it always computed.
+- **Do not write the zone into your own settings.** It is injected per recompute and
+  deliberately absent from `settings()` and `getState()`, so a layout saved on a New York
+  chart does not carry New York onto the IST chart that restores it.
 
 ## Writing a custom indicator
 

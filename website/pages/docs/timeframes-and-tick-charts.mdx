@@ -12,11 +12,12 @@ OpenAlgo Charts handles the full range of timeframes - from **seconds** and **ti
 **weeks** - because the time axis is a logical index, not a fixed grid.
 
 <Callout type="info">
-Time labels default to **IST** (the Indian-market default). For other markets,
-pass a `timeFormatter` (UTC seconds -> string) to `createChart`, or call
-`chart.setTimeFormatter(...)` at runtime. For example, UTC time labels:
-`createChart(el, { timeFormatter: (s) => new Date(s * 1000).toISOString().slice(11, 16) })`.
-It drives both the time-axis ticks and the crosshair pill.
+Time labels default to **`Asia/Kolkata`**, the Indian-market default, and nothing more:
+pass an IANA name to relabel for another market, at construction or at runtime.
+`createChart(el, { timezone: 'America/New_York' })` and `chart.setTimezone('Europe/London')`
+both drive the time-axis ticks and the crosshair pill. See [Timezones](/docs/timezones).
+A `timeFormatter` (UTC seconds -> string) is still there for a host that wants to format
+labels itself, and it outranks the zone.
 </Callout>
 
 There are two sources of bars:

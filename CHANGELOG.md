@@ -2,6 +2,466 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.3.0
+
+### Added
+
+- **Market replay.** `ReplayController` walks a historical session forward one
+  bar at a time, so a setup can be practised on it and every indicator redraws
+  exactly as it stood at that past moment.
+
+  It is headless in the same sense as `DrawingController`: it owns the playhead
+  and the transitions and ships no DOM, so the host renders its own transport
+  bar and clock from `state()` plus the `replay:start`, `replay:frame`,
+  `replay:play`, `replay:pause`, `replay:end` and `replay:stop` events on the
+  chart's bus.
+
+  The mechanic is deliberately plain. Every transition (a seek, a step, and
+  each played frame alike) hands the series a fresh **prefix** of the full bar
+  array through the ordinary `setData` path, and that path already recomputes each
+  indicator from `sourceBars()`. Shorten the history and every plot, level,
+  fill, marker and legend row reconstructs itself as it stood at that bar, with
+  no replay-aware code anywhere in the indicator tier.
+
+  Playback timing is injectable (`now` and `scheduler`), and the bars owed by a
+  tick come from the clock rather than from the tick count, so a throttled
+  timer still plays at the requested speed. A single tick is capped at ten
+  bars, so returning to a backgrounded tab does not fast-forward the session.
+  `stop()` restores the pre-replay data together with bar spacing and right
+  offset, which is what reproduces the visible range to the pixel even if the
+  user panned and zoomed while replaying.
+
+- **Multi-symbol comparison.** `addComparison(chart, { symbol, bars })` puts a
+  second instrument on the primary one's pane and returns a handle with
+  `setBars`, `remove`, `list`, `priceScale` and `alignment`. The per-chart
+  `ComparisonController` behind it adds `setMode`, `realign`, `clear` and
+  `destroy`.
+
+  Comparability comes from the scale, not from the data. The bars are stored as
+  the instrument's own prices on the pane's hidden overlay scale, so the legend
+  and the crosshair still speak in real prices; the pane switches to
+  `percentage` (or `indexed-to-100`) while a comparison is on it, and a
+  per-frame pass gives the overlay the primary's range scaled by the ratio of
+  their baselines, so equal percentage moves land on equal pixels. Without that
+  last step each scale autoscales to its own data and a 1% mover looks exactly
+  like a 10% mover, which is the lie the feature would otherwise ship.
+
+  Alignment answers the two directions of mismatch differently, because they
+  mean different things. A comparison print with no primary bar is **dropped**:
+  the DataLayer merges every series onto one index space, so a foreign
+  timestamp would mint a logical index and shift the primary's own bars. A
+  primary bar with no comparison print becomes **whitespace**, which the line
+  renderer breaks across, so a holiday on one exchange reads as a gap rather
+  than as a straight line drawn through it.
+
+  A pane's single hidden overlay is usually already taken by the volume
+  histogram, so the controller detects that and falls back to the left axis
+  instead of autoscaling price and volume together.
+
+- **Axis chrome: a corner session clock and a bar-close countdown.** Both are
+  off unless a chart asks for them through `axisChrome`, so a chart that omits
+  the block draws the axes it always drew.
+
+  `axisChrome.sessionClock` fills the one rectangle no series, tick or tag ever
+  occupies: the corner where the two axis strips meet. It reads in the chart's
+  own timezone rather than the machine's, with the zone's offset from UTC on a
+  second row so a trader can see which clock they are reading; pass
+  `{ showOffset: false }` for the time alone, and it drops the row by itself in
+  a strip too short to carry it.
+
+  `axisChrome.barCountdown` adds a second row inside the last-price tag counting
+  down to the current bar's close. The interval is read back off the bars
+  (median of the recent gaps, so an overnight break does not stretch it) rather
+  than configured, because the chart is never told its own timeframe and one
+  that switches mid-session has to follow. Past the close the count rolls into
+  the next bar's cycle instead of stalling at zero, so a feed that is late with
+  a new bar still shows a running clock.
+
+  Neither reaches a global clock. `axisChrome.clock` supplies wall-clock UTC
+  seconds and defaults to the system clock, so a delayed or replayed chart can
+  be honest about what time its data thinks it is.
+
+- **Price-axis labels no longer draw underneath the last-price tag.** The tag is
+  painted into the same strip a moment after the tick ladder, so it used to land
+  on top of whichever tick label it overlapped and the two read as mush. The
+  pane now reserves the band the tag will occupy before the ladder is drawn, and
+  a tick colliding with it is dropped instead of drawn through.
+
+  Only labels the tag would actually have covered are affected: a chart whose
+  last price sits clear of every tick draws the same ladder it always did.
+  `AXIS_LABEL_PRIORITY` ranks the claimants (crosshair over last price over
+  price line over session level over previous close over plain ticks), so the
+  reading a trader is actually chasing is the one that survives a pile-up.
+
+- **Reference price levels as one family.** `PriceLevels` is a primitive over
+  ten levels: previous close, session high and low, last price, the four
+  extended-hours opens and closes, and bid and ask.
+
+  Each level is **one options group carrying its own `line` and `label` flags**,
+  so the horizontal line across the plot and the tag on the price axis are two
+  switches on the same idea. Terminals that split those halves across separate
+  menus let them drift, and a user ends up with an axis tag for a line that is
+  not drawn. Colour, width, dash, tag text and how far the line runs from the
+  axis (`extentFromRight`) sit in the same group.
+
+  The session comes from the bars and never from a calendar midnight. The
+  session in view is the one containing the viewport's **right edge**, so
+  scrolling back through history moves the previous close back with it, and the
+  boundaries are read out of the bar gaps by `sessionStartFlags`, falling back
+  to the calendar only when the series shows no readable break, which is the
+  right answer for daily bars. Previous close is the previous session's last
+  *traded* close, walked back over a whitespace tail so a halted closing minute
+  does not blank the level.
+
+  **A level with no data is `null`, never `0`.** Extended hours need a phase the
+  OHLC feed does not carry (`marketPhase`, a host-supplied classifier), and bid
+  and ask need a live `quote`; without them those levels stay inert rather than
+  drawing a line across the middle of the plot. `available(kind)` reports it, so
+  a host renders that control disabled with its state visible instead of hiding
+  it. `values()` reads the last frame's prices, and the pure
+  `computePriceLevels()` behind it is exported, so the numbers are testable and
+  usable in a readout without a canvas.
+
+  The last price is not duplicated. The core already draws it from
+  `SeriesStyle.priceLineVisible` / `lastValueVisible`, so that level defaults to
+  off and `lastPriceLevelFromSeriesStyle` / `seriesStyleForLastPriceLevel`
+  translate between the two shapes, letting a host present it in the same form
+  as every other level while the series keeps owning it. There is deliberately
+  no `autoscaleInfo`: a previous close a gap away would stretch the range and
+  flatten the bars the chart is actually for.
+
+- **Price-scale `percentage` and `indexed-to-100` modes.** `PriceScaleMode`
+  gains the two rebasing modes, built by extending the existing transform pair
+  rather than by adding a parallel path: percent change is the index minus the
+  100 it rebases to, so both share one ladder.
+
+  The baseline is data, not geometry, so it arrives through the new
+  `setBaseline(value)`; the pane supplies the first visible bar each frame,
+  which is what makes panning re-base. With no baseline the transform falls
+  back to the identity and the scale behaves exactly like `linear` rather than
+  answering with nonsense before the first frame. Zero and negative baselines
+  are refused for the same reason: percent change from zero is undefined, and a
+  negative baseline flips the sign of the transform, so a rising price would
+  draw downward on an axis that still labelled itself normally.
+
+  Labels switch to the rebased domain while a rebase is in force ("+3.42%" with
+  an explicit sign, "103.42" for indexed, two decimals minimum) and deliberately
+  outrank a custom price formatter, since a currency prefix on a percent change
+  would read as money that is not there.
+
+- **A chart settings schema.** `chartSettingsSchema(chart)` describes a
+  terminal's settings dialog as tabs of controls in the same vocabulary the
+  indicator settings form already uses, so a host that can render one can
+  render the other with no new widget code. `readChartSettings(chart)` and
+  `applyChartSettings(chart, patch)` are its round trip, over flat dotted keys
+  that survive JSON.
+
+  The schema and its accessors are one structure: each control carries its own
+  `read` and `write` beside its input descriptor, so a control cannot drift
+  from the option it drives and there is no second table to keep in step. That
+  is also the rule for what ships in it. Every control maps to an option that
+  changes what is drawn or stored; a checkbox with nothing behind it is absent
+  rather than inert. Price-tab controls are generated from the primary series
+  type, so a candle gets borders and wicks while a line gets a dash.
+
+  Five tabs, grouped so a trader finds a setting without hunting rather than to
+  mirror anyone else's dialog: **Price** (what the instrument is painted with),
+  **Readout** (what the header says), **Axes** (what the two scales do, and the
+  timezone), **Appearance** (the surface around the data) and **Trading** (what
+  the trade layer draws). Alerts and Events are not among them: alerts arrive
+  with the feature, events have no data source in the schema, and an empty tab
+  is worse than an absent one.
+
+- **A paired colour control, `colorPair`.** A property with a bullish and a
+  bearish colour is one labelled row carrying its switch and both swatches side
+  by side, not a section header over separate Up and Down rows. The stacked form
+  triples the height of every panel, which is what forces a scrollbar onto a
+  dialog that should fit.
+
+  It is a schema **row** over ordinary flat value keys rather than a new value
+  shape: the control carries `up.key`, `down.key` and an optional `enabled.key`,
+  each an everyday key of `ChartSettingsValues`, so `readChartSettings` and
+  `applyChartSettings` needed no new protocol, the patch stays JSON-safe, and a
+  host that ignores the widget can still drive the row key by key.
+
+  `enabled` is optional on purpose. Candle Borders and Wick have
+  `borderVisible` / `wickVisible` behind them, a candle Body has no such flag,
+  so that row ships with two swatches and no switch rather than with a checkbox
+  that would do nothing. Candles, bars, columns, the line and baseline fills and
+  the three trade-colour rows (long/short, take profit/stop loss, buy/sell) are
+  all paired rows now.
+
+- **The chart timezone is a control in the schema**, `time.timezone` on the Axes
+  tab: a select over `CHART_TIMEZONES` (roughly east to west, so the list reads
+  like a trading day) with the chart's own zone folded in when it is not one of
+  them, so a host that configured `Pacific/Auckland` still sees its setting
+  selected. It calls `chart.setTimezone`, and a name `isValidTimezone` rejects
+  is skipped rather than thrown, so one stale zone in a restored layout cannot
+  throw away the rest of the apply. A dialog no longer has to bolt its own zone
+  row on beside the schema and hand-roll the Cancel path for it.
+
+- **The Canvas option block.** `GridOptions` grows from a spacing-only bag into
+  the grid controls a dialog needs (per-axis visibility, colour, dash and line
+  width), and `CanvasOptions` gathers it with crosshair, scale text and line,
+  and plot margins. `chart.setCanvasOptions` and `ChartOptions.canvas` apply it;
+  `dashPattern`, `resolveGridStyle`, `resolveScaleStyle`, `resolveCrosshairStyle`
+  and `resolvePlotMargins` are exported so a host can preview with the same
+  code that paints.
+
+  Option overrides theme when set, theme is the default. Theme colours are
+  deliberately not copied into the options at construction: that would freeze
+  the palette and make a later `setTheme` a silent no-op for everything the
+  dialog had touched, so each resolver falls through field by field instead.
+  Plot margins convert the dialog's percentages into the `marginTop` and
+  `marginBottom` fractions the price scale already owns, so there is no second
+  margin state.
+
+- **Status line options on the pane legend.** The legend row now carries
+  per-field switches (logo, title with a symbol, description or ticker mode,
+  market status, chart values, bar change, volume, last day change, last value
+  label, and a background plate with colour and opacity).
+
+  The primitive invents no data. Readings the host already pushes through
+  `setValues` carry an optional `field` tag, so one switch hides exactly one
+  group, and the three things a legend cannot know (a logo bitmap, the market
+  state, the day change) arrive through a new `status` option that accepts a
+  snapshot or a per-frame getter and draws nothing when absent. Every switch
+  defaults to the behaviour that predates it, so a caller passing no options
+  gets the same row it always drew.
+
+- **Chart timezone, and the default does not move.** A chart that names no zone
+  is `Asia/Kolkata` as it always was, and keeps the frozen offset arithmetic
+  rather than reaching `Intl` at all: its axis labels, its crosshair tag and
+  every session-anchored number are what 1.2.0 produced, byte for byte, on the
+  same code, and never depend on the host's ICU build. That is pinned rather
+  than assumed: a harness diffs price ticks, the last-price tag, the time labels
+  and the legend row across six datasets against a 1.2.0 worktree, and the same
+  instants driven through the IANA link name `Asia/Calcutta`, which takes the
+  zone-aware path, draw identical labels.
+
+  To move a chart off it, `ChartOptions.timezone`, `chart.setTimezone(zone)` and
+  `applyOptions({ timezone })` take an IANA name, `chart.timezone()` reads it
+  back, and `getState()` carries it so a saved layout restores the hours it was
+  saved with.
+
+  Naming a zone moves the whole calendar and not only the labels: the time axis
+  (including which ticks escalate to a day, month or year label), the crosshair
+  time tag, VWAP's week, month, quarter and year anchors, CPR's weekly and
+  monthly pivot frames, and the month a Seasonality bar's close is counted in.
+  A `session` anchor still reads the session out of the bar gaps as it has since
+  1.2.0, and falls back to the zone's calendar day only when the gaps are
+  unreadable. On US intraday bars read in `America/New_York`, the last ninety
+  minutes of the 30 April session now fall in April rather than in May:
+  Seasonality reads that month's real return instead of 0.00%, and May's monthly
+  pivot frame is built from April's real high instead of one truncated ninety
+  minutes early. `setTimezone` recomputes those studies rather than only
+  repainting, because moving the calendar changes the numbers and not just the
+  axis under them. An explicit `timeFormatter` still outranks the zone: a host
+  formatting its own labels has settled the question.
+
+  An IANA name and not a fixed offset, because a zone that observes DST is a
+  different offset in July than in January. Changeovers are followed rather than
+  approximated: New York skips 02:00 on 10 March 2024, and London jumps 00:00 to
+  02:00 on 31 March and prints 01:00 twice on 27 October. An unknown name throws
+  where it is set, so the mistake surfaces at the call site rather than as a
+  chart quietly showing the wrong hours; a stale name in a restored layout is
+  skipped instead, so one bad zone cannot cost a whole saved workspace.
+
+  The zone reaches an indicator on the settings blob under the reserved
+  `timezone` key, which the chart supplies. It is deliberately kept out of the
+  indicator's own settings, so a layout saved on a New York chart does not carry
+  New York onto the chart that restores it.
+
+- **A `contextmenu` event**, carrying the pane index, the price, the time, the
+  logical index, and a classified target: a drawing, an indicator with its
+  instance id, a legend, a primitive, a series with its type, a price scale, a
+  time scale, or empty plot. Calling its `preventDefault` suppresses the
+  browser menu; with no listener the existing save-image snapshot stays as the
+  fallback.
+
+  A price-scale hit says **which** scale it was: `side` is the strip that was
+  clicked, and `scaleId` is the scale that strip acts on, `''` when the side
+  carries no series of its own and the pane's values live on the hidden overlay.
+  It is the argument the `priceAxis*` calls take, so a menu can be raised on
+  what was actually clicked. The time axis now wins the bottom-left corner
+  because it spans the full width and its dates run through it; the bottom-right
+  corner stays the price axis', where its own labels run out. Plot hits are
+  unchanged.
+
+- **A price-axis menu the host can build without guessing.**
+  `chart.priceAxisState(paneIndex, scaleId)` returns everything such a menu
+  renders: `autoFit`, `inverted`, `mode`, `lockRatio`, the `side` it draws in,
+  whether any series maps to it (`active`), whether anything has measured it
+  (`scaled`), and whether a move would do anything (`movable`). The acting half
+  is `setPriceAxisOptions`, `setPriceAxisAutoFit`, `setPriceAxisLockRatio` and
+  `movePriceAxis`, and `PRICE_SCALE_MODES` lists the four modes in the order a
+  menu offers them. Every item is both readable and actionable, which is what
+  keeps a row from being drawn ticked and doing nothing.
+
+  Moving an axis swaps the two side scales rather than copying their state, so
+  the range, mode, margins and formatter travel with it; the vacated strip
+  starts again from the chart-wide defaults, the axis columns are recomputed so
+  a strip no pane uses any more is released and the plot reclaims its width, a
+  `priceAxisMoved` event is emitted, and a move onto an occupied side is
+  refused, because one strip draws one axis.
+
+  The ratio lock is real rather than a stored flag: the pane keeps the geometry
+  the lock was taken at and rescales the visible span by height over bar
+  spacing each frame, in transformed space through `yToPrice` so a logarithmic
+  axis is right too. Auto-fit or `resetScale` releases it, and locking is
+  refused on a scale nothing has measured, since there is no ratio to hold.
+
+- **`colorByPreviousClose` and `precision` on `SeriesStyle`.** The first colours
+  a bar by close-versus-previous-close, which is how most terminals paint one:
+  body, border and wick take a single verdict computed once per bar, so the
+  candle cannot disagree with itself. It is honoured by the candle family and
+  by OHLC / high-low bars, and the pane looks up the bar left of the visible
+  range so the leading bar is quoted against something rather than falling back
+  to its own open. The Price tab of the settings schema exposes it for those
+  types. The second overrides the decimals the
+  price scale infers. It rides the scale's *formatter* rather than its
+  `minMove`, so `precision: 0` formats to whole numbers without also starting
+  to snap prices to them.
+
+- **More of the chart's option surface is readable and writable**, which is what
+  a settings dialog needs: `canvasOptions`, `statusLineOptions`,
+  `setPriceScaleOptions` and `priceScaleOptions`, `setAutoScale`, `setEvents`
+  and `setEventOptions` for the chart-owned corporate-action strip,
+  `tradingSettings` and `setTradingSettings` (which never instantiate the trade
+  layer just to be read), `primarySeries` and `primarySeriesInfo`, `theme` and
+  `crosshairMode`.
+
+### Changed
+
+- **`chart.getState()` carries the settings slice.** Canvas options, status line
+  options, trading colours and the event filters ride along beside `grid`, and
+  `restoreState` puts them back, so a saved layout no longer loses everything
+  the settings dialog did. The return type widens to
+  `ChartState & ChartSettingsState`, which is still a `ChartState` to every
+  existing consumer, and canvas margins are applied before the panes so a
+  pane's own saved margins remain the more specific answer and win.
+
+- **The price scale owns its tick ladder.** `PriceScale.ticks(maxTicks)` builds
+  what the axis renderer used to build for itself. It is byte-identical for
+  linear and log, but the rebasing modes need the ladder chosen in label space
+  and mapped back, because a nice price is an ugly percentage: without it the
+  axis reads "+3.47%, +6.94%" instead of "+5.00%, +10.00%".
+
+- **`setGridOptions` takes the whole grid block**, not just the two visibility
+  flags, and the pane strokes the vertical and horizontal lines separately so
+  each can carry its own colour and dash.
+
+- **An HLC area strokes the two edges of its band.** `SeriesStyle.highColor` and
+  `lowColor` had named the top and bottom of the band since the type was
+  written, and no renderer had ever read them: the band was a fill and a close
+  line, so setting either colour did nothing. Both are now drawn. Neither has a
+  default, so an existing caller that named neither gets the frame it always
+  got, and one edge can be stroked without the other.
+
+- **`SeriesStyle.volumeScaled` is gone.** It had been superseded by the
+  `volume-candle` chart type, which scales bodies from the visible maximum
+  volume in the registry whatever the flag said, so no code path could consult
+  it. Removed rather than wired: the capability is a chart type, and a second
+  way to ask for it that has never worked is not worth keeping.
+
+- **One settings key moved: `scales.lastValueVisible` is now
+  `symbol.lastValueVisible`.** The key names the `SeriesStyle` field it patches,
+  and it now sits beside the price line it contradicts when the two disagree.
+  Every other dotted key is untouched: they are a wire format hosts have written
+  down, and an unknown key in a patch is ignored, so a layout saved with the old
+  name restores everything else and loses only that switch.
+
+- **Session windows are wall clock in a zone they name.** `SessionWindow`'s
+  `startMinute` and `endMinute` are minutes from midnight on the window's own
+  zone, and every `TRADING_HOURS` preset now carries one, so `us-regular` reads
+  as 09:30 to 16:00 `America/New_York` instead of an unexplained 1140 to 90.
+  `MarketProfileOptions.timezone` and `VolumeProfileFamilyOptions.timezone`
+  (both `Asia/Kolkata` by default) settle the day, week and month buckets for a
+  profile whose window names no zone.
+
+  A window's own zone outranks the display zone for the window test **and** for
+  the bucketing, because bucketing on the display zone would cut a 09:15 to
+  15:30 Kolkata session in half when the chart is read from New York: that
+  session genuinely straddles New York midnight. A preset therefore selects the
+  same instants and forms the same sessions on any display, and only labels
+  move.
+
+  **The presets reproduce the 1.2.0 instants exactly through a summer week, and
+  are deliberately an hour later in winter.** The old table was authored in EDT
+  terms - 1140 IST minutes is 09:30 New York only while EDT is in force - so
+  `london`, `new-york` and `us-regular` silently drifted by an hour for the
+  months either side of it, which is the defect the re-expression exists to fix.
+  `india`, `asia` and `all-hours` are unchanged year-round.
+
+### Fixed
+
+- **Hollow candles ignored two of their own colour options.** In hollow mode the
+  up outline was painted with `upColor` rather than `borderUpColor`, and
+  `borderVisible` was never consulted at all; a filled down body in that mode
+  got no border either, which left `borderDownColor` unreachable. The border
+  colour is now computed once and used in both branches. The hollow up outline
+  still draws with borders off, because it *is* the body, but falls back to the
+  body colour rather than erasing the candle.
+
+- **The zone stopped at the axis.** Four wiring gaps, each invisible to a test
+  of either half on its own. The pane pre-baked its own labeller instead of
+  handing `drawTimeAxis` the zone, so a host with its own `timeFormatter` was
+  told the day had turned over at IST midnight whatever zone the chart was on.
+  Nothing put the chart's zone on an indicator's settings, so `setTimezone`
+  relabelled the axis while every session anchor kept computing on IST, and
+  changing the zone did not recompute them. `colorByPreviousClose` was copied
+  into the candle style object and nowhere else, so an OHLC bar series stored
+  the flag and painted as though it were off. And the demo's O/H/L/C, change and
+  volume readings carried no `field` tag, so the Chart values, Bar change values
+  and Volume switches reached nothing and those readings answered to Indicator
+  values instead.
+
+- **A chart could measure itself before its container had a size.** Built inside
+  a container the browser had not laid out yet, every price scale stayed on its
+  `0..1` placeholder until something else forced a resize, so an early
+  `priceToCoordinate` or a first-frame primitive read a range that was not the
+  data's. The chart now re-applies the container size one frame after
+  construction, and only when the container reports a real positive box, so a
+  size the host applied itself and a container that is still hidden are both
+  left alone. `destroy` cancels the pending frame. It uses the chart's own
+  resolved scheduler, so a test driving frames by hand is not left waiting on a
+  browser rAF that never comes.
+
+- **Half the chart ignored a price axis that had moved.** Moving a pane's prices
+  to the left strip relabelled the axis and left everything else pointing at the
+  right one: the crosshair tag, the last-price line and tag, the coordinate API
+  (`priceToCoordinate` / `coordinateToPrice`) and the axis drag all read the
+  right scale whatever the prices were labelled in, and the left strip could not
+  be dragged at all. Each now follows the scale the pane's values actually sit
+  on.
+
+### Internal
+
+- The yfinance demo's settings dialog was rebuilt against the new schema: five
+  tabs with their own glyphs, a paired-colour row rendered as one line with its
+  switch and both swatches, themed checkboxes and selects instead of the browser
+  defaults, colour inputs as small rounded squares rather than full-width bars,
+  dark scrollbars styled once at the root, and a "Restore this tab" action
+  driven by the schema's own declared defaults. Every tab, the densest included,
+  now fits a 729 px viewport without scrolling. The hand-rolled Timezone row and
+  its Cancel bookkeeping are gone: the schema's `time.timezone` control drives
+  it, and the demo only mirrors the zone back so a chart rebuild keeps it.
+
+- The demo also gained a price-axis context menu, built entirely from
+  `chart.priceAxisState()`: auto-fit, invert and pin-price-per-bar as ticked
+  toggles, the four scale modes as one exclusive group, a side-move row, and two
+  flyouts over a `PriceLevels` primitive, one for the lines on the plot and one
+  for the tags on the axis. A level with no data renders disabled with its state
+  visible rather than being hidden. Alt+R/L/P/1, Alt+I and Alt+A are shown in
+  the rows, in the same Alt+key grammar the drawing tier already uses.
+
+- Size budgets raised for the new capability: base 42 to 55 kB, base plus trade
+  49 to 62 kB, everything 96 to 120 kB. The indicator, draw, transform and
+  profile tiers are untouched. Measured: base 49.37 kB, base plus trade
+  55.95 kB, everything 105.88 kB.
+
+- Test suite grew from 1129 to 1543 across 81 files.
+
 ## 1.2.0
 
 ### Added

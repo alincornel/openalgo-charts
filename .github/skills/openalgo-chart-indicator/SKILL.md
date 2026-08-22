@@ -81,6 +81,8 @@ Two optional hooks are worth knowing before you reach for a plot that cannot exp
 
 `registerIndicator` overwrites an existing id. With 91 built-ins registered, namespace a custom id (`my-momentum`, `acme-vwap`) unless replacing a built-in is the intent.
 
+**If the indicator anchors on a calendar (a session, week or month reset), it needs the chart's zone.** `calc` is handed `(bars, settings, store)` and never the chart, so the chart injects its timezone into the settings blob under a reserved `timezone` key. Read it defensively (missing or unrecognised means `DEFAULT_TIMEZONE`, never a throw), do not write it back into your own settings, and prefer `sessionStartFlags(times)` over any calendar rule when what you actually mean is "the trading session". The recipe is in [indicators](../openalgo-charts/references/indicators.md#trading-sessions).
+
 ## Path D - Tier-2, data not derived from OHLCV
 
 Open interest, cumulative volume delta, PCR, any external analytics feed. Use `createTier2Indicator`, which wraps a fetch/subscribe lifecycle into an ordinary descriptor so panes, settings, levels and removal all work identically.

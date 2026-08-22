@@ -149,7 +149,8 @@ export const DEFAULT_PRICE_SCALE_OPTIONS: PriceScaleOptions = {
 };
 ```
 
-`mode` accepts `'linear'` or `'logarithmic'`. `minMove` is the instrument tick size (e.g. `0.05`
+`mode` accepts `'linear'`, `'logarithmic'`, `'percentage'` or `'indexed-to-100'`; the last two
+rebase against the first visible bar. `minMove` is the instrument tick size (e.g. `0.05`
 for NSE equity options); when nonzero the axis labels snap to that step.
 
 ---
@@ -278,8 +279,25 @@ same name.
 export const IST_OFFSET_SECONDS = 19800; // 5 * 3600 + 30 * 60  (UTC+5:30)
 ```
 
-India observes no DST, so this is a fixed constant. All internal time is UTC seconds; IST
-conversion happens only at the feed boundary.
+India observes no DST, so this is a fixed constant, and it is why the default zone can stay
+on integer arithmetic instead of `Intl` on the per-bar paths. All internal time is UTC
+seconds; this offset is used at the feed boundary and on the default-zone fast paths.
+
+It is not the chart's display zone. That is `DEFAULT_TIMEZONE`, an IANA name you can change
+per chart. See [Timezones](/docs/timezones).
+
+---
+
+### DEFAULT_TIMEZONE
+
+```ts
+export const DEFAULT_TIMEZONE = 'Asia/Kolkata';
+```
+
+The IANA zone a chart labels time in when `ChartOptions.timezone` is not set, and the
+fallback every zoned helper and profile option takes. Its value is what makes the option
+additive: a caller who passes nothing gets exactly the labels and the calendar the engine
+produced before the option existed.
 
 ---
 
@@ -620,7 +638,12 @@ Maps an OpenAlgo `/api/v1/history` response envelope to a sorted `Bar[]`. Handle
 
 `src/feed/time.ts`
 
-All internal time is UTC seconds. These functions convert at the feed boundary only.
+All internal time is UTC seconds. These functions convert at the feed boundary and format
+for display; nothing here mutates a bar.
+
+The `Ist` family below is the fixed-offset IST path, kept unchanged for the feed adapters
+and for back-compat. The `Zoned` family under it does the same jobs for **any** IANA zone
+and is what the chart uses once you set [`timezone`](/docs/timezones).
 
 ```ts
 // Fixed offset in seconds for IST (UTC+5:30, no DST)
@@ -655,8 +678,9 @@ function isNewIstDay(prevUtcSeconds: number, utcSeconds: number): boolean
 function sessionStartIndices(times: readonly number[]): number[] | null
 
 // One flag per bar, true on the first bar of each session.
-// Falls back to IST calendar days when sessions are unreadable.
-function sessionStartFlags(times: readonly number[]): boolean[]
+// Falls back to calendar days in `zone` (default DEFAULT_TIMEZONE) when sessions
+// are unreadable.
+function sessionStartFlags(times: readonly number[], zone?: string): boolean[]
 
 // One flag per bar, true where `isNew` says a new week/month/year began.
 // Tested on session opens, so a session is never cut in half.
@@ -666,12 +690,72 @@ function calendarPeriodFlags(
 ): boolean[]
 ```
 
+#### Zoned helpers
+
+Every one takes an optional IANA `zone` that defaults to `DEFAULT_TIMEZONE`, so the
+zero-argument call is the IST answer and nothing had to change to gain the option. They are
+memoised per UTC second, so a repeated boundary test is a cache read rather than an `Intl`
+call. See [Timezones](/docs/timezones).
+
+```ts
+const DEFAULT_TIMEZONE = 'Asia/Kolkata'
+
+// True when the host runtime recognises the name. Guard user input with this
+// rather than catching the throw from createChart / setTimezone.
+function isValidTimezone(zone: string): boolean
+
+// Seconds east of UTC for that instant, so DST is resolved per instant
+// (New York is -18000 in January and -14400 in June).
+function zoneOffsetSeconds(utcSeconds: number, zone?: string): number
+
+// UTC seconds -> calendar parts { year, month, day, hour, minute, second, weekday }
+function utcSecondsToZonedParts(utcSeconds: number, zone?: string): ZonedParts
+
+// Labels: 'HH:MM', 'HH:MM:SS', 'DD Mon', "Ddd DD Mon 'YY HH:MM"
+function formatZonedTime(utcSeconds: number, zone?: string): string
+function formatZonedTimeSeconds(utcSeconds: number, zone?: string): string
+function formatZonedDate(utcSeconds: number, zone?: string): string
+function formatZonedCrosshairLabel(utcSeconds: number, zone?: string): string
+
+// UTC seconds -> 'YYYY-MM-DD' on that zone's calendar
+function utcSecondsToZonedDateString(utcSeconds: number, zone?: string): string
+
+// Wall clock -> UTC seconds. The string form takes
+// 'YYYY-MM-DD[ HH:MM[:SS]]'; the parts form takes explicit fields.
+function zonedStringToUtcSeconds(input: string, zone?: string): number
+function zonedWallClockToUtcSeconds(
+  year: number, month: number, day: number,
+  hour: number, minute: number, second: number, zone?: string,
+): number
+
+// Period starts, as UTC seconds
+function startOfZonedDay(utcSeconds: number, zone?: string): number
+function startOfZonedWeek(utcSeconds: number, zone?: string): number   // Monday-based
+function startOfZonedMonth(utcSeconds: number, zone?: string): number
+
+// Integer indices, for cheap "same period?" comparisons
+function zonedDayIndex(utcSeconds: number, zone?: string): number
+function zonedWeekIndex(utcSeconds: number, zone?: string): number
+
+// Boundary tests between two instants, on that zone's calendar
+function isNewZonedDay(prev: number, next: number, zone?: string): boolean
+function isNewZonedWeek(prev: number, next: number, zone?: string): boolean
+function isNewZonedMonth(prev: number, next: number, zone?: string): boolean
+function isNewZonedQuarter(prev: number, next: number, zone?: string): boolean
+function isNewZonedYear(prev: number, next: number, zone?: string): boolean
+function isNewZonedPeriod(
+  prev: number, next: number,
+  period: 'day' | 'week' | 'month' | 'quarter' | 'year', zone?: string,
+): boolean
+```
+
 **Sessions come from the bars, not from a timezone.** An exchange's overnight break is
 the widest recurring gap in an intraday series, and it is the only thing in the data
 that says where one trading day ends. A fixed midnight is mid-session for every
 exchange but the one it was chosen for: 00:00 IST is 18:30 UTC, which falls inside a
 New York session. Anything that accumulates within a day (VWAP, TWAP, daily pivots)
-should use these rather than `isNewIstDay`.
+should use these rather than `isNewIstDay` or `isNewZonedDay`. Setting the chart's zone
+narrows the problem to the cases the bars cannot answer; it does not replace reading them.
 
 The reading is declined, and `sessionStartFlags` falls back to the calendar, in exactly
 the cases where there is nothing to read: bars already a day or coarser, a market that

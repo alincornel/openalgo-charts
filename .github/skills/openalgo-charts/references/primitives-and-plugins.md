@@ -1,6 +1,6 @@
 # Primitives and Plugins
 
-*When to read this: you are drawing anything on the chart that is not a series — price lines, markers, zones, badges, on-chart controls — or registering a custom chart type.*
+*When to read this: you are drawing anything on the chart that is not a series (price lines, reference levels, markers, zones, badges, on-chart controls), or registering a custom chart type.*
 
 Source of truth: `src/primitives/primitive.ts`, `src/primitives/*.ts`, `src/core/pane.ts`, `src/core/chart.ts`, `src/model/chart-type-registry.ts`.
 
@@ -125,11 +125,12 @@ Keep it cheap: it runs on every `Full` invalidation, which includes every `serie
 | Primitive | z | Purpose | Key options / methods |
 |---|---|---|---|
 | `PriceLine` | `normal` | Horizontal level with a right-axis tag and an optional broker-style pill group. | `price`, `color`, `lineWidth`, `dashed`, `id`, `label`, `badge`, `qty`, `leftLabel`, `extentFromRight`, `closeButton`, `cursor`; `setPrice`, `setOptions`, `setLeftLabel`, `setDragGhost`, `options()` |
+| `PriceLevels` | `normal` | The ten **derived** reference levels (previous close, session high / low, last price, four extended-hours levels, bid, ask), each a line plus an axis tag. It computes its own prices from the bars and the viewport; you do not set them. | `levels` (per-kind `{ line, label, color, lineWidth, lineStyle, text, extentFromRight }`), `timezone`, `marketPhase`, `quote`; `setLevel`, `setOptions`, `setQuote`, `values()`, `available(kind)`, `level(kind)`. See below |
 | `SeriesMarkers` | `normal` | Bar-anchored signal glyphs, visible-range culled and stacked per bar. `MarkerShape` covers `arrowUp`/`arrowDown`, `circle`, `square`, `triangleUp`/`triangleDown`, `diamond`, `flag`, `text`, and the `labelUp`/`labelDown` text plates (tail pointing at the anchor price, `text` required). | `setMarkers(SeriesMarker[])`; renderers `drawShape`, `drawLabel`, `markerSizePx`, `effectiveMarkerPx` |
 | `EventMarkers` | `normal` | Corporate-action badge strip near the plot bottom. | `setEvents(ChartEvent[])` |
 | `LogoWatermark` | `top` (option) | Corner brand mark with an optional hover-revealed label and link. | `src`/`image`, `position`, `height` (28), `margin` (12), `opacity` (0.7), `tint`, `label`, `padding`, `href`; `setOptions`, `href()` |
 | `BuySellButtons` | `top` | Docked in-plot BUY / qty / SELL panel. | `id` (`trade`), `position` (`top-left`), `margin` (12), `qty`, `buyColor`, `sellColor`, `showPrices`, `scale` (0.6–1.5); `setPrices`, `setMark`, `setQty`, `setColors` |
-| `PaneLegend` | `top` | Canvas-drawn legend row: swatch, title, params, live values, action buttons. | `id`, `title`, `params`, `color`, `valueColor`, `row`, `actions`, `hidden`, `maximized`, `font` (11), `left` (8), `top` (6); `setValue`, `setValues`, `setOptions` |
+| `PaneLegend` | `top` | Canvas-drawn legend row: swatch, title, params, live values, action buttons, and the status line. | `id`, `title`, `params`, `color`, `valueColor`, `row`, `actions`, `hidden`, `maximized`, `font` (11), `left` (8), `top` (6), `statusLine` (per-field switches), `status` (host data or a per-frame getter); `setValue`, `setValues` (readings may carry `field: 'ohlc' \| 'change' \| 'volume'`), `setOptions`. See [settings-and-menus](settings-and-menus.md) |
 | `TimeNavigator` | `top` (option) | Hover-revealed zoom / step controls above the time axis. | Created by the chart itself from `ChartOptions.timeNavigator` (default `true`); `buttons`, `size` (26), `bottomMargin` (10), `revealHeight` (64), `labels`, `hints`, `showTooltip` |
 | `IndicatorFill` | `bottom` | Two-tone band between two indicator `calc` columns (Ichimoku cloud, Keltner, a shaded overbought/oversold band), split at exact crossings. The columns need not be plotted. | `colorUp`, `colorDown`, `opacity` (0.12); `setPoints(FillPoint[])`, `setOptions`, `setVisible` |
 
@@ -146,6 +147,68 @@ chart.tradeHost(paneIndex = 0);                                             // {
 ```
 
 **`id` on `PriceLine` is not patchable.** `setOptions` accepts `Partial<Omit<PriceLineOptions, 'id'>>`, because swapping the routing handle mid-drag would strand the gesture.
+
+## `PriceLevels`: the reference-level family
+
+```ts
+import { PriceLevels, PRICE_LEVEL_KINDS, computePriceLevels } from 'openalgo-charts';
+
+const levels = new PriceLevels({
+  levels: {
+    previousClose: { line: true, label: true },
+    sessionHigh: { line: true, label: false },     // line on the plot, no tag on the axis
+    sessionLow: { line: false, label: false },
+  },
+  timezone: 'America/New_York',
+});
+chart.addPrimitive(levels, 0);
+
+levels.setLevel('previousClose', { color: '#8b95a8', lineStyle: 'dashed' });
+levels.values().previousClose;      // number | null, as of the last frame
+levels.available('bid');            // false until a quote is fed
+```
+
+`PriceLevelKind` is `'previousClose' | 'sessionHigh' | 'sessionLow' | 'lastPrice' | 'preMarketOpen' | 'preMarketClose' | 'postMarketOpen' | 'postMarketClose' | 'bid' | 'ask'`, and `PRICE_LEVEL_KINDS` is that list in the order a settings panel should show it.
+
+**A level's line and its axis tag are two flags in one group.** `line` draws across the plot, `label` draws the tag on the price axis, and neither implies the other. Do not model them as two separate menus: that is exactly how a tag ends up on the axis for a line nobody is drawing.
+
+Defaults: `previousClose`, `sessionHigh` and `sessionLow` are on (dashed); every other kind is off. `lastPrice` is off **because the core already draws it** (see below).
+
+| Option | Notes |
+|---|---|
+| `levels` | Per-kind partial style, merged over the defaults. |
+| `timezone` | IANA name, used only for the calendar fallback when the bars show no readable session break. |
+| `marketPhase` | `(bar) => 'pre' \| 'regular' \| 'post' \| null`. **Required for the four extended-hours levels**: the OHLC feed carries no phase, and the primitive will not guess one. |
+| `quote` | `{ bid?, ask? }` or a function returning one, read each frame. **Required for bid and ask.** `setQuote(null)` clears it. |
+
+### What the numbers mean
+
+- **The session comes from the bar gaps**, through `sessionStartFlags`, not from a calendar midnight. The calendar is the fallback for a series with no readable break, which is the right answer for daily bars.
+- **The session in view is the one containing the viewport's right edge** (`dataLayer.indexToTimeFloat(timeScale.visibleRange().to)`), so panning back through history moves previous close back with it. The right-offset gap past the last bar still resolves to the newest session.
+- **Previous close is the previous session's last *traded* close**, walked back over a whitespace tail so a halted closing minute does not blank the level.
+- **Session high and low ignore whitespace**, because `NaN` loses every comparison silently.
+- **A level with no data is `null`, never `0`.** Nothing is drawn for it. `available(kind)` is the host's signal to render that control **disabled with its state visible**, not to hide it: "no previous session yet" is information, an absent checkbox is not.
+- **There is no `autoscaleInfo`.** A previous close a gap away from the session in view would stretch the range and flatten the bars the chart is for. A reference level that scrolls off the top is the lesser harm, and it is what the last-price line already does.
+
+### Do not double-draw the last price
+
+The pane already draws the last-price line and tag from `SeriesStyle.priceLineVisible` / `lastValueVisible`. Two owners would paint it twice, so the `lastPrice` level defaults to off and two helpers translate between the shapes:
+
+```ts
+import { lastPriceLevelFromSeriesStyle, seriesStyleForLastPriceLevel } from 'openalgo-charts';
+
+const style = chart.primarySeriesInfo()!.style;
+const row = lastPriceLevelFromSeriesStyle(style);            // { line, label } for your menu
+chart.primarySeries()!.applyOptions(seriesStyleForLastPriceLevel({ line: true, label: false }));
+```
+
+Present it as one more row in the same family; write the answer back to the series it belongs to.
+
+### The numbers without a canvas
+
+`computePriceLevels({ bars, anchorTime, timezone, marketPhase, quote })` is pure and exported, returning the same `PriceLevelValues` the primitive computes. Use it for a readout, a test, or an alert check with no chart attached. `values()` on the primitive is the last frame's answer, so every level reads `null` before the first frame.
+
+Session boundaries are cached per bar array (a `WeakMap` keyed on identity plus length and the first and last timestamp), because boundaries cannot move under an intra-bar tick. Replacing the array with `setData` invalidates it by identity.
 
 ## A custom primitive
 
