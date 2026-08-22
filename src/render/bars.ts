@@ -9,6 +9,12 @@ import { optimalBarWidth } from './candles';
 export interface BarDrawItem {
   x: number; // bar center, media px
   bar: Bar;
+  /**
+   * Close of the bar immediately before this one when that bar is not itself in
+   * `items`, which is the case for the first visible bar after a scroll. Only
+   * read when `colorByPreviousClose` is on, and only for the first item.
+   */
+  prevClose?: number;
 }
 
 export interface BarGeometry {
@@ -46,9 +52,19 @@ export function drawBars(
   const tick = Math.max(1, Math.floor(optimalBarWidth(barSpacing, dpr) / 2));
   const lw = Math.max(1, Math.floor(dpr));
   ctx.save();
-  for (const item of items) {
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
     const g = barGeometry(item, toY, dpr);
-    ctx.fillStyle = g.up ? (style.upColor ?? '#26a69a') : (style.downColor ?? '#ef5350');
+    // An OHLC bar is the type this option is named for, so it follows the same
+    // rule the candle renderer does: the reference is the bar before this one,
+    // taken from `prevClose` for the first drawn bar, and a missing or
+    // non-finite reference falls back to close-versus-own-open rather than
+    // inventing one. See `CandleStyle.colorByPreviousClose`.
+    const ref = i > 0 ? items[i - 1].bar.close : item.prevClose;
+    const up = style.colorByPreviousClose === true && ref !== undefined && Number.isFinite(ref)
+      ? item.bar.close >= ref
+      : g.up;
+    ctx.fillStyle = up ? (style.upColor ?? '#26a69a') : (style.downColor ?? '#ef5350');
     ctx.fillRect(g.cx - Math.floor(lw / 2), g.yHigh, lw, Math.max(1, g.yLow - g.yHigh));
     if (!highLowOnly) {
       ctx.fillRect(g.cx - tick, g.yOpen, tick, lw); // open tick (left)
