@@ -35,6 +35,13 @@ def fetch_bars(symbol: str, interval: str, period: str):
     bars = []
     for idx, row in df.iterrows():
         # idx is a (tz-aware) Timestamp; .timestamp() yields UTC epoch seconds.
+        # A row with no price is not a bar. yfinance emits them for suspensions
+        # and some holidays (RELIANCE.NS over a year has four), and json.dumps
+        # writes a bare NaN, which is not valid JSON: the browser then fails to
+        # parse the whole response and the symbol looks broken rather than
+        # gappy. Volume was already guarded here; OHLC was not.
+        if any(_isnan(row[c]) for c in ("Open", "High", "Low", "Close")):
+            continue
         bars.append(
             {
                 "time": int(idx.timestamp()),

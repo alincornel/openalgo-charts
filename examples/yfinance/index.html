@@ -12,6 +12,58 @@
       --amber: #e6b53c; --r: 8px; --h: 30px;
     }
     * { box-sizing: border-box; }
+
+    /* ── scrollbars ─────────────────────────────────────────────────
+       Every scrollable surface here sits on a dark panel, and the OS default
+       is a white bar: the loudest sign a dark UI was left unfinished. Declared
+       once at the root so a new panel inherits it instead of being remembered
+       about. Thumb one step lighter than the panel, track invisible. */
+    * { scrollbar-width: thin; scrollbar-color: #2c3547 transparent; }
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #2c3547; border: 2px solid transparent;
+      background-clip: padding-box; border-radius: 999px; }
+    ::-webkit-scrollbar-thumb:hover { background: #3d4a66; background-clip: padding-box; }
+    ::-webkit-scrollbar-corner { background: transparent; }
+
+    /* ── form controls ──────────────────────────────────────────────
+       A native blue tick and an OS select chevron are the two controls that
+       give a themed panel away, so neither is left to the browser. */
+    input[type=checkbox] {
+      appearance: none; -webkit-appearance: none; flex: none; margin: 0;
+      width: 15px; height: 15px; border: 1px solid var(--bd); border-radius: 4px;
+      background: var(--elev); cursor: pointer; display: inline-grid; place-content: center;
+      transition: background .12s, border-color .12s;
+    }
+    input[type=checkbox]:hover { border-color: #3a4761; }
+    input[type=checkbox]:checked { background: var(--acc); border-color: var(--acc); }
+    /* The tick is two borders of an empty box, rotated: no glyph, no font, and
+       it stays crisp at any device pixel ratio. */
+    input[type=checkbox]:checked::after {
+      content: ''; width: 4px; height: 8px; margin-top: -2px;
+      border: solid #04231d; border-width: 0 2px 2px 0; transform: rotate(45deg);
+    }
+    input[type=checkbox]:disabled { opacity: .4; cursor: not-allowed; }
+    input[type=checkbox]:focus-visible { outline: 2px solid var(--acc-2); outline-offset: 1px; }
+    select {
+      appearance: none; -webkit-appearance: none; background-repeat: no-repeat;
+      background-position: right 7px center; background-size: 11px;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5L6 8l3.5-3.5' fill='none' stroke='%238b93a7' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    }
+    select::-ms-expand { display: none; }
+    /* A colour input is a small rounded square, never a bar: same 5px vocabulary
+       as the .swatch below, one size up so it is comfortable to hit. The inner
+       swatch is styled too, or the OS draws its own plate inside ours. */
+    input[type=color] {
+      padding: 0; cursor: pointer; appearance: none; -webkit-appearance: none;
+      background-color: var(--elev); border: 1px solid var(--bd); border-radius: 6px;
+    }
+    input[type=color]:hover { border-color: #3a4761; }
+    input[type=color]::-webkit-color-swatch-wrapper { padding: 3px; }
+    input[type=color]::-webkit-color-swatch { border: 1px solid rgba(0,0,0,.45); border-radius: 4px; }
+    input[type=color]::-moz-color-swatch { border: 1px solid rgba(0,0,0,.45); border-radius: 4px; }
+    input.swatch { width: 26px; height: 26px; flex: none; }
+
     html, body { margin: 0; height: 100%; }
     body {
       background: radial-gradient(1100px 500px at 78% -12%, rgba(34,193,164,0.06), transparent), var(--bg);
@@ -43,13 +95,13 @@
     .divider { width: 1px; height: 22px; background: var(--bd-soft); margin: 0 2px; }
 
     .field {
-      height: var(--h); background: var(--elev); color: var(--tx); border: 1px solid var(--bd);
+      height: var(--h); background-color: var(--elev); color: var(--tx); border: 1px solid var(--bd);
       border-radius: 7px; padding: 0 9px; font: inherit; outline: none; transition: border-color .15s, box-shadow .15s, background .15s;
     }
     .field::placeholder { color: var(--faint); }
     .field:hover { border-color: #2c3446; }
-    .field:focus { border-color: var(--acc); box-shadow: 0 0 0 3px rgba(34,193,164,.15); background: var(--elev-2); }
-    select.field { cursor: pointer; }
+    .field:focus { border-color: var(--acc); box-shadow: 0 0 0 3px rgba(34,193,164,.15); background-color: var(--elev-2); }
+    select.field { cursor: pointer; padding-right: 24px; }
     .field--sym { width: 118px; font-weight: 600; letter-spacing: .3px; }
     .field--qty { width: 64px; text-align: center; }
 
@@ -83,11 +135,11 @@
     #setmodal { position: fixed; inset: 0; z-index: 60; background: rgba(6,8,12,.55);
       display: flex; align-items: center; justify-content: center; }
     #setmodal[hidden] { display: none; }
-    .set-card { width: 340px; max-height: 78vh; display: flex; flex-direction: column;
+    .set-card { width: 366px; max-height: 78vh; display: flex; flex-direction: column;
       background: var(--panel); border: 1px solid var(--bd); border-radius: 12px;
       box-shadow: 0 18px 50px rgba(0,0,0,.55); overflow: hidden; }
     .set-head { display: flex; align-items: center; justify-content: space-between;
-      padding: 11px 14px; border-bottom: 1px solid var(--bd-soft); font-weight: 650; color: var(--tx); }
+      padding: 9px 14px; border-bottom: 1px solid var(--bd-soft); font-weight: 650; color: var(--tx); }
     .set-head button { border: 0; background: transparent; color: var(--faint); font-size: 20px;
       line-height: 1; cursor: pointer; padding: 0 2px; }
     .set-head button:hover { color: var(--tx); }
@@ -95,15 +147,54 @@
     .set-tab { background: transparent; border: 0; border-bottom: 2px solid transparent; color: var(--mut);
       font: inherit; font-size: 12px; padding: 6px 10px; cursor: pointer; }
     .set-tab.is-on { color: var(--tx); border-bottom-color: var(--acc); }
-    .set-group { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; margin-top: 6px; }
-    .set-body { padding: 10px 14px; overflow: auto; display: grid; gap: 9px; }
-    .set-row { display: grid; grid-template-columns: 1fr 140px; align-items: center; gap: 10px; }
-    .set-row label { color: var(--mut); font-size: 12px; }
-    .set-row input, .set-row select { width: 100%; box-sizing: border-box; background: var(--elev);
-      color: var(--tx); border: 1px solid var(--bd-soft); border-radius: 7px; padding: 5px 8px; font-size: 12px; }
-    .set-row input[type=color] { padding: 2px; height: 28px; cursor: pointer; }
-    .set-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 11px 14px;
-      border-top: 1px solid var(--bd-soft); }
+
+    /* ── generated settings rows (indicator dialog and chart dialog) ──
+       Three columns: a switch slot, the label, the control. The switch slot is
+       empty on most rows and exists so the checkboxes of the paired-colour rows
+       line up in a column of their own:
+
+           [x] Body      [up] [down]
+           [x] Borders   [up] [down]
+
+       which is one row per property instead of a section header plus a stacked
+       Up and Down. That shape is the whole reason the densest tab fits without
+       a scrollbar. */
+    .set-group { color: var(--faint); font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .8px; line-height: 15px; margin: 8px 0 1px; }
+    .set-group:first-child { margin-top: 0; }
+    /* A 3px gap with 24px rows: the row itself carries the breathing room, and
+       the densest tab (Appearance, 17 controls over 4 groups) has to fit in one
+       panel without a scrollbar. Groups get their air from the header margin. */
+    .set-body { padding: 11px 14px; overflow: auto; display: grid; gap: 3px; align-content: start; }
+    .set-row { display: grid; grid-template-columns: 15px 1fr 164px; align-items: center;
+      column-gap: 9px; min-height: 24px; }
+    .set-row > label { grid-column: 2; color: var(--mut); font-size: 12px; cursor: pointer; }
+    .set-row > .set-sw { grid-column: 1; }
+    .set-ctl { grid-column: 3; display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+    .set-ctl select, .set-ctl input[type=number], .set-ctl input[type=text] {
+      flex: 1 1 auto; min-width: 0; height: 24px; background: var(--elev); color: var(--tx);
+      border: 1px solid var(--bd); border-radius: 6px; padding: 0 8px; font: inherit; font-size: 12px;
+      outline: none; transition: border-color .12s, box-shadow .12s; }
+    .set-ctl select { padding-right: 24px; cursor: pointer; }
+    .set-ctl select:focus, .set-ctl input:focus {
+      border-color: var(--acc); box-shadow: 0 0 0 3px rgba(34,193,164,.13); }
+    /* A control with nothing behind it in the current context is shown, not
+       hidden, and not left live to change nothing: it is dimmed, its value is
+       still readable, and its tooltip says what is missing. `pointer-events`
+       goes on the input because a disabled input swallows the hover that would
+       otherwise show that tooltip; the row keeps it. */
+    .set-row--off > label { color: var(--faint); cursor: not-allowed; }
+    .set-row--off .set-ctl { cursor: not-allowed; }
+    .set-row input:disabled, .set-row select:disabled { opacity: .45; pointer-events: none; }
+    .set-ctl option:disabled { color: var(--faint); }
+    .set-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+      padding: 9px 14px; border-top: 1px solid var(--bd-soft); }
+    /* Dialog buttons are one notch shorter than the toolbar's, so the furniture
+       takes as little of the panel's height as the form rows do. */
+    .set-foot .btn { height: 28px; padding: 0 12px; }
+    /* Dialog furniture: the secondary action sits bottom left, away from the
+       pair the user is aiming at. */
+    .set-foot .set-lead { margin-right: auto; }
     .indlist { display: inline-flex; gap: 6px; flex-wrap: wrap; }
     .chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 6px 3px 9px;
       border-radius: 7px; border: 1px solid var(--bd-soft); background: var(--elev);
@@ -194,10 +285,10 @@
     .td-card { width: 330px; }
     .td-body { padding: 12px 14px; display: grid; gap: 10px; }
     .td-row { display: flex; align-items: center; gap: 8px; }
-    .td-row select { flex: 1 1 auto; min-width: 0; background: var(--elev); color: var(--tx);
-      border: 1px solid var(--bd-soft); border-radius: 7px; padding: 5px 8px; font-size: 12px; }
+    .td-row select { flex: 1 1 auto; min-width: 0; background-color: var(--elev); color: var(--tx);
+      border: 1px solid var(--bd-soft); border-radius: 7px; padding: 5px 24px 5px 8px; font-size: 12px; }
     .td-row input[type=color], .td-check input[type=color] {
-      width: 32px; height: 28px; padding: 2px; background: var(--elev);
+      width: 30px; height: 28px; background-color: var(--elev);
       border: 1px solid var(--bd-soft); border-radius: 7px; cursor: pointer; flex: none; }
     .td-tog { width: 30px; height: 28px; flex: none; background: var(--elev); color: var(--mut);
       border: 1px solid var(--bd-soft); border-radius: 7px; cursor: pointer; font-size: 13px; }
@@ -234,6 +325,10 @@
       background: transparent; border: 1px solid transparent; border-radius: 7px;
       color: var(--tx); font: inherit; font-size: 13px; cursor: pointer; }
     .tbtn:hover { background: var(--elev); border-color: var(--bd-soft); }
+    .tbtn--buy { color: var(--buy); border-color: color-mix(in srgb, var(--buy) 34%, transparent); }
+    .tbtn--sell { color: var(--sell); border-color: color-mix(in srgb, var(--sell) 34%, transparent); }
+    .tbtn--buy:hover { background: color-mix(in srgb, var(--buy) 14%, transparent); border-color: var(--buy); }
+    .tbtn--sell:hover { background: color-mix(in srgb, var(--sell) 14%, transparent); border-color: var(--sell); }
     .tbtn.is-on { background: rgba(34,193,164,.16); border-color: #1d6b5e; color: var(--acc-2); }
     .tbtn b { font-weight: 700; letter-spacing: .3px; }
     .tbtn--icon { padding: 0; width: 30px; justify-content: center; }
@@ -328,15 +423,117 @@
     #ctxmenu button.sell::before { background: var(--sell); }
     #ctxmenu button[data-act="cancelall"]::before { background: var(--faint); }
     #ctxmenu hr { border: 0; border-top: 1px solid var(--bd-soft); margin: 5px 8px; }
+
+    /* ── replay transport ───────────────────────────────────────── */
+    /* Floats over the plot rather than sitting under it: replay is a mode, and
+       a bar that appears inside the chart says so louder than one bolted to the
+       page. `bottom` clears the time axis so the dates stay readable. */
+    #replaybar { position: absolute; left: 50%; bottom: 30px; z-index: 25; transform: translateX(-50%);
+      display: flex; align-items: center; gap: 7px; padding: 6px 10px; max-width: calc(100% - 80px);
+      background: rgba(15,18,26,.94); border: 1px solid var(--bd); border-radius: 10px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.5); backdrop-filter: blur(8px); }
+    #replaybar[hidden] { display: none; }
+    #replaybar svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6;
+      stroke-linecap: round; stroke-linejoin: round; flex: none; }
+    #replaybar button { height: 26px; min-width: 26px; display: inline-flex; align-items: center;
+      justify-content: center; padding: 0 7px; background: transparent; border: 1px solid transparent;
+      border-radius: 6px; color: var(--mut); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+    #replaybar button:hover { background: var(--elev-2); color: var(--tx); }
+    #replaybar button.is-on { background: rgba(34,193,164,.16); border-color: #1d6b5e; color: var(--acc-2); }
+    #replaybar input[type=range] { width: 190px; accent-color: var(--acc); }
+    #replaybar .rcount { color: var(--tx); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    #replaybar .rclock { color: var(--faint); font-size: 11px; white-space: nowrap; }
+    #replaybar .vsep { width: 1px; height: 18px; background: var(--bd-soft); flex: none; }
+
+    /* ── compare dialog ─────────────────────────────────────────── */
+    #cmpmodal { position: fixed; inset: 0; z-index: 61; background: rgba(6,8,12,.55);
+      display: flex; align-items: center; justify-content: center; }
+    #cmpmodal[hidden] { display: none; }
+    .cmp-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; color: var(--mut); }
+    .cmp-row .sw { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+    .cmp-row b { color: var(--tx); font-weight: 600; }
+    .cmp-row .cmp-cov { margin-left: auto; color: var(--faint); font-size: 11px; }
+    .cmp-row .cmp-del { border: 0; background: transparent; color: var(--faint); font-size: 14px;
+      line-height: 1; cursor: pointer; padding: 2px 5px; border-radius: 4px; }
+    .cmp-row .cmp-del:hover { background: #2a3348; color: #ff9b9b; }
+
+    /* ── chart settings dialog ──────────────────────────────────── */
+    /* Tabs down the left, controls on the right: the layout chartSettingsSchema()
+       describes. The rows themselves are the .set-row widgets the indicator
+       dialog already uses, so there is one form renderer, not two. */
+    #chartset { position: fixed; inset: 0; z-index: 62; background: rgba(6,8,12,.55);
+      display: flex; align-items: center; justify-content: center; }
+    #chartset[hidden] { display: none; }
+    /* Sized so the label column stays about as wide as the longest label rather
+       than stretching a swatch half a panel away from the property it colours. */
+    .cset-card { width: 560px; max-width: calc(100vw - 32px); max-height: 92vh;
+      display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--bd);
+      border-radius: 12px; box-shadow: 0 18px 50px rgba(0,0,0,.55); overflow: hidden; }
+    .cset-main { display: grid; grid-template-columns: 154px 1fr; min-height: 0; flex: 1 1 auto; }
+    .cset-tabs { display: flex; flex-direction: column; gap: 2px; padding: 10px 8px;
+      border-right: 1px solid var(--bd-soft); background: #0c0f16; overflow-y: auto; }
+    .cset-tab { display: flex; align-items: center; gap: 9px; text-align: left;
+      background: transparent; border: 0; border-radius: 7px;
+      color: var(--mut); font: inherit; font-size: 13px; padding: 7px 10px; cursor: pointer; }
+    .cset-tab:hover { background: var(--elev); color: var(--tx); }
+    .cset-tab.is-on { background: rgba(34,193,164,.16); color: var(--acc-2); }
+    .cset-tab svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
+      stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+    #cset-body { align-content: start; }
+
+    /* ── price-axis menu ────────────────────────────────────────────
+       Raised by a right-click on a price ladder. Toggles carry a tick, the four
+       scale modes carry a radio dot because exactly one of them is ever true,
+       and the level submenus fly out to the side. */
+    .axmenu { position: fixed; z-index: 64; min-width: 250px; padding: 5px;
+      background: var(--panel); border: 1px solid var(--bd); border-radius: 10px;
+      box-shadow: 0 16px 44px rgba(0,0,0,.6); font: 13px system-ui, sans-serif; }
+    .axmenu[hidden] { display: none; }
+    .axrow { display: flex; align-items: center; gap: 9px; width: 100%; padding: 6px 9px;
+      background: transparent; border: 0; border-radius: 7px; color: var(--tx);
+      font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+    .axrow:hover:not(:disabled) { background: var(--elev-2); }
+    .axrow:disabled { color: var(--faint); cursor: default; }
+    .axrow .axname { flex: 1 1 auto; }
+    .axrow .chord { color: var(--faint); font-size: 11px; font-variant-numeric: tabular-nums;
+      letter-spacing: .2px; }
+    .axrow .axnote { color: var(--faint); font-size: 11px; font-style: italic; }
+    /* The mark column is always drawn, empty or not, so labels stay on one
+       left edge whether or not anything is ticked. */
+    .axrow .axmark { width: 14px; height: 14px; flex: none; display: grid; place-items: center; }
+    .axrow .axmark svg { width: 13px; height: 13px; fill: none; stroke: var(--acc-2);
+      stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    /* A greyed row still shows the state it is in: the tick dims with the label
+       rather than disappearing, so "off and unavailable" and "on but
+       unavailable" do not read the same. */
+    .axrow:disabled .axmark svg { stroke: var(--faint); }
+    .axrow .axdot { width: 12px; height: 12px; border-radius: 50%; border: 1px solid var(--bd);
+      background: var(--elev); }
+    .axrow.is-on .axdot { border-color: var(--acc); background:
+      radial-gradient(circle, var(--acc-2) 0 3px, transparent 3.5px); }
+    .axrow:disabled .axdot { opacity: .4; }
+    .axrow .axarrow { color: var(--faint); font-size: 11px; }
+    .axmenu hr { border: 0; border-top: 1px solid var(--bd-soft); margin: 5px 7px; }
+    .axmenu .axhead { padding: 7px 9px 3px; color: var(--faint); font-size: 10px;
+      font-weight: 700; text-transform: uppercase; letter-spacing: .8px; }
+    .axrow.is-open { background: var(--elev-2); }
   </style>
 </head>
 <body>
+  <!--
+    The symbol box lives here rather than inside the legacy toolbar below. It is
+    hidden until the shell's search button gives it `.is-live`, and an ancestor
+    set to `display: none` takes its whole subtree out of the box tree, so while
+    it sat inside `.topbar.legacy` no rule on the input itself could bring it
+    back and the symbol could not be changed at all. It is `position: fixed`
+    when live, so it needs no layout parent.
+  -->
+  <input type="text" id="symbol" class="field field--sym" value="AAPL" title="Yahoo Finance symbol (AAPL, MSFT, RELIANCE.NS, ^NSEI, BTC-USD)" />
   <header class="shellbar" id="shellbar"></header>
   <header class="topbar legacy">
     <div class="brand"><span class="brand-dot"></span> OpenAlgo <em>yfinance</em></div>
     <div class="divider"></div>
     <div class="group">
-      <input type="text" id="symbol" class="field field--sym" value="AAPL" title="Yahoo Finance symbol (AAPL, MSFT, RELIANCE.NS, ^NSEI, BTC-USD)" />
       <select id="interval" class="field" title="bar interval">
         <option>1d</option><option>1h</option><option>30m</option><option>15m</option><option>5m</option><option>1wk</option>
       </select>
@@ -426,6 +623,10 @@
     <div class="rail" id="rail"></div>
     <div id="chart"></div>
     <div id="legend"></div>
+    <!-- Market-replay transport. Built by buildReplayBar() from the controller's
+         state(), because the engine ships no DOM. Lives inside the stage so it
+         comes along into chart-only full screen. -->
+    <div id="replaybar" hidden></div>
   </main>
 
   <!-- Sahi-style bracket panel (positions tracked to price every frame) -->
@@ -465,6 +666,57 @@
     </div>
   </div>
 
+  <!-- Compare: a second instrument on the primary's pane. The engine aligns it
+       by timestamp and rebases the pane; the symbol list and the scale choice
+       are ours. -->
+  <div id="cmpmodal" hidden>
+    <div class="set-card">
+      <div class="set-head"><span>Compare symbol</span><button id="cmp-x" title="close">&times;</button></div>
+      <div class="set-body">
+        <div class="set-row">
+          <label for="cmp-sym">Symbol</label>
+          <input type="text" id="cmp-sym" placeholder="MSFT, ^NSEI, BTC-USD" spellcheck="false" />
+        </div>
+        <div class="set-row">
+          <label for="cmp-mode">Price scale</label>
+          <select id="cmp-mode">
+            <option value="percentage">Percent</option>
+            <option value="indexed-to-100">Indexed to 100</option>
+            <option value="none">Own scale</option>
+          </select>
+        </div>
+        <div class="set-group">On the chart</div>
+        <div id="cmp-list"></div>
+      </div>
+      <div class="set-foot">
+        <button id="cmp-close" class="btn btn--ghost">Close</button>
+        <button id="cmp-add" class="btn btn--primary">Add</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chart settings. Every control here is generated from chartSettingsSchema(),
+       so a control the engine adds shows up without a line of demo code. -->
+  <div id="chartset" hidden>
+    <div class="cset-card">
+      <div class="set-head"><span>Chart settings</span><button id="cset-x" title="close">&times;</button></div>
+      <div class="cset-main">
+        <nav class="cset-tabs" id="cset-tabs"></nav>
+        <div id="cset-body" class="set-body"></div>
+      </div>
+      <div class="set-foot">
+        <button id="cset-defaults" class="btn btn--ghost set-lead">Restore this tab</button>
+        <button id="cset-cancel" class="btn btn--ghost">Cancel</button>
+        <button id="cset-ok" class="btn btn--primary">Ok</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Price-axis menu and its level flyout. Both are built from
+       chart.priceAxisState() and the PriceLevels primitive, never hardcoded. -->
+  <div id="axmenu" class="axmenu" hidden></div>
+  <div id="axsub" class="axmenu" hidden></div>
+
   <!-- Floating properties bar for the selected drawing. Drag it by the grip. -->
   <div id="toolwidget" hidden></div>
   <!-- Text settings: the drawing is canvas-rendered, so this edits its style bag. -->
@@ -474,21 +726,42 @@
   <div id="ctxmenu" hidden>
     <button class="buy" data-side="BUY" data-type="MARKET">Buy Market</button>
     <button class="sell" data-side="SELL" data-type="MARKET">Sell Market</button>
-    <hr>
+    <hr data-sec="order">
     <button class="buy" data-side="BUY" data-type="LIMIT">Buy Limit</button>
     <button class="sell" data-side="SELL" data-type="LIMIT">Sell Limit</button>
-    <hr>
+    <hr data-sec="order">
     <button class="buy" data-side="BUY" data-type="SL">Buy Stop (SL)</button>
     <button class="sell" data-side="SELL" data-type="SL">Sell Stop (SL)</button>
-    <hr>
+    <hr data-sec="order">
     <button data-act="cancelall">Cancel All Orders</button>
     <hr>
     <button data-act="delsel">Delete Drawing</button>
     <button data-act="delall">Remove All Drawings</button>
+    <!-- Only drawn when the chart says the pointer was over an indicator. -->
+    <hr data-sec="ind">
+    <button data-act="indset">Indicator settings...</button>
+    <hr>
+    <button data-act="chartset">Settings...</button>
   </div>
 
   <script type="module">
     import { createChart, darkTheme, registeredIndicators, getIndicator, indicatorStyleInputs, INDICATOR_SOURCES, LogoWatermark, PaneLegend } from '/dist/openalgo-charts.mjs';
+    // Replay, compare and the settings schema land in the same base bundle, but
+    // they are read off the namespace rather than named above on purpose: a
+    // missing named import fails the whole module at link time, and a demo
+    // served against a dist/ built before these shipped should still draw a
+    // chart and simply report the feature as unavailable.
+    import * as engine from '/dist/openalgo-charts.mjs';
+    const { ReplayController, addComparison, comparisonController } = engine;
+    const { chartSettingsSchema, readChartSettings, applyChartSettings } = engine;
+    // Price-level family (previous close, session extremes, extended hours,
+    // bid/ask). Read off the namespace for the same reason as the block above:
+    // an older dist/ should still draw a chart, with the level submenus simply
+    // reporting themselves unavailable.
+    const {
+      PriceLevels, PRICE_LEVEL_KINDS,
+      lastPriceLevelFromSeriesStyle, seriesStyleForLastPriceLevel,
+    } = engine;
     // Lazy tiers. Each registers into the base bundle's registries as a side
     // effect of being imported, so `addSeries('point-figure')` and
     // `addIndicator('macd')` resolve afterwards.
@@ -514,7 +787,31 @@
     const feed = new YFinanceDataFeed();
     const UP = '#26a69a', DOWN = '#ef5350';
     const TRADE_EXTENT = 0.30; // order/bracket lines span only the rightmost 30% (broker-style)
+
+    /**
+     * The trade palette the Trading tab of chart settings writes. The demo draws
+     * its orders, bracket and position as its own price lines rather than
+     * through `chart.trading`, so nothing would read those seven colours unless
+     * this asked for them: they were declared, persisted, and consumed by
+     * nobody, which is the same defect as an option no renderer reads.
+     *
+     * `tradingSettings()` answers whether or not the trade controller exists, so
+     * reading it here does not create one.
+     */
+    const TRADE_FALLBACK = {
+      long: '#2f6df6', short: '#ef5350', order: '#3b82f6',
+      tp: '#26a69a', sl: '#ef5350', buy: '#26a69a', sell: '#ef5350',
+    };
+    function tradeColors() {
+      return chart && typeof chart.tradingSettings === 'function' ? chart.tradingSettings() : TRADE_FALLBACK;
+    }
     let chart, price, volume;
+    // The price-level primitive on the price pane, plus the level styles as the
+    // menu left them. The primitive belongs to the chart and dies with it; the
+    // styles are the demo's, the way activeIndicators are, so a chart-type
+    // switch does not quietly put every level back to its default.
+    let priceLevels = null;
+    const priceLevelState = {};
 
     // Active indicators, as {indicatorId, settings} specs. They are re-applied on
     // every chart rebuild (a chart-type switch destroys and recreates the chart),
@@ -608,15 +905,253 @@
       if (a >= 1e3) return (v / 1e3).toFixed(2) + 'K';
       return String(v);
     }
+    // The venue a yfinance symbol trades on. It answers three questions at once:
+    // what the status line prints after the interval, what the ticker title mode
+    // prefixes the name with, and which session table says whether the market is
+    // open. A plain ticker is the US tape, which is yfinance's own default
+    // namespace; an index yfinance carries that is not one of the four below is
+    // 'INDEX', a venue this demo has no session hours for.
     function exchangeOf(sym) {
-      const s = sym.toUpperCase();
-      if (s.endsWith('.NS')) return 'NSE';
-      if (s.endsWith('.BO')) return 'BSE';
-      if (s.startsWith('^')) return 'INDEX';
+      const s = String(sym).toUpperCase();
+      if (s.endsWith('.NS') || s === '^NSEI' || s === '^NSEBANK') return 'NSE';
+      if (s.endsWith('.BO') || s === '^BSESN') return 'BSE';
       if (s.endsWith('-USD')) return 'CRYPTO';
-      return 'yfinance';
+      if (s === '^GSPC' || s === '^DJI' || s === '^IXIC' || s === '^RUT' || s === '^VIX') return 'US';
+      if (s.startsWith('^')) return 'INDEX';
+      return 'US';
     }
     const nameOf = (sym) => sym.toUpperCase().replace(/\.(NS|BO)$/, '');
+
+    // ── status-line data ───────────────────────────────────────────────────
+    // The legend draws the row; these four fields are the ones it has no way to
+    // derive, so the Readout tab's switches for them are live only because the
+    // host feeds them. Anything the demo genuinely cannot supply is left absent
+    // here and its control is drawn disabled (see chartSettingUnavailable).
+
+    /**
+     * Long names for the instruments this demo points at. `/api/history` returns
+     * bars and nothing else, so a description is either in this table or the
+     * demo does not have one: the "Description" title mode is disabled for a
+     * symbol that is not here rather than silently drawing the ticker instead.
+     */
+    const LONG_NAMES = {
+      AAPL: 'Apple Inc.', MSFT: 'Microsoft Corporation', GOOGL: 'Alphabet Inc.',
+      AMZN: 'Amazon.com, Inc.', META: 'Meta Platforms, Inc.', TSLA: 'Tesla, Inc.',
+      NVDA: 'NVIDIA Corporation', NFLX: 'Netflix, Inc.', AMD: 'Advanced Micro Devices, Inc.',
+      'RELIANCE.NS': 'Reliance Industries Limited',
+      'TCS.NS': 'Tata Consultancy Services Limited',
+      'INFY.NS': 'Infosys Limited', 'HDFCBANK.NS': 'HDFC Bank Limited',
+      'ICICIBANK.NS': 'ICICI Bank Limited', 'SBIN.NS': 'State Bank of India',
+      'TATAMOTORS.NS': 'Tata Motors Limited', 'ITC.NS': 'ITC Limited',
+      '^NSEI': 'NIFTY 50', '^NSEBANK': 'NIFTY Bank', '^BSESN': 'S&P BSE SENSEX',
+      '^GSPC': 'S&P 500', '^DJI': 'Dow Jones Industrial Average', '^IXIC': 'NASDAQ Composite',
+      'BTC-USD': 'Bitcoin / US Dollar', 'ETH-USD': 'Ethereum / US Dollar',
+    };
+    const descriptionOf = (sym) => LONG_NAMES[String(sym).toUpperCase()] || null;
+
+    /**
+     * Regular hours per venue, as an IANA zone and a local window in minutes
+     * from midnight. Never a fixed UTC offset: New York is four hours off UTC
+     * for part of the year and five for the rest, and a constant would be
+     * silently wrong for half of it. `null` means the venue never closes; a
+     * venue absent from the table has no hours here and says so.
+     */
+    const SESSIONS = {
+      NSE: { zone: 'Asia/Kolkata', open: 9 * 60 + 15, close: 15 * 60 + 30 },
+      BSE: { zone: 'Asia/Kolkata', open: 9 * 60 + 15, close: 15 * 60 + 30 },
+      US: { zone: 'America/New_York', open: 9 * 60 + 30, close: 16 * 60 },
+      CRYPTO: null,
+    };
+    const WEEKDAY = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+
+    /** Weekday and minute-of-day for an instant, in an IANA zone. */
+    const zoneParts = (() => {
+      const fmts = new Map();
+      return (ms, zone) => {
+        let f = fmts.get(zone);
+        if (!f) {
+          f = new Intl.DateTimeFormat('en-GB', {
+            timeZone: zone, weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false,
+          });
+          fmts.set(zone, f);
+        }
+        const p = {};
+        for (const part of f.formatToParts(new Date(ms))) p[part.type] = part.value;
+        // hour12:false gives 24 for midnight in some engines, hence the modulo.
+        return { day: WEEKDAY[p.weekday], minutes: (Number(p.hour) % 24) * 60 + Number(p.minute) };
+      };
+    })();
+
+    /**
+     * Whether the venue is trading right now. Regular hours only: there is no
+     * holiday calendar behind this, so it says "market closed" on Republic Day
+     * for the same reason it does on a Sunday.
+     */
+    function marketStatusReading() {
+      const venue = exchangeOf(req.symbol || '');
+      if (!(venue in SESSIONS)) return undefined;    // no hours for this venue
+      const s = SESSIONS[venue];
+      if (s === null) return { text: 'Open 24x7', color: UP };
+      const { day, minutes } = zoneParts(Date.now(), s.zone);
+      const open = day >= 1 && day <= 5 && minutes >= s.open && minutes < s.close;
+      return open ? { text: 'Market open', color: UP } : { text: 'Market closed' };
+    }
+
+    /** A bar's local calendar day, for spotting a session boundary. */
+    const dayKey = (() => {
+      const fmts = new Map();
+      return (timeSec, zone) => {
+        let f = fmts.get(zone);
+        if (!f) {
+          f = new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' });
+          fmts.set(zone, f);
+        }
+        return f.format(new Date(timeSec * 1000));
+      };
+    })();
+
+    /**
+     * Close of the session before the last bar's, in the chart's own zone. Null
+     * when the loaded range holds a single session, which is the case the
+     * "change since previous close" switch is disabled for: there is no previous
+     * close, and drawing a zero would be an invention.
+     *
+     * Memoised on the bar array and the zone, because the status line asks for
+     * it on every frame and a five-day one-minute chart is a few hundred
+     * `Intl.format` calls per answer.
+     */
+    let prevCloseMemo = { bars: null, zone: null, value: null };
+    function previousSessionClose() {
+      if (prevCloseMemo.bars === currentBars && prevCloseMemo.zone === chartTimezone) return prevCloseMemo.value;
+      let value = null;
+      if (currentBars.length >= 2) {
+        const last = dayKey(currentBars[currentBars.length - 1].time, chartTimezone);
+        for (let i = currentBars.length - 2; i >= 0; i--) {
+          if (dayKey(currentBars[i].time, chartTimezone) !== last) { value = currentBars[i].close; break; }
+        }
+      }
+      prevCloseMemo = { bars: currentBars, zone: chartTimezone, value };
+      return value;
+    }
+
+    function dayChangeReading() {
+      const prev = previousSessionClose();
+      if (prev == null || !currentBars.length) return undefined;
+      const d = currentBars[currentBars.length - 1].close - prev;
+      const sign = d >= 0 ? '+' : '';
+      const pct = prev ? (d / prev) * 100 : 0;
+      return { label: '1D', text: `${sign}${fmt(d)} (${sign}${pct.toFixed(2)}%)`, color: d >= 0 ? UP : DOWN };
+    }
+
+    /**
+     * A monogram tile for the symbol. The demo has no brand artwork and the feed
+     * returns none, so the mark is drawn from the ticker: one letter over a hue
+     * derived from the name, which is a real per-symbol mark rather than one
+     * placeholder repeated for every instrument.
+     */
+    const logoCache = new Map();
+    function symbolLogo(sym) {
+      const name = nameOf(sym || '').replace(/^\^/, '');
+      if (!name) return undefined;
+      const hit = logoCache.get(name);
+      if (hit) return hit;
+      const side = 36;      // drawn at 3x the 12px the legend paints it at
+      const c = document.createElement('canvas');
+      c.width = side; c.height = side;
+      const g = c.getContext('2d');
+      let hue = 0;
+      for (let i = 0; i < name.length; i++) hue = (hue * 31 + name.charCodeAt(i)) % 360;
+      const r = 8;
+      g.fillStyle = `hsl(${hue} 40% 34%)`;
+      g.beginPath();
+      g.moveTo(r, 0);
+      g.arcTo(side, 0, side, side, r); g.arcTo(side, side, 0, side, r);
+      g.arcTo(0, side, 0, 0, r); g.arcTo(0, 0, side, 0, r);
+      g.closePath(); g.fill();
+      g.fillStyle = '#eef1f7';
+      g.font = '700 22px ui-sans-serif, system-ui, sans-serif';
+      g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText(name[0], side / 2, side / 2 + 1);
+      logoCache.set(name, c);
+      return c;
+    }
+
+    /**
+     * Handed to the legend as a getter, not a snapshot: the session state is a
+     * time of day, so it has to be right on the frame it is drawn rather than on
+     * the frame the demo last patched options.
+     */
+    function symbolStatus() {
+      const sym = req.symbol || '';
+      if (!sym) return null;
+      return {
+        logo: symbolLogo(sym),
+        description: descriptionOf(sym) || undefined,
+        ticker: exchangeOf(sym) + ':' + nameOf(sym),
+        marketStatus: marketStatusReading(),
+        lastDayChange: dayChangeReading(),
+      };
+    }
+
+    // ── chart timezone ─────────────────────────────────────────────────────
+    // The zone is the engine's: it is a schema control on the Axes tab and
+    // `chart.setTimezone()` behind it, so nothing here builds a picker. What the
+    // demo does keep is a copy of the chosen zone, because render() throws the
+    // chart away and builds a new one on every chart-type switch, exactly like
+    // activeIndicators: the engine persists the zone in getState(), but a
+    // rebuilt chart starts on the default again unless we hand it back.
+    const DEFAULT_TZ = 'Asia/Kolkata';
+    let chartTimezone = DEFAULT_TZ;
+
+    /** Mirror the chart's zone back into the demo's own copy. */
+    function syncTimezoneFromChart() {
+      if (chart && typeof chart.timezone === 'function') chartTimezone = chart.timezone();
+    }
+
+    // ── axis chrome ────────────────────────────────────────────────────────
+    // The corner clock and the countdown row inside the last-price tag are
+    // engine options: a chart that upgrades should keep drawing the axes it
+    // always drew, so neither turns itself on. The reference host is exactly
+    // where they should be visible, so the demo asks for both, and then carries
+    // whatever the settings dialog leaves behind across a chart rebuild the same
+    // way it carries the timezone.
+    const axisChrome = { sessionClock: true, barCountdown: true };
+    function applyAxisChrome() {
+      if (chart && typeof chart.setAxisChromeOptions === 'function') chart.setAxisChromeOptions(axisChrome);
+    }
+    function syncAxisChromeFromChart() {
+      if (chart && typeof chart.axisChromeOptions === 'function') Object.assign(axisChrome, chart.axisChromeOptions());
+    }
+
+    // The status-line switches and the trade palette are the chart's, and a
+    // chart-type switch throws the chart away: without these two copies, every
+    // Readout and Trading choice silently reverted the moment someone picked
+    // Heikin Ashi. Same contract as the timezone above - read back from the
+    // chart after a settings write, hand it back on the next build.
+    const statusLineChoice = {};
+    function applyStatusLineChoice() {
+      if (chart && Object.keys(statusLineChoice).length) chart.setStatusLineOptions(statusLineChoice);
+    }
+    function syncStatusLineFromChart() {
+      if (chart && typeof chart.statusLineOptions === 'function') Object.assign(statusLineChoice, chart.statusLineOptions());
+    }
+
+    // `tradingSettings()` answers in resolved names (`long`) and
+    // `setTradingSettings` takes patch names (`longColor`), so carrying the
+    // choice across a rebuild means translating between the two.
+    const TRADE_PATCH_KEY = {
+      long: 'longColor', short: 'shortColor', order: 'orderColor',
+      tp: 'tpColor', sl: 'slColor', buy: 'buyColor', sell: 'sellColor',
+    };
+    const tradeChoice = {};
+    function applyTradeChoice() {
+      if (chart && Object.keys(tradeChoice).length) chart.setTradingSettings(tradeChoice);
+    }
+    function syncTradeChoiceFromChart() {
+      if (!chart || typeof chart.tradingSettings !== 'function') return;
+      const resolved = chart.tradingSettings();
+      for (const key in TRADE_PATCH_KEY) tradeChoice[TRADE_PATCH_KEY[key]] = resolved[key];
+    }
 
     // Title + O H L C V + change(%). Driven by the crosshair; falls back to the last bar.
     // The symbol row is a PaneLegend like every indicator row, not a floating
@@ -631,6 +1166,7 @@
         title: nameOf(req.symbol || ''),
         params: `${(req.interval || '').toUpperCase()} · ${exchangeOf(req.symbol || '')}`,
       });
+      setCompareLegends(bar);
       if (!bar) { symbolLegend.setValues([]); volLegend && volLegend.setValues([]); return; }
       const i = idxByTime.get(bar.time);
       const prevClose = (i != null && i > 0) ? currentBars[i - 1].close : bar.open;
@@ -638,16 +1174,20 @@
       const pct = prevClose ? (chg / prevClose) * 100 : 0;
       const sign = chg >= 0 ? '+' : '';
       const col = bar.close >= bar.open ? UP : DOWN;
-      // Dimmed O/H/L/C labels with colored numbers, one segment each.
+      // Dimmed O/H/L/C labels with colored numbers, one segment each. Each
+      // reading names the status-line group that owns it: the settings dialog's
+      // "Chart values", "Bar change values" and "Volume" switches hide readings
+      // by their `field` tag, so an untagged number falls under "Indicator
+      // values" instead and none of the three switches can reach it.
       symbolLegend.setValues([
-        { label: 'O', text: fmt(bar.open), color: col },
-        { label: 'H', text: fmt(bar.high), color: col },
-        { label: 'L', text: fmt(bar.low), color: col },
-        { label: 'C', text: fmt(bar.close), color: col },
-        { text: `${sign}${fmt(chg)} (${sign}${pct.toFixed(2)}%)`, color: chg >= 0 ? UP : DOWN },
+        { label: 'O', text: fmt(bar.open), color: col, field: 'ohlc' },
+        { label: 'H', text: fmt(bar.high), color: col, field: 'ohlc' },
+        { label: 'L', text: fmt(bar.low), color: col, field: 'ohlc' },
+        { label: 'C', text: fmt(bar.close), color: col, field: 'ohlc' },
+        { text: `${sign}${fmt(chg)} (${sign}${pct.toFixed(2)}%)`, color: chg >= 0 ? UP : DOWN, field: 'change' },
       ]);
       // Volume gets its own row, the way a volume study would.
-      if (volLegend) volLegend.setValues([{ text: fmtVol(bar.volume ?? 0), color: col }]);
+      if (volLegend) volLegend.setValues([{ text: fmtVol(bar.volume ?? 0), color: col, field: 'volume' }]);
     }
 
     // ── Sahi-style bracket (entry / target / stop) ──────────────────────────
@@ -676,12 +1216,15 @@
     // with pan/zoom and are draggable through the chart's subscribeDrag.
     function attachBracketLines() {
       if (!bracket) return;
+      const tc = tradeColors();
       const pl = (price, color, id) => chart.addPriceLine(
         { price, color, lineWidth: 1, dashed: true, id, cursor: 'ns-resize', extentFromRight: TRADE_EXTENT }, 0);
+      // The entry leg is a resting order like any other, so it takes the order
+      // colour; the two exits take the take-profit and stop-loss colours.
       bLines = {
-        entry: pl(bracket.entry, '#8a93a7', 'bk-entry'),
-        tp: pl(bracket.target, UP, 'bk-tp'),
-        sl: pl(bracket.stop, DOWN, 'bk-sl'),
+        entry: pl(bracket.entry, tc.order, 'bk-entry'),
+        tp: pl(bracket.target, tc.tp, 'bk-tp'),
+        sl: pl(bracket.stop, tc.sl, 'bk-sl'),
       };
     }
 
@@ -752,7 +1295,7 @@
     // ── Resting orders (right-click) - each a draggable broker-style line ──
     function orderLine(o) {
       return chart.addPriceLine({
-        price: o.price, color: o.side === 'BUY' ? UP : DOWN, lineWidth: 1, dashed: true,
+        price: o.price, color: tradeColors().order, lineWidth: 1, dashed: true,
         id: `order:${o.id}`, cursor: 'ns-resize', extentFromRight: TRADE_EXTENT,
         leftLabel: `${o.side} ${o.qty} ${o.type}`, closeButton: true, // click the box to cancel
       }, 0);
@@ -799,10 +1342,11 @@
           : Math.sign(net) === Math.sign(position.netQty) ? { netQty: net, avgPrice: position.avgPrice }
           : { netQty: net, avgPrice: price };
       }
+      const tc = tradeColors();
       fills.push({
         time: last.time, position: side === 'BUY' ? 'belowBar' : 'aboveBar',
         shape: side === 'BUY' ? 'arrowUp' : 'arrowDown', size: 'small',
-        color: side === 'BUY' ? UP : DOWN, text: `${side[0]} ${qty}`,
+        color: side === 'BUY' ? tc.buy : tc.sell, text: `${side[0]} ${qty}`,
       });
       if (markersApi) markersApi.setMarkers(fills);
       updatePositionLine();
@@ -823,18 +1367,54 @@
       if (posLine && chart) { chart.removePrimitive(posLine); posLine = null; }
       if (!position || position.netQty === 0 || !chart) return;
       const long = position.netQty > 0;
+      const tc = tradeColors();
       posLine = chart.addPriceLine({
-        price: round2(position.avgPrice), color: long ? '#2e7d6b' : '#a14a52', lineWidth: 2, dashed: false,
+        price: round2(position.avgPrice), color: long ? tc.long : tc.short, lineWidth: 2, dashed: false,
         id: 'position', extentFromRight: TRADE_EXTENT, leftLabel: positionLabel(markPrice()), closeButton: true,
       }, 0);
+    }
+
+    /**
+     * Repaint the demo's own trade chrome in the current palette. The lines and
+     * markers already on the chart were built with the colours as they were, so
+     * a Trading-tab edit has to reach them: `setOptions` restyles a price line in
+     * place, and the markers carry their colour per fill.
+     */
+    function restyleTradeChrome() {
+      const tc = tradeColors();
+      for (const o of orders) if (o.line) o.line.setOptions({ color: tc.order });
+      if (bLines) {
+        bLines.entry.setOptions({ color: tc.order });
+        bLines.tp.setOptions({ color: tc.tp });
+        bLines.sl.setOptions({ color: tc.sl });
+      }
+      if (posLine && position) posLine.setOptions({ color: position.netQty > 0 ? tc.long : tc.short });
+      if (fills.length) {
+        for (const f of fills) f.color = f.shape === 'arrowUp' ? tc.buy : tc.sell;
+        if (markersApi) markersApi.setMarkers(fills);
+      }
     }
     function clearPosition() {
       if (posLine && chart) chart.removePrimitive(posLine);
       posLine = null; position = null; fills = [];
       if (markersApi) markersApi.setMarkers([]);
     }
-    // Keep pills locked to price across pan / zoom / rescale / kinetic.
-    (function frame() { positionPills(); requestAnimationFrame(frame); })();
+    // Keep pills locked to price across pan / zoom / rescale / kinetic, and give
+    // the chart one repaint a second while we are here. Three readings on this
+    // chart are times of day rather than prices - the corner clock, the countdown
+    // row in the last-price tag, and the session state on the status line - and a
+    // yfinance chart has no incoming tick to repaint them for. A host on a live
+    // feed gets this for free and needs none of it.
+    const LIGHT = engine.InvalidationLevel ? engine.InvalidationLevel.Light : undefined;
+    let lastClockTick = 0;
+    (function frame(t) {
+      positionPills();
+      if (chart && LIGHT !== undefined && typeof chart.invalidate === 'function' && t - lastClockTick >= 1000) {
+        lastClockTick = t;
+        chart.invalidate((m) => m.invalidateGlobal(LIGHT));
+      }
+      requestAnimationFrame(frame);
+    })(0);
 
     // Drag a pill vertically to modify its leg (entry pill moves the whole bracket).
     function dragify(id, which) {
@@ -956,17 +1536,21 @@
       el('setmodal').hidden = false;
     }
 
-    // Inputs = the descriptor's own `inputs`. Style = `indicatorStyleInputs()`,
-    // generated per plot (colour, opacity, thickness, line style) so every
-    // indicator gets the same controls without declaring them.
-    function renderSettingsTab() {
-      const inst = settingsFor;
-      if (!inst) return;
-      const descriptor = getIndicator(inst.indicatorId);
-      const current = inst.settings();
-      const inputs = settingsTab === 'style' ? indicatorStyleInputs(descriptor) : descriptor.inputs;
-      const body = el('set-body');
-      body.innerHTML = '';
+    /**
+     * The one form renderer. It takes a list of `IndicatorInput`s and the values
+     * to seed them with, and knows nothing about where they came from, which is
+     * why the chart-settings dialog can hand it `chartSettingsSchema()` output
+     * and get the same widgets the indicator dialog has always drawn.
+     * `onChange` is optional: the chart dialog previews live, the indicator
+     * dialog collects on Apply.
+     *
+     * `unavailable(key, optionValue)` is optional too, and returns a reason a
+     * control (or one option of a select) cannot act in the current context, or
+     * null when it can. A control with nothing behind it is drawn disabled with
+     * its value still readable rather than left live and inert.
+     */
+    function renderInputRows(host, inputs, values, onChange, unavailable) {
+      host.innerHTML = '';
       let group = null;
       for (const input of inputs) {
         if (input.group && input.group !== group) {
@@ -974,55 +1558,160 @@
           const h = document.createElement('div');
           h.className = 'set-group';
           h.textContent = group;
-          body.appendChild(h);
+          host.appendChild(h);
         }
-        const row = document.createElement('div');
-        row.className = 'set-row';
-        const label = document.createElement('label');
-        label.textContent = input.label;
-        label.htmlFor = 'set_' + input.key;
-        let field;
-        if (input.type === 'select' || input.type === 'source') {
-          field = document.createElement('select');
-          const options = input.type === 'source' ? INDICATOR_SOURCES : input.options;
-          for (const o of options) {
-            const opt = document.createElement('option');
-            opt.value = o.value; opt.textContent = o.label;
-            field.appendChild(opt);
-          }
-          field.value = String(current[input.key]);
-        } else if (input.type === 'boolean') {
-          field = document.createElement('input');
-          field.type = 'checkbox';
-          field.checked = Boolean(current[input.key]);
-        } else {
-          field = document.createElement('input');
-          field.type = input.type === 'number' ? 'number' : input.type === 'color' ? 'color' : 'text';
-          if (input.type === 'number') {
-            if (input.min !== undefined) field.min = input.min;
-            if (input.max !== undefined) field.max = input.max;
-            if (input.step !== undefined) field.step = input.step;
-          }
-          field.value = String(current[input.key] ?? '');
-        }
-        field.id = 'set_' + input.key;
-        field.dataset.key = input.key;
-        field.dataset.kind = input.type;
-        row.append(label, field);
-        body.appendChild(row);
+        host.appendChild(input.type === 'colorPair'
+          ? colorPairRow(host, input, values, onChange, unavailable)
+          : simpleRow(host, input, values, onChange, unavailable));
       }
+    }
+
+    /**
+     * One widget, tagged with the flat key it writes so `collectInputRows` can
+     * read the whole form back without knowing which row a field came from. A
+     * paired-colour row therefore contributes three ordinary fields, and nothing
+     * downstream has to know the pair exists.
+     *
+     * `spec` carries the widget's own extras: select options, number bounds.
+     */
+    function inputField(host, key, kind, spec, value, onChange, unavailable) {
+      const off = unavailable ? unavailable(key) : null;
+      let field;
+      if (kind === 'select' || kind === 'source') {
+        field = document.createElement('select');
+        for (const o of (kind === 'source' ? INDICATOR_SOURCES : spec.options)) {
+          const opt = document.createElement('option');
+          opt.value = o.value; opt.textContent = o.label;
+          // One option of a select can be the part with nothing behind it: the
+          // title can always show a symbol, and shows a description only when
+          // the host has one.
+          const why = unavailable ? unavailable(key, o.value) : null;
+          if (why) { opt.disabled = true; opt.title = why; }
+          field.appendChild(opt);
+        }
+        field.value = String(value);
+      } else if (kind === 'boolean') {
+        field = document.createElement('input');
+        field.type = 'checkbox';
+        field.checked = Boolean(value);
+      } else if (kind === 'color') {
+        field = document.createElement('input');
+        field.type = 'color';
+        field.className = 'swatch';        // a 26px square, not a 140px block
+        field.value = String(value ?? '#000000');
+      } else {
+        field = document.createElement('input');
+        field.type = kind === 'number' ? 'number' : 'text';
+        if (kind === 'number') {
+          if (spec.min !== undefined) field.min = spec.min;
+          if (spec.max !== undefined) field.max = spec.max;
+          if (spec.step !== undefined) field.step = spec.step;
+        }
+        field.value = String(value ?? '');
+      }
+      // Namespaced by host, so both dialogs can exist in the document at once
+      // without two fields claiming the same id.
+      field.id = host.id + '_' + key;
+      field.dataset.key = key;
+      field.dataset.kind = kind;
+      if (off) { field.disabled = true; field.title = off; }
+      if (onChange) {
+        for (const ev of ['input', 'change']) {
+          field.addEventListener(ev, () => onChange(key, fieldValue(field)));
+        }
+      }
+      return field;
+    }
+
+    /** A row carrying one control. Booleans sit in the switch column, in front
+     *  of their label; everything else sits in the control column on the right. */
+    function simpleRow(host, input, values, onChange, unavailable) {
+      const row = document.createElement('div');
+      row.className = 'set-row';
+      const off = unavailable ? unavailable(input.key) : null;
+      if (off) { row.classList.add('set-row--off'); row.title = off; }
+      const label = document.createElement('label');
+      label.textContent = input.label;
+      label.htmlFor = host.id + '_' + input.key;
+      const field = inputField(host, input.key, input.type, input, values[input.key], onChange, unavailable);
+      if (input.type === 'boolean') {
+        field.classList.add('set-sw');
+        row.append(field, label);
+      } else {
+        const ctl = document.createElement('div');
+        ctl.className = 'set-ctl';
+        ctl.appendChild(field);
+        row.append(label, ctl);
+      }
+      return row;
+    }
+
+    /**
+     * A paired-colour row: the property's switch, its label, and both swatches
+     * on one line. `enabled` is absent when no flag backs the pair (a candle
+     * body is always drawn), and then the switch column is simply left empty
+     * rather than filled with a checkbox that would do nothing.
+     */
+    function colorPairRow(host, input, values, onChange, unavailable) {
+      const row = document.createElement('div');
+      row.className = 'set-row';
+      // The row reads as inert only when BOTH halves are: a long position with
+      // no short one leaves the pair live and dims the half with nothing to paint.
+      const offUp = unavailable ? unavailable(input.up.key) : null;
+      const offDown = unavailable ? unavailable(input.down.key) : null;
+      if (offUp && offDown) { row.classList.add('set-row--off'); row.title = offUp; }
+      if (input.enabled) {
+        const sw = inputField(host, input.enabled.key, 'boolean', input.enabled, values[input.enabled.key], onChange, unavailable);
+        sw.classList.add('set-sw');
+        row.appendChild(sw);
+      }
+      const label = document.createElement('label');
+      label.textContent = input.label;
+      label.htmlFor = host.id + '_' + (input.enabled ? input.enabled.key : input.up.key);
+      const ctl = document.createElement('div');
+      ctl.className = 'set-ctl';
+      // A disabled input takes no pointer events, so the reason has to live on
+      // the container the hover actually lands on.
+      if (offUp || offDown) ctl.title = offUp || offDown;
+      for (const half of [input.up, input.down]) {
+        const sw = inputField(host, half.key, 'color', half, values[half.key], onChange, unavailable);
+        // Which swatch is which is not obvious at 26px, and the pair is too
+        // tight for two more labels: the name goes on the control itself, and
+        // keeps the reason alongside it when this half has nothing to paint.
+        sw.title = sw.disabled ? half.label + ' - ' + sw.title : half.label;
+        ctl.appendChild(sw);
+      }
+      row.append(label, ctl);
+      return row;
+    }
+
+    /** A field's value in the type its input declared. */
+    function fieldValue(field) {
+      const kind = field.dataset.kind;
+      return kind === 'number' ? Number(field.value) : kind === 'boolean' ? field.checked : field.value;
+    }
+
+    /** Every field in a generated form, as a flat patch keyed by input key. */
+    function collectInputRows(host) {
+      const patch = {};
+      for (const field of host.querySelectorAll('[data-key]')) patch[field.dataset.key] = fieldValue(field);
+      return patch;
+    }
+
+    // Inputs = the descriptor's own `inputs`. Style = `indicatorStyleInputs()`,
+    // generated per plot (colour, opacity, thickness, line style) so every
+    // indicator gets the same controls without declaring them.
+    function renderSettingsTab() {
+      const inst = settingsFor;
+      if (!inst) return;
+      const descriptor = getIndicator(inst.indicatorId);
+      const inputs = settingsTab === 'style' ? indicatorStyleInputs(descriptor) : descriptor.inputs;
+      renderInputRows(el('set-body'), inputs, inst.settings());
     }
 
     function collectSettings() {
       if (!settingsFor) return;
-      const patch = {};
-      for (const field of el('set-body').querySelectorAll('[data-key]')) {
-        const { key, kind } = field.dataset;
-        patch[key] = kind === 'number' ? Number(field.value)
-          : kind === 'boolean' ? field.checked
-          : field.value;
-      }
-      settingsFor.setSettings(patch);                       // recomputes + restyles
+      settingsFor.setSettings(collectInputRows(el('set-body')));  // recomputes + restyles
       const spec = activeIndicators.find((s) => s.indicatorId === settingsFor.indicatorId);
       if (spec) spec.settings = settingsFor.settings();      // survives a chart rebuild
     }
@@ -1043,22 +1732,540 @@
       for (const t of document.querySelectorAll('.set-tab')) t.classList.toggle('is-on', t.dataset.tab === 'inputs');
     }
 
+    // ── generated chart settings ───────────────────────────────────────────
+    // Nothing below names a control. `chartSettingsSchema(chart)` returns the
+    // tabs and their inputs, `readChartSettings` the current values and
+    // `applyChartSettings` takes a patch back, so a control the engine adds
+    // appears here on its own.
+    let chartSetTab = null;
+    let chartSetBefore = null;          // values as they were when the dialog opened
+    const chartSetDirty = new Set();    // keys this session touched, for Cancel
+
+    /**
+     * A glyph per tab. Keyed by the schema's tab id rather than by position, so
+     * reordering the tabs in the engine cannot silently shuffle the icons; a tab
+     * this table does not know simply draws none.
+     */
+    const CSET_ICON = {
+      price: '<path d="M6 4v12"/><rect x="4" y="6.5" width="4" height="6.5"/><path d="M14 3v14"/><rect x="12" y="6" width="4" height="8"/>',
+      readout: '<path d="M3 5h9M3 9h14M3 13h11"/>',
+      axes: '<path d="M5 3v13h12"/><path d="M5 7h2M5 11h2M9 16v-2M13 16v-2"/>',
+      appearance: '<rect x="3" y="4" width="14" height="12" rx="2"/><path d="M3 9h14M8 4v12"/>',
+      trading: '<path d="M3 13l4-4 3 2 6-6"/><path d="M13 5h3v3"/><path d="M4 16h12"/>',
+    };
+    const cseticon = (id) => '<svg viewBox="0 0 20 20">' + (CSET_ICON[id] || '') + '</svg>';
+
+    function openChartSettings(tabId) {
+      if (!chart) return;
+      if (!chartSettingsSchema) { el('status').textContent = 'chart settings are not in this build of dist/'; return; }
+      const tabs = chartSettingsSchema(chart);
+      chartSetBefore = readChartSettings(chart);
+      chartSetDirty.clear();
+      chartSetTab = tabId || (tabs[0] && tabs[0].id);
+      renderChartSettings();
+      el('chartset').hidden = false;
+    }
+
+    function renderChartSettings() {
+      if (!chart) return;
+      const tabs = chartSettingsSchema(chart);
+      // Re-read on every paint: edits apply live, so switching tabs and coming
+      // back has to show what the chart is actually drawing now.
+      const values = readChartSettings(chart);
+      const nav = el('cset-tabs');
+      nav.innerHTML = '';
+      for (const t of tabs) {
+        const b = document.createElement('button');
+        b.className = 'cset-tab' + (t.id === chartSetTab ? ' is-on' : '');
+        b.innerHTML = cseticon(t.id) + '<span>' + esc(t.label) + '</span>';
+        b.addEventListener('click', () => { chartSetTab = t.id; renderChartSettings(); });
+        nav.appendChild(b);
+      }
+      const tab = tabs.find((t) => t.id === chartSetTab) || tabs[0];
+      if (!tab) return;
+      renderInputRows(el('cset-body'), tab.inputs, values, (key, value) => {
+        chartSetDirty.add(key);
+        applyChartSettings(chart, { [key]: value });
+        afterChartSettingsWrite();
+      }, chartSettingUnavailable);
+    }
+
+    /**
+     * Why a chart-settings control cannot act on the chart as it stands, or null
+     * when it can. Every colour on the Trading tab paints one piece of trade
+     * chrome, and a demo with no position on it has no long line to recolour: the
+     * swatch is drawn disabled with its value visible, which says "nothing here
+     * yet", where an enabled swatch that changes no pixels says "this is broken".
+     * Place a bracket or fill a market order and the same swatches come alive.
+     */
+    function chartSettingUnavailable(key, option) {
+      if (key === 'statusLine.titleMode' && option === 'description') {
+        return descriptionOf(req.symbol || '') ? null
+          : 'no long name for ' + (req.symbol || 'this symbol').toUpperCase() + ' in this demo';
+      }
+      if (key === 'statusLine.marketStatus' && marketStatusReading() === undefined) {
+        return 'no session hours for ' + exchangeOf(req.symbol || '');
+      }
+      if (key === 'statusLine.lastDayChange' && previousSessionClose() == null) {
+        return 'no previous session in the loaded range';
+      }
+      const longPos = position && position.netQty > 0;
+      const shortPos = position && position.netQty < 0;
+      switch (key) {
+        case 'trading.longColor': return longPos ? null : 'no long position on the chart';
+        case 'trading.shortColor': return shortPos ? null : 'no short position on the chart';
+        case 'trading.orderColor':
+          return orders.length || bracket ? null : 'no resting order or bracket on the chart';
+        case 'trading.tpColor': case 'trading.slColor':
+          return bracket ? null : 'no bracket on the chart';
+        case 'trading.buyColor':
+          return fills.some((f) => f.shape === 'arrowUp') ? null : 'no buy execution on the chart';
+        case 'trading.sellColor':
+          return fills.some((f) => f.shape === 'arrowDown') ? null : 'no sell execution on the chart';
+        default: return null;
+      }
+    }
+
+    /**
+     * What has to follow a settings write because it lives outside the schema.
+     * The zone and the axis chrome are the engine's, but a chart-type switch
+     * throws the chart away and rebuilds it, so the demo has to remember what
+     * the controls chose. Reading them back beats mirroring the control, because
+     * `setTimezone` refuses a zone the runtime does not know.
+     */
+    function afterChartSettingsWrite() {
+      syncTimezoneFromChart();
+      syncAxisChromeFromChart();
+      syncStatusLineFromChart();
+      syncTradeChoiceFromChart();
+      if (priceLevels) priceLevels.setOptions({ timezone: chartTimezone });
+      // The demo draws its own orders, bracket and position, so a Trading-tab
+      // edit reaches them only because this asks it to.
+      restyleTradeChrome();
+    }
+
+    /**
+     * Restore the visible tab to the defaults the schema declares. The defaults
+     * come off the same input descriptors the rows were built from, including
+     * both halves and the switch of a paired colour, so this cannot drift from
+     * what is on screen.
+     */
+    function restoreChartSettingsTab() {
+      if (!chart) return;
+      const tab = chartSettingsSchema(chart).find((t) => t.id === chartSetTab);
+      if (!tab) return;
+      const patch = {};
+      for (const input of tab.inputs) {
+        if (input.type === 'colorPair') {
+          patch[input.up.key] = input.up.default;
+          patch[input.down.key] = input.down.default;
+          if (input.enabled) patch[input.enabled.key] = input.enabled.default;
+        } else {
+          patch[input.key] = input.default;
+        }
+      }
+      // Marked dirty so Cancel still undoes it: a restore is an edit like any
+      // other, not a new baseline.
+      for (const key of Object.keys(patch)) chartSetDirty.add(key);
+      applyChartSettings(chart, patch);
+      afterChartSettingsWrite();
+      renderChartSettings();
+      el('status').textContent = tab.label.toLowerCase() + ' settings restored to defaults';
+    }
+
+    /**
+     * Cancel puts back only the controls this session touched, rather than
+     * replaying the whole snapshot: a wholesale write would also undo an axis
+     * the user dragged or a scale they switched while the dialog was open.
+     */
+    function closeChartSettings(revert) {
+      if (revert && chart && chartSetBefore) {
+        const back = {};
+        for (const key of chartSetDirty) back[key] = chartSetBefore[key];
+        applyChartSettings(chart, back);
+        afterChartSettingsWrite();
+      }
+      // The toolbar's grid switches drive a fresh chart's `grid` option, so they
+      // have to follow whatever the Appearance tab left behind.
+      if (chart && readChartSettings) {
+        const now = readChartSettings(chart);
+        el('vgrid').checked = now['canvas.grid.vertLines'] !== false;
+        el('hgrid').checked = now['canvas.grid.horzLines'] !== false;
+      }
+      el('chartset').hidden = true;
+      chartSetBefore = null;
+      chartSetDirty.clear();
+      autosave();
+    }
+
+    el('cset-defaults').addEventListener('click', restoreChartSettingsTab);
+    el('cset-ok').addEventListener('click', () => closeChartSettings(false));
+    el('cset-cancel').addEventListener('click', () => closeChartSettings(true));
+    el('cset-x').addEventListener('click', () => closeChartSettings(true));
+    el('chartset').addEventListener('click', (e) => { if (e.target.id === 'chartset') closeChartSettings(true); });
+
+    // ── multi-symbol comparison ────────────────────────────────────────────
+    // addComparison() is headless like the drawing and replay controllers: it
+    // owns the series, the timestamp alignment and the rebasing scales. What
+    // lives here is the symbol list, the legend rows and the scale choice.
+    const CMP_COLORS = ['#e6b53c', '#7e57c2', '#29b6f6', '#ec407a', '#8bc34a'];
+    // { symbol, color, bars, handle, legend, byTime, hidden }. The spec survives
+    // a chart rebuild and a saved layout; the handle and legend do not.
+    let comparisons = [];
+    let cmpMode = 'percentage';
+
+    /** time -> { close, prevClose }, for the legend row under the crosshair. */
+    function indexCompare(spec) {
+      spec.byTime = new Map();
+      let prevClose = null;
+      for (const b of spec.bars || []) {
+        spec.byTime.set(b.time, { close: b.close, prevClose: prevClose === null ? b.open : prevClose });
+        prevClose = b.close;
+      }
+    }
+
+    /** Put one instrument on the live chart, with a legend row of its own. */
+    function attachComparison(spec) {
+      if (!chart || !addComparison || !spec.bars || !spec.bars.length) return;
+      // Settle the mode before the first add, so the pane is never briefly
+      // rebased one way and then the other.
+      if (comparisonController) comparisonController(chart, { mode: cmpMode }).setMode(cmpMode);
+      try {
+        spec.handle = addComparison(chart, {
+          symbol: spec.symbol, bars: spec.bars, color: spec.color, style: { lineWidth: 1.5 },
+        });
+      } catch (e) {
+        console.warn('[demo] compare failed:', spec.symbol, e.message);
+        return;
+      }
+      // A PaneLegend, exactly like the symbol and volume rows: the comparison is
+      // another source on this pane, so it reads as one.
+      spec.legend = new PaneLegend({
+        id: 'cmp:' + spec.symbol, title: spec.symbol, params: '',
+        color: spec.color, actions: ['hide', 'close'], hidden: spec.hidden === true,
+      });
+      chart.addPrimitive(spec.legend, 0);
+      if (spec.hidden) spec.handle.series.applyOptions({ visible: false });
+    }
+
+    /** Comparison readings for the hovered bar, in the instrument's own prices. */
+    function setCompareLegends(bar) {
+      for (const c of comparisons) {
+        if (!c.legend) continue;
+        const hit = bar && c.byTime ? c.byTime.get(bar.time) : null;
+        if (!hit) { c.legend.setValues([]); continue; }
+        const chg = hit.prevClose ? ((hit.close - hit.prevClose) / hit.prevClose) * 100 : 0;
+        c.legend.setValues([
+          { text: fmt(hit.close), color: c.color, field: 'ohlc' },
+          { text: `${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%`, color: chg >= 0 ? UP : DOWN, field: 'change' },
+        ]);
+      }
+    }
+
+    function removeComparison(spec) {
+      if (spec.handle) spec.handle.remove();
+      if (spec.legend && chart) chart.removePrimitive(spec.legend);
+      spec.handle = null; spec.legend = null;
+      comparisons = comparisons.filter((c) => c !== spec);
+      renderCompareList();
+      autosave();
+    }
+
+    /** Fetch what is missing and (re)attach every comparison to the live chart. */
+    async function syncComparisons() {
+      for (const c of comparisons) {
+        if (!c.bars || !c.bars.length) {
+          try {
+            c.bars = await feed.getBars({ symbol: c.symbol, interval: req.interval, period: req.period });
+          } catch (e) {
+            console.warn('[demo] compare fetch failed:', c.symbol, e.message);
+            c.bars = [];
+          }
+        }
+        indexCompare(c);
+        if (c.handle) c.handle.setBars(c.bars);
+        else attachComparison(c);
+      }
+      renderCompareList();
+    }
+
+    async function addCompareSymbol(symbol) {
+      const sym = String(symbol || '').trim();
+      if (!sym || !chart) return;
+      if (!addComparison) { el('status').textContent = 'compare is not in this build of dist/'; return; }
+      if (comparisons.some((c) => c.symbol === sym.toUpperCase())) {
+        el('status').textContent = `${sym.toUpperCase()} is already on the chart`;
+        return;
+      }
+      el('status').textContent = `loading ${sym}...`;
+      let bars;
+      try {
+        bars = await feed.getBars({ symbol: sym, interval: req.interval, period: req.period });
+      } catch (e) {
+        el('status').textContent = 'compare failed: ' + e.message;
+        return;
+      }
+      const spec = { symbol: sym.toUpperCase(), color: CMP_COLORS[comparisons.length % CMP_COLORS.length], bars };
+      indexCompare(spec);
+      comparisons.push(spec);
+      attachComparison(spec);
+      renderCompareList();
+      renderToolbar();
+      autosave();
+      // Coverage is worth saying out loud: a comparison on a different holiday
+      // calendar silently loses prints, and `alignment()` is how you find out.
+      const a = spec.handle ? spec.handle.alignment() : null;
+      el('status').textContent = a
+        ? `${spec.symbol} · ${a.matched} matched · ${a.gaps} gap(s) · ${a.dropped} dropped`
+        : `${spec.symbol} could not be added`;
+    }
+
+    function setCompareMode(mode) {
+      cmpMode = mode;
+      if (chart && comparisonController) comparisonController(chart).setMode(mode);
+      autosave();
+    }
+
+    function renderCompareList() {
+      const host = el('cmp-list');
+      if (!host) return;
+      host.innerHTML = '';
+      if (!comparisons.length) {
+        const none = document.createElement('div');
+        none.className = 'hint';
+        none.textContent = 'nothing yet';
+        host.appendChild(none);
+      }
+      for (const c of comparisons) {
+        const a = c.handle ? c.handle.alignment() : null;
+        const row = document.createElement('div');
+        row.className = 'cmp-row';
+        row.innerHTML =
+          '<span class="sw" style="background:' + esc(c.color) + '"></span>' +
+          '<b>' + esc(c.symbol) + '</b>' +
+          '<span class="cmp-cov">' + (a ? `${a.matched} of ${a.bars}` + (a.dropped ? ` · ${a.dropped} dropped` : '') : 'not on the chart') + '</span>';
+        const x = document.createElement('button');
+        x.className = 'cmp-del';
+        x.textContent = '×';
+        x.title = 'remove';
+        x.addEventListener('click', () => removeComparison(c));
+        row.appendChild(x);
+        host.appendChild(row);
+      }
+      el('cmp-mode').value = cmpMode;
+    }
+
+    function openCompare() {
+      if (!addComparison) { el('status').textContent = 'compare is not in this build of dist/'; return; }
+      renderCompareList();
+      el('cmpmodal').hidden = false;
+      el('cmp-sym').value = '';
+      el('cmp-sym').focus();
+    }
+    const closeCompare = () => { el('cmpmodal').hidden = true; };
+
+    el('cmp-add').addEventListener('click', () => addCompareSymbol(el('cmp-sym').value));
+    el('cmp-sym').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); addCompareSymbol(el('cmp-sym').value); }
+    });
+    el('cmp-mode').addEventListener('change', () => setCompareMode(el('cmp-mode').value));
+    el('cmp-x').addEventListener('click', closeCompare);
+    el('cmp-close').addEventListener('click', closeCompare);
+    el('cmpmodal').addEventListener('click', (e) => { if (e.target.id === 'cmpmodal') closeCompare(); });
+
+    // ── market replay ──────────────────────────────────────────────────────
+    // ReplayController owns the playhead and feeds the series a prefix of the
+    // session; indicators reconstruct themselves because the chart recomputes
+    // them from the shortened history. Everything below is the transport bar.
+    const REPLAY_SPEEDS = [0.5, 1, 2, 5, 10];
+    let replay = null;
+    let replaySpeed = 1;
+
+    /** Where the newest bar sits while replay is running (or the real one). */
+    const lastBar = () => (replay ? replay.state().bar : null) || currentBars[currentBars.length - 1];
+
+    /**
+     * Open at the left edge of what the user is looking at, so replay starts
+     * where their attention already is. Floored so an indicator has some history
+     * to compute from rather than opening on a single bar.
+     */
+    function replayStartIndex(total) {
+      let from = 0;
+      try { from = Math.round(chart.timeScale.getVisibleLogicalRange().from); } catch (_) { from = 0; }
+      const floor = Math.min(20, total - 1);
+      return Math.max(floor, Math.min(total - 1, from));
+    }
+
+    function enterReplay() {
+      if (replay || !chart) return;
+      if (!ReplayController) { el('status').textContent = 'replay is not in this build of dist/'; return; }
+      const bars = price ? price.getData() : [];
+      if (bars.length < 2) { el('status').textContent = 'replay needs bars'; return; }
+      // Volume rides along: the DataLayer merges every series onto one axis, so
+      // a full-length volume histogram would hold the axis open at bars the
+      // price series has not reached yet.
+      replay = new ReplayController(chart, {
+        series: volume ? [price, volume] : [price],
+        startIndex: replayStartIndex(bars.length),
+        barMs: 1000,
+        speed: replaySpeed,
+      });
+      buildReplayBar();
+      el('replaybar').hidden = false;
+      syncReplayBar();
+      renderToolbar();
+      el('status').textContent = 'replay: press play, or scrub / step through the session';
+    }
+
+    function exitReplay() {
+      if (!replay) return;
+      replay.stop();   // restores each driven series' data and the viewport
+      replay = null;
+      el('replaybar').hidden = true;
+      el('replaybar').innerHTML = '';
+      setLegend(currentBars[currentBars.length - 1]);
+      renderToolbar();
+    }
+
+    function toggleReplayPlay() {
+      if (!replay) return;
+      if (replay.state().playing) replay.pause();
+      else replay.play({ speed: replaySpeed });
+    }
+
+    function cycleReplaySpeed() {
+      const at = REPLAY_SPEEDS.indexOf(replaySpeed);
+      replaySpeed = REPLAY_SPEEDS[(at + 1) % REPLAY_SPEEDS.length];
+      // Re-speeding a running timer goes through play(); paused, the new speed
+      // is simply what the next play() will use.
+      if (replay && replay.state().playing) replay.play({ speed: replaySpeed });
+      syncReplayBar();
+    }
+
+    /** Replay's clock: the bar time, with the clock only where the interval has one. */
+    function barStamp(t) {
+      const d = new Date(t * 1000);
+      const date = d.toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: '2-digit' });
+      if (!/[mh]$/.test(req.interval || '')) return date;
+      return date + ' ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    }
+
+    // Built once per replay session; syncReplayBar() then only writes the parts
+    // that move, so a drag on the scrub bar is not fighting a rebuild every frame.
+    function buildReplayBar() {
+      const bar = el('replaybar');
+      bar.innerHTML = '';
+      const btn = (icon, title, onClick, id) => {
+        const b = document.createElement('button');
+        b.innerHTML = ticon(icon);
+        b.title = title;
+        if (id) b.id = id;
+        b.addEventListener('click', onClick);
+        bar.appendChild(b);
+        return b;
+      };
+      const sep = () => {
+        const s = document.createElement('span');
+        s.className = 'vsep';
+        bar.appendChild(s);
+      };
+
+      btn('exit', 'Exit replay (puts the chart back)', exitReplay);
+      sep();
+      btn('stepback', 'Step back one bar', () => replay && replay.stepBack());
+      btn('play', 'Play', toggleReplayPlay, 'rp-play');
+      btn('stepfwd', 'Step forward one bar', () => replay && replay.step());
+      sep();
+
+      const scrub = document.createElement('input');
+      scrub.type = 'range';
+      scrub.id = 'rp-scrub';
+      scrub.min = '0';
+      scrub.step = '1';
+      scrub.title = 'Scrub the session';
+      scrub.addEventListener('input', () => replay && replay.seek(Number(scrub.value)));
+      bar.appendChild(scrub);
+
+      const count = document.createElement('span');
+      count.className = 'rcount';
+      count.id = 'rp-count';
+      bar.appendChild(count);
+      const clock = document.createElement('span');
+      clock.className = 'rclock';
+      clock.id = 'rp-clock';
+      bar.appendChild(clock);
+      sep();
+
+      const speed = document.createElement('button');
+      speed.id = 'rp-speed';
+      speed.title = 'Playback speed (click to cycle)';
+      speed.addEventListener('click', cycleReplaySpeed);
+      bar.appendChild(speed);
+    }
+
+    /** Everything the transport shows comes from one state() read. */
+    function syncReplayBar() {
+      if (!replay) return;
+      const s = replay.state();
+      const scrub = el('rp-scrub');
+      if (scrub) {
+        scrub.max = String(Math.max(0, s.total - 1));
+        if (Number(scrub.value) !== s.index) scrub.value = String(s.index);
+      }
+      const count = el('rp-count');
+      if (count) count.textContent = `${s.index + 1} / ${s.total}`;
+      const clock = el('rp-clock');
+      if (clock) clock.textContent = s.bar ? barStamp(s.bar.time) : '';
+      const play = el('rp-play');
+      if (play) {
+        play.innerHTML = ticon(s.playing ? 'pause' : 'play');
+        play.title = s.playing ? 'Pause' : 'Play';
+        play.classList.toggle('is-on', s.playing);
+      }
+      const speed = el('rp-speed');
+      if (speed) speed.textContent = s.speed + 'x';
+    }
+
     // (Re)build the chart for the currently selected type using cached bars.
     function render() {
+      // Leave replay first: stop() hands the driven series their real data back,
+      // and it has to reach the chart that is about to be thrown away.
+      exitReplay();
       if (chart) chart.destroy();
+      // The handles belong to the destroyed chart; the specs outlive it.
+      for (const c of comparisons) { c.handle = null; c.legend = null; }
       el('chart').innerHTML = '';
       chart = createChart(el('chart'), {
         // DEFAULT_THEME is the light palette, so a dark shell needs to ask.
         theme: darkTheme,
         priceAxisWidth: 72, // free crosshair (follows pointer)
         grid: { vertLines: el('vgrid').checked, horzLines: el('hgrid').checked },
+        // A chart-type switch builds a new chart; the zone the user picked is
+        // the demo's to carry across, like activeIndicators.
+        timezone: chartTimezone,
       });
+      applyAxisChrome();
+      applyStatusLineChoice();   // before the legends: a row added later obeys the switches
+      applyTradeChoice();
 
       // Row 0 of the price pane: symbol + interval + the O/H/L/C/V readout.
       // Added BEFORE any indicator so their legends stack beneath it
       // (`legendRowsOn` counts what is already there).
-      symbolLegend = new PaneLegend({ id: 'symbol', title: '', params: '', row: 0, actions: [] });
+      // `status` is the host half of the status line: the mark, the two alternate
+      // titles, the session state and the change since the previous close. The
+      // legend draws nothing for a field with no data, so these switches are live
+      // only because this hands them something.
+      symbolLegend = new PaneLegend({ id: 'symbol', title: '', params: '', row: 0, actions: [], status: symbolStatus });
       chart.addPrimitive(symbolLegend, 0);
+
+      // Previous close, session high/low and the rest. Off the namespace, so a
+      // dist/ built before the family shipped leaves this null and the price-axis
+      // menu says so instead of throwing.
+      priceLevels = null;
+      if (PriceLevels) {
+        priceLevels = new PriceLevels({ timezone: chartTimezone, levels: priceLevelState });
+        chart.addPrimitive(priceLevels, 0);
+      }
 
       const sel = el('ctype').value;
       const isTransform = sel.startsWith('t:');
@@ -1117,6 +2324,9 @@
         }
       }
       renderIndicatorChips();
+      // Comparisons go on after the indicators, so their legend rows land under
+      // the indicator rows rather than in the middle of them.
+      for (const c of comparisons) attachComparison(c);
       placeWatermark();
       attachDrawing();
 
@@ -1140,6 +2350,19 @@
           return;
         }
         if (id === 'position::close') { clearPosition(); saveState(); el('status').textContent = 'position closed'; return; }
+        // A comparison's legend row carries the same hide/close buttons every
+        // other source's row does, so route them before the order lines.
+        if (id.startsWith('cmp:')) {
+          const spec = comparisons.find((c) => id.startsWith('cmp:' + c.symbol + '::'));
+          if (!spec) return;
+          if (id.endsWith('::close')) { removeComparison(spec); el('status').textContent = `removed ${spec.symbol}`; return; }
+          if (id.endsWith('::hide')) {
+            spec.hidden = spec.hidden !== true;
+            spec.handle.series.applyOptions({ visible: !spec.hidden });
+            spec.legend.setOptions({ hidden: spec.hidden });
+          }
+          return;
+        }
         if (id.endsWith('::close')) cancelOrder(id.slice(0, -'::close'.length));
       });
       attachOrderLines();
@@ -1149,6 +2372,10 @@
         el('bk-entry').querySelector('[data-act="place"]').className = bracket.side === 'BUY' ? 'bk-buy' : 'bk-sell';
         attachBracketLines(); updateBracket();
       }
+      // Fills come back from localStorage carrying the colour they were drawn in,
+      // which may predate a Trading-tab edit or a whole release: put the restored
+      // chrome on the palette the chart is actually using now.
+      restyleTradeChrome();
 
       // The gear on a pane legend has no built-in dialog (the engine ships no
       // DOM), so it emits and we render the generated form.
@@ -1162,10 +2389,23 @@
       // Any change to the pane stack moves which pane is the bottom one.
       for (const ev of ['paneRemoved', 'paneMoved']) chart.on(ev, placeWatermark);
 
+      // Replay is headless: the controller emits, the transport bar and the
+      // legend follow. `replay:stop` is here too, so the bar is correct for the
+      // instant between stop() and exitReplay() tearing it down.
+      for (const ev of ['replay:start', 'replay:frame', 'replay:play', 'replay:pause', 'replay:end', 'replay:stop']) {
+        chart.on(ev, (s) => { syncReplayBar(); if (s && s.bar) setLegend(s.bar); });
+      }
+
+      // Right-click. The chart classifies what is under the pointer and hands
+      // over the price, so one menu covers order entry, drawings and settings,
+      // and taking this event over replaces the engine's save-image fallback,
+      // which is exactly the trade a host raising its own menu wants.
+      chart.on('contextmenu', (e) => { e.preventDefault(); openContextMenu(e); });
+
       // OHLC legend tracks the crosshair. The position P&L does NOT - it marks to
       // the LTP (the latest close here; with a live feed, update it on each tick).
-      chart.subscribeCrosshairMove((e) => setLegend(e.bar ?? currentBars[currentBars.length - 1]));
-      setLegend(currentBars[currentBars.length - 1]);
+      chart.subscribeCrosshairMove((e) => setLegend(e.bar ?? lastBar()));
+      setLegend(lastBar());
       window.__chart = () => chart;
       window.__draw = () => draw;
     }
@@ -1187,6 +2427,10 @@
         bars.forEach((b, i) => idxByTime.set(b.time, i));
         removeBracket(); removeAllOrders(); clearPosition(); // detach old chart's lines + reset vars
         restoreState(req.symbol);                            // repopulate this symbol's saved orders/bracket/position
+        // A comparison fetched at another interval has timestamps that cannot
+        // match these bars, so drop the cache and let syncComparisons() refetch
+        // rather than drawing a chart of pure whitespace on the way there.
+        for (const c of comparisons) c.bars = [];
         render();
         // Re-apply the saved layout now the series exists — a logical viewport
         // means nothing on an empty chart, and the drawing controller reads its
@@ -1208,7 +2452,14 @@
             }
             activeIndicators = (saved.indicators || []).map((i) => ({ indicatorId: i.indicatorId, settings: i.settings }));
             chart.restoreState(saved);
+            syncTimezoneFromChart();   // reload lands here: keep the saved zone across the next rebuild
             if (draw) draw.fromJSON(saved.drawings || []);
+            // Comparison series are demo-owned, not part of chart state: the
+            // engine holds the alignment, we hold the symbol and its bars.
+            if (!comparisons.length && Array.isArray(saved.comparisons)) {
+              comparisons = saved.comparisons.map((c) => ({ symbol: c.symbol, color: c.color, bars: [] }));
+            }
+            if (saved.compareMode) cmpMode = saved.compareMode;
             renderIndicatorChips();
             placeWatermark();
           }
@@ -1216,6 +2467,9 @@
           // A silent catch here hid a real restore failure once; say so.
           console.warn('[demo] layout restore failed:', e);
         }
+        // After the restore, so a comparison saved in the layout is fetched too.
+        await syncComparisons();
+        renderToolbar();
         status.textContent = `${req.symbol} · ${bars.length} bars · ${req.interval}/${req.period}`
           + (period !== wanted ? `  (${wanted} unavailable at ${interval})` : '');
       } catch (e) {
@@ -1228,24 +2482,38 @@
     el('cancel').addEventListener('click', () => { removeBracket(); removeAllOrders(); clearPosition(); saveState(); el('status').textContent = 'cancelled / flat'; });
     el('qty').addEventListener('change', () => { if (bracket) { bracket.qty = Math.max(1, Number(el('qty').value) || 1); updateBracket(); saveState(); } });
 
-    // ── broker-style right-click order entry ───────────────────────────
-    // Right-click the chart to open a menu and place an order at the cursor price.
-    // LIMIT/SL orders appear as draggable working-order lines; MARKET fills now.
+    // ── right-click menu: order entry, drawings, settings ──────────────
+    // Raised from the chart's own `contextmenu` event rather than a DOM listener
+    // on the container. The event carries the price, the pane and a classified
+    // target, which is the part a canvas cannot tell a host by itself: it is how
+    // the indicator row below knows which instance was under the pointer.
     const ctxMenu = el('ctxmenu');
     let ctxPrice = 0;
+    let ctxIndicator = null;   // instance id when the pointer was over an indicator
     const hideCtx = () => { ctxMenu.hidden = true; };
-    el('chart').addEventListener('contextmenu', (e) => {
-      const p = chart && currentBars.length ? chart.coordinateToPrice(e.clientY - chartTop(), 0) : null;
-      if (p == null) return;
-      e.preventDefault();
-      ctxPrice = round2(p);
-      ctxMenu.querySelectorAll('button[data-type]').forEach((b) => {
+
+    function openContextMenu(e) {
+      const rect = el('chart').getBoundingClientRect();
+      const target = e.target || { kind: 'empty' };
+      // A price ladder gets its own menu. The chart is what knows a click landed
+      // on an axis strip and which of the pane's scales that strip draws, so this
+      // is the one branch that cannot be worked out from the pointer alone.
+      if (target.kind === 'price-scale') { openAxisMenu(e, target); return; }
+      closeAxisMenu();
+      // Off the plot (on a scale) there is no price, so the order rows would be
+      // offering to trade at nothing.
+      const tradable = e.price != null && currentBars.length > 0;
+      ctxPrice = tradable ? round2(e.price) : 0;
+      for (const b of ctxMenu.querySelectorAll('button[data-type]')) {
+        b.hidden = !tradable;
         const verb = b.getAttribute('data-side') === 'BUY' ? 'Buy' : 'Sell';
         const type = b.getAttribute('data-type');
         b.textContent = type === 'MARKET' ? `${verb} Market`
           : type === 'LIMIT' ? `${verb} Limit @ ${fmt(ctxPrice)}`
           : `${verb} Stop (SL) @ ${fmt(ctxPrice)}`;
-      });
+      }
+      for (const hr of ctxMenu.querySelectorAll('hr[data-sec="order"]')) hr.hidden = !tradable;
+
       // Hide the drawing rows when there is nothing to act on, so the menu
       // never offers a dead option.
       const nDraw = draw ? draw.drawings().length : 0;
@@ -1254,13 +2522,26 @@
       const rowSel = ctxMenu.querySelector('[data-act="delsel"]');
       rowAll.hidden = nDraw === 0;
       rowSel.hidden = !selId;
-      rowAll.previousElementSibling.hidden = nDraw === 0;   // its separator
+      rowSel.previousElementSibling.hidden = nDraw === 0;   // the separator above the pair
       if (nDraw > 0) rowAll.textContent = `Remove All Drawings (${nDraw})`;
 
-      ctxMenu.style.left = Math.min(e.clientX, window.innerWidth - 180) + 'px';
-      ctxMenu.style.top = Math.min(e.clientY, window.innerHeight - 230) + 'px';
+      // The indicator row appears only where there is an indicator to settle.
+      ctxIndicator = target.kind === 'indicator' ? target.instanceId : null;
+      const rowInd = ctxMenu.querySelector('[data-act="indset"]');
+      rowInd.hidden = !ctxIndicator;
+      ctxMenu.querySelector('hr[data-sec="ind"]').hidden = !ctxIndicator;
+      if (ctxIndicator) {
+        const inst = chart.indicators().find((i) => i.id === ctxIndicator);
+        rowInd.textContent = (inst ? inst.name : 'Indicator') + ' settings...';
+      }
+
+      // Unhide first, then measure: the menu's height depends on which rows
+      // above survived, so a fixed clamp would be wrong for most of them.
       ctxMenu.hidden = false;
-    });
+      ctxMenu.style.left = Math.max(4, Math.min(rect.left + e.point.x, window.innerWidth - ctxMenu.offsetWidth - 8)) + 'px';
+      ctxMenu.style.top = Math.max(4, Math.min(rect.top + e.point.y, window.innerHeight - ctxMenu.offsetHeight - 8)) + 'px';
+    }
+
     window.addEventListener('click', hideCtx);
     window.addEventListener('blur', hideCtx);
     el('chart').addEventListener('wheel', hideCtx, { passive: true });
@@ -1287,7 +2568,385 @@
         if (id) { draw.remove(id); autosave(); el('status').textContent = 'drawing deleted'; }
         return;
       }
+      if (act === 'chartset') { openChartSettings(); return; }
+      if (act === 'indset') { if (ctxIndicator) openSettings(ctxIndicator); return; }
       placeOrder(btn.getAttribute('data-side'), btn.getAttribute('data-type'), ctxPrice);
+    });
+
+    // ── price-axis menu ────────────────────────────────────────────────────
+    // Everything here reads `chart.priceAxisState(pane, scale)` and writes back
+    // through the matching `priceAxis*` calls, so the menu can never claim a
+    // state the axis is not in. Nothing is hardcoded per axis: the same code
+    // serves the price ladder, a left-hand scale, and an indicator pane's.
+    const axMenu = el('axmenu');
+    const axSub = el('axsub');
+    // Which axis the menu (and the chords, which have no pointer) act on. The
+    // price ladder of the main pane until a right-click names another.
+    let axTarget = { paneIndex: 0, scaleId: 'right' };
+    let axSubHalf = null;   // 'line' | 'label' while a level flyout is open
+
+    const AX_TICK = '<svg viewBox="0 0 20 20"><path d="M4 10.5l4 4 8-9"/></svg>';
+    /**
+     * The four modes as one choice. A radio group and not four switches: the
+     * scale holds exactly one mode, and four checkboxes would let a user ask for
+     * a state the engine cannot be in.
+     */
+    const AX_MODES = [
+      { value: 'linear', label: 'Linear', chord: 'Alt+R' },
+      { value: 'logarithmic', label: 'Logarithmic', chord: 'Alt+L' },
+      { value: 'percentage', label: 'Percent', chord: 'Alt+P' },
+      { value: 'indexed-to-100', label: 'Indexed to 100', chord: 'Alt+1' },
+    ];
+    const AX_AUTOFIT_CHORD = 'Alt+A';
+    const AX_INVERT_CHORD = 'Alt+I';
+    /** Our wording for the level family, in the order the engine lists it. */
+    const LEVEL_LABEL = {
+      previousClose: 'Previous close',
+      sessionHigh: 'Session high',
+      sessionLow: 'Session low',
+      lastPrice: 'Last price',
+      preMarketOpen: 'Pre-market open',
+      preMarketClose: 'Pre-market close',
+      postMarketOpen: 'Post-market open',
+      postMarketClose: 'Post-market close',
+      bid: 'Bid',
+      ask: 'Ask',
+    };
+    const levelKinds = () => PRICE_LEVEL_KINDS || Object.keys(LEVEL_LABEL);
+
+    const axisState = () => (chart && typeof chart.priceAxisState === 'function')
+      ? chart.priceAxisState(axTarget.paneIndex, axTarget.scaleId)
+      : null;
+
+    /**
+     * One menu row. `mark` picks the marker column: a tick for a switch, a dot
+     * for one option of a choice. The column is drawn either way, so the labels
+     * keep one left edge whether anything is set or not.
+     */
+    function axRow(o) {
+      const b = document.createElement('button');
+      b.className = 'axrow' + (o.on ? ' is-on' : '');
+      b.disabled = o.disabled === true;
+      const mark = document.createElement('span');
+      mark.className = 'axmark';
+      if (o.mark === 'radio') {
+        const dot = document.createElement('span');
+        dot.className = 'axdot';
+        mark.appendChild(dot);
+      } else if (o.on) {
+        mark.innerHTML = AX_TICK;
+      }
+      const name = document.createElement('span');
+      name.className = 'axname';
+      name.textContent = o.label;
+      b.append(mark, name);
+      // Why a row is dead is worth a word: an empty greyed row reads as a bug.
+      if (o.note) {
+        const note = document.createElement('span');
+        note.className = 'axnote';
+        note.textContent = o.note;
+        b.appendChild(note);
+      }
+      if (o.chord) {
+        const chord = document.createElement('span');
+        chord.className = 'chord';
+        chord.textContent = o.chord;
+        b.appendChild(chord);
+      }
+      if (o.submenu) {
+        const arrow = document.createElement('span');
+        arrow.className = 'axarrow';
+        arrow.textContent = '>';
+        b.appendChild(arrow);
+        b.dataset.submenu = o.submenu;   // so a repaint can find the open row again
+        b.addEventListener('pointerenter', () => openAxisSub(o.submenu, b));
+        b.addEventListener('click', () => openAxisSub(o.submenu, b));
+      } else {
+        // Only rows of the parent menu dismiss the flyout on hover. Wiring this
+        // to every row would make the flyout close the moment the pointer
+        // reached one of its own, which is what a level row is for.
+        if (o.closesSub) b.addEventListener('pointerenter', closeAxisSub);
+        if (o.onSelect) b.addEventListener('click', o.onSelect);
+      }
+      return b;
+    }
+
+    const axSeparator = () => document.createElement('hr');
+    function axHead(text) {
+      const h = document.createElement('div');
+      h.className = 'axhead';
+      h.textContent = text;
+      return h;
+    }
+
+    function paintAxisMenu() {
+      const s = axisState();
+      axMenu.innerHTML = '';
+      if (!s) {
+        axMenu.appendChild(axRow({
+          label: 'Price-axis controls', disabled: true, note: 'not in this build of dist/',
+        }));
+        return;
+      }
+      const add = (o) => axMenu.appendChild(axRow({ closesSub: true, ...o }));
+
+      add({
+        label: 'Auto-fit to the data', on: s.autoFit, chord: AX_AUTOFIT_CHORD,
+        onSelect: () => runAxis(() => setAxisAutoFit(!s.autoFit)),
+      });
+      add({
+        label: 'Invert', on: s.inverted, chord: AX_INVERT_CHORD,
+        onSelect: () => runAxis(() => setAxisInvert(!s.inverted)),
+      });
+      // Our own words for holding the price-per-bar ratio while the time axis
+      // zooms. Nothing has been measured on an empty pane, so there is no ratio
+      // to hold: the row stays, greyed, saying why.
+      add({
+        label: 'Pin price per bar', on: s.lockRatio, disabled: !s.scaled,
+        note: s.scaled ? '' : 'nothing measured',
+        onSelect: () => runAxis(() => setAxisLockRatio(!s.lockRatio)),
+      });
+
+      axMenu.appendChild(axSeparator());
+      axMenu.appendChild(axHead('Scale'));
+      for (const m of AX_MODES) {
+        add({
+          mark: 'radio', label: m.label, on: s.mode === m.value, chord: m.chord,
+          onSelect: () => runAxis(() => setAxisMode(m.value)),
+        });
+      }
+
+      axMenu.appendChild(axSeparator());
+      add({
+        label: s.side === 'right' ? 'Move the scale to the left' : 'Move the scale to the right',
+        disabled: !s.movable,
+        note: s.movable ? '' : (s.active ? 'other side taken' : 'nothing on this side'),
+        onSelect: () => runAxis(moveAxisToOtherSide),
+      });
+
+      axMenu.appendChild(axSeparator());
+      axMenu.appendChild(axHead('Price levels'));
+      add({ label: 'Lines on the plot', submenu: 'line' });
+      add({ label: 'Tags on the axis', submenu: 'label' });
+
+      axMenu.appendChild(axSeparator());
+      add({
+        label: 'Axis settings...',
+        onSelect: () => { closeAxisMenu(); openChartSettings('axes'); },
+      });
+    }
+
+    /** Run an axis action, then repaint whatever is on screen showing its state. */
+    function runAxis(action) {
+      action();
+      if (!axMenu.hidden) paintAxisMenu();
+      if (!axSub.hidden) { paintAxisSub(); markOpenSubRow(); }
+      autosave();
+    }
+
+    /** Re-mark the parent row a flyout belongs to; a repaint replaced the node. */
+    function markOpenSubRow() {
+      for (const r of axMenu.querySelectorAll('.axrow')) {
+        r.classList.toggle('is-open', r.dataset.submenu === axSubHalf);
+      }
+    }
+
+    // ── the actions themselves ─────────────────────────────────────────────
+    function setAxisMode(mode) {
+      const s = axisState();
+      if (!s) return;
+      chart.setPriceAxisOptions(s.paneIndex, s.scaleId, { mode });
+      const m = AX_MODES.find((x) => x.value === mode);
+      el('status').textContent = 'price scale: ' + (m ? m.label.toLowerCase() : mode);
+    }
+
+    function setAxisInvert(on) {
+      const s = axisState();
+      if (!s) return;
+      chart.setPriceAxisOptions(s.paneIndex, s.scaleId, { inverted: on });
+      el('status').textContent = on ? 'price scale inverted' : 'price scale upright';
+    }
+
+    function setAxisAutoFit(on) {
+      const s = axisState();
+      if (!s) return;
+      chart.setPriceAxisAutoFit(s.paneIndex, s.scaleId, on);
+      el('status').textContent = on ? 'price scale auto-fits the data' : 'price scale pinned where it is';
+    }
+
+    function setAxisLockRatio(on) {
+      const s = axisState();
+      if (!s) return;
+      // The engine reports whether the axis is now in the state asked for:
+      // locking fails on a scale nothing has measured, and saying so beats a
+      // row that flips back on the next repaint with no explanation.
+      const ok = chart.setPriceAxisLockRatio(s.paneIndex, s.scaleId, on);
+      el('status').textContent = ok
+        ? (on ? 'price per bar pinned' : 'price per bar released')
+        : 'nothing measured on this scale yet';
+    }
+
+    function moveAxisToOtherSide() {
+      const s = axisState();
+      if (!s) return;
+      const to = s.side === 'right' ? 'left' : 'right';
+      if (!chart.movePriceAxis(s.paneIndex, s.side, to)) {
+        el('status').textContent = 'that side is already in use';
+        return;
+      }
+      axTarget = { paneIndex: s.paneIndex, scaleId: to };  // the menu follows the axis
+      el('status').textContent = 'price scale moved to the ' + to;
+    }
+
+    // ── price levels ───────────────────────────────────────────────────────
+    // A level is a line and an axis tag that toggle independently, so the two
+    // submenus are the same ten rows read through different halves of one style.
+
+    /**
+     * The last price is the one level the core already owns: `priceLineVisible`
+     * and `lastValueVisible` are this level's two halves under older names, and
+     * letting the primitive draw it as well would put two lines on one price.
+     * The engine ships the translation both ways, so the row still reads and
+     * writes like every other.
+     */
+    const isLastPriceLevel = (kind) => kind === 'lastPrice' && Boolean(lastPriceLevelFromSeriesStyle);
+
+    function levelStyle(kind) {
+      if (isLastPriceLevel(kind)) {
+        const info = chart && chart.primarySeriesInfo ? chart.primarySeriesInfo() : null;
+        return lastPriceLevelFromSeriesStyle((info && info.style) || {});
+      }
+      return priceLevels ? priceLevels.level(kind) : { line: false, label: false };
+    }
+
+    /** Whether the level has a price in the current context. */
+    function levelAvailable(kind) {
+      return Boolean(priceLevels) && priceLevels.available(kind);
+    }
+
+    function setLevelHalf(kind, half, on) {
+      const next = { ...levelStyle(kind), [half]: on };
+      if (isLastPriceLevel(kind)) {
+        if (price) price.applyOptions(seriesStyleForLastPriceLevel(next));
+      } else if (priceLevels) {
+        priceLevels.setLevel(kind, { [half]: on });
+        // Kept outside the primitive because a chart-type switch destroys it.
+        priceLevelState[kind] = { ...priceLevels.level(kind) };
+      }
+      el('status').textContent = LEVEL_LABEL[kind] + ' '
+        + (half === 'line' ? 'line' : 'tag') + (on ? ' on' : ' off');
+    }
+
+    function paintAxisSub() {
+      axSub.innerHTML = '';
+      const half = axSubHalf;
+      axSub.appendChild(axHead(half === 'line' ? 'Lines on the plot' : 'Tags on the axis'));
+      if (!priceLevels) {
+        axSub.appendChild(axRow({
+          label: 'Price levels', disabled: true, note: 'not in this build of dist/',
+        }));
+        return;
+      }
+      for (const kind of levelKinds()) {
+        const ok = levelAvailable(kind);
+        const style = levelStyle(kind);
+        axSub.appendChild(axRow({
+          label: LEVEL_LABEL[kind] || kind,
+          on: style[half] === true,
+          // Disabled, not hidden: "no previous session yet" and "no live quote"
+          // are information. The switch keeps showing the state it is in.
+          disabled: !ok,
+          note: ok ? '' : 'no data',
+          onSelect: () => runAxis(() => setLevelHalf(kind, half, style[half] !== true)),
+        }));
+      }
+    }
+
+    function openAxisSub(half, anchor) {
+      if (axSubHalf === half && !axSub.hidden) return;
+      axSubHalf = half;
+      paintAxisSub();
+      axSub.hidden = false;
+      const a = anchor.getBoundingClientRect();
+      const m = axMenu.getBoundingClientRect();
+      const w = axSub.offsetWidth;
+      // Flip to the left of the parent when the right side has no room, which is
+      // the usual case for a menu raised on a right-hand price ladder.
+      const right = m.right + 2;
+      axSub.style.left = (right + w + 8 > window.innerWidth ? Math.max(4, m.left - w - 2) : right) + 'px';
+      axSub.style.top = Math.max(4, Math.min(a.top - 6, window.innerHeight - axSub.offsetHeight - 8)) + 'px';
+      markOpenSubRow();
+    }
+
+    function closeAxisSub() {
+      axSub.hidden = true;
+      axSubHalf = null;
+      for (const r of axMenu.querySelectorAll('.axrow')) r.classList.remove('is-open');
+    }
+
+    function closeAxisMenu() {
+      axMenu.hidden = true;
+      closeAxisSub();
+    }
+
+    function openAxisMenu(e, target) {
+      hideCtx();
+      axTarget = {
+        paneIndex: e.paneIndex || 0,
+        // An older dist/ classifies the strip but does not say which scale it
+        // draws; the side's own scale is the right guess in that case.
+        scaleId: target.scaleId !== undefined ? target.scaleId : (target.side || 'right'),
+      };
+      paintAxisMenu();
+      axMenu.hidden = false;
+      const rect = el('chart').getBoundingClientRect();
+      axMenu.style.left = Math.max(4, Math.min(rect.left + e.point.x, window.innerWidth - axMenu.offsetWidth - 8)) + 'px';
+      axMenu.style.top = Math.max(4, Math.min(rect.top + e.point.y, window.innerHeight - axMenu.offsetHeight - 8)) + 'px';
+    }
+
+    // The menu stays up while levels are toggled, so it closes on a press
+    // outside it rather than on any click at all, the way the order menu does.
+    window.addEventListener('pointerdown', (e) => {
+      if (axMenu.hidden) return;
+      if (axMenu.contains(e.target) || axSub.contains(e.target)) return;
+      closeAxisMenu();
+    }, true);
+    window.addEventListener('blur', closeAxisMenu);
+    el('chart').addEventListener('wheel', closeAxisMenu, { passive: true });
+
+    /**
+     * Price-axis chords, in the same `Alt+<key>` grammar the drawing tier uses
+     * and matched the same way: modifiers exactly, never a bare letter, so
+     * nothing here can shadow a browser chord. They act on the axis the menu
+     * last named, which is the price ladder until a right-click says otherwise.
+     *
+     * `code` as well as `key`, unlike the tier's matcher: on macOS Alt+L arrives
+     * as a typographic character and the letter is only recoverable from `code`.
+     */
+    const AX_CHORDS = [
+      { chord: AX_AUTOFIT_CHORD, run: () => setAxisAutoFit(!(axisState() || {}).autoFit) },
+      { chord: AX_INVERT_CHORD, run: () => setAxisInvert(!(axisState() || {}).inverted) },
+      ...AX_MODES.map((m) => ({ chord: m.chord, run: () => setAxisMode(m.value) })),
+    ];
+
+    function matchAxisShortcut(e) {
+      if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return null;
+      const key = String(e.key || '').toLowerCase();
+      const code = String(e.code || '').replace(/^(Key|Digit)/, '').toLowerCase();
+      for (const c of AX_CHORDS) {
+        const want = c.chord.split('+').pop().toLowerCase();
+        if (want === key || want === code) return c;
+      }
+      return null;
+    }
+
+    window.addEventListener('keydown', (e) => {
+      if (/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+      if (!el('chartset').hidden || !el('setmodal').hidden) return;  // a dialog owns the keyboard
+      const hit = matchAxisShortcut(e);
+      if (!hit || !axisState()) return;
+      e.preventDefault();
+      runAxis(hit.run);
     });
 
     el('load').addEventListener('click', load);
@@ -1333,9 +2992,22 @@
     // instances. It deliberately does NOT capture series data — that is the
     // app's (it knows the symbol and feed) — so restore reports the series
     // descriptors back and we rebuild them from the cached bars.
+    /**
+     * What we persist: the engine's own state plus the two things it does not
+     * own. Comparison series are demo-owned (the engine holds the alignment, we
+     * hold the symbol and the feed), so they ride alongside `dataset`.
+     */
+    function layoutSnapshot() {
+      return {
+        ...chart.getState(),
+        dataset: datasetKey(req),
+        comparisons: comparisons.map((c) => ({ symbol: c.symbol, color: c.color })),
+        compareMode: cmpMode,
+      };
+    }
     el('lsave').addEventListener('click', () => {
       if (!chart) return;
-      localStorage.setItem(LAYOUT_KEY, JSON.stringify({ ...chart.getState(), dataset: datasetKey(req) }));
+      localStorage.setItem(LAYOUT_KEY, JSON.stringify(layoutSnapshot()));
       el('status').textContent = `layout saved · ${chart.indicators().length} indicator(s)`;
     });
     el('lload').addEventListener('click', () => {
@@ -1347,7 +3019,15 @@
       activeIndicators = (state.indicators || []).map((i) => ({ indicatorId: i.indicatorId, settings: i.settings }));
       const report = chart.restoreState(state);
       if (!report.applied) { el('status').textContent = 'restore failed: ' + report.reason; return; }
+      syncTimezoneFromChart();   // the saved zone is the engine's to apply, ours to remember
+      // Comparisons are ours to swap: take the live ones off, put the saved set
+      // on, and let syncComparisons() fetch the bars in the background.
+      for (const c of comparisons.slice()) removeComparison(c);
+      comparisons = (state.comparisons || []).map((c) => ({ symbol: c.symbol, color: c.color, bars: [] }));
+      if (state.compareMode) cmpMode = state.compareMode;
+      syncComparisons();
       renderIndicatorChips();
+      renderToolbar();
       el('status').textContent = `layout restored · ${report.indicators} indicator(s) · ${report.series.length} series descriptor(s)`;
     });
 
@@ -1374,7 +3054,15 @@
       closeSettings();
     });
     el('setmodal').addEventListener('click', (e) => { if (e.target.id === 'setmodal') closeSettings(); });
-    window.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSettings(); });
+    // Escape backs out of whichever dialog is up. Chart settings preview live,
+    // so leaving by Escape reverts, the way Cancel does.
+    window.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      closeSettings();
+      closeCompare();
+      closeAxisMenu();
+      if (!el('chartset').hidden) closeChartSettings(true);
+    });
 
 
 
@@ -1404,6 +3092,17 @@
       // brackets), which is a different action and sits two buttons away.
       fullscreen: '<path d="M11 4h5v5"/><path d="M9 16H4v-5"/><path d="M16 4l-5.5 5.5"/><path d="M4 16l5.5-5.5"/>',
       fullscreenExit: '<path d="M16 9h-5V4"/><path d="M4 11h5v5"/><path d="M11 9l5-5"/><path d="M9 11l-5 5"/>',
+      // Replay transport. A clock inside a rewinding arrow, then the four
+      // buttons the bar itself uses.
+      replay: '<path d="M3.2 10a6.8 6.8 0 1 1 2.2 5"/><path d="M3.2 6v4h4"/><path d="M10 7.5V10l1.8 1.2"/>',
+      play: '<path d="M7.5 4.6l7.4 5.4-7.4 5.4z"/>',
+      pause: '<path d="M7.6 4.6v10.8M12.4 4.6v10.8"/>',
+      stepfwd: '<path d="M5.8 4.6l6.6 5.4-6.6 5.4z"/><path d="M14.6 4.6v10.8"/>',
+      stepback: '<path d="M14.2 4.6l-6.6 5.4 6.6 5.4z"/><path d="M5.4 4.6v10.8"/>',
+      exit: '<path d="M5.5 5.5l9 9M14.5 5.5l-9 9"/>',
+      // Two series diverging from one another: the point of a comparison.
+      compare: '<path d="M3 15.5l4-4.5 3.5 2.5L17 5"/><path d="M3 9.5l4 3 3.5-5.5L17 12"/>',
+      gear: '<circle cx="10" cy="10" r="2.6"/><path d="M10 2.6v2M10 15.4v2M17.4 10h-2M4.6 10h-2M15.2 4.8l-1.4 1.4M6.2 13.8l-1.4 1.4M15.2 15.2l-1.4-1.4M6.2 6.2L4.8 4.8"/>',
     };
     const ticon = (k) => '<svg viewBox="0 0 20 20">' + (TOOLBAR_ICON[k] || '') + '</svg>';
 
@@ -1668,6 +3367,20 @@
         popupMenu(ind, rows, { find: 'Search ' + (rows.length - new Set(rows.filter((r) => r.group).map((r) => r.group)).size) + ' indicators' });
       });
       bar.appendChild(ind);
+
+      // compare: a second instrument on the price pane
+      const cmp = tbtn(ticon('compare') + '<span>Compare</span>',
+        comparisons.length ? `Comparing ${comparisons.map((c) => c.symbol).join(', ')}` : 'Compare a second symbol');
+      if (comparisons.length) cmp.classList.add('is-on');
+      cmp.addEventListener('click', openCompare);
+      bar.appendChild(cmp);
+
+      // replay: enter the session bar by bar, or leave and get the chart back
+      const rp = tbtn(ticon('replay') + '<span>Replay</span>',
+        replay ? 'Exit replay' : 'Replay this session bar by bar');
+      if (replay) rp.classList.add('is-on');
+      rp.addEventListener('click', () => (replay ? exitReplay() : enterReplay()));
+      bar.appendChild(rp);
       bar.appendChild(divider());
 
       // view + layout icons
@@ -1695,7 +3408,23 @@
       if (isChartFull()) fs.classList.add('is-on');
       bar.appendChild(fs);
 
+      // Bracket entry. The buttons that own this live in the legacy sub-bar,
+      // which is display:none, and a hidden ancestor takes its whole subtree out
+      // of the box tree: they still fire when clicked programmatically, but a
+      // user had no way to reach them, which also stranded the Trading tab's
+      // entry and exit colours with nothing on the chart to recolour.
       bar.appendChild(divider());
+      const buy = tbtn('<b>Buy</b>', 'Place a Buy OCO bracket: entry, target and stop');
+      buy.classList.add('tbtn--buy');
+      buy.addEventListener('click', () => el('buy').click());
+      bar.appendChild(buy);
+      const sell = tbtn('<b>Sell</b>', 'Place a Sell OCO bracket: entry, target and stop');
+      sell.classList.add('tbtn--sell');
+      sell.addEventListener('click', () => el('sell').click());
+      bar.appendChild(sell);
+
+      bar.appendChild(divider());
+      bar.appendChild(iconBtn('gear', 'Chart settings (or right-click the chart)', () => openChartSettings()));
       bar.appendChild(iconBtn('save', 'Save layout', () => el('lsave').click()));
       bar.appendChild(iconBtn('restore', 'Restore layout', () => el('lload').click()));
 
@@ -2351,11 +4080,13 @@
     // because drags fire per frame.
     let saveTimer = 0;
     function autosave() {
-      if (!chart) return;
+      // Not while replaying: the chart is showing a prefix of the session and a
+      // viewport captured over it would restore the user into a truncated chart.
+      if (!chart || replay) return;
       clearTimeout(saveTimer);
       saveTimer = setTimeout(() => {
         try {
-          localStorage.setItem(LAYOUT_KEY, JSON.stringify({ ...chart.getState(), dataset: datasetKey(req) }));
+          localStorage.setItem(LAYOUT_KEY, JSON.stringify(layoutSnapshot()));
         } catch (_) {}
       }, 250);
     }
