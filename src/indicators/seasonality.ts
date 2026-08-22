@@ -15,8 +15,18 @@
  * from the month's own first bar would drop the gap over the turn of the month,
  * which on a gapping instrument is a large part of the move.
  *
- * Months are resolved on the IST calendar, the same clock the VWAP anchors run
- * on, so a month boundary never lands on the UTC midnight seam.
+ * Months are resolved on the chart's configured calendar, the same clock the
+ * VWAP anchors run on, so a month boundary never lands on the UTC midnight seam
+ * and never lands mid-afternoon in the market being charted. That calendar used
+ * to be IST unconditionally, which on a US symbol put the month boundary at
+ * 18:30 UTC and handed the last ninety minutes of a month-end New York session
+ * to the following month.
+ *
+ * Unlike the VWAP and CPR frames, this one is deliberately tested bar by bar
+ * rather than on session opens. Those two anchor an accumulation to a trading
+ * period, which must not restart mid-session; this one attributes a close to a
+ * calendar month, and a session that straddles the turn of the month genuinely
+ * has bars in both.
  *
  * Two deliberate departures from the study as published:
  *   - it also draws a dashed projection box on the price pane for the month in
@@ -31,7 +41,9 @@
  * Original implementation written from the described behaviour, per
  * ARCHITECTURE.md §0.1, not ported from any third-party source.
  */
-import { utcSecondsToIstParts } from 'openalgo-charts';
+import {
+  utcSecondsToZonedParts, zonedWallClockToUtcSeconds, DEFAULT_TIMEZONE, isValidTimezone,
+} from 'openalgo-charts';
 import type { Bar, IndicatorDescriptor, TableCell, TablePosition } from 'openalgo-charts';
 
 const num = (s: Readonly<Record<string, unknown>>, k: string, d: number): number => {
@@ -43,6 +55,24 @@ const str = (s: Readonly<Record<string, unknown>>, k: string, d: string): string
   return typeof v === 'string' && v !== '' ? v : d;
 };
 const on = (s: Readonly<Record<string, unknown>>, k: string): boolean => s[k] !== false;
+
+/**
+ * The chart's configured zone, as it reaches an indicator.
+ *
+ * A descriptor's hooks are handed bars and settings and never the chart, so the
+ * zone travels on the settings blob under the reserved `timezone` key. A blob
+ * without one, which is every caller that predates the option, resolves to the
+ * shipped default and tabulates exactly what 1.2.0 tabulated.
+ *
+ * An unrecognised name falls back rather than throwing: `chart.setTimezone`
+ * already rejects a bad zone at the call site, and a hook that throws takes the
+ * whole repaint down with it.
+ */
+const zoneOf = (s: Readonly<Record<string, unknown>>): string => {
+  const v = s.timezone;
+  if (typeof v !== 'string' || v === '' || v === DEFAULT_TIMEZONE) return DEFAULT_TIMEZONE;
+  return isValidTimezone(v) ? v : DEFAULT_TIMEZONE;
+};
 
 const POS_DEFAULT = '#089981';
 const NEG_DEFAULT = '#F23745';
@@ -109,17 +139,31 @@ interface MonthSpan {
 }
 
 /**
- * Split the bars into calendar months. Bars arrive in time order, so a change
- * of (year, month) opens a new span and nothing has to be sorted or keyed.
+ * Split the bars into calendar months of `zone`. Bars arrive in time order, so
+ * a change of month opens a new span and nothing has to be sorted or keyed.
+ *
+ * The month a bar falls in is decided by the half-open UTC interval the current
+ * month occupies rather than by resolving the bar's own calendar parts. The two
+ * are the same test — a bar is in this month exactly when it lands inside the
+ * month's span — but the interval is computed once per month instead of once
+ * per bar, and resolving a zone costs an `Intl` lookup where comparing two
+ * numbers costs nothing. A history of fifty thousand bars covers a couple of
+ * hundred months.
  */
-function monthSpans(bars: readonly Bar[]): MonthSpan[] {
+function monthSpans(bars: readonly Bar[], zone: string): MonthSpan[] {
   const out: MonthSpan[] = [];
   let cur: MonthSpan | null = null;
+  let from = 0;
+  let until = 0;
   for (const bar of bars) {
-    const p = utcSecondsToIstParts(bar.time);
-    if (cur === null || cur.year !== p.year || cur.month !== p.month) {
+    if (cur === null || bar.time < from || bar.time >= until) {
+      const p = utcSecondsToZonedParts(bar.time, zone);
       cur = { year: p.year, month: p.month, last: bar.close };
       out.push(cur);
+      from = zonedWallClockToUtcSeconds(p.year, p.month, 1, 0, 0, 0, zone);
+      // Month 13 is January of the next year, which `Date.UTC` rolls over for
+      // us, so December needs no special case.
+      until = zonedWallClockToUtcSeconds(p.year, p.month + 1, 1, 0, 0, 0, zone);
     } else {
       cur.last = bar.close;
     }
@@ -160,7 +204,7 @@ function buildMatrix(
   bars: readonly Bar[],
   settings: Readonly<Record<string, unknown>>,
 ): SeasonalityMatrix {
-  const spans = monthSpans(bars);
+  const spans = monthSpans(bars, zoneOf(settings));
   const startYear = Math.round(num(settings, 'startYear', 2015));
   const skipped = ignoredKeys(str(settings, 'ignoredMonths', ''));
 

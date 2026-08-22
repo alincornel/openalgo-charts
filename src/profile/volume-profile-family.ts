@@ -14,7 +14,13 @@
  */
 import type { Bar } from '../model/bar';
 import { priceBuckets } from './profile-model';
-import { utcSecondsToIstParts, istStringToUtcSeconds } from '../feed/time';
+import {
+  DEFAULT_TIMEZONE,
+  IST_OFFSET_SECONDS,
+  utcSecondsToIstParts,
+  utcSecondsToZonedParts,
+  zonedDayIndex,
+} from '../feed/time';
 
 export type VolumeProfileSession = 'composite' | 'day' | 'week' | 'month';
 
@@ -27,6 +33,11 @@ export interface VolumeProfileFamilyOptions {
   valueAreaPercent: number;
   /** Split each bar's volume into buy/sell by bar direction (close >= open => buy). */
   deltaFromBarDirection: boolean;
+  /**
+   * IANA zone the day / week / month buckets resolve on. Defaults to
+   * `Asia/Kolkata`, so a caller who passes nothing gets what it always did.
+   */
+  timezone?: string;
 }
 
 export const DEFAULT_VOLUME_PROFILE_FAMILY_OPTIONS: VolumeProfileFamilyOptions = {
@@ -34,6 +45,7 @@ export const DEFAULT_VOLUME_PROFILE_FAMILY_OPTIONS: VolumeProfileFamilyOptions =
   session: 'composite',
   valueAreaPercent: 0.7,
   deltaFromBarDirection: true,
+  timezone: DEFAULT_TIMEZONE,
 };
 
 export interface VolumeProfileLevel {
@@ -65,17 +77,34 @@ export interface VolumeProfileFamilyResult {
   options: VolumeProfileFamilyOptions;
 }
 
-const pad2 = (n: number): string => (n < 10 ? `0${n}` : `${n}`);
+const DAY_SECONDS = 86400;
 
-/** UTC seconds -> session group key for the chosen mode (IST calendar). */
-function sessionKey(utcSeconds: number, mode: VolumeProfileSession): number {
+/**
+ * Session group key for the chosen mode, on `zone`'s calendar.
+ *
+ * An identity, not a timestamp: bars sharing a key share a profile and nothing
+ * outside this module reads the value, so a day index is both cheaper than a
+ * midnight and immune to the 169-hour week a DST changeover produces.
+ *
+ * The default keeps the fixed-offset arithmetic, because this runs once per bar
+ * over a whole history and Intl costs roughly 25x it. IST is a fixed offset, so
+ * the branch cannot change an answer, and tests/profile-timezone.test.ts pins
+ * the two paths together rather than assuming they agree.
+ */
+function sessionKey(utcSeconds: number, mode: VolumeProfileSession, zone: string): number {
   if (mode === 'composite') return 0;
-  const p = utcSecondsToIstParts(utcSeconds);
-  if (mode === 'month') return istStringToUtcSeconds(`${p.year}-${pad2(p.month)}-01`);
-  const dayStart = istStringToUtcSeconds(`${p.year}-${pad2(p.month)}-${pad2(p.day)}`);
-  if (mode === 'day') return dayStart;
-  const backToMonday = ((p.weekday + 6) % 7) * 86400;
-  return dayStart - backToMonday;
+  if (mode === 'month') {
+    const p = zone === DEFAULT_TIMEZONE
+      ? utcSecondsToIstParts(utcSeconds)
+      : utcSecondsToZonedParts(utcSeconds, zone);
+    return p.year * 12 + (p.month - 1);
+  }
+  const dayIndex = zone === DEFAULT_TIMEZONE
+    ? Math.floor((utcSeconds + IST_OFFSET_SECONDS) / DAY_SECONDS)
+    : zonedDayIndex(utcSeconds, zone);
+  if (mode === 'day') return dayIndex;
+  // Monday-start weeks. 1970-01-01 was a Thursday, hence the +3 before the divide.
+  return Math.floor((dayIndex + 3) / 7);
 }
 
 interface Acc {
@@ -91,11 +120,12 @@ export function computeVolumeProfileSessions(
   const o: VolumeProfileFamilyOptions = { ...DEFAULT_VOLUME_PROFILE_FAMILY_OPTIONS, ...options };
   const tick = o.tickSize > 0 ? o.tickSize : DEFAULT_VOLUME_PROFILE_FAMILY_OPTIONS.tickSize;
   const vaPct = Math.min(1, Math.max(0, o.valueAreaPercent));
+  const zone = o.timezone ?? DEFAULT_TIMEZONE;
 
   const groups = new Map<number, Bar[]>();
   const order: number[] = [];
   for (const b of bars) {
-    const k = sessionKey(b.time, o.session);
+    const k = sessionKey(b.time, o.session, zone);
     let g = groups.get(k);
     if (g === undefined) { g = []; groups.set(k, g); order.push(k); }
     g.push(b);
@@ -166,5 +196,6 @@ export function computeVolumeProfileSessions(
     });
   }
 
-  return { sessions, options: o };
+  // Echo the zone actually used, so a caller can read back what it resolved to.
+  return { sessions, options: { ...o, timezone: zone } };
 }

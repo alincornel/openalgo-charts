@@ -9,10 +9,13 @@
  * `openalgo.ta`. The two disagree across the whole warmup, so anything that has
  * to land on the same pixels as a reference platform plot uses `smaSeededEma` from `./calc`.
  *
- * `atr`, `isNewIstDay`, and the `sourceValues` helper come from the base bundle
- * (`openalgo-charts`), not deep paths — see the note in `src/indicators/index.ts`.
+ * `atr`, `sessionStartFlags`, and the `sourceValues` helper come from the base
+ * bundle (`openalgo-charts`), not deep paths — see the note in
+ * `src/indicators/index.ts`.
  */
-import { atr, sourceValues, sessionStartFlags } from 'openalgo-charts';
+import {
+  atr, sourceValues, sessionStartFlags, DEFAULT_TIMEZONE, isValidTimezone,
+} from 'openalgo-charts';
 import type { Bar, IndicatorDescriptor, IndicatorInput, IndicatorSource } from 'openalgo-charts';
 import { sma, wma, rma, nulls, smaSeededEma, vwma, percentileNearestRank } from './calc';
 
@@ -36,6 +39,24 @@ const flag = (s: Readonly<Record<string, unknown>>, k: string, d: boolean): bool
 };
 const src = (s: Readonly<Record<string, unknown>>, k = 'source'): IndicatorSource =>
   (s[k] as IndicatorSource) ?? 'close';
+
+/**
+ * The chart's configured zone, as it reaches an indicator.
+ *
+ * A `calc` is handed `(bars, settings, store)` and never the chart, so the zone
+ * travels on the settings blob under the reserved `timezone` key. A blob without
+ * one, which is every caller that predates the option, resolves to the shipped
+ * default and computes exactly what 1.2.0 computed.
+ *
+ * An unrecognised name falls back rather than throwing: `chart.setTimezone`
+ * already rejects a bad zone at the call site, and a `calc` that throws takes
+ * the whole repaint down with it.
+ */
+const zoneOf = (s: Readonly<Record<string, unknown>>): string => {
+  const v = s.timezone;
+  if (typeof v !== 'string' || v === '' || v === DEFAULT_TIMEZONE) return DEFAULT_TIMEZONE;
+  return isValidTimezone(v) ? v : DEFAULT_TIMEZONE;
+};
 
 /** the reference `nz(volume)`: a bar the feed gave no volume for traded nothing. */
 const volumes = (bars: readonly Bar[]): number[] =>
@@ -372,9 +393,10 @@ export const TEMA: IndicatorDescriptor = {
  *
  * Anchor substitution: the reference takes an `input.timeframe` (default `1D`) and resets
  * on `timeframe.change(anchor)`, which needs a resolution resolver a chart
- * library does not have. The `session` option resets on the IST trading day via
- * `isNewIstDay`, exactly as the VWAP descriptor anchors, and `continuous` never
- * resets.
+ * library does not have. The `session` option resets on the exchange's own
+ * trading day, read back from the bar gaps exactly as the VWAP descriptor
+ * anchors, and `continuous` never resets. The option used to be labelled
+ * "Session (IST day)"; it names no zone now because it hardcodes none.
  */
 export const TWAP: IndicatorDescriptor = {
   id: 'twap',
@@ -384,7 +406,7 @@ export const TWAP: IndicatorDescriptor = {
   inputs: [
     {
       key: 'anchor', type: 'select', label: 'Anchor Period', default: 'session',
-      options: [{ label: 'Session (IST day)', value: 'session' }, { label: 'Continuous', value: 'continuous' }],
+      options: [{ label: 'Session', value: 'session' }, { label: 'Continuous', value: 'continuous' }],
     },
     { key: 'source', type: 'source', label: 'Source', default: 'ohlc4' },
     { key: 'offset', type: 'number', label: 'Offset', default: 0, min: -500, max: 500, step: 1 },
@@ -399,7 +421,10 @@ export const TWAP: IndicatorDescriptor = {
     const perSession = s.anchor !== 'continuous';
     // Read from the bar gaps rather than a fixed midnight, so the average
     // restarts when the exchange opens and not partway through its afternoon.
-    const restarts = perSession ? sessionStartFlags(bars.map((b) => b.time)) : null;
+    // The zone is only consulted for the fallback the gaps cannot answer: on
+    // daily bars, or a market that never closes, a session is a calendar day,
+    // and whose calendar that is now follows the chart.
+    const restarts = perSession ? sessionStartFlags(bars.map((b) => b.time), zoneOf(s)) : null;
     const out = new Array<number>(bars.length).fill(NaN);
     let sum = 0;
     let count = 0;

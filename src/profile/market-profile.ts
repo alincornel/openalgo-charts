@@ -12,14 +12,25 @@
  */
 import type { Bar } from '../model/bar';
 import { bucketPrice, priceBuckets } from './profile-model';
-import { utcSecondsToIstParts, istStringToUtcSeconds } from '../feed/time';
+import {
+  DEFAULT_TIMEZONE,
+  IST_OFFSET_SECONDS,
+  utcSecondsToIstParts,
+  utcSecondsToZonedParts,
+  zonedDayIndex,
+  zonedWallClockToUtcSeconds,
+} from '../feed/time';
 
 export type MarketProfileSession = 'day' | 'week' | 'month' | 'composite';
 
 /**
- * A session window in minutes from IST midnight. `end <= start` means the window
- * crosses midnight (an overnight session), which is why the test below is a
- * wrap-aware range check rather than a plain `>= start && < end`.
+ * A session window in minutes from local midnight. `end <= start` means the
+ * window crosses midnight (an overnight session), which is why the test below is
+ * a wrap-aware range check rather than a plain `>= start && < end`.
+ *
+ * "Local" is `zone` when the window names one, and `MarketProfileOptions.timezone`
+ * otherwise. A window that names its own zone selects the same real instants
+ * whatever the rest of the profile is read on.
  */
 export interface SessionWindow {
   /** Minutes from midnight, 0..1439. Equal start and end means all hours. */
@@ -27,19 +38,39 @@ export interface SessionWindow {
   endMinute: number;
   /** Shown on the chart when the renderer draws a session label. */
   name?: string;
+  /**
+   * IANA zone the two minute counts are written in. Omitted means "read them on
+   * `MarketProfileOptions.timezone`", which is what a caller hand-writing a
+   * window for their own market wants. This module is a pure calculation and is
+   * never handed the chart, so a host that wants the two to agree passes
+   * `chart.timezone()` into the options.
+   */
+  zone?: string;
 }
 
 /**
- * Named windows, in IST minutes-from-midnight. The library's calendar is IST
- * (§5.3), so these are the equivalent local spans, not their source timezone.
+ * Named windows, each written in the clock of the market it belongs to.
+ *
+ * The zone is half the definition, not decoration. `us-regular` as a bare 1140
+ * was unreadable as "09:30 New York", and it silently froze the US session at
+ * whatever offset New York happened to have on the day the number was written,
+ * so it opened an hour early for the five winter months. Written as 09:30 in
+ * America/New_York it follows the exchange through both changeovers.
+ *
+ * The bands are the same partition of the day as before, re-expressed: London
+ * and New York keep exactly the instants they selected under DST (where the old
+ * numbers were right) and gain the hour the old numbers lost in winter.
+ *
+ * `all-hours` names no zone because it never reads one: an empty window
+ * (`start === end`) short-circuits before any clock is consulted.
  */
 export const TRADING_HOURS: Record<string, SessionWindow> = {
   'all-hours': { startMinute: 0, endMinute: 0, name: 'All Hours' },
-  'india': { startMinute: 9 * 60 + 15, endMinute: 15 * 60 + 30, name: 'India' },
-  'asia': { startMinute: 5 * 60 + 30, endMinute: 11 * 60 + 30, name: 'Asia' },
-  'london': { startMinute: 11 * 60 + 30, endMinute: 17 * 60 + 30, name: 'London' },
-  'new-york': { startMinute: 17 * 60 + 30, endMinute: 60, name: 'New York' },
-  'us-regular': { startMinute: 19 * 60, endMinute: 90, name: 'US Regular' },
+  'india': { startMinute: 9 * 60 + 15, endMinute: 15 * 60 + 30, zone: 'Asia/Kolkata', name: 'India' },
+  'asia': { startMinute: 9 * 60, endMinute: 15 * 60, zone: 'Asia/Tokyo', name: 'Asia' },
+  'london': { startMinute: 7 * 60, endMinute: 13 * 60, zone: 'Europe/London', name: 'London' },
+  'new-york': { startMinute: 8 * 60, endMinute: 15 * 60 + 30, zone: 'America/New_York', name: 'New York' },
+  'us-regular': { startMinute: 9 * 60 + 30, endMinute: 16 * 60, zone: 'America/New_York', name: 'US Regular' },
 };
 
 export interface MarketProfileOptions {
@@ -63,6 +94,15 @@ export interface MarketProfileOptions {
   /** Restrict each session to this window. Bars outside it are dropped. */
   window?: SessionWindow;
   /**
+   * IANA zone the session / day / week / month calendar resolves on. Defaults to
+   * `Asia/Kolkata`, so a caller who passes nothing gets what it always did.
+   *
+   * A `window` that names its own zone overrides this for both the window test
+   * and the bucketing, because a session must not be cut in half by the clock
+   * someone happens to be reading the chart on.
+   */
+  timezone?: string;
+  /**
    * Merge consecutive sessions into one profile (1 = off). With
    * `session: 'day'`, 5 gives a rolling weekly composite.
    */
@@ -83,6 +123,7 @@ export const DEFAULT_MARKET_PROFILE_OPTIONS: MarketProfileOptions = {
   initialBalancePeriods: 2,
   compositeSessions: 1,
   tailEdges: 0,
+  timezone: DEFAULT_TIMEZONE,
 };
 
 /**
@@ -204,43 +245,109 @@ export function tpoLetter(period: number): string {
   return m < 26 ? String.fromCharCode(65 + m) : String.fromCharCode(97 + (m - 26));
 }
 
-const pad2 = (n: number): string => (n < 10 ? `0${n}` : `${n}`);
+const DAY_SECONDS = 86400;
 
-/** UTC seconds -> IST minutes from midnight. */
-function minuteOfDay(utcSeconds: number): number {
-  const p = utcSecondsToIstParts(utcSeconds);
+/**
+ * The clock a window's minutes are counted on: its own when it names one, the
+ * chart's configured zone otherwise.
+ *
+ * A preset carrying its own zone is what makes it independent of the display.
+ * Viewing an NSE chart with the display set to New York must not drag the Indian
+ * session nine and a half hours along the tape: the window still selects
+ * 09:15-15:30 in Kolkata and the sessions it forms still break on the Indian
+ * calendar day. Only the labels move.
+ */
+function windowZone(w: SessionWindow | undefined, zone: string): string {
+  return w?.zone ?? zone;
+}
+
+/**
+ * Calendar parts of an instant on `zone`'s clock.
+ *
+ * The default takes the fixed-offset arithmetic. These helpers run once per bar
+ * over a whole history and Intl costs roughly 25x the arithmetic, so the branch
+ * hands every existing caller back the speed it had. It cannot change an answer:
+ * IST is a fixed offset, and tests/profile-timezone.test.ts pins the two paths
+ * together rather than assuming they agree.
+ */
+function partsIn(utcSeconds: number, zone: string): { year: number; month: number; day: number; hour: number; minute: number } {
+  return zone === DEFAULT_TIMEZONE
+    ? utcSecondsToIstParts(utcSeconds)
+    : utcSecondsToZonedParts(utcSeconds, zone);
+}
+
+/** Minutes from local midnight in `zone`. */
+function minuteOfDay(utcSeconds: number, zone: string): number {
+  if (zone === DEFAULT_TIMEZONE) {
+    const s = (((utcSeconds + IST_OFFSET_SECONDS) % DAY_SECONDS) + DAY_SECONDS) % DAY_SECONDS;
+    return Math.floor(s / 60);
+  }
+  const p = utcSecondsToZonedParts(utcSeconds, zone);
   return p.hour * 60 + p.minute;
 }
 
-/** Wrap-aware window test, so an overnight session is one window, not two. */
-export function inWindow(utcSeconds: number, w: SessionWindow): boolean {
+/** Whole days since 1970-01-01 on `zone`'s calendar. */
+function dayIndexIn(utcSeconds: number, zone: string): number {
+  if (zone === DEFAULT_TIMEZONE) return Math.floor((utcSeconds + IST_OFFSET_SECONDS) / DAY_SECONDS);
+  return zonedDayIndex(utcSeconds, zone);
+}
+
+/**
+ * Wrap-aware window test, so an overnight session is one window, not two.
+ *
+ * `zone` is the chart's configured timezone and is only consulted when the
+ * window does not name one of its own.
+ */
+export function inWindow(utcSeconds: number, w: SessionWindow, zone: string = DEFAULT_TIMEZONE): boolean {
   if (w.startMinute === w.endMinute) return true; // all hours
-  const m = minuteOfDay(utcSeconds);
+  const m = minuteOfDay(utcSeconds, windowZone(w, zone));
   return w.startMinute < w.endMinute
     ? m >= w.startMinute && m < w.endMinute
     : m >= w.startMinute || m < w.endMinute;
 }
 
-/** UTC seconds -> IST midnight of that day, in UTC seconds. */
-function dayStartOf(utcSeconds: number): number {
-  const p = utcSecondsToIstParts(utcSeconds);
-  return istStringToUtcSeconds(`${p.year}-${pad2(p.month)}-${pad2(p.day)}`);
+/**
+ * UTC seconds of the window's opening wall-clock time, `dayOffset` local days
+ * from the day holding `utcSeconds`.
+ *
+ * Wall clock rather than "local midnight plus startMinute seconds": on a
+ * changeover day the two are an hour apart, and this anchor decides which letter
+ * every bar in the session gets. Runs once per session, so it stays on the
+ * general path.
+ */
+function windowOpenOn(utcSeconds: number, w: SessionWindow, zone: string, dayOffset: number): number {
+  const p = partsIn(utcSeconds, zone);
+  // Step in calendar days through Date's own overflow, so the last of a month
+  // rolls into the first of the next instead of landing on the 32nd.
+  const civil = new Date(Date.UTC(p.year, p.month - 1, p.day + dayOffset));
+  return zonedWallClockToUtcSeconds(
+    civil.getUTCFullYear(), civil.getUTCMonth() + 1, civil.getUTCDate(),
+    Math.floor(w.startMinute / 60), w.startMinute % 60, 0, zone,
+  );
 }
 
-/** UTC seconds -> session group key for the chosen mode (IST calendar). */
-function sessionKey(utcSeconds: number, mode: MarketProfileSession, w?: SessionWindow): number {
+/**
+ * Session group key for the chosen mode, on `zone`'s calendar.
+ *
+ * An identity, not a timestamp: bars sharing a key share a profile and nothing
+ * outside this module reads the value, so a day index is both cheaper than a
+ * midnight and immune to the 169-hour week a DST changeover produces.
+ */
+function sessionKey(utcSeconds: number, mode: MarketProfileSession, zone: string, w?: SessionWindow): number {
   if (mode === 'composite') return 0;
-  const p = utcSecondsToIstParts(utcSeconds);
-  if (mode === 'month') return istStringToUtcSeconds(`${p.year}-${pad2(p.month)}-01`);
-  let dayStart = dayStartOf(utcSeconds);
+  if (mode === 'month') {
+    const p = partsIn(utcSeconds, zone);
+    return p.year * 12 + (p.month - 1);
+  }
+  let dayIndex = dayIndexIn(utcSeconds, zone);
   // An overnight window belongs to the day it *opened* on, so the evening and
   // the following morning form one session instead of two half-profiles.
-  if (w !== undefined && w.startMinute > w.endMinute && minuteOfDay(utcSeconds) < w.endMinute) {
-    dayStart -= 86400;
+  if (w !== undefined && w.startMinute > w.endMinute && minuteOfDay(utcSeconds, zone) < w.endMinute) {
+    dayIndex -= 1;
   }
-  if (mode === 'day') return dayStart;
-  const backToMonday = ((utcSecondsToIstParts(dayStart).weekday + 6) % 7) * 86400;
-  return dayStart - backToMonday;
+  if (mode === 'day') return dayIndex;
+  // Monday-start weeks. 1970-01-01 was a Thursday, hence the +3 before the divide.
+  return Math.floor((dayIndex + 3) / 7);
 }
 
 interface LevelAcc {
@@ -347,13 +454,17 @@ export function computeMarketProfile(
   const ibPeriods = Math.max(1, Math.floor(o.initialBalancePeriods));
   const merge = Math.max(1, Math.floor(o.compositeSessions));
   const win = o.window;
+  const zone = o.timezone ?? DEFAULT_TIMEZONE;
+  // One clock for the whole profile: the window's when it names one, so a
+  // windowed session stays a session however the chart is displayed.
+  const cal = windowZone(win, zone);
 
   // Group bars by session, preserving first-seen order (bars assumed ascending).
   const groups = new Map<number, Bar[]>();
   const order: number[] = [];
   for (const b of bars) {
-    if (win !== undefined && !inWindow(b.time, win)) continue;
-    const k = sessionKey(b.time, o.session, win);
+    if (win !== undefined && !inWindow(b.time, win, zone)) continue;
+    const k = sessionKey(b.time, o.session, cal, win);
     let g = groups.get(k);
     if (g === undefined) { g = []; groups.set(k, g); order.push(k); }
     g.push(b);
@@ -381,8 +492,8 @@ export function computeMarketProfile(
     const first = g[0].time;
     let anchor = first;
     if (win !== undefined && win.startMinute !== win.endMinute) {
-      const d = dayStartOf(first) + win.startMinute * 60;
-      anchor = d <= first ? d : d - 86400;
+      const d = windowOpenOn(first, win, cal, 0);
+      anchor = d <= first ? d : windowOpenOn(first, win, cal, -1);
     }
 
     const map = new Map<number, LevelAcc>();
@@ -500,7 +611,8 @@ export function computeMarketProfile(
     });
   }
 
-  return { sessions, options: { ...o, rowTicks } };
+  // Echo the zone actually used, so a caller can read back what it resolved to.
+  return { sessions, options: { ...o, rowTicks, timezone: zone } };
 }
 
 /**
