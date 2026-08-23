@@ -19,6 +19,7 @@
  */
 import type { OrderFeed, PlaceRequest, PreflightFailure, TradeMode } from '../trade/order-engine';
 import type { Order, OrderSide, OrderStatus, OrderType, Position } from '../trade/types';
+import { validateQuantity, type OrderConstraints } from '../trade/validation';
 
 /**
  * An error that says the request PROVABLY never left this process.
@@ -39,6 +40,23 @@ export type ModeCheck = 'off' | 'auto' | 'always';
 export interface OpenAlgoTradeConfig {
   baseUrl: string;
   apiKey: string;
+  /**
+   * Instrument constraints for the advisory pre-trade check on `place`, looked
+   * up per order. Return undefined when the instrument is unknown; the
+   * universal checks below still apply.
+   *
+   * Optional because most of the value needs no configuration: a quantity that
+   * is NaN, negative or fractional is wrong for every Indian instrument and is
+   * rejected without knowing anything about the symbol. Supply this to add the
+   * freeze limit and the lot grid, which do need instrument data.
+   */
+  constraints?: (symbol: string, exchange: string) => OrderConstraints | undefined;
+  /**
+   * Turn off the feed-level duplicate guard. Default false, i.e. the guard is
+   * on. Only set true if a layer above already owns idempotency AND you have
+   * read why that is usually the wrong call: see `_claimToken`.
+   */
+  disableIdempotency?: boolean;
   /** Strategy label sent with orders (OpenAlgo groups by strategy). */
   strategy?: string;
   /** Default product when a request doesn't specify one. */
@@ -89,6 +107,11 @@ export class OpenAlgoTradeFeed implements OrderFeed {
   private readonly _strategy: string;
   private readonly _defaultProduct: string;
   private readonly _ctx = new Map<string, OrderContext>();
+  /**
+   * Client order ids this feed has put on the wire, and whether the outcome is
+   * known. A claimed-but-unresolved entry blocks a repeat. See `_claimToken`.
+   */
+  private readonly _claimed = new Map<string, 'inflight' | 'sent' | 'ambiguous'>();
   private readonly _verifyMode: ModeCheck;
   private readonly _modeCacheMs: number;
   private readonly _now: () => number;
@@ -209,11 +232,73 @@ export class OpenAlgoTradeFeed implements OrderFeed {
 
   /* ── writes ───────────────────────────────────────────────────────────── */
 
+  /**
+   * Advisory pre-trade quantity check, applied to EVERY order type.
+   *
+   * Advisory is the operative word: a user with devtools can call the broker
+   * directly, so this cannot be a risk control. It is here because the broker's
+   * RMS rejection arrives after a round trip and reads like a server error,
+   * while this reads like the mistake it is, immediately.
+   *
+   * It lives in the feed rather than only in `OrderEngine` because the engine is
+   * skippable. OpenAlgo's own terminal calls `place` directly and never
+   * constructs an engine, so a guarantee reachable only through the engine is
+   * not a guarantee for the largest consumer of this library.
+   */
+  private _assertQuantity(req: PlaceRequest): void {
+    const exchange = req.exchange ?? 'NSE';
+    // Universal floor first, so a NaN or a negative is refused with no config.
+    const c = this._config.constraints?.(req.symbol, exchange) ?? { tickSize: 0 };
+    const v = validateQuantity(req.qty, c);
+    if (!v.ok) {
+      // Pre-flight by construction: nothing has been sent at this point.
+      throw preflight(`openalgo-charts: ${req.symbol} ${exchange}: ${v.reason}`);
+    }
+  }
+
+  /**
+   * Refuse a client order id this feed has already put on the wire.
+   *
+   * The costs are not symmetric, which is the whole argument. Holding a claim
+   * too long costs one deliberate click after a banner. Releasing it too early
+   * costs a doubled live position that nobody asked for, discovered later, quite
+   * possibly on a leveraged intraday product.
+   *
+   * So a claim is released ONLY when the request provably never left. A non-ok
+   * HTTP response, a timeout, an aborted socket: all of those mean the response
+   * did not arrive, and say nothing whatsoever about whether the order did. Those
+   * stay claimed and are reported as ambiguous.
+   *
+   * Enforcement note, because the boundary matters: this stops THIS FEED sending
+   * the same id twice. It cannot make the broker deduplicate. Two browser tabs
+   * are two feeds and two ledgers, and OpenAlgo's placeorder carries no client
+   * order id field, so end-to-end idempotency is not available on this wire.
+   * What is available, and what this delivers, is that a double-clicked button
+   * or a retried promise does not become two orders.
+   */
+  private _claimToken(token: string | undefined): string | undefined {
+    if (token === undefined || this._config.disableIdempotency === true) return undefined;
+    const held = this._claimed.get(token);
+    if (held !== undefined) {
+      throw preflight(
+        held === 'ambiguous'
+          ? `openalgo-charts: clientToken ${token} may already be live at the broker; check the order book before retrying`
+          : `openalgo-charts: duplicate clientToken ${token}`,
+      );
+    }
+    this._claimed.set(token, 'inflight');
+    return token;
+  }
+
   public async place(req: PlaceRequest & { mode: TradeMode }): Promise<{ orderId: string }> {
     // `mode` is a guard, not a payload field: OpenAlgo routes on its own global
     // and would ignore a mode in the body, so putting one there would look like
     // a control while doing nothing.
     await this._assertMode(req.mode);
+    // Both throw pre-flight, so a refusal here provably sent nothing and the
+    // caller may correct and retry without wondering whether an order is live.
+    this._assertQuantity(req);
+    const token = this._claimToken(req.clientToken);
     const ctx: OrderContext = {
       symbol: req.symbol,
       exchange: req.exchange ?? 'NSE',
@@ -224,22 +309,55 @@ export class OpenAlgoTradeFeed implements OrderFeed {
       price: req.price ?? 0,
       triggerPrice: req.triggerPrice ?? 0,
     };
-    const json = (await this._post('/api/v1/placeorder', {
-      strategy: this._strategy,
-      symbol: ctx.symbol,
-      action: ctx.action,
-      exchange: ctx.exchange,
-      pricetype: ctx.pricetype,
-      product: ctx.product,
-      quantity: req.qty,
-      price: req.price ?? 0,
-      trigger_price: req.triggerPrice ?? 0,
-      disclosed_quantity: 0,
-    })) as { orderid?: string; order_id?: string };
+    let json: { orderid?: string; order_id?: string };
+    try {
+      json = (await this._post('/api/v1/placeorder', {
+        strategy: this._strategy,
+        symbol: ctx.symbol,
+        action: ctx.action,
+        exchange: ctx.exchange,
+        pricetype: ctx.pricetype,
+        product: ctx.product,
+        quantity: req.qty,
+        price: req.price ?? 0,
+        trigger_price: req.triggerPrice ?? 0,
+        disclosed_quantity: 0,
+      })) as { orderid?: string; order_id?: string };
+    } catch (err) {
+      // The request left. Whatever went wrong afterwards, the order may be live,
+      // so the claim is kept and marked. Deleting it here is the bug this whole
+      // mechanism exists to prevent: it would make the next attempt look like a
+      // first attempt and could double a position.
+      if (token !== undefined) this._claimed.set(token, 'ambiguous');
+      throw err;
+    }
     const orderId = json.orderid ?? json.order_id;
     if (orderId === undefined) throw new Error('openalgo-charts: placeorder returned no orderid');
+    if (token !== undefined) this._claimed.set(token, 'sent');
     this._ctx.set(orderId, ctx);
     return { orderId };
+  }
+
+  /**
+   * Whether a client order id is known to have reached the broker.
+   *
+   * `'ambiguous'` is the one worth handling: the request left and the outcome is
+   * unknown, so the order may be live. A host should say so and offer the order
+   * book, not a retry button.
+   */
+  public tokenState(token: string): 'unknown' | 'inflight' | 'sent' | 'ambiguous' {
+    return this._claimed.get(token) ?? 'unknown';
+  }
+
+  /**
+   * Release a claim after the host has established what really happened, for
+   * instance by finding no such order in a freshly fetched book.
+   *
+   * Deliberately manual. Nothing in this library can safely decide on its own
+   * that an ambiguous order did not reach the exchange.
+   */
+  public releaseToken(token: string): void {
+    this._claimed.delete(token);
   }
 
   public async modify(orderId: string, patch: { price?: number; triggerPrice?: number; qty?: number }): Promise<void> {
