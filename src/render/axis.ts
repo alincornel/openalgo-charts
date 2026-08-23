@@ -748,7 +748,7 @@ export function drawSessionClock(
   ctx.restore();
 }
 
-function scaleFont(font: string, dpr: number): string {
+export function scaleFont(font: string, dpr: number): string {
   // Multiply the leading "<n>px" by dpr; leave the rest of the font string intact.
   //
   // The digit runs are BOUNDED deliberately. `\d+(?:\.\d+)?px` is quadratic: on a
@@ -758,5 +758,8 @@ function scaleFont(font: string, dpr: number): string {
   // chart layout, and a layout is shareable, so it is not necessarily the host's
   // own text. Five integer digits and four decimals covers every real font size
   // and makes the work linear.
-  return font.replace(/(\d{1,5}(?:\.\d{1,4})?)px/, (_, px: string) => `${Number(px) * dpr}px`);
+  return font.replace(
+    /(^|[^\d.])(\d{1,5}(?:\.\d{1,4})?)px/,
+    (_, pre: string, px: string) => `${pre}${Number(px) * dpr}px`,
+  );
 }

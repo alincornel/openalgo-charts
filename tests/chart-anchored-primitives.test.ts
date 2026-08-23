@@ -123,3 +123,55 @@ describe('chart-anchored primitives follow the edge', () => {
     expect(paneOf(chart, pinned)).toBe(0);
   });
 });
+
+/**
+ * Registry lifecycle. The placement tests above prove an anchored primitive
+ * MOVES; these prove it stops existing when removed, which is a different
+ * property and the one an anchor registry gets wrong.
+ */
+describe('anchored primitives can actually be removed', () => {
+  it('removePrimitive is not undone by a later pane change', () => {
+    const chart = makeChart();
+    const m = mark();
+    chart.addPrimitive(m, { anchor: 'chart-bottom' });
+    chart.removePrimitive(m);
+    expect(paneOf(chart, m)).toBe(-1);
+    // Was: the pane copy went but the registry entry stayed, so the next
+    // re-home put the removed primitive back on the chart.
+    chart.addSeries('line', { paneIndex: 1 }).setData(bars(40));
+    expect(paneOf(chart, m)).toBe(-1);
+    chart.removePane(1);
+    expect(paneOf(chart, m)).toBe(-1);
+  });
+
+  it('survives repeated add and remove without duplicating itself', () => {
+    const chart = makeChart();
+    const m = mark();
+    for (let i = 0; i < 3; i++) {
+      chart.addPrimitive(m, { anchor: 'chart-bottom' });
+      chart.removePrimitive(m);
+    }
+    chart.addPrimitive(m, { anchor: 'chart-bottom' });
+    chart.addSeries('line', { paneIndex: 1 }).setData(bars(40));
+    const holders = chart.panes().filter((p) => p.hasPrimitive(m)).length;
+    expect(holders).toBe(1);
+  });
+
+  it('attaches and detaches exactly once per move', () => {
+    const chart = makeChart();
+    let attached = 0;
+    let detached = 0;
+    const counting: IPrimitive = {
+      draw: () => {},
+      zOrder: () => 'top',
+      attached: () => { attached += 1; },
+      detached: () => { detached += 1; },
+    };
+    chart.addPrimitive(counting, { anchor: 'chart-bottom' });
+    expect([attached, detached]).toEqual([1, 0]);
+    chart.addSeries('line', { paneIndex: 1 }).setData(bars(40));
+    expect([attached, detached]).toEqual([2, 1]);
+    chart.removePrimitive(counting);
+    expect([attached, detached]).toEqual([2, 2]);
+  });
+});

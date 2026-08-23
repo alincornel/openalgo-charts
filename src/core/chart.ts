@@ -1198,6 +1198,11 @@ export class Chart {
       const current = this._panes.findIndex((pane) => pane.hasPrimitive(entry.primitive));
       if (current === target) continue;
       if (current >= 0) this._panes[current].removePrimitive(entry.primitive);
+      // `_addPrimitive` appends a legend row to `_legends`, so re-homing an
+      // anchored PaneLegend without dropping its old record would register it
+      // once per move and stack it against itself.
+      const li = this._legends.findIndex((l) => l.legend === entry.primitive);
+      if (li >= 0) this._legends.splice(li, 1);
       this._addPrimitive(target, entry.primitive);
     }
   }
@@ -1530,6 +1535,13 @@ export class Chart {
 
   /** Remove a primitive from whichever pane holds it. */
   public removePrimitive(primitive: IPrimitive): void {
+    // Drop the anchor registration FIRST. Without this the pane copy goes but
+    // the registry entry stays, and the next pane add, remove, move or maximize
+    // calls `_rehomeAnchored` and puts the removed primitive back on the chart.
+    // A remove that a later unrelated action silently undoes is worse than one
+    // that fails loudly.
+    const ai = this._anchored.findIndex((a) => a.primitive === primitive);
+    if (ai >= 0) this._anchored.splice(ai, 1);
     const li = this._legends.findIndex((l) => l.legend === primitive);
     if (li >= 0) this._legends.splice(li, 1);
     for (let i = 0; i < this._panes.length; i++) {

@@ -124,3 +124,40 @@ describe('price validation', () => {
     expect(out.reason).not.toMatch(/[\u2013\u2014]/); // house rule: no en or em dashes
   });
 });
+
+/**
+ * `scaleFont` bounds its digit runs so the pattern cannot backtrack
+ * polynomially, and requires a leading boundary so the bound cannot make it
+ * match the tail of a longer number.
+ */
+describe('scaleFont', () => {
+  // Imported lazily: axis.ts is a render module and this is the only bit of it
+  // these tests care about.
+  const scale = async (font: string, dpr: number): Promise<string> => {
+    const mod = await import('../src/render/axis');
+    const fn = (mod as unknown as { scaleFont?: (f: string, d: number) => string }).scaleFont;
+    if (!fn) return font;
+    return fn(font, dpr);
+  };
+
+  it('scales an ordinary font string', async () => {
+    expect(await scale('12px sans-serif', 2)).toBe('24px sans-serif');
+    expect(await scale('bold 11.5px Inter', 2)).toBe('bold 23px Inter');
+  });
+
+  it('leaves an oversized numeric token alone rather than rewriting its middle', async () => {
+    // The bounded-but-unanchored form matched the last five digits of this and
+    // produced '1' followed by a scaled '23456px'. Nonsense in, nonsense out is
+    // acceptable; nonsense in, plausible-looking nonsense out is not.
+    expect(await scale('123456px x', 2)).toBe('123456px x');
+  });
+
+  it('is linear on a long digit run', async () => {
+    const evil = `${'0'.repeat(40000)} sans-serif`;
+    const t = Date.now();
+    await scale(evil, 2);
+    // The unbounded form took ~800ms on this input; anything near that is the
+    // backtracking coming back.
+    expect(Date.now() - t).toBeLessThan(100);
+  });
+});
