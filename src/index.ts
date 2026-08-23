@@ -106,6 +106,15 @@ export type {
 export { alignToPrimary } from './compare/align';
 export type { ComparisonAlignment } from './compare/align';
 
+// chart linking (headless: the host draws its own link badge and colour chips).
+// Everything crosses a chart boundary as a time, never as a logical index, so a
+// daily chart and an hourly one stay on the same instant.
+export { LinkGroup, createLinkGroup, followerIndex, followerRange, LinkCrosshair, LINK_CROSSHAIR_ALPHA } from './link/index';
+export type {
+  LinkChart, LinkOptions, LinkMemberOptions, ResolvedLinkOptions,
+  LinkDataLayer, LinkMissingPolicy,
+} from './link/index';
+
 export { CandleBuilder, DEFAULT_CANDLE_BUILDER_OPTIONS } from './feed/candle-builder';
 export type { CandleBuilderOptions, Tick, CandleUpdate, VolumeMode, LateTickPolicy } from './feed/candle-builder';
 
@@ -176,7 +185,29 @@ export type { OpenAlgoLiveConfig } from './feed/openalgo-live';
 export { FakeDataFeed, generateBars } from './feed/fake-feed';
 export type { FeedScheduler } from './feed/fake-feed';
 export { TickBarAggregator } from './feed/tick-aggregator';
-export type { TickTimeframe, AggTick, BarUpdate } from './feed/tick-aggregator';
+// `TickTimeframe` now lives in ./feed/intervals and is re-exported by the
+// aggregator; it is deliberately exported from one place only, or the barrel
+// would carry the same name twice.
+export type { TickTimeframe, AggTick, BarUpdate, TickBarOptions } from './feed/tick-aggregator';
+
+// warm-load bar caching: a DataFeed -> DataFeed wrapper, so any custom feed
+// gets it, not just OpenAlgoDataFeed.
+export { withBarCache, BarCache, barCacheKey, barCloseSec } from './feed/cache';
+export type {
+  BarCacheOptions, BarCacheStore, BarCacheStats, CachedBars, CachedBarsRequest, MaybePromise,
+} from './feed/cache';
+
+// interval registry: an interval code resolves to a bucketing rule, which is
+// not always a duration (a month and a 500-tick bar both have no fixed length).
+export {
+  registerInterval, unregisterInterval, registeredIntervals,
+  resolveInterval, tryResolveInterval, isKnownInterval,
+  bucketStartOf, nextBucketStart, isTimeBucketed, UnknownIntervalError,
+} from './feed/intervals';
+export type {
+  IntervalDescriptor, Bucketing, IntervalBucketing, CalendarBucketing,
+  TickCountBucketing, VolumeBucketing, CalendarUnit,
+} from './feed/intervals';
 export {
   epochMsToUtcSeconds,
   istStringToUtcSeconds,

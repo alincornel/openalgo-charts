@@ -1,18 +1,21 @@
 /**
- * Tick aggregation (ARCHITECTURE.md §10.2). Aggregates raw trade ticks into
- * bars on a chosen timeframe — clock interval, tick count, or traded volume.
- * Incremental and deterministic, so it works live and is unit-testable.
+ * Tick aggregation (ARCHITECTURE.md 10.2). Aggregates raw trade ticks into
+ * bars on a chosen bucketing: clock interval, calendar period, tick count, or
+ * traded volume. Incremental and deterministic, so it works live and is
+ * unit-testable.
  *
  * This is the foundation for tick / volume timeframes and (with classified
  * bid/ask ticks) for the footprint aggregator. Tick-count and volume bars need
- * real trade ticks — OHLCV alone can't produce them.
+ * real trade ticks: OHLCV alone can't produce them.
+ *
+ * The bucketing rules themselves live in `./intervals`, which is also where a
+ * host registers its own interval codes; this class just applies one.
  */
 import type { Bar } from '../model/bar';
+import { bucketStartOf, isTimeBucketed, type Bucketing } from './intervals';
 
-export type TickTimeframe =
-  | { mode: 'interval'; seconds: number; anchorSec?: number }
-  | { mode: 'ticks'; count: number }
-  | { mode: 'volume'; perBar: number };
+// The three original modes keep their name and their home in the public API.
+export type { TickTimeframe } from './intervals';
 
 export interface AggTick {
   time: number;
@@ -25,26 +28,39 @@ export interface BarUpdate {
   isNew: boolean;
 }
 
-/** Decide the bucket key + whether a new tick opens a new bar for the timeframe. */
-function bucketKey(tf: TickTimeframe, time: number): number {
-  if (tf.mode === 'interval') {
-    const a = tf.anchorSec ?? 0;
-    return a + Math.floor((time - a) / tf.seconds) * tf.seconds;
-  }
-  return 0; // ticks/volume bars are boundary-driven, not time-keyed
+export interface TickBarOptions {
+  /**
+   * Zone a calendar bucket resolves in when the bucketing did not pin its own.
+   * Pass the chart's configured timezone: a month boundary is local midnight on
+   * the first, and which instant that is depends on where the exchange is.
+   */
+  timezone?: string;
 }
 
 export class TickBarAggregator {
-  private readonly _tf: TickTimeframe;
+  private readonly _tf: Bucketing;
+  private readonly _zone: string | undefined;
   private _cur: Bar | null = null;
   private _count = 0;
 
-  public constructor(tf: TickTimeframe) {
+  public constructor(tf: Bucketing, options: TickBarOptions = {}) {
     this._tf = tf;
+    this._zone = options.timezone;
   }
 
   public current(): Bar | null {
     return this._cur === null ? null : { ...this._cur };
+  }
+
+  /**
+   * Continue a historical bar instead of opening a fresh one on the first tick.
+   * Time-bucketed modes only: a count-driven bar cannot be resumed, because the
+   * trades that filled it were never counted here.
+   */
+  public seed(lastBar: Bar): void {
+    if (!isTimeBucketed(this._tf)) return;
+    this._cur = { ...lastBar };
+    this._count = 0;
   }
 
   public onTick(tick: AggTick): BarUpdate {
@@ -52,8 +68,8 @@ export class TickBarAggregator {
     let startNew = open;
 
     if (!open && this._cur !== null) {
-      if (this._tf.mode === 'interval') {
-        startNew = bucketKey(this._tf, tick.time) !== this._cur.time;
+      if (this._tf.mode === 'interval' || this._tf.mode === 'calendar') {
+        startNew = bucketStartOf(this._tf, tick.time, this._zone) !== this._cur.time;
       } else if (this._tf.mode === 'ticks') {
         startNew = this._count >= this._tf.count;
       } else {
@@ -62,7 +78,9 @@ export class TickBarAggregator {
     }
 
     if (startNew) {
-      const time = this._tf.mode === 'interval' ? bucketKey(this._tf, tick.time) : tick.time;
+      // Time-bucketed bars open on their boundary; count-driven bars are not
+      // time-keyed at all, so bucketStartOf hands back the opening tick's time.
+      const time = bucketStartOf(this._tf, tick.time, this._zone);
       this._cur = { time, open: tick.price, high: tick.price, low: tick.price, close: tick.price, volume: tick.qty };
       this._count = 1;
       return { bar: { ...this._cur }, isNew: true };

@@ -18,6 +18,7 @@ import type { IPrimitive, DataLayer } from 'openalgo-charts';
 import type { Drawing, DrawingPoint, DrawingStyle, DrawingTool } from './types';
 import { DrawingLayer } from './layer';
 import { getDrawingTool, hasDrawingTool } from './tools';
+import { DrawingClipboard, type ClipboardPort } from './clipboard';
 
 /**
  * The slice of the chart this controller needs.
@@ -40,6 +41,21 @@ export interface DrawingChartHost {
   drawingState(): unknown;
   setDrawingState(state: unknown): void;
   setPlacementMode?(active: boolean): void;
+  /**
+   * Optional, and used only to offset a paste by a fixed screen distance. Going
+   * through pixels rather than adding a price delta keeps the offset the same
+   * visible nudge on a log scale as on a linear one. A host without them still
+   * gets the time half of the offset.
+   */
+  priceToCoordinate?(price: number, paneIndex?: number): number | null;
+  coordinateToPrice?(y: number, paneIndex?: number): number | null;
+  /**
+   * Optional, and used only to keep a paste from a chart with more panes than
+   * this one landing on a pane the user cannot see. Adding a primitive creates
+   * the pane it names, so without this a drawing copied out of an indicator
+   * pane would conjure an empty pane in a single-pane chart.
+   */
+  panes?(): readonly unknown[];
 }
 
 export interface DrawingControllerOptions {
@@ -54,6 +70,29 @@ export interface DrawingControllerOptions {
   stayInDrawingMode?: boolean;
   /** Undo depth. Default 50. */
   historyLimit?: number;
+  /**
+   * Where copy and paste move text. Defaults to `navigator.clipboard`; pass a
+   * port to route through a host's own transfer, or `null` to stay in the
+   * process-local clipboard entirely.
+   */
+  clipboard?: ClipboardPort | null;
+  /**
+   * Whether a refused or failing clipboard write still lands in the in-process
+   * clipboard. Defaults to true, which is what makes copy and paste work between
+   * two charts on a page where the browser has denied clipboard permission.
+   *
+   * Pass false for a host that would rather a failed copy be a failed copy: with
+   * it off, `cut` leaves the drawing alone when the write does not land, so a
+   * shape is never destroyed for a transfer that did not happen.
+   */
+  clipboardFallbackToMemory?: boolean;
+  /**
+   * How far a pasted copy lands from its original, in bars along time and in
+   * screen pixels down the price axis. A paste that lands exactly on top of the
+   * original reads as nothing having happened. Defaults: 2 bars, 16 px.
+   */
+  pasteOffsetBars?: number;
+  pasteOffsetPixels?: number;
 }
 
 interface ClickPayload {
@@ -80,7 +119,8 @@ let nextId = 1;
 
 export class DrawingController {
   private readonly _chart: DrawingChartHost;
-  private _opts: Required<Omit<DrawingControllerOptions, 'defaultStyle'>> & { defaultStyle: DrawingStyle };
+  private _opts: Required<Omit<DrawingControllerOptions, 'defaultStyle' | 'clipboard' | 'clipboardFallbackToMemory'>> & { defaultStyle: DrawingStyle };
+  private readonly _clipboard: DrawingClipboard;
   private readonly _layers = new Map<number, DrawingLayer>();
   private _drawings: Drawing[] = [];
   private _tool: string | null = null;
@@ -102,8 +142,16 @@ export class DrawingController {
       magnet: options.magnet ?? false,
       stayInDrawingMode: options.stayInDrawingMode ?? false,
       historyLimit: options.historyLimit ?? 50,
+      pasteOffsetBars: options.pasteOffsetBars ?? 2,
+      pasteOffsetPixels: options.pasteOffsetPixels ?? 16,
       defaultStyle: options.defaultStyle ?? {},
     };
+    this._clipboard = new DrawingClipboard({
+      ...(options.clipboard === undefined ? {} : { port: options.clipboard }),
+      ...(options.clipboardFallbackToMemory === undefined
+        ? {}
+        : { fallbackToMemory: options.clipboardFallbackToMemory }),
+    });
     this._off.push(chart.on('click', (p) => this._onClick(p as ClickPayload)));
     this._off.push(chart.on('crosshair:move', (p) => this._onCrosshair(p as Record<string, unknown>)));
     this._off.push(chart.on('drag', (p) => this._onDrag(p as DragPayload)));
@@ -143,7 +191,16 @@ export class DrawingController {
   }
 
   public setOptions(patch: DrawingControllerOptions): void {
-    this._opts = { ...this._opts, ...patch, defaultStyle: patch.defaultStyle ?? this._opts.defaultStyle };
+    // `clipboard` is a port, not a stored option: it is applied to the live
+    // clipboard so a host can hand one over after the user grants permission.
+    const { clipboard, ...rest } = patch;
+    this._opts = { ...this._opts, ...rest, defaultStyle: patch.defaultStyle ?? this._opts.defaultStyle };
+    if (clipboard !== undefined) this._clipboard.setPort(clipboard);
+  }
+
+  /** The clipboard behind copy / cut / paste, for a host reporting failures. */
+  public clipboard(): DrawingClipboard {
+    return this._clipboard;
   }
 
   /** Every drawing, in creation order. */
@@ -158,6 +215,17 @@ export class DrawingController {
   /** Add a fully-specified drawing (import, or a host-authored one). */
   public add(drawing: Omit<Drawing, 'id'> & { id?: string }): Drawing {
     this._pushUndo();
+    const created = this._insert(drawing);
+    this._sync();
+    this._chart.emit('draw:add', { drawing: created });
+    return created;
+  }
+
+  /**
+   * Append one drawing without touching history or the layers. Split out so a
+   * paste of several drawings is a single undo step rather than one per shape.
+   */
+  private _insert(drawing: Omit<Drawing, 'id'> & { id?: string }): Drawing {
     const tool = getDrawingTool(drawing.tool);
     const created: Drawing = {
       ...drawing,
@@ -165,8 +233,6 @@ export class DrawingController {
       style: { ...this._opts.defaultStyle, ...tool.defaultStyle, ...drawing.style },
     };
     this._drawings.push(created);
-    this._sync();
-    this._chart.emit('draw:add', { drawing: created });
     return created;
   }
 
@@ -210,6 +276,133 @@ export class DrawingController {
 
   public selected(): string | null {
     return this._selected;
+  }
+
+  // ── clipboard ───────────────────────────────────────────────────────────
+  //
+  // Async because the OS clipboard is: `navigator.clipboard` returns promises
+  // and can reject on a permission the user has not granted. The host owns the
+  // key bindings (the engine installs no listeners), so these are plain calls.
+
+  /**
+   * Put drawings on the clipboard. Defaults to the selection; pass an id or a
+   * list of ids to copy something else. Resolves false when there was nothing
+   * to copy, or when the payload could not be stored anywhere.
+   */
+  public async copy(target?: string | string[] | null): Promise<boolean> {
+    const list = this._targets(target);
+    if (list.length === 0) return false;
+    const ok = await this._clipboard.write(list);
+    if (ok) {
+      this._chart.emit('draw:copy', {
+        drawings: list.map((d) => ({ ...d, points: d.points.map((p) => ({ ...p })), style: { ...d.style } })),
+      });
+    }
+    return ok;
+  }
+
+  /**
+   * Copy, then delete. The delete happens **only** after the clipboard write
+   * resolves successfully, so a refused write leaves the model exactly as it
+   * was rather than destroying a drawing that went nowhere.
+   */
+  public async cut(target?: string | string[] | null): Promise<boolean> {
+    const list = this._targets(target);
+    if (list.length === 0) return false;
+    const ok = await this._clipboard.write(list);
+    if (!ok) return false;
+    // One undo step for the whole cut, and the drawings are re-read here
+    // because the await above gave other code a chance to change the model.
+    const ids = new Set(list.map((d) => d.id));
+    const removed = this._drawings.filter((d) => ids.has(d.id));
+    if (removed.length === 0) return false;
+    this._pushUndo();
+    this._drawings = this._drawings.filter((d) => !ids.has(d.id));
+    if (this._selected !== null && ids.has(this._selected)) this._selected = null;
+    this._sync();
+    for (const d of removed) this._chart.emit('draw:remove', { drawing: d });
+    this._chart.emit('draw:cut', { drawings: removed });
+    return true;
+  }
+
+  /**
+   * Paste whatever is on the clipboard into this chart, offset from the
+   * original so the copy is visibly a second object. Each pasted drawing is a
+   * fresh object with a fresh id, never a second reference to the one copied,
+   * so editing the paste cannot alter its source (or the clipboard).
+   *
+   * Anything that is not our payload (foreign text, a truncated or hand-edited
+   * copy, a newer format) pastes nothing and resolves to an empty array: a
+   * paste shortcut must not throw at the host because the user last copied a
+   * spreadsheet cell.
+   */
+  public async paste(): Promise<Drawing[]> {
+    const entries = await this._clipboard.read();
+    if (entries === null || entries.length === 0) return [];
+    // Everything is prepared before the model is touched: a tool that has since
+    // been unregistered would throw inside `_insert` and leave a half-applied
+    // paste plus an undo entry describing a state that never existed.
+    for (const e of entries) {
+      if (!hasDrawingTool(e.tool)) return [];
+    }
+    const prepared = entries.map((e) => {
+      const paneIndex = this._clampPane(e.paneIndex);
+      return { ...e, paneIndex, points: this._offsetPoints(e.points, paneIndex) };
+    });
+    this._pushUndo();
+    const created = prepared.map((p) => this._insert(p));
+    this._sync();
+    for (const d of created) this._chart.emit('draw:add', { drawing: d });
+    this._chart.emit('draw:paste', { drawings: created });
+    this.select(created[created.length - 1].id);
+    return created;
+  }
+
+  /** Resolve a copy/cut target to live drawings; defaults to the selection. */
+  private _targets(target?: string | string[] | null): Drawing[] {
+    if (target === undefined || target === null) {
+      const sel = this._selected === null ? undefined : this.get(this._selected);
+      return sel === undefined ? [] : [sel];
+    }
+    const ids = typeof target === 'string' ? [target] : target;
+    const out: Drawing[] = [];
+    for (const id of ids) {
+      const d = this.get(id);
+      if (d !== undefined) out.push(d);
+    }
+    return out;
+  }
+
+  /** Fold a pane index from another chart onto a pane this one actually has. */
+  private _clampPane(paneIndex: number): number {
+    const panes = this._chart.panes;
+    if (panes === undefined) return paneIndex;
+    const n = panes.call(this._chart).length;
+    return n === 0 ? 0 : Math.min(paneIndex, n - 1);
+  }
+
+  /** Nudge every anchor so a pasted copy is not hidden under its original. */
+  private _offsetPoints(points: readonly DrawingPoint[], paneIndex: number): DrawingPoint[] {
+    const dt = this._barSeconds() * this._opts.pasteOffsetBars;
+    const px = this._opts.pasteOffsetPixels;
+    return points.map((p) => ({ time: p.time + dt, price: this._offsetPrice(p.price, paneIndex, px) }));
+  }
+
+  /**
+   * Move a price down the screen by `px`. Done per anchor rather than as one
+   * price delta so the paste is a rigid *screen* translation, which is what the
+   * eye expects and what keeps a shape's proportions on a log scale.
+   */
+  private _offsetPrice(price: number, paneIndex: number, px: number): number {
+    if (px === 0) return price;
+    const toY = this._chart.priceToCoordinate;
+    const toPrice = this._chart.coordinateToPrice;
+    if (toY === undefined || toPrice === undefined) return price;   // time offset only
+    const y = toY.call(this._chart, price, paneIndex);
+    if (y === null || !Number.isFinite(y)) return price;
+    const moved = toPrice.call(this._chart, y + px, paneIndex);
+    if (moved === null || !Number.isFinite(moved)) return price;
+    return moved;
   }
 
   public undo(): boolean {
@@ -284,16 +477,22 @@ export class DrawingController {
    */
   private _expand(tool: DrawingTool, clicked: DrawingPoint[]): DrawingPoint[] {
     if (tool.expand === undefined) return clicked;
-    const dl = this._chart.dataLayer;
-    const n = dl.baseIndex;
-    // Bar spacing in seconds from the last gap; a one-bar chart has no gap to
-    // read, so fall back to a minute rather than producing a zero-width default.
-    const a = n > 0 ? dl.indexToTime(n - 1) : undefined;
-    const b = n >= 0 ? dl.indexToTime(n) : undefined;
-    const barSeconds = a !== undefined && b !== undefined && b > a ? b - a : 60;
     const range = this._chart.getVisibleLogicalRange();
     const visibleBars = range === null ? 60 : Math.max(1, range.to - range.from);
-    return tool.expand(clicked, { barSeconds, visibleBars });
+    return tool.expand(clicked, { barSeconds: this._barSeconds(), visibleBars });
+  }
+
+  /**
+   * Bar spacing in seconds, read from the last gap in the data. A one-bar chart
+   * has no gap to read, so fall back to a minute rather than answering zero and
+   * producing zero-width defaults and invisible paste offsets.
+   */
+  private _barSeconds(): number {
+    const dl = this._chart.dataLayer;
+    const n = dl.baseIndex;
+    const a = n > 0 ? dl.indexToTime(n - 1) : undefined;
+    const b = n >= 0 ? dl.indexToTime(n) : undefined;
+    return a !== undefined && b !== undefined && b > a ? b - a : 60;
   }
 
   private _isFreehand(): boolean {

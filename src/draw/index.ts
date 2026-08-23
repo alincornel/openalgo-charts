@@ -51,6 +51,25 @@ export {
 export { DrawingLayer } from './layer';
 export { DrawingController, type DrawingControllerOptions } from './controller';
 
+// Clipboard transfer. `DrawingControllerOptions.clipboard` is typed as
+// `ClipboardPort` and `DrawingController.clipboard()` returns a
+// `DrawingClipboard`, so both have to be nameable from the tier entry or a
+// TypeScript host can use neither. The encode / decode / sanitize trio is
+// exported for a host moving drawings over its own transport (a websocket, a
+// saved template) with the same validation a paste gets.
+export {
+  DrawingClipboard,
+  clearMemoryClipboard,
+  systemClipboard,
+  encodeClipboardPayload,
+  decodeClipboardPayload,
+  sanitizeDrawing,
+  DRAWING_CLIPBOARD_KEY,
+  DRAWING_CLIPBOARD_VERSION,
+  type ClipboardPort,
+  type DrawingClipboardOptions,
+} from './clipboard';
+
 export type {
   Drawing,
   DrawingPoint,

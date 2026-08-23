@@ -16,9 +16,11 @@ describe('intervalToSeconds', () => {
     expect(intervalToSeconds('1h')).toBe(3600);
     expect(intervalToSeconds('4h')).toBe(14400);
   });
-  it('falls back to 60 for unknown tokens', () => {
-    expect(intervalToSeconds('bogus')).toBe(60);
-    expect(intervalToSeconds('')).toBe(60);
+  it('throws for unknown tokens instead of silently meaning one minute', () => {
+    // Falling back to 60 drew minute bars under a label the caller chose, which
+    // is worse than refusing: a subscription now fails at subscribe time.
+    expect(() => intervalToSeconds('bogus')).toThrow();
+    expect(() => intervalToSeconds('')).toThrow();
   });
 });
 
