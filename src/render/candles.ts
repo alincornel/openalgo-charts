@@ -13,6 +13,17 @@ export interface CandleStyle {
   wickDownColor: string;
   borderVisible: boolean;
   wickVisible: boolean;
+  /**
+   * Paint the body at all. Off leaves the candle as its outline and wick, which
+   * is what a settings dialog's "Body" switch means.
+   *
+   * Distinct from `hollow`, which empties only the UP candles and is the
+   * hollow-candle chart type. This empties both, and it is the one switch here
+   * that can legitimately leave nothing drawn: with borders off as well, a
+   * candle is reduced to its wick. That is two deliberate switches rather than
+   * an accident, so it is honoured rather than second-guessed.
+   */
+  bodyVisible?: boolean;
   /** Draw up-candle bodies as outlines only (hollow candles). */
   hollow?: boolean;
   /**
@@ -120,13 +131,18 @@ export function drawCandles(
       ctx.lineWidth = Math.max(1, wickW);
       ctx.strokeRect(cx - halfW + 0.5, top + 0.5, w - 1, bodyH - 1);
     } else {
-      ctx.fillStyle = color;
-      ctx.fillRect(cx - halfW, top, w, bodyH);
+      const filled = style.bodyVisible !== false;
+      if (filled) {
+        ctx.fillStyle = color;
+        ctx.fillRect(cx - halfW, top, w, bodyH);
+      }
       // A filled body takes its border in hollow mode too: in that mode only the
       // up candles go hollow, and the down ones are ordinary filled candles.
       // Below 3px the 1px inset outline would swallow the body, so it is
-      // dropped rather than repainting the candle in the border colour.
-      if (style.borderVisible && w >= 3) {
+      // dropped rather than repainting the candle in the border colour. With the
+      // body hidden there is no fill to swallow and the outline IS the candle,
+      // so that width guard does not apply.
+      if (style.borderVisible && (!filled || w >= 3)) {
         ctx.strokeStyle = borderColor;
         ctx.lineWidth = 1;
         ctx.strokeRect(cx - halfW + 0.5, top + 0.5, w - 1, bodyH - 1);

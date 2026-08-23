@@ -14,6 +14,8 @@ export interface SeriesStyle {
   wickDownColor?: string;
   borderVisible?: boolean;
   wickVisible?: boolean;
+  /** Paint candle bodies. Off leaves outline and wick. Default true. */
+  bodyVisible?: boolean;
   hollow?: boolean;
   /**
    * Color bars by close-versus-previous-close instead of close-versus-own-open,

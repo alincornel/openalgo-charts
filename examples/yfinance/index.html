@@ -138,7 +138,7 @@
     .chk { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none;
       padding: 4px 10px; border-radius: 7px; border: 1px solid var(--bd-soft); background: var(--elev); color: var(--mut); font-size: 12px; }
     .chk:hover { border-color: #33405a; color: var(--tx); }
-    .chk input { accent-color: var(--acc); width: 14px; height: 14px; }
+    .chk input { width: 15px; height: 15px; }
     .lbl { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .6px; }
     /* Active-indicator chips: one per chart.addIndicator() instance. */
     /* Generated indicator-settings modal. */
@@ -308,7 +308,7 @@
       font: inherit; font-size: 13px; outline: none; }
     #td-text:focus { border-color: var(--acc); }
     .td-check { display: flex; align-items: center; gap: 8px; color: var(--mut); font-size: 12px; cursor: pointer; }
-    .td-check input[type=checkbox] { accent-color: var(--acc); width: 15px; height: 15px; }
+    .td-check input[type=checkbox] { width: 15px; height: 15px; }
     .td-check span { flex: 1 1 auto; }
     .td-check input[type=number] { width: 66px; background: var(--elev); color: var(--tx);
       border: 1px solid var(--bd-soft); border-radius: 7px; padding: 4px 6px; font-size: 12px; }
@@ -831,7 +831,7 @@
     // against an older dist/ and say which features that dist cannot serve,
     // rather than failing at link time and showing a blank document.
     const { createLinkGroup } = engine;
-    const { withBarCache } = engine;
+    const { withBarCache, barCloseSec } = engine;
     // Only what this page actually calls. `registeredIntervals` and
     // `isKnownInterval` are on the engine too, and were pulled in here and then
     // used by nothing: the picker is built from CUSTOM_INTERVALS, which is the
@@ -847,7 +847,7 @@
      */
     const MISSING = [];
     if (!createLinkGroup) MISSING.push('chart linking');
-    if (!withBarCache) MISSING.push('bar cache');
+    if (!withBarCache || !barCloseSec) MISSING.push('bar cache');
     if (!registerInterval || !bucketStartOf) MISSING.push('interval registry');
     // Lazy tiers. Each registers into the base bundle's registries as a side
     // effect of being imported, so `addSeries('point-figure')` and
@@ -944,9 +944,21 @@
     const cache = withBarCache
       ? withBarCache(liveFeed, {
           ttlMs: 10 * 60_000,
-          // Ask the registry, so a code registered above is understood here too
-          // and a calendar code (no fixed length) opts itself out of caching.
-          intervalSeconds,
+          // `barCloses` reports the instant a bar CLOSES, which is not the same
+          // question as how many seconds it lasts, and is the only one the cache
+          // can act on: it is what decides whether the last bar is still forming
+          // and must be refetched. The registry answers it for calendar codes
+          // too, where there is no fixed length to state, and returns null for
+          // tick and volume bars so they opt themselves out of caching.
+          //
+          // This used to pass `intervalSeconds`, which 1.4.0 renamed. Nothing
+          // read it, so the wrapper had silently been running on its default --
+          // which happens to be exactly this, hence no visible symptom.
+          //
+          // The zone is read inside the closure, not captured now: the chart's
+          // timezone is a runtime setting, and a New York month is not a Mumbai
+          // month.
+          barCloses: (code, barStartSec) => barCloseSec(code, barStartSec, chartTimezone),
         })
       : null;
     const feed = cache || liveFeed;

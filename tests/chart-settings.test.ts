@@ -166,9 +166,11 @@ describe('paired colour controls', () => {
     const { chart } = mount();
     const rows = pairs(chartSettingsSchema(chart)[0].inputs);
     const byKey = new Map(rows.map((r) => [r.key, r]));
-    // A candle body has no visibility flag in SeriesStyle, so the row must not
-    // claim a checkbox that would write nowhere.
-    expect(byKey.get('symbol.body')?.enabled).toBeUndefined();
+    // All three candle rows carry a switch, and each one writes a real
+    // SeriesStyle flag. `symbol.body` was the exception until `bodyVisible`
+    // existed: the row went without a checkbox rather than offering one that
+    // wrote nowhere. The rule has not changed, only what the renderer can do.
+    expect(byKey.get('symbol.body')?.enabled?.key).toBe('symbol.bodyVisible');
     expect(byKey.get('symbol.borders')?.enabled?.key).toBe('symbol.borderVisible');
     expect(byKey.get('symbol.wick')?.enabled?.key).toBe('symbol.wickVisible');
   });

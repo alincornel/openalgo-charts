@@ -93,6 +93,35 @@ describe('candle style flags reach the canvas', () => {
     expect(outlines(rec)).toEqual([UP.border, DOWN.border]);
   });
 
+  it('bodyVisible false drops the fill and leaves the outline and wick', () => {
+    const rec = paint(two, { bodyVisible: false });
+    expect(bodies(rec)).toEqual([]);
+    expect(outlines(rec)).toEqual([UP.border, DOWN.border]);
+    expect(wicks(rec)).toEqual([UP.wick, DOWN.wick]);
+  });
+
+  it('bodyVisible defaults to on when the style does not mention it', () => {
+    // Guards the `!== false` reading: undefined must mean painted, or every
+    // caller that predates the option loses its candles.
+    expect(bodies(paint(two, { bodyVisible: undefined }))).toEqual([UP.body, DOWN.body]);
+  });
+
+  it('bodyVisible false keeps the outline below the 3px width guard', () => {
+    // The guard exists so a 1px inset outline cannot swallow a narrow FILLED
+    // body. With no fill the outline is the candle, so it must survive.
+    const { ctx, rec } = makeCtx();
+    drawCandles(ctx, two, toY, 2, DPR, { ...STYLE, bodyVisible: false });
+    expect(optimalBarWidth(2, DPR)).toBeLessThan(3);
+    expect(outlines(rec)).toEqual([UP.border, DOWN.border]);
+  });
+
+  it('body and borders both off leaves the wick, which is what was asked for', () => {
+    const rec = paint(two, { bodyVisible: false, borderVisible: false });
+    expect(bodies(rec)).toEqual([]);
+    expect(outlines(rec)).toEqual([]);
+    expect(wicks(rec)).toEqual([UP.wick, DOWN.wick]);
+  });
+
   it('hollow with borders off falls back to the body colour instead of vanishing', () => {
     const rec = paint(two, { hollow: true, borderVisible: false });
     expect(outlines(rec)).toEqual([UP.body]); // up candle survives, down gets no border

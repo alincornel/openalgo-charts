@@ -247,7 +247,7 @@ type StyleColorKey =
   | 'color';
 
 /** Style fields a pair's switch writes. */
-type StyleFlagKey = 'borderVisible' | 'wickVisible';
+type StyleFlagKey = 'borderVisible' | 'wickVisible' | 'bodyVisible';
 
 /** The one cast: a computed key is a string to TypeScript, not a style field. */
 const setStyleField = (chart: Chart, key: StyleColorKey | StyleFlagKey, value: string | boolean): void =>
@@ -343,9 +343,14 @@ function priceControls(chart: Chart): Control[] {
     out.push(
       // No switch on Body: a candle with no body is not a candle, and there is
       // no style flag behind such a checkbox. Borders and wicks have one.
+      // Body carries a switch like its neighbours now that the renderer can
+      // actually skip the fill. Before `bodyVisible` existed this row was
+      // deliberately left without one rather than shipping a checkbox that
+      // toggled nothing.
       seriesColorPair('symbol.body', 'Body', 'Candles',
         { key: 'upColor', label: 'Up', def: t.upColor },
-        { key: 'downColor', label: 'Down', def: t.downColor }),
+        { key: 'downColor', label: 'Down', def: t.downColor },
+        { key: 'bodyVisible' }),
       seriesColorPair('symbol.borders', 'Borders', 'Candles',
         { key: 'borderUpColor', label: 'Up', def: t.upColor },
         { key: 'borderDownColor', label: 'Down', def: t.downColor },

@@ -73,6 +73,7 @@ function candleStyle(s: SeriesStyle, theme: ChartTheme, extra: Partial<CandleSty
     wickUpColor: s.wickUpColor ?? theme.wickUpColor,
     wickDownColor: s.wickDownColor ?? theme.wickDownColor,
     borderVisible: s.borderVisible ?? DEFAULT_CANDLE_STYLE.borderVisible,
+    bodyVisible: s.bodyVisible ?? true,
     wickVisible: s.wickVisible ?? DEFAULT_CANDLE_STYLE.wickVisible,
     colorByPreviousClose: s.colorByPreviousClose,
     ...extra,
