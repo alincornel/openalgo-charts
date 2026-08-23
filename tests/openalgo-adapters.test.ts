@@ -96,6 +96,54 @@ describe('OpenAlgoTradeFeed (offline, injected fetch)', () => {
     expect(cap.body).toMatchObject({ orderid: 'OA123' });
   });
 
+  /**
+   * modifyorder takes the WHOLE order, not a delta, so every field the caller
+   * did not mention is still sent and must be sent at its CURRENT value.
+   * Defaulting the unmentioned price to 0 does not leave it alone: it
+   * overwrites it with zero on a live working order at the broker.
+   */
+  it('modify keeps the price field the caller did not touch', async () => {
+    const cap: { url?: string; body?: Record<string, unknown> } = {};
+    const feed = feedFor(cap, { orderid: 'OA9' });
+    // A stop-limit: it carries BOTH a limit price and a trigger.
+    await feed.place({
+      symbol: 'SBIN', exchange: 'NSE', side: 'SELL', type: 'SL', qty: 5,
+      price: 770, triggerPrice: 772, product: 'MIS', mode: 'live',
+    });
+    // Dragging the line on a stop order sends only the trigger. This is exactly
+    // what the OpenAlgo terminal does when a stop-loss line is dragged.
+    await feed.modify('OA9', { triggerPrice: 765 });
+    expect(cap.body).toMatchObject({ trigger_price: 765, price: 770 });
+  });
+
+  it('modify keeps the trigger the caller did not touch, and remembers both', async () => {
+    const cap: { url?: string; body?: Record<string, unknown> } = {};
+    const feed = feedFor(cap, { orderid: 'OA10' });
+    await feed.place({
+      symbol: 'SBIN', exchange: 'NSE', side: 'SELL', type: 'SL', qty: 5,
+      price: 770, triggerPrice: 772, mode: 'live',
+    });
+    await feed.modify('OA10', { price: 768 });
+    expect(cap.body).toMatchObject({ price: 768, trigger_price: 772 });
+    // A second modify must build on the first, not resurrect the placed values.
+    await feed.modify('OA10', { triggerPrice: 764 });
+    expect(cap.body).toMatchObject({ price: 768, trigger_price: 764 });
+  });
+
+  it('modify of a book-loaded order keeps the untouched price too', async () => {
+    const cap: { url?: string; body?: Record<string, unknown> } = {};
+    const feed = feedFor(cap, {
+      data: [{
+        orderid: 'OB1', symbol: 'INFY', exchange: 'NSE', action: 'SELL', pricetype: 'SL',
+        product: 'MIS', quantity: 7, price: 1500, trigger_price: 1505, order_status: 'open',
+      }],
+    });
+    await feed.getOrders();
+    await feed.modify('OB1', { triggerPrice: 1499 });
+    // Never placed in this session, so the context came from the order book.
+    expect(cap.body).toMatchObject({ price: 1500, trigger_price: 1499, quantity: 7 });
+  });
+
   it('surfaces OpenAlgo error messages on non-OK responses (RMS text, not just a status code)', async () => {
     const fetchImpl = (async () => ({
       ok: false, status: 400,

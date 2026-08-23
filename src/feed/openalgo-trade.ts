@@ -23,7 +23,15 @@ export interface OpenAlgoTradeConfig {
   fetchImpl?: typeof fetch;
 }
 
-/** Context needed to build a documented modifyorder payload. */
+/**
+ * Context needed to build a documented modifyorder payload.
+ *
+ * `price` and `triggerPrice` are held here for the same reason `quantity` is:
+ * OpenAlgo's modifyorder takes the WHOLE order, not a delta, so any field the
+ * caller does not mention still has to be sent, and it has to be sent at its
+ * current value. Defaulting the unmentioned one to 0 does not leave it alone,
+ * it overwrites it with zero on a live working order.
+ */
 interface OrderContext {
   symbol: string;
   exchange: string;
@@ -31,6 +39,8 @@ interface OrderContext {
   pricetype: string;
   product: string;
   quantity: number;
+  price: number;
+  triggerPrice: number;
 }
 
 export class OpenAlgoTradeFeed implements OrderFeed {
@@ -78,6 +88,8 @@ export class OpenAlgoTradeFeed implements OrderFeed {
       pricetype: req.type,
       product: req.product ?? this._defaultProduct,
       quantity: req.qty,
+      price: req.price ?? 0,
+      triggerPrice: req.triggerPrice ?? 0,
     };
     const json = (await this._post('/api/v1/placeorder', {
       strategy: this._strategy,
@@ -102,8 +114,18 @@ export class OpenAlgoTradeFeed implements OrderFeed {
     if (ctx === undefined) {
       throw new Error(`openalgo-charts: cannot modify ${orderId} — unknown order context (place it or load the order book first)`);
     }
-    if (patch.qty !== undefined) ctx.quantity = patch.qty; // keep cache in sync
+    // Keep the cache in step with what we are about to send, so a second
+    // modify of a different field does not resurrect the previous value.
+    if (patch.qty !== undefined) ctx.quantity = patch.qty;
+    if (patch.price !== undefined) ctx.price = patch.price;
+    if (patch.triggerPrice !== undefined) ctx.triggerPrice = patch.triggerPrice;
     // OpenAlgo modifyorder requires the full order context, not just the delta.
+    //
+    // The price fields therefore fall back to the CACHED value, never to 0.
+    // They used to read `patch.price ?? 0`, which quietly zeroed whichever of
+    // the two the caller had not mentioned. Dragging a stop-limit order's line
+    // sends only a trigger, so that path sent `price: 0` and wiped the limit
+    // price off a live working order at the broker.
     await this._post('/api/v1/modifyorder', {
       orderid: orderId,
       strategy: this._strategy,
@@ -113,8 +135,8 @@ export class OpenAlgoTradeFeed implements OrderFeed {
       pricetype: ctx.pricetype,
       product: ctx.product,
       quantity: ctx.quantity,
-      price: patch.price ?? 0,
-      trigger_price: patch.triggerPrice ?? 0,
+      price: ctx.price,
+      trigger_price: ctx.triggerPrice,
       disclosed_quantity: 0, // required by the modifyorder API
     });
   }
@@ -134,6 +156,9 @@ export class OpenAlgoTradeFeed implements OrderFeed {
         this._ctx.set(r.orderid, {
           symbol: r.symbol ?? '', exchange: r.exchange ?? 'NSE', action: r.action ?? 'BUY',
           pricetype: r.pricetype ?? 'LIMIT', product: r.product ?? this._defaultProduct, quantity: num(r.quantity),
+          // From the book, so a drag of an order this session never placed also
+          // preserves the field the drag does not touch.
+          price: num(r.price), triggerPrice: num(r.trigger_price),
         });
       }
     }
