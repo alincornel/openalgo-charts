@@ -32,6 +32,16 @@ const DEFAULT_LEGEND_LEFT = 8;
 /** How close to the chart top counts as "in the host's corner", in media px. */
 const LEGEND_TOP_EPS = 12;
 
+/**
+ * How fast a drag's remembered velocity fades while the pointer is still down,
+ * in ms. Short enough that a deliberate pause before releasing kills the fling,
+ * long enough that the ordinary jitter between two move events does not.
+ */
+const KINETIC_VELOCITY_HALFLIFE_MS = 50;
+
+/** Hard ceiling on glide frames, about ten seconds at 60fps. See `_startKinetic`. */
+const KINETIC_MAX_FRAMES = 600;
+
 const INSTANCE_PALETTE: readonly string[] = [
   '#f5a623', '#26a69a', '#ab47bc', '#ef5350',
   '#26c6da', '#8bc34a', '#ff7043', '#5c6bc0',
@@ -606,7 +616,9 @@ export class Chart {
 
   /** Restore a saved logical range (e.g. preserve the user's zoom across a data reload). */
   public setVisibleLogicalRange(range: LogicalRange): void {
+    const before = this._timeScale.visibleRange();
     this._timeScale.setVisibleLogicalRange(range);
+    this._emitViewportIfMoved(before);
   }
 
   /** The current visible logical range. */
@@ -617,8 +629,10 @@ export class Chart {
   /** Fit all bars into view (no-arg convenience; bar count from the data). */
   public fitContent(): void {
     if (this._dataLayer.length <= 0) return;
+    const before = this._timeScale.visibleRange();
     this._timeScale.fitContent(this._dataLayer.length);
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
+    this._emitViewportIfMoved(before);
   }
 
   /** The keyboard shortcut manager (null when shortcuts are disabled). */
@@ -1045,8 +1059,13 @@ export class Chart {
   // `subscribe*` helpers. Names emitted by the core: 'ready', 'crosshair:move',
   // 'click', 'dblclick', 'hover', 'drag', 'drag:end', 'pan', 'zoom', 'resize',
   // 'lazy-load', 'paneRemoved', 'paneMoved', 'paneMaximized', 'paneResized',
-  // 'priceAxisMoved', 'indicatorRemoved', 'indicatorSettings'. The trading layer routes its
-  // 'trading:*' events through here too, and the draw tier emits 'draw:*'.
+  // 'priceAxisMoved', 'indicatorRemoved', 'indicatorSettings', 'destroy'. The
+  // trading layer routes its 'trading:*' events through here too, and the draw
+  // tier emits 'draw:*'.
+  //
+  // 'symbol' is a name the *host* emits on this bus, not the core: the engine
+  // has no instrument concept, and a link group listens for it to slave a grid
+  // of charts to one symbol (payload `{ symbol: string }` or a bare string).
   //
   // Event names are the same string on both buses: `TradingController` keys its
   // own listener map on the full name, so it is `chart.trading.on(
@@ -1105,6 +1124,24 @@ export class Chart {
       logicalFrom: r.from,
       logicalTo: r.to,
     });
+  }
+
+  /**
+   * Emit a viewport event for a change whose kind is not known up front, and
+   * only if the window actually moved.
+   *
+   * The gesture paths know exactly what happened (a wheel is a zoom, a drag is
+   * a pan) and emit directly. The programmatic paths do not: restoring a saved
+   * range, fitting content or pressing an arrow key can move the window, resize
+   * it, or do nothing at all because the scale was already there or clamped.
+   * The span is the discriminator a listener cares about, and the no-move check
+   * matters because a linked grid would otherwise re-broadcast on every no-op.
+   */
+  private _emitViewportIfMoved(before: LogicalRange): void {
+    const after = this._timeScale.visibleRange();
+    if (after.from === before.from && after.to === before.to) return;
+    const resized = Math.abs((after.to - after.from) - (before.to - before.from)) > 1e-9;
+    this._emitViewport(resized ? 'zoom' : 'pan');
   }
 
   /** Public: attach any primitive (indicators, profiles, custom overlays) to a pane. */
@@ -1404,8 +1441,17 @@ export class Chart {
   private _addPrimitive(paneIndex: number, primitive: IPrimitive): void {
     this._ensurePane(paneIndex);
     const host: PrimitiveHost = {
+      // A 'top' primitive is drawn only by `Pane.paintTop`, so repainting the
+      // base canvas for it is work nothing consumes. That is the difference
+      // between a cursor-following overlay costing one overlay repaint and it
+      // costing a full series redraw on every mousemove, times every chart in a
+      // linked grid. Read per call rather than captured at attach: `zOrder()`
+      // is a method, and a primitive is free to change layer.
       requestUpdate: (): void =>
-        this.invalidate((m) => m.invalidatePane(paneIndex, { level: InvalidationLevel.Light, autoScale: false })),
+        this.invalidate((m) => m.invalidatePane(paneIndex, {
+          level: primitive.zOrder() === 'top' ? InvalidationLevel.Cursor : InvalidationLevel.Light,
+          autoScale: false,
+        })),
     };
     this._panes[paneIndex].addPrimitive(primitive, host);
     // Track legend rows however they were added — a host can add its own (a
@@ -2645,7 +2691,16 @@ export class Chart {
       this._lastDragY = p.y;
       const t = this._now();
       const dt = t - this._lastDragT;
-      if (dt > 0) this._dragVelocity = (p.x - this._lastDragX) / dt;
+      if (dt > 0) {
+        // Blend rather than replace, and let an idle gap wash the old value out.
+        // Sampling only on pointermove means a drag that stops and holds keeps
+        // whatever velocity its last moving frame had, so releasing after a
+        // deliberate pause flings the chart as if it were still moving. Decay is
+        // measured in elapsed time, so it works the same on a throttled feed.
+        const instant = (p.x - this._lastDragX) / dt;
+        const keep = Math.exp(-dt / KINETIC_VELOCITY_HALFLIFE_MS);
+        this._dragVelocity = this._dragVelocity * keep + instant * (1 - keep);
+      }
       this._lastDragX = p.x;
       this._lastDragT = t;
       this._maybeLoadHistory();
@@ -2805,6 +2860,7 @@ export class Chart {
    * Same as double-clicking the chart.
    */
   public resetScale(): void {
+    const before = this._timeScale.visibleRange();
     if (this._dataLayer.length > 0) this._timeScale.fitContent(this._dataLayer.length);
     for (const pane of this._panes) {
       // "Back to the default view" includes the ratio locks: one would otherwise
@@ -2813,6 +2869,7 @@ export class Chart {
       pane.priceScale.setAutoScale(true);
     }
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
+    this._emitViewportIfMoved(before);
   }
 
   private readonly _onDblClick = (): void => {
@@ -2874,19 +2931,36 @@ export class Chart {
   /** Execute a built-in command; returns false for unknown (custom) commands. */
   private _runShortcut(command: string): boolean {
     const ts = this._timeScale;
+    // Keyboard navigation moves the same viewport a drag or a wheel does, so it
+    // announces itself the same way: a chart linked into a grid must follow an
+    // arrow key, not only a gesture. `panUp` / `panDown` move a price scale, not
+    // the time window, and deliberately emit nothing (the payload is a time
+    // range, and `_emitViewportIfMoved` sees no movement in it anyway).
+    const pan = (bars: number): boolean => {
+      const before = ts.visibleRange();
+      ts.setRightOffset(ts.rightOffset + bars);
+      this._emitViewportIfMoved(before);
+      return true;
+    };
+    const zoom = (factor: number): boolean => {
+      const before = ts.visibleRange();
+      ts.zoomAtX(this._width / 2, factor);
+      this._emitViewportIfMoved(before);
+      return true;
+    };
     switch (command) {
-      case 'panLeftBar': ts.setRightOffset(ts.rightOffset - 1); return true;
-      case 'panRightBar': ts.setRightOffset(ts.rightOffset + 1); return true;
-      case 'panLeft': ts.setRightOffset(ts.rightOffset - 2); return true;
-      case 'panRight': ts.setRightOffset(ts.rightOffset + 2); return true;
-      case 'panLeftFast': ts.setRightOffset(ts.rightOffset - 10); return true;
-      case 'panRightFast': ts.setRightOffset(ts.rightOffset + 10); return true;
+      case 'panLeftBar': return pan(-1);
+      case 'panRightBar': return pan(1);
+      case 'panLeft': return pan(-2);
+      case 'panRight': return pan(2);
+      case 'panLeftFast': return pan(-10);
+      case 'panRightFast': return pan(10);
       case 'panUp': this._panes[0]?.priceScale.panByPixels(20); return true;
       case 'panDown': this._panes[0]?.priceScale.panByPixels(-20); return true;
-      case 'zoomIn': ts.zoomAtX(this._width / 2, 1.1); return true;
-      case 'zoomOut': ts.zoomAtX(this._width / 2, 1 / 1.1); return true;
+      case 'zoomIn': return zoom(1.1);
+      case 'zoomOut': return zoom(1 / 1.1);
       case 'resetScale': this.resetScale(); return true;
-      case 'fitContent': if (this._dataLayer.length > 0) ts.fitContent(this._dataLayer.length); return true;
+      case 'fitContent': this.fitContent(); return true;
       case 'screenshot': this.downloadScreenshot(); return true;
       case 'toggleGridVert': this.setGridOptions({ vertLines: !this._gridVert }); return true;
       case 'toggleGridHorz': this.setGridOptions({ horzLines: !this._gridHorz }); return true;
@@ -3014,11 +3088,25 @@ export class Chart {
     }
   }
 
+  /**
+   * Coast after a flick. Runs on the INJECTED scheduler, not the global
+   * requestAnimationFrame: a host that supplies its own raf expects to own
+   * every frame this chart schedules, and reaching past it also made the
+   * glide untestable, which is why the missing pan event on each frame went
+   * unnoticed until a browser drove it.
+   */
   private _startKinetic(velocity: number): void {
     const anim = new KineticAnimation(velocity);
     if (anim.durationMs <= 0) return;
     const start = this._now();
     let lastDist = 0;
+    // A frame budget as well as a time budget. The loop is bounded in time, but
+    // it re-schedules itself through the injected scheduler, and a host may run
+    // that synchronously (the test harness does, deliberately, so a repaint is
+    // observable inline). Time-based termination alone then never fires and the
+    // loop recurses until the stack goes. A glide is well under a second, so
+    // ten seconds of frames is a ceiling no real animation reaches.
+    let frames = 0;
     const step = (): void => {
       const elapsed = this._now() - start;
       const dist = anim.distanceAt(elapsed);
@@ -3027,23 +3115,40 @@ export class Chart {
       this._timeScale.setRightOffset(this._timeScale.rightOffset - delta / this._timeScale.barSpacing);
       this._maybeLoadHistory();
       this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
-      if (!anim.finished(elapsed)) {
-        this._kineticHandle = requestAnimationFrame(step);
+      // The glide is a pan like any other and has to say so. Without this the
+      // drag emits its last event at the moment the pointer lifts, and everything
+      // downstream (a linked chart, a host tracking the visible range) is left on
+      // that window while this one coasts on for another few hundred milliseconds.
+      this._emitViewport('pan');
+      if (!anim.finished(elapsed) && ++frames < KINETIC_MAX_FRAMES) {
+        this._kineticHandle = this._raf.schedule(step);
       } else {
         this._kineticHandle = null;
       }
     };
-    this._kineticHandle = requestAnimationFrame(step);
+    this._kineticHandle = this._raf.schedule(step);
   }
 
   private _stopKinetic(): void {
     if (this._kineticHandle !== null) {
-      cancelAnimationFrame(this._kineticHandle);
+      this._raf.cancel(this._kineticHandle);
       this._kineticHandle = null;
     }
   }
 
+  /**
+   * True once `destroy()` has run. Anything holding a chart it did not create
+   * (a link group, a controller, a host cache) needs to know the object is a
+   * corpse before it calls into it: inferring it from a side effect such as an
+   * empty pane list works only for as long as nothing else can empty one.
+   */
+  public get isDestroyed(): boolean {
+    return this._destroyed;
+  }
+  private _destroyed = false;
+
   public destroy(): void {
+    if (this._destroyed) return; // idempotent: a second call must not re-emit
     this._loop.stop();
     if (this._remeasureHandle !== null) {
       this._raf.cancel(this._remeasureHandle);
@@ -3074,6 +3179,14 @@ export class Chart {
     this._pointers.clear();
     for (const pane of this._panes) pane.destroy(); // detaches primitives + removes element
     this._panes.length = 0;
+    // Announced last, with the chart already torn down: a 'destroy' listener is
+    // there to let go of it (unsubscribe, drop it from a link group), not to
+    // read it, and it must see the same dead object every other holder sees.
+    this._destroyed = true;
+    this.emit('destroy', {});
+    // Subscriptions on a destroyed chart would otherwise be retained forever,
+    // keeping every listener's closure (and whatever it captured) alive.
+    this._listeners.clear();
   }
 }
 
