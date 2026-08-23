@@ -2,6 +2,63 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.5.0
+
+### Fixed
+
+- **Removing a sub-plot indicator could throw**
+  `TypeError: Cannot read properties of undefined (reading 'removeSeries')`,
+  leaving the teardown half-done: the legend went, the plot stayed on the chart.
+
+  `_createSeries` captured `paneIndex` once and every closure on the returned
+  `SeriesApi` used that number afterwards. A slot number is not stable.
+  `removeIndicator` prunes a pane that just emptied, which splices the pane array
+  so everything below shifts up one, and `movePane` swaps two entries outright.
+  The captured number then names a different pane, or none at all.
+
+  Concretely: three sub-plots on panes 1, 2 and 3. Remove the first, and the
+  survivors shift to 1 and 2 while their series still name 2 and 3. Remove the
+  last and `_panes[3]` is undefined. That is why it needed more than one sub-plot
+  and never appeared when clearing them bottom-up, which shifts nothing.
+
+  The quieter half had no symptom to report it at all: when the stale index still
+  lands on a live pane, the series is stripped from the **wrong** pane. Series
+  now hold their pane by identity, since panes travel with their series through
+  both operations.
+
+### Added
+
+- **`SeriesStyle.bodyVisible`.** `false` drops the candle body fill and leaves
+  the outline and the wick, which is what a settings dialog's Body switch means.
+  Distinct from `hollow`, which empties only the up candles and is the
+  hollow-candle chart type; this empties both.
+
+  It exists because the candle settings row could not honestly carry a checkbox
+  without it. `chartSettingsSchema` now gives the Body row the same switch its
+  Borders and Wick neighbours already had, rather than the row going without one
+  because nothing in `SeriesStyle` backed it.
+
+  It is the one flag here that can legitimately leave nothing drawn: with borders
+  off as well, a candle is reduced to its wick. That is two deliberate switches
+  rather than an accident, so it is honoured rather than second-guessed. The 3px
+  width guard on the inset outline is skipped when the body is hidden, since the
+  guard exists to stop a 1px outline swallowing a narrow *filled* body and with
+  no fill the outline is the candle.
+
+### Examples
+
+- `examples/yfinance` was passing `intervalSeconds` to `withBarCache`, an option
+  1.4.0 renamed to `barCloses`. Nothing read it, so the wrapper had silently been
+  running on its default, which happens to be the registry-backed answer it was
+  reaching for, hence no visible symptom. It now passes `barCloses` and reads the
+  chart's timezone inside the closure rather than capturing it, because a New
+  York month is not a Mumbai month. Two `accent-color` declarations on checkboxes
+  are also gone: they tint a *native* control, and these boxes are drawn by the
+  `appearance: none` rule at the top of the file.
+
+1734 tests across 91 files. Everything tier 110.7 KB brotlied, against a 120 KB
+budget.
+
 ## 1.4.0
 
 ### Breaking

@@ -8,6 +8,66 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 1.5.0
+
+**Fixed**
+
+- **Removing a sub-plot indicator could throw** `Cannot read properties of undefined
+  (reading 'removeSeries')`, leaving the teardown half-done: the legend went, the plot
+  stayed. A series captured the pane *slot* it was created in, and slots are not stable
+  — removing an emptied indicator pane splices the array so everything below shifts up
+  one, and moving a pane swaps two entries. Three sub-plots, remove the first, then the
+  last, and the index points past the end. Clearing them bottom-up shifts nothing, which
+  is why it looked intermittent. The quieter half had no symptom at all: a stale index
+  that still lands on a live pane strips the wrong one. Series now hold their pane by
+  identity.
+
+**Added**
+
+- **`SeriesStyle.bodyVisible`.** `false` drops the candle body fill and leaves the outline
+  and the wick. Distinct from `hollow`, which empties only the up candles. It exists so the
+  Body row in [Settings](/docs/settings-and-menus) can carry a real switch: the row went
+  without one until now, because nothing in `SeriesStyle` backed it and a checkbox that
+  writes nowhere is worse than an absent one.
+
+## 1.4.0
+
+**Breaking, in a minor release by explicit decision.** Both changes only affect codes that
+were already producing the wrong answer.
+
+- `intervalToSeconds` throws `UnknownIntervalError` instead of quietly answering 60 seconds
+  for anything it did not recognise, which drew minute bars under whatever label the caller
+  thought it had asked for. Use `tryResolveInterval` / `isKnownInterval` to ask without
+  throwing.
+- Upper-case `M` no longer resolves. The token regex folded case, so `M` read as minutes and
+  anything gating on "has the next bar closed yet" believed a month closed every sixty
+  seconds. A host wanting months registers a calendar interval deliberately.
+
+**Added**
+
+- **Chart linking.** `createLinkGroup({ crosshair, viewport, symbol })` drives a grid as one
+  workspace. Nothing crosses a chart boundary as a logical index: every value converts to a
+  time on the sender and back to an index on the receiver, against that chart's own bars. A
+  follower resolves an instant to the last bar that had *opened* by then, not the nearest
+  timestamp, because a bar is stamped at its open and "nearest" would show tomorrow's candle
+  for half of every day. See [Chart Linking](/docs/chart-linking).
+- **A drawing clipboard.** `copy`, `cut` and `paste`, across charts and tabs through the OS
+  clipboard, under one namespaced versioned key so foreign text pastes nothing. `cut` deletes
+  only after the write lands.
+- **Warm-load bar caching.** `withBarCache(feed, options)` wraps any `DataFeed`. The forming
+  bar is never stored, so a warm load is short by at most the bar currently building and is
+  never wrong about one it returns. See [Bar Cache](/docs/bar-cache).
+- **Custom intervals.** `registerInterval` describes *how to bucket*, not how many seconds a
+  bar lasts, because a month is not 30 days and a tick bar is not time-based at all. See
+  [Custom Intervals](/docs/custom-intervals).
+
+**Fixed**
+
+- The kinetic glide after a flick emitted no viewport event, so anything downstream stayed on
+  the window where the pointer lifted while the chart coasted on. Drag velocity never decayed
+  either, so a drag that paused before releasing still flung the chart.
+- The cache carried a second, weaker interval parser that could not see registered codes.
+
 ## 1.3.0
 
 **Added**

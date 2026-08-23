@@ -111,11 +111,16 @@ of `ChartSettingsValues`. A `colorPair` contributes two or three perfectly norma
 the patch, so `readChartSettings` and `applyChartSettings` never learned the widget exists,
 and nothing about the wire format, JSON-safety or state restore had to change to carry it.
 
-`enabled` is optional and its absence is information. Borders and wicks have
-`borderVisible` and `wickVisible` behind them, so those rows get a switch that does
-something. A candle **body** has no such flag, because a candle with no body is not a
-candle, so the Body row ships with two swatches and an empty switch column rather than a
-checkbox that would be a lie.
+`enabled` is optional and its absence is information: a row gets a switch when a
+`SeriesStyle` flag backs it, and goes without one when nothing does, rather than offering a
+checkbox that writes nowhere.
+
+All three candle rows carry one, over `bodyVisible`, `borderVisible` and `wickVisible`.
+Body was the exception until 1.5.0 and is worth knowing about as a worked example of the
+rule: the row shipped with two swatches and an empty switch column, not because a body
+switch was undesirable but because the renderer had nothing to skip. The fix was to add
+`bodyVisible` to `SeriesStyle` and teach the renderer to honour it, not to add the checkbox
+and hope. If you are extending this schema, that is the order to work in.
 
 <Callout type="warning">
 Do not read `input.key` as a value key on a `colorPair` row. `values['symbol.borders']` is
