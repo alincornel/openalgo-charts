@@ -12,15 +12,28 @@ test('renders a non-blank chart with no console/page errors', async ({ page }) =
   await page.goto('/');
   await page.waitForFunction(() => (window as any).__ready === true);
 
-  // the base canvas actually painted candles/grid/axes (not all background)
-  const painted = await page.evaluate(() => {
+  // The base canvas actually painted candles/grid/axes, not just background.
+  //
+  // Polled rather than sampled once. `__ready` is set synchronously at the end of
+  // the fixture's module, which is BEFORE the first animation frame has run, so a
+  // single read races the first paint and returns an untouched canvas. It passed
+  // for as long as the frame happened to land first and started failing on a
+  // toolchain bump that shifted the timing by a few milliseconds. Waiting for the
+  // pixels themselves is the condition the test actually cares about.
+  const countPainted = () => {
     const cv = document.querySelector('#c canvas') as HTMLCanvasElement;
     const ctx = cv.getContext('2d')!;
     const { data } = ctx.getImageData(0, 0, cv.width, cv.height);
     let nonbg = 0;
     for (let i = 0; i < data.length; i += 4) if (data[i] > 20 || data[i + 1] > 20 || data[i + 2] > 30) nonbg++;
     return nonbg;
-  });
+  };
+  await page.waitForFunction(
+    (fn) => new Function('return (' + fn + ')()')() > 2000,
+    countPainted.toString(),
+    { timeout: 5000 },
+  );
+  const painted = await page.evaluate(countPainted);
   expect(painted).toBeGreaterThan(2000);
   expect(errors).toEqual([]);
 });
