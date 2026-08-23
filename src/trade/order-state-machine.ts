@@ -4,6 +4,7 @@
  *
  *   pending_place ─ack→ working ─fill→ filled
  *                 ─reject→ rejected
+ *   working/partial ─reject→ rejected     (the broker refusing one it accepted)
  *   working/partial ─submitModify→ modify_pending ─ack→ working / ─reject→ working
  *   working/partial ─submitCancel→ cancel_pending ─cancelled→ cancelled / ─reject→ working
  *   any non-terminal ─reconnectAbsent→ stale
@@ -37,8 +38,12 @@ export function isTerminal(state: ClientOrderState): boolean {
 
 const TRANSITIONS: Record<ClientOrderState, Partial<Record<OrderEvent, ClientOrderState>>> = {
   pending_place: { ack: 'working', partialFill: 'partial', fill: 'filled', reject: 'rejected', reconnectAbsent: 'stale' },
-  working: { partialFill: 'partial', fill: 'filled', submitModify: 'modify_pending', submitCancel: 'cancel_pending', cancelled: 'cancelled', reconnectAbsent: 'stale' },
-  partial: { partialFill: 'partial', fill: 'filled', submitModify: 'modify_pending', submitCancel: 'cancel_pending', cancelled: 'cancelled', reconnectAbsent: 'stale' },
+  // `reject` from working/partial is the broker rejecting an order it had
+  // already accepted (an AMO the exchange refuses at open, an RMS square-off).
+  // Without the edge, an authoritative "rejected" left `state` reading working
+  // while `brokerStatus` said otherwise, and the row never settled.
+  working: { partialFill: 'partial', fill: 'filled', reject: 'rejected', submitModify: 'modify_pending', submitCancel: 'cancel_pending', cancelled: 'cancelled', reconnectAbsent: 'stale' },
+  partial: { partialFill: 'partial', fill: 'filled', reject: 'rejected', submitModify: 'modify_pending', submitCancel: 'cancel_pending', cancelled: 'cancelled', reconnectAbsent: 'stale' },
   modify_pending: { ack: 'working', reject: 'working', fill: 'filled', partialFill: 'partial', cancelled: 'cancelled', reconnectAbsent: 'stale' },
   cancel_pending: { cancelled: 'cancelled', reject: 'working', fill: 'filled', reconnectAbsent: 'stale' },
   // terminal states accept nothing

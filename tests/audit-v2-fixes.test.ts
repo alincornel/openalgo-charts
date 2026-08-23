@@ -52,13 +52,22 @@ describe('V2-H1 — trade adapter matches OpenAlgo order contract', () => {
   });
 });
 
-describe('V2-H2 — WS schema + send-before-open queueing', () => {
+describe('V2-H2 — WS schema + pre-auth gating', () => {
   it('uses the documented per-symbol subscribe schema (numeric mode)', () => {
     const msg = JSON.parse(formatSubscribe('LTP', 'SBIN', 'NSE'));
     expect(msg).toEqual({ action: 'subscribe', symbol: 'SBIN', exchange: 'NSE', mode: 1 });
   });
 
-  it('authenticates then queues subscribes until the socket opens, then flushes', () => {
+  /**
+   * REWRITTEN in the 1.6 hardening round. This used to assert that a subscribe
+   * queued before the transport opened was flushed the instant it did, right
+   * behind the handshake. That is the behaviour the round removed: a proxy that
+   * discards frames arriving before it has authenticated the key swallows that
+   * subscribe, and the chart then believes it is subscribed and is permanently
+   * silent. Nothing but the handshake leaves the socket until the server
+   * answers it, and the desired subscription state is replayed on the answer.
+   */
+  it('sends nothing before the socket opens, then only the handshake, and replays on the ack', () => {
     const sent: string[] = [];
     let sock!: SocketLike;
     const feed = new OpenAlgoWsFeed({
@@ -66,13 +75,17 @@ describe('V2-H2 — WS schema + send-before-open queueing', () => {
       socketFactory: () => { sock = { send: (d) => sent.push(d), close: () => {}, onopen: null, onclose: null, onmessage: null, readyState: 0 }; return sock; },
     });
     feed.connect();
-    feed.subscribe('LTP', 'SBIN', 'NSE'); // before open → queued, not sent
+    feed.subscribe('LTP', 'SBIN', 'NSE'); // before open → recorded, not sent
     expect(sent).toHaveLength(0);
-    sock.onopen?.(); // socket opens → authenticate first, then queue flushes
-    expect(sent).toHaveLength(2);
+    sock.onopen?.(); // transport open → the handshake, and nothing else
+    expect(sent).toHaveLength(1);
     expect(JSON.parse(sent[0])).toEqual({ action: 'authenticate', api_key: 'k' });
+    expect(feed.isReady()).toBe(false);
+    sock.onmessage?.({ data: JSON.stringify({ type: 'auth', status: 'success' }) }); // the gate opens
+    expect(feed.isReady()).toBe(true);
+    expect(sent).toHaveLength(2);
     expect(JSON.parse(sent[1])).toMatchObject({ action: 'subscribe', symbol: 'SBIN', mode: 1 });
-    feed.subscribe('LTP', 'RELIANCE', 'NSE'); // after open → immediate
+    feed.subscribe('LTP', 'RELIANCE', 'NSE'); // after the ack → immediate
     expect(sent).toHaveLength(3);
   });
 });

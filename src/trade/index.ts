@@ -14,12 +14,18 @@ export { TradeController, type TradeHost } from './trade-controller';
 export { FakeBroker } from './fake-broker';
 export {
   OrderEngine,
+  isPreflightFailure,
   type OrderEngineOptions,
   type OrderFeed,
   type PlaceRequest,
   type PlaceResult,
   type TradeMode,
   type GateFn,
+  type IntentState,
+  type ModifyPatch,
+  type ModifyOptions,
+  type MarketOrderOptions,
+  type PreflightFailure,
 } from './order-engine';
 export {
   transition,
@@ -28,7 +34,16 @@ export {
   type ClientOrderState,
   type OrderEvent,
 } from './order-state-machine';
-export { validateOrder, withinPriceBand, type OrderConstraints, type PriceBand, type ValidationResult } from './validation';
+export {
+  validateOrder,
+  validateQuantity,
+  validatePrice,
+  withinPriceBand,
+  type OrderConstraints,
+  type PriceBand,
+  type ValidationResult,
+  type ValidationCode,
+} from './validation';
 export {
   DomLadder,
   ladderCapability,

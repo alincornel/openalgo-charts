@@ -13,6 +13,15 @@ function fakeSocket(): any {
 
 afterEach(() => { vi.useRealTimers(); });
 
+/**
+ * Answer the handshake, which openalgo-charts 1.6 requires before any data
+ * frame leaves the socket. A proxy that discards pre-auth frames otherwise
+ * swallows the subscribe and the chart goes silent believing it is subscribed.
+ */
+function ack(s: any): void {
+  s.onmessage({ data: JSON.stringify({ type: 'auth', status: 'success' }) });
+}
+
 describe('OpenAlgoWsFeed reconnect', () => {
   it('reconnects with backoff and replays subscriptions after an unexpected close', () => {
     vi.useFakeTimers();
@@ -22,6 +31,7 @@ describe('OpenAlgoWsFeed reconnect', () => {
       socketFactory: () => { const s = fakeSocket(); sockets.push(s); return s; },
     });
     ws.connect();
+    ack(sockets[0]);
     ws.subscribe('LTP', 'X', 'NSE');
     expect(sockets).toHaveLength(1);
     expect(sockets[0].sent.some((m: string) => m.includes('subscribe') && m.includes('X'))).toBe(true);
@@ -30,9 +40,10 @@ describe('OpenAlgoWsFeed reconnect', () => {
     sockets[0].onclose();
     vi.advanceTimersByTime(100);
 
-    // A fresh socket authenticated and replayed the subscription.
+    // A fresh socket authenticated and, once acknowledged, replayed the subscription.
     expect(sockets).toHaveLength(2);
     expect(sockets[1].sent.some((m: string) => m.includes('authenticate'))).toBe(true);
+    ack(sockets[1]);
     expect(sockets[1].sent.some((m: string) => m.includes('subscribe') && m.includes('X'))).toBe(true);
     ws.close();
   });
@@ -98,6 +109,7 @@ describe('OpenAlgoWsFeed order updates', () => {
     const events: OrderUpdateEvent[] = [];
     ws.onOrderUpdate((e) => events.push(e));
     ws.connect();
+    ack(sockets[0]);
     ws.subscribeOrders();
     expect(sockets[0].sent.some((m: string) => m.includes('subscribe_orders'))).toBe(true);
 
@@ -109,6 +121,7 @@ describe('OpenAlgoWsFeed order updates', () => {
     sockets[0].onclose();
     vi.advanceTimersByTime(100);
     expect(sockets).toHaveLength(2);
+    ack(sockets[1]);
     expect(sockets[1].sent.some((m: string) => m.includes('subscribe_orders'))).toBe(true);
     ws.close();
   });

@@ -20,7 +20,12 @@ export interface BarsRequest {
 export interface DataFeed {
   getBars(req: BarsRequest): Promise<Bar[]>;
   subscribeBars?(req: BarsRequest, onBar: (bar: Bar) => void): UnsubscribeFn;
-  subscribeDepth?(req: BarsRequest, onDepth: (depth: MarketDepth) => void): UnsubscribeFn;
+  /**
+   * `opts.depthLevel` requests a book depth (broker-dependent: 5/20/30/50).
+   * Named on the interface so a caller holding a `DataFeed` can ask for one;
+   * an implementation is free to ignore it and send the broker's default.
+   */
+  subscribeDepth?(req: BarsRequest, onDepth: (depth: MarketDepth) => void, opts?: { depthLevel?: number }): UnsubscribeFn;
 }
 
 export interface DepthLevel {

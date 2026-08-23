@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { utcSecondsToIstDateString } from '../src/feed/time';
-import { OrderEngine } from '../src/trade/order-engine';
+import { OrderEngine, type OrderFeed } from '../src/trade/order-engine';
 import type { OrderConstraints } from '../src/trade/validation';
 import { FakeBroker } from '../src/trade/fake-broker';
 import { DataLayer } from '../src/model/data-layer';
@@ -35,13 +35,50 @@ describe('H2 — modify validation never sends an out-of-band price', () => {
   });
 });
 
-describe('H3 — idempotency token is released on a failed place (retry allowed)', () => {
-  it('lets the same clientToken be retried after a broker reject', async () => {
+/**
+ * REWRITTEN in the 1.6 hardening round, and the assertion is now the OPPOSITE of
+ * what it was. This case used to read "idempotency token is released on a failed
+ * place (retry allowed)" and asserted that any broker error freed the token.
+ *
+ * That was the defect, not the fix. A failed place says the RESPONSE did not
+ * arrive; it says nothing about whether the REQUEST did. Releasing the token
+ * made a retry indistinguishable from a first attempt to every layer that
+ * dedupes on it, and on a chart that draws Buy and Sell buttons that doubles a
+ * live position. The token is now kept unless the feed proves the request never
+ * left, by throwing a value carrying `preflight: true`.
+ */
+describe('H3 — a failed place keeps its token unless the failure was provably pre-flight', () => {
+  it('refuses the retry after an unmarked failure, and says the first attempt may be live', async () => {
     const broker = new FakeBroker();
     const eng = new OrderEngine({ feed: broker, constraints: C, armed: true });
     broker.rejectNextPlace = 'transport error';
     const r1 = await eng.placeOrder({ symbol: 'X', side: 'BUY', type: 'LIMIT', qty: 10, price: 100, clientToken: 'tokA' });
     expect(r1.ok).toBe(false);
+    expect(r1.intent).toBe('AMBIGUOUS');
+    expect(r1.reason).toMatch(/check the order book/);
+    const r2 = await eng.placeOrder({ symbol: 'X', side: 'BUY', type: 'LIMIT', qty: 10, price: 100, clientToken: 'tokA' }); // retry
+    expect(r2.ok).toBe(false);
+    expect(r2.reason).toMatch(/duplicate clientToken/);
+    expect(broker.orders()).toHaveLength(0);
+  });
+
+  it('lets the same clientToken be retried when the feed proves nothing was sent', async () => {
+    const broker = new FakeBroker();
+    let failOnce = true;
+    const feed: OrderFeed = {
+      place: (req) => {
+        if (!failOnce) return broker.place(req);
+        failOnce = false;
+        // What a feed throws when it refused before writing the socket.
+        throw Object.assign(new Error('offline'), { preflight: true });
+      },
+      modify: (id, patch) => broker.modify(id, patch),
+      cancel: (id) => broker.cancel(id),
+    };
+    const eng = new OrderEngine({ feed, constraints: C, armed: true });
+    const r1 = await eng.placeOrder({ symbol: 'X', side: 'BUY', type: 'LIMIT', qty: 10, price: 100, clientToken: 'tokA' });
+    expect(r1.ok).toBe(false);
+    expect(r1.intent).toBe('BLOCKED');
     const r2 = await eng.placeOrder({ symbol: 'X', side: 'BUY', type: 'LIMIT', qty: 10, price: 100, clientToken: 'tokA' }); // retry
     expect(r2.ok).toBe(true);
     expect(broker.orders()).toHaveLength(1);

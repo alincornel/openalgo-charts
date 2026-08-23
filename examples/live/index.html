@@ -305,9 +305,18 @@
     const round2v = (n) => Math.round(n * 100) / 100;
     function setMode(m) {
       const e = el('mode');
-      if (m === 'analyze') { e.textContent = 'ANALYZE (sandbox)'; e.className = 'chip analyze'; }
+      if (m === 'analyzer' || m === 'analyze') { e.textContent = 'ANALYZE (sandbox)'; e.className = 'chip analyze'; }
       else if (m === 'live') { e.textContent = 'LIVE - real orders'; e.className = 'chip live'; }
       else { e.textContent = 'mode -'; e.className = 'chip'; }
+    }
+    // Ask the server, never infer. OpenAlgo stamps `mode: "analyze"` on sandbox
+    // responses and stamps NOTHING on live ones, so reading the mode off a
+    // positionbook reply left this chip blank in live mode: the confirm dialog
+    // below was skipped and a real-money order went out labelled 'analyzer'.
+    async function refreshMode() {
+      if (!trade) return;
+      try { setMode(await trade.getServerMode()); }
+      catch (_) { setMode(null); } // unknown stays unknown, and place() will refuse
     }
     const isLiveMode = () => el('mode').classList.contains('live');
     // Reference market price for stop/limit direction checks: live LTP, else last close.
@@ -344,9 +353,9 @@
       try {
         const res = await fetch('/api/v1/positionbook', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apikey: el('apikey').value.trim() }) });
         const j = await res.json();
-        setMode(j.mode);
         renderPosition((j.data || []).find((p) => p.symbol === lastReq.symbol && Number(p.quantity) !== 0));
       } catch (_) {}
+      refreshMode();
     }
     // Position P&L marks to the live LTP (the sandbox/broker pnl field can read 0).
     function posLabel() {
@@ -488,9 +497,17 @@
       ws = new OpenAlgoWsFeed({ url: el('wsurl').value.trim(), apiKey });
       ws.onState((s) => { el('wsstate').textContent = 'WS ' + s; });
       ws.onControl((m) => {
+        if (m.type === 'client_warning') {
+          el('wsstate').textContent = 'WS ' + m.code;
+          // The socket came back, so ticks were missed and the bar that was
+          // forming across the gap is wrong. Reconcile normally protects the
+          // forming bar; here it is the one thing that must be refetched.
+          if (m.code === 'STREAM_RESYNC') liveBucket = null;
+          return;
+        }
         if (m.type === 'auth') el('wsstate').textContent = m.status === 'success' ? 'WS authenticated' : `auth ${m.status}`;
         else if (m.type === 'subscribe') el('wsstate').textContent = `subscribe ${m.status}` + (tickN ? '' : ' (waiting for ticks)');
-        else if (m.type === 'error') el('wsstate').textContent = 'WS error: ' + (m.message || 'unknown');
+        else if (m.type === 'error' || m.status === 'error') el('wsstate').textContent = 'WS error: ' + (m.message || 'unknown');
       });
       ws.connect();
       // Event-driven order lines: broker/sandbox pushes fills, cancels and

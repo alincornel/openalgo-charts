@@ -78,9 +78,10 @@
     "e2e": "playwright test",
     "size": "size-limit",
     "docs": "typedoc",
-    "verify": "npm run typecheck && npm run test && npm run build && npm run check:dts && npm run size",
+    "verify": "npm run typecheck && npm run test && npm run build && npm run check:dts && npm run size && npm run shake",
     "prepublishOnly": "npm run verify",
-    "check:dts": "node scripts/check-dts.mjs"
+    "check:dts": "node scripts/check-dts.mjs",
+    "shake": "node scripts/check-shake.mjs"
   },
   "engines": {
     "node": ">=20"

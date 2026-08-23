@@ -31,16 +31,23 @@ export class TradeController {
 
   /** Reconcile a full book snapshot. Idempotent — safe to call on every update or reconnect. */
   public reconcile(orders: readonly Order[], positions: readonly Position[]): void {
-    this._reconcileOrderLines(orders);
+    // Brackets are planned before anything is drawn, because the order lines need
+    // to know which stops and targets a bracket is going to draw for them. The
+    // attach order is unchanged (lines, markers, then brackets) so relative
+    // z-order within a band stays what it was.
+    const plan = this._planBrackets(orders, positions);
+    this._reconcileOrderLines(orders, plan.covered);
     this._reconcilePositions(positions);
-    this._reconcileBrackets(orders, positions);
+    this._applyBrackets(plan.states);
   }
 
-  private _reconcileOrderLines(orders: readonly Order[]): void {
+  private _reconcileOrderLines(orders: readonly Order[], bracketed: ReadonlySet<string>): void {
     const seen = new Set<string>();
     for (const o of orders) {
-      // SL/TP children are shown via the bracket, not as standalone lines.
-      if (!isWorking(o) || o.role === 'sl' || o.role === 'tp') continue;
+      // A stop or target is hidden only when a bracket really is drawing it.
+      // Everything else gets its own line: a resting stop with no bracket used to
+      // draw nothing at all, and a stop a trader cannot see reads as no stop.
+      if (!isWorking(o) || bracketed.has(o.id)) continue;
       seen.add(o.id);
       const existing = this._orderLines.get(o.id);
       if (existing) {
@@ -85,27 +92,54 @@ export class TradeController {
     }
   }
 
-  private _reconcileBrackets(orders: readonly Order[], positions: readonly Position[]): void {
-    const sl = new Map<string, number>();
-    const tp = new Map<string, number>();
+  /**
+   * Decide which brackets to draw, without touching the host. `covered` names the
+   * exact orders those brackets account for; every other working order still
+   * needs a line of its own.
+   */
+  private _planBrackets(
+    orders: readonly Order[],
+    positions: readonly Position[],
+  ): { states: Map<string, BracketState>; covered: Set<string> } {
+    const sl = new Map<string, Order>();
+    const tp = new Map<string, Order>();
     for (const o of orders) {
       if (!isWorking(o)) continue;
-      if (o.role === 'sl') sl.set(o.symbol, o.triggerPrice ?? o.price);
-      else if (o.role === 'tp') tp.set(o.symbol, o.price);
+      if (o.role === 'sl') sl.set(o.symbol, o);
+      else if (o.role === 'tp') tp.set(o.symbol, o);
     }
     const posBySymbol = new Map(positions.map((p) => [p.symbol, p]));
-    const seen = new Set<string>();
+    const states = new Map<string, BracketState>();
+    const covered = new Set<string>();
     for (const symbol of new Set([...sl.keys(), ...tp.keys()])) {
+      const stop = sl.get(symbol);
+      const target = tp.get(symbol);
+      // BracketGroup always paints both legs, so it may only stand in for a pair
+      // that both exist. A one-sided bracket used to fall back to the position
+      // average and drew a take-profit at a price where no order rested; the
+      // surviving leg now falls through to its own order line instead. (v2's
+      // PositionBrackets makes each leg optional. Until BracketGroup can render
+      // one leg, "draw only what exists" means drawing no group here.)
+      if (stop === undefined || target === undefined) continue;
       const pos = posBySymbol.get(symbol);
       if (pos === undefined || pos.netQty === 0) continue;
-      const state: BracketState = {
+      states.set(symbol, {
         symbol,
         side: pos.netQty > 0 ? 'BUY' : 'SELL',
         entry: pos.avgPrice,
-        stop: sl.get(symbol) ?? pos.avgPrice,
-        target: tp.get(symbol) ?? pos.avgPrice,
-      };
-      seen.add(symbol);
+        stop: stop.triggerPrice ?? stop.price,
+        target: target.price,
+      });
+      // Only the two orders the group actually draws. A second stop on the same
+      // symbol is not one of them and keeps its own line.
+      covered.add(stop.id);
+      covered.add(target.id);
+    }
+    return { states, covered };
+  }
+
+  private _applyBrackets(states: ReadonlyMap<string, BracketState>): void {
+    for (const [symbol, state] of states) {
       const existing = this._brackets.get(symbol);
       if (existing) existing.update(state);
       else {
@@ -115,7 +149,7 @@ export class TradeController {
       }
     }
     for (const [symbol, bg] of this._brackets) {
-      if (!seen.has(symbol)) {
+      if (!states.has(symbol)) {
         this._host.removePrimitive(bg);
         this._brackets.delete(symbol);
       }

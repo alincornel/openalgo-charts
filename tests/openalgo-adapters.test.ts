@@ -43,6 +43,9 @@ describe('OpenAlgo WS — feed with injected socket', () => {
     const feed = new OpenAlgoWsFeed({ url: 'ws://x', apiKey: 'k', socketFactory: () => f.sock });
     feed.connect();
     expect(JSON.parse(f.sent[0])).toEqual({ action: 'authenticate', api_key: 'k' }); // auth first
+    // The handshake is a gate: nothing else leaves the socket until the proxy
+    // answers it, so the fake one has to answer (openalgo-charts 1.6).
+    f.emit(JSON.stringify({ type: 'auth', status: 'success' }));
     let ltp = 0;
     let depthRows = 0;
     feed.onLtp((e) => { ltp = e.ltp; });
