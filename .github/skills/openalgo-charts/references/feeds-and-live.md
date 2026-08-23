@@ -117,7 +117,8 @@ const live = new OpenAlgoLiveDataFeed({
   baseUrl: 'http://127.0.0.1:5000',
   wsUrl: 'ws://127.0.0.1:8765',
   apiKey: 'YOUR_KEY',
-  volumeMode: 'ltq-sum',   // default
+  volumeMode: 'ltq-sum',      // default
+  timezone: 'Asia/Kolkata',   // default; the zone a calendar interval buckets in
 });
 
 const req = { symbol: 'RELIANCE', exchange: 'NSE', interval: '1m', from, to };
@@ -132,14 +133,15 @@ const off = live.subscribeBars(req, (bar) => series.update(bar), {
 ```
 
 - The constructor connects the socket immediately.
-- `subscribeBars` creates a **per-subscription** `CandleBuilder` sized by `intervalToSeconds(req.interval)`, filters WS ticks by symbol **and** exchange, and forwards `builder.onTick(...).bar` to `onBar`. Unsubscribing detaches the callback and sends the WS unsubscribe.
-- `opts.seedFrom` seeds the builder with the last history bar so the first tick continues that bucket. `opts.cumDayVolumeSoFar` gives a `day-delta` builder the right baseline.
+- `subscribeBars` resolves the interval code **once, up front** through `resolveInterval`, then creates a **per-subscription** aggregator: a `CandleBuilder` for a fixed-length interval, a `TickBarAggregator` for a calendar, tick-count or volume one. It filters WS ticks by symbol **and** exchange and forwards the bar to `onBar`. Unsubscribing detaches the callback and sends the WS unsubscribe.
+- Resolving up front is deliberate: a bad interval code throws at subscribe time, where the mistake is, instead of silently on every tick for the life of the subscription.
+- `opts.seedFrom` seeds the aggregator with the last history bar so the first tick continues that bucket. It applies to **time-bucketed intervals only**: a count-driven bar cannot resume one whose trades were never counted here. `opts.cumDayVolumeSoFar` gives a `day-delta` builder the right baseline.
 - A tick with no usable timestamp (`timeSec` absent or `<= 0`) is bucketed at `Date.now()`, never at the epoch.
 - `subscribeDepth` subscribes `Depth` and filters the same way.
 
-`intervalToSeconds(interval)` matches `/^(\d*)\s*([smhdw])$/i`, so both `D` and `1D` give `86400`, `W`/`1W` give `604800`, `1s`->1, `5m`->300, `4h`->14400.
+`intervalToSeconds(interval)` returns the seconds per bar for a **fixed-length** code: `D` and `1D` give `86400`, `W`/`1W` give `604800`, `1s`->1, `5m`->300, `4h`->14400.
 
-**`intervalToSeconds` falls back to 60 for anything it cannot parse — including `'M'` (monthly).** A monthly chart wired through this feed buckets live ticks into 1-minute bars. Build the bucket size yourself for intervals outside `s/m/h/d/w`.
+**It throws rather than guessing.** `UnknownIntervalError` for a code nothing recognises, and a plain error for a calendar or count-driven code, which has no fixed length to report. Before 1.4.0 it answered 60 for both, so a monthly chart wired through this feed quietly bucketed live ticks into one-minute bars under a label saying otherwise. For anything outside `s/m/h/d/w`, register the code and use `resolveInterval` + `bucketStartOf` instead of asking for seconds.
 
 ## CandleBuilder
 
@@ -172,6 +174,90 @@ ws.onLtp((e) => {
 });
 ws.subscribe('LTP', 'RELIANCE', 'NSE');
 ```
+
+## The interval registry
+
+`src/feed/intervals.ts`, base bundle. An interval code resolves to a **bucketing rule, not a duration**, because three of the four kinds have no duration to state.
+
+```ts
+import { registerInterval, resolveInterval, bucketStartOf, isKnownInterval } from 'openalgo-charts';
+
+registerInterval({ code: '1MO', bucketing: { mode: 'calendar', unit: 'month', count: 1 } });
+registerInterval({ code: 'T500', bucketing: { mode: 'ticks', count: 500 } });
+
+const { bucketing } = resolveInterval('1MO');
+const open = bucketStartOf(bucketing, tickTimeSec, chart.timezone());
+```
+
+| `Bucketing` case | Shape | Bar closes when |
+|---|---|---|
+| `interval` | `{ mode: 'interval', seconds, anchorSec? }` | `seconds` elapse from `anchorSec` (default epoch). |
+| `calendar` | `{ mode: 'calendar', unit: 'month' \| 'quarter' \| 'year', count?, timezone? }` | The period ends, at local midnight on the first, in that zone. |
+| `ticks` | `{ mode: 'ticks', count }` | `count` trades have printed. |
+| `volume` | `{ mode: 'volume', perBar }` | `perBar` quantity has traded. |
+
+This is the vocabulary `TickTimeframe` already used, widened by one case, not a second system. `TickTimeframe` still names exactly the three time-agnostic modes (`interval`, `ticks`, `volume`) and is still re-exported from the tick aggregator; `TickBarAggregator` now takes the wider `Bucketing` plus an optional `{ timezone }`.
+
+| Function | Notes |
+|---|---|
+| `registerInterval(descriptor)` | Returns a disposer. A registered code **shadows** a built-in token of the same name. |
+| `unregisterInterval(code)` | `false` if nothing was registered under it. |
+| `registeredIntervals()` | Registration order. Built-in tokens are not listed. |
+| `resolveInterval(code)` | Throws `UnknownIntervalError` (which carries `.code`) when nothing recognises it. |
+| `tryResolveInterval(code)` | The same, returning `null` instead of throwing. |
+| `isKnownInterval(code)` | Boolean probe, for validating an interval picker's input. |
+| `bucketStartOf(b, timeSec, zone?)` | UTC seconds the containing bar opened at. Count-driven bars return `timeSec`. |
+| `nextBucketStart(b, timeSec, zone?)` | UTC seconds the next bar opens at, or `null` for count-driven bars. |
+| `isTimeBucketed(b)` | True for `interval` and `calendar`. |
+
+Codes are matched case-insensitively (`D` and `d` are one interval), because the built-in tokens always were. The built-ins are the old grammar byte for byte: an optional count followed by `s`, `m`, `h`, `d` or `w`.
+
+**A calendar bar is not a fixed number of seconds, and you must not pretend it is.** Buckets are computed as absolute month indices floored to the step, converted back through `zonedWallClockToUtcSeconds`, so a month runs first to first at local midnight in the entry's zone (or the caller's, defaulting to IST). February 2024 is 29 days; March 2024 in `America/New_York` is 31 days minus an hour; quarters land on January, April, July and October. `30 * 86400` is wrong for every one of those.
+
+**An unknown code throws.** That is the deliberate change in 1.4.0, and it is load-bearing: the old silent fall back to 60 seconds drew minute bars under whatever label the caller had chosen. Validate a picker with `isKnownInterval`, and let `resolveInterval` throw on the paths where a wrong timeframe would be a wrong trade.
+
+## Warm-load bar cache
+
+`src/feed/cache.ts`, base bundle. `withBarCache` is a `DataFeed` to `DataFeed` wrapper, so **any** feed gets warm loading, not just `OpenAlgoDataFeed`.
+
+```ts
+import { withBarCache, OpenAlgoDataFeed } from 'openalgo-charts';
+
+const feed = withBarCache(new OpenAlgoDataFeed(cfg), { ttlMs: 60_000, max: 24 });
+
+const bars = await feed.getBars({ symbol, exchange, interval, from, to });
+await feed.getBars({ symbol, exchange, interval, from, to, noCache: true });  // force a fetch
+feed.stats();          // { entries, bars, hits, misses, evictions }
+```
+
+| Option | Default | Notes |
+|---|---|---|
+| `ttlMs` | `300_000` | Absolute age bound. |
+| `max` | `24` | Entries before LRU eviction. |
+| `maxBars` | `250_000` | Total cached bars before LRU eviction. |
+| `storage` | in-memory `Map` | A `BarCacheStore` (`get`/`set`/`delete`, sync **or** async). |
+| `now` | `Date.now` | Injectable clock. |
+| `intervalSeconds` | `intervalToCacheSeconds` | For tokens this does not know. Return `0` to disable caching for that interval. |
+
+**The key is `symbol|exchange|interval`, and the range is deliberately not in it.** One entry per series holds the widest set fetched so far, and a narrower request is served by slicing it. Keying on the range would miss on every pan and on every "same chart, one bar later" reload, which is exactly the traffic warm loading is meant to remove.
+
+**Freshness is two gates that must both pass.** `ttlMs` bounds absolute age, and a hit past the entry's coverage is allowed only while the bar after the last closed bar is still forming (`nowSec < entry.to + 1 + intervalSec`). The second gate is measured on the feed's own bar grid, not against UTC midnight, so a daily Indian bar opening at 03:45 UTC is judged against its own session. A request reaching further back than the entry's `from` is a real gap at the left edge and always refetches.
+
+**The forming bar is never stored.** This is the rule to carry into any cache you write yourself, not a detail of this one:
+
+> A closed bar is immutable and can be cached freely. **The last bar is alive until its interval ends.** A cache that serves a stale forming bar is worse than no cache at all: the wrong close reaches the last-price line, the axis tag, the header LTP and every indicator computed off it (RSI, VWAP, a Supertrend flip), instantly and with no spinner to warn anyone. This library draws Buy and Sell buttons on the chart; a fast wrong price is a worse failure than a slow right one.
+
+So trailing unclosed bars are dropped on store and coverage ends at the last closed bar. A hit is therefore short by at most that one bar, which a live subscription re-supplies immediately, and is never wrong about a bar it does return.
+
+Other behaviour worth knowing:
+
+- `getBars` passes straight through, uncached, when `from` or `to` is absent (coverage cannot be reasoned about) or the resolved interval is `<= 0` (the caller opting out).
+- A rejected fetch propagates untouched and leaves the previous entry alone. Nothing is written unless bars arrive.
+- Bars are cloned in and out, because live builders mutate bar objects in place.
+- `subscribeBars` and `subscribeDepth` are forwarded **only when the wrapped feed has them**, with every argument, so feature detection still tells a history-only feed from a live one and `OpenAlgoLiveDataFeed`'s third `opts` argument survives the hop. `cache.source` is the wrapped feed.
+- Bounds are LRU on entries **and** on total bars, because one intraday series can be 100k bars and an entry count alone does not bound memory. A single series larger than `maxBars` is simply not cached.
+- `invalidate({ symbol, exchange, interval })` drops one series; `invalidate()` and `clear()` drop everything this instance knows of. With an injected persistent store, keys written by an earlier session are dropped when next read and found expired, not by `clear()`.
+- **Out of hours every load is cold** unless the host helps. The cache cannot know a market is closed, so a request whose `to` is "now" is always past the coverage of an entry that ends at the last session's close. If the host has a session table, cap `to` at the newest bar it expects to exist and the reload goes warm.
 
 ## OpenAlgoTradeFeed
 
@@ -249,6 +335,7 @@ const off = feed.subscribeBars({ symbol: 'X', exchange: 'NSE', interval: '1m' },
 ## Related
 
 - [data-and-time](data-and-time.md): `Bar`, UTC seconds, `update` vs `prependData`, tick bars, the chart timezone and the time helpers.
+- [chart-linking](chart-linking.md): a grid of charts on one instrument, and the per-member `onSymbol` that loads its bars.
 - [events-and-state](events-and-state.md) — `lazy-load` and the rest of the event bus.
 - [trading](trading.md) / [trade-tier](trade-tier.md) — `OrderFeed`, `OrderEngine`, on-chart order lines.
 - [pitfalls](pitfalls.md).

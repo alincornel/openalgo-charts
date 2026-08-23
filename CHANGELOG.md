@@ -2,6 +2,293 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.4.0
+
+### Breaking
+
+- **`intervalToSeconds` throws where it used to return 60.** It was exported in
+  1.3.0 and answered 60 seconds for any code its regex did not recognise, so a
+  typo drew minute bars under whatever label the caller thought it had asked
+  for. It now throws `UnknownIntervalError` for an unregistered code, and a
+  separate error for a calendar or count-driven code that has no fixed length to
+  report. A caller passing user input needs a `try`/`catch`, or should use
+  `tryResolveInterval` / `isKnownInterval`, which answer without throwing.
+
+- **Upper-case `M` no longer resolves at all.** The built-in token regex folded
+  case, so `M` and `1M` read as minutes. Every terminal that uses these tokens
+  reads lower-case `m` as minutes and upper-case `M` as a month, and anything
+  gating on "has the next bar closed yet" therefore believed a month closed
+  every sixty seconds. Nothing is registered for `M` by default: a host that
+  wants months registers a calendar interval deliberately. Lower-case `m` is
+  untouched, as are `s`, `h`, `d`, `w` and their upper-case forms.
+
+  This is shipped as a minor release by explicit decision, so a consumer on
+  `^1.3.0` will pick it up automatically. Both changes only affect codes that
+  were already producing the wrong answer.
+
+### Added
+
+- **Chart linking.** `createLinkGroup({ crosshair, viewport, symbol })` drives a
+  grid of charts as one workspace. `add`, `remove`, `setOptions`, `destroy`,
+  `setSymbol`, `symbol()`, `members()`, `has()` and `crosshairIndex()` are the
+  whole surface, and like `ReplayController` and `ComparisonController` it ships
+  no DOM: the host draws its own link badge and colour chips, and decides which
+  charts belong to which group. Each of the three channels switches on its own,
+  because a user routinely wants one without the others: mirror the cursor
+  across four timeframes but keep each zoom, or slave every chart's instrument
+  but let each keep its own window.
+
+  **Nothing crosses a chart boundary as a logical index.** That is the decision
+  everything else hangs off. The x axis is a gapless index over each chart's own
+  bars, so logical index 300 is a different instant on every chart in the grid.
+  Copying an index or a range straight across works perfectly on two charts of
+  the same symbol and interval, which is exactly how it would ship broken. Every
+  value is converted index to time on the sender through `indexToTimeFloat`, and
+  time back to index on the receiver through `timeToIndex` / `timeToIndexFloat`,
+  against that chart's own `DataLayer`. A daily chart and an hourly chart with
+  different history depth therefore stay on the same instant and the same
+  wall-clock window. The two conversions, `followerIndex` and `followerRange`,
+  are pure and exported.
+
+  Coverage is answered as an absence, not as a gap. A follower refuses any
+  instant before its first bar or after its last one, because that is a period
+  it does not cover at all and pinning the crosshair to an edge bar would assert
+  an alignment that does not exist. Inside its range with no bar at that second
+  it snaps to the nearest bar **in time**, which is not the nearest in index once
+  the bars either side of a session break are hours apart, or draws nothing under
+  `whenMissing: 'hide'`.
+
+  A follower's crosshair is a new `LinkCrosshair` primitive on the `top`
+  z-order, one per pane so it spans price, volume and indicator panes the way the
+  native global crosshair does. It draws the **vertical line only**, at
+  `LINK_CROSSHAIR_ALPHA` of the pane's own crosshair colour. The horizontal line
+  marks a price, and the price under a cursor on another instrument is not a
+  price on this one: on a grid of four symbols a mirrored price line would be a
+  straight lie four times over. The vertical line marks an instant, and an
+  instant is shared.
+
+  Feedback loops are stopped by one group-wide re-entrancy guard rather than one
+  per channel. Any member event arriving while the group is broadcasting is an
+  echo of that broadcast by definition, since a human cannot pan two charts in
+  one call stack; and a symbol change that reloads data can move a viewport, so
+  that second-order echo is the same bug wearing a different hat. Destroyed
+  members are detected by `isDestroyed` (falling back to an empty pane list for a
+  host wrapping something that is not a `Chart`) and pruned on the spot, which
+  also stops `addPrimitive` from resurrecting a pane on a corpse.
+
+  **The engine keeps no instrument concept and linking does not invent one.** The
+  host participates: it reports a change by emitting `'symbol'` on the chart's
+  own bus or by calling `setSymbol`, and it supplies the per-member `onSymbol`
+  callback that actually loads the new instrument's bars. A member with no
+  `onSymbol` broadcasts its own changes but never follows anyone else's, which is
+  how a host pins one chart of a grid.
+
+- **Drawings on the clipboard.** `DrawingController` gains async `copy`, `cut`
+  and `paste`, over a new `DrawingClipboard` in the draw tier that wraps
+  `navigator.clipboard`. The host still owns the key bindings, because the engine
+  installs no listeners: these are plain calls to make on Ctrl+C, Ctrl+X and
+  Ctrl+V.
+
+  The payload is JSON under a single namespaced top-level key
+  (`openalgo-charts/drawings`, with a version), so foreign text and foreign JSON
+  are recognised as **not ours** by looking at one property and paste nothing,
+  rather than throwing at the host because the user last copied a spreadsheet
+  cell. Everything read back is validated field by field before it can reach the
+  model: the tool must be registered, every anchor must be finite, the pane must
+  be a non-negative integer, style values must be renderable primitives or a
+  short array of numbers, and there are caps on counts and string length.
+  Validation is all-or-nothing, because a payload with one corrupt entry is a
+  corrupt payload and pasting the other nine silently would be worse than
+  pasting none.
+
+  Clipboard failures degrade rather than break. Every write also lands in a
+  module-level in-memory clipboard shared by every controller in the page, which
+  is what makes chart-to-chart paste work with the permission refused, and is
+  why that store is a singleton rather than per-controller state. `cut` deletes
+  **only** after the write resolves successfully, so with
+  `fallbackToMemory: false` a refused write leaves the model exactly as it was
+  instead of destroying a drawing that went nowhere. `clipboard().lastError()`
+  reports a copy that reached memory but not the system clipboard, which is
+  precisely what a host wants to be able to tell the user.
+
+  Paste inserts fresh objects with fresh ids in a single undo step, so editing
+  the copy cannot alter its source. It is offset two bars along time and 16 px
+  down the price axis (`pasteOffsetBars` / `pasteOffsetPixels`), applied per
+  anchor through `priceToCoordinate` / `coordinateToPrice` so the nudge is a
+  rigid *screen* translation that keeps a shape's proportions on a logarithmic
+  scale. A pane index the receiving chart does not have is folded onto one it
+  does, because `addPrimitive` would otherwise conjure an empty pane.
+  `draw:copy`, `draw:cut` and `draw:paste` are emitted on the chart's bus.
+
+  `DrawingClipboard`, `ClipboardPort` and the encode / decode / sanitise trio
+  are exported from `openalgo-charts/draw`, so a host can name the type
+  `DrawingController.clipboard()` returns and can move drawings over its own
+  transport with the same validation a paste gets. Deliberately not from the
+  base barrel: `clipboard.ts` needs `hasDrawingTool`, so exporting it there
+  would drag all 43 drawing tools into the 55 kB base bundle.
+
+- **Warm-load bar caching for any feed.** `withBarCache(feed, options)` is a
+  `DataFeed` to `DataFeed` wrapper, so a custom feed gets it too and not only
+  `OpenAlgoDataFeed`.
+
+  The key is `symbol | exchange | interval`, and the requested range is
+  deliberately **not** part of it: one entry per series holds the widest set
+  fetched so far and a narrower request is served by slicing it. Keying on the
+  range would miss on every pan and on every "same chart, one bar later" reload,
+  which is exactly the traffic warm loading exists to remove.
+
+  Freshness is two gates that must both pass. `ttlMs` bounds absolute age, and a
+  hit past the entry's coverage is allowed only while the bar after the entry's
+  last closed bar is still forming (`nowSec < entry.to + 1 + intervalSec`). That
+  second gate is measured on the feed's own bar grid rather than against UTC
+  midnight, so a daily Indian bar opening at 03:45 UTC is judged against its own
+  session instead of the wrong boundary. A closed session therefore stays usable
+  for the whole TTL while a 1m chart is only reused inside the current minute.
+
+  **The forming bar is never stored at all.** It keeps moving, and a frozen
+  snapshot of it served to a live chart is worse than no cache, because the chart
+  paints a confident candle with no spinner and no way to know. Trailing unclosed
+  bars are dropped on store, so a hit is short by at most that one bar, which a
+  live subscription re-supplies immediately, and is never wrong about a bar it
+  does return.
+
+  Bounds are LRU on both entry count (`max`, 24) and total bars (`maxBars`,
+  250k), because entries alone do not bound memory when one intraday series can
+  be 100k bars, and bar count is the only honest proxy for bytes that does not
+  mean serialising every entry on every write. Storage is an in-memory `Map` by
+  default with an injectable sync-or-async `BarCacheStore`, so a host can choose
+  localStorage or IndexedDB and the engine chooses neither. Opt-out is
+  `getBars({ ..., noCache: true })` plus `invalidate()` and `clear()`, and
+  `stats()` reports entries, bars, hits, misses and evictions for a status line.
+
+- **An interval registry whose entry is a bucketing rule, not a duration.**
+  `registerInterval({ code, bucketing })` puts a host's own interval codes in
+  front of the engine, and `resolveInterval(code)` is how the engine asks how a
+  code buckets. `Bucketing` is a four-case union:
+  `{ mode: 'interval', seconds, anchorSec? }` for fixed lengths,
+  `{ mode: 'calendar', unit: 'month' | 'quarter' | 'year', count?, timezone? }`
+  for periods that have no seconds, and `{ mode: 'ticks', count }` /
+  `{ mode: 'volume', perBar }` for count-driven bars.
+
+  That is deliberately the vocabulary `TickTimeframe` already used, widened by
+  one case, rather than a second parallel system. The three original variants now
+  live in `src/feed/intervals.ts`, `TickTimeframe` is re-exported from
+  `tick-aggregator` meaning exactly what it always meant, and `TickBarAggregator`
+  takes the widened `Bucketing` plus an optional `timezone`.
+
+  Calendar buckets are computed as absolute month indices floored to the step and
+  converted back through `zonedWallClockToUtcSeconds`, so a month runs first to
+  first at local midnight in the entry's zone (or the caller's, defaulting to
+  IST). A month is not 30 days and a year is not 365: February 2024 is 29 days,
+  March 2024 in `America/New_York` is 31 days minus an hour, and quarters land on
+  January, April, July and October for every year. `bucketStartOf` and
+  `nextBucketStart` are the pair, and `nextBucketStart` returns null for
+  count-driven bars, whose close depends on trade flow rather than the clock.
+
+  `registeredIntervals()` lists what a host has added, `tryResolveInterval` and
+  `isKnownInterval` are the non-throwing probes for validating an interval
+  picker, and `unregisterInterval` and the disposer returned by
+  `registerInterval` take a code away again.
+
+- **A chart says when it is gone.** `chart.isDestroyed`, a `'destroy'` event on
+  the bus, and an idempotent `destroy()`. Anything holding a chart it did not
+  create (a link group, a controller, a host cache) has to know the object is a
+  corpse before it calls into it, and inferring that from a side effect such as
+  an empty pane list only works for as long as nothing else can empty one. The
+  event is emitted last, with the chart already torn down, because a listener is
+  there to let go of the chart rather than to read it.
+
+### Changed
+
+- **Programmatic viewport moves announce themselves.** `setVisibleLogicalRange`,
+  `fitContent`, `resetScale` and the keyboard pan and zoom commands now emit
+  `'pan'` or `'zoom'` like a drag or a wheel does, so a chart linked into a grid
+  follows an arrow key or a restored zoom and not only a gesture.
+
+  One helper covers all of them rather than four bespoke emits.
+  `_emitViewportIfMoved` compares the range before and after the mutation, emits
+  nothing when the window did not actually move (a clamped zoom, an already
+  fitted `fitContent`), and picks `'zoom'` or `'pan'` by whether the span
+  changed, because a restore can do either and a listener cannot tell from the
+  payload otherwise. The no-move check is load-bearing: without it a linked grid
+  re-broadcasts on every no-op. `panUp` and `panDown` move a price scale rather
+  than the time window and deliberately emit nothing. The keyboard `fitContent`
+  command now routes through `chart.fitContent()`, so it gets the full
+  invalidation the method always did.
+
+- **An unknown interval code is an error, not a minute.** `resolveInterval`
+  throws `UnknownIntervalError` carrying the offending code, and
+  `intervalToSeconds` throws both for an unknown code and, separately, for a
+  calendar or count-driven code that has no fixed length to report.
+  `OpenAlgoLiveDataFeed.subscribeBars` resolves the code up front, so a bad
+  interval fails at subscribe time rather than silently on every tick for the
+  life of the subscription.
+
+  The old behaviour was a silent fall back to 60 seconds, which drew minute bars
+  under whatever label the caller thought it had asked for, with nothing anywhere
+  saying so. A chart that refuses to open is a bug report; a chart showing the
+  wrong timeframe is a wrong trade. `tryResolveInterval` and `isKnownInterval`
+  exist for the callers that genuinely want to ask without being thrown at.
+
+- **The live feed aggregates calendar, tick and volume intervals too.**
+  `OpenAlgoLiveDataFeed` sends fixed intervals through `CandleBuilder` as before
+  (it is the one that carries the late-tick policy) and everything else through
+  `TickBarAggregator`, which is the one that knows those boundaries. It takes a
+  `timezone` for calendar buckets, and `seedFrom` still continues a historical
+  bar for time-bucketed intervals only, because a count-driven bar cannot resume
+  one whose trades were never counted here.
+
+### Fixed
+
+- **A `top` primitive's own repaint request redrew the whole pane.** Every
+  `requestUpdate` invalidated at `Light`, which repaints the base canvas, but a
+  `top` primitive is only ever drawn by `Pane.paintTop`, which runs at `Cursor`.
+  The pane legend, the drawing layer's live preview, the trading pills, the
+  buy/sell buttons, the chart table and the DOM ladder all sit there, so a
+  cursor-rate update from any of them cost a full series redraw instead of one
+  overlay repaint, times every chart in a linked grid. The host now reads
+  `primitive.zOrder()` per call and requests `Cursor` for a `top` one, which
+  fixes it for every such overlay with no API change and nothing for a primitive
+  author to remember. Read per call rather than captured at attach, because
+  `zOrder()` is a method and a primitive is free to change layer.
+
+- **`destroy()` could run twice, and left every subscription attached.** A second
+  call re-ran the teardown and would now re-emit `'destroy'`; and the listener
+  map was never cleared, so a subscription on a destroyed chart retained its
+  closure and everything that closure captured for as long as the host held the
+  corpse. Both are closed: `destroy()` returns immediately if it has already run,
+  and `_listeners` is cleared after the event goes out.
+
+### Internal
+
+- The yfinance demo drives all four features by hand. A toolbar split toggle
+  opens a second `Chart` with its own symbol picker and interval pills, joined to
+  a `createLinkGroup`; a link menu carries live crosshair, viewport and symbol
+  switches plus the nearest / hide choice for a missing instant; Ctrl+C, Ctrl+X
+  and Ctrl+V are wired to the controller's clipboard with the chords shown in the
+  right-click menu; `withBarCache` sits behind the yfinance feed with a warm or
+  fetched verdict in the status line and a hit counter in the toolbar; and 1MO
+  and 1Q calendar intervals are registered and folded from daily bars through
+  `bucketStartOf`.
+
+  Two of its decisions were forced by running it rather than reading it. A freshly
+  loaded follower fits its own content with viewport sync suspended: letting the
+  fit broadcast threw the leader off the window the user was on, and adopting the
+  leader's window instead left a month of hourly bars as a sliver in an empty
+  plot, so the two converge on the first pan, which is what the group documents.
+  And the demo caps a request's `to` at the newest bar it holds whenever the venue
+  is shut: the cache only allows a hit past its coverage while the next bar is
+  still forming and it cannot know a market is closed, so out of hours every load
+  was cold no matter what. With the cap, a reload reports "warm 1 ms" against
+  "fetched 320 ms".
+
+- No size budget raised. Measured against the same limits 1.3.0 set: base
+  52.88 kB of 55, base plus trade 59.46 of 62, indicators 24.88 of 27, draw
+  13.11 of 14 (70 B for the clipboard exports), transform 2.66 of 5, profile
+  10.66 of 11, everything 110.76 kB of 120.
+
+- Test suite grew from 1543 to 1719 across 91 files.
+
 ## 1.3.0
 
 ### Added

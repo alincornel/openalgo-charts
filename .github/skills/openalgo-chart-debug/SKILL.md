@@ -1,6 +1,6 @@
 ---
 name: openalgo-chart-debug
-description: Diagnose an openalgo-charts problem - blank or invisible chart, bars in the wrong place, unknown series type or indicator errors, misaligned indicators, drawings that drift, a chart that will not repaint or resize, live ticks not appearing, or a broken bundle import. Use when a chart is not behaving as expected.
+description: Diagnose an openalgo-charts problem - blank or invisible chart, bars in the wrong place, unknown series type or indicator errors, misaligned indicators, drawings that drift, a chart that will not repaint or resize, live ticks not appearing, linked charts out of step, stale cached prices, an unknown interval code, or a broken bundle import. Use when a chart is not behaving as expected.
 argument-hint: "[symptom]"
 allowed-tools: Read, Bash, Glob, Grep
 ---
@@ -40,6 +40,15 @@ You need the version and the exact set of tier imports before you can reason abo
 | Live candle duplicates the last history bar | builder started unseeded | pass `seedFrom: lastHistoryBar` |
 | Chart snaps to the right edge on every update | `setData` called per tick | use `series.update(bar)` |
 | Viewport jumps when older history loads | re-fitting after prepend | `prependData` preserves the window; do not `fitContent` |
+| A linked crosshair marks the wrong bar | a logical index was copied between charts | it lines up only while both charts hold identical bars; the sync must convert index to time and back |
+| Linked charts show different periods after a pan | the same index copy, on the viewport | use the group, or `followerRange`, never `setVisibleLogicalRange(other.getVisibleLogicalRange())` |
+| A linked chart shows no crosshair at all | the instant is outside its coverage, or `whenMissing: 'hide'` | `group.crosshairIndex(chart)` returns `null`; an instant past its first/last bar is refused by design |
+| Symbol sync changes nothing | no `onSymbol` on the member, or the host never reports the change | the engine has no instrument concept; check both halves |
+| The last price is stale after switching symbols and back | a cache serving the forming bar | `withBarCache` never stores it; a hand-rolled cache usually does |
+| Every load is cold out of hours | `to` is "now", past the entry's coverage | cap `to` at the newest bar the session table says can exist |
+| `UnknownIntervalError` at subscribe time | the interval code is not built in and was never registered | it is the intended behaviour, not a regression; `registerInterval` or fix the code |
+| A monthly chart buckets into minutes | `intervalToSeconds` on a calendar code | it throws now; use `resolveInterval` + `bucketStartOf` |
+| A cut deleted nothing, or copied "into the void" | the async result was not awaited | `await draw.cut()` and check the boolean; read `draw.clipboard().lastError()` |
 | Orders do not reach the broker | wrong layer | `chart.trading` is visualization only |
 | Blank page in Next.js or SSR | chart created during server render | client-only component, create in an effect |
 | Bare specifier fails in the browser | no bundler resolution | standalone build or an import map |

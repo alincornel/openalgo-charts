@@ -117,6 +117,9 @@ new DrawingController(chart, {
   stayInDrawingMode: false, // stay armed after a shape completes
   historyLimit: 50,         // undo depth
   defaultStyle: {},         // merged UNDER each tool's own defaults
+  clipboard: undefined,     // ClipboardPort; defaults to navigator.clipboard, null disables it
+  pasteOffsetBars: 2,       // how far a paste is nudged along time
+  pasteOffsetPixels: 16,    // how far a paste is nudged down the price axis
 });
 ```
 
@@ -132,10 +135,12 @@ new DrawingController(chart, {
 | `finish()` | Commit a `points: 0` tool at the anchors placed so far. Returns whether it committed. |
 | `select(id \| null)` / `selected()` | Selection. |
 | `undo()` / `redo()` / `canUndo()` / `canRedo()` | History. |
+| `copy(target?)` / `cut(target?)` / `paste()` | **Async.** See the clipboard section. |
+| `clipboard()` | The `DrawingClipboard` behind them, for reporting failures. |
 | `toJSON()` / `fromJSON(data)` | Deep-copied `Drawing[]` out, replace-all in (and clears history + selection). |
 | `destroy()` | Unhooks listeners, removes every pane layer, releases placement mode. |
 
-Events on the chart bus: `draw:tool`, `draw:add`, `draw:update`, `draw:remove`, `draw:select`.
+Events on the chart bus: `draw:tool`, `draw:add`, `draw:update`, `draw:remove`, `draw:select`, `draw:copy`, `draw:cut`, `draw:paste`.
 
 **The controller listens on `chart.on(...)`, not `subscribeClick` / `subscribeDrag`.** Those two are single-slot callbacks the host needs for its own order lines; routing drawings through the bus means the two never contend.
 
@@ -159,6 +164,56 @@ Freehand strokes expose only their first and last handle — one handle per samp
 **A whole drag is one undo step.** The snapshot is pushed once per gesture, on the first `drag` event, not per frame. Any new edit clears the redo branch. Snapshots are `JSON.stringify` of the full list, capped at `historyLimit`.
 
 `update(id, { locked: true })` keeps the drawing rendered but removes it from hit-testing entirely — it cannot be selected or dragged, and it draws no handles. `update(id, { visible: false })` removes it from both rendering and hit-testing.
+
+## Clipboard: copy, cut, paste
+
+```ts
+// The host owns the key bindings; the engine installs no listeners.
+window.addEventListener('keydown', async (e) => {
+  if (!(e.ctrlKey || e.metaKey)) return;
+  if (e.key === 'c') await draw.copy();
+  if (e.key === 'x') await draw.cut();
+  if (e.key === 'v') await draw.paste();
+});
+```
+
+**All three are `async`**, because `navigator.clipboard` is: it returns promises and can reject on a permission the user has not granted. Awaiting them is not optional for `cut`, whose result is the difference between "deleted" and "left alone".
+
+| Member | Signature | Notes |
+|---|---|---|
+| `copy` | `(target?: string \| string[] \| null) => Promise<boolean>` | Defaults to the selection. `false` means nothing to copy, or the payload could not be stored anywhere. |
+| `cut` | `(target?: string \| string[] \| null) => Promise<boolean>` | Deletes **only** after the write resolves successfully. One undo step. |
+| `paste` | `() => Promise<Drawing[]>` | Empty array when the clipboard holds nothing of ours. Never throws on foreign content. |
+
+### The payload, and why foreign text is safe
+
+The clipboard is shared with everything else on the machine, so a paste can arrive from a spreadsheet, another charting product, or a hand-edited copy of our own JSON. Two defences:
+
+1. **One namespaced top-level key**, `openalgo-charts/drawings`, carrying a `version`. Anything else is recognised as not ours by looking at one property, and pastes nothing. A Ctrl+V handler must not throw at the user because the last thing they copied was a spreadsheet cell.
+2. **Field-by-field validation**, all-or-nothing. The tool must be registered (`hasDrawingTool`), every anchor must be finite, `paneIndex` must be a non-negative integer, style values must be renderable primitives or a short array of numbers, and there are caps on counts and string length. One corrupt entry rejects the whole payload, because pasting the other nine silently is worse than pasting none.
+
+`encodeClipboardPayload`, `decodeClipboardPayload` and `sanitizeDrawing` are exported from `openalgo-charts/draw` if you want to move drawings through your own transport (a websocket, a saved template) with the same validation.
+
+### Degrading instead of breaking
+
+Every write also lands in a **module-level in-memory clipboard shared by every controller in the page**. That is what makes chart-to-chart paste work with the OS clipboard permission refused, and it is why the store is a singleton rather than per-controller state.
+
+```ts
+const ok = await draw.cut();
+if (!ok) toast('Nothing was cut');
+const why = draw.clipboard().lastError();   // set when memory worked but the OS clipboard did not
+if (why !== null) toast('Copied in this tab only');
+```
+
+Turn the backstop off with `new DrawingClipboard({ fallbackToMemory: false })` when a cut that cannot reach the OS clipboard must not delete the drawing. Pass `clipboard: null` to `DrawingController` to disable the system port entirely (tests, non-browser runtimes), or `clipboard: myPort` to inject one; `setOptions({ clipboard })` swaps the port at runtime, which is how you hand one over after the user grants permission.
+
+### What a paste actually inserts
+
+Fresh objects with **fresh ids**, never a second reference to the drawing that was copied, so editing the paste cannot alter its source or the clipboard. One undo step for the whole paste, and the last one is selected.
+
+The copy is nudged so it is visibly a second shape: `pasteOffsetBars` (2) along time, and `pasteOffsetPixels` (16) down the price axis. The vertical nudge is applied **per anchor** through `priceToCoordinate` / `coordinateToPrice`, not as one price delta, so it is a rigid *screen* translation and a shape keeps its proportions on a logarithmic scale.
+
+A `paneIndex` the receiving chart does not have is folded onto one it does. Without that, `addPrimitive` would conjure an empty pane on the target chart.
 
 ## Persistence
 

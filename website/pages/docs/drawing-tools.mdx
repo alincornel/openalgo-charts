@@ -7,7 +7,7 @@ import { Callout } from 'nextra/components'
 
 # Drawing Tools
 
-`openalgo-charts/draw` is a lazy tier (**11.7 KB** Brotli) with 43 tools and a headless
+`openalgo-charts/draw` is a lazy tier (**13.1 KB** Brotli) with 43 tools and a headless
 controller. It ships **no UI**: no toolbar, no dialogs. It owns the model and the
 interactions; your app supplies the buttons.
 
@@ -111,6 +111,12 @@ interface DrawingChartHost {
   drawingState(): unknown;
   setDrawingState(state: unknown): void;
   setPlacementMode?(active: boolean): void;
+  // Optional, and used only by paste: the first two make its vertical nudge a screen
+  // translation that survives a log scale, the third keeps a drawing copied out of an
+  // indicator pane from conjuring an empty pane in a chart that has fewer.
+  priceToCoordinate?(price: number, paneIndex?: number): number | null;
+  coordinateToPrice?(y: number, paneIndex?: number): number | null;
+  panes?(): readonly unknown[];
 }
 ```
 
@@ -145,15 +151,17 @@ chart has a different interval loaded.
 | `remove(id)` / `clear()` | Delete one, or all. |
 | `finish()` | End a variable-anchor shape (`path`, `polyline`) at the anchors placed so far. Returns whether it committed. Double-click already calls it. |
 | `select(id \| null)` / `selected()` | Selection. |
-| `undo()` / `redo()` / `canUndo()` / `canRedo()` | History. |
+| `copy(target?)` / `cut(target?)` / `paste()` | Clipboard, all async. See [Drawing Clipboard](/docs/drawing-clipboard). |
+| `clipboard()` | The `DrawingClipboard` behind those three, for reporting why a copy did not reach the OS clipboard. |
+| `undo()` / `redo()` / `canUndo()` / `canRedo()` | History. A paste of several drawings is one step. |
 | `toJSON()` / `fromJSON(data)` | Explicit serialisation. |
-| `setOptions(patch)` | `magnet`, `stayInDrawingMode`, `historyLimit`, `defaultStyle`. |
+| `setOptions(patch)` | `magnet`, `stayInDrawingMode`, `historyLimit`, `defaultStyle`, `pasteOffsetBars`, `pasteOffsetPixels`, `clipboard`. |
 | `destroy()` | Detach layers and listeners. |
 
 ### Events
 
-`draw:tool`, `draw:add`, `draw:update`, `draw:remove`, `draw:select` all fire on
-`chart.on(...)`.
+`draw:tool`, `draw:add`, `draw:update`, `draw:remove`, `draw:select`, `draw:copy`,
+`draw:cut` and `draw:paste` all fire on `chart.on(...)`.
 
 <Callout type="info">
 The controller listens on the **event bus** (`click`, `crosshair:move`, `drag`, `drag:end`),
@@ -222,6 +230,26 @@ Give a custom tool a chord the same way:
 ```ts
 registerDrawingTool({ id: 'my-band', name: 'My band', points: 2, shortcut: 'Alt+B', draw, distance });
 ```
+
+## Copy, cut and paste
+
+The controller has a clipboard, and like the shortcuts above it is an API your binding
+calls. All three are async, because `navigator.clipboard` is:
+
+```ts
+window.addEventListener('keydown', (e) => {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+  const key = e.key.toLowerCase();
+  if (key === 'c') { e.preventDefault(); void draw.copy(); }
+  if (key === 'x') { e.preventDefault(); void draw.cut(); }
+  if (key === 'v') { e.preventDefault(); void draw.paste(); }
+});
+```
+
+A paste inserts fresh objects with fresh ids in a single undo step, offset from the
+original, and a cut deletes only once the clipboard write has succeeded. Foreign text pastes
+nothing rather than throwing. See [Drawing Clipboard](/docs/drawing-clipboard) for the
+payload format, the validation rules and the failure modes.
 
 ## Text and labels
 

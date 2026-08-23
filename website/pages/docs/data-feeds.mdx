@@ -26,6 +26,11 @@ interface BarsRequest {
 }
 ```
 
+`interval` is a **code your feed and the engine both have to agree on**. The built-in tokens
+(`5s`, `1m`, `1h`, `D`, `W`) resolve on their own; anything else, including a monthly bar or
+a 500-tick bar, is registered by the host. See [Custom Intervals](/docs/custom-intervals),
+and note that an unrecognised code now throws rather than quietly meaning one minute.
+
 A minimal adapter just maps your API's rows to `Bar` (UTC seconds + OHLCV):
 
 ```ts
@@ -39,6 +44,22 @@ class MyFeed implements DataFeed {
   }
 }
 ```
+
+## Warm loads for any feed
+
+`withBarCache` is a `DataFeed` in and a `DataFeed` out, so an adapter of your own gets the
+same warm-load caching the bundled one does, with nothing to implement:
+
+```ts
+import { withBarCache } from 'openalgo-charts';
+
+const feed = withBarCache(new MyFeed(), { ttlMs: 60_000 });
+```
+
+Entries are keyed `symbol | exchange | interval` with the range deliberately left out, and
+**the forming bar is never stored**, because a chart that paints a frozen candle from cache
+is confidently wrong with no spinner to warn anyone. See [Bar Cache](/docs/bar-cache) for
+the freshness rules, the memory bounds, and how to plug in your own persistent store.
 
 ## TradeFeed
 

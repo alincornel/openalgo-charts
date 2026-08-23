@@ -36,8 +36,8 @@ Every name emitted by the engine, verified against the `emit(` call sites in `sr
 | `hover` | `{ id }` | Pointer enters (`id` = `externalId`) or leaves (`id` = `null`) a hit-testable primitive. State-change rate, not pointer rate. |
 | `drag` | `{ id, price, time, paneIndex, fromPrice, fromTime }` | A draggable primitive is being moved. `from*` is the grab origin, so deltas start at the press. |
 | `drag:end` | `{ id, price, time, paneIndex }` | The drag gesture released. |
-| `pan` | `{ from, to, logicalFrom, logicalTo }` | The user pans. |
-| `zoom` | `{ from, to, logicalFrom, logicalTo }` | Wheel or pinch zoom. |
+| `pan` | `{ from, to, logicalFrom, logicalTo }` | The user pans, **or** a programmatic move that changed the window without changing its span. |
+| `zoom` | `{ from, to, logicalFrom, logicalTo }` | Wheel or pinch zoom, **or** a programmatic move that changed the span. |
 | `resize` | `{ width, height }` | Container size changed (CSS px); also emitted by an explicit `applySize` that actually changes size. |
 | `lazy-load` | `{ from, to, direction: 'backward' }` | The viewport neared the oldest bar and the history loader ran. |
 | `paneRemoved` | `{ paneIndex }` | A pane was removed. |
@@ -64,11 +64,18 @@ Every name emitted by the engine, verified against the `emit(` call sites in `sr
 | `draw:update` | `{ drawing }` | A drawing's points or style changed. Drawing tier only. |
 | `draw:remove` | `{ drawing }` | A drawing was deleted. Drawing tier only. |
 | `draw:select` | `{ id }` | Selection changed; `id` is `null` on deselect. Drawing tier only. |
+| `draw:copy` | `{ drawings }` | A copy reached the clipboard (deep copies, not the live objects). Drawing tier only. |
+| `draw:cut` | `{ drawings }` | A cut wrote **and then** deleted. A refused write emits nothing. Drawing tier only. |
+| `draw:paste` | `{ drawings }` | The newly created drawings, after their own `draw:add` events. Drawing tier only. |
+| `destroy` | `{}` | `chart.destroy()` finished. Emitted last, with the chart already torn down, then every listener is dropped. |
+| `symbol` | `{ symbol }` or a bare string | **Host-emitted, never by the core.** The engine has no instrument concept; a link group listens for this to slave a grid. See [chart-linking](chart-linking.md). |
 
 Notes:
 
 - `from` / `to` on `pan`, `zoom` and `lazy-load` are **UTC seconds**, or `null` when that edge falls outside loaded data. `logicalFrom` / `logicalTo` are raw fractional logical indices.
 - `pan` and `zoom` short-circuit entirely when nobody is subscribed, so leaving them unsubscribed costs nothing.
+- **`pan` and `zoom` are not gesture-only.** `setVisibleLogicalRange`, `fitContent`, `resetScale` and the keyboard pan/zoom commands emit them too, so a linked grid follows an arrow key or a restored zoom. They emit **nothing** when the window did not actually move (a clamped zoom, an already-fitted `fitContent`), and the choice between the two names is made by whether the span changed. `panUp` / `panDown` move a price scale rather than the time window and emit nothing.
+- **`destroy` is for letting go, not for reading.** By the time it fires, `chart.isDestroyed` is true and the panes are gone. Use it to unsubscribe, drop the chart from a link group, or release a controller; `destroy()` itself is idempotent, so a second call re-emits nothing.
 - **`trading:*` names carry the prefix on both buses.** `chart.on('trading:order_modify', cb)` and `chart.trading.on('trading:order_modify', cb)` are equivalent; `chart.trading.on('order_modify', cb)` never fires.
 - **`crosshair:move`, `pan`, `zoom` and `drag` fire at pointer rate.** Do only light work in the handler; defer anything heavy to rAF or a debounce.
 - Typed alternatives exist for three of these and coexist with the bus: `chart.subscribeCrosshairMove(cb)` (`CrosshairMoveEvent`), `chart.subscribeClick(cb)` (hit-only, `cb(externalId)`), `chart.subscribeDrag(onDrag, onDragEnd)` (`(id, price, time)`).

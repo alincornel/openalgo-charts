@@ -82,6 +82,37 @@ return chart;`} />
 </div>
 
 <div>
+### Linked charts
+<RunnableExample hideCode height={280} code={`el.style.display = 'flex';
+el.style.gap = '8px';
+const box = function () {
+  const d = document.createElement('div');
+  d.style.cssText = 'flex:1 1 0;min-width:0;height:100%';
+  el.appendChild(d);
+  return d;
+};
+const leftEl = box(), rightEl = box();
+
+// Hourly on the left, daily on the right, two sessions missing: the same
+// instant, never the same bar index.
+const left = lib.createChart(leftEl);
+left.addSeries('candlestick').setData(lib.generateBars(1700438400, 720, 3600));
+left.fitContent();
+const right = lib.createChart(rightEl);
+right.addSeries('candlestick').setData(
+  lib.generateBars(1700438400, 30, 86400).filter(function (b, i) { return i !== 11 && i !== 12; }));
+right.fitContent();
+
+const group = lib.createLinkGroup({ crosshair: true, viewport: true });
+group.add(left);
+group.add(right);
+
+const destroy = left.destroy.bind(left);
+left.destroy = function () { group.destroy(); right.destroy(); destroy(); };
+return left;`} />
+</div>
+
+<div>
 ### Market replay
 <RunnableExample hideCode height={280} code={`const chart = lib.createChart(el);
 const bars = lib.generateBars(1700000000, 320, 3600);

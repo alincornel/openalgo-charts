@@ -43,6 +43,7 @@ it on teardown (component unmount, route change) so listeners never leak.
 | Event | Payload | Fires when |
 |-------|---------|-----------|
 | `ready` | `{}` | Once, on the microtask after `createChart` returns. |
+| `destroy` | `{}` | Once, at the end of `chart.destroy()`, with the chart already torn down. Anything holding a chart it did not create lets go of it here. |
 | `crosshair:move` | `{ time, index, price, bar, point, paneIndex, pressed }` | The pointer moves over the plot (all-null when it leaves). `pressed` is true while a pointer is held: the only way to observe a drag in progress, since placement mode suppresses panning. |
 | `click` | `{ id, price, time, paneIndex, point }` | The plot was clicked. `id` is the hit primitive's `externalId`, or **`null`** for a click on empty chart space. `point` is container-relative media px. |
 | `hover` | `{ id }` | The pointer enters (`id` = `externalId`) or leaves (`id` = `null`) a hit-testable primitive. |
@@ -199,6 +200,12 @@ restores it. See [Theming and chart options](/docs/themes#building-the-context-m
 whenever the container changes size (the built-in `ResizeObserver` drives it, and
 an explicit `chart.applySize(w, h)` also emits it).
 
+They are not gesture-only. `setVisibleLogicalRange`, `fitContent`, `resetScale` and the
+keyboard pan and zoom commands all announce themselves the same way, and only when the
+window **actually moved**: a clamped zoom, or a `fitContent` on an already-fitted chart,
+emits nothing. Which of the two you get is decided by whether the span changed, since a
+restored range can pan or zoom and the payload alone would not say.
+
 ```ts
 chart.on('pan',  ({ from, to }) => syncOtherChart(from, to));
 chart.on('zoom', ({ from, to }) => syncOtherChart(from, to));
@@ -206,8 +213,11 @@ chart.on('resize', ({ width, height }) => layoutOverlays(width, height));
 ```
 
 <Callout type="info">
-Use `pan` / `zoom` to keep a second chart's time window in lockstep, or to save
-the user's camera. The window is not persisted for you by design.
+Use `pan` / `zoom` to save the user's camera. The window is not persisted for you by design.
+
+For keeping a second chart in lockstep, prefer [chart linking](/docs/chart-linking) over
+copying the range across by hand: `from` and `to` are **this** chart's logical indices, and
+a chart holding different bars needs the window converted through time at both ends.
 </Callout>
 
 ## Data events
@@ -268,6 +278,31 @@ a subscription registered on the very next line still receives it.
 const chart = createChart(el);
 chart.on('ready', () => console.log('ready'));  // still fires
 ```
+
+### destroy
+
+Fires once, at the very end of `chart.destroy()`, and `chart.isDestroyed` is already `true`
+when it does. A listener is there to **let go** of the chart (unsubscribe, drop it from a
+[link group](/docs/chart-linking), release a controller), not to read it: it sees the same
+dead object every other holder sees. `destroy()` is idempotent, so a second call re-emits
+nothing, and every listener is dropped afterwards, since subscriptions on a destroyed chart
+would otherwise retain their closures forever.
+
+```ts
+chart.on('destroy', () => group.remove(chart));
+chart.isDestroyed;   // true once it has run
+```
+
+<Callout type="info">
+**Host events on the same bus.** `chart.emit(name, payload)` is public, so a host can put
+its own facts on the chart's bus and have the engine's own consumers pick them up. The
+`symbol` event is the documented case: the engine has no notion of an instrument, and a
+[link group](/docs/chart-linking) syncing symbols listens for exactly that.
+
+```ts
+chart.emit('symbol', 'RELIANCE');   // or { symbol: 'RELIANCE' }
+```
+</Callout>
 
 ## Trading events
 

@@ -23,7 +23,13 @@ series.setData([{ time: Math.floor(Date.now() / 1000), value: 1 }]); // right
 
 **Profile session windows do not follow the chart's zone, and that is deliberate.** `SessionWindow.startMinute` / `endMinute` are minutes from midnight in the window's *own* zone (`TRADING_HOURS` presets each name one); the profile's `timezone` option only settles a window that names none. Bucketing on the display zone would cut a 09:15-15:30 Kolkata session in half when viewed from New York. See [profiles-and-orderflow](./profiles-and-orderflow.md).
 
-**`intervalToSeconds` returns 60 for any token it does not recognise — it never throws.** A typo'd interval (`'5min'`, `'1H'`) silently produces 1-minute bucketing. Validate interval strings yourself before handing them to the feed.
+**An unknown interval code now throws, and that is the fix, not the bug.** `resolveInterval` raises `UnknownIntervalError` (carrying `.code`), `intervalToSeconds` throws for an unknown code and separately for a calendar or count-driven one that has no fixed length, and `OpenAlgoLiveDataFeed.subscribeBars` resolves up front so a typo fails at subscribe time. Until 1.4.0 all of these answered 60, so `'5min'` drew one-minute bars under a five-minute label with nothing anywhere saying so. Validate a picker's input with `isKnownInterval` / `tryResolveInterval`, and do not wrap `resolveInterval` in a try/catch that falls back to a guess: that reintroduces the defect.
+
+**A calendar interval has no seconds, so do not ask for any.** A month is 28 to 31 days, a New York month is not a Mumbai month, and `30 * 86400` is wrong for all of them. Register the code with `{ mode: 'calendar', unit: 'month' }` and bucket with `bucketStartOf` / `nextBucketStart`, which resolve at local midnight in the entry's zone (or the caller's, defaulting to IST).
+
+**Never cache the forming bar.** The last bar is alive until its interval ends; a cache that hands back a snapshot of it puts a stale close on the last-price line, the axis tag, the header LTP and every indicator computed off it, instantly and with no spinner. `withBarCache` drops trailing unclosed bars on store for exactly this reason, so a hit is short by at most that one bar. If you write your own cache, keep the closed history and refetch the tail. A fast wrong price is a worse failure than a slow right one on a chart that draws Buy and Sell buttons.
+
+**A cache keyed on the requested range misses on every pan.** `withBarCache` keys on `symbol|exchange|interval` only, holds the widest set fetched so far, and slices. Out of hours it still goes cold unless the host caps `to` at the newest bar it expects to exist: a hit past the entry's coverage is allowed only while the next bar is still forming, and the cache cannot know a market is closed.
 
 **Candle buckets align to `sessionAnchorSec`, which defaults to 0 (epoch), not to the session open.** For a 09:15 session, pass the anchor or your 5m bars start on the wrong minute (`src/feed/candle-builder.ts`). `lateTickPolicy` defaults to `'foldIntoBar'`; `'dropOlderThanPrevBar'` makes `onTick` return `null`, so null-check it.
 
@@ -141,6 +147,12 @@ See [profiles-and-orderflow](./profiles-and-orderflow.md).
 
 **Drag-to-draw only works because the controller arms `chart.setPlacementMode(true)`.** Without placement mode a press-drag-release pans the chart and emits zero clicks. If you drive placement yourself, arm and release the mode or the chart stays un-pannable — which is also why `DrawingController.destroy()` is mandatory: `chart.destroy()` does not tear down the controller, and a leaked one can strand placement mode on. (A whole drag is a single undo step, not one per frame.)
 
+**`copy`, `cut` and `paste` are async, and `cut`'s result is load-bearing.** They return promises because `navigator.clipboard` does. A `cut` deletes only after the write resolves, so a fire-and-forget `draw.cut()` on a page where the permission is refused (and `fallbackToMemory` is off) leaves the drawing in place with no error anywhere; check the boolean, and read `draw.clipboard().lastError()` to tell "copied in this tab only" from "copied everywhere".
+
+**A paste of foreign content is silently empty, by design.** `paste()` resolves to `[]` for a spreadsheet cell, someone else's JSON, or a corrupt copy of our own payload, and never throws: a Ctrl+V handler must not blow up on whatever the user last copied. Do not treat an empty array as an error to report; treat it as nothing to paste. Validation is all-or-nothing, so one bad entry rejects the whole payload rather than pasting the rest.
+
+**Pasted drawings are fresh objects with fresh ids.** They are not a second reference to the source, so do not expect a later edit of the original to follow. The copy is nudged two bars and 16 px, applied per anchor through the coordinate API so it stays a rigid screen translation on a log scale.
+
 See [drawing-tools](./drawing-tools.md).
 
 ## Primitives and custom rendering
@@ -186,6 +198,20 @@ See [events-and-state](./events-and-state.md), [interactions](./interactions.md)
 
 See [replay-and-compare](./replay-and-compare.md).
 
+## Chart linking
+
+**Never copy a logical index or a logical range from one chart to another.** This is the defining mistake of the feature. The x axis is a gapless index over *that chart's own bars*, so index 300 is a different instant on every chart in a grid: the copy looks perfect on two charts of the same symbol and interval and is wrong the moment the intervals, the history depth or the holiday calendars differ. Convert index to time on the sender (`indexToTimeFloat`) and time back to index on the receiver (`timeToIndex` / `timeToIndexFloat`), or use `LinkGroup`, `followerIndex` and `followerRange`, which do it for you.
+
+**A linked crosshair draws no horizontal line, and that is not an omission.** The price under a cursor on another instrument is not a price on this one. If you build your own mirror, mirror the instant, never the price.
+
+**An instant outside a follower's coverage is an absence, not a gap.** `followerIndex` returns `null` before the first bar and after the last one under **both** `whenMissing` policies. Clamping to the edge bar instead asserts an alignment that does not exist, and looks convincing.
+
+**Symbol sync does nothing without the host.** The engine has no instrument concept: nothing happens until a member has an `onSymbol` callback that loads bars, and until the host reports changes by emitting `'symbol'` or calling `group.setSymbol`. A member with no `onSymbol` broadcasts but never follows, which is the supported way to pin one chart.
+
+**A freshly loaded follower must not broadcast its own `fitContent`.** Since 1.4.0 `fitContent`, `setVisibleLogicalRange`, `resetScale` and the keyboard pan/zoom commands all emit `pan`/`zoom`, so loading bars into a new member and fitting them throws the leader off the user's window. Suspend viewport sync across the load and let the two converge on the first pan.
+
+See [chart-linking](./chart-linking.md).
+
 ## Trading
 
 **`chart.trading` is a visualization layer: it draws lines and markers and emits `trading:*` events. It places no orders.** Your app owns the broker call. The order *write* path is `OrderEngine` in the trade tier.
@@ -205,6 +231,8 @@ See [trading](./trading.md), [trade-tier](./trade-tier.md).
 **`createChart` mutates your container.** It sets `display:flex`, `flexDirection:column`, `background`, `touchAction:none`, `role="application"`, `aria-label`, `tabindex`, forces `position:relative` when the computed position is `static`, and appends a hidden live region. Give the chart its own element rather than a shared layout node.
 
 **`destroy()` removes listeners, panes, indicators and the live region — but does not undo those container style and ARIA mutations.** Under React StrictMode's double mount, or any remount into the same node, create the chart in an effect keyed to a dedicated `<div>` you own.
+
+**Do not infer destruction from an empty pane list.** `chart.isDestroyed` and the `'destroy'` event say so directly. The event fires last, with the chart already torn down, so a listener is there to let go of the chart rather than to read it; `destroy()` is idempotent, so a second call emits nothing; and every listener is dropped afterwards, so a subscription on a corpse no longer retains its closure.
 
 **The keyboard listener is attached to `document`, not the container, so a chart you forget to destroy keeps intercepting keys page-wide.** Scope defaults to `'hover'` (keys act when the pointer is over the chart or focus is inside it); `ShortcutManager.shouldIgnore` skips `INPUT`/`TEXTAREA`/`SELECT`/`contenteditable`.
 

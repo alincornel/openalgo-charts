@@ -199,9 +199,9 @@ const chart = createChart(el, {
 
 **A `timeFormatter` overrides labels only, never the calendar.** Session anchors and pivot frames still resolve on `chart.timezone()`, so a formatter that renders New York hours on a chart left at `Asia/Kolkata` puts a VWAP restart in the middle of the drawn day. Set the zone as well.
 
-## Tick and volume bars
+## Tick, volume and calendar bars
 
-`TickBarAggregator` (`src/feed/tick-aggregator.ts`) builds bars from raw trade ticks on one of three timeframes:
+`TickBarAggregator` (`src/feed/tick-aggregator.ts`) builds bars from raw trade ticks on any `Bucketing` rule:
 
 ```ts
 import { TickBarAggregator } from 'openalgo-charts';
@@ -209,6 +209,7 @@ import { TickBarAggregator } from 'openalgo-charts';
 const agg = new TickBarAggregator({ mode: 'ticks', count: 100 });
 // { mode: 'volume', perBar: 5000 }
 // { mode: 'interval', seconds: 30, anchorSec: sessionOpenUtc }
+// { mode: 'calendar', unit: 'month' }, with { timezone: 'America/New_York' } as the option
 
 ws.onTrade((t) => {
   const u = agg.onTick({ time: t.timeSec, price: t.price, qty: t.qty });
@@ -216,7 +217,9 @@ ws.onTrade((t) => {
 });
 ```
 
-`onTick` always returns a `BarUpdate` (never null). Bar time is the bucket start in `interval` mode, and the **first tick's time** in `ticks` / `volume` mode.
+`onTick` always returns a `BarUpdate` (never null). Bar time is the bucket start in `interval` and `calendar` mode, and the **first tick's time** in `ticks` / `volume` mode.
+
+The four cases are the `Bucketing` union from the interval registry, and `TickTimeframe` still names exactly the three time-agnostic ones. `new TickBarAggregator(bucketing, { timezone })` supplies the zone a calendar bucket resolves in when the rule did not pin its own: a month opens at local midnight on the first, and which instant that is depends on the exchange. See [feeds-and-live](feeds-and-live.md#the-interval-registry).
 
 **Tick and volume bars can collide on time.** Two consecutive count-bars whose first ticks land in the same second get the same `time`, and the DataLayer collapses them last-wins — one bar disappears. If your feed timestamps at second resolution, carry your own monotonic time when building tick bars.
 

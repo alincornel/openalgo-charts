@@ -31,7 +31,9 @@ interface PrimitiveHit {
 
 **`zOrder` is a method, not a property.** `{ zOrder: 'bottom' }` compiles under a loose annotation and then throws at paint time when the pane calls `p.zOrder()`.
 
-`attached(host)` is called on `pane.addPrimitive`; keep the host and call `host.requestUpdate()` whenever your state changes — it takes no arguments and schedules a `Light` repaint of that pane. `detached()` fires on `chart.removePrimitive` and on pane destruction; drop the host reference there.
+`attached(host)` is called on `pane.addPrimitive`; keep the host and call `host.requestUpdate()` whenever your state changes — it takes no arguments. `detached()` fires on `chart.removePrimitive` and on pane destruction; drop the host reference there.
+
+**The repaint level follows your `zOrder()`, so there is nothing to opt into.** The host reads `zOrder()` on every `requestUpdate` call and schedules a `Cursor` repaint (overlay canvas only, the layer `Pane.paintTop` draws) for a `'top'` primitive and a `Light` one (base canvas) for everything else. A cursor-rate overlay therefore costs one overlay repaint rather than a full series redraw. It is read per call rather than captured at attach, so a primitive that changes layer at runtime is handled too.
 
 ### `PrimitiveRenderContext`
 
@@ -132,6 +134,7 @@ Keep it cheap: it runs on every `Full` invalidation, which includes every `serie
 | `BuySellButtons` | `top` | Docked in-plot BUY / qty / SELL panel. | `id` (`trade`), `position` (`top-left`), `margin` (12), `qty`, `buyColor`, `sellColor`, `showPrices`, `scale` (0.6–1.5); `setPrices`, `setMark`, `setQty`, `setColors` |
 | `PaneLegend` | `top` | Canvas-drawn legend row: swatch, title, params, live values, action buttons, and the status line. | `id`, `title`, `params`, `color`, `valueColor`, `row`, `actions`, `hidden`, `maximized`, `font` (11), `left` (8), `top` (6), `statusLine` (per-field switches), `status` (host data or a per-frame getter); `setValue`, `setValues` (readings may carry `field: 'ohlc' \| 'change' \| 'volume'`), `setOptions`. See [settings-and-menus](settings-and-menus.md) |
 | `TimeNavigator` | `top` (option) | Hover-revealed zoom / step controls above the time axis. | Created by the chart itself from `ChartOptions.timeNavigator` (default `true`); `buttons`, `size` (26), `bottomMargin` (10), `revealHeight` (64), `labels`, `hints`, `showTooltip` |
+| `LinkCrosshair` | `top` | The crosshair a linked chart shows for a cursor in **another** chart: a vertical line only, at `LINK_CROSSHAIR_ALPHA` (0.55) of the pane's crosshair colour. A mirrored horizontal line would assert a price belonging to another instrument. Normally created for you by `LinkGroup`, one per pane. | `setIndex(index \| null)`, `index()`. See [chart-linking](chart-linking.md) |
 | `IndicatorFill` | `bottom` | Two-tone band between two indicator `calc` columns (Ichimoku cloud, Keltner, a shaded overbought/oversold band), split at exact crossings. The columns need not be plotted. | `colorUp`, `colorDown`, `opacity` (0.12); `setPoints(FillPoint[])`, `setOptions`, `setVisible` |
 
 Attachment:

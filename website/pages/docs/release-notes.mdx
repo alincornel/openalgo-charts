@@ -20,6 +20,26 @@ The full, authoritative changelog lives in
   instrument on the primary one's pane. Comparability comes from the scale rather than from
   the data, so the legend and crosshair still speak in real prices while equal percentage
   moves land on equal pixels. See [Symbol Comparison](/docs/symbol-comparison).
+- **Chart linking.** `createLinkGroup({ crosshair, viewport, symbol })` drives a grid of
+  charts as one workspace. Nothing crosses a chart boundary as a logical index: every value
+  is converted to a time on the sender and back to an index on the receiver, against that
+  chart's own bars, so a daily chart and an hourly one stay on the same instant and the same
+  wall-clock window. A follower refuses an instant outside its coverage, and inside it snaps
+  to the nearest bar in time or draws nothing under `whenMissing: 'hide'`. See
+  [Chart Linking](/docs/chart-linking).
+- **A drawing clipboard.** `copy`, `cut` and `paste` on `DrawingController`, over a payload
+  namespaced under one JSON key, so foreign text pastes nothing instead of throwing, and
+  every field is validated before it can reach the model. A refused OS clipboard degrades to
+  an in-page one rather than losing the copy, and a cut deletes only after the write
+  succeeds. See [Drawing Clipboard](/docs/drawing-clipboard).
+- **Warm-load bar caching.** `withBarCache(feed)` wraps any `DataFeed`, keyed
+  `symbol | exchange | interval` with the range left out so a pan still hits. The forming bar
+  is never stored, and freshness is gated on the feed's own bar grid rather than on UTC
+  midnight. See [Bar Cache](/docs/bar-cache).
+- **An interval registry.** An interval code resolves to a *bucketing rule*, not a duration:
+  fixed seconds, a calendar period, a tick count, or traded volume. Months, quarters and
+  years open at local midnight in a named zone, so February is 29 days and a New York month
+  is not a Mumbai month. See [Custom Intervals](/docs/custom-intervals).
 - **A chart settings schema.** `chartSettingsSchema(chart)` describes a dialog in the same
   control vocabulary the indicator form already uses, with `readChartSettings` and
   `applyChartSettings` as its round trip. Five tabs of our own (Price, Readout, Axes,
@@ -60,6 +80,20 @@ The full, authoritative changelog lives in
 
 **Changed**
 
+- **An unknown interval code throws instead of meaning one minute.** `resolveInterval` and
+  `intervalToSeconds` raise `UnknownIntervalError`, and `subscribeBars` therefore fails at
+  subscribe time rather than drawing mislabelled minute bars for the life of a subscription.
+  `tryResolveInterval` and `isKnownInterval` are the non-throwing probes for a host
+  validating a picker. Note that the built-in token grammar is case-insensitive, so a bare
+  `M` is a minute: register a calendar interval if it should be a month.
+- **`pan` and `zoom` now fire for programmatic viewport changes too**, not only for
+  gestures: `setVisibleLogicalRange`, `fitContent`, `resetScale` and the keyboard pan and
+  zoom commands all announce themselves, and only when the window actually moved. A linked
+  grid follows an arrow key and a restored zoom; a `fitContent` on a fresh chart now
+  broadcasts, so suspend the viewport channel while loading a follower.
+- **Destruction is announced rather than inferred.** `chart.isDestroyed`, a `destroy` event,
+  an idempotent `destroy()`, and every listener dropped afterwards, so anything holding a
+  chart it did not create can let go of it instead of guessing from an empty pane list.
 - **Price-axis labels no longer draw underneath the last-price tag.** The tag reserves its
   band before the ladder is drawn, so the tick it would have painted over is dropped instead
   of the two becoming illegible. Turning the countdown on makes the tag taller and can cost

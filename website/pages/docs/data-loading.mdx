@@ -12,6 +12,14 @@ This page covers every way to get price data into a chart: bulk load, live
 updates, tick aggregation, infinite history paging, large-dataset downsampling,
 and gap recovery after a feed drop.
 
+<Callout type="info">
+Loading the *same* series repeatedly (a symbol switch and back, a timeframe flip, a reload,
+a [linked grid](/docs/chart-linking) opening one instrument in four panes) is a caching
+problem rather than a loading one. Wrap the feed with
+[`withBarCache`](/docs/bar-cache) and it is answered from memory, without ever serving a
+stale forming bar.
+</Callout>
+
 ## Initial load
 
 Create a series, then call `setData` with a sorted array of bars:

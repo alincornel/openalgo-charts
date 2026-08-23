@@ -1,6 +1,6 @@
 ---
 name: openalgo-chart-terminal
-description: Build a full trading terminal on openalgo-charts - symbol search, interval switcher, chart-type picker, indicator menu, drawing rail, live OpenAlgo REST plus WebSocket data, on-chart order lines with drag-to-modify, market depth, a settings dialog and context menu, market replay, symbol comparison, and layout persistence. Use when the user asks for a trading terminal, a charting workstation, on-chart trading, or to wire orders onto a chart.
+description: Build a full trading terminal on openalgo-charts - symbol search, interval switcher, chart-type picker, indicator menu, drawing rail with clipboard, live OpenAlgo REST plus WebSocket data behind a warm-load bar cache, on-chart order lines with drag-to-modify, market depth, a settings dialog and context menu, market replay, symbol comparison, a linked split view, and layout persistence. Use when the user asks for a trading terminal, a charting workstation, on-chart trading, a linked chart grid, or to wire orders onto a chart.
 argument-hint: "[feature]"
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep
 ---
@@ -26,9 +26,23 @@ const volume = chart.addSeries('histogram', { paneIndex: 1 });
 
 Load history, then subscribe, seeding the builder from the last historical bar so the live candle continues its bucket instead of starting a fresh one. See [feeds-and-live](../openalgo-charts/references/feeds-and-live.md).
 
+**Wrap the feed in `withBarCache` before anything else touches it.** A terminal reloads the same series constantly (symbol flicking, interval pills, a page refresh), and the wrapper turns those into warm reads. It never stores the forming bar, so what comes back is short by at most the bar the live subscription is about to send you anyway.
+
+```ts
+const feed = withBarCache(new OpenAlgoLiveDataFeed(cfg), { ttlMs: 60_000 });
+```
+
+Two things a terminal has to do itself. Show the verdict: a status line saying "warm 1 ms" against "fetched 320 ms" is the only way anyone can tell the cache is working, and `feed.stats()` gives you the hits. And **cap `to` at the newest bar that can exist when the venue is shut**: a hit past the entry's coverage is only allowed while the next bar is still forming, and the cache cannot know a market is closed, so out of hours every load is cold without the cap. You already have a session table for the clock; reuse it.
+
 ### 2. Symbol and interval switching
 
 Switching either one is a full data reload, not a chart rebuild. Tear down the old subscription first, then `setData`, then resubscribe. Do not create a second chart.
+
+**Every code on the interval pills must resolve.** `s/m/h/d/w` are built in; anything else (monthly, quarterly, a 500-tick bar) is a `registerInterval` call carrying a `Bucketing` rule, and an unregistered code now throws `UnknownIntervalError` at subscribe time rather than quietly drawing minute bars. Validate with `isKnownInterval` when the code can come from the user, and bucket calendar codes with `bucketStartOf`, never with a seconds-per-month constant: a month is 28 to 31 days and a New York month is not a Mumbai month.
+
+```ts
+registerInterval({ code: '1MO', bucketing: { mode: 'calendar', unit: 'month', count: 1 } });
+```
 
 **Switch the clock with the symbol.** `chart.setTimezone(zoneForExchange(exchange))` takes an IANA name (default `Asia/Kolkata`) and moves the axis labels, the crosshair tag *and* every session-anchored study, so a US symbol stops restarting its VWAP in the middle of the afternoon. Hold the chosen zone in your own state if anything in the terminal rebuilds the chart, and offer it as a control: a user watching a US symbol from Mumbai may want either clock. The settings schema ships that control (`time.timezone`, step 10), so mirror the zone rather than building a second picker. It throws on a name the runtime does not know, so guard user input with `isValidTimezone`. See [data-and-time](../openalgo-charts/references/data-and-time.md).
 
@@ -53,6 +67,8 @@ draw.setTool('trend-line');
 ```
 
 The controller is headless. Build the rail from `registeredDrawingTools()` and show the chord from `drawingShortcuts()` beside each name. The library installs no key listener - call `matchDrawingShortcut(event)` from your own handler, gated on the chart having focus and no dialog being open. See [drawing-tools](../openalgo-charts/references/drawing-tools.md).
+
+Wire Ctrl+C / Ctrl+X / Ctrl+V to `draw.copy()`, `draw.cut()` and `draw.paste()` in the same handler, and show the chords in the drawing's right-click menu. **All three are async**: `await` the `cut`, because it deletes only after the clipboard write succeeds and its boolean is the difference between "gone" and "still there". A paste of foreign clipboard content resolves to an empty array rather than throwing, so treat that as nothing to paste, not as an error to report.
 
 ### 7. On-chart trading
 
@@ -118,9 +134,27 @@ addComparison(chart, { symbol: 'BANKNIFTY', bars: otherBars });
 
 Both are headless: draw the transport bar from `replay.state()` plus the `replay:*` events, and the symbol chips from `list()`. Detach the live feed while replaying, and pass every series on the timeline (volume included) to the replay controller. See [replay-and-compare](../openalgo-charts/references/replay-and-compare.md).
 
+### 12. Split view and linked charts
+
+A second chart is the one place rule 1 does not apply: a split view is genuinely two `Chart` instances, each with its own symbol picker, interval pills and feed subscription, joined by a link group.
+
+```ts
+const group = createLinkGroup({ crosshair: true, viewport: true, symbol: false });
+group.add(chartA, { symbol: symA, onSymbol: (s, c) => load(s, c) });
+group.add(chartB, { symbol: symB, onSymbol: (s, c) => load(s, c) });
+```
+
+**Do not write your own sync.** Copying one chart's `getVisibleLogicalRange()` onto the other is the bug this feature exists to prevent: the logical index belongs to that chart's own bars, so it is a different instant on a chart with a different interval or a different history depth. The group converts through time on both sides.
+
+Three switches in the link menu, one per channel, plus the nearest/hide choice for an instant the follower has no bar for. Symbol sync needs a per-member `onSymbol` that loads bars, or the switch does nothing; a member without one is your "pin this chart" affordance rather than an omission.
+
+**Suspend viewport sync while a member loads its first dataset.** Letting a fresh follower's `fitContent` broadcast throws the leader off the window the user was on (`fitContent` emits `zoom`/`pan` like a gesture does since 1.4.0), and adopting the leader's window instead can leave a month of hourly bars as a sliver. Turn it off for the load, turn it back on, and let the two converge on the first pan. See [chart-linking](../openalgo-charts/references/chart-linking.md).
+
+Destroying a split pane is `chart.destroy()`: the group notices the `'destroy'` event and prunes the member itself, so there is no bookkeeping to forget.
+
 ## Rules
 
-1. **One chart instance for the terminal's life.** Symbol, interval, theme and chart-type changes all mutate it in place.
+1. **One chart instance for the terminal's life.** Symbol, interval, theme and chart-type changes all mutate it in place. A deliberate split view (step 12) is the exception, and its second chart is a full peer with its own feed and its own teardown.
 2. **Chart orchestration belongs outside the UI framework.** A plain module holding the chart, the feed and the subscriptions; the framework renders the shell and calls into it.
 3. **Tear down every subscription** on symbol change and on unmount. A leaked WebSocket handler will keep pushing bars into a destroyed chart.
 4. **API keys never live in committed client source.** Use the project's env mechanism.
@@ -129,4 +163,4 @@ Both are headless: draw the transport bar from `replay.state()` plus the `replay
 
 ## Verify
 
-Typecheck, then drive the real thing: switch symbol, switch interval, pan left until history loads, add an indicator, place a drawing, reload the page and confirm the layout came back. Report which of these you actually exercised and which you could not.
+Typecheck, then drive the real thing: switch symbol, switch interval, pan left until history loads, add an indicator, place a drawing, copy it and paste it, reload the page and confirm the layout came back and the second load reported warm. If you built the split view, open it on a *different* interval from the first chart and check that the linked crosshair lands on the bar at the same clock time, not on the same bar number. Report which of these you actually exercised and which you could not.

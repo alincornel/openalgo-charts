@@ -102,6 +102,37 @@ it out. A control that exists but has no data in the current context is differen
 it disabled with its state visible, the way the reference greys "previous day close" when
 there is no previous session.
 
+## Never cache the forming bar
+
+A "forming bar" is the one that has not closed yet. On a 5-minute chart at 10:07, the bar
+covering 10:05 to 10:10 is still being built: its close moves with every tick and is not
+final until 10:10.
+
+Bars therefore fall into two categories, and they are not the same kind of data:
+
+- **Closed bars are immutable.** Yesterday's daily candle will never change again, and
+  neither will the 10:00 to 10:05 bar once 10:05 has passed. Cache these freely.
+- **The last bar is alive** until its interval ends. It must never be served from cache.
+
+**A cache that serves a stale forming bar is worse than no cache at all.** Concretely:
+
+    10:07  Open INFY.  Fetch, last bar close 1120.  Cached.
+    10:08  Switch to RELIANCE to check something.
+    10:09  Switch back to INFY.  Cache hit, last bar close 1120.
+
+INFY actually traded to 1135 while the user was away. That one wrong number then reaches
+the last-price line, the price-axis tag, the header LTP, and every indicator computed off
+that close: RSI, VWAP, the moving average, a Supertrend flip. With no cache the user waits
+600ms and sees 1135, which is slower and correct. With a naive cache they get an instant
+chart that is confidently wrong, with no spinner and no staleness badge to warn them.
+
+This library draws Buy and Sell buttons on the chart. A fast wrong price is a worse
+failure here than a slow right one.
+
+So the rule is not "cache less". Keep the completed history and re-fetch only the tail,
+either by dropping the last bar from a cached set or by expiring the entry at that bar's
+close time. Anything that computes off `bars[bars.length - 1]` inherits this rule.
+
 ## Concurrency
 
 When fanning out agents over this repo, **file ownership must be exclusive**, and

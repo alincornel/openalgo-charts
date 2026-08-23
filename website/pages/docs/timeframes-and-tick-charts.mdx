@@ -51,6 +51,14 @@ than a minute apart, and the crosshair tag shows seconds on sub-minute bars - so
 chart reads correctly without any configuration.
 </Callout>
 
+<Callout type="warning">
+An interval code resolves through a registry, and **an unrecognised code throws** rather
+than quietly meaning one minute. The built-in grammar covers `s`, `m`, `h`, `d` and `w` and
+is case-insensitive, so a bare `M` is a **minute**: register a calendar interval if your
+broker's `M` means a month, and register `1Q`, `T500` or `V10K` before you use them. See
+[Custom Intervals](/docs/custom-intervals).
+</Callout>
+
 ## Second timeframes (live)
 
 `CandleBuilder` buckets a tick stream into interval OHLC. `intervalSec` can be any number of
@@ -77,8 +85,8 @@ return chart;`} caption="5-second candles aggregated from a per-second tick stre
 
 ## Tick bars
 
-`TickBarAggregator` makes bars from **trade ticks** by clock interval, **tick count**, or
-**traded volume**:
+`TickBarAggregator` makes bars from **trade ticks** by clock interval, **calendar period**,
+**tick count**, or **traded volume**:
 
 ```ts
 import { TickBarAggregator } from 'openalgo-charts';
@@ -86,6 +94,8 @@ import { TickBarAggregator } from 'openalgo-charts';
 const agg = new TickBarAggregator({ mode: 'ticks', count: 100 });   // 100-tick bars
 // or { mode: 'volume', perBar: 5000 }   - constant-volume bars
 // or { mode: 'interval', seconds: 30 }  - 30-second bars
+// or { mode: 'calendar', unit: 'month' } - months, quarters and years, which have no
+//    fixed length; pass { timezone } so the boundary is local midnight where it should be
 
 ws.onTrade((t) => {
   const u = agg.onTick({ time: t.timeSec, price: t.price, qty: t.qty });
