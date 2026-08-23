@@ -119,7 +119,17 @@
     .btn--sell { background: linear-gradient(180deg, #f0616f, #d6485a); color: #2a0d10; border-color: transparent; }
     .btn--buy:hover, .btn--sell:hover { filter: brightness(1.08); }
 
-    .status { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; color: var(--mut); max-width: 40vw; overflow: hidden; }
+    /* The readout now carries the cache verdict and the clipboard's replies, so
+       it has to stay legible. `flex-basis: 220px` is the floor it will accept on
+       the toolbar's own row: a wrapping flex container places items by their
+       content width and wraps before it shrinks anything, so with `auto` a
+       readout asking for its full 250px pushed the whole row over, and with a
+       tiny basis it joined the row and was squeezed to an ellipsis. Below about
+       1700px it takes a row of its own and stays readable; above that it shares
+       the toolbar's, right-aligned where it always was. */
+    .status { margin-left: auto; display: inline-flex; align-items: center; justify-content: flex-end;
+      gap: 8px; color: var(--mut); flex: 1 1 220px; min-width: 0; max-width: 40vw; overflow: hidden; }
+    .status span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; box-shadow: 0 0 0 3px rgba(139,147,167,.12); }
     #status { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
@@ -362,8 +372,38 @@
       text-transform: uppercase; letter-spacing: .5px; }
 
     /* ── chart stage ────────────────────────────────────────────── */
-    .stage { position: relative; flex: 1 1 auto; min-height: 0; }
+    /* The split row. One child at rest; two once the second chart is open, and
+       the divider between them is draggable so a user can decide how much of
+       the width the follower gets. `min-width: 0` on both, or a flex child
+       refuses to shrink below its content and the right pane falls off. */
+    .split { display: flex; flex: 1 1 auto; min-height: 0; min-width: 0; }
+    .stage { position: relative; flex: 1 1 auto; min-height: 0; min-width: 0; }
     #chart { position: absolute; inset: 0; cursor: crosshair; }
+
+    /* ── split view: the linked second chart ────────────────────── */
+    .splitbar { flex: none; width: 5px; cursor: col-resize; background: var(--bd-soft);
+      transition: background .12s; }
+    .splitbar:hover, .splitbar.is-drag { background: var(--acc); }
+    .pane2 { flex: 0 0 44%; min-width: 0; display: flex; flex-direction: column;
+      background: var(--bg); }
+    .pane2[hidden] { display: none; }
+    /* Its own thin header: this chart has its own instrument and its own
+       timeframe, and saying so beside the plot is the only way the time-not-index
+       alignment is visible (a daily follower tracking an hourly leader). */
+    .p2bar { flex: none; display: flex; align-items: center; gap: 6px; padding: 5px 8px;
+      background: #0c0f16; border-bottom: 1px solid var(--bd-soft); }
+    .p2bar .pills button { height: 22px; padding: 0 7px; font-size: 11px; }
+    .p2bar .tbtn { height: 26px; font-size: 12px; }
+    .p2note { margin-left: auto; color: var(--faint); font-size: 11px; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis; }
+    .p2plot { position: relative; flex: 1 1 auto; min-height: 0; }
+    #chart2 { position: absolute; inset: 0; cursor: crosshair; }
+    .p2legend { position: absolute; top: 10px; left: 12px; z-index: 10; pointer-events: none;
+      white-space: nowrap; padding: 6px 10px; border-radius: 9px; font: 11px/1.45 system-ui, sans-serif;
+      background: rgba(15,18,26,.72); border: 1px solid var(--bd-soft); backdrop-filter: blur(8px); }
+    .p2legend:empty { display: none; }
+    .p2legend b { color: #eef1f7; font-weight: 700; font-size: 12px; }
+    .p2legend .meta { opacity: .5; }
     /* Full-screening the stage takes it out of the page flow, so it needs its
        own background -- the browser backdrop is black and the panes are only
        painted where the chart draws. */
@@ -416,6 +456,10 @@
       border: 0; border-radius: 7px; color: var(--tx); padding: 7px 10px; cursor: pointer; transition: background .12s, color .12s;
     }
     #ctxmenu button:hover { background: var(--elev-2); }
+    /* The chord, right-aligned. The engine binds no keys, so a menu row is the
+       only place a user can find out that Ctrl+C means anything here. */
+    #ctxmenu button em { margin-left: auto; padding-left: 18px; color: var(--faint);
+      font-style: normal; font-size: 11px; font-variant-numeric: tabular-nums; }
     #ctxmenu button.buy:hover { background: #12332e; color: #7fe6d2; }
     #ctxmenu button.sell:hover { background: #331a1d; color: #f7a6a4; }
     #ctxmenu button::before { content: ''; width: 7px; height: 7px; border-radius: 2px; flex: none; background: #3a4258; }
@@ -619,15 +663,29 @@
     <span class="hint">bracket = entry + OCO target/stop · right-click for single orders · hover the bottom of the chart for zoom / step controls</span>
   </div>
 
-  <main class="stage has-rail">
-    <div class="rail" id="rail"></div>
-    <div id="chart"></div>
-    <div id="legend"></div>
-    <!-- Market-replay transport. Built by buildReplayBar() from the controller's
-         state(), because the engine ships no DOM. Lives inside the stage so it
-         comes along into chart-only full screen. -->
-    <div id="replaybar" hidden></div>
-  </main>
+  <div class="split" id="split">
+    <main class="stage has-rail">
+      <div class="rail" id="rail"></div>
+      <div id="chart"></div>
+      <div id="legend"></div>
+      <!-- Market-replay transport. Built by buildReplayBar() from the controller's
+           state(), because the engine ships no DOM. Lives inside the stage so it
+           comes along into chart-only full screen. -->
+      <div id="replaybar" hidden></div>
+    </main>
+    <!-- The linked second chart. Its header is built by renderPane2Bar(); the
+         plot is a whole second Chart joined to the same link group, which is the
+         only way the crosshair / viewport / symbol switches have anything to
+         demonstrate. -->
+    <div class="splitbar" id="splitbar" hidden title="Drag to resize the split"></div>
+    <aside class="pane2" id="pane2" hidden>
+      <div class="p2bar" id="p2bar"></div>
+      <div class="p2plot">
+        <div id="chart2"></div>
+        <div class="p2legend" id="p2legend"></div>
+      </div>
+    </aside>
+  </div>
 
   <!-- Sahi-style bracket panel (positions tracked to price every frame) -->
   <div id="bracket" hidden>
@@ -737,6 +795,12 @@
     <hr>
     <button data-act="delsel">Delete Drawing</button>
     <button data-act="delall">Remove All Drawings</button>
+    <!-- Clipboard. The chord is shown beside the label because the engine binds
+         no keys: nothing else on screen would say what Ctrl+C does here. -->
+    <hr data-sec="clip">
+    <button data-act="copy">Copy Drawing<em>Ctrl+C</em></button>
+    <button data-act="cut">Cut Drawing<em>Ctrl+X</em></button>
+    <button data-act="paste">Paste Drawing<em>Ctrl+V</em></button>
     <!-- Only drawn when the chart says the pointer was over an indicator. -->
     <hr data-sec="ind">
     <button data-act="indset">Indicator settings...</button>
@@ -762,6 +826,29 @@
       PriceLevels, PRICE_LEVEL_KINDS,
       lastPriceLevelFromSeriesStyle, seriesStyleForLastPriceLevel,
     } = engine;
+    // 1.3 surfaces: chart linking, the bar cache and the interval registry.
+    // Same namespace read for the same reason: this page must still draw
+    // against an older dist/ and say which features that dist cannot serve,
+    // rather than failing at link time and showing a blank document.
+    const { createLinkGroup } = engine;
+    const { withBarCache } = engine;
+    // Only what this page actually calls. `registeredIntervals` and
+    // `isKnownInterval` are on the engine too, and were pulled in here and then
+    // used by nothing: the picker is built from CUSTOM_INTERVALS, which is the
+    // list that also has the labels and the fold source, so reading the
+    // registry back would be a second source of truth for the same thing.
+    const { registerInterval, tryResolveInterval, bucketStartOf } = engine;
+
+    /**
+     * What this dist/ cannot do. Collected rather than thrown so one missing
+     * feature does not take the other three down with it, and reported once in
+     * the status line: a demo that silently drops a control is exactly the
+     * failure mode the controls are here to rule out.
+     */
+    const MISSING = [];
+    if (!createLinkGroup) MISSING.push('chart linking');
+    if (!withBarCache) MISSING.push('bar cache');
+    if (!registerInterval || !bucketStartOf) MISSING.push('interval registry');
     // Lazy tiers. Each registers into the base bundle's registries as a side
     // effect of being imported, so `addSeries('point-figure')` and
     // `addIndicator('macd')` resolve afterwards.
@@ -784,7 +871,148 @@
       }
     }
 
-    const feed = new YFinanceDataFeed();
+    // ── interval registry ──────────────────────────────────────────────────
+    // The picker speaks yfinance's tokens, and two of them are not tokens the
+    // engine's built-in grammar accepts: `1wk` has a two-letter unit, and a
+    // calendar month has no fixed length at all, so it cannot be a duration.
+    // Registering them is what makes `resolveInterval` answer for every code
+    // this page can put on screen, which is in turn what lets the cache below
+    // ask the registry (rather than a private table) how long a bar is.
+    //
+    // `1mo` and `1q` are the demonstration: the engine has no such interval and
+    // yfinance's own monthly frame is not what a calendar bucket means here.
+    // They are folded locally from daily bars through `bucketStartOf`, so a
+    // month runs first-to-first at local midnight in the chart's timezone and
+    // February really is 29 days long in 2024.
+    const CUSTOM_INTERVALS = [
+      { code: '1wk', label: '1W', name: 'Week', bucketing: { mode: 'interval', seconds: 604800 } },
+      { code: '1mo', label: '1MO', name: 'Calendar month', bucketing: { mode: 'calendar', unit: 'month', count: 1 }, foldFrom: '1d' },
+      { code: '1q', label: '1Q', name: 'Calendar quarter', bucketing: { mode: 'calendar', unit: 'quarter', count: 1 }, foldFrom: '1d' },
+    ];
+    if (registerInterval) {
+      for (const iv of CUSTOM_INTERVALS) registerInterval({ code: iv.code, bucketing: iv.bucketing });
+    }
+    /** The demo's own entry for a code, when it has one. */
+    const customInterval = (code) => CUSTOM_INTERVALS.find((i) => i.code === code) || null;
+    /** A code we fold ourselves out of a shorter frame, rather than fetch. */
+    const foldedInterval = (code) => {
+      const iv = customInterval(code);
+      return iv && iv.foldFrom ? iv : null;
+    };
+
+    /** Bar length in seconds, straight off the registry. 0 for anything with none. */
+    function intervalSeconds(code) {
+      const d = tryResolveInterval ? tryResolveInterval(code) : null;
+      return d && d.bucketing.mode === 'interval' ? d.bucketing.seconds : 0;
+    }
+
+    /**
+     * Fold shorter bars into calendar buckets. The bucket start comes from the
+     * registry, never from arithmetic here: that is the whole point of a
+     * calendar bucketing, and it is why changing the chart's timezone moves the
+     * month boundary instead of leaving it pinned to UTC.
+     */
+    function foldToBuckets(bars, bucketing, zone) {
+      const out = [];
+      let cur = null;
+      let start = null;
+      for (const b of bars) {
+        const s = bucketStartOf(bucketing, b.time, zone);
+        if (s !== start) {
+          if (cur) out.push(cur);
+          start = s;
+          cur = { time: s, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume || 0 };
+        } else {
+          if (b.high > cur.high) cur.high = b.high;
+          if (b.low < cur.low) cur.low = b.low;
+          cur.close = b.close;
+          cur.volume += b.volume || 0;
+        }
+      }
+      if (cur) out.push(cur);
+      return out;
+    }
+
+    // ── the feed, with warm-load caching ───────────────────────────────────
+    // `withBarCache` is a DataFeed -> DataFeed wrapper, so the yfinance adapter
+    // above is untouched by it. The cache keys on symbol|exchange|interval and
+    // slices by range, which is why every request from here on carries an
+    // exchange and a quantised from/to: an unbounded request is passed straight
+    // through uncached, and a `from` that drifts by a second per call would miss
+    // on every single load.
+    const liveFeed = new YFinanceDataFeed();
+    const cache = withBarCache
+      ? withBarCache(liveFeed, {
+          ttlMs: 10 * 60_000,
+          // Ask the registry, so a code registered above is understood here too
+          // and a calendar code (no fixed length) opts itself out of caching.
+          intervalSeconds,
+        })
+      : null;
+    const feed = cache || liveFeed;
+
+    /** Newest bar time this page has actually seen, per `symbol|interval`. */
+    const lastBarSeen = new Map();
+    const seenKey = (symbol, interval) => symbol + '|' + interval;
+
+    /**
+     * A cacheable request. Two things about the range matter, and both were got
+     * wrong before they were got right.
+     *
+     * `from` is snapped to the bar grid so it is stable between two loads inside
+     * the same bar. The cache treats an earlier `from` as a real gap at the left
+     * edge and refetches, so an unsnapped "now minus a year" misses every time.
+     *
+     * `to` stops at the newest bar we have while the venue is shut. The cache
+     * allows a hit past its coverage only while the bar after its last closed
+     * one is still forming, which is right and which it has no way to relax: it
+     * cannot know a market is closed. The host can. Asking a shut venue for
+     * bars up to the end of today is asking for bars that cannot exist, and it
+     * is what made every out-of-hours load cold: on a Sunday, a daily series
+     * whose last bar closed on Friday is permanently past coverage. While the
+     * venue is open (or trades around the clock, or has no hours in our table)
+     * the request runs to the end of the forming bar as before, and the cache's
+     * own forming-bar rule is what keeps it fresh.
+     */
+    function barsRequest(symbol, interval, period) {
+      const sec = intervalSeconds(interval) || 86400;
+      const now = Math.floor(Date.now() / 1000);
+      let to = Math.floor(now / sec) * sec + sec - 1;
+      const seen = lastBarSeen.get(seenKey(symbol, interval));
+      if (seen !== undefined && !venueLive(symbol)) to = Math.min(to, seen + sec - 1);
+      // `max` is 1e6 days in the picker's table, which as a `from` is an epoch
+      // far enough back to be meaningless; a century is as much as any of this
+      // data goes, and it keeps the value readable in a debugger.
+      const days = Math.min(PERIOD_DAYS[period] || 366, 40000);
+      const from = Math.floor((now - days * 86400) / sec) * sec;
+      return { symbol, exchange: exchangeOf(symbol), interval, period, from, to };
+    }
+
+    /** Was the last `fetchBars` served out of the cache, and how long did it take. */
+    let lastFetch = { warm: false, ms: 0, cached: false };
+
+    /**
+     * Every bar request in this page goes through here. A folded interval is
+     * fetched at its source frame (so the cache holds daily bars once, shared
+     * with the 1D view) and bucketed afterwards.
+     */
+    async function fetchBars(symbol, interval, period, opts) {
+      const fold = foldedInterval(interval);
+      const wire = fold ? fold.foldFrom : interval;
+      const req = barsRequest(symbol, wire, period);
+      if (opts && opts.noCache) req.noCache = true;
+      const before = cache ? cache.stats().hits : 0;
+      const t0 = performance.now();
+      const bars = await feed.getBars(req);
+      lastFetch = {
+        cached: Boolean(cache),
+        warm: Boolean(cache) && cache.stats().hits > before,
+        ms: Math.round(performance.now() - t0),
+      };
+      if (bars.length) lastBarSeen.set(seenKey(symbol, wire), bars[bars.length - 1].time);
+      return fold ? foldToBuckets(bars, fold.bucketing, chartTimezone) : bars;
+    }
+
     const UP = '#26a69a', DOWN = '#ef5350';
     const TRADE_EXTENT = 0.30; // order/bracket lines span only the rightmost 30% (broker-style)
 
@@ -990,11 +1218,21 @@
     function marketStatusReading() {
       const venue = exchangeOf(req.symbol || '');
       if (!(venue in SESSIONS)) return undefined;    // no hours for this venue
-      const s = SESSIONS[venue];
-      if (s === null) return { text: 'Open 24x7', color: UP };
+      if (SESSIONS[venue] === null) return { text: 'Open 24x7', color: UP };
+      return venueLive(req.symbol) ? { text: 'Market open', color: UP } : { text: 'Market closed' };
+    }
+
+    /**
+     * Can this venue still be producing bars right now? The same table and the
+     * same missing holiday calendar as the status line above, so it says "live"
+     * on Republic Day for the same reason it does not say "closed" on one. Read
+     * by `barsRequest` to decide how far ahead it is worth asking for data.
+     */
+    function venueLive(symbol) {
+      const s = SESSIONS[exchangeOf(symbol)];
+      if (s === undefined || s === null) return true;   // unknown hours, or 24x7
       const { day, minutes } = zoneParts(Date.now(), s.zone);
-      const open = day >= 1 && day <= 5 && minutes >= s.open && minutes < s.close;
-      return open ? { text: 'Market open', color: UP } : { text: 'Market closed' };
+      return day >= 1 && day <= 5 && minutes >= s.open && minutes < s.close;
     }
 
     /** A bar's local calendar day, for spotting a session boundary. */
@@ -1834,11 +2072,24 @@
      * `setTimezone` refuses a zone the runtime does not know.
      */
     function afterChartSettingsWrite() {
+      const zoneBefore = chartTimezone;
       syncTimezoneFromChart();
+      const zoneMoved = chartTimezone !== zoneBefore;
       syncAxisChromeFromChart();
       syncStatusLineFromChart();
       syncTradeChoiceFromChart();
       if (priceLevels) priceLevels.setOptions({ timezone: chartTimezone });
+      // A timezone change moves a calendar bucket's boundary, so a folded frame
+      // has to be recomputed rather than relabelled: a month that starts at
+      // local midnight in Kolkata does not start at local midnight in New York.
+      // Guarded on the zone actually moving, or every colour edit would refetch.
+      if (zoneMoved) {
+        if (chart2 && typeof chart2.setTimezone === 'function') {
+          try { chart2.setTimezone(chartTimezone); } catch (_) { /* zone the runtime rejects */ }
+          if (foldedInterval(p2.interval)) loadPane2();
+        }
+        if (foldedInterval(el('interval').value)) load();
+      }
       // The demo draws its own orders, bracket and position, so a Trading-tab
       // edit reaches them only because this asks it to.
       restyleTradeChrome();
@@ -1976,7 +2227,7 @@
       for (const c of comparisons) {
         if (!c.bars || !c.bars.length) {
           try {
-            c.bars = await feed.getBars({ symbol: c.symbol, interval: req.interval, period: req.period });
+            c.bars = await fetchBars(c.symbol, req.interval, req.period);
           } catch (e) {
             console.warn('[demo] compare fetch failed:', c.symbol, e.message);
             c.bars = [];
@@ -2000,7 +2251,7 @@
       el('status').textContent = `loading ${sym}...`;
       let bars;
       try {
-        bars = await feed.getBars({ symbol: sym, interval: req.interval, period: req.period });
+        bars = await fetchBars(sym, req.interval, req.period);
       } catch (e) {
         el('status').textContent = 'compare failed: ' + e.message;
         return;
@@ -2406,11 +2657,19 @@
       // the LTP (the latest close here; with a live feed, update it on each tick).
       chart.subscribeCrosshairMove((e) => setLegend(e.bar ?? lastBar()));
       setLegend(lastBar());
+      // Last, because the chart that just replaced the destroyed one has to be
+      // the one in the group: the old entry is a corpse the group prunes on its
+      // next broadcast, and a linked grid that stops following after a
+      // chart-type switch is the failure this call exists to prevent.
+      joinLink();
       window.__chart = () => chart;
       window.__draw = () => draw;
+      window.__chart2 = () => chart2;
+      window.__link = () => linkGroup;
+      window.__cache = () => cache;
     }
 
-    async function load() {
+    async function load(opts) {
       const status = el('status');
       // Clamp here too, not just at the interval buttons: a saved layout or a
       // hand-set select can otherwise ask for a range the interval cannot serve.
@@ -2419,9 +2678,19 @@
       const period = clampPeriod(interval, wanted);
       if (period !== wanted) el('period').value = period;
       req = { symbol: el('symbol').value.trim(), interval, period };
+      // Announced before the fetch, not after it: the follower starts loading
+      // the same instrument in parallel instead of a second behind. Recorded
+      // even with symbol sync off, so switching it on later converges on this
+      // instrument rather than on a stale one.
+      if (linkGroup && chart) linkGroup.setSymbol(chart, req.symbol);
       status.textContent = `loading ${req.symbol} ${req.interval}...`;
       try {
-        const bars = await feed.getBars(req);
+        const bars = await fetchBars(req.symbol, req.interval, req.period, opts);
+        // Read the cache verdict now: `syncComparisons()` below fetches too, and
+        // `lastFetch` describes whichever load ran most recently, so composing
+        // the line at the end would report the comparison's verdict as this
+        // symbol's.
+        const note = fetchNote();
         currentBars = bars;
         idxByTime.clear();
         bars.forEach((b, i) => idxByTime.set(b.time, i));
@@ -2471,9 +2740,425 @@
         await syncComparisons();
         renderToolbar();
         status.textContent = `${req.symbol} · ${bars.length} bars · ${req.interval}/${req.period}`
-          + (period !== wanted ? `  (${wanted} unavailable at ${interval})` : '');
+          + (period !== wanted ? `  (${wanted} unavailable at ${interval})` : '')
+          + note
+          + (MISSING.length ? `  ·  dist/ predates: ${MISSING.join(', ')}` : '');
       } catch (e) {
         status.textContent = 'error: ' + e.message;
+      }
+    }
+
+    /**
+     * Where the last load's bars came from. Without this the cache is a feature
+     * you can only believe in: "warm" and a two-millisecond read are the whole
+     * observable difference between a hit and a fetch.
+     */
+    function fetchNote() {
+      if (!lastFetch.cached) return '';
+      return `  ·  ${lastFetch.warm ? 'warm' : 'fetched'} ${lastFetch.ms} ms`;
+    }
+
+    // ══ split view: a second chart in the same link group ═══════════════════
+    //
+    // Linking needs two charts before any of it can be seen, so the demo grows
+    // a second one. It is deliberately not a clone: its own instrument and its
+    // own timeframe are what make the group's one real design decision visible.
+    // Nothing crosses the boundary as a bar index, so an hourly follower and a
+    // daily leader sit on the same instant rather than on the same nth bar.
+    //
+    // The group is created once and outlives every chart in it: `render()`
+    // destroys and rebuilds the main chart on a chart-type switch, and the
+    // group prunes the corpse and takes the replacement.
+
+    const linkGroup = createLinkGroup
+      ? createLinkGroup({ crosshair: true, viewport: true, symbol: false, whenMissing: 'nearest' })
+      : null;
+
+    let chart2 = null, price2 = null, volume2 = null, draw2 = null;
+    let bars2 = [];
+    /* A different instrument AND a different timeframe from the main chart on
+       purpose: an hourly follower beside a daily leader is the only way to see
+       that the group crosses the boundary as an instant, not as a bar index. */
+    const p2 = { symbol: 'MSFT', interval: '1h', period: '1mo', note: '' };
+    /** Which plot the pointer is over, so a clipboard chord knows its target. */
+    let focusPane = 1;
+
+    const isSplit = () => chart2 !== null;
+
+    /**
+     * Join (or re-join) both charts. Adding a chart already in the group only
+     * refreshes its member options, so this is safe to call on every rebuild,
+     * which is exactly what a chart-type switch needs.
+     */
+    function joinLink() {
+      if (!linkGroup) return;
+      if (chart) {
+        linkGroup.add(chart, {
+          symbol: req.symbol,
+          // The group loads nothing itself: it hands the host a symbol and the
+          // host fetches. This is the whole of the engine's symbol story.
+          onSymbol: (sym) => {
+            if (el('symbol').value === sym) return;
+            el('symbol').value = sym;
+            load();
+          },
+        });
+      }
+      if (chart2) {
+        linkGroup.add(chart2, {
+          symbol: p2.symbol,
+          onSymbol: (sym) => {
+            if (p2.symbol === sym) return;
+            p2.symbol = sym;
+            loadPane2();
+          },
+        });
+      }
+    }
+
+    async function openSplit() {
+      if (!linkGroup) { el('status').textContent = 'this dist/ has no chart linking'; return; }
+      if (isSplit()) return;
+      el('pane2').hidden = false;
+      el('splitbar').hidden = false;
+      buildChart2();
+      renderPane2Bar();
+      renderToolbar();
+      await loadPane2();
+    }
+
+    function closeSplit() {
+      if (chart2) {
+        if (linkGroup) linkGroup.remove(chart2);
+        if (draw2) { draw2.destroy(); draw2 = null; }
+        chart2.destroy();
+        chart2 = null; price2 = null; volume2 = null;
+      }
+      el('pane2').hidden = true;
+      el('splitbar').hidden = true;
+      el('chart2').innerHTML = '';
+      el('p2legend').innerHTML = '';
+      focusPane = 1;
+      renderToolbar();
+    }
+
+    function buildChart2() {
+      if (chart2) { if (linkGroup) linkGroup.remove(chart2); chart2.destroy(); }
+      if (draw2) { draw2.destroy(); draw2 = null; }
+      el('chart2').innerHTML = '';
+      chart2 = createChart(el('chart2'), {
+        theme: darkTheme,
+        priceAxisWidth: 62,
+        grid: { vertLines: el('vgrid').checked, horzLines: el('hgrid').checked },
+        timezone: chartTimezone,
+      });
+      price2 = chart2.addSeries('candlestick');
+      price2.setData(bars2);
+      volume2 = chart2.addSeries('histogram', {
+        paneIndex: 0, priceScaleId: '',
+        style: { color: '#33415e', base: 0 }, priceFormat: { type: 'volume' },
+      });
+      volume2.priceScale().setOptions({ marginTop: 0.85, marginBottom: 0 });
+      volume2.setData(bars2.map((b) => ({ time: b.time, open: 0, high: b.volume, low: 0, close: b.volume })));
+      if (!el('volshow').checked) volume2.applyOptions({ visible: false });
+      chart2.subscribeCrosshairMove((e) => setPane2Legend(e.bar ?? bars2[bars2.length - 1]));
+      setPane2Legend(bars2[bars2.length - 1]);
+      // A second drawing controller, so paste has somewhere else to land: the
+      // in-memory clipboard is shared by every controller on the page, which is
+      // what makes chart-to-chart paste work with the OS permission refused.
+      draw2 = new DrawingController(chart2, { magnet: el('magnet').checked, clipboard: clipboardPort });
+      chart2.on('draw:add', () => { el('status').textContent = 'chart 2: ' + draw2.drawings().length + ' drawings'; });
+      // No properties widget over here (it is glued to the main chart's box),
+      // but the chords apply to whichever plot the pointer is over, so the
+      // selection has to say so on this side too.
+      chart2.on('draw:select', ({ id }) => {
+        const d = id ? draw2.get(id) : null;
+        if (d && typeof draw2.copy === 'function') {
+          el('status').textContent = `chart 2: ${d.tool} selected · Ctrl+C copy · Ctrl+X cut · Ctrl+V paste`;
+        }
+      });
+      joinLink();
+    }
+
+    async function loadPane2() {
+      if (!chart2) return;
+      p2.period = clampPeriod(p2.interval, p2.period);
+      setPane2Note('loading ' + p2.symbol + ' ' + intervalLabel(p2.interval) + '...');
+      try {
+        bars2 = await fetchBars(p2.symbol, p2.interval, p2.period);
+        const note = `${bars2.length} bars${fetchNote()}`;
+        price2.setData(bars2);
+        if (volume2) {
+          volume2.setData(bars2.map((b) => ({ time: b.time, open: 0, high: b.volume, low: 0, close: b.volume })));
+        }
+        placePane2View();
+        setPane2Legend(bars2[bars2.length - 1]);
+        setPane2Note(note);
+        renderPane2Bar();
+        renderToolbar();   // this load counts towards the cache chip too
+      } catch (e) {
+        setPane2Note('error: ' + e.message);
+      }
+    }
+
+    /**
+     * A freshly loaded follower fits its own content, and does so with sync
+     * suspended, because a fit is not a pan. Two things went wrong without
+     * this. Letting the fit broadcast threw the main chart off whatever window
+     * the user had it on and replaced it with a month of the follower's
+     * history, which reads as the split having broken the chart underneath it.
+     * Adopting the leader's window instead is time-correct and looks broken for
+     * the opposite reason: a year of daily bars mapped onto one month of hourly
+     * ones leaves the follower's data as a sliver in the middle of an empty
+     * plot. So the two windows start independent and converge on the first pan
+     * or zoom, which is exactly what the group documents viewport sync to do.
+     */
+    function placePane2View() {
+      withoutViewportSync(() => chart2.fitContent());
+    }
+
+    /** Run `fn` with viewport mirroring off, then put it back as it was. */
+    function withoutViewportSync(fn) {
+      if (!linkGroup || !linkGroup.options().viewport) { fn(); return; }
+      linkGroup.setOptions({ viewport: false });
+      try { fn(); } finally { linkGroup.setOptions({ viewport: true }); }
+    }
+
+    /* Kept on `p2` as well as on the node: renderPane2Bar() rebuilds the header
+       from scratch, and the note would otherwise blank on every interval click. */
+    function setPane2Note(text) {
+      p2.note = text;
+      const n = el('p2bar').querySelector('.p2note');
+      if (n) n.textContent = text;
+    }
+
+    function setPane2Legend(bar) {
+      const host = el('p2legend');
+      if (!bar) { host.innerHTML = ''; return; }
+      const up = bar.close >= bar.open;
+      host.innerHTML = '<b>' + esc(p2.symbol) + '</b> <span class="meta">' + esc(intervalLabel(p2.interval))
+        + '</span> <span style="color:' + (up ? UP : DOWN) + '">' + fmt(bar.close) + '</span>'
+        + ' <span class="meta">O ' + fmt(bar.open) + ' H ' + fmt(bar.high) + ' L ' + fmt(bar.low) + '</span>';
+    }
+
+    /** The second chart's own header: symbol, timeframe, bar count, close. */
+    function renderPane2Bar() {
+      const bar = el('p2bar');
+      bar.innerHTML = '';
+      const sym = tbtn(ticon('search') + '<b>' + esc(p2.symbol) + '</b>', 'Change this chart\'s symbol');
+      sym.addEventListener('click', () => {
+        const rows = Object.keys(LONG_NAMES).map((s) => ({
+          label: s + '  ' + LONG_NAMES[s],
+          on: s === p2.symbol,
+          onSelect: () => {
+            p2.symbol = s;
+            // Announce first: with symbol sync on, the group carries it to the
+            // main chart, and this member is already where it needs to be.
+            if (linkGroup) linkGroup.setSymbol(chart2, s);
+            renderPane2Bar();
+            loadPane2();
+          },
+        }));
+        popupMenu(sym, rows, { find: 'Search ' + rows.length + ' symbols' });
+      });
+      bar.appendChild(sym);
+
+      const pills = document.createElement('div');
+      pills.className = 'pills';
+      for (const iv of INTERVALS) {
+        const b = document.createElement('button');
+        b.textContent = intervalLabel(iv);
+        b.title = intervalName(iv);
+        b.className = p2.interval === iv ? 'is-on' : '';
+        b.addEventListener('click', () => {
+          p2.interval = iv;
+          p2.period = clampPeriod(iv, p2.period);
+          renderPane2Bar();
+          loadPane2();
+        });
+        pills.appendChild(b);
+      }
+      bar.appendChild(pills);
+
+      const note = document.createElement('span');
+      note.className = 'p2note';
+      note.textContent = p2.note || '';
+      bar.appendChild(note);
+
+      const x = tbtn('&times;', 'Close the split view');
+      x.classList.add('tbtn--icon');
+      x.addEventListener('click', closeSplit);
+      bar.appendChild(x);
+    }
+
+    /* Drag the divider. Percent rather than pixels, so the split survives a
+       window resize as a proportion instead of pinning one side. */
+    (function splitDrag() {
+      const bar = el('splitbar');
+      let dragging = false;
+      bar.addEventListener('pointerdown', (e) => {
+        dragging = true;
+        bar.classList.add('is-drag');
+        bar.setPointerCapture(e.pointerId);
+      });
+      bar.addEventListener('pointermove', (e) => {
+        if (!dragging) return;
+        const box = el('split').getBoundingClientRect();
+        const pct = Math.min(78, Math.max(18, ((box.right - e.clientX) / box.width) * 100));
+        el('pane2').style.flexBasis = pct + '%';
+      });
+      const stop = (e) => {
+        if (!dragging) return;
+        dragging = false;
+        bar.classList.remove('is-drag');
+        if (e.pointerId !== undefined && bar.hasPointerCapture(e.pointerId)) bar.releasePointerCapture(e.pointerId);
+      };
+      bar.addEventListener('pointerup', stop);
+      bar.addEventListener('pointercancel', stop);
+    })();
+
+    // ── link switches ──────────────────────────────────────────────────────
+
+    function describeLink() {
+      if (!linkGroup) return 'unavailable';
+      const o = linkGroup.options();
+      const on = ['crosshair', 'viewport', 'symbol'].filter((k) => o[k]);
+      return on.length ? on.join(' + ') : 'nothing synced';
+    }
+
+    function setLink(patch) {
+      if (!linkGroup) return;
+      linkGroup.setOptions(patch);
+      renderToolbar();
+      el('status').textContent = 'link: ' + describeLink()
+        + ' · missing instant: ' + linkGroup.options().whenMissing;
+    }
+
+    function openLinkMenu(anchor) {
+      if (!linkGroup) {
+        el('status').textContent = 'this dist/ has no chart linking';
+        return;
+      }
+      const o = linkGroup.options();
+      const rows = [
+        { group: 'Layout' },
+        {
+          label: isSplit() ? 'Close the second chart' : 'Open a second chart',
+          icon: 'split', on: isSplit(),
+          onSelect: () => (isSplit() ? closeSplit() : openSplit()),
+        },
+        { group: isSplit() ? 'Sync' : 'Sync (open the second chart to see it)' },
+        { label: 'Crosshair', on: o.crosshair, onSelect: () => setLink({ crosshair: !o.crosshair }) },
+        { label: 'Viewport', on: o.viewport, onSelect: () => setLink({ viewport: !o.viewport }) },
+        { label: 'Symbol', on: o.symbol, onSelect: () => setLink({ symbol: !o.symbol }) },
+        { group: 'When the follower has no such bar' },
+        { label: 'Snap to the nearest bar', on: o.whenMissing === 'nearest', onSelect: () => setLink({ whenMissing: 'nearest' }) },
+        { label: 'Draw nothing', on: o.whenMissing === 'hide', onSelect: () => setLink({ whenMissing: 'hide' }) },
+      ];
+      popupMenu(anchor, rows);
+    }
+
+    // ── bar cache ──────────────────────────────────────────────────────────
+
+    function openCacheMenu(anchor) {
+      if (!cache) {
+        el('status').textContent = 'this dist/ has no bar cache';
+        return;
+      }
+      const s = cache.stats();
+      const loads = s.hits + s.misses;
+      popupMenu(anchor, [
+        // A heading, not a row: a menu entry that only reports a number is a
+        // control with nothing behind it. The two rows below both do something.
+        { group: `${s.hits} warm of ${loads} load${loads === 1 ? '' : 's'} · `
+          + `${s.entries} series · ${s.bars.toLocaleString('en-US')} bars` },
+        {
+          label: 'Reload ignoring the cache',
+          onSelect: () => { load({ noCache: true }); },
+        },
+        {
+          label: 'Clear the cache',
+          onSelect: async () => {
+            await cache.clear();
+            el('status').textContent = 'bar cache cleared';
+            renderToolbar();
+          },
+        },
+      ]);
+    }
+
+    // ── drawing clipboard ──────────────────────────────────────────────────
+    //
+    // The engine installs no key listeners, so the chords are the host's. Both
+    // charts have their own controller and both share one in-memory clipboard,
+    // which is what makes copy-here / paste-there work even when the browser
+    // refuses the OS clipboard permission.
+
+    /**
+     * The system clipboard, with the read half bounded.
+     *
+     * `navigator.clipboard.readText()` needs a permission Chrome asks for with
+     * a popup, and until that popup is answered the promise simply never
+     * settles: pressing the paste chord did nothing at all, forever, with no
+     * error to report. A paste that falls back is far better than a paste that
+     * hangs, and the engine's in-memory clipboard is shared by every controller
+     * on the page, so a timed-out read still pastes what was copied here. The
+     * write half is left alone: it runs inside the key gesture and succeeds.
+     */
+    const CLIPBOARD_READ_MS = 1200;
+    const clipboardPort = (typeof navigator !== 'undefined' && navigator.clipboard)
+      ? {
+          writeText: (text) => navigator.clipboard.writeText(text),
+          readText: () => Promise.race([
+            navigator.clipboard.readText(),
+            new Promise((_, reject) => setTimeout(
+              () => reject(new Error('system clipboard read not permitted')), CLIPBOARD_READ_MS)),
+          ]),
+        }
+      : null;
+
+    const activeDraw = () => (focusPane === 2 && draw2 ? draw2 : draw);
+    const paneName = (d) => (d === draw2 ? 'chart 2' : 'chart 1');
+    const canClip = () => {
+      const d = activeDraw();
+      return Boolean(d) && typeof d.copy === 'function';
+    };
+
+    /** Append "this tab only" when the payload never reached the OS clipboard. */
+    function clipScope(d) {
+      const err = typeof d.clipboard === 'function' ? d.clipboard().lastError() : null;
+      return err ? ' (this tab only: ' + String(err).replace(/^Error:\s*/, '') + ')' : '';
+    }
+
+    async function clipboardAction(action) {
+      const d = activeDraw();
+      if (!d || typeof d.copy !== 'function') {
+        el('status').textContent = 'this dist/ has no drawing clipboard';
+        return;
+      }
+      try {
+        if (action === 'copy') {
+          const ok = await d.copy();
+          el('status').textContent = ok
+            ? 'copied from ' + paneName(d) + clipScope(d)
+            : 'select a drawing first';
+          return;
+        }
+        if (action === 'cut') {
+          const ok = await d.cut();
+          el('status').textContent = ok
+            ? 'cut from ' + paneName(d) + clipScope(d)
+            : 'select a drawing first';
+          if (ok && d === draw) autosave();
+          return;
+        }
+        const made = await d.paste();
+        el('status').textContent = made.length
+          ? 'pasted ' + made.length + ' into ' + paneName(d) + clipScope(d)
+          : 'nothing of ours on the clipboard';
+        if (made.length && d === draw) autosave();
+      } catch (e) {
+        el('status').textContent = 'clipboard: ' + (e && e.message ? e.message : e);
       }
     }
 
@@ -2525,6 +3210,17 @@
       rowSel.previousElementSibling.hidden = nDraw === 0;   // the separator above the pair
       if (nDraw > 0) rowAll.textContent = `Remove All Drawings (${nDraw})`;
 
+      // Clipboard rows. Copy and cut need a selection; paste does not, because
+      // whether there is anything of ours to paste can only be known by asking
+      // the clipboard, which is asynchronous. A dist/ whose controller has no
+      // copy() hides the three rather than offering three dead options.
+      const clipOk = draw && typeof draw.copy === 'function';
+      for (const act of ['copy', 'cut']) {
+        ctxMenu.querySelector(`[data-act="${act}"]`).hidden = !clipOk || !selId;
+      }
+      ctxMenu.querySelector('[data-act="paste"]').hidden = !clipOk;
+      ctxMenu.querySelector('hr[data-sec="clip"]').hidden = !clipOk;
+
       // The indicator row appears only where there is an indicator to settle.
       ctxIndicator = target.kind === 'indicator' ? target.instanceId : null;
       const rowInd = ctxMenu.querySelector('[data-act="indset"]');
@@ -2566,6 +3262,14 @@
         if (!draw) return;
         const id = draw.selected();
         if (id) { draw.remove(id); autosave(); el('status').textContent = 'drawing deleted'; }
+        return;
+      }
+      if (act === 'copy' || act === 'cut' || act === 'paste') {
+        // Always the main chart: this menu is raised from the main chart's own
+        // contextmenu event, so routing it through the pointer-focused pane
+        // would act on the other chart if the pointer had moved on.
+        focusPane = 1;
+        clipboardAction(act);
         return;
       }
       if (act === 'chartset') { openChartSettings(); return; }
@@ -2949,7 +3653,9 @@
       runAxis(hit.run);
     });
 
-    el('load').addEventListener('click', load);
+    // Wrapped, not passed: `load` now takes options, and handing it straight to
+    // addEventListener would pass a MouseEvent as the options bag.
+    el('load').addEventListener('click', () => load());
     el('fit').addEventListener('click', () => { if (chart) chart.resetScale(); });
     el('symbol').addEventListener('keydown', (e) => { if (e.key === 'Enter') load(); });
     // Export the full chart (all layers composited) - native right-click "Save image"
@@ -2964,13 +3670,21 @@
     // switching chart type / P&F box mode re-renders cached bars (no network round-trip)
     ['ctype', 'pfmode'].forEach((id) => el(id).addEventListener('change', () => { if (currentBars.length) render(); }));
     // toggle grid lines live (no rebuild needed)
-    const applyGrid = () => chart && chart.setGridOptions({ vertLines: el('vgrid').checked, horzLines: el('hgrid').checked });
+    // The second chart is part of the same workspace, so a workspace switch
+    // reaches it too: a grid that is on in one pane and off in the other looks
+    // like a bug in the split, not like two charts.
+    const applyGrid = () => {
+      const o = { vertLines: el('vgrid').checked, horzLines: el('hgrid').checked };
+      if (chart) chart.setGridOptions(o);
+      if (chart2) chart2.setGridOptions(o);
+    };
     el('vgrid').addEventListener('change', applyGrid);
     el('hgrid').addEventListener('change', applyGrid);
     // Volume is hidden, not removed: the series keeps its data and its overlay
     // price scale, so switching it back on is instant.
     el('volshow').addEventListener('change', () => {
       if (volume) volume.applyOptions({ visible: el('volshow').checked });
+      if (volume2) volume2.applyOptions({ visible: el('volshow').checked });
     });
 
     // Add an indicator live — no chart rebuild, no refetch. The handle it returns
@@ -3103,6 +3817,12 @@
       // Two series diverging from one another: the point of a comparison.
       compare: '<path d="M3 15.5l4-4.5 3.5 2.5L17 5"/><path d="M3 9.5l4 3 3.5-5.5L17 12"/>',
       gear: '<circle cx="10" cy="10" r="2.6"/><path d="M10 2.6v2M10 15.4v2M17.4 10h-2M4.6 10h-2M15.2 4.8l-1.4 1.4M6.2 13.8l-1.4 1.4M15.2 15.2l-1.4-1.4M6.2 6.2L4.8 4.8"/>',
+      // Two chain links: the group, not the layout.
+      link: '<path d="M8.4 11.6a3 3 0 0 1 0-4.2l1.8-1.8a3 3 0 1 1 4.2 4.2l-.9.9"/><path d="M11.6 8.4a3 3 0 0 1 0 4.2l-1.8 1.8a3 3 0 1 1-4.2-4.2l.9-.9"/>',
+      // One frame divided: the layout, not the group.
+      split: '<rect x="2.5" y="4" width="15" height="12" rx="1.6"/><path d="M10 4v12"/>',
+      // A stack of stored rows with a tick: something held, and held valid.
+      cache: '<ellipse cx="10" cy="5.4" rx="6.2" ry="2.4"/><path d="M3.8 5.4v4.6c0 1.3 2.8 2.4 6.2 2.4s6.2-1.1 6.2-2.4V5.4"/><path d="M3.8 10v4.6c0 1.3 2.8 2.4 6.2 2.4"/><path d="M13 15l1.8 1.8L18 13"/>',
     };
     const ticon = (k) => '<svg viewBox="0 0 20 20">' + (TOOLBAR_ICON[k] || '') + '</svg>';
 
@@ -3127,7 +3847,37 @@
       { v: 't:point-figure', label: 'Point & Figure', icon: 'pnf' },
       { v: 't:kagi', label: 'Kagi', icon: 'line' },
     ];
-    const INTERVALS = ['5m', '15m', '30m', '1h', '1d', '1wk'];
+    /* The picker is built from the built-in tokens this demo's data source
+       serves plus whatever was registered above, so a code added to
+       CUSTOM_INTERVALS appears here without a second list to keep in step. A
+       registry with no registerInterval behind it contributes nothing, which is
+       why the calendar codes are guarded rather than hardcoded. */
+    const INTERVALS = ['5m', '15m', '30m', '1h', '1d']
+      .concat(registerInterval ? CUSTOM_INTERVALS.map((i) => i.code) : ['1wk']);
+    const intervalLabel = (iv) => (customInterval(iv) || { label: iv.toUpperCase() }).label;
+    const intervalName = (iv) => {
+      const c = customInterval(iv);
+      if (c) return c.name + (c.foldFrom ? ' (folded from ' + c.foldFrom.toUpperCase() + ' bars)' : '');
+      return iv.toUpperCase() + ' bars';
+    };
+    /* The hidden <select> is where the demo keeps the chosen interval, and the
+       shell writes codes into it. A select silently refuses a value it has no
+       option for and leaves `.value` empty, so a registered code that was in
+       the pills but not in here drew daily bars under a monthly label. Built
+       from the same list the pills are, so the two cannot drift. */
+    (function fillIntervalSelect() {
+      const sel = el('interval');
+      const keep = sel.value || '1d';
+      sel.innerHTML = '';
+      for (const iv of INTERVALS) {
+        const o = document.createElement('option');
+        o.value = iv;
+        o.textContent = intervalLabel(iv);
+        sel.appendChild(o);
+      }
+      sel.value = INTERVALS.includes(keep) ? keep : '1d';
+    })();
+
     const PERIODS = ['1mo', '6mo', '1y', '5y', 'max'];
 
     /* Yahoo caps how far back intraday data goes, and answers an over-long
@@ -3136,16 +3886,28 @@
        the range to what the interval can actually serve. */
     const PERIOD_DAYS = { '1mo': 31, '6mo': 186, '1y': 366, '5y': 1830, max: 1e6 };
     const INTERVAL_MAX_DAYS = { '1m': 7, '2m': 60, '5m': 60, '15m': 60, '30m': 60, '90m': 60, '1h': 730 };
+    /* A calendar frame needs years of source bars to draw anything: a quarter
+       chart over one month is a single candle, which reads as a broken load
+       rather than as a range the frame cannot fill. */
+    const INTERVAL_MIN_DAYS = { '1mo': 1500, '1q': 1800 };
     /** Periods this interval can serve, longest last. Daily and up: all of them. */
     function periodsFor(interval) {
       const cap = INTERVAL_MAX_DAYS[interval];
-      return cap === undefined ? PERIODS.slice() : PERIODS.filter((p) => PERIOD_DAYS[p] <= cap);
+      const floor = INTERVAL_MIN_DAYS[interval];
+      let out = cap === undefined ? PERIODS.slice() : PERIODS.filter((p) => PERIOD_DAYS[p] <= cap);
+      if (floor !== undefined) out = out.filter((p) => PERIOD_DAYS[p] >= floor);
+      return out;
     }
-    /** `wanted` if the interval can serve it, else the longest range it can. */
+    /**
+     * `wanted` if the interval can serve it, else the nearest range it can:
+     * the shortest when the ask was too short for the frame, the longest when
+     * it was longer than the source will go back.
+     */
     function clampPeriod(interval, wanted) {
       const ok = periodsFor(interval);
       if (ok.includes(wanted)) return wanted;
-      return ok[ok.length - 1] || PERIODS[0];
+      if (ok.length === 0) return PERIODS[0];
+      return PERIOD_DAYS[wanted] < PERIOD_DAYS[ok[0]] ? ok[0] : ok[ok.length - 1];
     }
 
     /** One popup menu at a time, anchored under its button. */
@@ -3310,7 +4072,8 @@
       ig.className = 'pills';
       for (const iv of INTERVALS) {
         const b = document.createElement('button');
-        b.textContent = iv.toUpperCase();
+        b.textContent = intervalLabel(iv);
+        b.title = intervalName(iv);
         b.className = el('interval').value === iv ? 'is-on' : '';
         b.addEventListener('click', () => {
           el('interval').value = iv;
@@ -3381,6 +4144,35 @@
       if (replay) rp.classList.add('is-on');
       rp.addEventListener('click', () => (replay ? exitReplay() : enterReplay()));
       bar.appendChild(rp);
+
+      // Split view and the link switches. Two controls over one group: the
+      // toggle opens the second chart, the menu decides what crosses between
+      // them. Both report "unavailable" against a dist/ without linking rather
+      // than sitting there dead.
+      const sp = iconBtn('split', linkGroup
+        ? (isSplit() ? 'Close the second chart' : 'Open a second, linked chart')
+        : 'Split view needs a dist/ with chart linking',
+        () => (isSplit() ? closeSplit() : openSplit()));
+      if (isSplit()) sp.classList.add('is-on');
+      bar.appendChild(sp);
+
+      const lk = iconBtn('link', linkGroup
+        ? 'Chart linking (' + describeLink() + ')'
+        : 'Chart linking needs a newer dist/',
+        () => openLinkMenu(lk));
+      if (linkGroup && isSplit() && describeLink() !== 'nothing synced') lk.classList.add('is-on');
+      bar.appendChild(lk);
+
+      // Bar cache. The counter is the point: a feature you can only feel as
+      // "that seemed quicker" is a feature nobody can check.
+      if (cache) {
+        const s = cache.stats();
+        const cc = tbtn(ticon('cache') + '<span>' + s.hits + '/' + (s.hits + s.misses) + '</span>',
+          `Bar cache: ${s.hits} warm of ${s.hits + s.misses} loads, ${s.entries} series held`);
+        if (s.hits > 0) cc.classList.add('is-on');
+        cc.addEventListener('click', () => openCacheMenu(cc));
+        bar.appendChild(cc);
+      }
       bar.appendChild(divider());
 
       // view + layout icons
@@ -3432,6 +4224,10 @@
       status.className = 'status';
       status.innerHTML = '<span class="status-dot"></span>';
       status.appendChild(statusText);
+      // The readout truncates on a narrow window, so the full line has to be
+      // reachable. Copied on hover rather than on write: a dozen call sites
+      // assign to #status directly and every one of them would have to remember.
+      status.addEventListener('pointerenter', () => { status.title = statusText.textContent; });
       bar.appendChild(status);
     }
 
@@ -4098,7 +4894,7 @@
     let draw = null;
     function attachDrawing() {
       if (draw) draw.destroy();
-      draw = new DrawingController(chart, { magnet: el('magnet').checked });
+      draw = new DrawingController(chart, { magnet: el('magnet').checked, clipboard: clipboardPort });
       // The chord table comes from the tier, so the rail can only label its rows
       // once this point is reached.
       if (!Object.keys(SHORTCUTS).length) {
@@ -4108,7 +4904,15 @@
       chart.on('draw:tool', ({ tool }) => syncRail(tool));
       chart.on('draw:add', ({ drawing }) => { el('status').textContent = `drew ${drawing.tool}`; });
       // Selecting a drawing raises its properties bar; deselecting hides it.
-      chart.on('draw:select', ({ id }) => showWidget(id));
+      // The chords go in the status line at the one moment they apply: the
+      // engine ships no keys, so nothing else on screen would ever mention them.
+      chart.on('draw:select', ({ id }) => {
+        showWidget(id);
+        const d = id ? draw.get(id) : null;
+        if (d && canClip()) {
+          el('status').textContent = `${d.tool} selected · Ctrl+C copy · Ctrl+X cut · Ctrl+V paste`;
+        }
+      });
       // Double-click a selected text drawing to edit it in place.
       el('chart').addEventListener('dblclick', () => {
         const id = draw && draw.selected();
@@ -4147,9 +4951,39 @@
     });
     el('drawclear').addEventListener('click', () => draw && draw.clear());
     el('magnet').addEventListener('change', () => draw && draw.setOptions({ magnet: el('magnet').checked }));
-    // Keyboard: Delete removes the selection, Esc leaves the tool, Ctrl+Z / Y undo-redo.
+    // Which plot the chords act on. The two charts have separate controllers
+    // and separate selections, so "the one the pointer is over" is the only
+    // answer that does not need a focus ring the canvas cannot draw.
+    el('chart').addEventListener('pointerenter', () => { focusPane = 1; });
+    el('chart2').addEventListener('pointerenter', () => { focusPane = 2; });
+
+    // Keyboard: Delete removes the selection, Esc leaves the tool, Ctrl+Z / Y undo-redo,
+    // Ctrl+C / X / V move drawings through the engine's clipboard.
     window.addEventListener('keydown', (e) => {
-      if (!draw || /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+      const d = activeDraw();
+      if (!d || /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+      const mod = e.ctrlKey || e.metaKey;
+      const key = e.key.toLowerCase();
+      // Copy and cut only claim the chord when there is a drawing under it:
+      // with nothing selected, Ctrl+C still belongs to the page's text.
+      if (mod && (key === 'c' || key === 'x') && d.selected() && canClip()) {
+        clipboardAction(key === 'c' ? 'copy' : 'cut');
+        e.preventDefault();
+        return;
+      }
+      if (mod && key === 'v' && canClip()) {
+        clipboardAction('paste');
+        e.preventDefault();
+        return;
+      }
+      if (d !== draw) {
+        // The rest of this table is the main chart's rail and undo stack.
+        if (e.key === 'Delete' || e.key === 'Backspace') { const id = d.selected(); if (id) { d.remove(id); e.preventDefault(); } }
+        else if (e.key === 'Escape') d.setTool(null);
+        else if (mod && key === 'z') { e.shiftKey ? d.redo() : d.undo(); e.preventDefault(); }
+        else if (mod && key === 'y') { d.redo(); e.preventDefault(); }
+        return;
+      }
       if (e.key === 'Delete' || e.key === 'Backspace') { const id = draw.selected(); if (id) { draw.remove(id); e.preventDefault(); } }
       else if (e.key === 'Escape') draw.setTool(null);
       else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.shiftKey ? draw.redo() : draw.undo(); e.preventDefault(); }
