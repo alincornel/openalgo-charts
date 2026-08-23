@@ -1697,13 +1697,17 @@
     });
 
     // A primitive belongs to one pane and anchors to THAT pane's box, so a
-    // bottom-left watermark on pane 0 floats mid-chart as soon as an indicator
-    // pane appears beneath it. Re-home it on the bottom pane whenever the pane
-    // stack changes, so it stays in the chart's own bottom-left corner.
+    // The watermark is CHART furniture, not pane furniture, so it is anchored to
+    // the chart's bottom edge and the engine re-homes it as panes come and go.
+    //
+    // This used to be a placeWatermark() that removed and re-added the primitive
+    // on the last pane, called again after every operation that might have added
+    // one. That is the boilerplate openalgo-charts#1 was filed about; the anchor
+    // replaced it, and maximize now works too, which the manual version could
+    // not handle because maximizing hides the other panes entirely.
     let watermark = null;
     function placeWatermark() {
-      if (!chart) return;
-      if (watermark) chart.removePrimitive(watermark);
+      if (!chart || watermark) return;
       watermark = new LogoWatermark({
         // The symbol-only asset has a square viewBox tight to the mark, so
         // height alone gives 32x32; 3 of padding puts it in a 38x38 plate.
@@ -1715,7 +1719,7 @@
         labelColor: '#e4e8f4',
         href: 'https://openalgo.in',
       });
-      chart.addPrimitive(watermark, chart.panes().length - 1);
+      chart.addPrimitive(watermark, { anchor: 'chart-bottom' });
     }
 
     // ── indicator picker ───────────────────────────────────────────────────
@@ -2650,7 +2654,6 @@
         renderIndicatorChips();
       });
       // Any change to the pane stack moves which pane is the bottom one.
-      for (const ev of ['paneRemoved', 'paneMoved']) chart.on(ev, placeWatermark);
 
       // Replay is headless: the controller emits, the transport bar and the
       // legend follow. `replay:stop` is here too, so the bar is correct for the
