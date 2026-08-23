@@ -157,6 +157,14 @@ See [drawing-tools](./drawing-tools.md).
 
 ## Primitives and custom rendering
 
+**Chart furniture is not pane furniture.** A price line belongs to a pane. A watermark, a
+corner clock or a brand mark belongs to the chart, and pinning it to pane 0 puts it in the
+middle of the chart the moment an indicator pane appears. Use
+`addPrimitive(p, { anchor: 'chart-bottom' })` and the engine re-homes it as panes are added,
+removed, moved and maximized. Maximize is the case a host cannot work around by hand: it
+HIDES the other panes, so a mark on pane 0 disappears rather than merely sitting wrong.
+`paneAdded` exists too, if you would rather position your own chrome.
+
 **`draw(ctx, rc)` receives a context in *bitmap* (device) pixels while `hitTest(x, y)` receives *media* (CSS) pixels.** `rc.timeScale.indexToX()` and `rc.priceScale.priceToY()` also return media px, so drawing code must multiply by `rc.dpr`. Forgetting it renders at half size on a retina display while hit-testing stays correct — the classic "clicks work but it looks wrong" bug.
 
 ```ts
@@ -175,6 +183,49 @@ ctx.fillRect(rc.timeScale.indexToX(i) * rc.dpr, y * rc.dpr, 4 * rc.dpr, 4 * rc.d
 **`PriceLevels` drawing nothing is usually correct, not broken.** A level with no data is `null` and draws nothing: `previousClose` on a series holding one session, the four extended-hours levels with no `marketPhase` classifier, `bid` and `ask` with no `quote`. `available(kind)` is the check, and `lastPrice` is **off by default** because the pane already draws it from `SeriesStyle.priceLineVisible` / `lastValueVisible`. Turning it on as well paints the line twice.
 
 See [primitives-and-plugins](./primitives-and-plugins.md).
+
+## Trading, orders, and money
+
+*Every entry here was a shipped defect. This is the section to read twice.*
+
+**A partial modify must not default the fields it does not mention to zero.** OpenAlgo's
+`modifyorder` takes the WHOLE order, not a delta, so every field is sent on every call.
+Until 1.6.0 `modify()` rebuilt symbol, action, exchange, pricetype, product and quantity
+from its cached context but took the two price fields from the patch with `?? 0`. A
+stop-limit carries both a limit and a trigger, and dragging its line sends only the trigger,
+so that path sent `price: 0` and wiped the limit off a live working order at the broker.
+The cache now carries both prices, seeded on place and on order-book load. If you write an
+adapter for a broker whose modify is whole-order, this is the trap.
+
+**Never fail open on a broker payload.** The old `mapOrder` mapped an unknown status to
+`working`, a missing action to **BUY**, and an unreadable number to 0. A fail-open BUY is
+the worst possible default in a trading payload: a corrupt row rendered as a live buy order.
+Use `getOrderBook()`, which returns `{ orders, quarantined }`, and treat `status: 'unknown'`
+as something to reconcile, never as tradable.
+
+**A guarantee reachable only through a wrapper is not a guarantee.** Quantity validation and
+idempotency lived in `OrderEngine`, and the largest consumer of this library calls
+`feed.place()` directly and never constructs one. Both now sit in the feed as well. When you
+add a safety check, ask which layer a real host actually calls, and put it there.
+
+**Do not release an idempotency token when a place fails.** A failed write says the RESPONSE
+did not arrive. It says nothing about whether the REQUEST did. Releasing makes the retry
+indistinguishable from a first attempt and can double a live position. Keep the claim, mark
+it ambiguous, and release only when the request provably never left, which the feed signals
+with a pre-flight error. `feed.tokenState(token)` reports it.
+
+**Validate quantity for EVERY order type, not just the ones with a price.** The old engine
+put the whole validate call behind `if (req.price !== undefined)`, so a MARKET order, the one
+that cannot be taken back, skipped the exchange freeze-quantity check entirely.
+
+**A client-side check is a UX affordance, not a risk control.** Anyone can call the broker
+from devtools. The broker RMS must enforce the same rules independently. Say so in the code
+so the next reader does not mistake one for the other.
+
+**Analyzer or sandbox mode is a server property.** Do not put a `mode` field in an order body
+that the server ignores: a control that looks real and does nothing is worse than no control.
+OpenAlgo decides analyzer server-side, so the feed reads `/api/v1/analyzer/` and REFUSES to
+place when the server disagrees with the caller's expectation.
 
 ## Events and state
 

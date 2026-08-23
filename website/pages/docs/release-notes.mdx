@@ -8,6 +8,55 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 1.6.0
+
+Broker-readiness hardening across the trade and feed layers. An independent reassessment
+scored the result 68/100, up from 61.
+
+**Fixed, and the reason to upgrade**
+
+- **`modifyorder` zeroed the price field the caller did not touch.** Dragging a stop-limit
+  order's line wiped its limit price to zero at the broker, on a live working order.
+  OpenAlgo's modifyorder takes the whole order rather than a delta, and `modify()` took the
+  two price fields from the patch alone with `?? 0`. Defaulting an unmentioned field to zero
+  does not leave it alone. A stop-limit carries both a limit and a trigger, and dragging its
+  line sends only the trigger, so that path sent `price: 0`. Verified against the published
+  1.5.0 package, which answers `price: 0`. Upgrade if your terminal has draggable stop lines.
+
+**Breaking, despite the minor version**
+
+- **`mapOrder` returns `DecodedOrder`, not `Order`.** `status` widens to
+  `OrderStatus | 'unknown'`. Previously an unrecognised broker status silently became
+  `working`, a missing action silently became **BUY**, and an unreadable number became 0.
+  Use [`getOrderBook()`](/docs/trading), which returns `{ orders, quarantined }`, so a row
+  that cannot be decoded is surfaced rather than rendered as live state.
+
+**Added**
+
+- **Feed-level quantity and idempotency guards.** Both existed in `OrderEngine` and were
+  unreachable for anyone calling the feed directly. A guarantee you can bypass by calling one
+  layer down is not a guarantee. Quantity is checked on every order with no configuration;
+  the new `constraints` hook adds freeze and lot limits, including on market orders. A
+  repeated `clientToken` is refused pre-flight, and a failure after the request leaves is
+  marked ambiguous rather than released.
+- **Chart-anchored primitives.** `addPrimitive(p, { anchor: 'chart-bottom' })` makes a
+  primitive chart furniture rather than pane furniture, re-homed as panes come and go. This
+  also fixes maximize, which hides the other panes and used to take a pane-0 watermark with
+  them. See [Primitives and plugins](/docs/primitives-and-plugins).
+- **`paneAdded`**, the counterpart `paneRemoved` never had.
+- **Analyzer mode is a guard, not cargo.** `place()` verifies the server's mode instead of
+  sending one the server would ignore.
+- WebSocket handshake gating, liveness probe, jittered backoff, topic-derived identity.
+  Reference-counted subscriptions, so one consumer leaving no longer cuts the stream for
+  the others.
+
+**Security**
+
+- Polynomial ReDoS in `scaleFont` (shipped code): 813ms to 1ms on 40,000 digits, identical
+  output on real font strings. Development advisories 12 to 0. Actions pinned by commit SHA,
+  least-privilege CI, SBOM, CodeQL, and a release workflow using npm OIDC trusted publishing
+  so no long-lived token need exist.
+
 ## 1.5.0
 
 **Fixed**

@@ -2,6 +2,131 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.6.0
+
+Broker-readiness hardening across the trade and feed layers, driven by an external
+production-readiness review and by verifying every one of its claims against the
+code rather than trusting them. An independent reassessment scored the result
+68/100, up from 61.
+
+### Fixed, and the reason to upgrade
+
+- **`modifyorder` zeroed the price field the caller did not touch.** Dragging a
+  stop-limit order's line wiped its limit price to zero at the broker, on a live
+  working order.
+
+  OpenAlgo's modifyorder takes the WHOLE order rather than a delta, so every
+  field is sent on every modify. `modify()` correctly rebuilt symbol, action,
+  exchange, pricetype, product and quantity from its cached context, but took the
+  two price fields from the patch alone: `price: patch.price ?? 0`. Defaulting an
+  unmentioned field to 0 does not leave it alone, it overwrites it with zero. A
+  stop-limit carries both a limit and a trigger, and dragging its line sends only
+  the trigger, so that path sent `price: 0`.
+
+  Verified against the published 1.5.0 tarball, which answers `price: 0`. Anyone
+  running a terminal with draggable stop-limit lines should upgrade.
+
+### Breaking, despite the minor version
+
+Same call as 1.4.0 made for `intervalToSeconds`, for the same reason: the old
+behaviour produced wrong answers.
+
+- **`mapOrder` returns `DecodedOrder`, not `Order`.** `status` widens to
+  `OrderStatus | 'unknown'` and `rawStatus` carries the broker's own text when it
+  is unknown. Previously an unrecognised broker status silently became `working`,
+  a missing action silently became **BUY**, and an unreadable number became 0. A
+  fail-open BUY default is the worst possible direction for a trading payload.
+
+  Assigning the result straight to `Order` no longer type-checks. Handle
+  `'unknown'`, or use the new `getOrderBook()`, which returns
+  `{ orders, quarantined }` so a row that cannot be decoded is surfaced rather
+  than rendered as live state. `decodeOrder(raw)` is the strict primitive.
+
+### Added
+
+- **Feed-level quantity and idempotency guards.** Both already existed in
+  `OrderEngine` and were unreachable for anyone calling the feed directly, which
+  is what most hosts do. A guarantee you can bypass by calling one layer down is
+  not a guarantee.
+
+  Quantity is checked on every order with no configuration: NaN, zero, negative
+  and fractional are refused. The new `constraints(symbol, exchange)` hook adds
+  the freeze limit and lot grid, including on MARKET orders, which is the case
+  that matters because a market order cannot be taken back.
+
+  A repeated `clientToken` is refused before anything is sent. A failure AFTER
+  the request leaves keeps the claim and marks it ambiguous rather than releasing
+  it: a failed write says the response did not arrive and says nothing about
+  whether the order did. `tokenState()` and `releaseToken()` let a host resolve
+  that deliberately. Every refusal is thrown pre-flight, so a caller can tell
+  "nothing was sent" from "this may be live".
+
+- **Chart-anchored primitives.** `addPrimitive(p, { anchor: 'chart-bottom' })`
+  makes a primitive chart furniture rather than pane furniture, and the engine
+  re-homes it as panes are added, removed, moved and maximized. Maximize is the
+  case a host could not work around, because it hides the other panes and takes
+  a watermark pinned to pane 0 with them. `'chart-top'` exists too.
+
+- **`paneAdded`.** Panes are created lazily when an indicator asks for one, and
+  that was silent: `paneRemoved` had no counterpart. Fires once per pane, after
+  the relayout, so a listener reads settled geometry.
+
+- **Analyzer mode is a guard rather than cargo.** `place()` accepted a `mode` and
+  never transmitted it. It is now checked against the server: OpenAlgo decides
+  analyzer server-side, so a mode field in the order body would be ignored, and a
+  control that looks real and does nothing is worse than no control. The feed
+  reads `/api/v1/analyzer/` and refuses when the server disagrees with the caller.
+
+- Order-engine intent state separate from broker state, so a resolved promise is
+  no longer promoted to the exchange's word; quantity constraints binding on every
+  order type; `placeMarket` accepting exchange and product; bounded engine maps.
+
+- WebSocket handshake gating, a liveness probe, jittered backoff, topic-derived
+  identity, and optional sequence tracking. Reference-counted subscriptions on the
+  composed live feed, so one consumer leaving no longer cuts the stream for the
+  others.
+
+- A working stop-loss drew nothing on the chart, and a one-sided bracket drew a
+  phantom take-profit at the position's average price. Both fixed.
+
+### Security
+
+- **Polynomial ReDoS in `scaleFont`** (CodeQL, shipped code). `\d+(?:\.\d+)?px`
+  retried from every start position and backtracked the whole run. Font strings
+  can arrive from a restored layout, and layouts are shareable. Bounded and given
+  a leading boundary: 813ms to 1ms on 40,000 digits, byte-identical on real fonts.
+
+- Development advisories 12 to 0, including one critical. GitHub Actions pinned by
+  commit SHA. CI given least-privilege tokens, a runtime audit gate, an SBOM and
+  CodeQL. A release workflow using npm OIDC trusted publishing, so no long-lived
+  token need exist. `SECURITY.md` added, stating plainly that the browser is not a
+  trust boundary.
+
+- The live example no longer persists the API key to `localStorage`, and its
+  legend escapes every interpolated value.
+
+### Sizes
+
+Two budgets rise, base 55 to 56 kB and base+trade 62 to 64 kB. Those entries
+measure whole bundle files, and the base bundle carries the OpenAlgo adapters, so
+hardening them grows the file even though a charting host never imports them.
+A chart-only import tree-shakes to 34.9 kB with the WebSocket adapter provably
+absent, which is what a charting user actually pays and did not move. `npm run
+shake` now guards that number directly.
+
+| Tier | Measured | Budget |
+|---|---:|---:|
+| Base engine | 55.78 KB | 56 KB |
+| Base + trade | 63.39 KB | 64 KB |
+| Indicators | 24.88 KB | 27 KB |
+| Draw | 13.13 KB | 14 KB |
+| Transform | 2.66 KB | 5 KB |
+| Profile | 10.66 KB | 11 KB |
+| Everything | 114.72 KB | 120 KB |
+| Chart-only, tree-shaken | 34.94 KB | 38 KB |
+
+1882 tests across 100 files. Zero runtime dependencies.
+
 ## 1.5.0
 
 ### Fixed

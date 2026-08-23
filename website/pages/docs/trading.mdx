@@ -88,6 +88,55 @@ rows below *it* is [`legendOffset`](/docs/types#chartoptions). The two together
 are what stops a trading pane's top-left corner turning into a pile-up.
 </Callout>
 
+## Where the safety checks live
+
+Two layers can refuse an order, and the distinction matters more than it looks.
+
+`OrderEngine` is the logic layer: the arm/confirm gate, the client state machine,
+intent-versus-broker state, and OCO bookkeeping. It is the right place for anything
+that needs to remember what the user is doing.
+
+**The feed enforces the checks that must not be bypassable.** Quantity validation and
+duplicate-intent refusal live in `OpenAlgoTradeFeed` as well, because a host can call
+`feed.place()` directly and never construct an engine, and most do. A guarantee reachable
+only through a wrapper is not a guarantee.
+
+At the feed, with no configuration at all:
+
+- a non-finite, zero, negative or fractional quantity is refused;
+- a repeated `clientToken` is refused before anything is sent, so a double-clicked button
+  places once even when both clicks land before the first response.
+
+Supply `constraints(symbol, exchange)` on the feed config and the exchange freeze limit and
+lot grid apply too, **including on MARKET orders**, which is the case that matters because a
+market order cannot be taken back.
+
+<Callout type="warning">
+These are advisory. A user with devtools can call the broker directly, so client validation
+is a UX affordance, not a risk control. The broker's RMS is authoritative and must enforce
+the same rules independently.
+</Callout>
+
+### Ambiguous outcomes
+
+A failure **after** the request leaves keeps the idempotency claim and marks it ambiguous,
+rather than releasing it. A failed write tells you the response did not arrive; it tells you
+nothing about whether the order did.
+
+The costs are not symmetric. Holding a claim too long costs one deliberate click after a
+banner. Releasing it too early costs a doubled live position, discovered later, quite
+possibly on a leveraged intraday product. So a claim is released only when the request
+provably never left, which the feed signals by throwing a pre-flight error.
+
+```ts
+feed.tokenState('my-token')   // 'unknown' | 'inflight' | 'sent' | 'ambiguous'
+feed.releaseToken('my-token') // only after you have established what really happened
+```
+
+`getOrderBook()` returns `{ orders, quarantined }`. A row that cannot be decoded is
+surfaced rather than rendered as live state: an unknown broker status stays `'unknown'`
+instead of becoming `working`, and a missing action is quarantined instead of becoming BUY.
+
 ## The order engine
 
 `OrderEngine` is the logic layer - it validates, routes, and tracks orders, with an

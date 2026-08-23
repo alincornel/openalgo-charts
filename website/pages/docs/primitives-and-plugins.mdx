@@ -215,6 +215,34 @@ is captured by `takeScreenshot()`), is source-agnostic (pass a `src` URL/data-UR
 preloaded `image`), and an optional `tint` recolors the opaque pixels so a single-color logo
 reads on any theme.
 
+### Chart furniture versus pane furniture
+
+`addPrimitive(p, paneIndex)` attaches to a pane, which is right for a price line or a
+band: it belongs to the thing it measures.
+
+A watermark, a corner clock or a brand mark does not. It belongs to the **chart**, and it
+should stay at the chart's edge as indicator panes come and go. Pass a placement instead of
+an index:
+
+```ts
+chart.addPrimitive(mark, { anchor: 'chart-bottom' })   // or 'chart-top'
+```
+
+The engine re-homes it whenever a pane is added, removed, moved or maximized. Maximize is
+the case worth knowing about: it **hides** the other panes, so a mark pinned to pane 0 does
+not merely sit in the wrong place, it disappears with the pane. An anchored primitive
+follows the visible edge.
+
+Before this existed a host had to do it by hand, removing and re-adding the primitive on
+`chart.panes().length - 1` after anything that might have created a pane, and listening to
+`paneRemoved` and `paneMoved` to catch the rest. If you have that loop, delete it.
+
+<Callout type="info">
+`paneAdded` also exists now, emitted once per pane created and after the relayout, so a
+listener reads settled geometry. Use it if you keep your own chrome positioned; use the
+anchor if the engine can do it for you.
+</Callout>
+
 <RunnableExample height={320} watermark={false} code={`const chart = lib.createChart(el);
 chart.addSeries('candlestick').setData(lib.generateBars(1700000000, 140, 3600));
 

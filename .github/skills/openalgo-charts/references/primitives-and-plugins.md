@@ -322,3 +322,20 @@ chart.addSeries('range-band').setData(bars);
 **`series.update()` schedules a `Full` repaint,** which re-runs every `autoscaleInfo()` and every `draw`. Cache anything expensive across frames.
 
 Related: [core-api](core-api.md) (`addPrimitive`, invalidation levels, the event bus), [chart-types](chart-types.md) (the built-in renderers), [drawing-tools](drawing-tools.md) (`DrawingLayer`, a primitive built on this contract), [trading](trading.md) and [trade-tier](trade-tier.md) (order lines and `tradeHost`), [indicators](indicators.md) (`IndicatorFill`, `PaneLegend`), [events-and-state](events-and-state.md) (click and drag routing), [scales-and-panes](scales-and-panes.md) (which scale a primitive sees).
+
+## Anchoring to the chart instead of a pane (1.6.0)
+
+```ts
+chart.addPrimitive(mark, { anchor: 'chart-bottom' })   // or 'chart-top'
+```
+
+Pass a placement instead of a pane index and the engine re-homes the primitive whenever a
+pane is added, removed, moved or maximized. Use it for anything that is chart furniture
+rather than pane furniture: a watermark, a corner clock, a brand mark.
+
+Maximize is the reason this exists rather than a `paneAdded` listener. It HIDES the other
+panes, so a primitive pinned to pane 0 disappears with it instead of merely sitting in the
+wrong place, and no amount of host bookkeeping fixes that from outside.
+
+`removePrimitive` also clears the anchor registration, so a removed primitive stays removed;
+before that was wired, the next pane change resurrected it.

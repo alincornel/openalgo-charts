@@ -251,3 +251,21 @@ window.addEventListener('click', () => hideMenu());
 - Pushing live LTP into the pill: [feeds-and-live](feeds-and-live.md).
 - Order engine, validation, OCO, DOM ladder: [trade-tier](trade-tier.md).
 - Bundle entry points: [bundling-and-tiers](bundling-and-tiers.md).
+
+## Which layer enforces what (1.6.0)
+
+`OrderEngine` owns the arm/confirm gate, the client state machine, intent-versus-broker
+state, and OCO bookkeeping. Use it when you need to remember what the user is doing.
+
+`OpenAlgoTradeFeed` owns the checks that must not be bypassable, because a host can call
+`feed.place()` directly and never construct an engine:
+
+- quantity: non-finite, zero, negative and fractional are refused with no configuration;
+  pass `constraints(symbol, exchange)` to add freeze and lot limits, including on MARKET;
+- idempotency: a repeated `clientToken` is refused pre-flight; a failure after the request
+  leaves is marked `'ambiguous'` and NOT released. Read it with `tokenState(token)`, clear
+  it with `releaseToken(token)` once you have established the truth from the order book;
+- decoding: `getOrderBook()` returns `{ orders, quarantined }`, and an unknown broker status
+  stays `'unknown'` rather than becoming `working`.
+
+Everything the client checks is advisory. The broker RMS is authoritative.
