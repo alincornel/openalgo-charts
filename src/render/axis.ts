@@ -750,5 +750,13 @@ export function drawSessionClock(
 
 function scaleFont(font: string, dpr: number): string {
   // Multiply the leading "<n>px" by dpr; leave the rest of the font string intact.
-  return font.replace(/(\d+(?:\.\d+)?)px/, (_, px: string) => `${Number(px) * dpr}px`);
+  //
+  // The digit runs are BOUNDED deliberately. `\d+(?:\.\d+)?px` is quadratic: on a
+  // long run of digits that is not followed by `px`, the engine retries from
+  // every start position and backtracks the whole run each time. A font string
+  // is normally the host's own constant, but it can also arrive from a restored
+  // chart layout, and a layout is shareable, so it is not necessarily the host's
+  // own text. Five integer digits and four decimals covers every real font size
+  // and makes the work linear.
+  return font.replace(/(\d{1,5}(?:\.\d{1,4})?)px/, (_, px: string) => `${Number(px) * dpr}px`);
 }

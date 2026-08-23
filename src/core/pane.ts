@@ -294,6 +294,11 @@ export class Pane {
     primitive.attached?.(host);
   }
 
+  /** Whether this pane currently holds `primitive`. */
+  public hasPrimitive(primitive: IPrimitive): boolean {
+    return this._primitives.includes(primitive);
+  }
+
   /** Remove a primitive if present; returns true if it was found. */
   public removePrimitive(primitive: IPrimitive): boolean {
     const i = this._primitives.indexOf(primitive);

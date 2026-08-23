@@ -63,7 +63,7 @@ import { ShortcutManager } from '../input/shortcuts';
 import type { ShortcutManagerOptions } from '../input/shortcuts';
 import { TradingController, DEFAULT_TRADING_COLORS, type TradingColors, type TradingSettings } from './trading-controller';
 import { pinchState, pinchDelta, type PinchState } from '../input/touch';
-import type { IPrimitive, PrimitiveHost, PrimitiveHit } from '../primitives/primitive';
+import type { IPrimitive, PrimitiveHost, PrimitiveHit, PrimitiveAnchor, PrimitivePlacement } from '../primitives/primitive';
 import { PriceLine, type PriceLineOptions } from '../primitives/price-line';
 import { SeriesMarkers } from '../primitives/markers';
 import { EventMarkers, type ChartEvent } from '../primitives/event-markers';
@@ -1082,7 +1082,7 @@ export class Chart {
   // One `on(name, cb)` surface for every chart event, complementing the typed
   // `subscribe*` helpers. Names emitted by the core: 'ready', 'crosshair:move',
   // 'click', 'dblclick', 'hover', 'drag', 'drag:end', 'pan', 'zoom', 'resize',
-  // 'lazy-load', 'paneRemoved', 'paneMoved', 'paneMaximized', 'paneResized',
+  // 'lazy-load', 'paneAdded', 'paneRemoved', 'paneMoved', 'paneMaximized', 'paneResized',
   // 'priceAxisMoved', 'indicatorRemoved', 'indicatorSettings', 'destroy'. The
   // trading layer routes its 'trading:*' events through here too, and the draw
   // tier emits 'draw:*'.
@@ -1169,8 +1169,37 @@ export class Chart {
   }
 
   /** Public: attach any primitive (indicators, profiles, custom overlays) to a pane. */
-  public addPrimitive(primitive: IPrimitive, paneIndex = 0): void {
-    this._addPrimitive(paneIndex, primitive);
+  public addPrimitive(primitive: IPrimitive, where: number | PrimitivePlacement = 0): void {
+    if (typeof where === 'number') { this._addPrimitive(where, primitive); return; }
+    // Chart furniture: a brand mark, a corner clock. It belongs to the CHART,
+    // not to whichever pane happens to be last, so the engine re-homes it as
+    // panes come and go instead of every host writing its own placeWatermark().
+    this._anchored.push({ primitive, anchor: where.anchor });
+    this._addPrimitive(this._anchorTarget(where.anchor), primitive);
+  }
+
+  /** The pane a chart anchor currently resolves to. */
+  private _anchorTarget(anchor: PrimitiveAnchor): number {
+    return anchor === 'chart-bottom' ? this._bottomPaneIndex() : this._topPaneIndex();
+  }
+
+  /**
+   * Move every chart-anchored primitive to the pane its anchor now names.
+   *
+   * Called after anything that changes which pane sits at an edge: a pane added,
+   * removed, moved, or maximized. Maximize matters most and is the case a host
+   * cannot easily handle itself: it HIDES the other panes, so a mark pinned to
+   * pane 0 vanishes with it rather than merely sitting in the wrong place.
+   */
+  private _rehomeAnchored(): void {
+    if (this._anchored.length === 0) return;
+    for (const entry of this._anchored) {
+      const target = this._anchorTarget(entry.anchor);
+      const current = this._panes.findIndex((pane) => pane.hasPrimitive(entry.primitive));
+      if (current === target) continue;
+      if (current >= 0) this._panes[current].removePrimitive(entry.primitive);
+      this._addPrimitive(target, entry.primitive);
+    }
   }
 
   /**
@@ -1462,6 +1491,9 @@ export class Chart {
     return out;
   }
 
+  /** Chart-anchored primitives, re-homed by `_rehomeAnchored`. */
+  private readonly _anchored: { primitive: IPrimitive; anchor: PrimitiveAnchor }[] = [];
+
   private _addPrimitive(paneIndex: number, primitive: IPrimitive): void {
     this._ensurePane(paneIndex);
     const host: PrimitiveHost = {
@@ -1574,13 +1606,20 @@ export class Chart {
   }
 
   private _ensurePane(index: number): void {
-    let changed = false;
+    const added: number[] = [];
     while (this._panes.length <= index) {
       // price pane (0) takes full weight; lower panes (volume/indicators) are shorter
       this._addPane(this._panes.length === 0 ? 1 : 0.32);
-      changed = true;
+      added.push(this._panes.length - 1);
     }
-    if (changed) this._relayout();
+    if (added.length === 0) return;
+    this._relayout();
+    // Panes are made lazily, when an indicator asks for one, and that used to be
+    // silent: `paneRemoved` existed with no counterpart. A host with chrome at
+    // the bottom of the chart had no way to learn the bottom had moved. Emitted
+    // after the relayout so a listener reads settled geometry.
+    this._rehomeAnchored();
+    for (const paneIndex of added) this.emit('paneAdded', { paneIndex });
   }
 
   private _setData(dataId: number, bars: readonly Bar[]): void {
@@ -2108,6 +2147,7 @@ export class Chart {
     this._recomputeAxisColumns();
     this._relayout();
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
+    this._rehomeAnchored();
     this.emit('paneRemoved', { paneIndex: index });
     return true;
   }
@@ -2133,6 +2173,7 @@ export class Chart {
     for (const pane of panes) this._container.appendChild(pane.element);
     this._relayout();
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
+    this._rehomeAnchored();
     this.emit('paneMoved', { from: index, to: target });
     return true;
   }
@@ -2147,6 +2188,9 @@ export class Chart {
     this._maximizedPane = this._maximizedPane === index ? null : index;
     this._relayout();
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
+    // Maximize is the case a host cannot work around: it HIDES the other panes,
+    // so chrome pinned to pane 0 disappears rather than merely sitting wrong.
+    this._rehomeAnchored();
     this.emit('paneMaximized', { paneIndex: this._maximizedPane });
     return true;
   }

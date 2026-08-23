@@ -126,7 +126,7 @@
     <div class="brand"><span class="brand-dot"></span> OpenAlgo <em>LIVE</em></div>
     <div class="divider"></div>
     <div class="group">
-      <input type="text" id="apikey" class="field field--key" placeholder="OpenAlgo API key" title="saved to this browser only (localStorage); never committed" />
+      <input type="password" id="apikey" class="field field--key" placeholder="OpenAlgo API key" autocomplete="off" spellcheck="false" title="Kept in memory for this session only. Never stored, never committed. In production a broker backend holds this and the browser never sees it." />
     </div>
     <div class="divider"></div>
     <div class="group">
@@ -207,7 +207,9 @@
     const fmt = (n) => Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     const nowSec = () => Math.floor(Date.now() / 1000);
-    el('apikey').value = localStorage.getItem('oa-apikey') || '';
+    // Deliberately NOT restored from storage. See the note next to the input:
+    // this key can place orders, and localStorage is readable by any script that
+    // ends up on the page.
 
     // Lookback per interval (seconds) for the history request.
     const LOOKBACK = { '1m': 10 * 86400, '5m': 45 * 86400, '15m': 90 * 86400, '1h': 250 * 86400, 'D': 800 * 86400 };
@@ -267,8 +269,11 @@
 
     function setLegend(sym, ex, intv, bar, ltp) {
       const col = bar && bar.close >= bar.open ? 'up' : 'dn';
+      // Every interpolated value is escaped, including the two that come from
+      // <select> and therefore "cannot" contain markup. They cannot today; the
+      // rule is what stops the day someone makes one of them free text.
       el('legend').innerHTML =
-        `<b>${esc(sym)}</b> <span style="opacity:.5">· ${intv} · ${ex}</span>` +
+        `<b>${esc(sym)}</b> <span style="opacity:.5">· ${esc(intv)} · ${esc(ex)}</span>` +
         (bar ? ` <span class="${col}">O ${fmt(bar.open)} H ${fmt(bar.high)} L ${fmt(bar.low)} C ${fmt(bar.close)}</span>` : '') +
         (ltp != null ? ` <span class="ltp">LTP ${fmt(ltp)}</span>` : '');
     }
@@ -476,7 +481,14 @@
       const exchange = el('exchange').value;
       const interval = el('interval').value;
       if (!apiKey) { el('status').textContent = 'please enter your OpenAlgo API key'; return; }
-      localStorage.setItem('oa-apikey', apiKey);
+      // The key is held in this closure for the session and written nowhere.
+      //
+      // It used to be persisted to localStorage so a reload kept it. That is the
+      // single worst habit a broker integration can copy from a demo: an
+      // order-capable credential, in a store readable by any script that reaches
+      // the page, surviving until someone clears it. A retyped key each reload is
+      // the correct cost. In production the browser should never hold this at
+      // all: see the note in the header.
 
       // ── history (REST via the same-origin proxy to OpenAlgo /api/v1/history) ──
       rest = new OpenAlgoDataFeed({ baseUrl: '', apiKey }); // baseUrl '' -> relative -> proxy
