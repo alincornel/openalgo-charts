@@ -454,3 +454,60 @@ describe('a pane scale forgets a departed series', () => {
     expect(pane.priceScale.scaled).toBe(false);
   });
 });
+
+/**
+ * A series addresses its pane by identity, not by the slot it was created in.
+ *
+ * Slots move: `removeIndicator` prunes the emptied pane, which splices the array
+ * so every pane below shifts up one, and `movePane` swaps two entries outright.
+ * A series holding the number it was born with then points at a different pane,
+ * or past the end of the array.
+ *
+ * These drive `removeIndicator`, which is the path that actually goes through
+ * the series' own teardown closure. Driving `removePane` instead proves nothing:
+ * it strips series by walking the pane object it already holds, so it never
+ * touches the closure and passes just as happily with the bug in place.
+ */
+describe('sub-plot indicators survive their pane changing slot', () => {
+  const threeSubPlots = (): { chart: Chart; ids: string[] } => {
+    const { chart } = makeChart();
+    chart.addSeries('candlestick').setData(bars(80));
+    const ids = ['rsi', 'macd', 'cci'].map((id) => chart.addIndicator(id).id);
+    return { chart, ids };
+  };
+
+  it('removing the last sub-plot after an earlier one does not throw', () => {
+    const { chart, ids } = threeSubPlots();
+    expect(chart.panes()).toHaveLength(4);
+    // Panes 2 and 3 shift up to 1 and 2 here; their series still name 2 and 3.
+    chart.removeIndicator(ids[0]);
+    expect(chart.panes()).toHaveLength(3);
+    chart.removeIndicator(ids[1]);
+    // Was: `this._panes[3]` is undefined, so removeSeries threw on undefined and
+    // the teardown aborted half-done -- legend gone, plot still on the chart.
+    expect(() => chart.removeIndicator(ids[2])).not.toThrow();
+    expect(chart.panes()).toHaveLength(1);
+  });
+
+  it('strips its own pane, not whichever one inherited the slot', () => {
+    const { chart, ids } = threeSubPlots();
+    chart.removeIndicator(ids[0]);
+    const survivor = chart.panes()[1]; // was pane 2, holds the second indicator
+    const before = survivor.series().length;
+    expect(before).toBeGreaterThan(0);
+    // The quiet half of the bug: a stale index that still lands on a live pane
+    // strips the wrong one, and nothing anywhere reports it.
+    chart.removeIndicator(ids[2]);
+    expect(survivor.series()).toHaveLength(before);
+  });
+
+  it('follows its pane through a move', () => {
+    const { chart, ids } = threeSubPlots();
+    chart.movePane(1, 1); // panes 1 and 2 swap objects
+    const moved = chart.panes()[2];
+    const held = moved.series().length;
+    expect(held).toBeGreaterThan(0);
+    expect(() => chart.removeIndicator(ids[0])).not.toThrow();
+    expect(chart.panes().some((p) => p === moved)).toBe(false);
+  });
+})

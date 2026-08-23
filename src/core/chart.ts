@@ -710,7 +710,29 @@ export class Chart {
     }
     this._panes[paneIndex].addSeries(record);
     this._recomputeAxisColumns(); // reserve/free the axis columns
-    const scale = this._panes[paneIndex].scaleOf(record);
+    /**
+     * The pane this series lives on, held BY IDENTITY rather than by the index
+     * it happened to be created at.
+     *
+     * `paneIndex` is a slot number, and slots are not stable. `removePane`
+     * splices the array and everything below shifts up one; `movePane` swaps two
+     * entries outright. A closure that captured the number therefore starts
+     * pointing at a different pane, or at no pane at all, the moment either
+     * happens -- and both are ordinary things to do with indicator panes.
+     *
+     * That was a real crash, not a theoretical one. Three sub-plot indicators on
+     * panes 1, 2 and 3; remove the first and the survivors shift to 1 and 2
+     * while their series still name 2 and 3; remove the last and
+     * `this._panes[3]` is undefined, so `removeSeries` throws on undefined and
+     * the teardown aborts half-done -- legend gone, plot still on the chart. The
+     * quieter version is worse: when the stale index still lands on a pane that
+     * exists, the series is removed from the WRONG pane and nothing reports it.
+     *
+     * Panes move around their series, so the object stays correct through both
+     * operations and the index never has to be patched.
+     */
+    const pane = this._panes[paneIndex];
+    const scale = pane.scaleOf(record);
     if (options.priceFormat) {
       const pf = options.priceFormat;
       if (pf.type === 'custom') scale.setPriceFormatter(pf.formatter);
@@ -732,11 +754,11 @@ export class Chart {
         // Precision is a label override on the scale, not a style the renderer
         // reads, so it needs pushing across when it changes (including back to
         // "Default", which is the key present and undefined).
-        if ('precision' in patch) this._applyPrecision(this._panes[paneIndex].scaleOf(record), patch.precision);
+        if ('precision' in patch) this._applyPrecision(pane.scaleOf(record), patch.precision);
         this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
       },
       remove: (): void => {
-        this._panes[paneIndex].removeSeries(record);
+        pane.removeSeries(record);
         this._dataLayer.removeSeries(dataId);
         if (this._firstDataId.value === dataId) this._firstDataId.value = null;
         if (this._primary?.record === record) this._primary = null;
@@ -744,10 +766,12 @@ export class Chart {
         this._recomputeAxisColumns();
         this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
       },
-      priceScale: (): PriceScale => this._panes[paneIndex].scaleOf(record),
+      priceScale: (): PriceScale => pane.scaleOf(record),
       createMarkers: (): SeriesMarkers => {
         const m = new SeriesMarkers(dataId);
-        this._addPrimitive(paneIndex, m);
+        // Resolved now, not at creation: primitives are addressed by slot, and
+        // this series' slot may have shifted since.
+        this._addPrimitive(this._panes.indexOf(pane), m);
         return m;
       },
     };
