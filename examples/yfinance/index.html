@@ -810,6 +810,13 @@
 
   <script type="module">
     import { createChart, darkTheme, registeredIndicators, getIndicator, indicatorStyleInputs, INDICATOR_SOURCES, LogoWatermark, PaneLegend } from '/dist/openalgo-charts.mjs';
+
+    /**
+     * A tick size for the demo, by market. yfinance does not report one, and a
+     * guess stated openly is better than a silent 0, which the price scale
+     * reads as "work the precision out from the range".
+     */
+    const tickFor = (sym) => (/\.(NS|BO)$/i.test(String(sym || '')) ? 0.05 : 0.01);
     // Replay, compare and the settings schema land in the same base bundle, but
     // they are read off the namespace rather than named above on purpose: a
     // missing named import fails the whole module at link time, and a demo
@@ -2552,6 +2559,16 @@
       }
       price = chart.addSeries(type, { style }); // first series -> drives the OHLC legend
       price.setData(data);
+
+      // Tell the engine the instrument's tick. Left unset, `minMove` is 0, which
+      // means "infer precision from the visible range": the axis then renders a
+      // decimal short on many instruments, drawings snap to an invented grid,
+      // and an indicator reading `ctx.tickSize` is told nobody knows.
+      //
+      // yfinance carries no tick size, so this demo picks one by market and says
+      // so plainly. A real host reads it from its own instrument master, the way
+      // OpenAlgo reads tick_size out of its symbol table, rather than guessing.
+      chart.setPriceScaleOptions({ minMove: tickFor(req.symbol) });
       if (!isTransform) {
         // Volume rides an OVERLAY price scale inside the price pane
         // (priceScaleId: '') rather than a pane of its own: it autoscales
