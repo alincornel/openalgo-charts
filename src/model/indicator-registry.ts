@@ -17,6 +17,7 @@ import type { SeriesStyle } from '../render/series-style';
 import type { PriceScaleId } from './series';
 import type { SeriesMarker } from '../primitives/markers';
 import type { TableCell, ChartTableOptions } from '../primitives/table';
+import type { IPrimitive } from '../primitives/primitive';
 
 /** Which price a calculation reads from each bar. */
 export type IndicatorSource = 'open' | 'high' | 'low' | 'close' | 'hl2' | 'hlc3' | 'ohlc4' | 'volume';
@@ -29,6 +30,9 @@ export type IndicatorInput =
   | { key: string; type: 'text'; label: string; default: string; group?: string }
   | { key: string; type: 'select'; label: string; default: string; options: readonly { label: string; value: string }[]; group?: string }
   | { key: string; type: 'source'; label: string; default: IndicatorSource; group?: string };
+
+/** Dash pattern for a level, a drawing, or a plot. */
+export type IndicatorLineStyle = 'solid' | 'dashed' | 'dotted';
 
 /** Line-style options, for a settings UI's Style tab. */
 export const INDICATOR_LINE_STYLES: readonly { label: string; value: string }[] = [
@@ -149,6 +153,16 @@ export interface IndicatorPlot {
   /** Price axis for this plot. Defaults to 'right'. */
   priceScaleId?: PriceScaleId;
   /**
+   * Draw this one plot on the price pane even though the indicator owns a pane
+   * of its own. An oscillator that also wants a signal
+   * band or a stop line sitting on the candles is the case: the study belongs in
+   * its own pane, one of its columns belongs on price, and splitting it into two
+   * indicators would make the user configure the same inputs twice.
+   *
+   * Ignored for an `'onchart'` descriptor, which is already on the price pane.
+   */
+  overlay?: boolean;
+  /**
    * Settings key holding this plot's color, so a settings change restyles the
    * series without a full rebuild.
    */
@@ -158,7 +172,8 @@ export interface IndicatorPlot {
    * histogram is four colours by sign and direction, a conditional study two.
    * Return `undefined` to fall back to the plot's own colour.
    *
-   * Renderer support is required: histogram and column honour it today.
+   * Reaches the renderer as `Bar.color`, so every Family-A plot type honours
+   * it: histogram, column, candles, OHLC bars, line, step and area.
    */
   colorBy?(ctx: {
     value: number;
@@ -173,8 +188,76 @@ export interface IndicatorLevel {
   price: number;
   color?: string;
   title?: string;
+  /** Legacy two-state dash switch. `lineStyle` wins when both are given. */
   dashed?: boolean;
+  lineWidth?: number;
+  lineStyle?: IndicatorLineStyle;
 }
+
+/** One end of an indicator drawing: a time on the shared axis, a price on the pane's scale. */
+export interface DrawAnchor {
+  time: number;
+  price: number;
+}
+
+/**
+ * A free-standing shape an indicator paints in its own pane, anchored to time
+ * and price rather than to a bar index.
+ *
+ * Plots, levels and markers each answer a different question and none of them
+ * answers this one: a pivot-to-pivot trendline, a supply zone, an order block,
+ * a measured-move projection are all geometry between two arbitrary points, and
+ * a column of one value per bar cannot express any of them. Anchors are times,
+ * so a shape stays put when history is paged in and every logical index shifts.
+ */
+export type IndicatorDrawing =
+  | {
+      kind: 'line';
+      from: DrawAnchor;
+      to: DrawAnchor;
+      color?: string;
+      lineWidth?: number;
+      lineStyle?: IndicatorLineStyle;
+      /** Continue the line past its anchor to the pane edge. */
+      extendLeft?: boolean;
+      extendRight?: boolean;
+    }
+  | {
+      kind: 'box';
+      from: DrawAnchor;
+      to: DrawAnchor;
+      /** Border colour. Omit `fillColor` to draw an outline only. */
+      color?: string;
+      fillColor?: string;
+      /** Fill alpha, 0..1. Defaults to 0.12. */
+      opacity?: number;
+      lineWidth?: number;
+      /** Caption drawn on a plate at the centre of the box; `\n` splits lines. */
+      text?: string;
+      textColor?: string;
+    }
+  | {
+      kind: 'label';
+      at: DrawAnchor;
+      /** `\n` splits lines. */
+      text: string;
+      /** Plate fill. */
+      color?: string;
+      textColor?: string;
+      /** Which edge of the plate sits on the anchor. Defaults to 'center'. */
+      align?: 'left' | 'center' | 'right';
+    }
+  | {
+      kind: 'polyline';
+      points: readonly DrawAnchor[];
+      color?: string;
+      lineWidth?: number;
+      /** Close the path back to the first point (a triangle, a wedge). */
+      closed?: boolean;
+      fillColor?: string;
+      /** Fill alpha, 0..1. Defaults to 0.12. */
+      opacity?: number;
+    };
 
 /** `calc` output: one array per plot key, aligned 1:1 with the input bars. */
 export type IndicatorValues = Record<string, readonly (number | null)[]>;
@@ -192,7 +275,57 @@ export interface IndicatorAttachContext {
   requestRecompute(): void;
   /** Scratch this instance owns; the same object `calc` receives. */
   store: IndicatorStore;
+  /**
+   * The instrument the chart is showing, when the host knows it.
+   *
+   * The engine core has no instrument concept: it is handed bars, never a
+   * symbol, so `chart.addIndicator` leaves this undefined rather than inventing
+   * a name. A host that wraps the chart (a terminal that owns the symbol
+   * picker) supplies it through its own `IndicatorHost`, which is how a Tier-2
+   * indicator fetches the series matching what is on screen.
+   */
+  symbol?(): string | undefined;
+  /** The chart's timeframe (`'5m'`, `'1d'`), on the same terms as `symbol`. */
+  interval?(): string | undefined;
+  // The rest are always supplied by `IndicatorInstance`, which falls back to the
+  // shipped default when its host declares no opinion. They are optional so a
+  // caller can hand-build a minimal context (a unit test exercising one
+  // descriptor's lifecycle) without stubbing the whole surface.
+  /** The chart's IANA zone, the one its axis is labelled in. */
+  timezone?(): string;
+  /** Chart wall clock in UTC seconds, the same clock the countdown row uses. */
+  now?(): number;
+  /** The pane this instance drew into. Moves when panes are reordered. */
+  paneIndex?(): number;
+  /** Attach a primitive to this indicator's pane, and detach it again. */
+  addPrimitive?(p: IPrimitive): void;
+  removePrimitive?(p: IPrimitive): void;
 }
+
+/**
+ * What `levels` is handed. It carries `bars` and `values` **and** spreads the
+ * settings keys onto itself, so the 91 built-ins written against the original
+ * `levels(settings)` signature keep working unchanged: they read
+ * `ctx.overbought` (or pass `ctx` to a `num(s, key, default)` helper) and find
+ * exactly what they found before. A widened parameter is the only way a level
+ * can be data-derived (yesterday's high, the session VWAP band), and that is a
+ * whole class of level that could not be expressed at all before.
+ *
+ * The three data members are optional for the same backward-compatibility
+ * reason, not because the runtime ever omits them: it always passes all three,
+ * but a caller holding only a settings bag must still be able to invoke
+ * `levels` directly. A descriptor that needs the data should default them
+ * (`ctx.bars ?? []`).
+ *
+ * `settings`, `bars` and `values` are therefore reserved keys, the way
+ * `timezone` already is in the settings a `calc` receives: an input declared
+ * under one of those names is shadowed here.
+ */
+export type IndicatorLevelContext = IndicatorSettings & {
+  settings?: Readonly<IndicatorSettings>;
+  bars?: readonly Bar[];
+  values?: IndicatorValues;
+};
 
 export interface IndicatorDescriptor {
   /** Registry key, e.g. `'macd'`. */
@@ -282,8 +415,24 @@ export interface IndicatorDescriptor {
     values: IndicatorValues;
     settings: Readonly<IndicatorSettings>;
   }): { rows: readonly (readonly TableCell[])[]; options?: Partial<ChartTableOptions> } | null;
-  /** Optional horizontal reference levels drawn in the indicator's pane. */
-  levels?(settings: Readonly<IndicatorSettings>): readonly IndicatorLevel[];
+  /**
+   * Optional free-standing shapes drawn in the indicator's pane: trendlines
+   * between pivots, supply and demand boxes, projection labels. Runs after
+   * every `calc`, like `markers` and `table`, and the returned list replaces the
+   * previous one wholesale, so returning `[]` clears the layer.
+   */
+  draws?(ctx: {
+    bars: readonly Bar[];
+    values: IndicatorValues;
+    settings: Readonly<IndicatorSettings>;
+  }): readonly IndicatorDrawing[];
+  /**
+   * Optional horizontal reference levels drawn in the indicator's pane.
+   * Recomputed after every `calc`, so a level derived from the data (the
+   * previous day's high) tracks it. See `IndicatorLevelContext` for why the
+   * argument still reads as a settings bag.
+   */
+  levels?(ctx: IndicatorLevelContext): readonly IndicatorLevel[];
   /**
    * Optional fixed price range for the indicator's own pane (RSI 0..100).
    * Applied only when the indicator creates its pane — two indicators sharing a

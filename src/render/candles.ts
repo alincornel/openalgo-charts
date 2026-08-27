@@ -112,15 +112,20 @@ export function drawCandles(
     const w = scale === 1 ? bodyW : Math.max(1, Math.round(bodyW * scale));
     const halfW = Math.floor(w / 2);
 
+    // A per-bar colour override replaces the whole up/down verdict
+    // for this bar: body, border and wick together, or a recoloured candle would
+    // keep a wick arguing the other way.
+    const over = bar.color;
+
     if (style.wickVisible) {
-      ctx.fillStyle = up ? style.wickUpColor : style.wickDownColor;
+      ctx.fillStyle = over ?? (up ? style.wickUpColor : style.wickDownColor);
       ctx.fillRect(cx - Math.floor(wickW / 2), yHigh, wickW, Math.max(1, yLow - yHigh));
     }
 
     const top = Math.min(yOpen, yClose);
     const bodyH = Math.max(1, Math.abs(yClose - yOpen));
-    const color = up ? style.upColor : style.downColor;
-    const borderColor = up ? style.borderUpColor : style.borderDownColor;
+    const color = over ?? (up ? style.upColor : style.downColor);
+    const borderColor = over ?? (up ? style.borderUpColor : style.borderDownColor);
 
     if (style.hollow && up) {
       // Hollow up candle: the outline is the body, so it is drawn whether or not

@@ -64,8 +64,11 @@ export class RecordingContext {
    * cached per context, so the `addColorStop` ops appear on one frame only and
    * cannot be relied on to tell two fills apart.
    */
-  public createLinearGradient(): { addColorStop(o: number, c: string): void } {
-    this.ops.push({ type: 'createLinearGradient', args: [] });
+  public createLinearGradient(x0 = 0, y0 = 0, x1 = 0, y1 = 0): { addColorStop(o: number, c: string): void } {
+    // The coordinates are recorded because a vertical gradient's whole meaning
+    // is where its axis sits: an indicator band anchored in price space and one
+    // anchored to the pane produce the same stops at different y.
+    this.ops.push({ type: 'createLinearGradient', args: [x0, y0, x1, y1] });
     const stops: string[] = [];
     return {
       addColorStop: (o: number, c: string) => {

@@ -91,9 +91,20 @@ export function drawShape(
 }
 
 /**
+ * Row pitch for `\n`-separated marker text, as a multiple of the font size.
+ * Same pitch the drawings tier uses for its plates, so a label reads the same
+ * whichever tier ends up painting it.
+ */
+const LINE_H = 1.35;
+
+/**
  * A signal label: rounded plate, contrasting text, and a tail that points at
  * `anchorY`. All coordinates are bitmap px — the caller has already applied dpr.
  * `up` puts the tail on the top edge and the body below the anchor.
+ *
+ * `text` may carry `\n`: the plate widens to the longest row and grows
+ * downward-and-upward about its own centre, so it stays centred on `cx` and the
+ * tail keeps meeting the anchor price.
  */
 export function drawLabel(
   ctx: CanvasRenderingContext2D,
@@ -106,8 +117,17 @@ export function drawLabel(
 ): void {
   ctx.font = `600 ${fontPx}px system-ui, sans-serif`;
   const padX = fontPx * 0.5;
-  const w = ctx.measureText(text).width + padX * 2;
-  const h = fontPx + fontPx * 0.64;
+  // The overwhelmingly common label is one row, so it never pays for a split:
+  // undefined here keeps the original single-measure, single-fillText path and
+  // with it the exact plate geometry markers have always had.
+  const lines = text.indexOf('\n') < 0 ? undefined : text.split('\n');
+  let textW = ctx.measureText(lines === undefined ? text : lines[0]).width;
+  if (lines !== undefined) {
+    for (let i = 1; i < lines.length; i++) textW = Math.max(textW, ctx.measureText(lines[i]).width);
+  }
+  const lh = fontPx * LINE_H;
+  const w = textW + padX * 2;
+  const h = fontPx + fontPx * 0.64 + (lines === undefined ? 0 : lh * (lines.length - 1));
   const tail = fontPx * 0.42;
   const top = up ? anchorY + tail : anchorY - tail - h;
 
@@ -127,7 +147,12 @@ export function drawLabel(
   ctx.fillStyle = contrastText(color);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(text, cx, top + h / 2);
+  if (lines === undefined) {
+    ctx.fillText(text, cx, top + h / 2);
+    return;
+  }
+  const first = top + h / 2 - (lh * (lines.length - 1)) / 2;
+  for (let i = 0; i < lines.length; i++) ctx.fillText(lines[i], cx, first + lh * i);
 }
 
 export class SeriesMarkers implements IPrimitive {
@@ -189,12 +214,25 @@ export class SeriesMarkers implements IPrimitive {
       }
       drawShape(ctx, m.shape, x, y, px, m.color);
       if (m.text !== undefined) {
+        const fontPx = Math.max(9, markerSizePx(m.size)) * rc.dpr;
         ctx.fillStyle = m.color;
-        ctx.font = `${Math.max(9, markerSizePx(m.size)) * rc.dpr}px system-ui, sans-serif`;
+        ctx.font = `${fontPx}px system-ui, sans-serif`;
         ctx.textAlign = 'center';
-        ctx.textBaseline = m.position === 'belowBar' ? 'top' : 'bottom';
-        const ty = m.position === 'belowBar' ? y + px : y - px;
-        ctx.fillText(m.text, x, ty);
+        const below = m.position === 'belowBar';
+        ctx.textBaseline = below ? 'top' : 'bottom';
+        const ty = below ? y + px : y - px;
+        if (m.text.indexOf('\n') < 0) {
+          ctx.fillText(m.text, x, ty);
+        } else {
+          // Rows grow away from the bar (down below it, up above it) and the
+          // block is written from the anchor outward, so whichever edge the
+          // baseline pins stays put and the text never runs back over the candle.
+          const lines = m.text.split('\n');
+          const lh = fontPx * LINE_H;
+          for (let i = 0; i < lines.length; i++) {
+            ctx.fillText(lines[below ? i : lines.length - 1 - i], x, below ? ty + lh * i : ty - lh * i);
+          }
+        }
       }
       if (m.id !== undefined) this._lastPositions.push({ id: m.id, x: x / rc.dpr, y: y / rc.dpr });
     }

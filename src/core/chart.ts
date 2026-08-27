@@ -970,12 +970,22 @@ export class Chart {
           { paneIndex, style: style as SeriesStyle | undefined, priceScaleId: priceScaleId as PriceScaleId | undefined },
           false,
         ),
-      addIndicatorLevel: (price, color, dashed, label, id, paneIndex): PriceLine =>
-        this.addPriceLine({ price, color, lineWidth: 1, dashed, leftLabel: label, id }, paneIndex),
+      addIndicatorLevel: (l, paneIndex): PriceLine => {
+        // `dashed` rides along beside `lineStyle` because a descriptor written
+        // before the three-way style existed still sets only the boolean, and
+        // PriceLine reads it when `lineStyle` is absent.
+        const opts: PriceLineOptions = {
+          price: l.price, color: l.color, lineWidth: l.lineWidth, dashed: l.dashed,
+          lineStyle: l.lineStyle, leftLabel: l.label, id: l.id,
+        };
+        return this.addPriceLine(opts, paneIndex);
+      },
       removeIndicatorLevel: (line): void => this.removePrimitive(line),
       addIndicatorFill: (fill, paneIndex): void => this._addPrimitive(paneIndex, fill),
       removeIndicatorFill: (fill): void => this.removePrimitive(fill),
       removeIndicatorMarkers: (markers): void => this.removePrimitive(markers),
+      addIndicatorPrimitive: (p, paneIndex): void => this._addPrimitive(paneIndex, p),
+      removeIndicatorPrimitive: (p): void => this.removePrimitive(p),
       addIndicatorTable: (paneIndex): ChartTable => {
         const t = new ChartTable();
         this._addPrimitive(paneIndex, t);
@@ -989,9 +999,12 @@ export class Chart {
       // labelled in have to be the same one, or a VWAP restarts in the middle
       // of the afternoon the axis is showing.
       timezone: (): string => this._timezone,
-      // The calendar a session anchor resets on and the calendar the axis is
-      // labelled in have to be the same one, or a VWAP restarts in the middle
-      // of the afternoon the axis is showing.
+      // The same clock the countdown row reads, so an indicator that decides
+      // whether the last bar is still forming agrees with the axis about it.
+      // `symbol` and `interval` are deliberately absent: the core is handed
+      // bars and never an instrument, and a host that knows one implements its
+      // own IndicatorHost rather than having the engine invent a name.
+      now: (): number => this._wallClock(),
       setPaneRange: (paneIndex, range): void => {
         const pane = this._panes[paneIndex];
         if (pane === undefined) return;

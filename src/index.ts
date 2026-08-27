@@ -65,11 +65,15 @@ export type {
   IndicatorPlot,
   IndicatorFillSpec,
   IndicatorLevel,
+  IndicatorLevelContext,
+  IndicatorLineStyle,
   IndicatorSettings,
   IndicatorSource,
   IndicatorStore,
   IndicatorValues,
   IndicatorAttachContext,
+  IndicatorDrawing,
+  DrawAnchor,
 } from './model/indicator-registry';
 export type { IndicatorApi, IndicatorHost } from './model/indicator-instance';
 
@@ -124,7 +128,8 @@ export type { SeriesApi, PriceScaleId } from './model/series';
 export { bestHit } from './primitives/primitive';
 export type { IPrimitive, PrimitiveHit, PrimitiveHost, PrimitiveRenderContext, PrimitiveAnchor, PrimitivePlacement, ZOrder } from './primitives/primitive';
 export { IndicatorFill } from './primitives/indicator-fill';
-export type { IndicatorFillOptions, FillPoint } from './primitives/indicator-fill';
+export type { IndicatorFillOptions, FillPoint, FillGradient } from './primitives/indicator-fill';
+export { IndicatorDrawings } from './primitives/indicator-draws';
 // `chart.dataLayer` is public, so its type has to be nameable by a consumer —
 // and a tier that takes one in its own public API needs to name *this* one.
 export type { DataLayer, IndexedBar, SeriesId } from './model/data-layer';

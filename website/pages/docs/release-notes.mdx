@@ -8,6 +8,59 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 1.7.0
+
+The indicator descriptor gains the parts a ported study needs and could not express, and
+per-bar colour reaches every renderer that draws a bar rather than the two that happened
+to read it.
+
+**Added**
+
+- **`draws`: lines, boxes, labels and polylines** anchored to `{ time, price }`, returned
+  by the descriptor after every `calc`. A plot is one value per bar and a level is a
+  horizontal line, so a pivot-to-pivot trendline or a supply zone had nowhere to live.
+  Anchors are times rather than logical indices, because paging history in at the left edge
+  shifts every index; a ray extends along its own slope; the layer contributes nothing to
+  autoscale, so a projection cannot squash the study it annotates. See
+  [Drawings](/docs/indicators#drawings).
+- **Levels derived from the data.** `levels` now runs after every `calc` and is handed the
+  bars and computed values as well as the settings, so a level can be yesterday's high
+  rather than only a number the user typed. The context spreads the settings keys onto
+  itself, so descriptors written against `levels(settings)` are untouched. `IndicatorLevel`
+  gained `lineWidth` and `lineStyle`. See
+  [Reference levels](/docs/indicators#reference-levels).
+- **`IndicatorPlot.overlay`**, one plot of a pane indicator drawn on the price pane, so an
+  oscillator with a trailing stop is not two indicators the user configures twice.
+- **A wider attach context**: `symbol`, `interval`, `now`, `paneIndex`, `addPrimitive` and
+  `removePrimitive`. `symbol` and `interval` answer `undefined` under `chart.addIndicator`,
+  since the core is handed bars and never an instrument. See
+  [the attach context](/docs/indicators#the-attach-context).
+- **`Bar.color` on every Family-A renderer.** Candles and OHLC bars take it on body, border
+  and wick together, so a recoloured candle cannot keep a wick arguing the other way; line,
+  step, area and the HLC-area close line split their stroke into runs at the bars where it
+  changes. See [per-bar colour](/docs/series-and-styling#per-bar-colour).
+- **Multi-line marker text**, gradient and per-point colour on `IndicatorFill`,
+  `PriceLineOptions.lineStyle`, and **21 calculation helpers** exported from
+  `openalgo-charts/indicators` so a custom descriptor can port a study instead of
+  re-deriving its maths. See
+  [Calculation helpers](/docs/indicators#calculation-helpers).
+
+**Fixed**
+
+- **`calcTail` could splice a tail onto a history that no longer existed.** The incremental
+  path was gated on the bar count being `n` or `n + 1`, which a symbol change or one older
+  bar paged in at the left edge can satisfy while the earlier bars are no longer the same
+  ones, leaving the plot silently wrong until the next full `calc`. The guard now reads the
+  first and last bar times instead.
+- A column plot ignored the `style.color` its generated Colour control writes, and an area
+  series drew a solid outline when its `lineStyle` was dashed or dotted.
+
+**Sizes**
+
+Base 56 to 60 kB (measured 57.31) and base + trade 64 to 68 kB (measured 64.92). The trade
+tier itself did not grow, so raising the combined budget by the base's increase keeps its
+allowance exactly where it was. 1949 tests across 106 files.
+
 ## 1.6.0
 
 Broker-readiness hardening across the trade and feed layers. An independent reassessment

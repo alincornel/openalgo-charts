@@ -4,6 +4,7 @@ description: Adding series, the series API, and per-series style overrides.
 ---
 
 import RunnableExample from '../../components/RunnableExample'
+import { Callout } from 'nextra/components'
 
 # Series & styling
 
@@ -36,10 +37,12 @@ runtime) straightforward without recreating the chart.
 bars internally, so `getData` always returns `Bar[]`):
 
 ```ts
-{ time, open, high, low, close, volume? }  // an OHLC bar
-{ time, value }                            // a value point (line / area / baseline)
-{ time }                                   // a whitespace gap: breaks the line, draws nothing
+{ time, open, high, low, close, volume?, color? }  // an OHLC bar
+{ time, value, color? }                            // a value point (line / area / baseline)
+{ time }                                           // a whitespace gap: breaks the line, draws nothing
 ```
+
+`color` is the [per-bar override](#per-bar-colour); leave it off for the ordinary case.
 
 Use `isWhitespace(item)` to test for a gap, or `toBar(item)` to normalize one
 yourself. A value point sets open=high=low=close=value; a whitespace item becomes
@@ -63,6 +66,57 @@ chart.addSeries('line', { style: { color: '#a855f7', lineWidth: 2 } })
 
 chart.timeScale.fitContent(140);
 return chart;`} />
+
+## Per-bar colour
+
+One colour for a whole series cannot express a study whose meaning changes bar to bar, so
+a bar can carry its own. `color` on a bar or a value point overrides whatever the style
+would have chosen for that bar alone:
+
+<RunnableExample height={340} code={`const chart = lib.createChart(el);
+const bars = lib.generateBars(1700000000, 140, 3600);
+const ema = lib.emaSeries(bars, 20);
+
+// Tint every candle by where it closed relative to its EMA, not by its own open.
+chart.addSeries('candlestick').setData(bars.map((b, i) => ({
+  ...b,
+  color: !Number.isFinite(ema[i].close) ? undefined
+       : b.close >= ema[i].close ? '#16a34a' : '#dc2626',
+})));
+
+chart.timeScale.fitContent(bars.length);
+return chart;`} caption="Bar.color overrides body, border and wick together, so a recoloured candle cannot keep a wick arguing the other way." />
+
+Every Family-A renderer honours it:
+
+| Renderer | What takes the colour |
+|---|---|
+| candles, hollow, volume candles | Body, border and wick together, as one verdict. A hollow up candle takes it on its outline. |
+| OHLC bars, high-low | The range line and both ticks: one glyph, one colour. |
+| histogram, columns | The bar. Columns resolve `bar.color`, then the series' own `color`, then the up/down pair. |
+| line, step, area, HLC area | The stroke splits into runs at the bars where the colour changes. |
+| baseline | Nothing. Its stroke is already split by the above/below-base rule and carries its own colour pair. |
+
+The rule for a stroked series is that **the segment arriving at a bar takes that bar's
+colour**, and consecutive runs abut at the point they share, so no seam of background
+opens between them. A step's horizontal and vertical legs both belong to the span arriving
+at the bar and take one colour, rather than meeting half-recoloured at the corner. Markers
+on a line take their own bar's colour, since a dot sits on a bar rather than between two
+of them. An area's outline splits the same way, because it is drawn by the line renderer.
+
+Leaving `color` unset is the ordinary path and costs nothing: a series where **no** point
+carries one is walked into a single stroke exactly as before.
+
+Indicators reach this through a plot's
+[`colorBy`](/docs/indicators#colouring-a-plot-per-bar) rather than by writing bars
+themselves.
+
+<Callout type="info">
+[Conflation](/docs/data-loading#large-datasets-conflation) drops per-bar colour: a merged
+bucket of bars has no single one. It is off by default and only engages when bars fall
+below sub-pixel widths, but a chart that turns it on loses the tint at the zoom levels
+where it merges.
+</Callout>
 
 ## Dynamic series & dashed lines
 

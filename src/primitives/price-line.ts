@@ -9,12 +9,21 @@
  */
 import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, PrimitiveHit, ZOrder } from './primitive';
 import { contrastText, withAlpha, shade, drawPillGroup, type PillSegment } from '../render/pill';
+import { dashPattern, type CanvasLineStyle } from '../render/grid';
 
 export interface PriceLineOptions {
   price: number;
   color: string;
-  lineWidth: number;
-  dashed: boolean;
+  /** Line thickness in media px. Default 1. */
+  lineWidth?: number;
+  /** Legacy two-state dash switch, equivalent to `lineStyle: 'dashed'`. */
+  dashed?: boolean;
+  /**
+   * Dash style, the three-way form of `dashed`. Set, it wins over the boolean;
+   * unset, the boolean still decides, so a line built before this existed draws
+   * exactly as it did.
+   */
+  lineStyle?: CanvasLineStyle;
   /** Right-axis tag text. Defaults to the formatted price. */
   label?: string;
   /** Solid colored badge segment at the start of the pill group (e.g. 'BUY', 'TP', 'SL'). */
@@ -117,6 +126,7 @@ export class PriceLine implements IPrimitive {
     const y = Math.round(rc.priceScale.priceToY(this._opts.price) * rc.dpr) + 0.5;
     if (y < 0 || y > rc.plotHeight * rc.dpr) return;
     const dpr = rc.dpr;
+    const lineWidth = this._opts.lineWidth ?? 1;
     const xEnd = Math.round(rc.plotWidth * dpr);
     const extent = Math.max(0, Math.min(1, this._opts.extentFromRight ?? 1));
     const xStart = Math.round(rc.plotWidth * (1 - extent) * dpr);
@@ -148,7 +158,7 @@ export class PriceLine implements IPrimitive {
     // soft emphasis halo while dragging (no shadowBlur — cheap wide stroke)
     if (dragging) {
       ctx.strokeStyle = withAlpha(color, 0.18);
-      ctx.lineWidth = Math.max(5 * dpr, Math.round(this._opts.lineWidth * dpr) + 4 * dpr);
+      ctx.lineWidth = Math.max(5 * dpr, Math.round(lineWidth * dpr) + 4 * dpr);
       ctx.beginPath();
       ctx.moveTo(xStart, y);
       ctx.lineTo(xEnd, y);
@@ -156,9 +166,11 @@ export class PriceLine implements IPrimitive {
     }
 
     ctx.strokeStyle = hovered || dragging ? shade(color, 0.1) : color;
-    const baseW = Math.max(1, Math.round(this._opts.lineWidth * dpr));
+    const baseW = Math.max(1, Math.round(lineWidth * dpr));
     ctx.lineWidth = hovered || dragging ? baseW + Math.round(dpr) : baseW;
-    if (this._opts.dashed) ctx.setLineDash([4 * dpr, 4 * dpr]);
+    // `lineStyle` wins over `dashed`, which stays the fallback so a line built
+    // before the style existed still draws exactly as it did.
+    ctx.setLineDash(dashPattern(this._opts.lineStyle ?? (this._opts.dashed === true ? 'dashed' : 'solid'), dpr));
     ctx.beginPath();
     ctx.moveTo(xStart, y);
     ctx.lineTo(xEnd, y);

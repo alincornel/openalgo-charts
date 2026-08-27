@@ -13,8 +13,10 @@ import type { PriceLine } from '../primitives/price-line';
 import type { PaneLegend, LegendValue } from '../primitives/pane-legend';
 import type { SeriesMarkers } from '../primitives/markers';
 import type { ChartTable } from '../primitives/table';
+import type { IPrimitive } from '../primitives/primitive';
 import type { IndicatorFillSpec, IndicatorPlot } from './indicator-registry';
 import { IndicatorFill as IndicatorFillPrimitive } from '../primitives/indicator-fill';
+import { IndicatorDrawings } from '../primitives/indicator-draws';
 
 import { withAlpha } from '../render/pill';
 import { DEFAULT_TIMEZONE } from '../feed/time';
@@ -23,6 +25,8 @@ import {
   indicatorStyleInputs,
   plotStyleKeys,
   type IndicatorDescriptor,
+  type IndicatorLevelContext,
+  type IndicatorLineStyle,
   type IndicatorSettings,
   type IndicatorStore,
   type IndicatorValues,
@@ -63,12 +67,22 @@ export interface IndicatorHost {
     style: Record<string, unknown> | undefined,
     priceScaleId: string | undefined,
   ): SeriesApi;
+  /**
+   * Add a reference level. One options object rather than seven positional
+   * arguments: the list grew a width and a dash style in 1.7.0, and a call site
+   * of seven bare values is where the next one gets passed in the wrong slot.
+   */
   addIndicatorLevel(
-    price: number,
-    color: string,
-    dashed: boolean,
-    label: string,
-    id: string,
+    level: {
+      price: number;
+      color: string;
+      /** Kept for hosts predating `lineStyle`; always `lineStyle === 'dashed'`. */
+      dashed: boolean;
+      lineWidth: number;
+      lineStyle: IndicatorLineStyle;
+      label: string;
+      id: string;
+    },
     paneIndex: number,
   ): PriceLine;
   removeIndicatorLevel(line: PriceLine): void;
@@ -84,6 +98,16 @@ export interface IndicatorHost {
   /** Attach a corner-pinned summary grid to a pane, and detach it again. */
   addIndicatorTable(paneIndex: number): ChartTable;
   removeIndicatorTable(table: ChartTable): void;
+  /**
+   * Attach an arbitrary primitive to a pane, and detach it again. Carries both
+   * the descriptor's drawing layer and whatever a Tier-2 `attach` lifecycle
+   * wants to paint, so those two do not need a host method each.
+   *
+   * Optional, like `timezone`, so a host predating it still satisfies this
+   * interface: an indicator that draws simply draws nothing there.
+   */
+  addIndicatorPrimitive?(primitive: IPrimitive, paneIndex: number): void;
+  removeIndicatorPrimitive?(primitive: IPrimitive): void;
   /** Bars of the primary price series — the calculation input. */
   sourceBars(): readonly Bar[];
   /** Index of a fresh pane for an indicator that wants its own. */
@@ -97,6 +121,16 @@ export interface IndicatorHost {
    * reaches the calculation. See `IndicatorInstance._descriptorSettings`.
    */
   timezone?(): string;
+  /**
+   * The instrument and timeframe on screen, when the host knows them. The
+   * engine core does not: it is handed bars and never a symbol, so `Chart`
+   * leaves both out and a descriptor sees `undefined` rather than a guess. A
+   * terminal that owns the symbol picker implements them here.
+   */
+  symbol?(): string | undefined;
+  interval?(): string | undefined;
+  /** Chart wall clock in UTC seconds. Absent means the system clock. */
+  now?(): number;
   /** Pin a pane's price scale to a fixed range, or release it with `null`. */
   setPaneRange(paneIndex: number, range: { min: number; max: number } | null): void;
 }
@@ -152,14 +186,24 @@ export class IndicatorInstance implements IndicatorApi {
   /** One band per declared fill, in descriptor order. */
   private readonly _fills: IndicatorFillPrimitive[] = [];
   private _levels: PriceLine[] = [];
+  /** Signature of the level list the price lines were built from. */
+  private _levelSig = '';
   private _values: IndicatorValues = {};
   private _barCount = 0;
+  /**
+   * First and last bar times behind `_values`. `_barCount` alone cannot tell a
+   * live tick from a symbol change or a page of history, and both of those can
+   * land on a matching count. See `recompute`.
+   */
+  private _firstTime = 0;
+  private _lastTime = 0;
   private _removed = false;
   private readonly _store: IndicatorStore = {};
   private _detach: (() => void) | null = null;
   private _legend: PaneLegend | null = null;
   private _markers: SeriesMarkers | null = null;
   private _table: ChartTable | null = null;
+  private _draws: IndicatorDrawings | null = null;
   private _visible = true;
 
   public constructor(
@@ -198,7 +242,7 @@ export class IndicatorInstance implements IndicatorApi {
       this._plotTypes.set(plot.key, type);
       this._series.set(
         plot.key,
-        host.addIndicatorSeries(type, this.paneIndex, this._plotStyle(plot), plot.priceScaleId),
+        host.addIndicatorSeries(type, this._plotPane(plot), this._plotStyle(plot), plot.priceScaleId),
       );
     }
 
@@ -221,10 +265,20 @@ export class IndicatorInstance implements IndicatorApi {
       paneIndex: this.paneIndex,
     });
 
-    this._applyLevels();
     this._applyRange();
+    // Levels are applied inside `recompute`, so a data-derived one is built
+    // from values that exist rather than from the empty set.
     this.recompute();
     this._attach();
+  }
+
+  /**
+   * Which pane a plot's series belongs on. Normally the indicator's own, but a
+   * plot may force itself onto the price pane (`overlay`), so one descriptor can
+   * put its study in a pane and its band on the candles.
+   */
+  private _plotPane(plot: IndicatorPlot): number {
+    return plot.overlay === true ? 0 : this.paneIndex;
   }
 
   /**
@@ -270,6 +324,7 @@ export class IndicatorInstance implements IndicatorApi {
     // re-running the sync clears the layer (or repopulates it) explicitly.
     this._syncMarkers(this._host.sourceBars());
     this._syncTable(this._host.sourceBars());
+    this._draws?.setVisible(on);
     this._legend?.setOptions({ hidden: !on });
   }
 
@@ -372,6 +427,23 @@ export class IndicatorInstance implements IndicatorApi {
     this._table.setRows(rows);
   }
 
+  /**
+   * Refresh the descriptor's drawings. Rebuilt wholesale on every recompute,
+   * the way markers are: a shape is derived geometry, so diffing it against the
+   * previous frame would cost more than recreating the list.
+   */
+  private _syncDraws(bars: readonly Bar[]): void {
+    if (this._d.draws === undefined) return;
+    const items = this._d.draws({ bars, values: this._values, settings: this._descriptorSettings() });
+    if (this._draws === null) {
+      if (items.length === 0 || this._host.addIndicatorPrimitive === undefined) return;
+      this._draws = new IndicatorDrawings();
+      this._draws.setVisible(this._visible);
+      this._host.addIndicatorPrimitive(this._draws, this.paneIndex);
+    }
+    this._draws.setItems(items);
+  }
+
   /** The chart type to draw a plot as: the settings override, else declared. */
   private _plotType(plot: IndicatorPlot): string {
     const v = this._settings[plotStyleKeys(plot).type];
@@ -418,6 +490,13 @@ export class IndicatorInstance implements IndicatorApi {
         this.recompute();
       },
       store: this._store,
+      symbol: () => this._host.symbol?.(),
+      interval: () => this._host.interval?.(),
+      timezone: () => this._host.timezone?.() ?? DEFAULT_TIMEZONE,
+      now: () => this._host.now?.() ?? Date.now() / 1000,
+      paneIndex: () => this.paneIndex,
+      addPrimitive: (p: IPrimitive) => { this._host.addIndicatorPrimitive?.(p, this.paneIndex); },
+      removePrimitive: (p: IPrimitive) => { this._host.removeIndicatorPrimitive?.(p); },
     });
     this._detach = typeof detach === 'function' ? detach : null;
   }
@@ -473,7 +552,7 @@ export class IndicatorInstance implements IndicatorApi {
         this._series.get(plot.key)?.remove();
         this._series.set(
           plot.key,
-          this._host.addIndicatorSeries(wanted, this.paneIndex, this._plotStyle(plot), plot.priceScaleId),
+          this._host.addIndicatorSeries(wanted, this._plotPane(plot), this._plotStyle(plot), plot.priceScaleId),
         );
         this._plotTypes.set(plot.key, wanted);
         continue;
@@ -481,7 +560,6 @@ export class IndicatorInstance implements IndicatorApi {
       this._series.get(plot.key)?.applyOptions(this._plotStyle(plot) as never);
     }
     this._legend?.setOptions({ params: this._paramSummary(), color: this._legendColor() });
-    this._applyLevels();
     this._applyRange();
     this._values = {};
     this._barCount = 0; // force a full recompute; settings invalidate any tail state
@@ -504,7 +582,18 @@ export class IndicatorInstance implements IndicatorApi {
     const settings = this._descriptorSettings();
 
     let values: IndicatorValues | null = null;
-    const tailOnly = n > 0 && this._barCount > 0 && (n === this._barCount || n === this._barCount + 1);
+    // The tail path is only valid when the previous result still describes every
+    // bar before the tail. A bar count of `n` or `n + 1` does not say that: a
+    // page of history arriving at the left edge, or a symbol change, can land on
+    // a matching count and would then splice new values onto a history that no
+    // longer exists, leaving the plot silently wrong until the next full calc.
+    // So gate it on the times instead: the first bar must be unchanged, and the
+    // last bar must either be the same one (replaced in place) or sit directly
+    // after it (appended). Reading the bucket off `bars[n - 2]` avoids guessing
+    // the interval, which a session gap or a holiday makes unguessable anyway.
+    const tailOnly = n > 0 && this._barCount > 0 && bars[0].time === this._firstTime &&
+      ((n === this._barCount && bars[n - 1].time === this._lastTime) ||
+        (n === this._barCount + 1 && bars[n - 2].time === this._lastTime));
     if (tailOnly && this._d.calcTail !== undefined) {
       const from = this._barCount - 1; // the previously-last bar may have been replaced
       const tail = this._d.calcTail(bars, settings, from, this._values, this._store);
@@ -514,6 +603,8 @@ export class IndicatorInstance implements IndicatorApi {
 
     this._values = values;
     this._barCount = n;
+    this._firstTime = n > 0 ? bars[0].time : 0;
+    this._lastTime = n > 0 ? bars[n - 1].time : 0;
 
     for (const plot of this._d.plots) {
       const series = this._series.get(plot.key);
@@ -540,22 +631,48 @@ export class IndicatorInstance implements IndicatorApi {
     this._syncFills();
     this._syncMarkers(bars);
     this._syncTable(bars);
+    this._syncDraws(bars);
+    this._applyLevels(bars, settings);
     this.updateLegendValues();
   }
 
-  private _applyLevels(): void {
+  /**
+   * Rebuild the reference levels. Runs after every `calc` so a data-derived
+   * level (the previous day's high, a session VWAP band) follows the data, but
+   * the great majority of levels are constants, so a signature compare keeps a
+   * live tick from detaching and reattaching a price line per level per bar.
+   */
+  private _applyLevels(bars: readonly Bar[], settings: Readonly<IndicatorSettings>): void {
+    if (this._d.levels === undefined) return;
+    // The context spreads the settings keys onto itself so descriptors written
+    // against the original `levels(settings)` signature read what they always
+    // did. See `IndicatorLevelContext`.
+    const ctx: IndicatorLevelContext = { ...settings, settings, bars, values: this._values };
+    const levels = this._d.levels(ctx);
+    let sig = '';
+    for (const l of levels) {
+      sig += `${l.price}|${l.color ?? ''}|${l.title ?? ''}|${l.dashed ?? ''}|${l.lineWidth ?? ''}|${l.lineStyle ?? ''};`;
+    }
+    if (sig === this._levelSig) return;
+    this._levelSig = sig;
     for (const line of this._levels) this._host.removeIndicatorLevel(line);
     this._levels = [];
-    const levels = this._d.levels?.(this._descriptorSettings()) ?? [];
     let i = 0;
     for (const l of levels) {
+      // `dashed` predates `lineStyle` and stays the fallback, defaulting to a
+      // dashed line the way every built-in level already draws.
+      const lineStyle: IndicatorLineStyle = l.lineStyle ?? (l.dashed === false ? 'solid' : 'dashed');
       this._levels.push(
         this._host.addIndicatorLevel(
-          l.price,
-          l.color ?? '#8892a6',
-          l.dashed ?? true,
-          l.title ?? '',
-          `${this.id}:level:${i++}`,
+          {
+            price: l.price,
+            color: l.color ?? '#8892a6',
+            dashed: lineStyle === 'dashed',
+            lineWidth: l.lineWidth ?? 1,
+            lineStyle,
+            label: l.title ?? '',
+            id: `${this.id}:level:${i++}`,
+          },
           this.paneIndex,
         ),
       );
@@ -581,6 +698,7 @@ export class IndicatorInstance implements IndicatorApi {
     this._fills.length = 0;
     if (this._markers !== null) { this._host.removeIndicatorMarkers(this._markers); this._markers = null; }
     if (this._table !== null) { this._host.removeIndicatorTable(this._table); this._table = null; }
+    if (this._draws !== null) { this._host.removeIndicatorPrimitive?.(this._draws); this._draws = null; }
     if (this._ownPane) this._host.setPaneRange(this.paneIndex, null);
   }
 }

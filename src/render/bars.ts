@@ -64,7 +64,11 @@ export function drawBars(
     const up = style.colorByPreviousClose === true && ref !== undefined && Number.isFinite(ref)
       ? item.bar.close >= ref
       : g.up;
-    ctx.fillStyle = up ? (style.upColor ?? '#26a69a') : (style.downColor ?? '#ef5350');
+    // A per-bar colour override wins over the up/down verdict, the
+    // same override the candle renderer honours. The whole bar takes it: range,
+    // open tick and close tick are one glyph.
+    ctx.fillStyle = item.bar.color
+      ?? (up ? (style.upColor ?? '#26a69a') : (style.downColor ?? '#ef5350'));
     ctx.fillRect(g.cx - Math.floor(lw / 2), g.yHigh, lw, Math.max(1, g.yLow - g.yHigh));
     if (!highLowOnly) {
       ctx.fillRect(g.cx - tick, g.yOpen, tick, lw); // open tick (left)
@@ -93,7 +97,11 @@ export function drawColumns(
     // renderer. Indicators whose meaning changes bar to bar set it through the
     // descriptor's `colorBy`, and a column plot that ignored it would silently
     // paint the whole series one colour.
-    ctx.fillStyle = item.bar.color
+    //
+    // `style.color` sits between the two, again as in the histogram: a single
+    // colour is what an indicator plot's Colour control writes, and a column
+    // that read only the up/down pair left that control inert.
+    ctx.fillStyle = item.bar.color ?? style.color
       ?? (g.up ? (style.upColor ?? '#26a69a') : (style.downColor ?? '#ef5350'));
     const top = Math.min(baseY, g.yClose);
     ctx.fillRect(g.cx - half, top, w, Math.max(1, Math.abs(baseY - g.yClose)));

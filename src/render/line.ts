@@ -36,16 +36,63 @@ export function stepPoints(pts: readonly Pt[]): Pt[] {
   return out;
 }
 
-function strokePolyline(ctx: CanvasRenderingContext2D, pts: readonly Pt[], dpr: number): void {
+/**
+ * Per-point colours aligned to the polyline `pts`, or undefined when not one
+ * point carries its own. Undefined is the fast path every ordinary series takes:
+ * `strokePolyline` then walks the whole line into a single stroke, as before.
+ */
+function pointColors(items: readonly LineDrawItem[], step: boolean): (string | undefined)[] | undefined {
+  let any = false;
+  for (const it of items) if (it.bar.color !== undefined) { any = true; break; }
+  if (!any) return undefined;
+  const out: (string | undefined)[] = [];
+  for (const it of items) {
+    // A step's horizontal and vertical legs both belong to the span arriving at
+    // this bar, so they take one colour rather than meeting half-recoloured.
+    if (step && out.length > 0) out.push(it.bar.color);
+    out.push(it.bar.color);
+  }
+  return out;
+}
+
+function strokePolyline(
+  ctx: CanvasRenderingContext2D,
+  pts: readonly Pt[],
+  dpr: number,
+  colors?: readonly (string | undefined)[],
+): void {
   if (pts.length === 0) return;
+  // What a point that names no colour of its own falls back to.
+  const fallback = ctx.strokeStyle;
   // Break the line across non-finite points (whitespace gaps) so indicators with
   // holes — RSI warmup, the Supertrend up/down split — render as separate segments.
   ctx.beginPath();
-  let drawing = false;
-  for (const p of pts) {
-    if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) { drawing = false; continue; }
-    if (drawing) ctx.lineTo(p.x * dpr, p.y * dpr);
-    else { ctx.moveTo(p.x * dpr, p.y * dpr); drawing = true; }
+  let prev: Pt | undefined;
+  let run: string | undefined;
+  let drawn = false; // the open path holds at least one segment
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i];
+    if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) { prev = undefined; continue; }
+    if (prev === undefined) { ctx.moveTo(p.x * dpr, p.y * dpr); prev = p; continue; }
+    // A per-point colour series: the segment arriving at a bar takes that
+    // bar's colour. A change strokes the run accumulated so far and restarts the
+    // path from the same point, so consecutive runs abut with no seam. With no
+    // colours at all `c` tracks `run`, the test never fires, and the whole line
+    // goes down in one stroke exactly as it did before.
+    const c = colors === undefined ? run : colors[i];
+    if (c !== run) {
+      if (drawn) {
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(prev.x * dpr, prev.y * dpr);
+        drawn = false;
+      }
+      ctx.strokeStyle = c ?? fallback;
+      run = c;
+    }
+    ctx.lineTo(p.x * dpr, p.y * dpr);
+    prev = p;
+    drawn = true;
   }
   ctx.stroke();
 }
@@ -59,6 +106,7 @@ export function drawLine(
 ): void {
   const base = valuePoints(items, toY);
   const pts = style.step ? stepPoints(base) : base;
+  const cols = pointColors(items, style.step === true);
   ctx.save();
   ctx.strokeStyle = style.color ?? '#4f8cff';
   // Not rounded to whole device px: snapping a 1.5px stroke up to 2px reads
@@ -73,13 +121,18 @@ export function drawLine(
     : [];
   ctx.setLineDash(dash);
   // markersOnly: dots with no connecting stroke (Parabolic SAR, scatter plots).
-  if (!style.markersOnly) strokePolyline(ctx, pts, dpr);
+  if (!style.markersOnly) strokePolyline(ctx, pts, dpr, cols);
   ctx.setLineDash([]);
   if (style.markers || style.markersOnly) {
     const r = (style.markerRadius ?? 2) * dpr;
-    ctx.fillStyle = style.color ?? '#4f8cff';
-    for (const p of base) {
+    const fill = style.color ?? '#4f8cff';
+    ctx.fillStyle = fill;
+    for (let i = 0; i < base.length; i++) {
+      const p = base[i];
       if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
+      // A dot follows its own bar's colour, not the segment rule: a marker sits
+      // on the bar rather than between two of them.
+      if (cols !== undefined) ctx.fillStyle = items[i].bar.color ?? fill;
       ctx.beginPath();
       ctx.arc(p.x * dpr, p.y * dpr, r, 0, Math.PI * 2);
       ctx.fill();
@@ -113,7 +166,14 @@ export function drawArea(
   );
   ctx.fill();
   ctx.restore();
-  drawLine(ctx, items, toY, dpr, { color: style.color ?? '#4f8cff', lineWidth: style.lineWidth ?? 1.5 });
+  // The outline is a plain line, so it carries the dash the caller asked for.
+  // The fill keeps its own gradient: a dashed edge over a solid body is the
+  // shape of an area chart, and dashing the fill too would just look broken.
+  drawLine(ctx, items, toY, dpr, {
+    color: style.color ?? '#4f8cff',
+    lineWidth: style.lineWidth ?? 1.5,
+    lineStyle: style.lineStyle,
+  });
 }
 
 export function drawBaseline(

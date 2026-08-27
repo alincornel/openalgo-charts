@@ -95,6 +95,15 @@ export * from './studies';
 export * from './wavetrend';
 export * from './seasonality';
 export { sma, wma, rma, stdev, highest, lowest, nulls } from './calc';
+// The rest of `./calc`: the shared TA helpers. Every built-in already
+// pulls these out of this bundle, so exporting them adds names and no code, and
+// it is what lets a custom indicator port a study instead of re-deriving it.
+export {
+  smaSeededEma, change, roc, dev, percentRank, alma, vwma,
+  highestBars, lowestBars, rollingSum, cumulative, linreg, swma, stoch,
+  percentileNearestRank, correlation, cci, pivotHigh, pivotLow,
+  barsSince, valueWhen,
+} from './calc';
 export {
   createTier2Indicator,
   type Tier2Descriptor,

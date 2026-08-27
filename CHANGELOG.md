@@ -2,6 +2,179 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.7.0
+
+The indicator descriptor gains the parts a ported study needs and could not
+express: free-standing geometry, levels derived from the data, one plot that
+escapes to the price pane, and the calculation helpers the 91 built-ins are made
+of. Per-bar colour reaches every renderer that draws a bar rather than the two
+that happened to read it.
+
+### Added
+
+- **`draws`, geometry a descriptor could not express before.** A descriptor
+  returns lines, boxes, labels and polylines anchored to `{ time, price }`. A
+  plot is one value per bar and a level is a horizontal line across the pane, so
+  a pivot-to-pivot trendline, a supply zone or a measured-move projection had
+  nowhere to live.
+
+  Anchors are **times, never logical indices**: paging history in at the left
+  edge shifts every index, and a trendline pinned to one would slide off its
+  pivots the moment it did. `extendLeft` / `extendRight` solve the segment for
+  the pane edge along its own slope, so a ray keeps its angle instead of
+  flattening into a horizontal nobody asked for. The layer contributes nothing
+  to autoscale, since a projection reaching far above the data would otherwise
+  squash the study it annotates into a band a few pixels tall. Shapes entirely
+  off-pane are culled before any path work. A label, and a box's caption, split
+  on `\n`.
+
+  One primitive holds the whole list, created lazily on the first non-empty
+  result and replaced wholesale on each recompute, so a live tick does not
+  attach and detach a dozen objects and re-sort the pane's z-order for each.
+  `IndicatorDrawings` is exported and usable as a plain primitive. New types:
+  `IndicatorDrawing`, `DrawAnchor`.
+
+- **Levels derived from the data.** `levels` now runs after every `calc` instead
+  of once at construction, and is handed the bars and the computed values
+  alongside the settings, so a level can be yesterday's high or a session band
+  rather than only a number the user typed.
+
+  The context spreads the settings keys onto itself, so all 91 built-ins reading
+  `ctx.overbought` are untouched; `settings`, `bars` and `values` join
+  `timezone` as reserved keys. The returned list is diffed against the previous
+  one, so RSI's constant 70/50/30 lines are not detached and reattached on every
+  tick. `IndicatorLevel` gained `lineWidth` and `lineStyle`, with
+  the original `dashed` still honoured and `lineStyle` winning when both are
+  set. New type: `IndicatorLevelContext`.
+
+- **`IndicatorPlot.overlay`.** One plot of a pane indicator drawn on the price
+  pane: an oscillator whose trailing stop belongs on the candles, without
+  splitting the study into two indicators the user configures twice. Markers
+  ride the first plot's series, so they follow it; fills, levels, drawings and
+  the table stay on the indicator's own pane.
+
+- **The attach context reaches further.** `symbol()`, `interval()`, `now()`,
+  `paneIndex()`, `addPrimitive()` and `removePrimitive()` join `settings`,
+  `bars`, `requestRecompute`, `store` and `timezone`. `symbol` and `interval`
+  answer `undefined` under `chart.addIndicator`: the core is handed bars and
+  never an instrument, so a host that owns the symbol picker supplies them
+  through its own `IndicatorHost` rather than having the engine invent a name.
+  `now()` is the chart's wall clock, the one the countdown row reads, so an
+  indicator deciding whether the last bar is still forming agrees with the axis.
+
+- **`Bar.color` on every Family-A renderer.** It reached histogram and column
+  only. Candles, hollow candles, volume candles and OHLC bars now take it on
+  body, border and wick together, so a recoloured candle cannot keep a wick
+  arguing the other way. Line, step, area and the HLC-area close line split
+  their stroke into runs at the bars where the colour changes, with consecutive
+  runs abutting at the point they share so no seam of background opens: the
+  segment arriving at a bar takes that bar's colour, and a step's horizontal and
+  vertical legs take one between them. Baseline is deliberately excluded, its
+  stroke is already split by the above/below-base rule and has its own colour
+  pair. A series where no point carries a colour is still walked into a single
+  stroke, byte for byte the op stream it emitted before. Indicator plots reach
+  this through `colorBy`, which was documented as histogram-and-column only.
+
+- **Multi-line marker text.** `\n` in a `labelUp` / `labelDown` plate stacks the
+  rows, sizes the plate to the widest and keeps it centred on its anchor, so the
+  tail still points at the bar and a two-row plate sits higher rather than
+  sliding sideways. A free `text` marker writes its rows outward from the
+  anchor, so a block above a bar grows upward instead of back over the candle.
+  The single-line path is untouched, down to the plate arithmetic.
+
+- **Gradient and per-point colour on `IndicatorFill`.**
+  `gradient: { topValue?, bottomValue?, topColor, bottomColor }` shades a band
+  across price instead of filling it flat; an omitted stop takes the band's own
+  high or low, so either side can be pinned independently. The stops resolve
+  once per frame, so the shading does not restart at every crossing.
+  `FillPoint.color` overrides one bar, and the two runs share that edge rather
+  than leaving a seam. Precedence is point colour, then gradient, then
+  `colorUp` / `colorDown`. New type: `FillGradient`.
+
+  `IndicatorFillSpec` does not carry either yet, so a descriptor cannot declare
+  one: this is reachable by constructing the primitive directly.
+
+- **`PriceLineOptions.lineStyle`**, the three-way form of `dashed`
+  (`'solid' | 'dashed' | 'dotted'`), reusing the `CanvasLineStyle` alias and the
+  same dash table the grid and crosshair already use. `dashed` still works and
+  `lineStyle` wins when both are set.
+
+- **21 calculation helpers exported** from `openalgo-charts/indicators`:
+  `smaSeededEma`, `change`, `roc`, `dev`, `percentRank`, `alma`, `vwma`,
+  `highestBars`, `lowestBars`, `rollingSum`, `cumulative`, `linreg`, `swma`,
+  `stoch`, `percentileNearestRank`, `correlation`, `cci`, `pivotHigh`,
+  `pivotLow`, `barsSince`, `valueWhen`, joining the seven that were already
+  public. They match the published `ta.*` formulas the built-ins were ported
+  against, so a custom descriptor can port a study rather than re-derive it.
+  Every one of the 21 is already in the tier bundle, so this adds names to the
+  export map and no code.
+
+### Changed
+
+- **`IndicatorHost.addIndicatorLevel` takes an options object** rather than
+  positional arguments. The level gained a width and a line style this release,
+  and a call site of seven bare values is where the next one gets passed in the
+  wrong slot. A host that implements `IndicatorHost` itself has to update the
+  call; `chart.addIndicator` is unaffected.
+
+- **`PriceLineOptions.lineWidth` and `dashed` are optional**, defaulting to 1
+  and off, which matches what `price-levels.ts` already assumed. This breaks
+  only a consumer reading `options().lineWidth` or `options().dashed` into a
+  non-optional `number` / `boolean`.
+
+### Fixed
+
+- **`calcTail` could splice a tail onto a history that no longer existed.** The
+  incremental path was gated on the bar count being `n` or `n + 1`, which does
+  not say the previous result still describes the earlier bars. A symbol change
+  landing on a matching count, or one older bar paged in at the left edge, took
+  the tail path anyway and left the plot silently wrong until the next full
+  `calc`.
+
+  The guard now reads times: the first bar must be unchanged, and the last must
+  be either that same bar replaced in place or one appended directly after it.
+  The appended case is read off `bars[n - 2]` rather than by projecting the next
+  bucket, which a session gap or a holiday makes unguessable on a gapless axis.
+
+- **A column plot ignored its own Colour control.** `drawColumns` read only the
+  up/down pair, so the `style.color` an indicator's generated colour input
+  writes was inert. Precedence is now `bar.color`, then `style.color`, then the
+  up/down pair. Every built-in column plot sets `colorBy` and returns a colour
+  for every finite value, so none of their appearances change.
+
+- **An area series drew a solid outline** when its `lineStyle` was `dashed` or
+  `dotted`: `drawArea` never passed the style through to the outline.
+
+### Sizes
+
+Base rises 56 to 60 kB and base+trade 64 to 68 kB.
+
+The base grew because this release lands in base modules: the drawings layer is
+imported statically by the indicator runtime, the way the fill primitive already
+was, and per-bar colour, the widened level path and the level diff are all base
+code. It measures 57.31 kB against the new 60, which restores headroom 1.6.0 did
+not have (55.78 against 56).
+
+Base+trade rises by the same 4 kB rather than to a tighter number. The trade tier
+did not grow: it is 7.61 kB of the combined figure against the 8 kB it has always
+had, so the combined budget was failing purely because the base moved. Raising it
+by the base's increase keeps the trade allowance where it was instead of making
+the combined entry a stricter constraint on the base than the base's own budget.
+Nothing else moved, and "everything" did not need raising.
+
+| Tier | Measured | Budget |
+|---|---:|---:|
+| Base engine | 57.31 KB | 60 KB |
+| Base + trade | 64.92 KB | 68 KB |
+| Indicators | 25.04 KB | 27 KB |
+| Draw | 13.13 KB | 14 KB |
+| Transform | 2.66 KB | 5 KB |
+| Profile | 10.66 KB | 11 KB |
+| Everything | 116.40 KB | 120 KB |
+| Chart-only, tree-shaken | 36.42 KB | 38 KB |
+
+1949 tests across 106 files. Zero runtime dependencies.
+
 ## 1.6.0
 
 Broker-readiness hardening across the trade and feed layers, driven by an external

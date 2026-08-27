@@ -16,9 +16,13 @@ export interface Bar {
   close: number;
   volume?: number;
   /**
-   * Per-bar colour override for renderers that support it (histogram, column).
+   * Per-bar colour override, honoured by every Family-A renderer: candles and
+   * OHLC bars take it on body, border and wick together, histogram and column
+   * on the bar, and line, step, area and the HLC-area close line split their
+   * stroke into runs at the bars where it changes. Baseline is the exception,
+   * its stroke is already split by the above/below-base rule.
    * A MACD histogram is four colours by momentum, and a conditional study is
-   * two — neither is expressible with one colour for the whole series.
+   * two. Neither is expressible with one colour for the whole series.
    */
   color?: string;
 }

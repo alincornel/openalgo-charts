@@ -271,6 +271,11 @@ The runtime creates the marker layer lazily on the first plot's series, so an in
 without the hook costs nothing. Marker `time` values must match a real bar time or
 `SeriesMarkers` drops them silently. Hiding the indicator clears its markers too.
 
+`text` may carry `\n`. A `labelUp` / `labelDown` plate stacks the rows and sizes itself to
+the widest one, staying centred on its anchor so the tail still points at the bar; a free
+`text` marker writes its rows outward from the anchor, so a block above a bar grows upward
+instead of back over the candle.
+
 Five built-ins use the hook:
 
 | Indicator | What it marks |
@@ -353,6 +358,161 @@ One built-in uses the hook: `seasonality`, whose entire output is the grid. Its
 
 `ChartTable` is also usable directly as a primitive without an indicator. See
 [primitives](/docs/primitives-and-plugins).
+
+## Drawings
+
+A marker pins a glyph to a bar and a level runs a horizontal line across the pane.
+Neither draws geometry between two arbitrary points, and a plot cannot either, since a
+plot is one value per bar: a pivot-to-pivot trendline, a supply zone, a measured-move
+projection have nowhere to live. `draws` is the hook for those. Like `markers` and
+`table` it runs after every `calc`, and the list it returns replaces the previous one
+wholesale, so returning `[]` clears the layer.
+
+Anchors are **times and prices, never bar indices**. Paging older history in at the left
+edge shifts every logical index, and a trendline pinned to an index would slide off its
+pivots the moment it did.
+
+```ts
+import { registerIndicator } from 'openalgo-charts';
+import { pivotHigh, nulls } from 'openalgo-charts/indicators';
+
+registerIndicator({
+  id: 'pivot-ray',
+  name: 'Pivot Ray',
+  category: 'Trend',
+  placement: 'onchart',
+  inputs: [
+    { key: 'left',  type: 'number', label: 'Left bars',  default: 5, min: 1, max: 50 },
+    { key: 'right', type: 'number', label: 'Right bars', default: 5, min: 1, max: 50 },
+    { key: 'color', type: 'color',  label: 'Color',      default: '#f5a524' },
+  ],
+  // The output is geometry, not a value per bar, so the only plot is an all-null
+  // placeholder: it draws nothing and contributes nothing to autoscale.
+  plots: [{ key: 'placeholder', type: 'line', title: 'Pivot Ray' }],
+  calc: (bars, s) => ({
+    placeholder: bars.map(() => null),
+    pivots: nulls(pivotHigh(bars.map((b) => b.high), Number(s.left), Number(s.right))),
+  }),
+  draws: ({ bars, values, settings }) => {
+    // The two most recent confirmed pivot highs. A pivot is confirmed `right`
+    // bars after it happens, so the anchor is the bar it describes rather than
+    // the bar that reported it.
+    const back = Number(settings.right);
+    const at: number[] = [];
+    for (let i = values.pivots.length - 1; i >= 0 && at.length < 2; i--) {
+      if (values.pivots[i] !== null) at.push(i - back);
+    }
+    if (at.length < 2) return [];
+    const [recent, older] = at;
+    const color = String(settings.color);
+    return [
+      {
+        kind: 'line',
+        from: { time: bars[older].time,  price: bars[older].high },
+        to:   { time: bars[recent].time, price: bars[recent].high },
+        color, lineWidth: 2, extendRight: true,
+      },
+      {
+        kind: 'label',
+        at: { time: bars[recent].time, price: bars[recent].high },
+        text: `Pivot\n${bars[recent].high.toFixed(2)}`,
+        color, align: 'left',
+      },
+    ];
+  },
+});
+```
+
+Four kinds. Every colour defaults to the theme's axis ink, and every anchor is a
+`DrawAnchor`, which is `{ time, price }`.
+
+**`kind: 'line'`**
+
+| Field | Type | Description |
+|---|---|---|
+| `from` / `to` | `DrawAnchor` | The two ends. |
+| `color` | `string?` | |
+| `lineWidth` | `number?` | Media px, default 1. |
+| `lineStyle` | `'solid' \| 'dashed' \| 'dotted'?` | |
+| `extendLeft` / `extendRight` | `boolean?` | Continue past that anchor to the pane edge, **along the segment's own slope**: a ray keeps its angle rather than flattening. A vertical line spans the pane on either flag. |
+
+**`kind: 'box'`**
+
+| Field | Type | Description |
+|---|---|---|
+| `from` / `to` | `DrawAnchor` | Opposite corners, in either order. |
+| `color` | `string?` | Border, and the caption plate's fill. |
+| `fillColor` | `string?` | Omit to draw an outline only. |
+| `opacity` | `number?` | Fill alpha, 0..1, default 0.12. |
+| `lineWidth` | `number?` | Media px, default 1. |
+| `text` | `string?` | Caption on a plate at the centre of the box; `\n` splits lines. |
+| `textColor` | `string?` | Derived from the plate colour for contrast when omitted. |
+
+**`kind: 'label'`**
+
+| Field | Type | Description |
+|---|---|---|
+| `at` | `DrawAnchor` | Where the plate sits. |
+| `text` | `string` | `\n` splits lines; the plate sizes to the widest. |
+| `color` | `string?` | Plate fill. |
+| `textColor` | `string?` | Contrast-derived when omitted. |
+| `align` | `'left' \| 'center' \| 'right'?` | Which edge of the plate sits on the anchor. Default `center`. |
+
+**`kind: 'polyline'`**
+
+| Field | Type | Description |
+|---|---|---|
+| `points` | `DrawAnchor[]` | Two or more; a shorter list draws nothing. |
+| `color` | `string?` | |
+| `lineWidth` | `number?` | Media px, default 1. |
+| `closed` | `boolean?` | Close the path back to the first point (a triangle, a wedge). |
+| `fillColor` | `string?` | Omit for an unfilled path. |
+| `opacity` | `number?` | Fill alpha, 0..1, default 0.12. |
+
+```ts
+// A supply zone, and a closed wedge over the same span.
+const zone: IndicatorDrawing = {
+  kind: 'box',
+  from: { time: t0, price: hi }, to: { time: t1, price: lo },
+  color: '#ef5350', fillColor: '#ef5350', opacity: 0.1,
+  text: `Supply\n${hi.toFixed(2)}`,
+};
+const wedge: IndicatorDrawing = {
+  kind: 'polyline',
+  points: [{ time: t0, price: hi }, { time: t1, price: mid }, { time: t0, price: lo }],
+  closed: true, color: '#4f8cff', fillColor: '#4f8cff',
+};
+```
+
+`lineStyle` belongs to `line` alone; boxes and polylines stroke solid.
+
+What the layer does with what you return:
+
+- It draws **over the series and under the crosshair**: these are annotations on the data.
+- It **takes no part in autoscale**. A projection reaching far above the data would
+  otherwise squash the study it annotates into a band a few pixels tall. The corollary is
+  that a shape drawn outside the visible price range is simply not on screen.
+- Shapes entirely off-pane are culled before any path work, so a descriptor that marks
+  every pivot in 50k bars pays for the visible ones.
+- A time that falls **between** two bars lands between them rather than snapping to the
+  nearer one, and a time past the last bar extrapolates at the last interval's spacing.
+  That is what lets a projection reach into the empty space on the right, to a time no bar
+  occupies yet.
+- The layer is created lazily, on the first non-empty list, so a descriptor without the
+  hook (or one that has not drawn anything yet) costs nothing. Hiding the indicator hides
+  the drawings with it; removing the indicator detaches them.
+
+`IndicatorDrawings` is exported, so the same layer works as a plain primitive with no
+indicator behind it:
+
+```ts
+import { IndicatorDrawings } from 'openalgo-charts';
+
+const layer = new IndicatorDrawings();
+chart.addPrimitive(layer, 0);       // pane index
+layer.setItems([{ kind: 'line', from: a, to: b, color: '#4f8cff' }]);
+layer.setVisible(false);
+```
 
 ## Trading sessions
 
@@ -555,8 +715,9 @@ Three built-ins lean on this:
   `overbought` moves the shading with no extra plot to restyle. `stochastic` shades the
   same way.
 - **`aroon-oscillator`** returns a `zero` column and fills `['osc', 'zero']`, so the
-  band flips colour with the sign of the oscillator. The line renderer has no per-bar
-  colour, so the sign is carried by the band, which is what actually reads on a chart.
+  band flips colour with the sign of the oscillator. A `colorBy` would recolour the
+  stroke, but it is the shaded region between the line and zero that actually reads
+  on a chart.
 - **`supertrend`** returns a hidden `bodyMid` column, `(open + close) / 2` per bar, and
   declares one fill from it to `up` and another to `down`. That shades the whole distance
   between price and the trailing stop instead of drawing a second line through the
@@ -592,15 +753,89 @@ to bar, so a plot can name a `colorBy`:
 }
 ```
 
-Return `undefined` to fall back to the plot's own colour. Histogram and column
-renderers honour it. `values` is the full `calc` result, so a rule can read
-columns no plot draws: MACD compares against the previous bar, and William VIX
-FIX reads its band even when the band is hidden.
+Return `undefined` to fall back to the plot's own colour. It reaches the renderer
+as [`Bar.color`](/docs/series-and-styling#per-bar-colour), so every Family-A plot
+type honours it: histogram, column, line, step, area, candles and OHLC bars.
+`values` is the full `calc` result, so a rule can read columns no plot draws:
+MACD compares against the previous bar, and William VIX FIX reads its band even
+when the band is hidden.
 
 `calc` must return an array for every plot key, the same length as `bars`, plus any extra
 columns a `fill` or a `colorBy` needs. Use `null` for warmup slots: the line renderer
 breaks across them and autoscale skips them, so a gap draws as nothing rather than a spike
 to zero.
+
+### Reference levels
+
+`levels` draws horizontal lines across the indicator's pane: RSI 70/30, a zero line,
+yesterday's high. It runs after every `calc` and is handed the bars and the computed
+values as well as the settings, so a level can be **derived from the data** rather than
+only from a number the user typed.
+
+```ts
+levels: (ctx) => {
+  const bars = ctx.bars ?? [];
+  const last = bars.at(-1);
+  return [
+    { price: Number(ctx.oversold), title: 'Oversold' },          // from a setting
+    ...(last === undefined ? [] : [
+      { price: last.high, title: 'Day high', lineStyle: 'dotted' as const },
+    ]),
+  ];
+},
+```
+
+The context is a settings bag with three members added to it. That is why `ctx.oversold`
+reads a declared input directly, and why every descriptor written against the original
+`levels(settings)` signature keeps working unchanged:
+
+| Member | Type | Description |
+|---|---|---|
+| *(the settings keys)* | | Every setting, spread onto the context. |
+| `settings` | `IndicatorSettings` | The same values as one object, for a helper that takes a bag. |
+| `bars` | `Bar[]` | The bars the last `calc` ran over. |
+| `values` | `IndicatorValues` | What that `calc` returned. |
+
+`settings`, `bars` and `values` are reserved keys here, the way `timezone` is reserved in
+the settings a `calc` receives: an input declared under one of those names is shadowed.
+The three are typed optional so a caller holding only a settings bag can still call
+`levels` directly, but the runtime always passes all three. Default them anyway
+(`ctx.bars ?? []`).
+
+The returned list is compared against the previous one and the price lines are only
+rebuilt when something actually changed, so a constant 70/30 pair does not detach and
+reattach a line per level on every tick.
+
+**`IndicatorLevel`**
+
+| Field | Type | Description |
+|---|---|---|
+| `price` | `number` | Where the line sits. |
+| `color` | `string?` | Default `#8892a6`. |
+| `title` | `string?` | Right-axis tag text. |
+| `lineWidth` | `number?` | Media px, default 1. |
+| `lineStyle` | `'solid' \| 'dashed' \| 'dotted'?` | |
+| `dashed` | `boolean?` | The original two-state switch. `lineStyle` wins when both are set; with neither set a level draws dashed, which is how every built-in already drew. |
+
+### One plot on the price pane
+
+An oscillator sometimes has one column that belongs on the candles: a trailing stop, a
+band the price is measured against. Splitting the study in two would make the user
+configure the same inputs twice, so a single plot can force itself onto the price pane
+instead:
+
+```ts
+placement: 'pane',
+plots: [
+  { key: 'osc',  type: 'line', title: 'Oscillator' },
+  { key: 'stop', type: 'line', title: 'Stop', overlay: true },   // drawn on price
+],
+```
+
+It is still one instance: one legend row, one settings form, one `remove()`. `overlay` is
+ignored for an `onchart` descriptor, which is already on the price pane. Fills, levels,
+drawings and the table stay on the indicator's own pane; markers ride the **first** plot's
+series, so marking the first plot `overlay` takes them to the price pane with it.
 
 ### Descriptor reference
 
@@ -611,12 +846,14 @@ to zero.
 | `category` | `string?` | Grouping for a picker UI. |
 | `placement` | `'onchart' \| 'pane'` | Overlay the price pane, or take a new one. |
 | `inputs` | `IndicatorInput[]` | Tunable settings; `type` is what a settings UI renders. |
-| `plots` | `IndicatorPlot[]` | One per drawn series. `type` is any registered chart type. |
+| `plots` | `IndicatorPlot[]` | One per drawn series. `type` is any registered chart type; `overlay: true` puts that one plot on the price pane. |
 | `fills` | `IndicatorFillSpec[]?` | Optional shaded bands. `between` names two `calc` columns, which need not be plots. |
 | `calc` | `(bars, settings, store) => IndicatorValues` | Full recompute. |
 | `calcTail` | `(bars, settings, fromIndex, previous, store) => IndicatorValues \| null` | Optional incremental path. |
 | `markers` | `({ bars, values, settings }) => SeriesMarker[]` | Optional bar-anchored signal markers, run after every `calc`. |
-| `levels` | `(settings) => IndicatorLevel[]` | Optional horizontal reference lines. |
+| `table` | `({ bars, values, settings }) => \{ rows, options \} \| null` | Optional corner-pinned summary grid, run after every `calc`. |
+| `draws` | `({ bars, values, settings }) => IndicatorDrawing[]` | Optional free-standing shapes anchored to time and price, run after every `calc`. |
+| `levels` | `(ctx) => IndicatorLevel[]` | Optional horizontal reference lines. `ctx` is the settings plus `bars` and `values`, so a level can be data-derived. |
 | `range` | `(settings) => \{ min, max \} \| null` | Optional fixed pane range (RSI 0..100). |
 | `attach` | `(ctx) => (() => void) \| void` | Optional lifecycle for external data (Tier 2). |
 
@@ -629,7 +866,63 @@ recompute, a few hundred microseconds for one indicator over 50k bars, but O(n) 
 *per indicator*. Implement it for anything meant to run in a busy live pane: return values
 for `[fromIndex, bars.length)` and the runtime splices them onto the previous result, or
 return `null` to fall back to a full `calc`.
+
+The runtime only offers you the tail path when the previous result still describes every
+bar before it: the first bar's time must be unchanged, and the last bar must be either
+that same bar replaced or one appended after it. A symbol change or a page of history
+arriving at the left edge falls back to a full `calc` instead of splicing onto a history
+that no longer exists.
 </Callout>
+
+## Calculation helpers
+
+The calculation helpers the 91 built-ins are made of are exported, so your own descriptor
+can be written against the same primitives instead of re-deriving them. Each matches the
+published formula of the `ta.*` function of the same name, which is what makes a ported
+study agree with its source rather than being approximately right.
+
+They live in the indicator tier, not the base bundle:
+
+```ts
+import { registerIndicator } from 'openalgo-charts';
+import { linreg, stdev, nulls } from 'openalgo-charts/indicators';
+```
+
+They take flat arrays rather than bars (`readonly number[]`, or booleans for `barsSince`),
+return an array of the same length, and write `NaN` into warmup slots. `nulls(values)`
+converts that to the `null` a `calc` result wants; `sourceValues(bars, source)` (from the
+package root) is how you get the input array out of the bars in the first place.
+
+| Helper | Signature | Notes |
+|---|---|---|
+| `sma` | `(values, period)` | First value at index `period - 1`. A non-finite input does not poison the running sum. |
+| `wma` | `(values, period)` | Linear weights; the most recent bar carries weight `period`. |
+| `rma` | `(values, period)` | Wilder smoothing, seeded with the SMA. The basis of RSI, ATR and ADX. |
+| `smaSeededEma` | `(values, period)` | EMA seeded with the SMA of the first `period` values, `NaN` before that. The base bundle's `ema` seeds from `values[0]` and emits from index 0 to match `openalgo.ta`, so the two disagree for roughly the first `period` bars and converge after. Use this one to reproduce a reference plot. |
+| `stdev` | `(values, period)` | Rolling population standard deviation. |
+| `dev` | `(values, period)` | Mean **absolute** deviation from the SMA, not a standard deviation. CCI's 0.015 constant is calibrated against this one. |
+| `highest` / `lowest` | `(values, period)` | Rolling maximum / minimum. |
+| `highestBars` / `lowestBars` | `(values, period)` | The **offset** to the extreme bar: `0` for the current bar, `-(period - 1)` for the oldest. Ties resolve to the more recent bar. Aroon is built entirely out of these. |
+| `change` | `(values, n = 1)` | `values[i] - values[i - n]`. |
+| `roc` | `(values, n)` | `100 * (values[i] - values[i - n]) / values[i - n]`. |
+| `rollingSum` | `(values, period)` | Rolling sum over the window. |
+| `cumulative` | `(values)` | Running total from the first bar; non-finite terms count as zero. |
+| `alma` | `(values, period, offset, sigma)` | Gaussian-weighted average, `offset` 0..1 and `sigma` > 0. |
+| `vwma` | `(values, volumes, period)` | `sma(value * volume) / sma(volume)`. |
+| `linreg` | `(values, period, offset = 0)` | The least-squares line over the window, evaluated `offset` bars back from its right-hand end. That offset is how LSMA shifts its plot without refitting. |
+| `swma` | `(values)` | The fixed four-bar symmetric average, 1/2/2/1 over 6. |
+| `stoch` | `(source, high, low, period)` | Three independent series, which is why it does not take bars: Stochastic RSI passes the RSI in for all three. |
+| `cci` | `(values, period)` | `(value - sma) / (0.015 * dev)`. |
+| `correlation` | `(a, b, period)` | Pearson correlation over the window. |
+| `percentRank` | `(values, period)` | Percentage of the **previous** `period` values at or below the current one. The current bar is the subject rather than part of the window, so the first answer lands at index `period`. |
+| `percentileNearestRank` | `(values, period, percentage)` | Nearest-rank, so the result is an actual member of the window rather than an interpolation between two. Visible on a window as short as 3. |
+| `pivotHigh` / `pivotLow` | `(values, left, right)` | Confirmed `right` bars late: the answer lands on the confirming bar and refers to the value `right` bars back. Strict on both sides, so a tie is not a pivot. |
+| `barsSince` | `(cond: boolean[])` | Bars elapsed since `cond` was last true, `NaN` before the first. |
+| `valueWhen` | `(cond, source, occurrence)` | `source` at the n-th most recent true, counting the current bar. `0` is the latest. |
+| `nulls` | `(values)` | `NaN` to `null`, for the `calc` return. |
+
+`ema`, `rsi`, `atr`, `trueRange` and `supertrend` are **not** here: they ship in the base
+bundle and the tier imports them from it, so they come from `openalgo-charts`.
 
 ## Tier 2: indicators with their own data
 
@@ -662,6 +955,35 @@ registerIndicator(createTier2Indicator({
 times. Each bar takes the most recent point **at or before** it, last-known-value, never
 interpolated and never forward-looking. Bars before the first point are `null`. A failed
 fetch leaves the previous points on screen rather than blanking the pane.
+
+### The attach context
+
+`createTier2Indicator` is a wrapper over the descriptor's own `attach` hook, which any
+descriptor can implement directly. It is called once per instance and again after every
+settings change, and it returns a teardown function. The context it is handed:
+
+| Member | Type | Description |
+|---|---|---|
+| `settings()` | `IndicatorSettings` | Current settings. Read at call time, so do not capture the result. |
+| `bars()` | `Bar[]` | The chart's current source bars. |
+| `requestRecompute()` | `void` | Run `calc` again and repaint. Call it when external data arrives. |
+| `store` | `IndicatorStore` | Per-instance scratch, the same object `calc` receives. Survives a settings change, so a descriptor that caches there can no-op when nothing data-affecting moved. |
+| `symbol?()` | `string \| undefined` | The instrument on screen, when the host knows it. |
+| `interval?()` | `string \| undefined` | The timeframe, on the same terms. |
+| `timezone?()` | `string` | The chart's IANA zone, the one its axis is labelled in. |
+| `now?()` | `number` | Chart wall clock in UTC seconds: the same clock the countdown reads, so an indicator deciding whether the last bar is still forming agrees with the axis about it. |
+| `paneIndex?()` | `number` | The pane this instance drew into. Moves when panes are reordered, so read it rather than storing it. |
+| `addPrimitive?(p)` / `removePrimitive?(p)` | `void` | Attach an arbitrary primitive to this indicator's pane, and detach it again. Anything you attach is yours to remove in the teardown. |
+
+Everything after `store` is optional so a minimal context can be hand-built (a unit test
+exercising one descriptor's lifecycle), but the runtime always supplies them.
+
+<Callout type="info">
+**`symbol` and `interval` are `undefined` under `chart.addIndicator`.** The engine core is
+handed bars and never an instrument, so it answers "I do not know" rather than inventing a
+name. A terminal that owns the symbol picker supplies both through its own `IndicatorHost`,
+which is how a Tier-2 indicator fetches the series matching what is on screen.
+</Callout>
 
 ## Supertrend
 
