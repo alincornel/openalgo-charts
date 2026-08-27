@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { darkTheme, lightTheme, type ChartTheme } from '../src/theme';
 import { getChartType, type DrawItem, type SeriesRenderContext } from '../src/model/chart-type-registry';
-import { verticalGradient } from '../src/render/gradient';
+import { verticalGradient, withAlpha as fromModule } from '../src/render/gradient';
+import { withAlpha, fromGradient } from '../src/index';
 import type { Bar } from '../src/model/bar';
 import { makeCtx } from './helpers/fake-ctx';
 
@@ -57,5 +58,59 @@ describe('gradient fills', () => {
     const { ctx, rec } = makeCtx();
     getChartType('baseline').draw(ctx, data, toY, 8, 1, { baseValue: 11 }, rc(darkTheme));
     expect(rec.count('clip')).toBeGreaterThanOrEqual(2); // above + below base
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The colour helpers an indicator author reaches for. Imported from the package
+// entry rather than the module, because being reachable is half the feature: a
+// helper only `src/render/gradient.ts` can see leaves every descriptor
+// hand-rolling its own rgba string, which is what these replace.
+// ---------------------------------------------------------------------------
+
+describe('colour helpers', () => {
+  it('re-exports withAlpha from one import path', () => {
+    expect(fromModule).toBe(withAlpha);
+    expect(withAlpha('#ff0000', 0.5)).toBe('rgba(255,0,0,0.5)');
+    expect(withAlpha('#abc', 1)).toBe('rgba(170,187,204,1)');
+    expect(withAlpha('not a colour', 0.5)).toBe('not a colour');
+  });
+
+  it('blends the endpoints by where the value sits in the range', () => {
+    expect(fromGradient(0, 0, 10, '#000000', '#ffffff')).toBe('rgba(0,0,0,1)');
+    expect(fromGradient(5, 0, 10, '#000000', '#ffffff')).toBe('rgba(128,128,128,1)');
+    expect(fromGradient(10, 0, 10, '#000000', '#ffffff')).toBe('rgba(255,255,255,1)');
+  });
+
+  it('clamps outside the range instead of running past the endpoints', () => {
+    expect(fromGradient(-40, 0, 10, '#000000', '#ffffff')).toBe('rgba(0,0,0,1)');
+    expect(fromGradient(999, 0, 10, '#000000', '#ffffff')).toBe('rgba(255,255,255,1)');
+  });
+
+  it('lands a not-available value on the low colour, never on NaN', () => {
+    // Canvas ignores an unparseable fillStyle and silently keeps the previous
+    // one, so an rgba(NaN,...) would paint the neighbouring bar's colour rather
+    // than fail where it could be seen.
+    const c = fromGradient(NaN, 0, 10, '#000000', '#ffffff');
+    expect(c).toBe('rgba(0,0,0,1)');
+    expect(c).not.toContain('NaN');
+  });
+
+  it('survives a zero-width and a descending range', () => {
+    expect(fromGradient(5, 5, 5, '#000000', '#ffffff')).toBe('rgba(0,0,0,1)');
+    expect(fromGradient(6, 5, 5, '#000000', '#ffffff')).toBe('rgba(255,255,255,1)');
+    // min above max reads as an inverted scale, which is how a descending
+    // measure (a rank, a drawdown) states itself.
+    expect(fromGradient(2, 10, 0, '#000000', '#ffffff')).toBe('rgba(204,204,204,1)');
+  });
+
+  it('blends alpha as well as colour, from any notation the engine parses', () => {
+    expect(fromGradient(0.5, 0, 1, '#00000000', '#ffffffff')).toBe('rgba(128,128,128,0.5)');
+    expect(fromGradient(0.5, 0, 1, 'rgb(0,0,0)', 'rgba(255,255,255,0.5)')).toBe('rgba(128,128,128,0.75)');
+    expect(fromGradient(0.5, 0, 1, '#f00', '#00f')).toBe('rgba(128,0,128,1)');
+  });
+
+  it('falls back to the low colour when an endpoint cannot be parsed', () => {
+    expect(fromGradient(0.5, 0, 1, 'not a colour', '#ffffff')).toBe('not a colour');
   });
 });

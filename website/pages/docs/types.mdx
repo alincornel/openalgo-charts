@@ -249,6 +249,29 @@ interface PriceAxisState {
 
 Returned by `chart.priceAxisState(paneIndex, scaleId)`, or `null` for a pane that does not exist. Everything a menu over one axis needs to tick its own rows and grey what does not apply. The writers are `setPriceAxisOptions`, `setPriceAxisAutoFit`, `setPriceAxisLockRatio` and `movePriceAxis`; the last two return whether the axis is now in the state asked for. See [Settings & Menus](/docs/settings-and-menus#the-price-axis-menu).
 
+### `PickKind`
+
+```ts
+type PickKind = 'price' | 'time';
+```
+
+What `chart.beginPick(kind, cb)` should resolve the next plot click to. A `'time'` pick snaps to the bar that was clicked. See [Picking a price or a bar](/docs/interactions#picking-a-price-or-a-bar).
+
+### `PickHost`
+
+```ts
+interface PickHost {
+  on(event: string, cb: (payload: unknown) => void): () => void;
+  emit(event: string, payload: unknown): void;
+  readonly dataLayer: {
+    timeToIndexFloat(time: number): number;
+    indexToTime(index: number): number | undefined;
+  };
+}
+```
+
+The slice of a chart the standalone `beginPick(host, kind, cb)` needs. Structural, so `Chart` satisfies it with nothing to cast, and the module never imports the core. `chart.beginPick` is sugar over the exported function.
+
 ---
 
 ## Scales
@@ -830,6 +853,32 @@ interface TradeFeed {
 
 Broker-agnostic trading source used by the order engine.
 
+### `IntervalParts`
+
+```ts
+interface IntervalParts {
+  multiplier: number;
+  unit: 's' | 'm' | 'h' | 'D' | 'W' | 'M' | 'tick' | 'other';
+}
+```
+
+What `intervalParts(code)` answers: a count and the unit it counts, or `null` when nothing resolves the code. Read off the bucketing rule rather than the code's spelling, so `'120m'` and `'2h'` both come back as 2 hours and a host's own registered code answers as readily as a built-in token. `'M'` is months, so a quarter reads as 3 and a year as 12; `'tick'` counts trades; `'other'` is a bucket with neither a clock length nor a trade count, which today means volume bars. See [Custom Intervals](/docs/custom-intervals#reading-a-code-back).
+
+### `SessionSpec`
+
+```ts
+interface SessionSpec {
+  /** Minutes from midnight, inclusive. */
+  start: number;
+  /** Minutes from midnight, exclusive. */
+  end: number;
+  /** Days the window opens on, 1..7 with 1 = Sunday. Absent means every day. */
+  days?: readonly number[];
+}
+```
+
+A trading window stated in local wall-clock terms, as returned by `parseSessionSpec('0915-1015')` and consumed by `inSessionAt` and `sessionFlags`. The window is half-open, and an `end` at or before `start` runs past midnight, which makes `start === end` the whole day. Distinct from the profiles' `SessionWindow`, which is the same idea for a different layer. See [Timezones](/docs/timezones#stating-a-window-as-a-string).
+
 ### Candle Builder
 
 #### `VolumeMode`
@@ -1059,7 +1108,72 @@ One element per bar in the array returned by `supertrend(bars, period, multiplie
 import type { SupertrendPoint } from 'openalgo-charts';
 ```
 
-See also `supertrendSeries`, which splits the same output into two `Bar[]` arrays -- one per direction -- so each renders as a separately-colored line that breaks at every trend flip.
+See also `supertrendSeries`, which splits the same output into two `Bar[]` arrays, one per direction, so each renders as a separately-colored line that breaks at every trend flip.
+
+### `IndicatorCalcContext`
+
+```ts
+interface IndicatorCalcContext {
+  barState: {
+    isNew: boolean;         // the last update appended a bar rather than replacing one
+    isConfirmed: boolean;   // the last bar's own span has elapsed on the chart clock
+    isRealtime: boolean;    // a live feed is driving updates, not a one-off load
+    lastIndex: number;      // bars.length - 1, and -1 when there are none
+  };
+  symbol?: string;
+  interval?: string;
+  timezone: string;
+  now(): number;
+}
+```
+
+The optional trailing argument to a descriptor's `calc` (fourth) and `calcTail` (sixth): what the calculation cannot read off the bars themselves. Being optional and trailing is the point, since every descriptor written against `calc(bars, settings, store)` keeps its exact signature and behaviour.
+
+`isConfirmed` is inferred from the last bar's gap against the chart clock, the only interval signal the engine has, so a session break or a holiday widens it. `isRealtime` is sticky once set. `symbol` and `interval` are `undefined` under `chart.addIndicator`, since the core is handed bars and never an instrument. See [The calculation context](/docs/indicators#the-calculation-context).
+
+### `IndicatorAlertSpec`
+
+```ts
+interface IndicatorAlertSpec {
+  id: string;
+  title: string;
+  message?: string;
+  when(ctx: IndicatorAlertContext): boolean;
+}
+```
+
+A condition the runtime watches on the descriptor's behalf, declared in its `alerts` array. `id` is stable within the descriptor; `message` defaults to `title`.
+
+### `IndicatorAlertContext`
+
+```ts
+interface IndicatorAlertContext {
+  bars: readonly Bar[];
+  values: IndicatorValues;
+  settings: Readonly<IndicatorSettings>;
+  /** The bar being evaluated. */
+  index: number;
+}
+```
+
+What `when` is handed. It judges one bar, so a rule comparing against the previous bar reads `index - 1` itself.
+
+### `IndicatorAlertPayload`
+
+```ts
+interface IndicatorAlertPayload {
+  indicatorId: string;
+  instanceId: string;
+  alertId: string;
+  title: string;
+  message: string;
+  /** The bar that triggered it: UTC seconds, and its index in `bars`. */
+  time: number;
+  index: number;
+}
+```
+
+The payload of the `'indicator:alert'` event on the chart's own bus. See [Indicator alerts](/docs/events#indicator-alerts).
 
 ---
 

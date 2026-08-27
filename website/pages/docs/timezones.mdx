@@ -288,6 +288,11 @@ If you genuinely want a constant offset, `UTC` is the honest way to ask for one.
 
 ## Session windows and TRADING_HOURS
 
+There are two window shapes in the library, and they belong to different layers. The
+profiles take a `SessionWindow` object, described in this section. Anything else that needs
+a window (an indicator, a host's own filter) states one as a **string** and reads it with
+[`sessionFlags`](#stating-a-window-as-a-string), covered just below.
+
 A `SessionWindow` for the profiles is two minute counts from midnight. **Those minutes are
 now read on a wall clock, not on IST**, which makes a hand-written window mean what it says:
 
@@ -358,6 +363,51 @@ handed the chart, so they cannot read its zone for you. Pass `chart.timezone()` 
 want the profile and the axis to agree. See
 [Market Profile](/docs/market-profile) and [Volume Profile](/docs/volume-profile).
 </Callout>
+
+## Stating a window as a string
+
+`sessionStartFlags` reads the trading day back out of the bar gaps, which is right when what
+you mean is "the session". It cannot answer which *part* of a session you meant: an opening
+range, the cash hours inside an extended session, or one exchange's hours drawn on another
+exchange's chart are all things you have to state. Three base-bundle helpers do that:
+
+```ts
+import { parseSessionSpec, inSessionAt, sessionFlags } from 'openalgo-charts';
+
+parseSessionSpec('0915-1015');        // { start: 555, end: 615 }
+parseSessionSpec('0930-1600:23456');  // { start: 570, end: 960, days: [2, 3, 4, 5, 6] }
+parseSessionSpec('2500-1000');        // null, hour 25 is out of range
+
+// One flag per bar, on whichever calendar the chart is labelled in.
+const rth = sessionFlags(bars.map((b) => b.time), '0930-1600:23456', 'America/New_York');
+```
+
+| Export | Returns | Use |
+|---|---|---|
+| `parseSessionSpec(spec)` | `SessionSpec \| null` | Validate what a user typed. Never throws. |
+| `inSessionAt(utcSeconds, spec, zone?)` | `boolean` | One instant against a parsed spec. |
+| `sessionFlags(times, spec, zone?)` | `boolean[]` | One flag per bar. Takes the raw string or a parsed spec. |
+
+The grammar is `HHMM-HHMM`, optionally followed by `:` and the days the window runs on, with
+**1 = Sunday** through 7 = Saturday. Whitespace around the parts is ignored, so
+`' 0915 - 1015 '` parses. Everything past that is decided the way an opening-range
+comparison needs it:
+
+- **Half-open.** The start minute is inside the window, the end minute is not: on a
+  `0915-1015` window a bar stamped 09:15 is in and one stamped 10:15 is out.
+- **An end at or before the start runs past midnight.** `'2330-0030'` is a one-hour
+  overnight window, and `'0000-0000'` is therefore the whole day rather than nothing.
+- **The day filter names the day the window opens on**, not the day the bar falls on. They
+  are the same thing for a window inside one day; for `'2330-0030:2'` (Monday) it means
+  Monday 23:45 and Tuesday 00:15 are both in the same session, and Tuesday 23:45 is not.
+- **`zone` defaults to `Asia/Kolkata`**, like every other zoned helper here. Pass
+  `chart.timezone()`, or the exchange's own zone when the numbers were written in it.
+- **An unparseable string marks nothing.** `sessionFlags` returns an all-false array rather
+  than throwing, because the spec is usually a settings field a user is halfway through
+  typing. Call `parseSessionSpec` when you need to tell a bad spec from an empty window.
+
+The [opening-range recipe](/docs/indicators#a-window-you-state-rather-than-read) on the
+indicators page shows this inside a `calc`.
 
 ## Saved layouts
 

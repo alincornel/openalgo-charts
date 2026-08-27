@@ -168,6 +168,22 @@ export interface IndicatorPlot {
    */
   colorKey?: string;
   /**
+   * Four `calc` keys to draw this plot as bar-shaped elements instead of one
+   * value per bar: candles, hollow candles, OHLC bars, high-low.
+   *
+   * A single column cannot express those at all, and the alternative (a second
+   * result shape for `calc`) would fork the contract every descriptor and every
+   * helper is written against. Naming four columns inside the *same*
+   * `IndicatorValues` keeps one shape: a smoothed Heikin-Ashi overlay, a
+   * higher-timeframe candle, a synthetic spread instrument each return four
+   * ordinary columns and point at them from here.
+   *
+   * The named columns must all exist and be bar-aligned, or `addIndicator`
+   * throws. `key` stays the series identity and the legend reading falls back to
+   * the `close` column.
+   */
+  ohlc?: { open: string; high: string; low: string; close: string };
+  /**
    * Per-bar colour, for plots whose meaning changes bar to bar — a MACD
    * histogram is four colours by sign and direction, a conditional study two.
    * Return `undefined` to fall back to the plot's own colour.
@@ -265,6 +281,80 @@ export type IndicatorValues = Record<string, readonly (number | null)[]>;
 /** Per-instance scratch owned by the descriptor (Tier-2 data lands here). */
 export type IndicatorStore = Record<string, unknown>;
 
+/**
+ * The fourth, optional argument to `calc` (and the sixth to `calcTail`): what
+ * the calculation cannot read off the bars themselves.
+ *
+ * It is optional so that every descriptor written against `calc(bars, settings,
+ * store)` keeps its exact signature and its exact behaviour, which is the whole
+ * point: a calculation that ignores the context computes what it always did.
+ */
+export interface IndicatorCalcContext {
+  /**
+   * Where the last bar stands, so a study can act once per bar rather than once
+   * per tick, or refuse to signal off a bar that is still moving.
+   */
+  barState: {
+    /** The most recent update appended a bar rather than replacing one. */
+    isNew: boolean;
+    /** The last bar has closed: its interval has elapsed on the chart clock. */
+    isConfirmed: boolean;
+    /** A live feed is driving updates, rather than a one-off history load. */
+    isRealtime: boolean;
+    /** Index of the last bar, `bars.length - 1` (-1 when there are none). */
+    lastIndex: number;
+  };
+  /** The instrument, when the host knows one. See `IndicatorAttachContext`. */
+  symbol?: string;
+  /** The timeframe (`'5m'`, `'1d'`), on the same terms as `symbol`. */
+  interval?: string;
+  /** The chart's IANA zone, the calendar its axis is labelled in. */
+  timezone: string;
+  /** Chart wall clock in UTC seconds, the clock the countdown row reads. */
+  now(): number;
+}
+
+/** What an alert's `when` predicate is handed, for the bar it is judging. */
+export interface IndicatorAlertContext {
+  bars: readonly Bar[];
+  values: IndicatorValues;
+  settings: Readonly<IndicatorSettings>;
+  /** The bar being evaluated. */
+  index: number;
+}
+
+/**
+ * A condition the runtime watches, declared by the descriptor rather than wired
+ * up by the host: the indicator is the only thing that knows what a crossover of
+ * its own columns means.
+ *
+ * Evaluated once per bar, for bars that are new since the last evaluation, so
+ * adding the indicator to a loaded chart fires nothing for history.
+ */
+export interface IndicatorAlertSpec {
+  /** Stable within the descriptor, e.g. `'cross-up'`. */
+  id: string;
+  /** Short human label, e.g. `'MACD crossed up'`. */
+  title: string;
+  /** Longer text for a notification; defaults to `title`. */
+  message?: string;
+  when(ctx: IndicatorAlertContext): boolean;
+}
+
+/** Payload of the `'indicator:alert'` event on the chart's own bus. */
+export interface IndicatorAlertPayload {
+  /** Descriptor id, e.g. `'macd'`. */
+  indicatorId: string;
+  /** Instance id, so a host can tell three EMAs apart. */
+  instanceId: string;
+  alertId: string;
+  title: string;
+  message: string;
+  /** The bar that triggered it: UTC seconds, and its index in `bars`. */
+  time: number;
+  index: number;
+}
+
 /** What an indicator's `attach` lifecycle can reach. */
 export interface IndicatorAttachContext {
   /** Current settings (live — read at call time, not captured). */
@@ -300,6 +390,14 @@ export interface IndicatorAttachContext {
   /** Attach a primitive to this indicator's pane, and detach it again. */
   addPrimitive?(p: IPrimitive): void;
   removePrimitive?(p: IPrimitive): void;
+  /**
+   * Emit on the chart's own event bus, the one `chart.on(name, cb)` listens to.
+   *
+   * The declarative `alerts` slot covers a condition read off the bars; this is
+   * the imperative half, for an indicator whose signal arrives from outside the
+   * calculation entirely (a subscription its `attach` opened).
+   */
+  emit?(event: string, payload: unknown): void;
 }
 
 /**
@@ -358,6 +456,7 @@ export interface IndicatorDescriptor {
     bars: readonly Bar[],
     settings: Readonly<IndicatorSettings>,
     store: IndicatorStore,
+    ctx?: IndicatorCalcContext,
   ): IndicatorValues;
   /**
    * Optional per-instance lifecycle, for indicators whose data is not derived
@@ -384,6 +483,7 @@ export interface IndicatorDescriptor {
     fromIndex: number,
     previous: IndicatorValues,
     store: IndicatorStore,
+    ctx?: IndicatorCalcContext,
   ): IndicatorValues | null;
   /**
    * Optional bar-anchored signal markers — a named "Buy"/"Sell" plate, an arrow
@@ -426,6 +526,47 @@ export interface IndicatorDescriptor {
     values: IndicatorValues;
     settings: Readonly<IndicatorSettings>;
   }): readonly IndicatorDrawing[];
+  /**
+   * Optional per-bar shading behind everything else in the indicator's pane: a
+   * full-height column per bar, `null` where nothing should be shaded.
+   *
+   * A regime study answers "which state is the market in right now", and that is
+   * a property of the whole bar, not a price. Drawn as a plot it would need a
+   * value to sit at and would fight the pane's autoscale; as a column behind the
+   * candles it reads at a glance and costs the scale nothing.
+   *
+   * Runs after every `calc`. Return `[]` to clear the layer.
+   */
+  background?(ctx: {
+    bars: readonly Bar[];
+    values: IndicatorValues;
+    settings: Readonly<IndicatorSettings>;
+  }): readonly (string | null)[];
+  /**
+   * Optional recolouring of the **main price candles**, one entry per bar,
+   * `null` to leave that bar with its own colour.
+   *
+   * Distinct from a plot's `colorBy`, which paints the indicator's own series: a
+   * trend filter, a volatility regime or a higher-timeframe bias is a statement
+   * about the price bars themselves, and drawing it as a second series beside
+   * them says something weaker.
+   *
+   * Only one indicator's colours can be on the candles at a time; the most
+   * recent publisher wins, and publishers run in `addIndicator` order, so the
+   * winner is the same one from frame to frame. Removing it, or hiding it,
+   * restores the bars' own colours.
+   */
+  barColors?(ctx: {
+    bars: readonly Bar[];
+    values: IndicatorValues;
+    settings: Readonly<IndicatorSettings>;
+  }): readonly (string | null)[];
+  /**
+   * Optional conditions the runtime watches on the descriptor's behalf, emitted
+   * as `'indicator:alert'` on the chart's event bus with an
+   * {@link IndicatorAlertPayload}. See {@link IndicatorAlertSpec}.
+   */
+  alerts?: readonly IndicatorAlertSpec[];
   /**
    * Optional horizontal reference levels drawn in the indicator's pane.
    * Recomputed after every `calc`, so a level derived from the data (the

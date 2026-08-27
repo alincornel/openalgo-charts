@@ -559,6 +559,57 @@ in exactly the cases where there is nothing to read: bars already a day or coars
 market that never closes, or a feed whose only gaps are weekends. An intraday lunch break
 is shorter than the four-hour floor, so it is not mistaken for a close.
 
+### A window you state rather than read
+
+The helpers above read a session back from the bars, which is right when what you mean is
+"the trading day". It is the wrong tool when you mean a *particular* window inside one: an
+opening range, the cash session inside an extended one, or one exchange's hours drawn on
+another exchange's chart. The bars cannot tell you which part of a continuous session you
+meant, so you state it:
+
+```ts
+import { sessionFlags, parseSessionSpec, inSessionAt, DEFAULT_TIMEZONE } from 'openalgo-charts';
+
+calc: (bars, settings, store, ctx) => {
+  const zone = ctx?.timezone ?? DEFAULT_TIMEZONE;
+  // The first hour, on whichever calendar the axis is labelled in.
+  const opening = sessionFlags(bars.map((b) => b.time), '0915-1015', zone);
+  let hi = -Infinity, lo = Infinity;
+  return {
+    orHigh: bars.map((b, i) => {
+      if (i > 0 && opening[i] && !opening[i - 1]) { hi = -Infinity; lo = Infinity; }
+      if (opening[i]) { hi = Math.max(hi, b.high); lo = Math.min(lo, b.low); }
+      return Number.isFinite(hi) ? hi : null;
+    }),
+  };
+}
+```
+
+| Export | Returns | Use |
+|---|---|---|
+| `parseSessionSpec(spec)` | `SessionSpec \| null` | Parse `'0915-1015'`, or `'0930-1600:23456'` with a day filter. `null` on anything it does not recognise, never a throw. |
+| `inSessionAt(utcSeconds, spec, zone?)` | `boolean` | One instant against a parsed spec. |
+| `sessionFlags(times, spec, zone?)` | `boolean[]` | One flag per bar. Takes the raw string or a parsed spec. |
+
+The grammar is `HHMM-HHMM`, optionally followed by `:` and the days the window runs on,
+**1 = Sunday** through 7 = Saturday, so `'0930-1600:23456'` is Monday to Friday and an
+absent filter means every day. Whitespace around the parts is ignored.
+
+- **The window is half-open**: the start minute is inside it, the end minute is not. A bar
+  stamped exactly 10:15 belongs to what comes *after* a `0915-1015` window, which is what an
+  opening-range comparison needs.
+- **An end at or before the start runs past midnight**, so `'2330-0030'` is a one-hour
+  overnight window, and `'0000-0000'` is the whole day.
+- **The day filter names the day the window opens on**, not the day the bar falls on. For a
+  window inside one day those are the same; for one that crosses midnight it keeps the
+  session whole instead of lopping its tail off at 00:00.
+- `zone` defaults to `Asia/Kolkata` like every other zoned helper. Pass the chart's, which a
+  `calc` reads from [`ctx.timezone`](#the-calculation-context) or from the reserved
+  `settings.timezone` key.
+- **An unparseable string marks nothing**: `sessionFlags` returns an all-false array rather
+  than throwing, because the spec is usually something a user is halfway through typing.
+  Call `parseSessionSpec` yourself when you need to tell a bad spec from an empty window.
+
 ## The IndicatorApi handle
 
 `addIndicator` returns a handle:
@@ -837,6 +888,201 @@ ignored for an `onchart` descriptor, which is already on the price pane. Fills, 
 drawings and the table stay on the indicator's own pane; markers ride the **first** plot's
 series, so marking the first plot `overlay` takes them to the price pane with it.
 
+### A plot drawn as candles
+
+A single column cannot express a bar. A smoothed Heikin-Ashi overlay, a higher-timeframe
+candle, a synthetic spread instrument are all four numbers per bar, so a plot can name
+four `calc` columns instead of one:
+
+```ts
+plots: [{
+  key: 'ha',
+  type: 'candlestick',                 // or 'hollow-candle', 'bar', 'high-low'
+  title: 'Heikin-Ashi',
+  ohlc: { open: 'haOpen', high: 'haHigh', low: 'haLow', close: 'haClose' },
+}],
+calc: (bars) => ({
+  haOpen: [...], haHigh: [...], haLow: [...], haClose: [...],   // four ordinary columns
+}),
+```
+
+The four columns live in the **same `IndicatorValues`** every other descriptor returns, so
+`calc` keeps one shape and every helper written against it keeps working. A second return
+type would have forked the contract for all 91 built-ins.
+
+- `key` stays the series identity, the thing `instance.series('ha')` resolves and the thing
+  the style settings are keyed on. The legend reading falls back to the `close` column.
+- All four columns must exist and be exactly `bars.length` long. A wrong name throws out of
+  `chart.addIndicator`, because the first `calc` runs while the instance is being
+  constructed, so you get an error rather than an empty pane.
+- `colorBy` still applies and is judged on the close value, reaching body, border and wick
+  together the way [`Bar.color`](/docs/series-and-styling#per-bar-colour) does.
+- A user overriding the plot's chart type through its generated `<plotKey>:type` setting
+  degrades quietly: line, area and histogram read the `close` column.
+
+### Shading the pane by regime
+
+A regime study answers "which state is the market in right now", and that is a property of
+the whole bar, not a price. Drawn as a plot it would need a value to sit at and would drag
+the pane's autoscale around with it; drawn as a column behind the data it reads at a glance
+and costs the scale nothing.
+
+```ts
+background: ({ bars, values }) => values.trend.map((v) =>
+  v === null ? null : v > 0 ? 'rgba(38,166,154,0.10)' : 'rgba(239,83,80,0.10)'),
+```
+
+One entry per bar, `null` for a bar that should not be shaded. It runs after every `calc`
+alongside `markers`, `table` and `draws`, and the returned list replaces the previous one
+wholesale, so returning `[]` clears the layer.
+
+- The shading contributes **nothing to autoscale**, and it is drawn in the indicator's own
+  pane.
+- Band edges are bar midpoints, so consecutive bars sharing a colour coalesce into one fill
+  and two neighbouring runs abut exactly rather than overlapping by a pixel. Everything
+  outside the visible range is dropped before any painting, so a two-state regime over 50k
+  bars is a handful of fills per frame, not one per bar.
+- **Pass a translucent `rgba()`.** The layer sits below the series but above the grid, so an
+  opaque colour hides the grid lines inside its band.
+- The colours are anchored to the first bar's **time**, so a page of history arriving at the
+  left edge does not slide the shading off the bars it describes.
+- The layer is created lazily on the first non-empty result, and hidden rather than detached
+  when the indicator is hidden.
+
+`IndicatorBackground` is exported, so the same layer works as a plain primitive with no
+indicator behind it, the way `IndicatorDrawings` does:
+
+```ts
+import { IndicatorBackground } from 'openalgo-charts';
+
+const shade = new IndicatorBackground();
+chart.addPrimitive(shade, 0);          // pane index
+shade.setColors(colors, bars);         // `bars` supplies the time anchor
+shade.setVisible(false);
+```
+
+### Recolouring the price candles
+
+`colorBy` paints the indicator's own series. `barColors` paints the **price bars**, which is
+a different statement: a trend filter, a volatility regime or a higher-timeframe bias is a
+claim about the candles themselves, and drawing it as a second series beside them says
+something weaker.
+
+```ts
+barColors: ({ bars, values }) => values.bias.map((v) =>
+  v === null ? null : v > 0 ? '#26a69a' : '#ef5350'),
+```
+
+One entry per price bar, `null` to leave that bar its own colour. Hiding the indicator
+withdraws the colours, and so does removing it.
+
+The engine never writes into the bar objects you handed `setData`: it clones only the bars
+whose colour actually changes and republishes those, so the overlay cannot reach back into
+your array or outlive the indicator. A pass where nothing changed writes nothing at all,
+which is the common case on a live tick.
+
+<Callout type="warning">
+**Only one indicator's colours can be on the candles at a time.** The most recent publisher
+wins, which is deterministic rather than arbitrary: publishers run in `addIndicator` order,
+so the same instance wins every frame. Two known gaps follow from keeping this cheap:
+
+- Removing the **winner** while a second publisher is still live drops the bars back to
+  their own colours until that publisher's next recompute.
+- The bars' own colours are snapshotted the first time an index is touched, and the
+  snapshot is dropped when the first bar's time changes. Prepending older history changes
+  it, so the snapshot is retaken from bars that already carry the overlay. That is
+  invisible while the indicator is live, and shows up as a tinted left-hand region if you
+  then remove it.
+</Callout>
+
+### The calculation context
+
+`calc` and `calcTail` take one more optional argument: what the calculation cannot read off
+the bars themselves. It is **optional and trailing**, so every descriptor written against
+`calc(bars, settings, store)` keeps its exact signature and its exact behaviour.
+
+```ts
+calc: (bars, settings, store, ctx) => {
+  const signal = compute(bars, settings);
+  // Do not signal off a bar that is still moving. Default to acting, so a
+  // caller that passes no context behaves the way it always did.
+  const settled = ctx?.barState.isConfirmed ?? true;
+  if (!settled) signal[signal.length - 1] = null;
+  return { signal };
+},
+calcTail: (bars, settings, from, previous, store, ctx) => { ... },
+```
+
+**`IndicatorCalcContext`**
+
+| Member | Type | Description |
+|---|---|---|
+| `barState.isNew` | `boolean` | The most recent update **appended** a bar rather than replacing one. False on a full history load, because there was no update to append. |
+| `barState.isConfirmed` | `boolean` | The last bar's own span has elapsed on the chart clock. |
+| `barState.isRealtime` | `boolean` | A live feed is driving updates rather than a one-off load. Sticky: set the first time a tail-only change lands, and never cleared. |
+| `barState.lastIndex` | `number` | `bars.length - 1`, and `-1` when there are no bars. |
+| `symbol` | `string?` | The instrument, when the host knows one. |
+| `interval` | `string?` | The timeframe (`'5m'`, `'1d'`), on the same terms. |
+| `timezone` | `string` | The chart's IANA zone, the calendar its axis is labelled in. |
+| `now()` | `number` | Chart wall clock in UTC seconds, the clock the countdown row reads. |
+
+<Callout type="info">
+**`isConfirmed` is inferred from the last bar's gap against the chart clock**, because that
+is the only interval signal the engine has: it is handed bars and never a timeframe. A
+session break or a holiday widens that gap, so read it as "this bar's own span has elapsed",
+not as "the exchange has closed".
+
+`symbol` and `interval` are `undefined` under `chart.addIndicator`, for the same reason they
+are on [the attach context](#the-attach-context): the core is handed bars and never an
+instrument, so it answers "I do not know" rather than inventing a name. A host that owns the
+symbol picker supplies both through its own `IndicatorHost`. When you do have `interval`, the
+[interval introspection helpers](/docs/custom-intervals#reading-a-code-back) turn it into a
+count and a unit rather than a string match against the handful of codes you happened to
+test on.
+</Callout>
+
+### Alerts
+
+A crossover of an indicator's own columns is something only that indicator knows how to
+name, so the condition is declared on the descriptor and the runtime watches it:
+
+```ts
+alerts: [{
+  id: 'cross-up',                       // stable within the descriptor
+  title: 'MACD crossed up',
+  message: 'MACD histogram turned positive',   // defaults to `title`
+  when: ({ values, index }) => {
+    const h = values.histogram;
+    return index > 0 && (h[index - 1] ?? 0) <= 0 && (h[index] ?? 0) > 0;
+  },
+}],
+```
+
+A trigger emits [`indicator:alert`](/docs/events#indicator-alerts) on the chart's own bus:
+
+```ts
+chart.on('indicator:alert', ({ indicatorId, instanceId, alertId, title, time }) => {
+  notify(`${title} at ${new Date(time * 1000).toLocaleTimeString()}`);
+});
+```
+
+`when` is handed `{ bars, values, settings, index }` and judges **one bar**, so a rule that
+compares against the previous bar reads `index - 1` itself.
+
+<Callout type="warning">
+**Alerts fire only on a tail-only change**, the same gate `calcTail` uses and for the same
+reason. Any other pass reseeds the watermark silently, so adding the indicator to a loaded
+chart, changing a setting, paging history in, or switching symbol announces nothing. An
+indicator dropped onto two years of bars must not fire every crossover in them at once.
+
+The watermark is a bar **time**, not a count, so a page of older bars arriving at the left
+edge cannot re-fire the chart.
+</Callout>
+
+For a signal that arrives from outside the calculation entirely (a subscription your
+`attach` opened), use the imperative half instead: `ctx.emit(event, payload)` on
+[the attach context](#the-attach-context) puts anything you like on the same bus.
+
 ### Descriptor reference
 
 | Field | Type | Description |
@@ -846,13 +1092,16 @@ series, so marking the first plot `overlay` takes them to the price pane with it
 | `category` | `string?` | Grouping for a picker UI. |
 | `placement` | `'onchart' \| 'pane'` | Overlay the price pane, or take a new one. |
 | `inputs` | `IndicatorInput[]` | Tunable settings; `type` is what a settings UI renders. |
-| `plots` | `IndicatorPlot[]` | One per drawn series. `type` is any registered chart type; `overlay: true` puts that one plot on the price pane. |
+| `plots` | `IndicatorPlot[]` | One per drawn series. `type` is any registered chart type; `overlay: true` puts that one plot on the price pane; [`ohlc`](#a-plot-drawn-as-candles) names four columns so the plot draws as bars. |
 | `fills` | `IndicatorFillSpec[]?` | Optional shaded bands. `between` names two `calc` columns, which need not be plots. |
-| `calc` | `(bars, settings, store) => IndicatorValues` | Full recompute. |
-| `calcTail` | `(bars, settings, fromIndex, previous, store) => IndicatorValues \| null` | Optional incremental path. |
+| `calc` | `(bars, settings, store, ctx?) => IndicatorValues` | Full recompute. `ctx` is the optional [calculation context](#the-calculation-context). |
+| `calcTail` | `(bars, settings, fromIndex, previous, store, ctx?) => IndicatorValues \| null` | Optional incremental path. |
 | `markers` | `({ bars, values, settings }) => SeriesMarker[]` | Optional bar-anchored signal markers, run after every `calc`. |
 | `table` | `({ bars, values, settings }) => \{ rows, options \} \| null` | Optional corner-pinned summary grid, run after every `calc`. |
 | `draws` | `({ bars, values, settings }) => IndicatorDrawing[]` | Optional free-standing shapes anchored to time and price, run after every `calc`. |
+| `background` | `({ bars, values, settings }) => (string \| null)[]` | Optional [per-bar shading](#shading-the-pane-by-regime) behind the indicator's own pane, run after every `calc`. |
+| `barColors` | `({ bars, values, settings }) => (string \| null)[]` | Optional [recolouring of the price candles](#recolouring-the-price-candles), run after every `calc`. |
+| `alerts` | `IndicatorAlertSpec[]?` | Optional [conditions the runtime watches](#alerts), emitted as `indicator:alert`. |
 | `levels` | `(ctx) => IndicatorLevel[]` | Optional horizontal reference lines. `ctx` is the settings plus `bars` and `values`, so a level can be data-derived. |
 | `range` | `(settings) => \{ min, max \} \| null` | Optional fixed pane range (RSI 0..100). |
 | `attach` | `(ctx) => (() => void) \| void` | Optional lifecycle for external data (Tier 2). |
@@ -974,6 +1223,7 @@ settings change, and it returns a teardown function. The context it is handed:
 | `now?()` | `number` | Chart wall clock in UTC seconds: the same clock the countdown reads, so an indicator deciding whether the last bar is still forming agrees with the axis about it. |
 | `paneIndex?()` | `number` | The pane this instance drew into. Moves when panes are reordered, so read it rather than storing it. |
 | `addPrimitive?(p)` / `removePrimitive?(p)` | `void` | Attach an arbitrary primitive to this indicator's pane, and detach it again. Anything you attach is yours to remove in the teardown. |
+| `emit?(event, payload)` | `void` | Put an event on the chart's own bus, the one `chart.on(name, cb)` listens to. The imperative half of [`alerts`](#alerts): use it when the signal arrives from outside the calculation rather than from the bars. |
 
 Everything after `store` is optional so a minimal context can be hand-built (a unit test
 exercising one descriptor's lifecycle), but the runtime always supplies them.

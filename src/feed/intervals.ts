@@ -278,3 +278,101 @@ export function nextBucketStart(b: Bucketing, timeSec: number, zone?: string): n
   const tz = calendarZone(b, zone);
   return startOfMonthIndex(calendarIndex(b, timeSec, tz) + stepMonths(b), tz);
 }
+
+// ---------------------------------------------------------------------------
+// Introspection
+// ---------------------------------------------------------------------------
+
+/**
+ * How a bar's length reads to a human: a count, and the unit it counts.
+ *
+ * `M` is months, so a quarter reads as 3 and a year as 12, keeping the token
+ * grammar's rule that lower-case `m` is minutes and upper-case `M` is a month.
+ * `tick` counts trades. `other` is a bucket with neither a clock length nor a
+ * trade count, which today means volume, and is where a later count-driven
+ * mode can land without silently changing what an existing unit means.
+ */
+export interface IntervalParts {
+  multiplier: number;
+  unit: 's' | 'm' | 'h' | 'D' | 'W' | 'M' | 'tick' | 'other';
+}
+
+/**
+ * Split a code into a count and a unit, or null when nothing recognises it.
+ * For an indicator that knows its own interval and wants to reason about it,
+ * rather than hard-coding the handful of codes its author happened to test on.
+ *
+ * Read off the bucketing rule, not off the code's spelling, so it answers for
+ * a registered code the built-in grammar never parsed, and it answers
+ * canonically: `120m` and `2h` are the same bar and both read as 2 h. The
+ * coarsest unit that divides the length wins, which is also why a 90-second
+ * bar reads as 90 s rather than as one and a half minutes.
+ */
+export function intervalParts(code: string): IntervalParts | null {
+  const found = tryResolveInterval(code);
+  if (found === null) return null;
+  const b = found.bucketing;
+  if (b.mode === 'ticks') return { multiplier: b.count, unit: 'tick' };
+  if (b.mode === 'volume') return { multiplier: b.perBar, unit: 'other' };
+  if (b.mode === 'calendar') return { multiplier: stepMonths(b), unit: 'M' };
+  const s = b.seconds;
+  if (s % 604800 === 0) return { multiplier: s / 604800, unit: 'W' };
+  if (s % 86400 === 0) return { multiplier: s / 86400, unit: 'D' };
+  if (s % 3600 === 0) return { multiplier: s / 3600, unit: 'h' };
+  if (s % 60 === 0) return { multiplier: s / 60, unit: 'm' };
+  return { multiplier: s, unit: 's' };
+}
+
+/**
+ * Bar length in seconds, or 0 when the code has no fixed one: unregistered, a
+ * calendar period, or count-driven.
+ *
+ * The predicates below ask this rather than asking `intervalParts` for a unit,
+ * because a unit is a decomposition and not a magnitude: a 25-hour code, odd
+ * but registrable, decomposes into hours while covering more than a day.
+ */
+function fixedSeconds(code: string): number {
+  const b = tryResolveInterval(code)?.bucketing;
+  return b !== undefined && b.mode === 'interval' ? b.seconds : 0;
+}
+
+/**
+ * True when the bar is not a whole number of minutes long, so its labels need
+ * second precision. `1s`, `15s` and `90s` all qualify; `5m` does not.
+ */
+export function isSecondsInterval(code: string): boolean {
+  const s = fixedSeconds(code);
+  return s > 0 && s % 60 !== 0;
+}
+
+/**
+ * True for a fixed-length bar shorter than a day: the ones that want a session
+ * reset, such as a VWAP anchored to the day's open or an opening range.
+ *
+ * A calendar period is false because it is coarser, and a count-driven bar is
+ * false because it has no clock length to compare, not because it is known to
+ * be long. Ask `isTickInterval` or `intervalParts` for those.
+ */
+export function isIntradayInterval(code: string): boolean {
+  const s = fixedSeconds(code);
+  return s > 0 && s < 86400;
+}
+
+/**
+ * True for a bar exactly one day long, whether spelled `D`, `24h` or `1440m`.
+ *
+ * Deliberately not "daily or coarser": weekly and monthly answer false, so a
+ * caller can branch on intraday, daily and coarser as three independent
+ * questions instead of an ordered ladder where the wrong order swallows a case.
+ */
+export function isDailyInterval(code: string): boolean {
+  return fixedSeconds(code) === 86400;
+}
+
+/**
+ * True for a bar that closes after N trades. Volume bars close on quantity, not
+ * on trade count, so they answer false; `intervalParts` separates the two.
+ */
+export function isTickInterval(code: string): boolean {
+  return tryResolveInterval(code)?.bucketing.mode === 'ticks';
+}

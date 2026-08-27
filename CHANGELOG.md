@@ -2,6 +2,216 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.8.1
+
+The indicator descriptor learns what the *chart* is doing, not only what the
+bars say: where the last bar stands, when a condition it declared came true, and
+how to state a regime as shading or as a colour on the price candles themselves.
+Around that, five smaller things a study or a host kept having to hand-roll: a
+plot that draws as candles, a session window stated rather than inferred, an
+interval read as a count and a unit, the two colour helpers every per-bar
+colouring rule ends up rewriting, and a price or a bar time picked off the chart
+instead of typed into a field.
+
+### Added
+
+- **`IndicatorCalcContext`, the optional fourth argument to `calc`.** It carries
+  `barState` (`isNew`, `isConfirmed`, `isRealtime`, `lastIndex`), `symbol`,
+  `interval`, `timezone` and `now()`, so a study can act once per bar rather than
+  once per tick, or refuse to signal off a bar that is still moving. `calcTail`
+  takes it as a sixth argument.
+
+  Optional and **trailing**, which is the whole point: all 91 built-ins and every
+  user descriptor written against `calc(bars, settings, store)` keep their exact
+  signature and their exact behaviour. A calculation that ignores the context
+  computes what it always did.
+
+  `isConfirmed` is inferred from the last bar's gap against the chart clock,
+  because that is the only interval signal the engine has: it is handed bars and
+  never a timeframe. A session break or a holiday widens the gap, so it reads as
+  "this bar's own span has elapsed", not as "the exchange has closed".
+  `isRealtime` is sticky, set the first time a tail-only change lands. `isNew` is
+  false on a full history load, since there was no update to append. `symbol` and
+  `interval` answer `undefined` under `chart.addIndicator`, on the same terms as
+  the attach context.
+
+- **`alerts`, conditions the runtime watches on the descriptor's behalf.** A
+  crossover of an indicator's own columns is something only that indicator knows
+  how to name, so the spec is declared as data (`id`, `title`, optional
+  `message`, and a `when` predicate judging one bar) and a trigger arrives as
+  `'indicator:alert'` on the chart's own bus with an `IndicatorAlertPayload`.
+
+  Alerts fire **only on a tail-only change**, reusing the same gate `calcTail`
+  uses and for the same reason. Any other pass reseeds the watermark silently, so
+  adding an indicator to a loaded chart, changing a setting, paging history in or
+  switching symbol announces nothing: an indicator dropped onto two years of bars
+  must not fire every crossover in them at once. The watermark is a bar **time**,
+  not a count, so a page of older bars at the left edge cannot re-fire the chart.
+
+  `IndicatorAttachContext.emit(event, payload)` is the imperative half, for a
+  signal that arrives from outside the calculation entirely. New types:
+  `IndicatorAlertSpec`, `IndicatorAlertContext`, `IndicatorAlertPayload`.
+
+- **`background`, per-bar shading behind the indicator's own pane.** A regime
+  study answers "which state is the market in", which is a property of the whole
+  bar rather than of a price: as a plot it would need a value to sit at and would
+  drag the pane's autoscale around with it. One colour per bar, `null` to leave a
+  bar unshaded, `[]` to clear the layer.
+
+  The cost is in the work skipped. Everything outside the visible range is
+  dropped before anything is painted, and adjacent bars sharing a colour coalesce
+  into one rect, so a two-state regime over 50k bars is a handful of fills a
+  frame rather than one per bar. Band edges are bar midpoints, so two runs abut
+  exactly instead of overlapping by a pixel, and the edges are clamped to the
+  plot because nothing clips them: the axis strips share that canvas. The layer
+  contributes nothing to autoscale and is anchored to the first bar's **time**,
+  so a page of history at the left edge does not slide the shading off its bars.
+  It draws over the grid, so a descriptor should pass a translucent `rgba()`.
+  `IndicatorBackground` is exported and usable as a plain primitive.
+
+- **`barColors`, recolouring the price candles from a study's verdict.** Distinct
+  from a plot's `colorBy`, which paints the indicator's own series: a trend
+  filter, a volatility regime or a higher-timeframe bias is a claim about the
+  price bars themselves, and drawing it as a second series beside them says
+  something weaker.
+
+  The engine never writes into the bars the caller handed `setData`. It clones
+  only the ones whose colour actually changes and republishes those straight to
+  the data layer, so the time points and the base index do not move and no
+  recompute cascade follows; a pass where nothing changed writes nothing at all,
+  which is the common case on a live tick.
+
+  Only one overlay can be on the candles, so this is last writer wins, which is
+  deterministic rather than arbitrary: publishers run in `addIndicator` order, so
+  the same instance wins every frame. Withdrawal is gated on ownership. Two gaps
+  are known and left in rather than paid for in base bytes: removing the
+  **winner** while a second publisher is still live drops the bars back to their
+  own colours until that publisher's next recompute, and prepending older history
+  retakes the "own colour" snapshot from bars that already carry the overlay, so
+  removing the indicator afterwards leaves the pre-prepend region tinted.
+
+- **`IndicatorPlot.ohlc`, a plot drawn as candles.** Four `calc` keys naming
+  four columns in the **same** `IndicatorValues`: a smoothed Heikin-Ashi overlay,
+  a higher-timeframe candle, a synthetic spread instrument each return four
+  ordinary columns and point at them. A second result shape for `calc` would have
+  forked the contract every descriptor and every helper is written against.
+
+  `key` stays the series identity and the legend reading falls back to the
+  `close` column. The named columns must all exist and be bar-aligned or
+  `addIndicator` throws, which it can do because the first `calc` runs inside the
+  instance constructor: a wrong column name is an error rather than an empty
+  pane. A type override on the plot degrades quietly, since line, area and
+  histogram read `close`.
+
+- **Session windows you state rather than infer.** `parseSessionSpec('0915-1015')`,
+  `inSessionAt(utcSeconds, spec, zone?)` and `sessionFlags(times, spec, zone?)`,
+  with `SessionSpec` as the parsed form. `sessionStartFlags` reads the trading day
+  back out of the bar gaps, which cannot answer which *part* of a session you
+  meant: an opening range, the cash hours inside an extended session, one
+  exchange's hours drawn on another exchange's chart.
+
+  The grammar is `HHMM-HHMM`, optionally `:` and the days the window opens on
+  (1 = Sunday). The window is half-open, so a bar stamped exactly at the end
+  belongs to what comes after it, which is what an opening-range comparison
+  needs. An end at or before the start runs past midnight, which makes
+  `start === end` the whole day rather than nothing. The day filter names the day
+  the window **opens** on, so an overnight window stays one session instead of
+  being cut in half at 00:00. An unparseable string marks nothing rather than
+  throwing, because it is normally a settings field a user is halfway through
+  typing.
+
+- **Interval introspection: `intervalParts`, `isIntradayInterval`,
+  `isDailyInterval`, `isSecondsInterval`, `isTickInterval`**, with the
+  `IntervalParts` type. A study written against `'1m'`, `'5m'` and `'15m'`
+  silently misbehaves on `'3m'`, and a host's own registered code was never in
+  anybody's list at all.
+
+  The answer is read off the **bucketing rule**, not the code's spelling, so it
+  is canonical (`'120m'` and `'2h'` both read 2 h, a 90-second bar reads 90 s) and
+  it answers for any registered code. `M` is months, keeping the token grammar's
+  rule that lower-case `m` is minutes, so a quarter reads 3 M and a year 12 M.
+  The length predicates ask about a magnitude rather than a unit, so a
+  registrable `25h` decomposes into hours while answering false to
+  `isIntradayInterval`. A calendar or count-driven code has no clock length at
+  all rather than a long one.
+
+- **`withAlpha` and `fromGradient` on the public surface.** Per-bar colour means
+  computing a colour string per bar, and hand-rolling that ends in a private
+  `#rrggbb` parser in every project. `withAlpha` was already the engine's own and
+  simply had no export path; `fromGradient(value, min, max, low, high)` is new and
+  blends in sRGB, alpha included, clamped outside the range.
+
+  It reuses the single existing colour parser rather than adding a second, and
+  allocates only the result string per call: no closure, no cache, no lookup
+  table. The clamp is two comparisons rather than `Math.min`/`Math.max` because
+  both are false against a not-available value, which lands it on `low` instead
+  of emitting `rgba(NaN,...)`. That is not cosmetic: canvas ignores an
+  unparseable `fillStyle` and silently keeps the previous one, so a NaN string
+  would bleed the neighbouring bar's colour across this one rather than failing
+  visibly.
+
+- **`chart.beginPick(kind, cb)`, interactive value capture.** A settings field
+  naming a price or a time is host chrome, but the value is often easier to point
+  at than to type, and only the engine knows what is under the cursor. The host
+  arms a pick, the next plot click answers with a number, and the pick disarms
+  itself; the returned function cancels it.
+
+  Built on the `click` event the draw tier already resolves anchors from, so it
+  inherits pane resolution, on-demand autoscale and the same payload rather than
+  adding a second capture path. Placement mode is deliberately **not** armed
+  while picking: a pick wants panning left alone (scroll back to the bar you
+  mean, then click it), and outside placement mode a drag emits no click, so
+  panning cannot answer a pick by accident, and arming a pick never cancels an
+  active drawing tool. A `'time'` pick snaps to the bar clicked, because the raw
+  click time is interpolated between bars on the gapless axis and matches no bar.
+  A click the chart could not resolve leaves the pick armed rather than answering
+  with a bogus number. One pick per chart, held in a `WeakMap` keyed on the host,
+  so arming a second cancels the first and a destroyed chart takes its pending
+  pick with it. `'pick:start'` and `'pick:end'` bracket it for a host that wants
+  to swap its cursor. New types: `PickKind`, `PickHost`.
+
+### Changed
+
+- **`IndicatorHost` gained two optional members**, `setBarColors(colors, owner)`
+  and `emit(event, payload)`. Both optional, so a host implementing the interface
+  itself needs no change; a host that wants indicator bar colours or indicator
+  alerts implements them.
+
+### Sizes
+
+Base rises 57.31 to 59.07 kB, against its unchanged 60 kB budget.
+
+Of the 1.76 kB, the runtime spine plus the background primitive is 980 B and is
+unavoidable: `IndicatorBackground` is constructed by the indicator runtime, which
+is base. The remaining 776 B is the barrel exports plus the one `chart.ts` hook
+(sessions 226 B, interval introspection 174 B, pick 115 B, the gradient helpers
+21 B, and roughly 240 B of joint export-map cost that only disappears if all four
+go). The registry additions are pure type declarations and cost nothing.
+
+| Tier | Measured | Budget |
+|---|---:|---:|
+| Base engine | 59.07 KB | 60 KB |
+| Base + trade | 66.67 KB | 66 KB (over; see below) |
+| Indicators | 25.04 KB | 27 KB |
+| Draw | 13.13 KB | 14 KB |
+| Transform | 2.66 KB | 5 KB |
+| Profile | 10.66 KB | 11 KB |
+| Everything | 118.16 KB | 120 KB |
+| Chart-only, tree-shaken | 37.55 KB | 38 KB |
+
+**The base+trade entry needs a decision before release.** `size-limit` sums the
+per-file figures rather than compressing the concatenation, so a 66 kB combined
+limit caps the base at 58.39 kB, which is 1.61 kB tighter than the base's own
+budget. That is exactly the outcome 1.7.1's Sizes section says it was avoiding:
+it raised the pair to 60 and **68** kB because doing so "keeps the trade allowance
+where it was instead of making the combined entry a stricter constraint on the
+base than the base's own budget". The config carries 66, and it is the older
+artefact by timestamp. The trade tier itself has not moved: it is 7.61 kB of the
+combined figure against the 8 kB it has always had. Against 68 kB this release
+passes with 1.33 kB spare.
+
+1953 tests across 106 files. Zero runtime dependencies.
+
 ## 1.7.1
 
 The indicator descriptor gains the parts a ported study needs and could not
@@ -1813,7 +2023,7 @@ colour during live ticks, and `version()` catching up with the package version.
 
 ## 1.0.11
 
-16 more drawing tools, TradingView-style rail flyouts, and the fix for a blank
+16 more drawing tools, rail flyout menus, and the fix for a blank
 region that could appear under the chart and persist across reloads.
 532 unit tests.
 
@@ -1834,7 +2044,7 @@ region that could appear under the chart and persist across reloads.
   so it matches the gapless axis rather than raw elapsed time.
 
 - **Rail flyout menus in the yfinance demo.** Rail groups now open a sectioned
-  list of their tools — the pattern TradingView uses — instead of cycling tools
+  list of their tools, the pattern professional terminals use, instead of cycling tools
   on repeat clicks, which was undiscoverable past two. The button re-activates
   the last tool picked; the caret opens the list. Icons were redrawn on a 24x24
   grid with a thinner stroke and outlined endpoint handles.
@@ -1878,7 +2088,7 @@ region that could appear under the chart and persist across reloads.
 
 Market Profile brought up to a full TPO implementation, row height became a
 setting rather than a side effect of tick size, and the chart gained
-TradingView-style hover-revealed zoom controls. 518 unit tests.
+hover-revealed zoom controls. 518 unit tests.
 
 ### Added
 
@@ -1987,7 +2197,7 @@ Order-flow overhaul, drag-to-draw, shape text, and a price-axis density fix.
   `textPosition`; rectangles, ellipses, and parallel channels now render a
   `style.text` label — one shape with two colours (`color` strokes the outline,
   `fontColor` paints the label). `textPosition: 'inside'` with
-  `textVAlign` x `textAlign` gives the nine placements a TradingView shape-text
+  `textVAlign` x `textAlign` gives the nine placements a shape-text
   panel exposes; `'outside'` parks the block above the shape.
 
 - **Live order-flow demo** (`examples/orderflow/index.html`). Synthetic classified
@@ -2117,7 +2327,7 @@ state, and pane chrome they need. Base engine ~32.7 KB Brotli, full package
   origin) so a consumer's delta measures from the press rather than the first
   move. The `click` event now also fires on empty plot, with position and a null
   `id` — what a tool that *places* something needs.
-- **Pane legends with inline controls.** `PaneLegend` draws the TradingView-style
+- **Pane legends with inline controls.** `PaneLegend` draws the terminal-style
   row at a pane's top-left — swatch, name, parameters, and **one reading per
   plot in that plot's own colour** (a single number in a single colour cannot
   say which value belongs to which line of an MA ribbon or MACD), tracking the
@@ -2235,7 +2445,7 @@ state, and pane chrome they need. Base engine ~32.7 KB Brotli, full package
 ## 1.0.6
 
 ### Added
-- `BuySellButtons` — an inline, TradingView-style trade panel drawn on the chart
+- `BuySellButtons`, an inline trade panel drawn on the chart
   (a `SELL` button, a quantity chip, and a `BUY` button, docked to a corner and
   fixed while the chart pans/zooms). Clicks hit-test to `${id}:sell` /
   `${id}:buy` / `${id}:qty`, routed through `chart.subscribeClick`, so the app
@@ -2337,7 +2547,7 @@ the order-update stream).
 
 ## 1.0.3
 
-Cosmetic parity to close the last visual gaps for a lightweight-charts migration.
+Cosmetic parity to close the last visual gaps for a migration off another engine.
 318 unit tests; base engine ~24.8 KB Brotli.
 
 ### Added

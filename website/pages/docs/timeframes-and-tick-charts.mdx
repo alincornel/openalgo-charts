@@ -59,6 +59,13 @@ broker's `M` means a month, and register `1Q`, `T500` or `V10K` before you use t
 [Custom Intervals](/docs/custom-intervals).
 </Callout>
 
+To branch on the timeframe (does this need a session reset, does the axis need seconds), ask
+the registry rather than matching on the string. `intervalParts('120m')` and
+`intervalParts('2h')` both answer 2 hours, and `isIntradayInterval`, `isDailyInterval`,
+`isSecondsInterval` and `isTickInterval` answer the yes-or-no questions directly, for any
+registered code and not only for the built-in tokens. See
+[Reading a code back](/docs/custom-intervals#reading-a-code-back).
+
 ## Second timeframes (live)
 
 `CandleBuilder` buckets a tick stream into interval OHLC. `intervalSec` can be any number of

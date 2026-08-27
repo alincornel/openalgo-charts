@@ -17,6 +17,7 @@ import type { IPrimitive } from '../primitives/primitive';
 import type { IndicatorFillSpec, IndicatorPlot } from './indicator-registry';
 import { IndicatorFill as IndicatorFillPrimitive } from '../primitives/indicator-fill';
 import { IndicatorDrawings } from '../primitives/indicator-draws';
+import { IndicatorBackground } from '../primitives/indicator-background';
 
 import { withAlpha } from '../render/pill';
 import { DEFAULT_TIMEZONE } from '../feed/time';
@@ -24,6 +25,7 @@ import {
   indicatorDefaults,
   indicatorStyleInputs,
   plotStyleKeys,
+  type IndicatorCalcContext,
   type IndicatorDescriptor,
   type IndicatorLevelContext,
   type IndicatorLineStyle,
@@ -131,6 +133,19 @@ export interface IndicatorHost {
   interval?(): string | undefined;
   /** Chart wall clock in UTC seconds. Absent means the system clock. */
   now?(): number;
+  /**
+   * Publish an indicator's per-bar colours onto the **primary price series**,
+   * or withdraw them with `null`. `owner` is the instance id: a host holds one
+   * overlay at a time and only lets its current owner withdraw it, so a second
+   * publisher taking over does not get cleared by the first one's teardown.
+   *
+   * Optional, like `timezone`: a host that does not implement it simply gives a
+   * `barColors` descriptor nowhere to publish, and the indicator's own plots are
+   * unaffected.
+   */
+  setBarColors?(colors: readonly (string | null)[] | null, owner: string): void;
+  /** Emit on the chart's event bus (indicator alerts, and `attach`'s own events). */
+  emit?(event: string, payload: unknown): void;
   /** Pin a pane's price scale to a fixed range, or release it with `null`. */
   setPaneRange(paneIndex: number, range: { min: number; max: number } | null): void;
 }
@@ -204,6 +219,15 @@ export class IndicatorInstance implements IndicatorApi {
   private _markers: SeriesMarkers | null = null;
   private _table: ChartTable | null = null;
   private _draws: IndicatorDrawings | null = null;
+  private _background: IndicatorBackground | null = null;
+  /**
+   * Time of the newest bar the alerts have already judged. Bars at or before it
+   * are history as far as this instance is concerned, so a full recompute (a
+   * settings change, a page of older bars) re-fires nothing.
+   */
+  private _alertTime = 0;
+  /** Set once a tail-only change lands, which is what a live feed looks like. */
+  private _live = false;
   private _visible = true;
 
   public constructor(
@@ -322,9 +346,12 @@ export class IndicatorInstance implements IndicatorApi {
     for (const band of this._fills) band.setVisible(on);
     // Markers are a separate primitive, so hiding the plots does not hide them;
     // re-running the sync clears the layer (or repopulates it) explicitly.
-    this._syncMarkers(this._host.sourceBars());
-    this._syncTable(this._host.sourceBars());
+    const bars = this._host.sourceBars();
+    this._syncMarkers(bars);
+    this._syncTable(bars);
+    this._syncBarColors(bars);
     this._draws?.setVisible(on);
+    this._background?.setVisible(on);
     this._legend?.setOptions({ hidden: !on });
   }
 
@@ -350,7 +377,9 @@ export class IndicatorInstance implements IndicatorApi {
     if (i < 0) { this._legend.setValues([]); return; }
     const out: LegendValue[] = [];
     for (const plot of this._d.plots) {
-      const v = this._values[plot.key]?.[i];
+      // A bar-shaped plot's `key` names no column of its own, so the legend
+      // reads the close, which is the number a candle legend shows anyway.
+      const v = this._values[plot.ohlc?.close ?? plot.key]?.[i];
       if (v === null || v === undefined || !Number.isFinite(v)) continue;
       out.push({ text: formatValue(v), color: this._plotColor(plot) });
     }
@@ -444,6 +473,103 @@ export class IndicatorInstance implements IndicatorApi {
     this._draws.setItems(items);
   }
 
+  /**
+   * Refresh the pane's per-bar shading, created lazily on first use the way the
+   * drawing layer is. Hidden rather than detached when the indicator is hidden,
+   * because a regime background is the cheapest layer here to keep around.
+   */
+  private _syncBackground(bars: readonly Bar[]): void {
+    if (this._d.background === undefined) return;
+    const colors = this._d.background({ bars, values: this._values, settings: this._descriptorSettings() });
+    if (this._background === null) {
+      if (colors.length === 0 || this._host.addIndicatorPrimitive === undefined) return;
+      this._background = new IndicatorBackground();
+      this._background.setVisible(this._visible);
+      this._host.addIndicatorPrimitive(this._background, this.paneIndex);
+    }
+    this._background.setColors(colors, bars);
+  }
+
+  /**
+   * Publish the descriptor's price-bar colours, or withdraw them while hidden.
+   * The host owns the arbitration between two publishers (see `setBarColors`);
+   * all this side does is state what this instance currently wants.
+   */
+  private _syncBarColors(bars: readonly Bar[]): void {
+    if (this._d.barColors === undefined) return;
+    const colors = this._visible
+      ? this._d.barColors({ bars, values: this._values, settings: this._descriptorSettings() })
+      : null;
+    this._host.setBarColors?.(colors, this.id);
+  }
+
+  /**
+   * Fire the descriptor's alerts for bars that have appeared since the last
+   * pass. The watermark is a bar **time**, not a count: a page of history
+   * arriving at the left edge changes every index and would otherwise re-fire
+   * the whole chart.
+   *
+   * Only a tail-only change can fire, which is the same gate `calcTail` uses and
+   * for the same reason: any other change replaced history, and an indicator
+   * dropped onto a loaded chart (or moved to another symbol) must not announce
+   * every crossover of the last two years at once. Such a pass reseeds silently.
+   */
+  private _syncAlerts(
+    bars: readonly Bar[],
+    settings: Readonly<IndicatorSettings>,
+    tailOnly: boolean,
+  ): void {
+    const specs = this._d.alerts;
+    const n = bars.length;
+    if (specs === undefined || n === 0) return;
+    const seen = this._alertTime;
+    this._alertTime = bars[n - 1].time;
+    if (!tailOnly) return;
+    let from = n;
+    while (from > 0 && bars[from - 1].time > seen) from--;
+    for (let i = from; i < n; i++) {
+      for (const spec of specs) {
+        if (!spec.when({ bars, values: this._values, settings, index: i })) continue;
+        this._host.emit?.('indicator:alert', {
+          indicatorId: this.indicatorId,
+          instanceId: this.id,
+          alertId: spec.id,
+          title: spec.title,
+          message: spec.message ?? spec.title,
+          time: bars[i].time,
+          index: i,
+        });
+      }
+    }
+  }
+
+  /**
+   * The optional fourth argument to `calc`, rebuilt per recompute because
+   * `barState` is the whole reason it exists and it moves every tick.
+   *
+   * `isConfirmed` is inferred from the last bar gap against the chart clock,
+   * which is the only interval signal the engine has: it is handed bars and
+   * never a timeframe. A session break or a holiday widens that gap, so read it
+   * as "this bar's own span has elapsed", not as an exchange close.
+   */
+  private _calcContext(bars: readonly Bar[], appended: boolean): IndicatorCalcContext {
+    const n = bars.length;
+    const now = (): number => this._host.now?.() ?? Date.now() / 1000;
+    const step = n > 1 ? bars[n - 1].time - bars[n - 2].time : 0;
+    return {
+      barState: {
+        isNew: appended,
+        isConfirmed: n === 0 || step <= 0 || now() >= bars[n - 1].time + step,
+        isRealtime: this._live,
+        lastIndex: n - 1,
+      },
+      symbol: this._host.symbol?.(),
+      interval: this._host.interval?.(),
+      timezone: this._host.timezone?.() ?? DEFAULT_TIMEZONE,
+      now,
+    };
+  }
+
   /** The chart type to draw a plot as: the settings override, else declared. */
   private _plotType(plot: IndicatorPlot): string {
     const v = this._settings[plotStyleKeys(plot).type];
@@ -497,6 +623,7 @@ export class IndicatorInstance implements IndicatorApi {
       paneIndex: () => this.paneIndex,
       addPrimitive: (p: IPrimitive) => { this._host.addIndicatorPrimitive?.(p, this.paneIndex); },
       removePrimitive: (p: IPrimitive) => { this._host.removeIndicatorPrimitive?.(p); },
+      emit: (event: string, payload: unknown) => { this._host.emit?.(event, payload); },
     });
     this._detach = typeof detach === 'function' ? detach : null;
   }
@@ -591,15 +718,23 @@ export class IndicatorInstance implements IndicatorApi {
     // last bar must either be the same one (replaced in place) or sit directly
     // after it (appended). Reading the bucket off `bars[n - 2]` avoids guessing
     // the interval, which a session gap or a holiday makes unguessable anyway.
+    // The same signal answers `barState.isNew`: an append is exactly the branch
+    // that is not a replacement of the last bar, and inventing a second way to
+    // decide that would be a second thing to keep in step with this one.
+    const appended = this._barCount > 0 && n === this._barCount + 1 &&
+      bars[n - 2].time === this._lastTime && bars[0].time === this._firstTime;
     const tailOnly = n > 0 && this._barCount > 0 && bars[0].time === this._firstTime &&
-      ((n === this._barCount && bars[n - 1].time === this._lastTime) ||
-        (n === this._barCount + 1 && bars[n - 2].time === this._lastTime));
+      ((n === this._barCount && bars[n - 1].time === this._lastTime) || appended);
+    // A tail-only change is what a live feed looks like from here; a history
+    // load replaces everything and never lands on this branch.
+    if (tailOnly) this._live = true;
+    const ctx = this._calcContext(bars, appended);
     if (tailOnly && this._d.calcTail !== undefined) {
       const from = this._barCount - 1; // the previously-last bar may have been replaced
-      const tail = this._d.calcTail(bars, settings, from, this._values, this._store);
+      const tail = this._d.calcTail(bars, settings, from, this._values, this._store, ctx);
       if (tail !== null) values = spliceTail(this._values, tail, from, n);
     }
-    if (values === null) values = this._d.calc(bars, settings, this._store);
+    if (values === null) values = this._d.calc(bars, settings, this._store, ctx);
 
     this._values = values;
     this._barCount = n;
@@ -609,13 +744,17 @@ export class IndicatorInstance implements IndicatorApi {
     for (const plot of this._d.plots) {
       const series = this._series.get(plot.key);
       if (series === undefined) continue;
+      if (plot.ohlc !== undefined) {
+        series.setData(this._ohlcPoints(plot, plot.ohlc, values, bars, settings));
+        continue;
+      }
       const col = values[plot.key];
       if (col === undefined) {
         series.setData([]);
         continue;
       }
-      const out = new Array<{ time: number; value: number; color?: string }>(n);
       const colorBy = plot.colorBy;
+      const out = new Array<{ time: number; value: number; color?: string }>(n);
       for (let i = 0; i < n; i++) {
         const v = col[i];
         const value = v === null || v === undefined ? NaN : v;
@@ -632,8 +771,56 @@ export class IndicatorInstance implements IndicatorApi {
     this._syncMarkers(bars);
     this._syncTable(bars);
     this._syncDraws(bars);
+    this._syncBackground(bars);
+    this._syncBarColors(bars);
     this._applyLevels(bars, settings);
+    this._syncAlerts(bars, settings, tailOnly);
     this.updateLegendValues();
+  }
+
+  /**
+   * Bar-shaped points for a plot that names four columns. Validated here rather
+   * than at registration: a descriptor declares column *names*, and whether
+   * `calc` actually returns them is only knowable once it has run, which is
+   * inside the constructor, so a wrong name still throws out of `addIndicator`
+   * instead of drawing an empty pane.
+   */
+  private _ohlcPoints(
+    plot: IndicatorPlot,
+    ohlc: NonNullable<IndicatorPlot['ohlc']>,
+    values: IndicatorValues,
+    bars: readonly Bar[],
+    settings: Readonly<IndicatorSettings>,
+  ): Bar[] {
+    const n = bars.length;
+    const cols = [ohlc.open, ohlc.high, ohlc.low, ohlc.close].map((key) => {
+      const col = values[key];
+      if (col === undefined || col.length !== n) {
+        throw new Error(
+          `openalgo-charts: ${this.indicatorId} plot "${plot.key}" ohlc column "${key}" must be ${n} values`,
+        );
+      }
+      return col;
+    });
+    const colorBy = plot.colorBy;
+    const out = new Array<Bar>(n);
+    for (let i = 0; i < n; i++) {
+      const close = cols[3][i];
+      const value = close === null ? NaN : close;
+      const bar: Bar = {
+        time: bars[i].time,
+        open: cols[0][i] ?? NaN,
+        high: cols[1][i] ?? NaN,
+        low: cols[2][i] ?? NaN,
+        close: value,
+      };
+      if (colorBy !== undefined && Number.isFinite(value)) {
+        const c = colorBy({ value, index: i, values, settings });
+        if (c !== undefined) bar.color = c;
+      }
+      out[i] = bar;
+    }
+    return out;
   }
 
   /**
@@ -699,6 +886,9 @@ export class IndicatorInstance implements IndicatorApi {
     if (this._markers !== null) { this._host.removeIndicatorMarkers(this._markers); this._markers = null; }
     if (this._table !== null) { this._host.removeIndicatorTable(this._table); this._table = null; }
     if (this._draws !== null) { this._host.removeIndicatorPrimitive?.(this._draws); this._draws = null; }
+    if (this._background !== null) { this._host.removeIndicatorPrimitive?.(this._background); this._background = null; }
+    // Withdraw the candle colours before anything else forgets who owned them.
+    if (this._d.barColors !== undefined) this._host.setBarColors?.(null, this.id);
     if (this._ownPane) this._host.setPaneRange(this.paneIndex, null);
   }
 }

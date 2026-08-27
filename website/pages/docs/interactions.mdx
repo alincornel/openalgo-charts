@@ -58,6 +58,41 @@ hidden they hit-test to nothing, so they never steal a click from the chart unde
 button set), import it, add it to a pane, and feed it pointer positions with `setPointer`.
 </Callout>
 
+## Picking a price or a bar
+
+A settings field that names a price or a time is a host control, but the *value* is often
+easier to point at than to type, and only the engine knows what is under the cursor. So the
+host arms a pick, the next click on the plot answers with a number, and the pick disarms
+itself:
+
+```ts
+const cancel = chart.beginPick('price', (price) => {
+  input.value = price.toFixed(2);
+});
+
+cancel();                                        // give up without an answer
+chart.beginPick('time', (t) => setAnchor(t));    // a bar time instead
+```
+
+`beginPick(kind, cb)` returns a cancel function and is also exported standalone, so it works
+against anything structurally matching `PickHost` rather than only against `Chart`. The
+chart emits [`pick:start` and `pick:end`](/docs/events#what-the-engine-emits) around it, so
+you can swap the cursor or show a hint while a pick is live; `pick:end` carries `null` when
+the pick was cancelled, and fires before the callback when it was not.
+
+- **A `'time'` pick snaps to the bar you clicked.** The raw click time is interpolated
+  between bars on the gapless axis, so it matches no bar and anything anchored to it would
+  never line up. Clicking past the last bar keeps the projected time, which is what a pick in
+  the empty right-hand space means.
+- **A click the chart could not resolve leaves the pick armed** rather than answering with a
+  bogus number: no pane under the pointer, or no bars loaded.
+- **Panning is left alone.** A pick deliberately does not arm placement mode, so you can
+  scroll back to the bar you mean and then click it, and a drag emits no click at all, so
+  panning cannot answer a pick by accident. It also means arming a pick never cancels an
+  active drawing tool.
+- **One pick per chart.** Arming a second cancels the first, so a single click can never
+  answer two callers. Arming a fresh pick from inside the callback works.
+
 ## Touch
 
 Touch works out of the box (`touch-action: none` on the container):

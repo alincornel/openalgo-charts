@@ -58,6 +58,8 @@ it on teardown (component unmount, route change) so listeners never leak.
 | `priceAxisMoved` | `{ paneIndex, from, to }` | A pane's price axis moved to the other strip, via `chart.movePriceAxis`. The scale object travels with it, so a menu holding a `scaleId` should follow. |
 | `paneRemoved` / `paneMaximized` / `paneResized` | `{ paneIndex }` | The pane layout changed through a legend button or a divider drag. `paneMoved` reports `{ from, to }` instead. |
 | `indicatorRemoved` / `indicatorSettings` | `{ instanceId, indicatorId, paneIndex }` | An indicator legend's close or gear button was pressed. |
+| `indicator:alert` | `IndicatorAlertPayload` | A condition an indicator descriptor declared came true on a new bar. See [Indicator alerts](#indicator-alerts). |
+| `pick:start` / `pick:end` | `{ kind }` / `{ kind, value }` | `chart.beginPick` armed, and then resolved or was cancelled (`value` is `null` when cancelled). See [Picking a price or a bar](/docs/interactions#picking-a-price-or-a-bar). |
 | `replay:*` | `ReplayState` | The [market replay](/docs/market-replay) playhead starts, moves, plays, pauses, ends or stops. |
 | `trading:*` | see [Trading events](#trading-events) | The user interacts with a position, order, or bracket. |
 
@@ -302,6 +304,40 @@ its own facts on the chart's bus and have the engine's own consumers pick them u
 ```ts
 chart.emit('symbol', 'RELIANCE');   // or { symbol: 'RELIANCE' }
 ```
+</Callout>
+
+## Indicator alerts
+
+An indicator descriptor can declare conditions the runtime watches on its behalf, because
+the indicator is the only thing that knows what a crossover of its own columns means. A
+trigger arrives on the ordinary bus:
+
+```ts
+import 'openalgo-charts/indicators';
+
+chart.on('indicator:alert', ({ indicatorId, instanceId, alertId, title, message, time, index }) => {
+  toast(`${title} on bar ${index}`);
+});
+```
+
+**`IndicatorAlertPayload`**
+
+| Field | Type | Description |
+|---|---|---|
+| `indicatorId` | `string` | The descriptor id, e.g. `'macd'`. |
+| `instanceId` | `string` | The instance id, so three EMAs are tellable apart. |
+| `alertId` | `string` | The `id` of the `IndicatorAlertSpec` that fired. |
+| `title` | `string` | Short label from the spec. |
+| `message` | `string` | Longer text, defaulting to `title`. |
+| `time` | `number` | The bar that triggered it, UTC seconds. |
+| `index` | `number` | That bar's index in the indicator's `bars`. |
+
+<Callout type="warning">
+**Alerts fire only on a live tail change.** Adding an indicator to a loaded chart, changing
+a setting, paging history in, or switching symbol reseeds the watermark silently and emits
+nothing, so two years of bars cannot announce every crossover in them at once. The watermark
+is a bar time rather than a count, so older bars arriving at the left edge cannot re-fire the
+chart either. See [Alerts](/docs/indicators#alerts) for the descriptor side.
 </Callout>
 
 ## Trading events

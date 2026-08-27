@@ -560,3 +560,92 @@ export function calendarPeriodFlags(
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Session windows
+//
+// The helpers above read a session back from the bars. This is the other half:
+// a window the caller states outright, for an indicator anchored to an opening
+// range, a cash session inside an extended one, or one exchange's hours drawn
+// on another exchange's chart. Stated and not inferred, because the bars cannot
+// tell you which part of a continuous session you meant.
+// ---------------------------------------------------------------------------
+
+/** A trading window in local wall-clock terms, as parsed from a spec string. */
+export interface SessionSpec {
+  /** Minutes from midnight, inclusive. */
+  start: number;
+  /** Minutes from midnight, exclusive. */
+  end: number;
+  /** Days the window opens on, 1..7 with 1 = Sunday. Absent means every day. */
+  days?: readonly number[];
+}
+
+const SESSION_RE = /^\s*(\d{2})(\d{2})\s*-\s*(\d{2})(\d{2})\s*(?::\s*([1-7]+))?\s*$/;
+
+/** `HH` and `MM` as minutes from midnight, or -1 if either is out of range. */
+function specMinutes(hh: string, mm: string): number {
+  const h = Number(hh);
+  const m = Number(mm);
+  return h > 23 || m > 59 ? -1 : h * 60 + m;
+}
+
+/**
+ * Parse `"0915-1015"`, optionally with a day filter after a colon:
+ * `"0930-1600:23456"` is Monday to Friday. Whitespace around the parts is
+ * ignored. An end at or before the start is a window that runs past midnight.
+ *
+ * Returns null rather than throwing, because the spec is normally a string a
+ * user typed into a settings field and a half-typed one arrives on every
+ * keystroke.
+ */
+export function parseSessionSpec(spec: string): SessionSpec | null {
+  const m = SESSION_RE.exec(spec);
+  if (m === null) return null;
+  const start = specMinutes(m[1], m[2]);
+  const end = specMinutes(m[3], m[4]);
+  if (start < 0 || end < 0) return null;
+  return m[5] === undefined ? { start, end } : { start, end, days: [...m[5]].map(Number) };
+}
+
+/** Membership test against already-resolved parts, so a sweep resolves once. */
+function inSessionParts(p: CachedParts, spec: SessionSpec): boolean {
+  const minute = p.hour * 60 + p.minute;
+  const wraps = spec.end <= spec.start;
+  // Half-open at the end: a bar stamped exactly at 10:15 belongs to what comes
+  // after a 0915-1015 window, which is what an opening-range comparison needs.
+  const past = minute < spec.end;
+  if (!(wraps ? minute >= spec.start || past : minute >= spec.start && past)) return false;
+  if (spec.days === undefined) return true;
+  // The filter names the day the window opens on, so a window running past
+  // midnight stays one session instead of being cut in half at 00:00.
+  const day = wraps && past ? (p.weekday + 6) % 7 : p.weekday;
+  return spec.days.includes(day + 1);
+}
+
+/** True if this instant falls inside `spec` as read in `zone`. */
+export function inSessionAt(
+  utcSeconds: number,
+  spec: SessionSpec,
+  zone: string = DEFAULT_TIMEZONE,
+): boolean {
+  return inSessionParts(resolveParts(utcSeconds, zone), spec);
+}
+
+/**
+ * Per-bar flags marking the bars inside `spec`. An unparseable spec string
+ * marks nothing: a chart that keeps drawing beats one that dies on a stray
+ * character, and the caller can check `parseSessionSpec` itself to tell an
+ * empty window from a bad one.
+ */
+export function sessionFlags(
+  times: readonly number[],
+  spec: string | SessionSpec,
+  zone: string = DEFAULT_TIMEZONE,
+): boolean[] {
+  const out = new Array<boolean>(times.length).fill(false);
+  const s = typeof spec === 'string' ? parseSessionSpec(spec) : spec;
+  if (s === null) return out;
+  for (let i = 0; i < times.length; i++) out[i] = inSessionParts(resolveParts(times[i], zone), s);
+  return out;
+}

@@ -8,6 +8,58 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 1.8.1
+
+The indicator descriptor learns what the *chart* is doing, not only what the bars say: where
+the last bar stands, when a condition it declared came true, and how to state a regime as
+shading or as a colour on the price candles themselves. Around that, four smaller things a
+study kept having to hand-roll.
+
+**Added**
+
+- **A calculation context.** `calc` takes an optional fourth argument (and `calcTail` a
+  sixth) carrying `barState` (`isNew`, `isConfirmed`, `isRealtime`, `lastIndex`), `symbol`,
+  `interval`, `timezone` and `now()`, so a study can act once per bar rather than once per
+  tick. Optional and trailing, so every existing descriptor keeps its exact signature and
+  behaviour. See [The calculation context](/docs/indicators#the-calculation-context).
+- **`alerts`.** A descriptor declares the conditions it wants watched, and a trigger arrives
+  as `indicator:alert` on the chart's bus. They fire only on a live tail change, so an
+  indicator dropped onto two years of bars announces nothing. See
+  [Alerts](/docs/indicators#alerts) and
+  [Indicator alerts](/docs/events#indicator-alerts).
+- **`background`**, per-bar shading behind the indicator's own pane, for a regime study whose
+  answer is a property of the whole bar rather than of a price. Contributes nothing to
+  autoscale, coalesces same-colour runs, culls off-screen bars. `IndicatorBackground` is
+  exported as a plain primitive. See
+  [Shading the pane by regime](/docs/indicators#shading-the-pane-by-regime).
+- **`barColors`**, recolouring the main price candles from a study's verdict, one publisher
+  at a time. The engine clones only the bars whose colour changes, so it never writes into
+  the array the host handed `setData`. See
+  [Recolouring the price candles](/docs/indicators#recolouring-the-price-candles).
+- **`IndicatorPlot.ohlc`**, four `calc` columns in the same result so one plot draws as
+  candles or OHLC bars: a smoothed overlay, a higher-timeframe candle, a synthetic spread.
+  See [A plot drawn as candles](/docs/indicators#a-plot-drawn-as-candles).
+- **Session windows you state rather than infer**: `parseSessionSpec`, `inSessionAt` and
+  `sessionFlags` read `'0915-1015'` or `'0930-1600:23456'`, half-open, wrapping past
+  midnight, with the day filter naming the day the window opens on. See
+  [Stating a window as a string](/docs/timezones#stating-a-window-as-a-string).
+- **Interval introspection**: `intervalParts`, `isIntradayInterval`, `isDailyInterval`,
+  `isSecondsInterval` and `isTickInterval` read the answer off the bucketing rule rather
+  than the code's spelling, so `'120m'` and `'2h'` agree and a host's own registered code
+  answers too. See [Reading a code back](/docs/custom-intervals#reading-a-code-back).
+- **`withAlpha` and `fromGradient`** on the public surface, so a per-bar colour rule stops
+  needing a private hex parser. See
+  [Colour helpers](/docs/series-and-styling#colour-helpers).
+- **`chart.beginPick(kind, cb)`**, interactive capture: the next plot click answers with a
+  price or a bar time. A `'time'` pick snaps to the bar clicked, and panning is deliberately
+  left alone so you can scroll to the bar you mean first. See
+  [Picking a price or a bar](/docs/interactions#picking-a-price-or-a-bar).
+
+**Changed**
+
+- `IndicatorHost` gained two optional members, `setBarColors` and `emit`. Both optional, so a
+  host implementing the interface itself needs no change.
+
 ## 1.7.1
 
 The indicator descriptor gains the parts a ported study needs and could not express, and
@@ -116,8 +168,8 @@ scored the result 68/100, up from 61.
 
 - **Removing a sub-plot indicator could throw** `Cannot read properties of undefined
   (reading 'removeSeries')`, leaving the teardown half-done: the legend went, the plot
-  stayed. A series captured the pane *slot* it was created in, and slots are not stable
-  — removing an emptied indicator pane splices the array so everything below shifts up
+  stayed. A series captured the pane *slot* it was created in, and slots are not stable:
+  removing an emptied indicator pane splices the array so everything below shifts up
   one, and moving a pane swaps two entries. Three sub-plots, remove the first, then the
   last, and the index points past the end. Clearing them bottom-up shifts nothing, which
   is why it looked intermittent. The quieter half had no symptom at all: a stale index

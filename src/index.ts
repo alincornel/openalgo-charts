@@ -12,7 +12,7 @@ export type {
 export { Pane } from './core/pane';
 export { darkTheme, lightTheme, DEFAULT_THEME } from './theme';
 export type { ChartTheme } from './theme';
-export { verticalGradient } from './render/gradient';
+export { verticalGradient, withAlpha, fromGradient } from './render/gradient';
 export { InvalidationLevel } from './core/invalidate-mask';
 export type { PaneInvalidation, TimeScaleOp } from './core/invalidate-mask';
 export { bitmapSize, snapToDevicePixel } from './core/canvas';
@@ -72,6 +72,10 @@ export type {
   IndicatorStore,
   IndicatorValues,
   IndicatorAttachContext,
+  IndicatorCalcContext,
+  IndicatorAlertSpec,
+  IndicatorAlertContext,
+  IndicatorAlertPayload,
   IndicatorDrawing,
   DrawAnchor,
 } from './model/indicator-registry';
@@ -130,6 +134,7 @@ export type { IPrimitive, PrimitiveHit, PrimitiveHost, PrimitiveRenderContext, P
 export { IndicatorFill } from './primitives/indicator-fill';
 export type { IndicatorFillOptions, FillPoint, FillGradient } from './primitives/indicator-fill';
 export { IndicatorDrawings } from './primitives/indicator-draws';
+export { IndicatorBackground } from './primitives/indicator-background';
 // `chart.dataLayer` is public, so its type has to be nameable by a consumer —
 // and a tier that takes one in its own public API needs to name *this* one.
 export type { DataLayer, IndexedBar, SeriesId } from './model/data-layer';
@@ -208,10 +213,11 @@ export {
   registerInterval, unregisterInterval, registeredIntervals,
   resolveInterval, tryResolveInterval, isKnownInterval,
   bucketStartOf, nextBucketStart, isTimeBucketed, UnknownIntervalError,
+  intervalParts, isIntradayInterval, isDailyInterval, isSecondsInterval, isTickInterval,
 } from './feed/intervals';
 export type {
   IntervalDescriptor, Bucketing, IntervalBucketing, CalendarBucketing,
-  TickCountBucketing, VolumeBucketing, CalendarUnit,
+  TickCountBucketing, VolumeBucketing, CalendarUnit, IntervalParts,
 } from './feed/intervals';
 export {
   epochMsToUtcSeconds,
@@ -250,8 +256,11 @@ export {
   formatZonedTimeSeconds,
   formatZonedDate,
   formatZonedCrosshairLabel,
+  parseSessionSpec,
+  inSessionAt,
+  sessionFlags,
 } from './feed/time';
-export type { IstParts, ZonedParts, ZonedPeriod } from './feed/time';
+export type { IstParts, ZonedParts, ZonedPeriod, SessionSpec } from './feed/time';
 
 export { clamp, lerp, roundToTick } from './helpers/math';
 
@@ -293,3 +302,6 @@ export type {
   ShortcutTriggerEvent,
   ShortcutListItem,
 } from './input/shortcuts';
+
+export { beginPick } from './input/pick';
+export type { PickKind, PickHost } from './input/pick';

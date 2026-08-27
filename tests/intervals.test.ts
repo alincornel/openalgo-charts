@@ -10,6 +10,11 @@ import {
   bucketStartOf,
   nextBucketStart,
   UnknownIntervalError,
+  intervalParts,
+  isSecondsInterval,
+  isIntradayInterval,
+  isDailyInterval,
+  isTickInterval,
 } from '../src/feed/intervals';
 import { OpenAlgoLiveDataFeed, intervalToSeconds } from '../src/feed/openalgo-live';
 import { TickBarAggregator } from '../src/feed/tick-aggregator';
@@ -476,5 +481,86 @@ describe('OpenAlgoLiveDataFeed with registered intervals', () => {
     const { feed } = makeFeed();
     expect(() => feed.subscribeBars({ symbol: 'X', exchange: 'NSE', interval: '15mn', from: 0 }, () => undefined))
       .toThrow(UnknownIntervalError);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Introspection: what an indicator can ask about the interval it is running on
+// ---------------------------------------------------------------------------
+
+describe('interval introspection', () => {
+  it('splits a built-in token into a count and a unit', () => {
+    expect(intervalParts('15s')).toEqual({ multiplier: 15, unit: 's' });
+    expect(intervalParts('1m')).toEqual({ multiplier: 1, unit: 'm' });
+    expect(intervalParts('15m')).toEqual({ multiplier: 15, unit: 'm' });
+    expect(intervalParts('1h')).toEqual({ multiplier: 1, unit: 'h' });
+    expect(intervalParts('D')).toEqual({ multiplier: 1, unit: 'D' });
+    expect(intervalParts(' W ')).toEqual({ multiplier: 1, unit: 'W' });
+  });
+
+  it('answers off the bucket rather than off the spelling', () => {
+    // Two codes for the same bar answer the same, and the coarsest unit that
+    // divides the length wins, so 90 seconds stays seconds rather than becoming
+    // one and a half minutes.
+    expect(intervalParts('120m')).toEqual({ multiplier: 2, unit: 'h' });
+    expect(intervalParts('2h')).toEqual(intervalParts('120m'));
+    expect(intervalParts('1440m')).toEqual({ multiplier: 1, unit: 'D' });
+    expect(intervalParts('90s')).toEqual({ multiplier: 90, unit: 's' });
+  });
+
+  it('reads a registered code the built-in grammar never parsed', () => {
+    register('Y', { mode: 'calendar', unit: 'year' });
+    register('Q', { mode: 'calendar', unit: 'quarter' });
+    register('T500', { mode: 'ticks', count: 500 });
+    register('V1000', { mode: 'volume', perBar: 1000 });
+    // Calendar periods count months, so a quarter is 3 and a year is 12.
+    expect(intervalParts('Y')).toEqual({ multiplier: 12, unit: 'M' });
+    expect(intervalParts('Q')).toEqual({ multiplier: 3, unit: 'M' });
+    expect(intervalParts('T500')).toEqual({ multiplier: 500, unit: 'tick' });
+    // Volume has neither a clock length nor a trade count of its own.
+    expect(intervalParts('V1000')).toEqual({ multiplier: 1000, unit: 'other' });
+  });
+
+  it('answers null for a code nothing resolves', () => {
+    // `M` included: a month is never guessed, so it has no parts either.
+    for (const code of ['M', 'zz', '', '15mn']) expect(intervalParts(code)).toBeNull();
+  });
+
+  it('flags the intervals whose labels need second precision', () => {
+    for (const code of ['1s', '15s', '90s']) expect(isSecondsInterval(code)).toBe(true);
+    for (const code of ['1m', '5m', 'D', 'W', 'zz']) expect(isSecondsInterval(code)).toBe(false);
+  });
+
+  it('flags the fixed-length bars shorter than a day', () => {
+    for (const code of ['1s', '1m', '15m', '1h', '23h']) expect(isIntradayInterval(code)).toBe(true);
+    for (const code of ['D', '24h', 'W']) expect(isIntradayInterval(code)).toBe(false);
+    // Neither a calendar period nor a count-driven bar has a clock length to
+    // compare, so both answer false rather than guessing which side they fall.
+    register('MN', { mode: 'calendar', unit: 'month' });
+    register('T500', { mode: 'ticks', count: 500 });
+    expect(isIntradayInterval('MN')).toBe(false);
+    expect(isIntradayInterval('T500')).toBe(false);
+  });
+
+  it('flags a bar exactly one day long, however it is spelled', () => {
+    for (const code of ['D', '1d', '24h', '1440m']) expect(isDailyInterval(code)).toBe(true);
+    // Deliberately not "daily or coarser": weekly and monthly answer false, so
+    // a caller can branch on the three cases independently.
+    for (const code of ['12h', 'W', 'M']) expect(isDailyInterval(code)).toBe(false);
+  });
+
+  it('flags a bar that closes on a trade count, and not one that closes on quantity', () => {
+    register('T500', { mode: 'ticks', count: 500 });
+    register('V1000', { mode: 'volume', perBar: 1000 });
+    expect(isTickInterval('T500')).toBe(true);
+    expect(isTickInterval('V1000')).toBe(false);
+    expect(isTickInterval('1m')).toBe(false);
+  });
+
+  it('leaves a registered code answering for the code it shadows', () => {
+    // A host whose W is a calendar week, not 604800 seconds from the epoch.
+    register('W', { mode: 'calendar', unit: 'month', count: 3 });
+    expect(intervalParts('W')).toEqual({ multiplier: 3, unit: 'M' });
+    expect(isIntradayInterval('W')).toBe(false);
   });
 });

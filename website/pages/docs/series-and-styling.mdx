@@ -109,7 +109,9 @@ carries one is walked into a single stroke exactly as before.
 
 Indicators reach this through a plot's
 [`colorBy`](/docs/indicators#colouring-a-plot-per-bar) rather than by writing bars
-themselves.
+themselves, and an indicator can recolour the **price** candles from its own verdict with
+[`barColors`](/docs/indicators#recolouring-the-price-candles) without touching your array at
+all.
 
 <Callout type="info">
 [Conflation](/docs/data-loading#large-datasets-conflation) drops per-bar colour: a merged
@@ -117,6 +119,45 @@ bucket of bars has no single one. It is off by default and only engages when bar
 below sub-pixel widths, but a chart that turns it on loses the tint at the zoom levels
 where it merges.
 </Callout>
+
+## Colour helpers
+
+Per-bar colour means computing a colour string per bar, and hand-rolling that ends in a
+private `#rrggbb` parser in every project. Two helpers ship in the base bundle instead:
+
+```ts
+import { withAlpha, fromGradient } from 'openalgo-charts';
+
+withAlpha('#26a69a', 0.12);                  // 'rgba(38,166,154,0.12)'
+fromGradient(rsi, 30, 70, '#ef5350', '#26a69a');   // red at 30, green at 70, mixed between
+```
+
+| Helper | Signature | Description |
+|---|---|---|
+| `withAlpha` | `(color, alpha) => string` | The same colour at a new opacity. |
+| `fromGradient` | `(value, min, max, low, high) => string` | Blend `low` to `high` in sRGB by where `value` sits in `[min, max]`. |
+
+Both read `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, `rgb()` and `rgba()`. **CSS colour names
+are not parsed**, so keep a settings default in one of those forms. `withAlpha` replaces the
+alpha outright rather than multiplying it, and `fromGradient` interpolates the alpha channel
+along with the other three, so a translucent endpoint stays translucent.
+
+Four behaviours worth relying on:
+
+- **Neither throws.** An input they cannot parse comes back untouched from `withAlpha`, and
+  `fromGradient` falls back to `low`, so a bad colour in a settings field cannot take the
+  repaint down with it.
+- **`fromGradient` clamps rather than extrapolating.** A value below `min` is exactly `low`
+  and one above `max` is exactly `high`.
+- **A not-available value lands on `low`**, not on `rgba(NaN,...)`. That matters more than
+  it looks: canvas ignores an unparseable `fillStyle` and silently keeps the previous one, so
+  a NaN string would bleed the neighbouring bar's colour across this one rather than failing
+  visibly. A zero-width range (`min === max`) resolves through the same path and gives `low`.
+- **`min` may be greater than `max`.** The interpolation is symmetric, so an inverted range
+  is a legitimate way to flip a scale rather than an error.
+
+`fromGradient` allocates only the result string per call: no closure, no cache, no lookup
+table, so calling it once per bar in a `colorBy` is the intended use.
 
 ## Dynamic series & dashed lines
 

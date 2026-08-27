@@ -11,10 +11,10 @@ import 'openalgo-charts/indicators'; // side effect: registers all 91 built-ins
 
 - The base bundle ships **only** the registry (`registerIndicator`, `getIndicator`, ...) and the runtime (`IndicatorInstance`). The catalog lives in the lazy `openalgo-charts/indicators` tier.
 - The import is a side effect. `src/indicators/index.ts` calls `registerBuiltinIndicators()` at module scope; it is also exported and idempotent, so a bundler that tree-shakes a bare side-effect import can call it explicitly.
-- `getIndicator(id)` throws ``unknown indicator "<id>" — did you import 'openalgo-charts/indicators'?`` for an unregistered id. `chart.addIndicator` calls it, so guard user-supplied ids with `hasIndicator(id)`.
+- `getIndicator(id)` throws for an unregistered id, with a message naming the id and pointing at the missing `'openalgo-charts/indicators'` import. `chart.addIndicator` calls it, so guard user-supplied ids with `hasIndicator(id)`.
 - `registeredIndicators()` reflects what has been registered *so far*. Read it after the tier import.
 
-**A tier must import the registry from the package entry (`'openalgo-charts'`), never a deep path.** Each tier is its own rollup bundle with `openalgo-charts` marked external (`rollup.config.js`, `tierExternal`). A deep import is *inlined* instead — a second, private `Map` — so the tier registers into a registry `createChart` never reads. This applies to any tier bundle you build yourself.
+**A tier must import the registry from the package entry (`'openalgo-charts'`), never a deep path.** Each tier is its own rollup bundle with `openalgo-charts` marked external (`rollup.config.js`, `tierExternal`). A deep import is *inlined* instead (a second, private `Map`), so the tier registers into a registry `createChart` never reads. This applies to any tier bundle you build yourself.
 
 ## The 91 built-ins
 
@@ -159,7 +159,7 @@ addIndicator(
 ): IndicatorApi
 ```
 
-`options.paneIndex` overrides placement entirely — a `pane` indicator can be dropped onto pane 0, or a second indicator onto an existing pane. An instance that did **not** create its own pane never applies `range()`; a shared pane belongs to whoever created it.
+`options.paneIndex` overrides placement entirely: a `pane` indicator can be dropped onto pane 0, or a second indicator onto an existing pane. An instance that did **not** create its own pane never applies `range()`; a shared pane belongs to whoever created it.
 
 ```ts
 const macd = chart.addIndicator('macd', { fastPeriod: 8 });
@@ -173,7 +173,7 @@ const rsi = chart.addIndicator('rsi', {}, { paneIndex: macd.paneIndex }); // sha
 | `id` | `string` | Instance id, `` `${descriptorId}-${n}` ``. Pass this to `chart.removeIndicator`. |
 | `indicatorId` | `string` | Descriptor id, e.g. `'macd'`. |
 | `name` | `string` | Display name. |
-| `paneIndex` | `number` | Mutable — the chart re-indexes it when panes move or are removed. |
+| `paneIndex` | `number` | Mutable: the chart re-indexes it when panes move or are removed. |
 | `settings()` | `IndicatorSettings` | A **copy**. Mutating it does nothing. |
 | `setSettings(patch)` | `void` | Merge, restyle, recompute, re-run `attach`. |
 | `series(plotKey)` | `SeriesApi \| undefined` | Backing series, for direct styling. |
@@ -183,7 +183,7 @@ const rsi = chart.addIndicator('rsi', {}, { paneIndex: macd.paneIndex }); // sha
 | `updateLegendValues(index?)` | `void` | Refresh readings for a bar index; omit for the latest bar. |
 | `remove()` | `void` | Tears down series, levels, fills, legend. Idempotent. |
 
-`recompute()` exists on `IndicatorInstance` but is **not** on the `IndicatorApi` type — the runtime calls it on data change. `chart.indicators()` lists live instances in add order; `chart.removeIndicator(instanceId)` returns `boolean` and prunes the pane if it emptied.
+`recompute()` exists on `IndicatorInstance` but is **not** on the `IndicatorApi` type: the runtime calls it on data change. `chart.indicators()` lists live instances in add order; `chart.removeIndicator(instanceId)` returns `boolean` and prunes the pane if it emptied.
 
 **Repeated instances get rotated colours.** The 2nd and later instances of the same descriptor id fill any *unset* plot colour key from `INSTANCE_PALETTE` (`#f5a623`, `#26a69a`, `#ab47bc`, `#ef5350`, `#26c6da`, `#8bc34a`, `#ff7043`, `#5c6bc0`), strided by plot count. An explicit colour in `settings` always wins, and the first instance is never touched. Three EMAs in one blue are indistinguishable on the chart and in the legend alike.
 
@@ -191,8 +191,8 @@ const rsi = chart.addIndicator('rsi', {}, { paneIndex: macd.paneIndex }); // sha
 
 Two families of keys live in one flat `IndicatorSettings` bag:
 
-1. **Declared inputs** — `descriptor.inputs`, keyed however the descriptor chose (`length`, `fastPeriod`, `anchor`, `color`).
-2. **Generated per-plot style keys** — produced by `plotStyleKeys(plot)` for every plot, with no per-descriptor boilerplate:
+1. **Declared inputs**, `descriptor.inputs`, keyed however the descriptor chose (`length`, `fastPeriod`, `anchor`, `color`).
+2. **Generated per-plot style keys**, produced by `plotStyleKeys(plot)` for every plot, with no per-descriptor boilerplate:
 
 | Key | Type | Default |
 |---|---|---|
@@ -202,9 +202,9 @@ Two families of keys live in one flat `IndicatorSettings` bag:
 | `'<plotKey>:lineStyle'` | select | `plot.style.lineStyle ?? 'solid'` (`INDICATOR_LINE_STYLES`: solid / dashed / dotted) |
 | `'<plotKey>:type'` | select | `plot.type` (line, line-markers, step, area, histogram, column) |
 
-**A descriptor that declares `colorKey` owns the colour key.** `plotStyleKeys` returns `plot.colorKey` in the `color` slot rather than `<plotKey>:color`, so a generated key would shadow the declared one and setting the declared key would silently stop working. Always read the key from `plotStyleKeys(plot).color` — never hand-build `` `${plot.key}:color` ``.
+**A descriptor that declares `colorKey` owns the colour key.** `plotStyleKeys` returns `plot.colorKey` in the `color` slot rather than `<plotKey>:color`, so a generated key would shadow the declared one and setting the declared key would silently stop working. Always read the key from `plotStyleKeys(plot).color`, never hand-build `` `${plot.key}:color` ``.
 
-Opacity folds into the colour as alpha (a canvas stroke has no opacity channel). Changing `:type` **rebuilds the series** — a chart type belongs to the series, not the style bag.
+Opacity folds into the colour as alpha (a canvas stroke has no opacity channel). Changing `:type` **rebuilds the series**: a chart type belongs to the series, not the style bag.
 
 Generating a dialog from a descriptor:
 
@@ -232,7 +232,7 @@ chart.on('indicatorSettings', (p) => {
 });
 ```
 
-`chart.on` returns an unsubscribe function and payloads are `unknown` — cast at the boundary. Legend actions `close`, `hide`, `up`, `down`, `maximize` are handled **inside** the chart; only `settings` is delegated. `removeIndicator` also emits `indicatorRemoved` with the same payload shape. See [events-and-state](./events-and-state.md).
+`chart.on` returns an unsubscribe function and payloads are `unknown`, so cast at the boundary. Legend actions `close`, `hide`, `up`, `down`, `maximize` are handled **inside** the chart; only `settings` is delegated. `removeIndicator` also emits `indicatorRemoved` with the same payload shape. See [events-and-state](./events-and-state.md).
 
 `indicatorStyleInputs`, `plotStyleKeys`, `indicatorDefaults`, `INDICATOR_SOURCES`, `INDICATOR_LINE_STYLES` and `INDICATOR_PLOT_STYLES` are all exported from the package entry (`src/model/indicator-registry.ts`). `INDICATOR_PLOT_STYLES` is the `{ label, value }[]` behind the generated `<plotKey>:type` input, so a settings UI can render the plot-style dropdown without reading the input's `options`.
 
@@ -402,6 +402,39 @@ Unreadable means bars already a day or coarser, a market that never closes, or a
 whose only gaps are weekends. An intraday lunch break is under the four-hour floor, so it
 is not mistaken for a close.
 
+### A window you state, not one you read (unreleased)
+
+The helpers above answer "where does the trading day start". They cannot answer which *part*
+of a session you meant: an opening range, the cash hours inside an extended session, one
+exchange's hours drawn on another exchange's chart. State those instead.
+
+```ts
+import { parseSessionSpec, inSessionAt, sessionFlags } from 'openalgo-charts';
+
+parseSessionSpec('0915-1015');        // { start: 555, end: 615 }
+parseSessionSpec('0930-1600:23456');  // { start: 570, end: 960, days: [2,3,4,5,6] }
+parseSessionSpec('2500-1000');        // null
+
+const opening = sessionFlags(bars.map((b) => b.time), '0915-1015', zone);   // boolean per bar
+inSessionAt(bar.time, spec, zone);                                          // one instant
+```
+
+Grammar: `HHMM-HHMM`, optionally `:` then the days the window runs on, **1 = Sunday** through
+7 = Saturday. Whitespace around the parts is ignored. Semantics that are decided and worth
+not re-deriving:
+
+- **Half-open.** Start minute in, end minute out, so a bar stamped exactly 10:15 is outside a
+  `0915-1015` window. That is what an opening-range comparison needs.
+- **An end at or before the start wraps past midnight**, so `'2330-0030'` is a one-hour
+  overnight window and `'0000-0000'` is the whole day, not nothing.
+- **The day filter names the day the window OPENS on.** For `'2330-0030:2'` (Monday), Monday
+  23:45 and Tuesday 00:15 are one session; Tuesday 23:45 is not in it.
+- `zone` defaults to `Asia/Kolkata` like every other zoned helper. Pass `ctx.timezone` from
+  the calc context, or the reserved `settings.timezone` key.
+- **An unparseable string marks nothing**: `sessionFlags` returns all-false rather than
+  throwing, because the spec is normally a settings field mid-keystroke. Call
+  `parseSessionSpec` yourself to tell a bad spec from an empty window.
+
 ### The zone inside a `calc`
 
 A descriptor is handed `(bars, settings, store)` and **never the chart**, so the chart's
@@ -458,13 +491,13 @@ registerIndicator({
 chart.addIndicator('my-momentum', { length: 14 });
 ```
 
-Optional descriptor members: `fills`, `markers`, `levels`, `range`, `attach`, `calcTail`, `table`, and `draws` (1.7.1), plus `colorBy` (per-bar colour) and `priceScaleId` / `overlay` on an individual plot.
+Optional descriptor members: `fills`, `markers`, `levels`, `range`, `attach`, `calcTail`, `table`, `draws` (1.7.1), and `background` / `barColors` / `alerts` (unreleased), plus `colorBy` (per-bar colour), `priceScaleId` / `overlay`, and `ohlc` (unreleased) on an individual plot.
 
 **`overlay: true` on a plot** (1.7.1) draws that one column on the price pane even when the descriptor is `placement: 'pane'`. An oscillator whose stop line belongs on the candles no longer has to ship as two indicators that duplicate the same inputs.
 
 **`colorBy` now reaches line, area and step** as well as histogram and column (1.7.1). Return `undefined` to fall back to the plot colour. A uniform column still strokes once, so an ordinary series pays nothing.
 
-**Implement `calcTail` for anything running in a live pane.** Without it every tick costs a full `calc` — O(n) per tick *per indicator*. Return values for `[fromIndex, bars.length)` and the runtime splices them onto the previous result; return `null` to fall back. The runtime only takes the tail path when the bar count is unchanged or grew by exactly one, and `fromIndex` is `previousCount - 1` because the previously-last bar may have been replaced. Any settings change or external-data arrival resets the tail state to force a full recompute.
+**Implement `calcTail` for anything running in a live pane.** Without it every tick costs a full `calc`: O(n) per tick *per indicator*. Return values for `[fromIndex, bars.length)` and the runtime splices them onto the previous result; return `null` to fall back. Since 1.7.1 the tail path is gated on **times**, not on a bar count: the first bar's time must be unchanged, and the last bar must be either that same bar replaced in place or one appended directly after it. A symbol change landing on a matching count, or one older bar paged in at the left edge, falls back to a full `calc` instead of splicing onto a history that no longer exists. `fromIndex` is `previousCount - 1` because the previously-last bar may have been replaced. Any settings change or external-data arrival resets the tail state to force a full recompute.
 
 `registerIndicator` overwrites an existing id, later registration wins. With 91 built-ins the id space is crowded, so namespace a custom id (`my-momentum`, `acme-vwap`) unless you intend to replace a built-in. Register before `addIndicator`.
 
@@ -480,8 +513,7 @@ draws: ({ bars, values, settings }) => ([
     color: '#4f8cff', lineWidth: 2, lineStyle: 'dashed', extendRight: true },
   { kind: 'box', from: { time: t0, price: hi }, to: { time: t1, price: lo },
     fillColor: '#26a69a', opacity: 0.18, color: '#26a69a', text: 'demand' },
-  { kind: 'label', at: { time: t1, price: p1 }, text: 'first line
-second line', color: '#ef5350' },
+  { kind: 'label', at: { time: t1, price: p1 }, text: 'first line\nsecond line', color: '#ef5350' },
   { kind: 'polyline', points: [...], color: '#ffa726', closed: false },
 ])
 ```
@@ -492,16 +524,126 @@ second line', color: '#ef5350' },
   its angle instead of flattening.
 - The layer contributes **nothing to autoscale**: a projection reaching far above the data would
   otherwise squash the study it annotates.
-- A `label`, and a `box` caption, split on `
-`. Marker text does too, since 1.7.1.
+- A `label`, and a `box` caption, split on `\n`. Marker text does too, since 1.7.1.
 - Shapes entirely off-pane are culled before any path work.
 
 The list is rebuilt on every recompute, exactly like `markers`. There are no retained handles to
 mutate or leak, and a symbol change cannot strand a drawing.
 
+## The calc context (unreleased)
+
+`calc` takes an optional **fourth** argument and `calcTail` an optional **sixth**: what the calculation cannot read off the bars. It is optional and trailing on purpose, so every descriptor written against `calc(bars, settings, store)` keeps its exact signature and behaviour.
+
+```ts
+calc: (bars, settings, store, ctx) => {
+  const confirmed = ctx?.barState.isConfirmed ?? true;   // default to "act", not "wait"
+  ...
+}
+```
+
+| Member | Meaning |
+|---|---|
+| `barState.isNew` | The last update **appended** a bar rather than replacing one. False on a full history load: there was no update to append. |
+| `barState.isConfirmed` | The last bar's own span has elapsed on the chart clock. |
+| `barState.isRealtime` | A live feed is driving updates. **Sticky**: set the first time a tail-only change lands, never cleared. |
+| `barState.lastIndex` | `bars.length - 1`, and `-1` when there are none. |
+| `symbol` / `interval` | `undefined` under `chart.addIndicator`. A host that owns the symbol picker supplies them through its own `IndicatorHost`. |
+| `timezone` | The chart's IANA zone, the calendar its axis is labelled in. Same value as the reserved `settings.timezone` key. |
+| `now()` | Chart wall clock in UTC seconds, the clock the countdown row reads. |
+
+`isConfirmed` is **inferred** from the last bar's gap against the chart clock, because that is the only interval signal the engine has: it is handed bars and never a timeframe. A session break or a holiday widens the gap, so read it as "this bar's own span has elapsed", not as "the exchange has closed". Never use it as a substitute for an exchange calendar.
+
+## Alerts (unreleased)
+
+A crossover of an indicator's own columns is something only that indicator can name, so the condition is declared as data and the runtime watches it.
+
+```ts
+alerts: [{
+  id: 'cross-up',                                 // stable within the descriptor
+  title: 'MACD crossed up',
+  message: 'MACD histogram turned positive',      // optional, defaults to `title`
+  when: ({ bars, values, settings, index }) => {
+    const h = values.histogram;
+    return index > 0 && (h[index - 1] ?? 0) <= 0 && (h[index] ?? 0) > 0;
+  },
+}],
+```
+
+A trigger emits `'indicator:alert'` on the chart's own bus with `{ indicatorId, instanceId, alertId, title, message, time, index }`.
+
+**The firing rule is the part to get right.** Alerts fire **only on a tail-only change**, the same gate `calcTail` uses. Any other pass reseeds the watermark silently, so adding the indicator to a loaded chart, changing a setting, paging history in, or switching symbol emits nothing: two years of bars must not announce every crossover in them at once. The watermark is a bar **time**, not a count, so older bars arriving at the left edge cannot re-fire the chart. `when` judges **one** bar, so a rule comparing against the previous bar reads `index - 1` itself.
+
+For a signal arriving from outside the calculation entirely (a subscription your `attach(ctx)` opened), use `ctx.emit(event, payload)` on the attach context instead. That is the imperative half, it puts anything on the same bus, and it has no watermark.
+
+## Pane shading and price-bar colours (unreleased)
+
+Two hooks that state something about a bar rather than about a price. Both run after every `calc` like `markers` and `draws`, both take `{ bars, values, settings }`, and both return one entry per bar with `null` meaning "leave this bar alone".
+
+```ts
+// Shading behind THIS indicator's own pane.
+background: ({ values }) => values.trend.map((v) =>
+  v === null ? null : v > 0 ? 'rgba(38,166,154,0.10)' : 'rgba(239,83,80,0.10)'),
+
+// Recolouring the MAIN PRICE candles.
+barColors: ({ values }) => values.bias.map((v) =>
+  v === null ? null : v > 0 ? '#26a69a' : '#ef5350'),
+```
+
+`background` rules:
+
+- **Pass a translucent `rgba()`.** The layer sits below the series but **above the grid**, so an opaque colour hides the grid lines inside its band.
+- Contributes nothing to autoscale, is anchored to the first bar's **time** (so a page of history does not slide it off its bars), coalesces adjacent same-colour bars into one fill, and culls everything outside the visible range. Return `[]` to clear the layer.
+- `IndicatorBackground` is exported and works as a plain primitive: `new IndicatorBackground()`, `chart.addPrimitive(p, paneIndex)`, `setColors(colors, bars)`, `setVisible(on)`.
+
+`barColors` rules:
+
+- Distinct from `colorBy`, which paints the indicator's **own** series. Use `barColors` only for a claim about the price bars themselves (a trend filter, a volatility regime, a higher-timeframe bias).
+- **Only one indicator's colours can be on the candles at a time.** Last writer wins, deterministically: publishers run in `addIndicator` order. Hiding or removing the indicator withdraws them.
+- The engine clones only the bars whose colour changes, so it never writes into the array the host handed `setData`.
+- Two known gaps: removing the winner while a second publisher is live drops the bars back to their own colours until that publisher's next recompute; and prepending older history retakes the "own colour" snapshot from bars that already carry the overlay, so removing the indicator afterwards leaves the pre-prepend region tinted.
+
+## A plot drawn as candles (unreleased)
+
+A single column cannot express a bar. `plot.ohlc` names **four `calc` columns in the same `IndicatorValues`**, so `calc` keeps one return shape:
+
+```ts
+plots: [{
+  key: 'ha', type: 'candlestick', title: 'Heikin-Ashi',   // or 'hollow-candle', 'bar', 'high-low'
+  ohlc: { open: 'haOpen', high: 'haHigh', low: 'haLow', close: 'haClose' },
+}],
+calc: (bars) => ({ haOpen: [], haHigh: [], haLow: [], haClose: [] }),   // four ordinary columns
+```
+
+`key` stays the series identity (`instance.series('ha')`, the style keys); the legend reading falls back to the `close` column. All four columns must exist and be exactly `bars.length` long or `chart.addIndicator` **throws**, because the first `calc` runs inside the instance constructor. `colorBy` still applies, judged on the close. A user overriding the plot's chart type through `<plotKey>:type` degrades quietly: line, area and histogram read `close`.
+
+## Interval introspection (unreleased)
+
+Do not branch on the interval string. A study written against `'1m'`, `'5m'` and `'15m'` misbehaves on `'3m'`, and a host's own registered code was never in the list.
+
+```ts
+import { intervalParts, isIntradayInterval, isDailyInterval, isSecondsInterval, isTickInterval } from 'openalgo-charts';
+
+intervalParts('120m');   // { multiplier: 2, unit: 'h' }   canonical, the same answer as '2h'
+intervalParts('zz');     // null
+isIntradayInterval(ctx.interval ?? '');   // true, so anchor to the session open
+```
+
+Answers are read off the **bucketing rule**, not the code's spelling, so any registered code answers. `unit` is `'s' | 'm' | 'h' | 'D' | 'W' | 'M' | 'tick' | 'other'`; `M` is months (a quarter reads 3, a year 12), and `'other'` is volume bars. `isIntradayInterval` is a fixed length under a day, so a registrable `25h` is false despite decomposing into hours; a calendar or count-driven code has **no** clock length rather than a long one, so it is false too. `isDailyInterval` is exactly one day (`D`, `24h`, `1440m`). `isSecondsInterval` is "not a whole number of minutes". `isTickInterval` is trade-count bars only; volume bars answer false.
+
+## Colour helpers (unreleased)
+
+```ts
+import { withAlpha, fromGradient } from 'openalgo-charts';
+
+withAlpha('#26a69a', 0.12);                        // 'rgba(38,166,154,0.12)'
+fromGradient(v, 30, 70, '#ef5350', '#26a69a');     // sRGB blend, alpha included, clamped
+```
+
+Use these in a `colorBy`, `background` or `barColors` rather than hand-rolling a hex parser. They read `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, `rgb()` and `rgba()`; **CSS colour names are not parsed**. Neither throws: an unparseable input comes back untouched from `withAlpha`, and `fromGradient` falls back to `low`. A not-available value, and a zero-width range, both resolve to `low` rather than to `rgba(NaN,...)`, which matters because canvas ignores an unparseable `fillStyle` and silently repaints the previous colour. `min > max` is a legitimate way to flip the scale.
+
 ## Tier 2: indicators with their own data
 
-Use Tier 2 when the series is **not** derived from the chart's OHLCV: open interest, cumulative volume delta, PCR, an external analytics feed. `createTier2Indicator` (exported from `openalgo-charts/indicators`) wraps a fetch/subscribe lifecycle into an ordinary `IndicatorDescriptor` — the runtime, settings model, panes, levels, and removal are identical, and there is no second runtime.
+Use Tier 2 when the series is **not** derived from the chart's OHLCV: open interest, cumulative volume delta, PCR, an external analytics feed. `createTier2Indicator` (exported from `openalgo-charts/indicators`) wraps a fetch/subscribe lifecycle into an ordinary `IndicatorDescriptor`: the runtime, settings model, panes, levels, and removal are identical, and there is no second runtime.
 
 ```ts
 import { registerIndicator } from 'openalgo-charts';
@@ -537,7 +679,7 @@ Lifecycle facts:
 
 ## Standalone calculators in the base bundle
 
-`ema`, `rsi`, `atr`/`trueRange`, and `supertrend` ship in the **base** bundle — the tier imports them rather than reimplementing them. Use these when you want to compute a value and plot it yourself, and skip the managed runtime (no legend row, no auto-recompute, no settings dialog, no pane management).
+`ema`, `rsi`, `atr`/`trueRange`, and `supertrend` ship in the **base** bundle: the tier imports them rather than reimplementing them. Use these when you want to compute a value and plot it yourself, and skip the managed runtime (no legend row, no auto-recompute, no settings dialog, no pane management).
 
 ```ts
 import { ema, emaSeries, rsi, rsiSeries, atr, trueRange, supertrend, supertrendSeries } from 'openalgo-charts';
@@ -546,7 +688,7 @@ import { ema, emaSeries, rsi, rsiSeries, atr, trueRange, supertrend, supertrendS
 | Function | Signature | Warmup |
 |---|---|---|
 | `ema` | `(values, period) => number[]` | none; seeds from `values[0]`, `k = 2/(period+1)`. Throws if `period <= 0`. |
-| `emaSeries` | `(bars, period) => Bar[]` | O/H/L/C all set to the EMA — feed a `line` series. |
+| `emaSeries` | `(bars, period) => Bar[]` | O/H/L/C all set to the EMA, so feed a `line` series. |
 | `rsi` | `(values, period = 14) => number[]` | Wilder. `NaN` for indices `< period`. |
 | `rsiSeries` | `(bars, period = 14) => Bar[]` | as above, plottable. |
 | `trueRange` | `(high, low, close) => number[]` | none; `tr[0] = high[0] - low[0]`. |

@@ -148,6 +148,58 @@ anywhere that observes DST. See [Timezones](/docs/timezones).
 Codes are keyed case-insensitively, because the built-in tokens always were (`D` and `d` are
 one interval) and a host's codes should not behave differently from the shipped ones.
 
+## Reading a code back
+
+An indicator that resets on a session, or a host that decides how to label an axis, needs to
+know *what kind* of bar it is looking at. Matching on the code's spelling is how that goes
+wrong: a study written against `'1m'`, `'5m'` and `'15m'` silently misbehaves on `'3m'`, and
+a host's own registered code was never in the list at all.
+
+These five read the answer off the **bucketing rule**, so they answer for any registered
+code, not only for the built-in grammar:
+
+```ts
+import { intervalParts, isIntradayInterval, isDailyInterval } from 'openalgo-charts';
+
+intervalParts('2h');      // { multiplier: 2, unit: 'h' }
+intervalParts('120m');    // { multiplier: 2, unit: 'h' }   the same bar, the same answer
+intervalParts('90s');     // { multiplier: 90, unit: 's' }
+intervalParts('1440m');   // { multiplier: 1, unit: 'D' }
+intervalParts('zz');      // null, and so is a bare 'M' until you register one
+
+// Registered codes answer too, which the built-in grammar could never do:
+intervalParts('1Q');      // { multiplier: 3, unit: 'M' }
+intervalParts('T500');    // { multiplier: 500, unit: 'tick' }
+intervalParts('V10K');    // { multiplier: 10000, unit: 'other' }
+
+isIntradayInterval('5m'); // true    anchor the VWAP to the session open
+isDailyInterval('D');     // true
+```
+
+| Function | Returns | Answers |
+|---|---|---|
+| `intervalParts(code)` | `IntervalParts \| null` | A count and a unit (`'s' \| 'm' \| 'h' \| 'D' \| 'W' \| 'M' \| 'tick' \| 'other'`), or `null` when nothing resolves the code. |
+| `isIntradayInterval(code)` | `boolean` | Fixed length shorter than a day: the bars that want a session reset. |
+| `isDailyInterval(code)` | `boolean` | Exactly one day, however it is spelled: `D`, `24h` and `1440m` all qualify. |
+| `isSecondsInterval(code)` | `boolean` | Not a whole number of minutes, so the labels need second precision. |
+| `isTickInterval(code)` | `boolean` | Closes after N trades. |
+
+Four decisions worth knowing before you branch on any of them:
+
+- **The answer is canonical, not literal.** `'120m'` and `'2h'` are the same bar and both
+  read as 2 hours. The coarsest unit that divides the length wins, which is also why a
+  90-second bar reads as 90 s rather than as one and a half minutes.
+- **`M` is months**, keeping the token grammar's rule that lower-case `m` is minutes. A
+  quarter reads as 3 M and a year as 12 M. `'other'` is the bucket with neither a clock
+  length nor a trade count, which today means volume bars.
+- **The length predicates ask about a magnitude, not a unit.** A registrable `25h` code
+  decomposes into hours while covering more than a day, so `isIntradayInterval('25h')` is
+  false even though its unit is `'h'`.
+- **A calendar or count-driven code is not "long", it has no clock length at all.**
+  `isIntradayInterval` is false for `W`, `1Q` and `T500` alike. Ask `isTickInterval` or
+  `intervalParts` when the distinction matters; volume bars answer false to
+  `isTickInterval`, because they close on quantity rather than on trade count.
+
 ## Using a registered code
 
 ### Live, from a tick stream

@@ -63,6 +63,7 @@ import { ShortcutManager } from '../input/shortcuts';
 import type { ShortcutManagerOptions } from '../input/shortcuts';
 import { TradingController, DEFAULT_TRADING_COLORS, type TradingColors, type TradingSettings } from './trading-controller';
 import { pinchState, pinchDelta, type PinchState } from '../input/touch';
+import { beginPick, type PickKind } from '../input/pick';
 import type { IPrimitive, PrimitiveHost, PrimitiveHit, PrimitiveAnchor, PrimitivePlacement } from '../primitives/primitive';
 import { PriceLine, type PriceLineOptions } from '../primitives/price-line';
 import { SeriesMarkers } from '../primitives/markers';
@@ -448,6 +449,17 @@ export class Chart {
   private readonly _indicators: IndicatorInstance[] = [];
   /** Guards indicator recompute against re-entry via its own `series.setData`. */
   private _recomputing = false;
+  /** Instance id of the indicator whose colours are on the price bars, if any. */
+  private _barColorOwner: string | null = null;
+  private _barColors: readonly (string | null)[] | null = null;
+  /**
+   * Each price bar's own colour, indexed like the series. The overlay overwrites
+   * `Bar.color`, so a bar's own value is only readable the first time we touch
+   * it, and removing the indicator has to put something back.
+   */
+  private readonly _barColorBase: (string | undefined)[] = [];
+  /** Time of bar 0 when the snapshot was taken, to catch a replaced history. */
+  private _barColorAnchor = 0;
   /** Opaque drawing-tier payload, round-tripped through get/restoreState. */
   private _drawingState: unknown = undefined;
   /** Pane currently maximized, and the weights to restore when it un-maximizes. */
@@ -1005,6 +1017,10 @@ export class Chart {
       // bars and never an instrument, and a host that knows one implements its
       // own IndicatorHost rather than having the engine invent a name.
       now: (): number => this._wallClock(),
+      setBarColors: (colors, owner): void => this._setBarColors(colors, owner),
+      // Indicator alerts land on the same bus as every other chart event, so a
+      // host wires one listener rather than a second subscription mechanism.
+      emit: (event, payload): void => this.emit(event, payload),
       setPaneRange: (paneIndex, range): void => {
         const pane = this._panes[paneIndex];
         if (pane === undefined) return;
@@ -1015,6 +1031,68 @@ export class Chart {
         if (range === null) pane.priceScale.setAutoScale(true);
       },
     };
+  }
+
+  /**
+   * Take (or withdraw) the price bars' colour overlay on behalf of one
+   * indicator instance.
+   *
+   * Only one overlay can be on the candles, so this is last writer wins. That is
+   * deterministic rather than arbitrary: publishers run inside
+   * `_recomputeIndicators`, in `addIndicator` order, so the same instance wins
+   * every frame. Withdrawal is gated on ownership, or the first publisher's
+   * teardown would wipe the second one's colours. If the *winner* is removed
+   * while another publisher is still live, the bars go back to their own colours
+   * until that publisher's next recompute.
+   */
+  private _setBarColors(colors: readonly (string | null)[] | null, owner: string): void {
+    if (colors === null) {
+      if (this._barColorOwner !== owner) return;
+      this._barColorOwner = null;
+    } else {
+      this._barColorOwner = owner;
+    }
+    this._barColors = colors;
+    this._applyBarColors();
+  }
+
+  /**
+   * Republish the primary series with the overlay applied.
+   *
+   * The bars in the data layer are the **caller's own objects** (`setData` keeps
+   * the references), so painting a colour onto them in place would reach back
+   * into the host's array and outlive the indicator. Cloning the ones that
+   * change is what keeps that from happening; unchanged bars are passed through,
+   * and a pass where nothing changed writes nothing at all, which is the common
+   * case on a live tick.
+   */
+  private _applyBarColors(): void {
+    const dataId = this._firstDataId.value;
+    if (dataId === null) return;
+    const bars = this._dataLayer.seriesBars(dataId);
+    const n = bars.length;
+    const base = this._barColorBase;
+    // Anything that replaces history (a symbol change, a page of older bars)
+    // invalidates the snapshot, since index i is no longer the same bar.
+    if (n < base.length || (base.length > 0 && bars[0].time !== this._barColorAnchor)) base.length = 0;
+    if (base.length === 0) this._barColorAnchor = n > 0 ? bars[0].time : 0;
+    for (let i = base.length; i < n; i++) base[i] = bars[i].color;
+    const colors = this._barColors;
+    const out = new Array<Bar>(n);
+    let changed = false;
+    for (let i = 0; i < n; i++) {
+      const bar = bars[i];
+      const color = colors?.[i] ?? base[i];
+      if (color === bar.color) { out[i] = bar; continue; }
+      out[i] = { ...bar, color };
+      changed = true;
+    }
+    if (!changed) return;
+    // Straight to the data layer, not through `_setData`: the time points are
+    // untouched, so nothing about the axis or the base index moves, and routing
+    // it through the data path would recompute every indicator mid-recompute.
+    this._dataLayer.setSeriesData(dataId, out);
+    this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Light));
   }
 
   /**
@@ -1740,6 +1818,17 @@ export class Chart {
    */
   public setPlacementMode(active: boolean): void {
     this._placementMode = active;
+  }
+
+  /**
+   * Arm the next plot click to answer with a price or a bar time, handed to
+   * `cb`. Returns a cancel function; arming another pick on this chart cancels
+   * the pending one. `pick:start` and `pick:end` bracket it so a host can show
+   * its own cursor while the pick is live. See `input/pick` for why this does
+   * not touch placement mode.
+   */
+  public beginPick(kind: PickKind, cb: (value: number) => void): () => void {
+    return beginPick(this, kind, cb);
   }
 
   /** Swap the palette at runtime (dark/light toggle) without recreating the chart. */
