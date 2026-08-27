@@ -312,6 +312,14 @@ export interface IndicatorCalcContext {
   timezone: string;
   /** Chart wall clock in UTC seconds, the clock the countdown row reads. */
   now(): number;
+  /**
+   * The instrument's tick size, from the pane's price scale `minMove`.
+   *
+   * `undefined` when the host has not told the chart what it is, which is the
+   * honest answer rather than a guessed 0.01: an indicator sizing a range in
+   * ticks has to tell "one paisa" apart from "nobody said".
+   */
+  tickSize?: number;
 }
 
 /** What an alert's `when` predicate is handed, for the bar it is judging. */

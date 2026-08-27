@@ -1017,6 +1017,15 @@ export class Chart {
       // bars and never an instrument, and a host that knows one implements its
       // own IndicatorHost rather than having the engine invent a name.
       now: (): number => this._wallClock(),
+      // The tick size the price scale is already formatting and snapping to.
+      // Unlike symbol and interval, the chart genuinely knows this one, so an
+      // indicator sizing a range in ticks does not have to be told twice.
+      tickSize: (paneIndex: number): number | undefined => {
+        const pane = this._panes[paneIndex] ?? this._panes[0];
+        const min = pane?.priceScale.options.minMove ?? 0;
+        // 0 is the scale's "infer from the visible range" sentinel, not a tick.
+        return min > 0 ? min : undefined;
+      },
       setBarColors: (colors, owner): void => this._setBarColors(colors, owner),
       // Indicator alerts land on the same bus as every other chart event, so a
       // host wires one listener rather than a second subscription mechanism.

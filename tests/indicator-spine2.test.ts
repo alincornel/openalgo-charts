@@ -1,5 +1,5 @@
 /**
- * The 1.7.2 indicator surface: the calculation context and its bar state, the
+ * The 1.8.1 indicator surface: the calculation context and its bar state, the
  * pane shading layer, recolouring of the price candles, four-column bar plots,
  * and the declarative alerts.
  *
@@ -569,5 +569,47 @@ describe('on a real chart', () => {
     chart.on('oi:loaded', (p) => seen.push(p));
     chart.addIndicator('w2-chart-emit');
     expect(seen).toEqual([{ rows: 7 }]);
+  });
+});
+
+describe('the calculation context: tickSize', () => {
+  it('passes a host tick through', () => {
+    const p = contextProbe('w2-tick-yes');
+    new IndicatorInstance(rig(wave(5), { tickSize: () => 0.05 }).host, p.d);
+    expect(p.seen().tickSize).toBe(0.05);
+  });
+
+  it('drops the price scale sentinel rather than calling it a tick', () => {
+    // 0 means "infer precision from the visible range". An indicator sizing a
+    // range in ticks has to tell that apart from a genuine one paisa.
+    const p = contextProbe('w2-tick-zero');
+    new IndicatorInstance(rig(wave(5), { tickSize: () => 0 }).host, p.d);
+    expect(p.seen().tickSize).toBeUndefined();
+  });
+
+  it('reports nothing for a host that predates the member', () => {
+    const p = contextProbe('w2-tick-absent');
+    new IndicatorInstance(rig(wave(5)).host, p.d);
+    expect(p.seen().tickSize).toBeUndefined();
+  });
+
+  it('the chart reports its own price scale minMove', () => {
+    const chart = new Chart(fakeDocument().createElement('div'), {
+      document: fakeDocument(),
+      pixelRatio: () => 1,
+      shortcuts: false,
+      raf: { schedule: (cb: () => void) => { cb(); return 1; }, cancel: () => {} },
+    });
+    chart.applySize(800, 600);
+    chart.addSeries('candlestick').setData(wave(30));
+
+    const p = contextProbe('w2-tick-chart');
+    registerIndicator(p.d);
+    const inst = chart.addIndicator('w2-tick-chart');
+    expect(p.seen().tickSize).toBeUndefined();
+
+    chart.setPriceScaleOptions({ minMove: 0.05 });
+    inst.setSettings({ nudge: 1 });
+    expect(p.seen().tickSize).toBe(0.05);
   });
 });

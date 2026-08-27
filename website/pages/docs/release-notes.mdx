@@ -8,6 +8,17 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 1.8.2
+
+**Added**
+
+- **`ctx.tickSize`**, the instrument tick size on the calculation context, taken
+  from the pane's price scale `minMove`. An indicator that sizes a range in
+  ticks no longer has to ask the user for a number the chart already holds.
+  `undefined` when the host has not set one, because the scale's 0 means "infer
+  from the range" rather than a real tick. See
+  [the calculation context](/docs/indicators#the-calculation-context).
+
 ## 1.8.1
 
 The indicator descriptor learns what the *chart* is doing, not only what the bars say: where

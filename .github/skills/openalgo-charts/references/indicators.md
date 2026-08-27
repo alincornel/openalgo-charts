@@ -501,6 +501,27 @@ Optional descriptor members: `fills`, `markers`, `levels`, `range`, `attach`, `c
 
 `registerIndicator` overwrites an existing id, later registration wins. With 91 built-ins the id space is crowded, so namespace a custom id (`my-momentum`, `acme-vwap`) unless you intend to replace a built-in. Register before `addIndicator`.
 
+## The calculation context (1.8.1, extended 1.8.2)
+
+`calc` and `calcTail` take an optional trailing context:
+
+```ts
+calc(bars, settings, store, ctx) {
+  ctx.barState   // { isNew, isConfirmed, isRealtime, lastIndex }
+  ctx.symbol     // may be undefined: the core is handed bars, not an instrument
+  ctx.interval   // same
+  ctx.timezone
+  ctx.now()
+  ctx.tickSize   // 1.8.2: the pane price scale's minMove, or undefined
+}
+```
+
+`ctx.tickSize` is the number the axis already formats to and `snapToTick`
+already snaps to, so an indicator sizing a range in ticks reads it rather than
+adding an input for it. It is `undefined` when the host has not set `minMove`:
+the scale treats 0 as "infer precision from the visible range", which is not a
+tick size, and guessing one would be worse than saying nothing.
+
 ## Free-standing geometry: `draws` (1.7.1)
 
 A plot is one value per bar and a level is a horizontal line across the pane, so a pivot-to-pivot

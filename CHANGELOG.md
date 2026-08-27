@@ -2,6 +2,21 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.8.2
+
+### Added
+
+- **`ctx.tickSize` on the calculation context.** The instrument's tick size,
+  read from the pane's price scale `minMove`, which is the same number the axis
+  already formats and `snapToTick` already snaps to. An indicator sizing a range
+  in ticks previously had to ask the user for a value the chart was holding.
+
+  It is `undefined` rather than a guess when the host has not set `minMove`. The
+  scale treats 0 as "infer precision from the visible range", and handing that
+  to an indicator as though it meant one paisa would be worse than saying
+  nothing. `IndicatorHost.tickSize?(paneIndex)` is optional, so a host predating
+  it still satisfies the interface.
+
 ## 1.8.1
 
 The indicator descriptor learns what the *chart* is doing, not only what the

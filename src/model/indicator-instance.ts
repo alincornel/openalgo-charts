@@ -146,6 +146,11 @@ export interface IndicatorHost {
   setBarColors?(colors: readonly (string | null)[] | null, owner: string): void;
   /** Emit on the chart's event bus (indicator alerts, and `attach`'s own events). */
   emit?(event: string, payload: unknown): void;
+  /**
+   * Tick size of the pane's price scale, or undefined when none is set.
+   * Optional so a host predating it still satisfies this interface.
+   */
+  tickSize?(paneIndex: number): number | undefined;
   /** Pin a pane's price scale to a fixed range, or release it with `null`. */
   setPaneRange(paneIndex: number, range: { min: number; max: number } | null): void;
 }
@@ -567,6 +572,8 @@ export class IndicatorInstance implements IndicatorApi {
       interval: this._host.interval?.(),
       timezone: this._host.timezone?.() ?? DEFAULT_TIMEZONE,
       now,
+      // 0 is the scale's "infer from the visible range" sentinel, not a tick.
+      tickSize: this._host.tickSize?.(this.paneIndex) || undefined,
     };
   }
 
