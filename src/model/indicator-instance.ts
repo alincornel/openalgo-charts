@@ -69,7 +69,7 @@ export interface IndicatorHost {
   ): SeriesApi;
   /**
    * Add a reference level. One options object rather than seven positional
-   * arguments: the list grew a width and a dash style in 1.7.0, and a call site
+   * arguments: the list grew a width and a dash style in 1.7.1, and a call site
    * of seven bare values is where the next one gets passed in the wrong slot.
    */
   addIndicatorLevel(

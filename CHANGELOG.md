@@ -2,7 +2,7 @@
 
 All notable changes to OpenAlgo Charts.
 
-## 1.7.0
+## 1.7.1
 
 The indicator descriptor gains the parts a ported study needs and could not
 express: free-standing geometry, levels derived from the data, one plot that

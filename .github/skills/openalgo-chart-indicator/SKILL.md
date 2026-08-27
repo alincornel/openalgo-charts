@@ -59,7 +59,7 @@ To build a settings dialog, generate it from the descriptor rather than hand-wri
 
 Use `registerIndicator` when the value is computed from the chart's own OHLCV. A descriptor is data: id, name, placement, inputs, plots, optional levels, and a pure `calc`. Each plot names a registered **chart type**, so you write no drawing code.
 
-Since 1.7.0 a descriptor can also return free-standing geometry from `draws(ctx)` (lines, boxes, labels and polylines anchored to `{ time, price }`, with ray extension and multi-line text), derive its `levels` from `ctx.bars` / `ctx.values` rather than settings alone, and send a single plot to the price pane with `overlay: true` while the rest of the study keeps its own pane. `colorBy` now reaches line, area and step, not just histogram and column. The `./calc` helpers are all exported, including `pivotHigh`, `pivotLow` and `smaSeededEma`, so a ported study composes them instead of re-deriving them.
+Since 1.7.1 a descriptor can also return free-standing geometry from `draws(ctx)` (lines, boxes, labels and polylines anchored to `{ time, price }`, with ray extension and multi-line text), derive its `levels` from `ctx.bars` / `ctx.values` rather than settings alone, and send a single plot to the price pane with `overlay: true` while the rest of the study keeps its own pane. `colorBy` now reaches line, area and step, not just histogram and column. The `./calc` helpers are all exported, including `pivotHigh`, `pivotLow` and `smaSeededEma`, so a ported study composes them instead of re-deriving them.
 
 ```ts
 import { registerIndicator, sourceValues } from 'openalgo-charts';

@@ -240,7 +240,7 @@ chart.on('indicatorSettings', (p) => {
 
 `levels(ctx)` returns horizontal reference lines drawn as `PriceLine`s in the indicator's pane (`{ price, color?, title?, dashed?, lineWidth?, lineStyle? }`, defaults `#8892a6` and dashed; `lineStyle` is `'solid' | 'dashed' | 'dotted'` and overrides `dashed`). `range(settings)` pins the pane's price scale.
 
-**Since 1.7.0** `ctx` carries the settings keys directly (so every existing `levels(settings)` descriptor is unchanged) plus `ctx.bars` and `ctx.values`, and levels recompute after each `calc` rather than only on a settings change. That is what lets a level be derived from the data: a previous-day high, an anchored VWAP band, the last close. Write `ctx.bars ?? []`, since both are optional. 36 built-ins declare `levels`, 12 declare `range`, and levels are computed from the live settings, so `rsi`'s are `overbought` / 50 / `oversold`, not the literals below.
+**Since 1.7.1** `ctx` carries the settings keys directly (so every existing `levels(settings)` descriptor is unchanged) plus `ctx.bars` and `ctx.values`, and levels recompute after each `calc` rather than only on a settings change. That is what lets a level be derived from the data: a previous-day high, an anchored VWAP band, the last close. Write `ctx.bars ?? []`, since both are optional. 36 built-ins declare `levels`, 12 declare `range`, and levels are computed from the live settings, so `rsi`'s are `overbought` / 50 / `oversold`, not the literals below.
 
 | id | Levels (at default settings) | Fixed range |
 |---|---|---|
@@ -458,17 +458,17 @@ registerIndicator({
 chart.addIndicator('my-momentum', { length: 14 });
 ```
 
-Optional descriptor members: `fills`, `markers`, `levels`, `range`, `attach`, `calcTail`, `table`, and `draws` (1.7.0), plus `colorBy` (per-bar colour) and `priceScaleId` / `overlay` on an individual plot.
+Optional descriptor members: `fills`, `markers`, `levels`, `range`, `attach`, `calcTail`, `table`, and `draws` (1.7.1), plus `colorBy` (per-bar colour) and `priceScaleId` / `overlay` on an individual plot.
 
-**`overlay: true` on a plot** (1.7.0) draws that one column on the price pane even when the descriptor is `placement: 'pane'`. An oscillator whose stop line belongs on the candles no longer has to ship as two indicators that duplicate the same inputs.
+**`overlay: true` on a plot** (1.7.1) draws that one column on the price pane even when the descriptor is `placement: 'pane'`. An oscillator whose stop line belongs on the candles no longer has to ship as two indicators that duplicate the same inputs.
 
-**`colorBy` now reaches line, area and step** as well as histogram and column (1.7.0). Return `undefined` to fall back to the plot colour. A uniform column still strokes once, so an ordinary series pays nothing.
+**`colorBy` now reaches line, area and step** as well as histogram and column (1.7.1). Return `undefined` to fall back to the plot colour. A uniform column still strokes once, so an ordinary series pays nothing.
 
 **Implement `calcTail` for anything running in a live pane.** Without it every tick costs a full `calc` — O(n) per tick *per indicator*. Return values for `[fromIndex, bars.length)` and the runtime splices them onto the previous result; return `null` to fall back. The runtime only takes the tail path when the bar count is unchanged or grew by exactly one, and `fromIndex` is `previousCount - 1` because the previously-last bar may have been replaced. Any settings change or external-data arrival resets the tail state to force a full recompute.
 
 `registerIndicator` overwrites an existing id, later registration wins. With 91 built-ins the id space is crowded, so namespace a custom id (`my-momentum`, `acme-vwap`) unless you intend to replace a built-in. Register before `addIndicator`.
 
-## Free-standing geometry: `draws` (1.7.0)
+## Free-standing geometry: `draws` (1.7.1)
 
 A plot is one value per bar and a level is a horizontal line across the pane, so a pivot-to-pivot
 trendline, a supply zone or a measured-move projection had nowhere to live. `draws(ctx)` returns
@@ -493,7 +493,7 @@ second line', color: '#ef5350' },
 - The layer contributes **nothing to autoscale**: a projection reaching far above the data would
   otherwise squash the study it annotates.
 - A `label`, and a `box` caption, split on `
-`. Marker text does too, since 1.7.0.
+`. Marker text does too, since 1.7.1.
 - Shapes entirely off-pane are culled before any path work.
 
 The list is rebuilt on every recompute, exactly like `markers`. There are no retained handles to
