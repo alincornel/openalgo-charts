@@ -132,6 +132,12 @@ records what each element must say and why.
 MDX frontmatter is a YAML parse error and fails the whole site, and the failure does not
 show up in the library's own tests.
 
+It deploys under `basePath: '/openalgo-charts'`. Next rewrites `<Link href>` but **not a
+raw `src` or `href` in MDX or JSX**, so an asset written `/thing.svg` builds fine, passes
+every check, and 404s only on Pages. Spell out `/openalgo-charts/thing.svg`, the way
+`LOGO_SRC` does in `components/`. Grep the built `out/` for the emitted path rather than
+trusting the source.
+
 Examples are not decoration, they are the proof a feature is usable. An example that
 throws is worse than a missing one. Anything overlaid on the chart as HTML must stop
 `pointerdown`, or the chart's pointer capture eats the click.

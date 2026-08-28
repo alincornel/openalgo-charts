@@ -8,8 +8,10 @@ description: How OpenAlgo Charts is put together - seven layers from the public 
 OpenAlgo Charts is a single-canvas engine with no runtime dependencies. Everything
 below ships from this repository: there is no vendor blob to reverse-engineer.
 
+{/* basePath is not applied to a raw img src, so it is spelled out here, the
+    same way the logo is in components/. Without it this 404s on Pages. */}
 <img
-  src="/architecture-diagram.svg"
+  src="/openalgo-charts/architecture-diagram.svg"
   alt="OpenAlgo Charts architecture: seven layers from the public API down to feeds and data, with 91 built-in plus custom indicators, 43 drawing tools, and a six-tier bundle legend"
   style={{ width: '100%', height: 'auto', borderRadius: 8 }}
 />
