@@ -287,3 +287,23 @@ Reconciling the fill back onto the chart *is* `refreshBook()` — the filled ord
 ## Deeper
 
 Visualization layer and its events: [trading](trading.md). Entry points and tree-shaking: [bundling-and-tiers](bundling-and-tiers.md). `subscribeDepth` and WS modes: [feeds-and-live](feeds-and-live.md). `IPrimitive` and hit-testing: [primitives-and-plugins](primitives-and-plugins.md). `chart.on('drag' | 'drag:end' | 'click' | 'hover')` payloads: [events-and-state](events-and-state.md).
+
+## Field validators
+
+`validateOrder` runs the whole set. The two field-level checks are exported so a form
+can validate as the user types instead of only on submit:
+
+```ts
+validatePrice(price: number, c: OrderConstraints): ValidationResult
+validateQuantity(qty: number, c: OrderConstraints): ValidationResult
+```
+
+Both return a `ValidationResult` rather than throwing, so a failure is a value you
+render, not an exception you catch.
+
+`isPreflightFailure(err)` distinguishes an order rejected *before* it reached the
+broker from one the broker rejected. The difference matters: a preflight failure is
+the user's to fix and the order never existed, so retrying is safe and no reconcile
+against the broker is needed.
+
+`TRADE_TIER` is the tier's identity constant (`'trade'`).

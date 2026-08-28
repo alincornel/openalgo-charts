@@ -203,3 +203,65 @@ Each pane owns two stacked canvases: `pane.base` (z-index 0: background, grid, s
 The effective level per pane is `max(globalLevel, paneLevel)`. Crosshair moves raise `Cursor` globally; hover changes raise `Light` globally; a primitive's `requestUpdate` raises `Light` on its pane only; data mutations, pan, zoom, resize, theme and grid changes raise `Full` globally.
 
 **Every `series.update()` schedules a `Full` repaint.** A high-frequency feed therefore re-autoscales each frame; batch ticks upstream (see [feeds-and-live](feeds-and-live.md)) rather than calling `update` per tick.
+
+## The rest of the base surface
+
+These are exported and supported, but sit outside the paths above. Signatures are
+from `dist/index.d.ts`.
+
+**Defaults you can read rather than retype.** Each is the exact object the engine
+starts from, so spreading one keeps your override honest when a new key is added.
+
+| Export | Type |
+|---|---|
+| `DEFAULT_CANDLE_STYLE` | `CandleStyle` |
+| `DEFAULT_HISTOGRAM_STYLE` | `HistogramStyle` |
+| `DEFAULT_CANDLE_BUILDER_OPTIONS` | `CandleBuilderOptions` |
+| `DEFAULT_CHART_TABLE_OPTIONS` | `ChartTableOptions` |
+| `DEFAULT_TIME_NAVIGATOR_OPTIONS` | `TimeNavigatorOptions` |
+
+**Primitives you can attach directly.** Both implement `IPrimitive`, so they follow
+the rules in [primitives-and-plugins](./primitives-and-plugins.md).
+
+- `ChartTable` - a grid pinned to a pane corner. What an indicator's `table` hook
+  builds for you; attach it yourself when the table is not tied to a study.
+- `IndicatorDrawings` - the primitive behind a descriptor's `draws` hook. One
+  primitive holds the whole shape list, because a descriptor rebuilds its shapes on
+  every recompute and per-shape primitives would re-sort z-order on every live tick.
+
+**Calendar boundaries, zone-aware.** The `zone` argument defaults to
+`DEFAULT_TIMEZONE`; never let it fall through to the browser's local zone.
+
+```ts
+isNewZonedWeek(prev, now, zone?)   isNewZonedMonth(prev, now, zone?)
+isNewZonedQuarter(prev, now, zone?) isNewZonedYear(prev, now, zone?)
+startOfZonedWeek(utcSeconds, zone?) startOfZonedMonth(utcSeconds, zone?)
+formatZonedDate(utcSeconds, zone?)  formatZonedTimeSeconds(utcSeconds, zone?)
+formatIstCrosshairLabel(utcSeconds)
+```
+
+`barCloseSec(interval, barStartSec, zone?)` returns when a bar closes, or `null` for
+a code with no clock length - tick, Renko and range bars. Do not treat `null` as zero.
+
+**Cache and feed plumbing.** `barCacheKey(req)` is the key
+[`withBarCache`](./feeds-and-live.md) stores under; build it the same way if you
+pre-seed the store. `backoffDelayMs(attempt, opts)` is the reconnect schedule.
+`classifyAuthAck(raw)` returns `'ok' | 'failed' | null`, `parseTopic(topic)` splits a
+subscription topic, and `readSequence(raw)` pulls a sequence number when present.
+`decodeOrder(raw, path?)` returns an `OrderDecodeResult` rather than throwing, and
+`mapOrderStatus(s)` narrows a broker string to `OrderStatus | 'unknown'` - an
+unrecognised status stays visible instead of being silently dropped.
+
+**Geometry, for a primitive doing its own drawing.**
+
+- `bitmapSize(mediaWidth, mediaHeight, dpr)` - device-pixel size of a canvas
+- `snapToDevicePixel(mediaCoord, dpr)` - the half-pixel alignment that keeps a
+  1 px line from rendering as a 2 px blur
+- `precisionForStep(step)` - decimal places implied by a tick size
+- `watermarkRect(position, margin, w, h, plotW, plotH)` and
+  `tableOrigin(position, margin, w, h, plotW, plotH)` - corner placement
+
+**Interaction.** `beginPick(host, kind, cb)` starts a price or time pick and returns
+its cancel function; call it to tear the pick down. `isRebasing(mode)` reports whether
+a `PriceScaleMode` re-bases the series, which is true for `percentage` and
+`indexed-to-100` and is why a rebased pane cannot share an axis with an absolute one.

@@ -18,7 +18,6 @@
     "verbatimModuleSyntax": true,
     "useDefineForClassFields": true,
     "sourceMap": true,
-    "baseUrl": ".",
     "paths": {
       "openalgo-charts": ["./src/index.ts"]
     }

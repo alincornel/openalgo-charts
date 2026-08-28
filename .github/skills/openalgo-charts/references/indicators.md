@@ -722,3 +722,93 @@ The tier additionally exports pure helpers used by the descriptors: `sma`, `wma`
 The tier also exports every descriptor by name in SCREAMING_SNAKE form (`RSI`, `MACD`, `HALFTREND`, ...), the per-family arrays (`OVERLAY_INDICATORS`, `OSCILLATOR_INDICATORS`, `VOLATILITY_INDICATORS`, `FLOW_INDICATORS`, `ADAPTIVE_INDICATORS`, `AVERAGE_INDICATORS`, `STRENGTH_INDICATORS`, `INDEX_INDICATORS`, `RANGE_INDICATORS`, `SIGNAL_INDICATORS`), and the flat `BUILTIN_INDICATORS`. Read `BUILTIN_INDICATORS` rather than hard-coding a list of ids.
 
 Related: [core-api](./core-api.md), [chart-types](./chart-types.md), [scales-and-panes](./scales-and-panes.md), [events-and-state](./events-and-state.md), [bundling-and-tiers](./bundling-and-tiers.md), [transforms](./transforms.md), [pitfalls](./pitfalls.md).
+
+## Every built-in is also a named export
+
+The tier's import side effect registers all 91. You do not have to take all
+91. Each descriptor is exported individually under the UPPER_SNAKE form of its
+id, so a bundle can register only what it draws:
+
+```ts
+import { registerIndicator } from 'openalgo-charts';
+import { BOLLINGER, RSI, SUPERTREND } from 'openalgo-charts/indicators';
+
+for (const d of [BOLLINGER, RSI, SUPERTREND]) registerIndicator(d);
+```
+
+A descriptor is plain data plus a `calc`, so a named export also doubles as a
+calculation with no chart attached:
+
+```ts
+const out = BOLLINGER.calc(bars, indicatorDefaults(BOLLINGER), {});
+// -> { upper, basis, lower }, each bars.length long
+```
+
+Reuse beats reimplementation here: calling a built-in's own `calc` cannot drift from
+the version the user has on the chart, and the plot keys are the built-in's, not its id
+(`ema` plots `ma`; `bollinger` plots `upper` / `basis` / `lower`). Read
+`getIndicator(id).plots` rather than guessing.
+
+| Export &rarr; id | Export &rarr; id | Export &rarr; id |
+|---|---|---|
+| `ADL` &rarr; `adl` | `ADX` &rarr; `adx` | `ALLIGATOR` &rarr; `alligator` |
+| `ALMA` &rarr; `alma` | `ALPHATREND` &rarr; `alphatrend` | `AROON` &rarr; `aroon` |
+| `AROON_OSCILLATOR` &rarr; `aroon-oscillator` | `ATR` &rarr; `atr` | `AVERAGE_DAILY_RANGE` &rarr; `average-daily-range` |
+| `AWESOME_OSCILLATOR` &rarr; `awesome-oscillator` | `BALANCE_OF_POWER` &rarr; `balance-of-power` | `BB_TREND` &rarr; `bb-trend` |
+| `BOLLINGER` &rarr; `bollinger` | `BOLLINGER_BANDWIDTH` &rarr; `bollinger-bandwidth` | `BOLLINGER_PERCENT_B` &rarr; `bollinger-percent-b` |
+| `CCI` &rarr; `cci` | `CHAIKIN_MONEY_FLOW` &rarr; `chaikin-money-flow` | `CHAIKIN_OSCILLATOR` &rarr; `chaikin-oscillator` |
+| `CHANDELIER_EXIT` &rarr; `chandelier-exit` | `CHANDE_KROLL_STOP` &rarr; `chande-kroll-stop` | `CHANDE_MOMENTUM` &rarr; `chande-momentum` |
+| `CHOPPINESS_INDEX` &rarr; `choppiness-index` | `CHOP_ZONE` &rarr; `chop-zone` | `CONNORS_RSI` &rarr; `connors-rsi` |
+| `COPPOCK_CURVE` &rarr; `coppock-curve` | `CPR` &rarr; `cpr` | `DEMA` &rarr; `dema` |
+| `DONCHIAN` &rarr; `donchian` | `DPO` &rarr; `dpo` | `EASE_OF_MOVEMENT` &rarr; `ease-of-movement` |
+| `ELDER_FORCE_INDEX` &rarr; `elder-force-index` | `EMA` &rarr; `ema` | `ENVELOPE` &rarr; `envelope` |
+| `FISHER_TRANSFORM` &rarr; `fisher-transform` | `HALFTREND` &rarr; `halftrend` | `HISTORICAL_VOLATILITY` &rarr; `historical-volatility` |
+| `HMA` &rarr; `hma` | `ICHIMOKU` &rarr; `ichimoku` | `KAMA` &rarr; `kama` |
+| `KELTNER_CHANNEL` &rarr; `keltner-channel` | `KLINGER_OSCILLATOR` &rarr; `klinger-oscillator` | `KNOW_SURE_THING` &rarr; `know-sure-thing` |
+| `LSMA` &rarr; `lsma` | `MACD` &rarr; `macd` | `MASS_INDEX` &rarr; `mass-index` |
+| `MA_CROSS` &rarr; `ma-cross` | `MA_RIBBON` &rarr; `ma-ribbon` | `MCGINLEY_DYNAMIC` &rarr; `mcginley-dynamic` |
+| `MEDIAN` &rarr; `median` | `MFI` &rarr; `mfi` | `MOMENTUM` &rarr; `momentum` |
+| `NVI` &rarr; `nvi` | `OBV` &rarr; `obv` | `PARABOLIC_SAR` &rarr; `parabolic-sar` |
+| `PPO` &rarr; `ppo` | `PVI` &rarr; `pvi` | `PVO` &rarr; `pvo` |
+| `PVT` &rarr; `pvt` | `RANGE_ANALYSIS` &rarr; `range-analysis` | `RELATIVE_VIGOR_INDEX` &rarr; `relative-vigor-index` |
+| `RELATIVE_VOLATILITY_INDEX` &rarr; `relative-volatility-index` | `ROC` &rarr; `roc` | `RSI` &rarr; `rsi` |
+| `RSI_DIVERGENCE` &rarr; `rsi-divergence` | `SEASONALITY` &rarr; `seasonality` | `SMA` &rarr; `sma` |
+| `SMI` &rarr; `smi` | `SMI_ERGODIC_INDICATOR` &rarr; `smi-ergodic-indicator` | `SMI_ERGODIC_OSCILLATOR` &rarr; `smi-ergodic-oscillator` |
+| `SPECIAL_K` &rarr; `special-k` | `STOCHASTIC` &rarr; `stochastic` | `STOCHASTIC_RSI` &rarr; `stochastic-rsi` |
+| `SUPERTREND` &rarr; `supertrend` | `TEMA` &rarr; `tema` | `TREND_STRENGTH_INDEX` &rarr; `trend-strength-index` |
+| `TRIX` &rarr; `trix` | `TSI` &rarr; `tsi` | `TWAP` &rarr; `twap` |
+| `ULCER_INDEX` &rarr; `ulcer-index` | `ULTIMATE_OSCILLATOR` &rarr; `ultimate-oscillator` | `VOLATILITY_STOP` &rarr; `volatility-stop` |
+| `VOLUME` &rarr; `volume` | `VORTEX` &rarr; `vortex` | `VWAP` &rarr; `vwap` |
+| `VWMA` &rarr; `vwma` | `WAVETREND` &rarr; `wavetrend` | `WILLIAMS_FRACTALS` &rarr; `williams-fractals` |
+| `WILLIAMS_PERCENT_R` &rarr; `williams-percent-r` | `WILLIAMS_VIX_FIX` &rarr; `williams-vix-fix` | `WMA` &rarr; `wma` |
+| `WOODIES_CCI` &rarr; `woodies-cci` |  |  |
+
+`INDICATORS_TIER` is the tier's identity constant (`'indicators'`), for feature
+detection without a bare string.
+
+## Calc helpers not covered above
+
+All exported from `openalgo-charts/indicators`, all returning a full-length array:
+
+```ts
+highestBars(values, period)                  // bars since the period high
+lowestBars(values, period)                   // bars since the period low
+linreg(values, period, offset?)              // linear-regression value
+percentRank(values, period)                  // rank of the current value in its window
+percentileNearestRank(values, period, pct)   // nearest-rank percentile
+swma(values)                                 // symmetric weighted moving average
+```
+
+`highestBars` and `lowestBars` answer *when*, not *what*: use them for "N bars since
+the high", where `highest` / `lowest` give the value itself.
+
+## Grouped descriptor exports
+
+Three subsets are exported as arrays, for registering a family without naming each
+member. They are already included in the tier's own registration.
+
+| Export | Contents |
+|---|---|
+| `STUDY_INDICATORS` | `cpr`, `alphatrend`, `range-analysis` |
+| `SEASONALITY_INDICATORS` | `seasonality` |
+| `WAVETREND_INDICATORS` | `wavetrend` |

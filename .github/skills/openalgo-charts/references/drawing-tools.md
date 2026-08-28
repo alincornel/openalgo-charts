@@ -352,3 +352,31 @@ draw.update(draw.selected()!, { style: { color, lineWidth, lineStyle, fillOpacit
 **Magnet only applies to pane 0.** `_snap` returns the raw price for any other pane index, because O/H/L/C snapping has no meaning on an indicator pane.
 
 Related: [primitives-and-plugins](primitives-and-plugins.md) (the `IPrimitive` contract `DrawingLayer` implements), [events-and-state](events-and-state.md) (the bus and `getState`), [interactions](interactions.md) (placement mode, pan/zoom), [bundling-and-tiers](bundling-and-tiers.md) (lazy-loading the tier).
+
+## Named tool exports
+
+As with the indicator tier, importing `openalgo-charts/draw` registers all 43 tools,
+but each descriptor is also exported by name for selective registration:
+
+```ts
+import { registerDrawingTool } from 'openalgo-charts/draw';
+import { TREND_LINE, FIB_RETRACEMENT, RECTANGLE } from 'openalgo-charts/draw';
+
+for (const t of [TREND_LINE, FIB_RETRACEMENT, RECTANGLE]) registerDrawingTool(t);
+```
+
+| Export &rarr; id | Export &rarr; id | Export &rarr; id |
+|---|---|---|
+| `ARROW` &rarr; `arrow` | `CROSS_LINE` &rarr; `cross-line` | `ELLIPSE` &rarr; `ellipse` |
+| `EXTENDED_LINE` &rarr; `extended-line` | `FIB_EXTENSION` &rarr; `fib-extension` | `FIB_RETRACEMENT` &rarr; `fib-retracement` |
+| `HORIZONTAL_LINE` &rarr; `horizontal-line` | `HORIZONTAL_RAY` &rarr; `horizontal-ray` | `LONG_POSITION` &rarr; `long-position` |
+| `MEASURE` &rarr; `measure` | `PARALLEL_CHANNEL` &rarr; `parallel-channel` | `PATH` &rarr; `path` |
+| `RAY` &rarr; `ray` | `RECTANGLE` &rarr; `rectangle` | `SHORT_POSITION` &rarr; `short-position` |
+| `TEXT` &rarr; `text` | `TREND_LINE` &rarr; `trend-line` | `VERTICAL_LINE` &rarr; `vertical-line` |
+
+The remaining tools are registered by `registerBuiltinDrawingTools()` and reachable
+through `getDrawingTool(id)` / `hasDrawingTool(id)` / `registeredDrawingTools()`.
+
+Clipboard persistence uses `DRAWING_CLIPBOARD_KEY` (`'openalgo-charts/drawings'`)
+and `DRAWING_CLIPBOARD_VERSION` (`1`); `systemClipboard` and
+`clearMemoryClipboard` are the two backing stores. `DRAW_TIER` is the tier constant.

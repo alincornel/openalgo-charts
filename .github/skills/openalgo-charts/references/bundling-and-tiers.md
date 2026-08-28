@@ -158,3 +158,19 @@ It has no `.d.ts` build and no `exports` entry. `openalgo-charts/all` does not r
 ## Related
 
 [core-api](core-api.md) · [chart-types](chart-types.md) · [indicators](indicators.md) · [transforms](transforms.md) · [drawing-tools](drawing-tools.md) · [trade-tier](trade-tier.md) · [profiles-and-orderflow](profiles-and-orderflow.md) · [react-integration](react-integration.md) · [pitfalls](pitfalls.md)
+
+## Tier identity constants
+
+Each opt-in tier exports a string constant naming itself, so feature detection does
+not depend on a bare string literal that a rename would silently break:
+
+| Export | Value | From |
+|---|---|---|
+| `INDICATORS_TIER` | `'indicators'` | `openalgo-charts/indicators` |
+| `DRAW_TIER` | `'draw'` | `openalgo-charts/draw` |
+| `TRANSFORM_TIER` | `'transform'` | `openalgo-charts/transform` |
+| `PROFILE_TIER` | `'profile'` | `openalgo-charts/profile` |
+| `TRADE_TIER` | `'trade'` | `openalgo-charts/trade` |
+
+They are exported from the tier's own entry point, not from the base bundle, so
+importing one to test for it defeats the purpose. Track what your own code loaded.
