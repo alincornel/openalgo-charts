@@ -1,3 +1,4 @@
+import { useTheme } from 'next-themes';
 import React, { useEffect, useRef, useState } from 'react';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -30,6 +31,8 @@ function InteractiveChart({ title, tabs, build, height = 320, code }: { title: s
   const [tab, setTab] = useState(tabs?.[0]?.key ?? '');
   const [err, setErr] = useState<string | null>(null);
   const [showCode, setShowCode] = useState(false);
+  const { resolvedTheme } = useTheme();
+  const dark = resolvedTheme !== 'light';
 
   useEffect(() => {
     let chart: any;
@@ -39,7 +42,21 @@ function InteractiveChart({ title, tabs, build, height = 320, code }: { title: s
         const lib = await loadLib();
         if (cancelled || !ref.current) return;
         ref.current.innerHTML = '';
-        chart = build(ref.current, lib, tab);
+        // Every build calls `createChart` bare, so without this the card renders
+        // the library's light default as a white hole in a dark docs page - and
+        // the HTML legends layered on top, coloured for the page rather than the
+        // canvas, came out invisible against it. Wrap once here instead of asking
+        // thirteen builds to remember; a build passing its own `theme` still wins,
+        // since caller options spread last.
+        // A copy, not `Object.create(lib)`: a module namespace exposes its exports
+        // as getter-only accessors, so an override on a child object throws.
+        const create = lib.createChart;
+        const themed = {
+          ...lib,
+          createChart: (host: HTMLElement, opts?: Record<string, unknown>) =>
+            create(host, { theme: dark ? lib.darkTheme : lib.lightTheme, ...opts }),
+        };
+        chart = build(ref.current, themed, tab);
         if (chart?.addPrimitive && lib.LogoWatermark) {
           chart.addPrimitive(new lib.LogoWatermark({ src: LOGO_SRC, height: 22, opacity: 0.75, position: 'bottom-left' }));
         }
@@ -48,7 +65,7 @@ function InteractiveChart({ title, tabs, build, height = 320, code }: { title: s
       }
     })();
     return () => { cancelled = true; try { chart?.destroy?.(); } catch { /* ignore */ } };
-  }, [tab, build]);
+  }, [tab, build, dark]);
 
   return (
     <div className="oac-card">

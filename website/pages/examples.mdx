@@ -62,7 +62,15 @@ pane, and `markers` to flag each flip. No fork, no build step.
     { key: 'up', type: 'color', label: 'Bull', default: '#26a69a' },
     { key: 'down', type: 'color', label: 'Bear', default: '#ef5350' },
   ],
-  plots: [{ key: 'basis', type: 'line', title: 'Basis', style: { lineWidth: 2 }, colorBy: 'trend' }],
+  plots: [{
+    key: 'basis', type: 'line', title: 'Basis', style: { lineWidth: 2 },
+    // colorBy is a function, not the name of a column. It runs per bar and
+    // returns a colour, or undefined to fall back to the plot's own.
+    colorBy: ({ index, values, settings }) => {
+      const t = values.trend[index];
+      return t == null ? undefined : t > 0 ? settings.up : settings.down;
+    },
+  }],
   calc(bars, s) {
     const close = lib.sourceValues(bars, 'close');
     const basis = lib.nulls(lib.sma(close, Math.max(2, s.length | 0)));
@@ -354,6 +362,11 @@ chart.timeScale.fitContent(bars.length);
 el.style.position = 'relative';
 const wrap = document.createElement('div');
 wrap.style.cssText = 'position:absolute;left:10px;top:8px;z-index:5;display:flex;gap:6px;flex-wrap:wrap';
+// These buttons live inside the chart's own container, so a press on one also
+// reaches the chart, which captures the pointer to drive panning. Once the
+// container holds the capture the click is retargeted to it and never reaches
+// the button. Any HTML control overlaid on a chart has to stop the press here.
+wrap.addEventListener('pointerdown', function (e) { e.stopPropagation(); });
 el.appendChild(wrap);
 
 ['Asia/Kolkata', 'America/New_York', 'Europe/London', 'Asia/Tokyo', 'UTC'].forEach(function (zone, i) {

@@ -49,7 +49,11 @@
 .oac-card__chart { position: relative; width: 100%; }
 .oac-legend {
   position: absolute; left: 14px; top: 10px; z-index: 4; pointer-events: none;
-  font: 13px ui-sans-serif, system-ui, sans-serif; color: #cbd5e1; line-height: 1.35;
+  font: 13px ui-sans-serif, system-ui, sans-serif; line-height: 1.35;
+  /* These sit on the chart canvas, not on the page, so they follow the chart's
+     own palette. Both rules used to be #cbd5e1, which is only legible on the
+     dark canvas; on the light one the labels vanished into the background. */
+  color: #334155;
 }
 .dark .oac-legend { color: #cbd5e1; }
 .oac-legend__title { font-weight: 700; letter-spacing: 0.02em; }
@@ -108,6 +112,10 @@
 .oac-example__loading, .oac-example__err {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   font: 13px ui-sans-serif, system-ui, sans-serif; color: var(--oac-muted);
+  /* Both cover the whole stage. Without this they also swallow every click on
+     the demo underneath, so an example that reports an error becomes an example
+     you cannot interact with. They are captions, not controls. */
+  pointer-events: none;
 }
 .oac-example__err { color: #ef4444; padding: 0 16px; text-align: center; }
 .oac-example__caption {
