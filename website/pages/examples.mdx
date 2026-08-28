@@ -280,8 +280,11 @@ new lib.DrawingController(chart).add({
   tool: 'long-position', paneIndex: 0,
   points: [
     { time: bars[70].time, price: last },
-    { time: bars[110].time, price: last * 1.04 },
-    { time: bars[110].time, price: last * 0.98 },
+    // 2% up against 1% down: the same 2:1 the label reports, but both legs stay
+    // inside the price scale's autoscale margin. At 4%/2% the target zone and
+    // its label sat above the visible range and were clipped away.
+    { time: bars[110].time, price: last * 1.02 },
+    { time: bars[110].time, price: last * 0.99 },
   ],
   style: { color: '#8892a6', accountSize: 100000, risk: 1, showLabels: true },
 });

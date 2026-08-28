@@ -4,7 +4,9 @@
     "src/index.ts",
     "src/trade/index.ts",
     "src/transform/index.ts",
-    "src/profile/index.ts"
+    "src/profile/index.ts",
+    "src/indicators/index.ts",
+    "src/draw/index.ts"
   ],
   "out": "website/public/api",
   "tsconfig": "tsconfig.json",
