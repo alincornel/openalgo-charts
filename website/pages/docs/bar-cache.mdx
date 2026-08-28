@@ -158,10 +158,11 @@ Register a [custom interval](/docs/custom-intervals) such as `1Q` and you should
 cache its length too, since a code the parser does not recognise is gated at a minute:
 
 ```ts
-import { withBarCache, intervalToCacheSeconds } from 'openalgo-charts';
+import { withBarCache } from 'openalgo-charts';
 
 const feed = withBarCache(source, {
-  intervalSeconds: (code) => (code === '1Q' ? 92 * 86400 : intervalToCacheSeconds(code)),
+  // Consulted only for codes the built-in parser does not recognise.
+  intervalSeconds: (code) => (code === '1Q' ? 92 * 86400 : 0),
 });
 ```
 

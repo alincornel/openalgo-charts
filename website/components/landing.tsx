@@ -15,9 +15,9 @@ return chart;`;
 
 const STATS: Array<[string, string]> = [
   ['0', 'runtime dependencies'],
-  ['< 90 KB', 'Brotli, full package'],
-  ['25+', 'chart types'],
-  ['1001', 'tests, green'],
+  ['118 KB', 'Brotli, every tier'],
+  ['15', 'chart types'],
+  ['2042', 'tests, green'],
 ];
 
 export function Hero() {
@@ -64,12 +64,12 @@ interface Feature {
 const FEATURES: Feature[] = [
   { title: 'Single-canvas pipeline', body: 'No SVG, no DOM-per-bar. One canvas per pane with an invalidation-aware render loop keeps it small and smooth at scale.' },
   { title: 'Gapless time axis', body: 'Weekends, holidays, and session breaks collapse automatically - x is a logical index, not a raw timestamp.' },
-  { title: '25+ chart types', body: 'Candles, bars, line, area, baseline, columns, Heikin Ashi, Renko, Range, Line Break, Point & Figure, Kagi.' },
+  { title: '15 chart types', body: 'Candles (standard, hollow, volume), bars, high-low, line, line-markers, step, area, HLC area, baseline, columns, histogram, Point & Figure and Kagi - plus Heikin Ashi, Renko, Range and Line Break from the transform tier.' },
   { title: 'Tick & second timeframes', body: 'Sub-minute and tick/volume bars are first-class: build them live from a tick stream with the candle and tick aggregators.' },
   { title: 'On-chart trading', body: 'Order, position, and bracket lines with live P&L, one-click and drag-to-modify, OCO, validation, and a depth-of-market ladder.' },
-  { title: 'Indicators & profiles', body: '86 built-in indicators across trend, momentum, volatility, and volume, with EMA/RSI/ATR/Supertrend matching openalgo.ta, plus Volume Profile, Market Profile (TPO), and Footprint / order flow.' },
+  { title: 'Indicators & profiles', body: '91 built-in indicators across trend, momentum, volatility, and volume, with EMA/RSI/ATR/Supertrend matching openalgo.ta - and you can register your own with the same descriptor contract. Plus Volume Profile, Market Profile (TPO), and Footprint / order flow.' },
   { title: 'OpenAlgo-native data', body: 'REST history + WebSocket live + candle builder adapters speak the OpenAlgo protocol. Any broker fits behind a small DataFeed.' },
-  { title: 'Loadable tiers', body: 'Ship only what you use - base, /trade, /transform, /profile are separate entry points, each independently sized.' },
+  { title: 'Loadable tiers', body: 'Ship only what you use - /indicators, /draw, /profile, /trade and /transform are separate entry points on top of a 59 KB base, each independently sized.' },
   { title: 'Plugin / primitive API', body: 'The same API markers, trading, and profiles are built on is open to you: implement IPrimitive and draw anything on the chart.' },
 ];
 

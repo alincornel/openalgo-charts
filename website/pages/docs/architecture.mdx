@@ -1,0 +1,73 @@
+---
+title: Architecture
+description: How OpenAlgo Charts is put together - seven layers from the public API down to feeds and data, and six independently loadable bundle tiers.
+---
+
+# Architecture
+
+OpenAlgo Charts is a single-canvas engine with no runtime dependencies. Everything
+below ships from this repository: there is no vendor blob to reverse-engineer.
+
+<img
+  src="/architecture-diagram.svg"
+  alt="OpenAlgo Charts architecture: seven layers from the public API down to feeds and data, with 91 built-in plus custom indicators, 43 drawing tools, and a six-tier bundle legend"
+  style={{ width: '100%', height: 'auto', borderRadius: 8 }}
+/>
+
+## The layers
+
+**Public API.** `createChart`, `addSeries`, `registerIndicator`, event subscriptions
+and `takeScreenshot`. See [Core Concepts](/docs/core-concepts).
+
+**Rendering.** An invalidation-aware render loop drives one base canvas and one
+overlay canvas per pane, plus crosshair, axes, grid and [themes](/docs/themes).
+Nothing redraws that does not have to.
+
+**Drawables.** [Chart types](/docs/chart-types), [indicators](/docs/indicators),
+[drawing tools](/docs/drawing-tools) and [primitives](/docs/primitives-and-plugins).
+All four are registries, so all four are extensible by you.
+
+**Shared model.** One [DataLayer](/docs/data-loading) merges every series onto a
+gapless logical index, a single time scale is shared across panes, and each pane
+owns its [price scale](/docs/scales-and-panes). [Transforms](/docs/transforms)
+turn bars into Renko, Range, Point and Figure, Kagi, Line Break or Heikin Ashi.
+
+**Session.** [Replay](/docs/market-replay), [comparison](/docs/symbol-comparison),
+[chart linking](/docs/chart-linking), [keyboard shortcuts](/docs/keyboard-shortcuts)
+and the [drawing controller](/docs/drawing-clipboard).
+
+**Trade layer.** Order engine with a state machine and OCO, a depth-of-market
+ladder, and drag-to-modify. See [Order Engine & Ladder](/docs/trading).
+
+**Feeds and data.** [REST history](/docs/data-loading),
+[live WebSocket data](/docs/live-data), the trading API, a candle builder that folds
+ticks into OHLC, and full IANA [timezone](/docs/timezones) handling.
+
+## Bundle tiers
+
+The base engine is what you always pay for. Everything else is a separate entry
+point that registers itself into the base engine's registries when imported, so a
+feature you do not load costs nothing.
+
+| Tier | Brotli | Contents |
+|---|--:|---|
+| `openalgo-charts` | 59 KB | Engine, 15 chart types, panes and scales, primitives, registries, chart state, linking, bar cache, trading overlay, feeds |
+| `openalgo-charts/indicators` | 25 KB | 91 built-ins, the `registerIndicator` contract, and the Tier-2 external-data contract |
+| `openalgo-charts/draw` | 13 KB | 43 drawing tools, headless controller, clipboard |
+| `openalgo-charts/profile` | 11 KB | Volume Profile, Market Profile (TPO), Footprint, order flow |
+| `openalgo-charts/trade` | 8 KB | Order, position and bracket tools, DOM ladder |
+| `openalgo-charts/transform` | 3 KB | Heikin Ashi, Renko, Range, Line Break, Point and Figure, Kagi |
+
+**118 KB Brotli** for every tier at once. Figures are the measured `size-limit`
+output and are enforced in CI, so a change that grows a bundle past its budget
+fails the build.
+
+## Custom indicators
+
+The 91 built-ins are not special-cased. Each one is a descriptor: inputs, plots and
+a `calc` function, optionally with `markers`, `draws`, `levels`, `background`,
+`barColors`, `fills`, `alerts` and a `table`. Anything you register through
+`registerIndicator` uses exactly the same contract and gets the same treatment,
+including generated settings, legend entries and state persistence.
+
+No fork, and no build step. See [Indicators](/docs/indicators) for the contract.

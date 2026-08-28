@@ -2,6 +2,7 @@ export default {
   '-- intro': { type: 'separator', title: 'Introduction' },
   'getting-started': 'Getting Started',
   'core-concepts': 'Core Concepts',
+  architecture: 'Architecture',
   frameworks: 'Framework Integration',
 
   '-- guides': { type: 'separator', title: 'Guides' },

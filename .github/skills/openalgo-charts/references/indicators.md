@@ -240,7 +240,7 @@ chart.on('indicatorSettings', (p) => {
 
 `levels(ctx)` returns horizontal reference lines drawn as `PriceLine`s in the indicator's pane (`{ price, color?, title?, dashed?, lineWidth?, lineStyle? }`, defaults `#8892a6` and dashed; `lineStyle` is `'solid' | 'dashed' | 'dotted'` and overrides `dashed`). `range(settings)` pins the pane's price scale.
 
-**Since 1.7.1** `ctx` carries the settings keys directly (so every existing `levels(settings)` descriptor is unchanged) plus `ctx.bars` and `ctx.values`, and levels recompute after each `calc` rather than only on a settings change. That is what lets a level be derived from the data: a previous-day high, an anchored VWAP band, the last close. Write `ctx.bars ?? []`, since both are optional. 36 built-ins declare `levels`, 12 declare `range`, and levels are computed from the live settings, so `rsi`'s are `overbought` / 50 / `oversold`, not the literals below.
+**Since 1.7.1** `ctx` carries the settings keys directly (so every existing `levels(settings)` descriptor is unchanged) plus `ctx.bars` and `ctx.values`, and levels recompute after each `calc` rather than only on a settings change. That is what lets a level be derived from the data: a previous-day high, an anchored VWAP band, the last close. Write `ctx.bars ?? []`, since both are optional. 37 built-ins declare `levels`, 12 declare `range`, and levels are computed from the live settings, so `rsi`'s are `overbought` / 50 / `oversold`, not the literals below.
 
 | id | Levels (at default settings) | Fixed range |
 |---|---|---|
@@ -402,7 +402,7 @@ Unreadable means bars already a day or coarser, a market that never closes, or a
 whose only gaps are weekends. An intraday lunch break is under the four-hour floor, so it
 is not mistaken for a close.
 
-### A window you state, not one you read (unreleased)
+### A window you state, not one you read (1.8.1)
 
 The helpers above answer "where does the trading day start". They cannot answer which *part*
 of a session you meant: an opening range, the cash hours inside an extended session, one
@@ -491,7 +491,7 @@ registerIndicator({
 chart.addIndicator('my-momentum', { length: 14 });
 ```
 
-Optional descriptor members: `fills`, `markers`, `levels`, `range`, `attach`, `calcTail`, `table`, `draws` (1.7.1), and `background` / `barColors` / `alerts` (unreleased), plus `colorBy` (per-bar colour), `priceScaleId` / `overlay`, and `ohlc` (unreleased) on an individual plot.
+Optional descriptor members: `fills`, `markers`, `levels`, `range`, `attach`, `calcTail`, `table`, `draws` (1.7.1), and `background` / `barColors` / `alerts` (1.7.1), plus `colorBy` (per-bar colour), `priceScaleId` / `overlay`, and `ohlc` (1.8.1) on an individual plot.
 
 **`overlay: true` on a plot** (1.7.1) draws that one column on the price pane even when the descriptor is `placement: 'pane'`. An oscillator whose stop line belongs on the candles no longer has to ship as two indicators that duplicate the same inputs.
 
@@ -551,7 +551,7 @@ draws: ({ bars, values, settings }) => ([
 The list is rebuilt on every recompute, exactly like `markers`. There are no retained handles to
 mutate or leak, and a symbol change cannot strand a drawing.
 
-## The calc context (unreleased)
+## The calc context (1.8.1)
 
 `calc` takes an optional **fourth** argument and `calcTail` an optional **sixth**: what the calculation cannot read off the bars. It is optional and trailing on purpose, so every descriptor written against `calc(bars, settings, store)` keeps its exact signature and behaviour.
 
@@ -574,7 +574,7 @@ calc: (bars, settings, store, ctx) => {
 
 `isConfirmed` is **inferred** from the last bar's gap against the chart clock, because that is the only interval signal the engine has: it is handed bars and never a timeframe. A session break or a holiday widens the gap, so read it as "this bar's own span has elapsed", not as "the exchange has closed". Never use it as a substitute for an exchange calendar.
 
-## Alerts (unreleased)
+## Alerts (1.8.1)
 
 A crossover of an indicator's own columns is something only that indicator can name, so the condition is declared as data and the runtime watches it.
 
@@ -596,7 +596,7 @@ A trigger emits `'indicator:alert'` on the chart's own bus with `{ indicatorId, 
 
 For a signal arriving from outside the calculation entirely (a subscription your `attach(ctx)` opened), use `ctx.emit(event, payload)` on the attach context instead. That is the imperative half, it puts anything on the same bus, and it has no watermark.
 
-## Pane shading and price-bar colours (unreleased)
+## Pane shading and price-bar colours (1.8.1)
 
 Two hooks that state something about a bar rather than about a price. Both run after every `calc` like `markers` and `draws`, both take `{ bars, values, settings }`, and both return one entry per bar with `null` meaning "leave this bar alone".
 
@@ -623,7 +623,7 @@ barColors: ({ values }) => values.bias.map((v) =>
 - The engine clones only the bars whose colour changes, so it never writes into the array the host handed `setData`.
 - Two known gaps: removing the winner while a second publisher is live drops the bars back to their own colours until that publisher's next recompute; and prepending older history retakes the "own colour" snapshot from bars that already carry the overlay, so removing the indicator afterwards leaves the pre-prepend region tinted.
 
-## A plot drawn as candles (unreleased)
+## A plot drawn as candles (1.8.1)
 
 A single column cannot express a bar. `plot.ohlc` names **four `calc` columns in the same `IndicatorValues`**, so `calc` keeps one return shape:
 
@@ -637,7 +637,7 @@ calc: (bars) => ({ haOpen: [], haHigh: [], haLow: [], haClose: [] }),   // four 
 
 `key` stays the series identity (`instance.series('ha')`, the style keys); the legend reading falls back to the `close` column. All four columns must exist and be exactly `bars.length` long or `chart.addIndicator` **throws**, because the first `calc` runs inside the instance constructor. `colorBy` still applies, judged on the close. A user overriding the plot's chart type through `<plotKey>:type` degrades quietly: line, area and histogram read `close`.
 
-## Interval introspection (unreleased)
+## Interval introspection (1.8.1)
 
 Do not branch on the interval string. A study written against `'1m'`, `'5m'` and `'15m'` misbehaves on `'3m'`, and a host's own registered code was never in the list.
 
@@ -651,7 +651,7 @@ isIntradayInterval(ctx.interval ?? '');   // true, so anchor to the session open
 
 Answers are read off the **bucketing rule**, not the code's spelling, so any registered code answers. `unit` is `'s' | 'm' | 'h' | 'D' | 'W' | 'M' | 'tick' | 'other'`; `M` is months (a quarter reads 3, a year 12), and `'other'` is volume bars. `isIntradayInterval` is a fixed length under a day, so a registrable `25h` is false despite decomposing into hours; a calendar or count-driven code has **no** clock length rather than a long one, so it is false too. `isDailyInterval` is exactly one day (`D`, `24h`, `1440m`). `isSecondsInterval` is "not a whole number of minutes". `isTickInterval` is trade-count bars only; volume bars answer false.
 
-## Colour helpers (unreleased)
+## Colour helpers (1.8.1)
 
 ```ts
 import { withAlpha, fromGradient } from 'openalgo-charts';

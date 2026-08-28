@@ -42,6 +42,73 @@ Data-driven positions, orders, TP/SL brackets, and fill markers via
 <TradeMarkersCard />
 </div>
 
+## Custom indicators
+
+The 91 built-ins are not special-cased. Each is a descriptor - inputs, plots and a
+`calc` - and anything you register with `registerIndicator` uses the same contract,
+so it gets generated settings, a legend entry and state persistence for free.
+
+This one computes a trend regime, then uses four descriptor hooks on the result:
+`colorBy` for the line, `barColors` to repaint the candles, `background` to shade the
+pane, and `markers` to flag each flip. No fork, no build step.
+
+<RunnableExample height={340} tiers={['indicators']} code={`lib.registerIndicator({
+  id: 'demo-regime',
+  name: 'Trend Regime',
+  category: 'Custom',
+  placement: 'onchart',
+  inputs: [
+    { key: 'length', type: 'number', label: 'Length', default: 20, min: 2, max: 200, step: 1 },
+    { key: 'up', type: 'color', label: 'Bull', default: '#26a69a' },
+    { key: 'down', type: 'color', label: 'Bear', default: '#ef5350' },
+  ],
+  plots: [{ key: 'basis', type: 'line', title: 'Basis', style: { lineWidth: 2 }, colorBy: 'trend' }],
+  calc(bars, s) {
+    const close = lib.sourceValues(bars, 'close');
+    const basis = lib.nulls(lib.sma(close, Math.max(2, s.length | 0)));
+    const trend = basis.map((b, i) => (b == null ? null : close[i] >= b ? 1 : -1));
+    return { basis, trend };
+  },
+  // Repaint the price candles by regime.
+  barColors({ values, settings }) {
+    return values.trend.map((t) => (t == null ? null : t > 0 ? settings.up : settings.down));
+  },
+  // Shade the whole pane behind them.
+  background({ values, settings }) {
+    return values.trend.map((t) =>
+      t == null ? null : lib.withAlpha(t > 0 ? settings.up : settings.down, 0.07));
+  },
+  // Flag every flip, anchored to the candle rather than to the indicator line.
+  markers({ bars, values, settings }) {
+    const out = [];
+    for (let i = 1; i < bars.length; i++) {
+      const a = values.trend[i - 1], b = values.trend[i];
+      if (a == null || b == null || a === b) continue;
+      out.push({
+        time: bars[i].time,
+        position: 'atPrice',
+        price: b > 0 ? bars[i].low : bars[i].high,
+        shape: b > 0 ? 'arrowUp' : 'arrowDown',
+        color: b > 0 ? settings.up : settings.down,
+        text: b > 0 ? 'BULL' : 'BEAR',
+      });
+    }
+    return out;
+  },
+});
+
+const chart = lib.createChart(el);
+const bars = lib.generateBars(1700000000, 200, 3600);
+chart.addSeries('candlestick').setData(bars);
+chart.addIndicator('demo-regime');
+chart.timeScale.fitContent(bars.length);
+return chart;`} />
+
+A descriptor can also supply `draws` for free-standing lines, boxes and labels,
+`levels` for data-derived horizontals, `fills` between plots, `table` for an on-chart
+grid, and `alerts` the chart evaluates for you. See
+[Indicators](/docs/indicators) for the full contract.
+
 ## Copy-paste snippets
 
 <div className="oac-gallery">
