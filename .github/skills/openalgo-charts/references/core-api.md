@@ -265,3 +265,18 @@ unrecognised status stays visible instead of being silently dropped.
 its cancel function; call it to tear the pick down. `isRebasing(mode)` reports whether
 a `PriceScaleMode` re-bases the series, which is true for `percentage` and
 `indexed-to-100` and is why a rebased pane cannot share an axis with an absolute one.
+
+## Types that name a public signature
+
+These sit in public signatures and are now exported, so a host can annotate what
+it receives instead of restating the shape:
+
+| Type | Where it shows up |
+|---|---|
+| `ChartSettingsInput` | `ChartSettingsTab.inputs`. A union of `IndicatorInput` and `ChartSettingsColorPairInput` |
+| `ChartSettingsColorPairInput` | The settings-dialog control that edits an up/down colour pair as one field |
+| `AxisStyle` | What `resolveScaleStyle` returns |
+| `OrderUpdateEvent` | The argument to `OpenAlgoWsFeed.onOrderUpdate` |
+
+They were referenced by the public API long before they were exported, which
+meant a host writing its own settings dialog had to infer the shape or copy it.

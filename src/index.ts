@@ -23,7 +23,8 @@ export type { PriceRange, PriceScaleOptions, PriceScaleMode } from './scale/pric
 export { TimeScale, DEFAULT_TIME_SCALE_OPTIONS } from './scale/time-scale';
 export type { LogicalRange, TimeScaleOptions } from './scale/time-scale';
 export { niceTicks, precisionForStep } from './scale/ticks';
-export type { TickMarkType } from './render/axis';
+// `AxisStyle` is what `resolveScaleStyle` returns, so it belongs with it.
+export type { TickMarkType, AxisStyle } from './render/axis';
 
 // canvas option block (grid, crosshair, scales, margins). The resolvers are
 // values because a host building its own settings dialog previews with them.
@@ -97,6 +98,9 @@ export type {
 export { chartSettingsSchema, readChartSettings, applyChartSettings } from './model/chart-settings';
 export type {
   ChartSettingsTab, ChartSettingsTabId, ChartSettingsValue, ChartSettingsValues, ChartSettingsState,
+  // `ChartSettingsTab.inputs` is typed as these, so a host building its own
+  // settings dialog cannot annotate the value it is handed without the name.
+  ChartSettingsInput, ChartSettingsColorPairInput,
 } from './model/chart-settings';
 
 // headless market replay (host renders its own transport bar)
@@ -187,7 +191,7 @@ export type { DataFeed, TradeFeed, BarsRequest, MarketDepth, DepthLevel, OrderSi
 export { OpenAlgoDataFeed, mapHistoryResponse, rowTimeToUtcSeconds } from './feed/openalgo-rest';
 export type { OpenAlgoConfig } from './feed/openalgo-rest';
 export { OpenAlgoWsFeed, parseMessage, formatSubscribe, formatUnsubscribe, parseTopic, classifyAuthAck, readSequence, backoffDelayMs } from './feed/openalgo-ws';
-export type { OpenAlgoWsConfig, SocketLike, SocketFactory, WsMode, LtpEvent, WsState, WsControlMessage, WsClientWarning } from './feed/openalgo-ws';
+export type { OpenAlgoWsConfig, SocketLike, SocketFactory, WsMode, LtpEvent, WsState, WsControlMessage, WsClientWarning, OrderUpdateEvent } from './feed/openalgo-ws';
 export { OpenAlgoTradeFeed, mapOrder, mapPosition, decodeOrder, mapOrderStatus } from './feed/openalgo-trade';
 export type { OpenAlgoTradeConfig, ModeCheck, RawOrder, DecodedOrder, OrderBookSnapshot, QuarantinedRow, OrderDecodeIssue, OrderDecodeCode, OrderDecodeResult } from './feed/openalgo-trade';
 export { OpenAlgoLiveDataFeed, intervalToSeconds } from './feed/openalgo-live';

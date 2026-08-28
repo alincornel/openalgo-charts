@@ -380,3 +380,10 @@ through `getDrawingTool(id)` / `hasDrawingTool(id)` / `registeredDrawingTools()`
 Clipboard persistence uses `DRAWING_CLIPBOARD_KEY` (`'openalgo-charts/drawings'`)
 and `DRAWING_CLIPBOARD_VERSION` (`1`); `systemClipboard` and
 `clearMemoryClipboard` are the two backing stores. `DRAW_TIER` is the tier constant.
+
+## Types for a custom tool
+
+| Type | Where it shows up |
+|---|---|
+| `DrawingChartHost` | What `new DrawingController(chart)` accepts. Wire the controller to something other than a `Chart` by satisfying this |
+| `ExpandContext` | The argument to `DrawingTool.expand`, so a custom tool can type its own implementation |

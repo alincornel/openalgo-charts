@@ -78,7 +78,14 @@ export type {
   DrawContext,
   HitContext,
   ScreenPoint,
+  // `DrawingTool.expand` receives this; a custom tool cannot type its own
+  // implementation without it.
+  ExpandContext,
 } from './types';
+
+// What `new DrawingController(chart)` accepts. Exported so a host wiring the
+// controller to something other than a Chart can state what it must provide.
+export type { DrawingChartHost } from './controller';
 
 export type { ShortcutEvent } from './tools';
 

@@ -65,7 +65,7 @@ export class DataLayer {
 
   /**
    * Bulk-load (full replace) one series' data, then re-merge the time axis.
-   * Input is sorted and de-duplicated by time (see {@link sortedUniqueByTime}).
+   * Input is sorted and de-duplicated by time by a private `sortedUniqueByTime`.
    */
   public setSeriesData(id: SeriesId, bars: readonly Bar[]): void {
     const entry = this._series.get(id);

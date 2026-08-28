@@ -77,6 +77,65 @@ glyph. The demo has an inline SVG icon helper; use it rather than an icon font.
 **Dialog furniture.** Title left, close affordance top right, actions bottom right with
 the confirming action last, and any secondary control (a template picker) bottom left.
 
+## Shipping a change: every surface that repeats a fact
+
+The same handful of facts (tier count, tier sizes, indicator count, tool count,
+chart-type count, test count) is written out by hand in eight places. There is no
+single source for them, so a release that updates one and not the rest leaves the
+project contradicting itself. That is not hypothetical: the architecture diagram
+advertised "under 50 KB" and four tiers for several releases while the base engine
+measured 59 KB across six, the site footer said "under 30 KB", the API reference
+omitted the two largest tiers outright, and the skills carried seven sections still
+marked "(unreleased)" for features that had shipped.
+
+**Never quote these numbers from memory or from another doc.** Measure them:
+
+```sh
+npm run size              # tier sizes, Brotli, enforced in CI
+npm test                  # test and file counts
+npm run skills:coverage   # every export named in .github/skills
+node -e "import('./dist/openalgo-charts.mjs').then(m=>console.log(m.registeredIndicators().length, m.registeredChartTypes().length))"
+```
+
+Counts come from the registry at runtime, never from a config label. `.size-limit.json`
+called the draw tier 34 tools while `registeredDrawingTools()` returned 43.
+
+### What to update, by kind of change
+
+| Changed | Also update |
+| --- | --- |
+| Any public export added or removed | `.github/skills/openalgo-charts/references/` (the matching file), then `npm run skills:coverage` |
+| A new type appearing in a public signature | Export it from its tier entry point, or `npx typedoc` warns and the reference has a dead link |
+| A **new tier** | `typedoc.json` `entryPoints`, `.size-limit.json`, `package.json` exports, README tier table, `ARCHITECTURE.md` section 2, website Getting Started, the architecture diagram |
+| Indicators, chart types or drawing tools | Their counts in README, `pages/index.mdx` and `theme.config.tsx` meta descriptions, `components/landing.tsx` stats and feature cards, the diagram |
+| Anything that moves a bundle size | README badge and both size tables, `components/landing.tsx` `STATS`, website Getting Started, `theme.config.tsx` footer and meta description, the diagram subtitle and tier legend |
+| A new descriptor hook or capability | `references/indicators.md`, the website docs page, a live example in `website/pages/examples.mdx` |
+| A release | `CHANGELOG.md`, `website/pages/docs/release-notes.mdx`, and drop every "(unreleased)" marker for what just shipped |
+
+### The API reference
+
+`typedoc.json` `entryPoints` must list **every** tier. It listed four for a long time,
+so `/api/` documented neither the 91 indicators nor the 43 drawing tools. Treat a
+typedoc warning as a failure: each one names a type that is reachable from the public
+API but has no page, which is a dead link for whoever follows it.
+
+### The architecture diagram
+
+`docs/architecture-diagram.svg`, shown in README and `ARCHITECTURE.md`. It is SVG
+precisely so a number can be corrected by editing text; the PNG it replaced drifted
+because fixing it meant redrawing it. `docs/openalgo-charts-architecture-diagram-brief.md`
+records what each element must say and why.
+
+### The website
+
+`website/` is a separate build. Run `npm run build` there after touching it: a colon in
+MDX frontmatter is a YAML parse error and fails the whole site, and the failure does not
+show up in the library's own tests.
+
+Examples are not decoration, they are the proof a feature is usable. An example that
+throws is worse than a missing one. Anything overlaid on the chart as HTML must stop
+`pointerdown`, or the chart's pointer capture eats the click.
+
 ## Testing traps that have already cost real time
 
 **A Chart built without `applySize(w, h)` and a synchronous raf is not measured.** Every
