@@ -4,17 +4,17 @@
 
 **A from-scratch, dependency-free HTML5-canvas charting engine for OpenAlgo.**
 
-Professional interactive charts, indicators, drawing tools, order flow, market replay, linked chart grids, and on-chart trading. Six lazy-loaded tiers, zero runtime dependencies, ~53 KB Brotli for the base engine.
+Professional interactive charts, 91 built-in indicators plus your own custom ones, drawing tools, order flow, market replay, linked chart grids, and on-chart trading. Six lazy-loaded tiers, zero runtime dependencies, ~59 KB Brotli for the base engine.
 
 [![npm version](https://img.shields.io/npm/v/openalgo-charts.svg?color=cb3837&label=npm)](https://www.npmjs.com/package/openalgo-charts)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
-[![bundle](https://img.shields.io/badge/brotli-53%20KB%20base%20%C2%B7%20111%20KB%20all%20tiers-brightgreen.svg)](#size-budget)
-[![tests](https://img.shields.io/badge/tests-1719%20passing-brightgreen.svg)](#develop)
+[![bundle](https://img.shields.io/badge/brotli-59%20KB%20base%20%C2%B7%20118%20KB%20all%20tiers-brightgreen.svg)](#size-budget)
+[![tests](https://img.shields.io/badge/tests-2042%20passing-brightgreen.svg)](#develop)
 [![dependencies](https://img.shields.io/badge/runtime%20deps-0-brightgreen.svg)](#principles)
 
 [**Documentation**](https://marketcalls.github.io/openalgo-charts/) &nbsp;·&nbsp; [**Live examples**](https://marketcalls.github.io/openalgo-charts/examples) &nbsp;·&nbsp; [**Getting started**](./docs/getting-started.md) &nbsp;·&nbsp; [**Architecture**](./ARCHITECTURE.md)
 
-<img src="docs/architecture-diagram.png" alt="OpenAlgo Charts - layered architecture from public API down to feeds and data, with loadable bundle tiers" width="920" />
+<img src="docs/architecture-diagram.svg" alt="OpenAlgo Charts architecture: seven layers from the public API down to feeds and data, with 91 built-in plus custom indicators, 43 drawing tools, and a six-tier bundle legend" width="920" />
 
 </div>
 
@@ -60,14 +60,14 @@ Import only what you use. Each tier is a separate bundle that registers into the
 
 | Import | Contents | Brotli |
 |---|---|---|
-| `openalgo-charts` | Engine, 13 chart types, panes &amp; scales, primitives, registries, chart state, chart linking, bar cache, interval registry, trading overlay, OpenAlgo feeds | 52.9 KB |
-| `openalgo-charts/indicators` | 91 built-in indicators + the Tier-2 (external-data) contract | 24.9 KB |
+| `openalgo-charts` | Engine, 13 chart types, panes &amp; scales, primitives, registries, chart state, chart linking, bar cache, interval registry, trading overlay, OpenAlgo feeds | 59.1 KB |
+| `openalgo-charts/indicators` | 91 built-in indicators, the `registerIndicator` contract for your own, and the Tier-2 (external-data) contract | 25.0 KB |
 | `openalgo-charts/draw` | 43 drawing tools + a headless drawing controller and clipboard | 13.1 KB |
 | `openalgo-charts/transform` | Heikin Ashi, Renko, Range bars, Line Break, Point &amp; Figure, Kagi | 2.7 KB |
 | `openalgo-charts/profile` | Volume Profile, Market Profile (TPO), Footprint, order flow | 10.7 KB |
-| `openalgo-charts/trade` | Order / position / bracket tools + DOM ladder | 6.6 KB |
+| `openalgo-charts/trade` | Order / position / bracket tools + DOM ladder | 7.6 KB |
 
-Everything together is **110.8 KB Brotli**. Figures are the measured `size-limit` output; the trade tier is a delta over the base, which is why base + trade (59.5 KB) is less than their listed sum.
+Everything together is **118.1 KB Brotli**. Figures are the measured `size-limit` output. The trade tier is listed as its delta over the base, so loading base + trade costs 66.7 KB.
 
 ## What's built
 
@@ -206,13 +206,13 @@ Enforced in CI by [`size-limit`](./.size-limit.json). Nothing is excluded, becau
 
 | Bundle | Limit | Actual |
 |---|---|---|
-| Base engine | 55 KB | 52.88 KB |
-| Base + trade | 62 KB | 59.46 KB |
-| Indicators tier | 27 KB | 24.88 KB |
-| Draw tier | 14 KB | 13.11 KB |
+| Base engine | 60 KB | 59.05 KB |
+| Base + trade | 68 KB | 66.66 KB |
+| Indicators tier | 27 KB | 25.04 KB |
+| Draw tier | 14 KB | 13.13 KB |
 | Transform tier | 5 KB | 2.66 KB |
 | Profile tier | 11 KB | 10.66 KB |
-| **Everything** | **120 KB** | **110.76 KB** |
+| **Everything** | **120 KB** | **118.14 KB** |
 
 ## Documentation
 
@@ -252,7 +252,7 @@ cd examples/yfinance && pip install -r requirements.txt && python server.py
 ```bash
 npm install        # install dev toolchain
 npm run typecheck  # strict TypeScript check
-npm test           # unit tests (vitest) - 1719 across 91 files
+npm test           # unit tests (vitest) - 2042 across 110 files
 npm run build      # Rollup -> dist/ (minified ESM per tier + types)
 npm run size       # size-limit (Brotli) against the budget
 npm run e2e        # Playwright Chromium smoke tests
