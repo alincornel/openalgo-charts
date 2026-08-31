@@ -2,6 +2,339 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.8.3
+
+Eleven indicators added, taking the registry from 91 to 102, and every one of them
+measured against the standard definition bar by bar rather than eyeballed. The
+same harness was turned on the built-ins that were already shipping, which is
+where this release earns its keep: three of them were wrong, and one had been
+wrong since it was written.
+
+**Read the Upgrading section before you take this.** Several studies now start
+later than they used to and several defaults moved to the values the standard
+definition pairs them with, so a saved chart will look different. Both changes
+are deliberate and both make the old picture the wrong one.
+
+### Added
+
+Five volatility studies, five trend studies and one volume study. Each was built
+from the published definition and then measured against it across 600 bars, at
+the shipped defaults and at two or three other parameter sets, comparing every
+plot on every bar and the warmup index on both sides.
+
+- **Standard Error Bands** (`standard-error-bands`, Volatility, price pane).
+  Upper, basis and lower with a shaded fill. The residual standard error
+  `sqrt((Syy - Sxy^2/Sxx)/(periods - 2))` about the least-squares line, placed on
+  the **regression endpoint** (the fitted value at the newest bar of the window)
+  and only then smoothed, each leg independently. That ordering is the whole
+  study: smoothing first and fitting after gives a different, wrong line. First
+  print at `(periods - 1) + (averagePeriods - 1)`, so bar 22 at the 21/2/Simple/3
+  defaults. Inputs: periods 21, errors 2, method Simple / Exponential / Weighted,
+  averagePeriods 3, plus basis, band and fill colours. Worst relative difference
+  against the standard definition 5.19e-15 at the defaults, 9.32e-16 and 1.32e-15
+  at two other parameter sets.
+
+- **Moving Average Channel** (`ma-channel`, Volatility, price pane). A simple
+  mean of the **highs** and a simple mean of the **lows**, each with its own
+  length and its own plot-time displacement, with a fill between them. Not a mean
+  of the close with a spread bolted on, which is the shape it is usually mistaken
+  for. The two legs warm up independently, so lengths 34 and 13 first print at
+  bars 33 and 12. Worst relative difference 1.76e-15 on the upper leg and
+  8.82e-16 on the lower.
+
+- **Chaikin Volatility** (`chaikin-volatility`, Volatility, own pane). The rate
+  of change of a smoothed high-low range: `roc(ema(high - low, periods),
+  rocLookback)`, with a dashed zero level. First print at
+  `(periods - 1) + rocLookback`, bar 19 at the 10/10 defaults. Bit-exact against
+  the standard definition, worst relative difference 0.
+
+- **Standard Deviation** (`standard-deviation`, Volatility, own pane).
+  **Population** standard deviation of the close, dividing by `n` rather than
+  `n - 1`, times a `deviations` multiplier. The population-against-sample
+  question is the only thing that can be wrong here and it was settled by
+  measurement rather than by reading: at fixture bar 4 the population reading is
+  1.5514425743803728 and the sample reading would be 1.7346. Worst relative
+  difference 2.77e-16.
+
+- **Standard Error** (`standard-error`, Volatility, own pane). The residual
+  spread of the closes about the least-squares line fitted through them. The
+  divisor is `length - 2` because the fitted slope and intercept each consume a
+  degree of freedom, which is what makes this a standard error rather than a
+  standard deviation, and is why the input floor is 3 and not 1. Bit-exact
+  against the standard definition at length 14 and at 34.
+
+- **Linear Regression Slope** (`linreg-slope`, Trend, own pane). The ordinary
+  least-squares gradient of close against bar position over a trailing window, in
+  price per bar, with a dashed zero level. Nothing rescales the result, so the
+  reading is in the instrument's own units and a slope of 0.67 means 67 paise a
+  bar. Bit-exact at periods 14, 7, 2 and 50.
+
+- **Smoothed Moving Average** (`smma`, Trend, price pane). Wilder's smoother with
+  `alpha = 1 / length`, seeded from the simple average of the first `length`
+  source values. That recursion is exactly what `rma` already does, so the
+  descriptor adds no arithmetic of its own. Selectable source (open, high, low,
+  close, hl2, hlc3, ohlc4), default length 7. Worst relative difference 2.26e-16
+  across three parameter sets.
+
+- **Net Volume** (`net-volume`, Volume, own pane). The bar's own volume signed by
+  the direction its close took: up gives `+volume`, down gives `-volume`, an
+  unchanged close gives 0. Bitwise identical to the standard definition on all
+  600 fixture bars.
+
+  **It has no warmup**, which is the load-bearing detail and the one an
+  implementation gets wrong. Bar 0 has no previous close, so neither comparison
+  can hold and the definition falls through to its zero arm; returning `null`
+  there instead would be a defect, and the test pins bar 0 at 0.
+
+  One presentation choice is ours rather than the definition's, and is flagged
+  rather than hidden: it draws as a **histogram with base 0**, not as a line.
+  This is a per-bar signed quantity that flips sign every few bars, and a line
+  drawn through it is unreadable. The sibling volume descriptor is already a
+  histogram with base 0, so this matches the house shape. The numbers are
+  identical either way.
+
+Three more trend studies landed late in the release, after the eight above were
+already measured. They were built the same way, from the published definition and
+then checked bar by bar against it.
+
+- **T3 Average** (`t3`, Trend, price pane). A generalised double average applied
+  three times over. One layer is `e1 * (1 + factor) - e2 * factor`, where `e1` is
+  the SMA-seeded exponential average of the source and `e2` is that average of
+  `e1`, so the layer sits exactly `factor` of its own lag ahead of a plain
+  exponential average, and at `factor = 1` it is a DEMA. Cubing that expression
+  gives terms of exponential depth three to six, and a slot is only finite where
+  its deepest term is, so the warmup is `6 * (length - 1)`: bar 24 at the default
+  length of 5, bar 12 at 3, bar 120 at 21, and bar 0 at length 1, where every
+  average is the identity and T3 is the source. Inputs: length 5, factor 0.7,
+  source, a Highlight Movements switch and three colours; with the switch on the
+  line takes the rising or falling colour per bar and holds the neutral colour on
+  an unchanged value.
+
+  One deviation from literal arithmetic, flagged rather than buried: at
+  `factor = 0` the layer returns `e1` instead of computing `e1 * 1 - e2 * 0`.
+  Multiplying by zero would still let the second average's warmup blank a further
+  `length - 1` bars of a line that has by then collapsed to a plain chained
+  average. Nothing with a live factor touches that branch.
+
+- **Hull Suite** (`hull-suite`, Trend, price pane). One overlay carrying three
+  variations of the Hull average, the same line displaced two bars, and the band
+  between them. `Hma` is `wma(2 * wma(n / 2) - wma(n), round(sqrt(n)))`; `Ehma`
+  is the same shape with the SMA-seeded exponential average in place of both
+  weighted passes; `Thma` is `wma(3 * wma(n / 3) - wma(n / 2) - wma(n), n)`,
+  smoothed over the full window rather than its root, and is therefore handed
+  **half** the configured length. First print at bar 60 for Hma and Ehma at the
+  default length of 55 (a weighted average over 55 prints at bar 54 and the outer
+  pass over `round(sqrt(55)) = 7` needs six more) and at bar 52 for Thma, whose
+  windows are all 27. The floor inside and the round outside are both
+  load-bearing and are pinned: at length 63, `round(sqrt(63)) = 8` puts the first
+  value at bar 69 where flooring would put it at 68. Inputs: source, variation,
+  length 55, length multiplier 1, colour the hull by trend, colour the candles by
+  trend (off), show the band, and three colours. Both plots, the band and the
+  candle colours read the undisplaced line only, so they cannot disagree, and
+  hiding the band changes no colour.
+
+  **Three controls the published definition carries are deliberately absent,
+  because this engine cannot back them, and a control with nothing behind it is
+  worse than an absent one.** A higher-timeframe mode with its own resolution
+  input: `calc` is handed the chart's own bars and has no way to ask for another
+  resolution. A line-thickness input: `style.lineWidth` is static in a plot
+  descriptor and no settings key stands behind it, so the control would move
+  nothing (both lines ship at 2). A band-transparency input: a fill's opacity is
+  a fixed number in the descriptor rather than a settings key, so the band is
+  fixed at 0.6.
+
+- **Consolidation and Breakout** (`consolidation-breakout`, Trend, price pane).
+  An inside-bar state machine rather than a formula. One carried index names the
+  mother bar whose high and low define the current range; every later bar whose
+  **body** (open to close, wicks ignored) sits inside that range extends the
+  consolidation and is tinted, and the first body to escape it fires a marker and
+  becomes the new mother. Two rails plot the live range and go null between
+  consolidations, so two disconnected rails read as two separate ranges.
+
+  The two reads of that index straddle the reassignment, and that ordering is the
+  study: the break test reads the range as it stood before this bar could claim
+  it, while the rails and the tint read it after. One bar therefore both fires
+  its marker against the range it left and opens the next one. Collapsing the two
+  into a single read shifts every signal by a bar and still looks plausible on a
+  chart, so `tests/study-consolidation.test.ts` pins the breaking bar itself.
+
+  The freshness gates are the definition's constants, not inputs, because neither
+  has a reading a user would tune: a body that escapes the bar immediately after
+  a new mother is that mother's own follow-through, and a range still standing
+  250 bars later has stopped being a consolidation. No warmup: bar 0 is the one
+  bar where the seeded index and the reassignment agree, so it prints its own high
+  and low and starts the first range. Inputs: mark breakouts, tint inside bars,
+  and four colours. Markers are `triangleUp` below the bar and `triangleDown`
+  above it. The two range lines are fixed at `lineWidth` 2 for the same reason
+  Hull Suite's are.
+
+### Fixed
+
+Four defects found by measuring shipped built-ins against the standard
+definition. All four are now exact.
+
+- **EMA emitted a value from bar 0 and was wrong for the whole warmup.** The
+  descriptor called the base bundle's `ema()`, which seeds from `values[0]`: the
+  first reading was a single price wearing a moving average's name, and the error
+  decayed rather than stopping. At length 14 that was 155 mismatching bars with
+  the worst relative error, 6.9e-4, landing on bar 13, the seed bar itself.
+
+  It now uses `smaSeededEma`, seeding from the simple average of the first
+  `length` closes and printing nothing before bar `length - 1`, which is what the
+  standard definition does and what every other EMA in the tier was already
+  doing. Zero mismatching bars afterwards. The public base `ema()` is deliberately
+  untouched: it is documented API matching `openalgo.ta` and it is not this
+  descriptor's business to redefine it.
+
+- **Parabolic SAR flipped trend on the bar that established it.** Two ordering
+  faults, worth 39 mismatching bars of 600 and a worst relative error of 1.1e-2.
+  The stop was propagated, clamped and tested for a reversal on the **seed bar**,
+  so the seed could reverse the trend it had just set; and the stop was clamped
+  into the prior two bars' range **before** the reversal test, so a stop pulled
+  back below the bar could no longer be breached and flips the definition calls
+  for were silently dropped. The seed bar now carries the seed and nothing else,
+  and the order is propagate, reverse, accelerate, clamp. Zero mismatches
+  afterwards.
+
+  One deviation is kept deliberately: at bar index 2 the reference
+  implementation skips the second clamp bar and we clamp against both previous
+  bars, as Wilder's rule states. Both variants were measured and they are identical on the fixture, so
+  this costs no parity.
+
+- **ADX blanked itself for the rest of the chart after a single flat bar.** With
+  a DI length of 1, a bar whose true range is exactly 0 (an instrument locked at
+  one price: a circuit freeze, a halt, an illiquid strike) dropped +DI, -DI and
+  DX to a gap. Our ADX is a Wilder average over DX, so one gap poisons the
+  recursion and the ADX line never comes back. The last finite pair is now held
+  across a zero or absent smoothed true range, which is what the standard
+  definition does, and the line survives the halt.
+
+- **HMA was a fifth of a bar early at every odd length.** The Hull average halves
+  its length and feeds that to a weighted average. We floored the half, so a
+  length of 9 asked for a 4-bar window where the standard definition asks for a
+  4.5-bar one: five bars weighted 4.5, 3.5, 2.5, 1.5, 0.5. Flooring shortens the
+  fast leg's lag from 1.2 bars to 1, and the three passes then cancel to zero lag
+  instead of the correct 0.4, so the line sat 0.4 slopes high. Even lengths were
+  always exact, which is why this survived: the default of 9 is odd, and the
+  error is a smooth 4.6e-3 at the default, never a visible break.
+
+  The half period is now carried at full precision. The outer period still floors
+  its square root, which is what the standard definition does and is not the same
+  question. Measured after the fix at lengths 9, 13, 16, 21 and 55: exact on
+  every bar, with the warmup index unchanged on both sides.
+
+The previous pass in this release fixed five more, all user-visible for the same
+reasons: **MACD** legs are SMA-seeded EMAs (warmup moves), **ADX** seeds its true
+range correctly (warmup moves), **Fisher Transform** gained a flat-window floor,
+**Chop Zone** takes its range off the high series, and **Special K** carries the
+full 12-term table (warmup moves a long way, see below).
+
+### Changed
+
+Ten defaults across eight indicators now match the values the standard definition
+pairs them with. These are defaults only: an explicitly configured setting, and a
+saved layout that recorded one, are untouched.
+
+| Indicator | Setting | Was | Now |
+|---|---|---:|---:|
+| `sma` | Length | 20 | 9 |
+| `ema` | Length | 20 | 9 |
+| `wma` | Length | 20 | 9 |
+| `stochastic` | %K Smoothing | 3 | 1 |
+| `cci` | MA Length | 14 | 20 |
+| `obv` | MA Length | 14 | 9 |
+| `ma-cross` | Long MA Length | 21 | 26 |
+| `alligator` | Jaw Length | 13 | 21 |
+| `alligator` | Teeth Length | 8 | 13 |
+| `alligator` | Lips Length | 5 | 8 |
+
+The Stochastic one is the largest change in appearance: a %K smoothing of 1 is
+raw %K, so the line is noticeably faster and noisier than the 3 it used to
+default to. The Alligator moves to the slower 21/13/8 set rather than Williams'
+original 13/8/5; the offsets 8/5/3 are shared by both, so only the smoothing
+lengths move.
+
+### Upgrading
+
+A chart saved before this release can look different in three ways. None of them
+is a regression, and each is worth knowing about before you go looking for a bug.
+
+**Studies that now start later.** These previously drew across bars they had no
+honest value for, which is worse than drawing nothing: an average seeded from one
+price is not an average, and a plot that starts at bar 0 tells a backtest that a
+signal existed before the data to compute it did.
+
+| Study | First bar with a value |
+|---|---|
+| EMA | `length - 1`, so bar 8 at the new default of 9. It drew from bar 0 before. |
+| MACD | bar 25 for the MACD line, bar 33 for signal and histogram, at the 12/26/9 defaults |
+| ADX / DMI | bar 14 for +DI and -DI, bar 27 for ADX, at the default 14 |
+| Special K | bar 724 |
+
+Special K is the one to plan around. Its longest term needs 725 bars before it
+can produce a first reading, and its signal line needs a further stretch on top,
+so on a chart holding less history than that it now draws **nothing at all**
+where it used to draw a line. That line was computed off an incomplete table and
+was not the study. Give it more bars, or a longer timeframe, and it returns.
+
+**Studies whose values changed.** Parabolic SAR flips where the definition says
+it flips rather than a bar early or late; Fisher Transform no longer runs away on
+a flat window; Chop Zone reads its range off the high series; ADX no longer goes
+blank after a flat bar. In each case the old line was wrong, not merely
+different.
+
+**Defaults.** See the table above. Anything you configured explicitly, including
+via `getState()` / `restoreState()`, keeps the value you set.
+
+### Sizes
+
+The indicator tier rises 25.04 to 27.21 kB: 1.10 kB for the first eight studies
+plus three fixes, and 1.07 kB for the three that landed late, so about 200 bytes
+a study across the eleven. Reuse is why it is not more. Standard Error Bands
+leans on `linreg`, `sma`, `wma` and the file's existing gapped EMA and adds only
+the standard-error term itself; Moving Average Channel is two calls to `sma` and
+the existing shift helper; SMMA is one call to `rma`; T3 is three nested calls to
+the same SMA-seeded exponential average the file already had; Hull Suite is `wma`
+and that average again. Nothing was added to the shared `calc.ts`.
+
+**Two budgets were raised, and only two.** The indicator tier goes 27 kB to
+30 kB. That raise was staged earlier in this release and handed back as
+unnecessary, on the measurement that stood at the time; the last three studies
+took the tier 213 bytes past the old ceiling, so it is necessary now and is taken
+at the figure already agreed rather than at a figure chosen to just clear the
+reading.
+
+"Everything" has to move with it, because it is the same six files summed and
+would otherwise fail while the tier inside it passes. The arithmetic, in the
+1000-byte kB `size-limit` reports:
+
+    59,057 base + 7,609 trade + 2,656 transform + 10,662 profile + 13,126 draw
+      = 93,110 B, every tier except indicators
+    93,110 B + 30,000 B, the new indicator ceiling
+      = 123,110 B, rounded up to a 124 kB budget
+
+So "Everything" goes 120 kB to 124 kB and measures 120.32 kB against it. No other
+budget moved.
+
+| Tier | Measured | Budget |
+|---|---:|---:|
+| Base engine | 59.06 KB | 60 KB |
+| Base + trade | 66.67 KB | 68 KB |
+| Indicators | 27.21 KB | 30 KB |
+| Draw | 13.13 KB | 14 KB |
+| Transform | 2.66 KB | 5 KB |
+| Profile | 10.66 KB | 11 KB |
+| Everything | 120.32 KB | 124 KB |
+
+Trade, draw, transform and profile measure exactly what they did in 1.8.2: no
+code outside `src/indicators/` changed except the version string. That string is
+why the base
+bundle reads 59.06 against last release's 59.05, a 12-byte difference in how
+`1.8.3` compresses rather than anything shipping in it.
+
+2408 tests across 129 files. 102 indicators, 43 drawing tools, zero runtime
+dependencies.
+
 ## 1.8.2
 
 ### Added

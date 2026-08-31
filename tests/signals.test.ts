@@ -41,15 +41,16 @@ const hits = (col: readonly (number | null)[]): number[] =>
   col.reduce<number[]>((acc, v, i) => (v === null ? acc : [...acc, i]), []);
 
 describe('Signal indicator catalogue', () => {
-  it('exports the five studies under their catalogue ids', () => {
+  it('exports the six studies under their catalogue ids', () => {
     expect(SIGNAL_INDICATORS.map((d) => d.id)).toEqual([
       'vortex',
       'volatility-stop',
       'trend-strength-index',
       'williams-fractals',
       'rsi-divergence',
+      'consolidation-breakout',
     ]);
-    expect(new Set(SIGNAL_INDICATORS.map((d) => d.id)).size).toBe(5);
+    expect(new Set(SIGNAL_INDICATORS.map((d) => d.id)).size).toBe(6);
   });
 
   it('places the overlays on the price pane and the studies in their own', () => {

@@ -1,6 +1,6 @@
 ---
 title: Indicators
-description: 91 built-in indicators via chart.addIndicator, plus the registry for your own.
+description: 102 built-in indicators via chart.addIndicator, plus the registry for your own.
 ---
 
 import RunnableExample from '../../components/RunnableExample'
@@ -12,11 +12,11 @@ There are two ways to put an indicator on a chart, and they suit different jobs.
 
 **`chart.addIndicator(id)`** is the managed path: the chart creates the series, picks the
 pane, draws reference levels, recomputes on every data change, and cleans up on removal.
-The 91 built-ins live in the lazy `openalgo-charts/indicators` tier, about 25 KB Brotli.
+The 102 built-ins live in the lazy `openalgo-charts/indicators` tier, about 27 KB Brotli.
 
 ```ts
 import { createChart } from 'openalgo-charts';
-import 'openalgo-charts/indicators';   // registers all 91 built-ins
+import 'openalgo-charts/indicators';   // registers all 102 built-ins
 
 const chart = createChart(el);
 chart.addSeries('candlestick').setData(bars);
@@ -51,8 +51,8 @@ chart.addIndicator('macd');
 chart.timeScale.fitContent(bars.length);
 return chart;`} />
 
-91 descriptors ship in the tier, split across the four categories a picker reads off
-`descriptor.category`: Trend (31), Momentum (29), Volatility (17), and Volume (14).
+102 descriptors ship in the tier, split across the four categories a picker reads off
+`descriptor.category`: Trend (36), Momentum (29), Volatility (22), and Volume (15).
 
 `onchart` indicators overlay the price pane; `pane` indicators create their own. Override
 with `chart.addIndicator('rsi', {}, { paneIndex: 2 })`.
@@ -63,7 +63,7 @@ here; read them off `indicatorStyleInputs(descriptor)` rather than hardcoding th
 are exact: `addIndicator` throws on one it does not know, so guard a user-supplied id
 with `hasIndicator(id)`.
 
-### Trend (31)
+### Trend (36)
 
 | Indicator | `id` | Placement | Key settings |
 |---|---|---|---|
@@ -74,30 +74,35 @@ with `hasIndicator(id)`.
 | Aroon Oscillator | `aroon-oscillator` | pane | `length=14` |
 | Chande Kroll Stop | `chande-kroll-stop` | onchart | `p=10`, `x=1`, `q=9` |
 | Chandelier Exit | `chandelier-exit` | onchart | `length=22`, `atrLength=22`, `atrMultiplier=3` |
+| Consolidation and Breakout | `consolidation-breakout` | onchart | `markbreakout=true`, `colorinside=true` |
 | Double EMA | `dema` | onchart | `length=9`, `source=close` |
-| EMA | `ema` | onchart | `length=20`, `source=close` |
+| EMA | `ema` | onchart | `length=9`, `source=close` |
 | HalfTrend | `halftrend` | onchart | `amplitude=2`, `channelDeviation=2`, `atrPeriod=100`, `showChannels=true`, `showSignals=true`, `showLabels=true` |
 | Hull Moving Average | `hma` | onchart | `length=9`, `source=close` |
+| Hull Suite | `hull-suite` | onchart | `mode=Hma`, `length=55`, `lengthMult=1`, `source=close`, `switchColor=true`, `candleCol=false`, `visualSwitch=true` |
 | Ichimoku Cloud | `ichimoku` | onchart | `conversionPeriod=9`, `basePeriod=26`, `laggingSpanPeriod=52`, `displacement=26` |
 | Kaufman's Adaptive Moving Average | `kama` | onchart | `erLength=10`, `fastLength=2`, `slowLength=30`, `source=close` |
 | Least Squares Moving Average | `lsma` | onchart | `length=25`, `offset=0`, `source=close` |
-| MA Cross | `ma-cross` | onchart | `shortLength=9`, `longLength=21` |
+| Linear Regression Slope | `linreg-slope` | pane | `periods=14` |
+| MA Cross | `ma-cross` | onchart | `shortLength=9`, `longLength=26` |
 | CPR with Floor Pivot | `cpr` | onchart | `pivotMode=auto`, `showDaily=true`, `showWeekly=false`, `showMonthly=false`, `displaypivots=true`, `displaysupport=true`, `displayresistance=true`, `displaycpr=true`, `displayS1R1=false` |
 | McGinley Dynamic | `mcginley-dynamic` | onchart | `length=14` |
 | Median | `median` | onchart | `source=hl2`, `length=3`, `atrLength=14`, `atrMult=2` |
 | Moving Average Ribbon | `ma-ribbon` | onchart | four groups `showMaN=true`, `maNType=SMA`, `maNSource=close`, `maNLength` (20 / 50 / 100 / 200) for `N` = 1..4 |
 | Parabolic SAR | `parabolic-sar` | onchart | `start=0.02`, `increment=0.02`, `maximum=0.2` |
 | Seasonality | `seasonality` | pane | `startYear=2015`, `cutoffPercent=10`, `tablePosition=Center`, `tableWidth=100`, `tableHeight=95`, `showAvg=true`, `showStDev=true`, `showPos=true`, `ignoredMonths='YYYY-MM, YYYY-MM'` |
-| SMA | `sma` | onchart | `length=20`, `source=close` |
+| SMA | `sma` | onchart | `length=9`, `source=close` |
+| Smoothed Moving Average | `smma` | onchart | `length=7`, `source=close` |
 | Supertrend | `supertrend` | onchart | `period=10`, `multiplier=3` |
+| T3 Average | `t3` | onchart | `length=5`, `factor=0.7`, `source=close`, `highlightMovements=true` |
 | Time Weighted Average Price | `twap` | onchart | `anchor=session`, `source=ohlc4`, `offset=0` |
 | Trend Strength Index | `trend-strength-index` | pane | `length=14` |
 | Triple EMA | `tema` | onchart | `length=9` |
 | Volatility Stop | `volatility-stop` | onchart | `length=20`, `source=close`, `factor=2` |
 | Vortex Indicator | `vortex` | pane | `length=14` |
-| Williams Alligator | `alligator` | onchart | `jawLength=13`, `teethLength=8`, `lipsLength=5`, `jawOffset=8`, `teethOffset=5`, `lipsOffset=3` |
+| Williams Alligator | `alligator` | onchart | `jawLength=21`, `teethLength=13`, `lipsLength=8`, `jawOffset=8`, `teethOffset=5`, `lipsOffset=3` |
 | Williams Fractals | `williams-fractals` | onchart | `periods=2`, `showUp=true`, `showDown=true` |
-| WMA | `wma` | onchart | `length=20`, `source=close` |
+| WMA | `wma` | onchart | `length=9`, `source=close` |
 
 ### Momentum (29)
 
@@ -105,7 +110,7 @@ with `hasIndicator(id)`.
 |---|---|---|---|
 | Awesome Oscillator | `awesome-oscillator` | pane | colours only (5 and 34 are the definition, not a preference) |
 | Balance of Power | `balance-of-power` | pane | colours only |
-| CCI | `cci` | pane | `period=20`, `constant=0.015`, `maType=SMA`, `maLength=14`, `bbMult=2` |
+| CCI | `cci` | pane | `period=20`, `constant=0.015`, `maType=SMA`, `maLength=20`, `bbMult=2` |
 | Chande Momentum Oscillator | `chande-momentum` | pane | `length=9`, `source=close` |
 | Connors RSI | `connors-rsi` | pane | `lenrsi=3`, `lenupdown=2`, `lenroc=100` |
 | Coppock Curve | `coppock-curve` | pane | `wmaLength=10`, `longRoCLength=14`, `shortRoCLength=11` |
@@ -123,7 +128,7 @@ with `hasIndicator(id)`.
 | RSI Divergence Indicator | `rsi-divergence` | pane | `length=14`, `source=close`, `lbR=5`, `lbL=5`, `rangeUpper=60`, `rangeLower=5`, `plotBull=true`, `plotHiddenBull=false`, `plotBear=true`, `plotHiddenBear=false` |
 | SMI Ergodic Indicator | `smi-ergodic-indicator` | pane | `longlen=20`, `shortlen=5`, `siglen=5` |
 | SMI Ergodic Oscillator | `smi-ergodic-oscillator` | pane | `longlen=20`, `shortlen=5`, `siglen=5` |
-| Stochastic | `stochastic` | pane | `kPeriod=14`, `kSmoothing=3`, `dPeriod=3` |
+| Stochastic | `stochastic` | pane | `kPeriod=14`, `kSmoothing=1`, `dPeriod=3` |
 | Stochastic Momentum Index | `smi` | pane | `lengthK=10`, `lengthD=3`, `lengthEMA=3` |
 | Stochastic RSI | `stochastic-rsi` | pane | `smoothK=3`, `smoothD=3`, `lengthRSI=14`, `lengthStoch=14`, `source=close` |
 | TRIX | `trix` | pane | `length=18` |
@@ -133,7 +138,7 @@ with `hasIndicator(id)`.
 | Williams Percent Range | `williams-percent-r` | pane | `length=14`, `source=close` |
 | Woodies CCI | `woodies-cci` | pane | `cciTurboLength=6`, `cci14Length=14` |
 
-### Volatility (17)
+### Volatility (22)
 
 | Indicator | `id` | Placement | Key settings |
 |---|---|---|---|
@@ -143,6 +148,7 @@ with `hasIndicator(id)`.
 | Bollinger Bands | `bollinger` | onchart | `length=20`, `stdDev=2`, `source=close` |
 | Bollinger Bands %b | `bollinger-percent-b` | pane | `length=20`, `source=close`, `mult=2` |
 | Bollinger BandWidth | `bollinger-bandwidth` | pane | `length=20`, `source=close`, `mult=2`, `expansionLength=125`, `contractionLength=125` |
+| Chaikin Volatility | `chaikin-volatility` | pane | `periods=10`, `rocLookback=10` |
 | Chop Zone | `chop-zone` | pane | colours only (nine zone colours) |
 | Choppiness Index | `choppiness-index` | pane | `length=14`, `offset=0` |
 | Donchian Channels | `donchian` | onchart | `length=20`, `offset=0` |
@@ -150,12 +156,16 @@ with `hasIndicator(id)`.
 | Historical Volatility | `historical-volatility` | pane | `length=10`, `per=1` |
 | Keltner Channels | `keltner-channel` | onchart | `length=20`, `mult=2`, `source=close`, `exp=true`, `bandsStyle=Average True Range`, `atrlength=10` |
 | Mass Index | `mass-index` | pane | `length=10` |
+| Moving Average Channel | `ma-channel` | onchart | `upperLength=20`, `lowerLength=20`, `upperOffset=0`, `lowerOffset=0` |
 | Range Analysis | `range-analysis` | pane | `showAverage=false`, `avgLength=3` |
 | Relative Volatility Index | `relative-volatility-index` | pane | `length=10`, `offset=0`, `maType=SMA`, `maLength=14`, `bbMult=2` |
+| Standard Deviation | `standard-deviation` | pane | `periods=5`, `deviations=1` |
+| Standard Error | `standard-error` | pane | `length=14` |
+| Standard Error Bands | `standard-error-bands` | onchart | `periods=21`, `errors=2`, `method=Simple`, `averagePeriods=3` |
 | Ulcer Index | `ulcer-index` | pane | `source=close`, `length=14` |
 | William VIX FIX | `williams-vix-fix` | pane | `pd=22`, `bbl=20`, `mult=2`, `lb=50`, `ph=0.85`, `pl=1.01`, `hp=false`, `sd=false` |
 
-### Volume (14)
+### Volume (15)
 
 | Indicator | `id` | Placement | Key settings |
 |---|---|---|---|
@@ -166,7 +176,8 @@ with `hasIndicator(id)`.
 | Elder Force Index | `elder-force-index` | pane | `length=13` |
 | Klinger Oscillator | `klinger-oscillator` | pane | colours only |
 | Negative Volume Index | `nvi` | pane | `maLength=255` |
-| On-Balance Volume | `obv` | pane | `maType=None`, `maLength=14`, `bbMult=2` |
+| Net Volume | `net-volume` | pane | colours only |
+| On-Balance Volume | `obv` | pane | `maType=None`, `maLength=9`, `bbMult=2` |
 | Percentage Volume Oscillator | `pvo` | pane | `fastLength=12`, `slowLength=26`, `signalLength=9`, `oscType=EMA`, `sigType=EMA` |
 | Positive Volume Index | `pvi` | pane | `maLength=255` |
 | Price Volume Trend | `pvt` | pane | colours only |
@@ -663,7 +674,7 @@ typeInput.options;   // same list as INDICATOR_PLOT_STYLES
 import {
   registeredIndicators, hasIndicator, indicatorDefaults,
 } from 'openalgo-charts';
-import 'openalgo-charts/indicators';   // registers the 91 built-ins
+import 'openalgo-charts/indicators';   // registers the 102 built-ins
 
 // Group the catalog for a menu, with no per-indicator code.
 const byCategory = new Map<string, string[]>();
@@ -729,8 +740,8 @@ chart.addIndicator('momentum', { length: 14 });
 ### Shaded bands between plots
 
 A pair of lines is not the same picture as a filled region, so a descriptor can
-declare `fills`: the Ichimoku cloud, a Bollinger channel. 25 of the 91 built-ins
-declare one or more, 28 fills in total.
+declare `fills`: the Ichimoku cloud, a Bollinger channel. 28 of the 102 built-ins
+declare one or more, 38 fills in total.
 
 ```ts
 plots: [
@@ -908,7 +919,7 @@ calc: (bars) => ({
 
 The four columns live in the **same `IndicatorValues`** every other descriptor returns, so
 `calc` keeps one shape and every helper written against it keeps working. A second return
-type would have forked the contract for all 91 built-ins.
+type would have forked the contract for all 102 built-ins.
 
 - `key` stays the series identity, the thing `instance.series('ha')` resolves and the thing
   the style settings are keyed on. The legend reading falls back to the `close` column.
@@ -1125,7 +1136,7 @@ that no longer exists.
 
 ## Calculation helpers
 
-The calculation helpers the 91 built-ins are made of are exported, so your own descriptor
+The calculation helpers the 102 built-ins are made of are exported, so your own descriptor
 can be written against the same primitives instead of re-deriving them. Each matches the
 published formula of the `ta.*` function of the same name, which is what makes a ported
 study agree with its source rather than being approximately right.

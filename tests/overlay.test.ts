@@ -29,11 +29,12 @@ const run = (d: IndicatorDescriptor, data: Bar[], overrides: Record<string, unkn
 describe('the reference platform overlays — descriptor contract', () => {
   const data = wave();
 
-  it('exports the seven overlays with unique ids, all on the price pane', () => {
-    expect(OVERLAY_INDICATORS).toHaveLength(7);
+  it('exports the ten overlays with unique ids, all on the price pane', () => {
+    expect(OVERLAY_INDICATORS).toHaveLength(10);
     const ids = OVERLAY_INDICATORS.map((d) => d.id);
     expect(ids).toEqual([
       'alma', 'dema', 'hma', 'envelope', 'donchian', 'chande-kroll-stop', 'chandelier-exit',
+      'standard-error-bands', 'ma-channel', 'hull-suite',
     ]);
     expect(new Set(ids).size).toBe(ids.length);
     for (const d of OVERLAY_INDICATORS) expect(d.placement).toBe('onchart');
@@ -121,18 +122,34 @@ describe('DEMA', () => {
 });
 
 describe('HMA', () => {
-  // wma(p) of a unit ramp lags by (p - 1) / 3, so with length 9 the lags of the
-  // half, full, and sqrt passes cancel exactly and the hull sits on the close.
-  it('tracks a linear series with zero lag', () => {
+  // A weighted average lags a unit ramp by sum(k * w_k) / sum(w_k). The half
+  // period is 4.5, not 4, so the fast leg lags by 15 / 12.5 = 1.2 and the three
+  // passes leave 2 * 1.2 - (8/3) + (2/3) = 0.4 of a bar rather than cancelling.
+  it('lags a linear series by the fractional half period', () => {
     const out = run(HMA, ramp());
-    expect(out.hma[15] as number).toBeCloseTo(15, 10);
-    expect(out.hma[39] as number).toBeCloseTo(39, 10);
+    expect(out.hma[15] as number).toBeCloseTo(15 - 0.4, 10);
+    expect(out.hma[39] as number).toBeCloseTo(39 - 0.4, 10);
   });
 
-  it('is the wma composition the reference writes', () => {
+  it('is the weighted composition the published definition writes', () => {
+    // Written out independently of the implementation, including its own
+    // fractional-period weighted average, so agreement is evidence rather than a
+    // restatement. The half period is 9 / 2 in full precision: the reference
+    // halves in floating point and only the outer period takes a floor.
+    const fracWma = (v: readonly number[], p: number): number[] => {
+      const span = Math.ceil(p);
+      let denom = 0;
+      for (let k = 0; k < span; k++) denom += p - k;
+      return v.map((_, i) => {
+        if (i < span - 1) return NaN;
+        let acc = 0;
+        for (let k = 0; k < span; k++) acc += v[i - k] * (p - k);
+        return acc / denom;
+      });
+    };
     const data = wave();
     const closes = data.map((b) => b.close);
-    const fast = wma(closes, 4); // floor(9 / 2) — the reference divides two ints
+    const fast = fracWma(closes, 4.5);
     const slow = wma(closes, 9);
     const expected = wma(fast.map((v, i) => 2 * v - slow[i]), 3); // floor(sqrt(9))
     const out = run(HMA, data);

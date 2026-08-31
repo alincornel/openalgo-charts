@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1100" viewBox="0 0 1600 1100" font-family="Inter, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" role="img" aria-label="OpenAlgo Charts layered architecture">
 <title>OpenAlgo Charts architecture</title>
-<desc>Seven layers from public API down to feeds and data, with a six-tier bundle legend: base 59 KB, indicators 25 KB, draw 13 KB, profile 11 KB, trade 8 KB, transform 3 KB, everything 118 KB Brotli.</desc>
+<desc>Seven layers from public API down to feeds and data, with a six-tier bundle legend: base 59 KB, indicators 27 KB, draw 13 KB, profile 11 KB, trade 8 KB, transform 3 KB, everything 120 KB Brotli.</desc>
 
 <defs>
 <linearGradient id="titleGrad" x1="0" y1="0" x2="1" y2="0">
@@ -14,7 +14,7 @@
 
 <text x="800" y="58" fill="url(#titleGrad)" font-size="42" font-weight="700" text-anchor="middle">OpenAlgo Charts</text>
 <text x="800" y="94" fill="#B9C0CC" font-size="20" text-anchor="middle">Dependency-free HTML5 Canvas charting engine</text>
-<text x="800" y="124" font-size="20" text-anchor="middle" fill="#8B93A3"><tspan fill="#2DD4BF" font-weight="600">59 KB</tspan><tspan fill="#B9C0CC"> base, </tspan><tspan fill="#A78BFA" font-weight="600">118 KB</tspan><tspan fill="#B9C0CC"> everything</tspan><tspan fill="#6B7280"> (Brotli)</tspan></text>
+<text x="800" y="124" font-size="20" text-anchor="middle" fill="#8B93A3"><tspan fill="#2DD4BF" font-weight="600">59 KB</tspan><tspan fill="#B9C0CC"> base, </tspan><tspan fill="#A78BFA" font-weight="600">120 KB</tspan><tspan fill="#B9C0CC"> everything</tspan><tspan fill="#6B7280"> (Brotli)</tspan></text>
 
 <rect x="36" y="145" width="140" height="648" rx="14" fill="#0E1015" stroke="#2A2F3A" stroke-width="1.5"/>
 <text x="106" y="300" fill="#E8EBF0" font-size="21" font-weight="600" text-anchor="middle">Host</text>
@@ -78,7 +78,7 @@
 <text x="556" y="371" fill="#8B93A3" font-size="14" text-anchor="middle" dominant-baseline="central">candles / bars /</text>
 <text x="556" y="392" fill="#8B93A3" font-size="14" text-anchor="middle" dominant-baseline="central">line / area</text>
 <rect x="672" y="328" width="350" height="74" rx="10" fill="#101319" stroke="#A78BFA" stroke-opacity="0.45" stroke-width="1.5"/>
-<text x="847" y="350" fill="#C9B8FF" font-size="16" font-weight="600" text-anchor="middle" dominant-baseline="central">91 built-in + custom indicators</text>
+<text x="847" y="350" fill="#C9B8FF" font-size="16" font-weight="600" text-anchor="middle" dominant-baseline="central">102 built-in + custom indicators</text>
 <text x="847" y="371" fill="#8B93A3" font-size="14" text-anchor="middle" dominant-baseline="central">(EMA / RSI / ATR / Supertrend / ...)</text>
 <text x="847" y="392" fill="#8B93A3" font-size="14" text-anchor="middle" dominant-baseline="central">any host can register its own</text>
 <rect x="1038" y="328" width="285" height="74" rx="10" fill="#101319" stroke="#A78BFA" stroke-opacity="0.45" stroke-width="1.5"/>
@@ -168,8 +168,8 @@
 
 <rect x="434" y="855" width="170" height="110" rx="12" fill="#A78BFA" fill-opacity="0.07" stroke="#A78BFA" stroke-opacity="0.55" stroke-width="1.5"/>
 <text x="519" y="884" fill="#C9B8FF" font-size="16" text-anchor="middle" dominant-baseline="central">/indicators</text>
-<text x="519" y="915" fill="#A78BFA" font-size="26" font-weight="700" text-anchor="middle" dominant-baseline="central">25 KB</text>
-<text x="519" y="944" fill="#7C8492" font-size="13" text-anchor="middle" dominant-baseline="central">91 built-in indicators</text>
+<text x="519" y="915" fill="#A78BFA" font-size="26" font-weight="700" text-anchor="middle" dominant-baseline="central">27 KB</text>
+<text x="519" y="944" fill="#7C8492" font-size="13" text-anchor="middle" dominant-baseline="central">102 built-in indicators</text>
 
 <rect x="620" y="855" width="170" height="110" rx="12" fill="#8B5CF6" fill-opacity="0.07" stroke="#8B5CF6" stroke-opacity="0.55" stroke-width="1.5"/>
 <text x="705" y="884" fill="#B79BFF" font-size="16" text-anchor="middle" dominant-baseline="central">/draw</text>
@@ -193,10 +193,10 @@
 
 <rect x="1378" y="855" width="190" height="110" rx="12" fill="#0E1015" stroke="#4A5160" stroke-width="1.5" stroke-dasharray="6 5"/>
 <text x="1473" y="884" fill="#B9C0CC" font-size="16" text-anchor="middle" dominant-baseline="central">Everything</text>
-<text x="1473" y="915" fill="#E8EBF0" font-size="26" font-weight="700" text-anchor="middle" dominant-baseline="central">118 KB</text>
+<text x="1473" y="915" fill="#E8EBF0" font-size="26" font-weight="700" text-anchor="middle" dominant-baseline="central">120 KB</text>
 <text x="1473" y="944" fill="#7C8492" font-size="13" text-anchor="middle" dominant-baseline="central">All tiers combined</text>
 
 <rect x="330" y="990" width="940" height="76" rx="12" fill="#0C0E13" stroke="#2A2F3A" stroke-width="1.5"/>
-<text x="800" y="1016" font-size="16" text-anchor="middle" dominant-baseline="central"><tspan fill="#2DD4BF" font-weight="600">Custom indicators:</tspan><tspan fill="#D4D8E0"> any host can register its own with the same descriptor contract the 91 built-ins use.</tspan></text>
+<text x="800" y="1016" font-size="16" text-anchor="middle" dominant-baseline="central"><tspan fill="#2DD4BF" font-weight="600">Custom indicators:</tspan><tspan fill="#D4D8E0"> any host can register its own with the same descriptor contract the 102 built-ins use.</tspan></text>
 <text x="800" y="1042" fill="#D4D8E0" font-size="16" text-anchor="middle" dominant-baseline="central">No fork, no build step.</text>
 </svg>

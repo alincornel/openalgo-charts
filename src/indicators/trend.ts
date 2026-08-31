@@ -6,13 +6,13 @@
  * (`../index`), not deep paths — see the note in `src/indicators/index.ts`.
  */
 import {
-  ema, supertrend, atr, sourceValues,
+  supertrend, atr, sourceValues,
   sessionStartFlags, calendarPeriodFlags, isNewZonedPeriod,
   utcSecondsToIstParts, IST_OFFSET_SECONDS,
   DEFAULT_TIMEZONE, isValidTimezone,
 } from 'openalgo-charts';
 import type { Bar, IndicatorDescriptor, IndicatorSource } from 'openalgo-charts';
-import { sma, wma, stdev, highest, lowest, nulls } from './calc';
+import { sma, wma, stdev, highest, lowest, nulls, smaSeededEma } from './calc';
 
 const num = (s: Readonly<Record<string, unknown>>, k: string, d: number): number => {
   const v = s[k];
@@ -56,18 +56,23 @@ function movingAverage(
     category: 'Trend',
     placement: 'onchart',
     inputs: [
-      { key: 'length', type: 'number', label: 'Length', default: 20, min: 1, max: 1000, step: 1 },
+      { key: 'length', type: 'number', label: 'Length', default: 9, min: 1, max: 1000, step: 1 },
       { key: 'source', type: 'source', label: 'Source', default: 'close' },
       { key: 'color', type: 'color', label: 'Color', default: color },
     ],
     plots: [{ key: 'ma', type: 'line', title: name, colorKey: 'color', style: { color, lineWidth: 1.5 } }],
-    calc: (bars, s) => ({ ma: nulls(kernel(sourceValues(bars, src(s)), num(s, 'length', 20))) }),
+    calc: (bars, s) => ({ ma: nulls(kernel(sourceValues(bars, src(s)), num(s, 'length', 9))) }),
   };
 }
 
 export const SMA: IndicatorDescriptor = movingAverage('sma', 'SMA', '#4f8cff', sma);
 export const WMA: IndicatorDescriptor = movingAverage('wma', 'WMA', '#ab47bc', wma);
-export const EMA: IndicatorDescriptor = movingAverage('ema', 'EMA', '#f5a623', ema);
+// `smaSeededEma`, not the base bundle's `ema`: the plotted EMA has to open where
+// the standard definition opens, on the simple mean of the first `length` values
+// at index `length - 1`. The base `ema` seeds from bar 0 to match `openalgo.ta`
+// and is public API in its own right, so it keeps that behaviour and this
+// descriptor stops using it. Every other EMA in the tier already reads this way.
+export const EMA: IndicatorDescriptor = movingAverage('ema', 'EMA', '#f5a623', smaSeededEma);
 
 export const BOLLINGER: IndicatorDescriptor = {
   id: 'bollinger',
@@ -374,26 +379,39 @@ export const PARABOLIC_SAR: IndicatorDescriptor = {
     let sar = rising ? bars[0].low : bars[0].high;
     let ep = rising ? bars[1].high : bars[1].low;
     let af = step;
+    // The seed bar carries the seed itself. Accelerating and testing for a
+    // reversal on it uses an extreme point taken from that same bar, which can
+    // flip the trend before a single step has been walked.
+    out[1] = sar;
 
-    for (let i = 1; i < n; i++) {
+    for (let i = 2; i < n; i++) {
       sar += af * (ep - sar);
-      // SAR may not penetrate the prior two bars' range.
-      const lo1 = bars[i - 1].low;
-      const hi1 = bars[i - 1].high;
-      const lo2 = i >= 2 ? bars[i - 2].low : lo1;
-      const hi2 = i >= 2 ? bars[i - 2].high : hi1;
-      if (rising) sar = Math.min(sar, lo1, lo2);
-      else sar = Math.max(sar, hi1, hi2);
 
+      // The reversal is decided on the propagated stop, before the clamp below:
+      // a stop pulled back inside the prior two bars can no longer be breached,
+      // so clamping first swallows flips the definition does fire. On a reversal
+      // the stop is the ending trend's extreme, and that extreme includes this
+      // bar: a stop left inside the bar that triggered it is already breached
+      // the moment it is plotted.
       if (rising && bars[i].low < sar) {
-        rising = false; sar = ep; ep = bars[i].low; af = step;
+        rising = false; sar = Math.max(ep, bars[i].high); ep = bars[i].low; af = step;
       } else if (!rising && bars[i].high > sar) {
-        rising = true; sar = ep; ep = bars[i].high; af = step;
+        rising = true; sar = Math.min(ep, bars[i].low); ep = bars[i].high; af = step;
       } else if (rising && bars[i].high > ep) {
         ep = bars[i].high; af = Math.min(max, af + inc);
       } else if (!rising && bars[i].low < ep) {
         ep = bars[i].low; af = Math.min(max, af + inc);
       }
+
+      // SAR may not penetrate the prior two bars' range, on whichever side the
+      // trend now runs. Applied last so a reversal stop is contained too.
+      const lo1 = bars[i - 1].low;
+      const hi1 = bars[i - 1].high;
+      const lo2 = bars[i - 2].low;
+      const hi2 = bars[i - 2].high;
+      if (rising) sar = Math.min(sar, lo1, lo2);
+      else sar = Math.max(sar, hi1, hi2);
+
       out[i] = sar;
     }
     return { sar: nulls(out) };

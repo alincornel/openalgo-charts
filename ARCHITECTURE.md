@@ -132,7 +132,7 @@ src/
 
 > **Methodology (point of record):** numbers are **Brotli-compressed**. Since we have zero runtime dependencies, nothing is excluded from the measurement. Raw-minified ≈ 3–3.5× the Brotli figure; gzip ≈ 1.1–1.15× Brotli. **All figures below are pre-implementation estimates** and the first deliverable of Phase 1 is to wire `size-limit` and replace them with measured values.
 
-We split the package into **six loadable tiers** so the base stays tiny and heavy features are opt-in (dynamic `import()` / separate entry points). This is the key to keeping the base engine near 59 KB Brotli while supporting 91 indicators, 43 drawing tools, and footprint/TPO/orderflow. Measured sizes for every tier are in the README size budget.
+We split the package into **six loadable tiers** so the base stays tiny and heavy features are opt-in (dynamic `import()` / separate entry points). This is the key to keeping the base engine near 59 KB Brotli while supporting 102 indicators, 43 drawing tools, and footprint/TPO/orderflow. Measured sizes for every tier are in the README size budget.
 
 **Tier 1 — Base bundle (always loaded):**
 

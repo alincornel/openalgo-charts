@@ -1,7 +1,8 @@
 /**
  * Signal-bearing trend studies: two paired-line studies, a correlation study,
- * and two whose whole output is named events rather than a curve. Part of the
- * lazy `openalgo-charts/indicators` tier.
+ * two whose whole output is named events rather than a curve, and a state
+ * machine over the bars themselves. Part of the lazy
+ * `openalgo-charts/indicators` tier.
  *
  * These are reproductions of published formulas, faithful down to the warmup
  * gap: someone comparing one of these against the same study elsewhere has to
@@ -12,10 +13,11 @@
  *   - a comparison against a missing value is false, which is what stops a
  *     warming-up series from producing a pivot or a signal.
  *
- * Three of the five plot lines. The other two are *signals*: the fractals are
- * nothing but shapes, and the divergence study draws labelled plates at pivots.
- * Those go through the descriptor's `markers` hook, because a plot is a column
- * of prices and a signal is a named event at one bar.
+ * Three of the six are nothing but plot lines. The other three carry *signals*
+ * too: the fractals are nothing but shapes, the divergence study draws labelled
+ * plates at pivots, and the consolidation study marks the bar that leaves the
+ * range. Those go through the descriptor's `markers` hook, because a plot is a
+ * column of prices and a signal is a named event at one bar.
  */
 import { rsi, atr, trueRange, sourceValues } from 'openalgo-charts';
 import type { IndicatorDescriptor, IndicatorSource, SeriesMarker } from 'openalgo-charts';
@@ -497,10 +499,162 @@ export const RSI_DIVERGENCE: IndicatorDescriptor = {
   range: () => ({ min: 0, max: 100 }),
 };
 
+/**
+ * How stale a range may be before a body leaving it stops counting as a
+ * breakout, and how fresh. A body that escapes the bar right after the mother is
+ * that mother's own follow-through rather than a break of a consolidation, and a
+ * range still standing 250 bars later has stopped being one. Both are constants
+ * of the standard formula, not inputs: neither has a reading a user would tune.
+ */
+const MIN_BARS = 1;
+const MAX_BARS = 250;
+
+/**
+ * Consolidation and Breakout: a mother bar's range, the inside bars that keep it
+ * alive, and the bar that finally leaves it.
+ *
+ * This one is a state machine rather than a formula. A single index is carried
+ * from bar to bar: the bar whose high and low currently define the range. Every
+ * later bar whose *body* (open to close, wicks ignored) sits inside that range
+ * extends the consolidation, and the first body to escape it becomes the new
+ * mother.
+ *
+ * The two reads of that index straddle the reassignment, and that ordering is
+ * the study:
+ *   - the breakout tests read the range as it stood *before* this bar could
+ *     claim it, which is what makes a breakout a statement about the old range;
+ *   - the plotted range and the inside-bar tint read it *after*, so a bar that
+ *     breaks out is already the new mother and is correctly left untinted.
+ * One bar therefore both fires a marker and opens the next consolidation.
+ * Collapsing the two into one read shifts every signal by a bar, which still
+ * looks plausible on a chart, so `tests/study-consolidation.test.ts` pins the
+ * breaking bar itself.
+ *
+ * Bar 1 is excluded from the inside test by the definition: with the carried
+ * index seeded at 0, bar 1 would otherwise be measured against a range that has
+ * had no chance to be broken.
+ *
+ * Not reproduced: the thickness control the published definition puts on the two
+ * range lines. `style.lineWidth` is static here and no settings key stands
+ * behind it, so the control would move nothing. The lines are fixed at 2.
+ */
+export const CONSOLIDATION_BREAKOUT: IndicatorDescriptor = {
+  id: 'consolidation-breakout',
+  name: 'Consolidation and Breakout',
+  category: 'Trend',
+  placement: 'onchart',
+  inputs: [
+    { key: 'markbreakout', type: 'boolean', label: 'Mark Breakouts', default: true },
+    { key: 'colorinside', type: 'boolean', label: 'Tint Inside Bars', default: true },
+    { key: 'bullBreakColor', type: 'color', label: 'Break Up', default: '#00c853' },
+    { key: 'bearBreakColor', type: 'color', label: 'Break Down', default: '#ff5252' },
+    { key: 'insideColor', type: 'color', label: 'Inside Bar', default: '#000000' },
+    { key: 'highlowColor', type: 'color', label: 'Range', default: '#e91e63' },
+  ],
+  // Null wherever no consolidation is running, so the renderer breaks the line
+  // across the gap instead of joining one range to the next. That gap is the
+  // reading: two disconnected rails are two separate consolidations.
+  plots: [
+    {
+      key: 'rangeHigh', type: 'line', title: 'Range High',
+      colorKey: 'highlowColor', style: { lineWidth: 2 },
+    },
+    {
+      key: 'rangeLow', type: 'line', title: 'Range Low',
+      colorKey: 'highlowColor', style: { lineWidth: 2 },
+    },
+  ],
+  calc: (bars) => {
+    const n = bars.length;
+    const rangeHigh = new Array<number>(n).fill(NaN);
+    const rangeLow = new Array<number>(n).fill(NaN);
+    // The three signal columns the two presentation hooks read: which bars broke
+    // out and where, and how long each bar has been inside. Holding them here
+    // rather than recomputing keeps the state machine walked once.
+    const breakUp = new Array<number>(n).fill(NaN);
+    const breakDown = new Array<number>(n).fill(NaN);
+    const insideAge = new Array<number>(n).fill(NaN);
+
+    let mainIndex = 0;
+    for (let i = 0; i < n; i++) {
+      const b = bars[i];
+      const bodyTop = Math.max(b.open, b.close);
+      const bodyBottom = Math.min(b.open, b.close);
+      const motherHigh = bars[mainIndex].high;
+      const motherLow = bars[mainIndex].low;
+      const age = i - mainIndex;
+
+      // Read one: the range the bar is breaking is the one it has not claimed.
+      const breakable = age > MIN_BARS && age <= MAX_BARS;
+      if (breakable && bodyTop > motherHigh) breakUp[i] = motherHigh;
+      if (breakable && bodyBottom < motherLow) breakDown[i] = motherLow;
+
+      const inside = i > 1
+        && bodyBottom >= motherLow && bodyBottom <= motherHigh
+        && bodyTop >= motherLow && bodyTop <= motherHigh;
+      const previous = mainIndex;
+      mainIndex = inside ? mainIndex : i;
+
+      // Read two, after the reassignment. A bar that took the range over prints
+      // nothing, so the rails stop at the last bar the old range held. Bar 0 is
+      // the one place where the carried seed and the reassignment agree, so it
+      // prints its own high and low and starts the first range.
+      if (mainIndex === previous) {
+        rangeHigh[i] = bars[mainIndex].high;
+        rangeLow[i] = bars[mainIndex].low;
+      }
+      const held = i - mainIndex;
+      if (held > 0) insideAge[i] = held;
+    }
+    return {
+      rangeHigh: nulls(rangeHigh), rangeLow: nulls(rangeLow),
+      breakUp: nulls(breakUp), breakDown: nulls(breakDown), insideAge: nulls(insideAge),
+    };
+  },
+  // Both toggles are applied here rather than in `calc`, so the columns stay the
+  // state machine's own answer and switching a toggle restyles what is already
+  // computed. The shape points the way the body went and sits on the far side of
+  // the bar from it, which keeps it clear of the range rails.
+  markers: ({ bars, values, settings }) => {
+    const out: SeriesMarker[] = [];
+    if (!on(settings, 'markbreakout')) return out;
+    const up = values.breakUp ?? [];
+    const down = values.breakDown ?? [];
+    const upColor = str(settings, 'bullBreakColor', '#00c853');
+    const downColor = str(settings, 'bearBreakColor', '#ff5252');
+    for (let i = 0; i < bars.length; i++) {
+      if (up[i] !== null && up[i] !== undefined) {
+        out.push({
+          time: bars[i].time, position: 'belowBar',
+          shape: 'triangleUp', size: 'small', color: upColor,
+        });
+      }
+      if (down[i] !== null && down[i] !== undefined) {
+        out.push({
+          time: bars[i].time, position: 'aboveBar',
+          shape: 'triangleDown', size: 'small', color: downColor,
+        });
+      }
+    }
+    return out;
+  },
+  // A consolidation is a property of the price bars, not a second series beside
+  // them, so the inside bars are tinted on the candles themselves. The mother
+  // bar keeps its own colour: it is the range, not part of what is inside it.
+  barColors: ({ bars, values, settings }) => {
+    const age = values.insideAge ?? [];
+    const tint = str(settings, 'insideColor', '#000000');
+    const wanted = on(settings, 'colorinside');
+    return bars.map((_, i) =>
+      (wanted && age[i] !== null && age[i] !== undefined ? tint : null));
+  },
+};
+
 export const SIGNAL_INDICATORS: readonly IndicatorDescriptor[] = [
   VORTEX,
   VOLATILITY_STOP,
   TREND_STRENGTH_INDEX,
   WILLIAMS_FRACTALS,
   RSI_DIVERGENCE,
+  CONSOLIDATION_BREAKOUT,
 ];

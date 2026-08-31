@@ -357,6 +357,62 @@ export const KNOW_SURE_THING: IndicatorDescriptor = {
   levels: () => [{ price: 0, color: '#787b86', title: 'Zero', dashed: true }],
 };
 
+/**
+ * Linear Regression Slope: the gradient of the least-squares line fitted over the
+ * last `periods` closes, in price per bar.
+ *
+ * It asks a different question from LSMA, which plots where that same line ends.
+ * Dropping the level and keeping only the gradient is what lets the study say
+ * that an advance is still an advance but no longer as steep, at a bar where
+ * price itself is making a new high. Zero is the whole reading: above it the fit
+ * rises, below it the fit falls.
+ *
+ * The x axis is unit-spaced and the reference scales the result by nothing, so
+ * the answer is per bar rather than per window. Only that spacing matters: a
+ * least-squares slope is unchanged by shifting x, so running x from 1 to
+ * `periods` (the reference's own convention, newest bar highest) and running it
+ * from 0 give the identical number.
+ */
+export const LINREG_SLOPE: IndicatorDescriptor = {
+  id: 'linreg-slope',
+  name: 'Linear Regression Slope',
+  category: 'Trend',
+  placement: 'pane',
+  inputs: [
+    { key: 'periods', type: 'number', label: 'Periods', default: 14, min: 2, max: 1000, step: 1 },
+    { key: 'color', type: 'color', label: 'Slope', default: '#ff5252' },
+  ],
+  plots: [{
+    key: 'slope', type: 'line', title: 'Slope', colorKey: 'color',
+    style: { color: '#ff5252', lineWidth: 1.5 },
+  }],
+  calc: (bars, s) => {
+    const values = sourceValues(bars, 'close');
+    const n = values.length;
+    const period = int(s, 'periods', 14, 2);
+    const out = new Array<number>(n).fill(NaN);
+    const sumX = (period * (period + 1)) / 2;
+    // The window is the same shape on every bar, so the x sums are loop-invariant.
+    // This is the closed form of `period * sum(x^2) - sum(x)^2` over x = 1..period,
+    // and it is only zero at period 1, which the input floor rules out.
+    const denom = (period * period * (period * period - 1)) / 12;
+    for (let i = period - 1; i < n; i++) {
+      let sumY = 0;
+      let sumXY = 0;
+      for (let k = 0; k < period; k++) {
+        const y = values[i - k];
+        sumY += y;
+        sumXY += y * (period - k);
+      }
+      out[i] = (period * sumXY - sumX * sumY) / denom;
+    }
+    return { slope: nulls(out) };
+  },
+  // The reference declares no band, but the study carries no scale of its own and
+  // is read entirely by which side of zero the gradient sits on.
+  levels: () => [{ price: 0, color: '#787b86', title: 'Zero', dashed: true }],
+};
+
 export const ADAPTIVE_INDICATORS: readonly IndicatorDescriptor[] = [
-  KAMA, KELTNER_CHANNEL, LSMA, KLINGER_OSCILLATOR, KNOW_SURE_THING,
+  KAMA, KELTNER_CHANNEL, LSMA, KLINGER_OSCILLATOR, KNOW_SURE_THING, LINREG_SLOPE,
 ];

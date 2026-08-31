@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   ADAPTIVE_INDICATORS,
-  KAMA, KELTNER_CHANNEL, LSMA, KLINGER_OSCILLATOR, KNOW_SURE_THING,
+  KAMA, KELTNER_CHANNEL, LSMA, KLINGER_OSCILLATOR, KNOW_SURE_THING, LINREG_SLOPE,
 } from '../src/indicators/adaptive';
 import { indicatorDefaults } from '../src/model/indicator-registry';
 import type { IndicatorDescriptor } from '../src/model/indicator-registry';
@@ -27,16 +27,19 @@ const run = (d: IndicatorDescriptor, data: Bar[], overrides: Record<string, unkn
 describe('the reference platform extras: descriptor contract', () => {
   const data = wave();
 
-  it('exports the five studies with unique ids and the declared placements', () => {
-    expect(ADAPTIVE_INDICATORS).toHaveLength(5);
+  it('exports the six studies with unique ids and the declared placements', () => {
+    expect(ADAPTIVE_INDICATORS).toHaveLength(6);
     const ids = ADAPTIVE_INDICATORS.map((d) => d.id);
-    expect(ids).toEqual(['kama', 'keltner-channel', 'lsma', 'klinger-oscillator', 'know-sure-thing']);
+    expect(ids).toEqual([
+      'kama', 'keltner-channel', 'lsma', 'klinger-oscillator', 'know-sure-thing', 'linreg-slope',
+    ]);
     expect(new Set(ids).size).toBe(ids.length);
     expect(KAMA.placement).toBe('onchart');
     expect(KELTNER_CHANNEL.placement).toBe('onchart');
     expect(LSMA.placement).toBe('onchart');
     expect(KLINGER_OSCILLATOR.placement).toBe('pane');
     expect(KNOW_SURE_THING.placement).toBe('pane');
+    expect(LINREG_SLOPE.placement).toBe('pane');
   });
 
   it('every plot names a declared colour input', () => {

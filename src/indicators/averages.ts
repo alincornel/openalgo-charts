@@ -1,5 +1,5 @@
 /**
- * Built-in averages — the eight price-pane studies whose behaviour
+ * Built-in averages: the ten price-pane studies whose behaviour
  * is specified against the published reference definitions rather than this library's own.
  * Part of the lazy `openalgo-charts/indicators` tier.
  *
@@ -121,6 +121,9 @@ function crossings(a: readonly number[], b: readonly number[]): boolean[] {
 /**
  * `close` is hard-coded in the reference (`sma(close, ...)`, not an
  * `input`), so there is no source setting to expose.
+ *
+ * The long length defaults to 26, not 21: the reference pairs 9 against 26. A
+ * saved chart that never set the length explicitly draws a slower line now.
  */
 export const MA_CROSS: IndicatorDescriptor = {
   id: 'ma-cross',
@@ -129,7 +132,7 @@ export const MA_CROSS: IndicatorDescriptor = {
   placement: 'onchart',
   inputs: [
     { key: 'shortLength', type: 'number', label: 'Short MA Length', default: 9, min: 1, max: 1000, step: 1 },
-    { key: 'longLength', type: 'number', label: 'Long MA Length', default: 21, min: 1, max: 1000, step: 1 },
+    { key: 'longLength', type: 'number', label: 'Long MA Length', default: 26, min: 1, max: 1000, step: 1 },
     { key: 'shortColor', type: 'color', label: 'Short MA', default: '#ff6d00' },
     { key: 'longColor', type: 'color', label: 'Long MA', default: '#43a047' },
     { key: 'crossColor', type: 'color', label: 'Cross', default: '#2962ff' },
@@ -474,6 +477,11 @@ export const VWMA: IndicatorDescriptor = {
  * + src) / length`, which is Wilder's RMA to the letter, so `rma` reproduces it
  * exactly and first prints at `length - 1`.
  *
+ * Lengths default to 21 / 13 / 8, not to Williams' original 13 / 8 / 5: the
+ * reference runs the slower set, and the offsets 8 / 5 / 3 are shared by both,
+ * so only the smoothing lengths move. A saved chart that never set them draws
+ * three slower lines now.
+ *
  * The three plots carry `offset = 8 / 5 / 3`. A plot offset is not available
  * per-plot here, so the displacement is applied to the values instead: the value
  * computed on bar `i` is returned in slot `i + offset`, which leaves `offset`
@@ -486,9 +494,9 @@ export const ALLIGATOR: IndicatorDescriptor = {
   category: 'Trend',
   placement: 'onchart',
   inputs: [
-    { key: 'jawLength', type: 'number', label: 'Jaw Length', default: 13, min: 1, max: 1000, step: 1 },
-    { key: 'teethLength', type: 'number', label: 'Teeth Length', default: 8, min: 1, max: 1000, step: 1 },
-    { key: 'lipsLength', type: 'number', label: 'Lips Length', default: 5, min: 1, max: 1000, step: 1 },
+    { key: 'jawLength', type: 'number', label: 'Jaw Length', default: 21, min: 1, max: 1000, step: 1 },
+    { key: 'teethLength', type: 'number', label: 'Teeth Length', default: 13, min: 1, max: 1000, step: 1 },
+    { key: 'lipsLength', type: 'number', label: 'Lips Length', default: 8, min: 1, max: 1000, step: 1 },
     { key: 'jawOffset', type: 'number', label: 'Jaw Offset', default: 8, min: -500, max: 500, step: 1 },
     { key: 'teethOffset', type: 'number', label: 'Teeth Offset', default: 5, min: -500, max: 500, step: 1 },
     { key: 'lipsOffset', type: 'number', label: 'Lips Offset', default: 3, min: -500, max: 500, step: 1 },
@@ -512,6 +520,110 @@ export const ALLIGATOR: IndicatorDescriptor = {
   },
 };
 
+/**
+ * Smoothed Moving Average, Wilder's smoother over a plain price source. Its
+ * alpha is `1 / length` where an EMA of the same length uses `2 / (length + 1)`,
+ * so it lags further and turns only once a run of closes has genuinely shifted
+ * the level, which is the point: it is the noise filter, not the fast line.
+ *
+ * The reference `smma` is the recursion `rma` already implements, seeded from
+ * the simple average of the first `length` values, so it first prints at
+ * `length - 1` and needs no code of its own here.
+ */
+export const SMMA: IndicatorDescriptor = {
+  id: 'smma',
+  name: 'Smoothed Moving Average',
+  category: 'Trend',
+  placement: 'onchart',
+  inputs: [
+    { key: 'length', type: 'number', label: 'Length', default: 7, min: 1, max: 1000, step: 1 },
+    { key: 'source', type: 'source', label: 'Source', default: 'close' },
+    { key: 'color', type: 'color', label: 'SMMA', default: '#673ab7' },
+  ],
+  plots: [{
+    key: 'smma', type: 'line', title: 'SMMA', colorKey: 'color',
+    style: { color: '#673ab7', lineWidth: 1.5 },
+  }],
+  calc: (bars, s) => ({ smma: nulls(rma(sourceValues(bars, src(s)), int(s, 'length', 7))) }),
+};
+
+/**
+ * One T3 layer: an exponential average pushed past itself by `factor` times the
+ * error its own second smoothing still carries. On a straight ramp that trades
+ * exactly `factor` of the layer's lag away, which is the whole trick, and at
+ * `factor = 1` it is a plain DEMA.
+ *
+ * The second average is dropped rather than multiplied by zero when the factor
+ * is zero. It contributes nothing but its warmup there, and `NaN * 0` is `NaN`,
+ * so keeping it would blank `length - 1` bars of a line that has by then
+ * collapsed to the plain chained average the definition says it is.
+ */
+function generalizedDouble(values: readonly number[], length: number, factor: number): number[] {
+  const e1 = emaOfGapped(values, length);
+  if (factor === 0) return e1;
+  const e2 = emaOfGapped(e1, length);
+  return e1.map((v, i) => v * (1 + factor) - e2[i] * factor);
+}
+
+/**
+ * T3 Average, that generalised double average applied three times over. The
+ * result reads as smooth as a long moving average while turning close to as
+ * early as a short one, which no single exponential average of either length
+ * does.
+ *
+ * Warmup is the thing to get right here, and it is deeper than the length
+ * suggests. One layer is two chained averages, and the layers nest three deep,
+ * so the longest term is six averages of averages. Each is chained onto a series
+ * that is already `na` for its own warmup and so starts `length - 1` bars after
+ * the one it reads (see `emaOfGapped`), which puts the first printed bar at
+ * `6 * (length - 1)`: index 24 at the default length of 5, not index 4.
+ *
+ * Highlighting is a colour on one line, not a second plot: the line is
+ * continuous either way and only its paint changes, so a break in the colour
+ * must not become a break in the series.
+ */
+export const T3: IndicatorDescriptor = {
+  id: 't3',
+  name: 'T3 Average',
+  category: 'Trend',
+  placement: 'onchart',
+  inputs: [
+    { key: 'length', type: 'number', label: 'Length', default: 5, min: 1, max: 1000, step: 1 },
+    { key: 'factor', type: 'number', label: 'Factor', default: 0.7, min: 0, max: 1, step: 0.1 },
+    { key: 'highlightMovements', type: 'boolean', label: 'Highlight Movements', default: true },
+    { key: 'source', type: 'source', label: 'Source', default: 'close' },
+    { key: 'upColor', type: 'color', label: 'Rising', default: '#26a69a' },
+    { key: 'downColor', type: 'color', label: 'Falling', default: '#ff5252' },
+    { key: 'neutralColor', type: 'color', label: 'T3', default: '#6d1e7f' },
+  ],
+  plots: [{
+    key: 't3',
+    type: 'line',
+    title: 'T3',
+    // `colorKey` is the plain colour a settings UI restyles and the one the line
+    // wears with highlighting off; `colorBy` wins bar by bar when it is on.
+    colorKey: 'neutralColor',
+    style: { color: '#6d1e7f', lineWidth: 2 },
+    colorBy: ({ value, index, values, settings }) => {
+      if (!flag(settings, 'highlightMovements', true)) return str(settings, 'neutralColor', '#6d1e7f');
+      const prev = values.t3?.[index - 1];
+      // Only a genuine rise takes the up colour: an unchanged value and the
+      // first printed bar, which has nothing behind it, both read as falling,
+      // the way a comparison against `na` does.
+      const rising = typeof prev === 'number' && Number.isFinite(prev) && value > prev;
+      return rising ? str(settings, 'upColor', '#26a69a') : str(settings, 'downColor', '#ff5252');
+    },
+  }],
+  calc: (bars, s) => {
+    const values = sourceValues(bars, src(s));
+    const length = int(s, 'length', 5);
+    const factor = num(s, 'factor', 0.7);
+    const once = generalizedDouble(values, length, factor);
+    const twice = generalizedDouble(once, length, factor);
+    return { t3: nulls(generalizedDouble(twice, length, factor)) };
+  },
+};
+
 export const AVERAGE_INDICATORS: readonly IndicatorDescriptor[] = [
-  MA_CROSS, MCGINLEY_DYNAMIC, MEDIAN, MA_RIBBON, TEMA, TWAP, VWMA, ALLIGATOR,
+  MA_CROSS, MCGINLEY_DYNAMIC, MEDIAN, MA_RIBBON, TEMA, TWAP, VWMA, ALLIGATOR, SMMA, T3,
 ];

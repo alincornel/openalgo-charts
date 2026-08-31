@@ -212,6 +212,10 @@ Three constraints for the update:
 
 ## 6. Checklist
 
+The numbers in this checklist are the 1.8.2 ones it was written
+against. Where a later release moved one, section 7 carries the current figure
+and that is the one to check against.
+
 - [ ] Subtitle reads 59 KB base, 118 KB everything. No "under 50 KB" anywhere.
 - [ ] Six tier chips, each with its measured size.
 - [ ] `/indicators` and `/draw` both present.
@@ -230,3 +234,91 @@ Three constraints for the update:
 - [ ] README size badge updated: it currently reads 53 KB / 111 KB, also stale.
 - [ ] `.size-limit.json` draw-tier label corrected: it says 34 drawing tools, the
       registry reports 43.
+
+---
+
+## 7. Appendix: the 1.8.3 correction
+
+Sections 1 to 6 are the record of the 1.8.2 redraw and are left as written. This
+appendix records the next set of measurements, so the checklist above is read
+against these numbers rather than the 1.8.2 ones where the two differ.
+
+1.8.3 added its indicators in two passes: eight first, taking the registry from
+91 to 99, then three more (`t3`, `hull-suite`, `consolidation-breakout`), taking
+it to 102. The diagram was corrected after each. Nothing structural changed in
+either pass: no row was added or removed, no element moved, no colour changed.
+Seven numbers are text in `docs/architecture-diagram.svg` and were edited as
+text. The figures below are the shipped ones.
+
+### The SVG lives in two places
+
+`docs/architecture-diagram.svg` is the one README and `ARCHITECTURE.md` point at.
+`website/public/architecture-diagram.svg` is the copy the documentation site
+serves, and the site cannot reach up out of its own build to read the first. The
+two must stay byte-identical: edit one, copy it over the other, and diff them
+before committing. A number corrected in only one of them is worse than a number
+corrected in neither, because the second reader has no reason to doubt it.
+
+### Measured, 1.8.3 as shipped
+
+| Tier | Measured | Budget in `.size-limit.json` |
+| --- | --: | --: |
+| Base engine | 59.06 kB | 60 kB |
+| Base + trade | 66.67 kB | 68 kB |
+| Indicator tier | 27.21 kB | 27 kB, exceeded by 213 B |
+| Draw tier | 13.13 kB | 14 kB |
+| Transform tier | 2.66 kB | 5 kB |
+| Profile tier | 10.66 kB | 11 kB |
+| Everything | 120.32 kB | 120 kB, exceeded by 323 B |
+
+The last three indicators cost the tier roughly 1.07 kB Brotli between them and
+carried it past its limit, so `npm run size` fails on those two rows as this is
+written. That is a release decision (trim, or raise the budget), not a diagram
+problem: the diagram's job is to say 27 KB because 27.21 kB is what the file
+measures. Whoever settles it should also take the indicator-tier label in
+`.size-limit.json` from "99 built-ins" to 102.
+
+Counts from the registry at runtime: 102 indicators, 43 drawing tools, 13 chart
+types in the base bundle and 15 once the transform tier registers its two.
+
+### What changed in the SVG
+
+| Element | 1.8.2 | 1.8.3, first pass | 1.8.3, shipped |
+| --- | --- | --- | --- |
+| `<desc>` accessibility text | indicators 25 KB, everything 118 KB | indicators 26 KB, everything 119 KB | indicators 27 KB, everything 120 KB |
+| Subtitle | 59 KB base, 118 KB everything | 59 KB base, 119 KB everything | 59 KB base, 120 KB everything |
+| Drawables row, indicator chip | 91 built-in + custom indicators | 99 built-in + custom indicators | 102 built-in + custom indicators |
+| Tier legend, `/indicators` chip | 25 KB, 91 built-in indicators | 26 KB, 99 built-in indicators | 27 KB, 102 built-in indicators |
+| Tier legend, everything chip | 118 KB | 119 KB | 120 KB |
+| Custom-indicator caption | the 91 built-ins use | the 99 built-ins use | the 102 built-ins use |
+
+The first pass was digit for digit (91 to 99, 25 to 26, 118 to 119) and touched
+no layout at all. The second pass is not: 99 to 102 adds a character to three
+strings, so those three were checked against the boxes that hold them rather
+than assumed.
+
+- Drawables row chip, 16 px semibold, centred in a 350 px box: the longest line
+  in that box grows by about nine px and still clears the border by a wide
+  margin.
+- `/indicators` legend caption, 13 px, centred in a 170 px chip: "102 built-in
+  indicators" is the widest caption in the legend row and still sits inside the
+  chip, ahead of its neighbours "Trading & order layer" and "Charting engine
+  core" by a character.
+- Custom-indicator caption, 16 px, centred in a 940 px box: one character on a
+  line with well over a hundred px of slack.
+
+Every size figure stayed the same width (26 to 27, 119 to 120), so no legend
+chip moved. This is the property the SVG was adopted for and it is holding: two
+releases of corrections, no redraw.
+
+The base figure is unchanged at 59 KB across both passes: the new indicators
+live entirely in the indicator tier, which is the tier system doing its job and
+is worth knowing when the next reader asks whether adding indicators costs every
+consumer bytes.
+
+### Still true, not re-verified by measurement
+
+The six tier chips, the seven rows, the transform list of six, the profile list
+of five, the session row, the IANA timezone wording, `registerIndicator` in the
+public API row and the drawing tool count of 43 are all unchanged from 1.8.2 and
+were checked by eye against section 6 rather than remeasured.

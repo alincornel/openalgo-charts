@@ -410,7 +410,7 @@ export interface IndicatorAttachContext {
 
 /**
  * What `levels` is handed. It carries `bars` and `values` **and** spreads the
- * settings keys onto itself, so the 91 built-ins written against the original
+ * settings keys onto itself, so the built-ins written against the original
  * `levels(settings)` signature keep working unchanged: they read
  * `ctx.overbought` (or pass `ctx` to a `num(s, key, default)` helper) and find
  * exactly what they found before. A widened parameter is the only way a level

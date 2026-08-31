@@ -538,29 +538,33 @@ export const WOODIES_CCI: IndicatorDescriptor = {
 };
 
 /**
- * The ten terms of Pring's Special K, as `weight * sma(roc(src, roc), smooth)`.
+ * The twelve terms of Pring's Special K, as `weight * sma(roc(src, roc), smooth)`.
  *
- * The reference calls `an external `specialK()` helper` from the reference platform/ta library, whose body
- * is not in the source file, so these are Pring's published lengths and weights
- * rather than a transcription. The longest term is what makes the study
- * expensive in history: `roc(195)` smoothed over 130 bars needs 324 bars before
- * it prints anything, and the twice-smoothed signal needs 522.
+ * The reference delegates to a library helper whose body is not in the extracted
+ * source, so these are Pring's published lengths and weights rather than a
+ * transcription of it. The study is three KSTs added together, which is
+ * why the weights run 1/2/3/4 three times over rather than tracking the rate of
+ * change lengths. The longest term is what makes the study expensive in history:
+ * `roc(530)` smoothed over 195 bars needs 725 bars before it prints anything,
+ * and the twice-smoothed signal needs 923.
  */
 const SPECIAL_K_TERMS: readonly { weight: number; roc: number; smooth: number }[] = [
-  { weight: 10, roc: 10, smooth: 10 },
-  { weight: 15, roc: 15, smooth: 10 },
-  { weight: 20, roc: 20, smooth: 10 },
-  { weight: 25, roc: 25, smooth: 10 },
-  { weight: 30, roc: 30, smooth: 15 },
-  { weight: 40, roc: 50, smooth: 50 },
-  { weight: 50, roc: 65, smooth: 65 },
-  { weight: 65, roc: 75, smooth: 75 },
-  { weight: 75, roc: 100, smooth: 100 },
-  { weight: 100, roc: 195, smooth: 130 },
+  { weight: 1, roc: 10, smooth: 10 },
+  { weight: 2, roc: 15, smooth: 10 },
+  { weight: 3, roc: 20, smooth: 10 },
+  { weight: 4, roc: 30, smooth: 15 },
+  { weight: 1, roc: 40, smooth: 50 },
+  { weight: 2, roc: 65, smooth: 65 },
+  { weight: 3, roc: 75, smooth: 75 },
+  { weight: 4, roc: 100, smooth: 100 },
+  { weight: 1, roc: 195, smooth: 130 },
+  { weight: 2, roc: 265, smooth: 130 },
+  { weight: 3, roc: 390, smooth: 130 },
+  { weight: 4, roc: 530, smooth: 195 },
 ];
 
 /**
- * Pring's Special K — ten rates of change from ten different horizons, each
+ * Pring's Special K: twelve rates of change from twelve different horizons, each
  * smoothed and weighted, added into one line. Short-, intermediate- and
  * long-term momentum in a single reading, which is why its turns are read as
  * complete-cycle signals rather than as entries.

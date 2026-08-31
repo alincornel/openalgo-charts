@@ -15,9 +15,9 @@ return chart;`;
 
 const STATS: Array<[string, string]> = [
   ['0', 'runtime dependencies'],
-  ['118 KB', 'Brotli, every tier'],
+  ['120 KB', 'Brotli, every tier'],
   ['15', 'chart types'],
-  ['2042', 'tests, green'],
+  ['2408', 'tests, green'],
 ];
 
 export function Hero() {
@@ -67,7 +67,7 @@ const FEATURES: Feature[] = [
   { title: '15 chart types', body: 'Candles (standard, hollow, volume), bars, high-low, line, line-markers, step, area, HLC area, baseline, columns, histogram, Point & Figure and Kagi - plus Heikin Ashi, Renko, Range and Line Break from the transform tier.' },
   { title: 'Tick & second timeframes', body: 'Sub-minute and tick/volume bars are first-class: build them live from a tick stream with the candle and tick aggregators.' },
   { title: 'On-chart trading', body: 'Order, position, and bracket lines with live P&L, one-click and drag-to-modify, OCO, validation, and a depth-of-market ladder.' },
-  { title: 'Indicators & profiles', body: '91 built-in indicators across trend, momentum, volatility, and volume, with EMA/RSI/ATR/Supertrend matching openalgo.ta - and you can register your own with the same descriptor contract. Plus Volume Profile, Market Profile (TPO), and Footprint / order flow.' },
+  { title: 'Indicators & profiles', body: '102 built-in indicators across trend, momentum, volatility, and volume, with EMA/RSI/ATR/Supertrend matching openalgo.ta - and you can register your own with the same descriptor contract. Plus Volume Profile, Market Profile (TPO), and Footprint / order flow.' },
   { title: 'OpenAlgo-native data', body: 'REST history + WebSocket live + candle builder adapters speak the OpenAlgo protocol. Any broker fits behind a small DataFeed.' },
   { title: 'Loadable tiers', body: 'Ship only what you use - /indicators, /draw, /profile, /trade and /transform are separate entry points on top of a 59 KB base, each independently sized.' },
   { title: 'Plugin / primitive API', body: 'The same API markers, trading, and profiles are built on is open to you: implement IPrimitive and draw anything on the chart.' },

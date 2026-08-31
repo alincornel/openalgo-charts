@@ -2,7 +2,7 @@
  * Tier-1 momentum / volatility indicators, computed from the chart's own OHLCV.
  * Part of the lazy `openalgo-charts/indicators` tier.
  */
-import { ema, rsi, atr, trueRange, sourceValues } from 'openalgo-charts';
+import { rsi, atr, trueRange, sourceValues } from 'openalgo-charts';
 import type { IndicatorDescriptor, IndicatorSource } from 'openalgo-charts';
 import { sma, wma, rma, vwma, smaSeededEma, stdev, highest, lowest, nulls } from './calc';
 
@@ -169,10 +169,16 @@ export const MACD: IndicatorDescriptor = {
   ],
   calc: (bars, s) => {
     const values = sourceValues(bars, src(s));
-    const fast = ema(values, num(s, 'fastPeriod', 12));
-    const slow = ema(values, num(s, 'slowPeriod', 26));
+    // The standard definition seeds each EMA with the SMA of its first `period`
+    // values, so the study has a real warmup. The base bundle's `ema` seeds from
+    // bar 0 instead, which prints a line where there should be a gap and stays
+    // materially wrong until the seeds decay away.
+    const fast = smaSeededEma(values, num(s, 'fastPeriod', 12));
+    const slow = smaSeededEma(values, num(s, 'slowPeriod', 26));
     const macd = fast.map((f, i) => f - slow[i]);
-    const signal = ema(macd, num(s, 'signalPeriod', 9));
+    // The difference opens with its own warmup gap, so the signal's window has
+    // to start counting at the first real MACD value.
+    const signal = fromFirstValue(macd, (t) => smaSeededEma(t, num(s, 'signalPeriod', 9)));
     const histogram = macd.map((m, i) => m - signal[i]);
     return { macd: nulls(macd), signal: nulls(signal), histogram: nulls(histogram) };
   },
@@ -186,7 +192,7 @@ export const STOCHASTIC: IndicatorDescriptor = {
   placement: 'pane',
   inputs: [
     { key: 'kPeriod', type: 'number', label: '%K Length', default: 14, min: 1, max: 500, step: 1 },
-    { key: 'kSmoothing', type: 'number', label: '%K Smoothing', default: 3, min: 1, max: 100, step: 1 },
+    { key: 'kSmoothing', type: 'number', label: '%K Smoothing', default: 1, min: 1, max: 100, step: 1 },
     { key: 'dPeriod', type: 'number', label: '%D Smoothing', default: 3, min: 1, max: 100, step: 1 },
     { key: 'kColor', type: 'color', label: '%K', default: '#4f8cff' },
     { key: 'dColor', type: 'color', label: '%D', default: '#f5a623' },
@@ -209,7 +215,7 @@ export const STOCHASTIC: IndicatorDescriptor = {
       const span = hi[i] - lo[i];
       return span > 0 ? ((b.close - lo[i]) / span) * 100 : NaN;
     });
-    const k = sma(raw, num(s, 'kSmoothing', 3));
+    const k = sma(raw, num(s, 'kSmoothing', 1));
     const d = sma(k, num(s, 'dPeriod', 3));
     // The 80 / 20 band edges are fixed in the definition, so they are literals
     // here rather than inputs.
@@ -251,6 +257,11 @@ export const ADX: IndicatorDescriptor = {
     const low = bars.map((b) => b.low);
     const close = bars.map((b) => b.close);
     const tr = trueRange(high, low, close);
+    // True range needs the previous close, which bar 0 does not have. The shared
+    // helper substitutes high-low there for ATR's sake; seeding Wilder's average
+    // on that fabricated term starts the whole study a bar early and biases every
+    // value after it, so the standard definition leaves bar 0 absent here.
+    if (n > 0) tr[0] = NaN;
     const plusDm = new Array<number>(n).fill(0);
     const minusDm = new Array<number>(n).fill(0);
     for (let i = 1; i < n; i++) {
@@ -259,18 +270,39 @@ export const ADX: IndicatorDescriptor = {
       plusDm[i] = up > down && up > 0 ? up : 0;
       minusDm[i] = down > up && down > 0 ? down : 0;
     }
-    const trR = rma(tr, period);
+    // Smooth from the first real true range, the same way the ADX leg below
+    // smooths only the finite tail of DX.
+    const trStart = tr.findIndex((v) => Number.isFinite(v));
+    const trR = new Array<number>(n).fill(NaN);
+    if (trStart >= 0) {
+      const trSmoothed = rma(tr.slice(trStart), period);
+      for (let i = 0; i < trSmoothed.length && trStart + i < n; i++) trR[trStart + i] = trSmoothed[i];
+    }
     const plusR = rma(plusDm, period);
     const minusR = rma(minusDm, period);
     const plusDi = new Array<number>(n).fill(NaN);
     const minusDi = new Array<number>(n).fill(NaN);
     const dx = new Array<number>(n).fill(NaN);
+    // A smoothed true range of zero leaves both ratios undefined. That is not
+    // exotic: an instrument locked at one price for a whole window, a circuit
+    // freeze or a halt, prints exactly that. The standard definition holds the
+    // last reading across the hole rather than dropping it, and it has to, since
+    // a gap would enter the ADX average below and take every value after it with
+    // it: one frozen stretch would silently end the study for the rest of the
+    // chart.
+    let heldPlus = NaN;
+    let heldMinus = NaN;
     for (let i = 0; i < n; i++) {
-      if (!Number.isFinite(trR[i]) || trR[i] === 0) continue;
-      plusDi[i] = (plusR[i] / trR[i]) * 100;
-      minusDi[i] = (minusR[i] / trR[i]) * 100;
-      const sum = plusDi[i] + minusDi[i];
-      dx[i] = sum > 0 ? (Math.abs(plusDi[i] - minusDi[i]) / sum) * 100 : 0;
+      const range = trR[i];
+      if (Number.isFinite(range) && range !== 0) {
+        heldPlus = (plusR[i] / range) * 100;
+        heldMinus = (minusR[i] / range) * 100;
+      }
+      if (!Number.isFinite(heldPlus) || !Number.isFinite(heldMinus)) continue;
+      plusDi[i] = heldPlus;
+      minusDi[i] = heldMinus;
+      const sum = heldPlus + heldMinus;
+      dx[i] = sum > 0 ? (Math.abs(heldPlus - heldMinus) / sum) * 100 : 0;
     }
     // The DX series is NaN during DI warmup; smooth only the finite tail.
     const start = dx.findIndex((v) => Number.isFinite(v));
@@ -298,7 +330,7 @@ export const CCI: IndicatorDescriptor = {
       key: 'maType', type: 'select', label: 'Type', default: 'SMA',
       options: SMOOTHING_MA_TYPES, group: 'Smoothing',
     },
-    { key: 'maLength', type: 'number', label: 'Length', default: 14, min: 1, max: 500, step: 1, group: 'Smoothing' },
+    { key: 'maLength', type: 'number', label: 'Length', default: 20, min: 1, max: 500, step: 1, group: 'Smoothing' },
     { key: 'bbMult', type: 'number', label: 'BB StdDev', default: 2, min: 0.001, max: 50, step: 0.5, group: 'Smoothing' },
     { key: 'maColor', type: 'color', label: 'CCI-based MA', default: '#ffeb3b', group: 'Smoothing' },
     { key: 'bbUpperColor', type: 'color', label: 'Upper Bollinger Band', default: '#4caf50', group: 'Smoothing' },
@@ -341,7 +373,7 @@ export const CCI: IndicatorDescriptor = {
     }
 
     const maType = str(s, 'maType', 'SMA');
-    const maLength = int(s, 'maLength', 14);
+    const maLength = int(s, 'maLength', 20);
     const mult = num(s, 'bbMult', 2);
     const ma = maType === 'None'
       ? new Array<number>(n).fill(NaN)

@@ -103,7 +103,7 @@ describe('spine 1.7.0', () => {
     expect(r.levelAdds).toBe(1);
   });
 
-  it('still reads a level straight off the settings bag (the 91 built-ins)', () => {
+  it('still reads a level straight off the settings bag (the built-ins)', () => {
     const d: IndicatorDescriptor = {
       id: 's-old', name: 'O', placement: 'pane',
       inputs: [{ key: 'overbought', type: 'number', label: 'OB', default: 70 }],
@@ -136,7 +136,7 @@ describe('spine 1.7.0', () => {
     // The values are the ones `calc` just produced, not the previous frame's.
     expect(seen.values).toEqual(bars.map((b) => b.close));
     expect(seen.nested).toBe(3);
-    expect(seen.flat).toBe(3); // the flat key the 91 built-ins read
+    expect(seen.flat).toBe(3); // the flat key the built-ins read
   });
 
   it('carries a level width and style, and leaves a bare level dashed', () => {

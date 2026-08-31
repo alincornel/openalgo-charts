@@ -307,8 +307,9 @@ export const DPO: IndicatorDescriptor = {
  * the reference `round_` is what keeps the series finite. Both recursions read the
  * previous bar through `nz`, so a missing previous value counts as 0 — which
  * happens on the first printed bar and again after any bar that produced `na`.
- * A flat window (`high_ == low_`) is one of those: it makes the ratio 0/0, the
- * bar prints nothing, and the next bar restarts from 0.
+ * A flat window (`high_ == low_`) is not one of those: the range divide is
+ * floored at 0.001, so the ratio is 0, the bar still prints, and both
+ * recursions carry on.
  *
  * `Trigger` is simply `fish1[1]`, so it lags Fisher by exactly one bar.
  */
@@ -338,12 +339,12 @@ export const FISHER_TRANSFORM: IndicatorDescriptor = {
     let prevFish = 0;
     for (let i = 0; i < n; i++) {
       const span = hi[i] - lo[i];
-      if (!Number.isFinite(span) || span === 0) {
+      if (!Number.isFinite(span)) {
         prevValue = 0;
         prevFish = 0;
         continue;
       }
-      const raw = 0.66 * ((mid[i] - lo[i]) / span - 0.5) + 0.67 * prevValue;
+      const raw = 0.66 * ((mid[i] - lo[i]) / Math.max(span, 0.001) - 0.5) + 0.67 * prevValue;
       const value = raw > 0.99 ? 0.999 : raw < -0.99 ? -0.999 : raw;
       const fish = 0.5 * Math.log((1 + value) / (1 - value)) + 0.5 * prevFish;
       fisher[i] = fish;

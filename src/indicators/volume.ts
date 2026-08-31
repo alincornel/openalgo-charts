@@ -74,7 +74,9 @@ export const OBV: IndicatorDescriptor = {
       key: 'maType', type: 'select', label: 'Type', default: 'None',
       options: SMOOTHING_MA_TYPES, group: 'Smoothing',
     },
-    { key: 'maLength', type: 'number', label: 'Length', default: 14, min: 1, max: 500, step: 1, group: 'Smoothing' },
+    // 9, not the 14 the smoothing block carries elsewhere: the reference
+    // definition of this study fixes its own smoothing length at 9.
+    { key: 'maLength', type: 'number', label: 'Length', default: 9, min: 1, max: 500, step: 1, group: 'Smoothing' },
     { key: 'bbMult', type: 'number', label: 'BB StdDev', default: 2, min: 0.001, max: 50, step: 0.5, group: 'Smoothing' },
     { key: 'maColor', type: 'color', label: 'OBV-based MA', default: '#ffeb3b', group: 'Smoothing' },
     { key: 'bbUpperColor', type: 'color', label: 'Upper Bollinger Band', default: '#4caf50', group: 'Smoothing' },
@@ -106,7 +108,7 @@ export const OBV: IndicatorDescriptor = {
     }
 
     const maType = str(s, 'maType', 'None');
-    const maLength = int(s, 'maLength', 14);
+    const maLength = int(s, 'maLength', 9);
     const mult = num(s, 'bbMult', 2);
     const ma = maType === 'None'
       ? new Array<number>(n).fill(NaN)

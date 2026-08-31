@@ -70,14 +70,14 @@ Import only what you use. Each tier is a separate entry point that registers int
 
 | Import | Contents | Brotli limit |
 |---|---|---|
-| `openalgo-charts` | Engine, 13 chart types, panes and scales, primitives, registries, chart state and settings schema, market replay, symbol comparison, chart linking, warm-load bar cache, interval registry, chart timezone, trading visualization, OpenAlgo feeds, EMA/RSI/ATR/Supertrend calculators | 55 KB |
-| `openalgo-charts/indicators` | 91 built-in indicators + the Tier-2 external-data contract | 27 KB |
+| `openalgo-charts` | Engine, 13 chart types, panes and scales, primitives, registries, chart state and settings schema, market replay, symbol comparison, chart linking, warm-load bar cache, interval registry, chart timezone, trading visualization, OpenAlgo feeds, EMA/RSI/ATR/Supertrend calculators | 60 KB |
+| `openalgo-charts/indicators` | 102 built-in indicators + the Tier-2 external-data contract | 27 KB |
 | `openalgo-charts/draw` | 43 drawing tools + a headless `DrawingController` and its clipboard | 14 KB |
 | `openalgo-charts/transform` | Heikin Ashi, Renko, Range bars, Line Break, Point and Figure, Kagi | 5 KB |
 | `openalgo-charts/profile` | Volume Profile, Market Profile (TPO), Footprint, order flow | 11 KB |
-| `openalgo-charts/trade` | Order engine, state machine, order/position/bracket lines, DOM ladder | 62 KB with base |
+| `openalgo-charts/trade` | Order engine, state machine, order/position/bracket lines, DOM ladder | 68 KB with base |
 
-Limits are the CI-enforced budgets in `.size-limit.json`; the whole package measures 110.8 KB Brotli against a 120 KB budget. Nothing is excluded from them because there are no runtime dependencies to exclude.
+Limits are the CI-enforced budgets in `.size-limit.json`; the whole package measures 120.32 KB Brotli against a 120 KB budget, which the three indicators added late in 1.8.3 pushed it past, so `npm run size` currently fails on that row and on the indicator tier (27.21 KB against 27 KB). Nothing is excluded from them because there are no runtime dependencies to exclude.
 
 The clipboard lives in the **draw** tier, not the base one, because it needs the drawing-tool registry. `DrawingClipboard` and friends come from `openalgo-charts/draw`.
 
@@ -129,7 +129,7 @@ Detailed reference for each topic is in `references/`. Read the one that matches
 | [data-and-time](references/data-and-time.md) | `Bar` shape, UTC seconds, the chart timezone and the time helpers, setData/update/prependData, the logical-index model, history paging, tick and volume bars |
 | [feeds-and-live](references/feeds-and-live.md) | `DataFeed` contract, OpenAlgo REST/WS/live feeds, `CandleBuilder`, the interval registry, `withBarCache` warm loading, writing a custom feed |
 | [events-and-state](references/events-and-state.md) | The full event catalogue with payloads, `getState`/`restoreState`, saved layouts |
-| [indicators](references/indicators.md) | The 91 built-ins with exact ids, placements and input defaults, the settings model, levels/ranges/fills, signal markers, `registerIndicator`, the Tier-2 external-data contract |
+| [indicators](references/indicators.md) | The 102 built-ins with exact ids, placements and input defaults, the settings model, levels/ranges/fills, signal markers, `registerIndicator`, the Tier-2 external-data contract |
 | [transforms](references/transforms.md) | Heikin Ashi, Renko, Range, Line Break, Point and Figure, Kagi |
 | [drawing-tools](references/drawing-tools.md) | The 43 tools, `DrawingController`, anchors, magnet, undo, copy/cut/paste and the clipboard payload, persistence, shortcuts, custom tools |
 | [primitives-and-plugins](references/primitives-and-plugins.md) | `IPrimitive`, z-order, hit-testing, the dpr contract, built-in primitives including the `PriceLevels` reference-level family, `registerChartType` |
@@ -155,7 +155,7 @@ Detailed reference for each topic is in `references/`. Read the one that matches
 | Realtime ticks | last-bar vs full replace | `series.update(bar)` | `setData` on every tick |
 | Loading older history | `setHistoryLoader` | `prependData` + `historyLoadComplete` | rebuilding and re-fitting |
 | Indicator not found | is the tier imported | `import 'openalgo-charts/indicators'` | registering it by hand |
-| Which indicator id to use | the catalogue in [indicators](references/indicators.md) | the exact id from the 91-row table, guarded with `hasIndicator(id)` | guessing an id from the display name |
+| Which indicator id to use | the catalogue in [indicators](references/indicators.md) | the exact id from the 102-row table, guarded with `hasIndicator(id)` | guessing an id from the display name |
 | Indicator settings UI | descriptor `inputs` + generated style keys | build the form from the descriptor, apply with `setSettings` | expecting a built-in dialog |
 | Drawing tools | `DrawingController` | headless controller + host toolbar | expecting a built-in toolbar |
 | Volume in its own pane | `paneIndex` and `priceScaleId` | `addSeries('histogram', { paneIndex: 1 })` | a second chart |

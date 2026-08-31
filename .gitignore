@@ -14,3 +14,6 @@ playwright-report/
 
 # Browser-validation screenshots written by the e2e/validation runs.
 artifacts/
+
+# Never let an npm auth token reach the repository.
+.npmrc

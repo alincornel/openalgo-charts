@@ -291,8 +291,15 @@ describe('Fisher Transform', () => {
     for (const v of out.fisher) expect(v === null || Number.isFinite(v)).toBe(true);
   });
 
-  it('gaps rather than dividing by zero when the window is flat', () => {
-    expect(run(FISHER_TRANSFORM, bars(30, () => 100)).fisher.every((v) => v === null)).toBe(true);
+  it('floors the range divide rather than dividing by zero when the window is flat', () => {
+    // A flat window makes the ratio 0 / 0.001 = 0, so the raw value is
+    // -0.33 + 0.67 * previous and the series still prints. It walks toward the
+    // clamped fixed point, ln(0.001 / 1.999) = -7.6004023.
+    const out = run(FISHER_TRANSFORM, bars(30, () => 100));
+    expect(out.fisher.slice(0, 8).every((v) => v === null)).toBe(true);
+    expect(out.fisher[8] as number).toBeCloseTo(-0.3428282544, 9);
+    expect(out.fisher[9] as number).toBeCloseTo(-0.7913738721, 9);
+    expect(out.fisher[29] as number).toBeCloseTo(-7.5989792976, 9);
   });
 });
 

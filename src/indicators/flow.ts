@@ -172,10 +172,36 @@ export const ELDER_FORCE_INDEX: IndicatorDescriptor = {
   levels: () => [{ price: 0, color: '#787b86', title: 'Zero', dashed: true }],
 };
 
+/**
+ * Net Volume: the bar's own volume, signed by the direction its close took.
+ *
+ * There is no warmup gap. Bar 0 has no previous close, so neither the up test
+ * nor the down test can hold and the reference falls through to its zero arm;
+ * an unchanged close lands on that same arm later in the series. Blanking bar 0
+ * instead would put a hole in a series that is defined on every other bar.
+ */
+export const NET_VOLUME: IndicatorDescriptor = {
+  id: 'net-volume',
+  name: 'Net Volume',
+  category: 'Volume',
+  placement: 'pane',
+  inputs: [{ key: 'color', type: 'color', label: 'Color', default: '#2196f3' }],
+  plots: [{ key: 'net', type: 'histogram', title: 'Net Volume', colorKey: 'color', style: { base: 0 } }],
+  calc: (bars) => {
+    const out = new Array<number>(bars.length).fill(0);
+    for (let i = 1; i < bars.length; i++) {
+      const moved = bars[i].close - bars[i - 1].close;
+      out[i] = moved > 0 ? vol(bars[i]) : moved < 0 ? -vol(bars[i]) : 0;
+    }
+    return { net: nulls(out) };
+  },
+};
+
 /** Every the reference platform volume built-in in this module, in picker order. */
 export const FLOW_INDICATORS: readonly IndicatorDescriptor[] = [
   CHAIKIN_MONEY_FLOW,
   CHAIKIN_OSCILLATOR,
   EASE_OF_MOVEMENT,
   ELDER_FORCE_INDEX,
+  NET_VOLUME,
 ];

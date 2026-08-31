@@ -8,6 +8,130 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 1.8.3
+
+An accuracy release for the indicator tier. Every built-in was measured value by value
+against its standard definition over a 600-bar fixture, which turned up eight studies that
+were missing, seven that disagreed, and ten defaults that had been chosen here rather than
+read off the definition. Three more trend overlays landed on top of that sweep, so the
+catalogue ends the release at **102**. Nothing in the descriptor contract changed, so a
+custom indicator is untouched.
+
+**Added**
+
+- **Eight new built-in indicators**, taking the catalogue from 91 to **99**. Volatility
+  gains five: **Standard Error Bands** (`standard-error-bands`), a regression channel whose
+  bands sit on the endpoint of the fitted line and are only then smoothed, each leg
+  independently; **Moving Average Channel** (`ma-channel`), a mean of the highs and a mean
+  of the lows, each with its own length and its own plot-time displacement, rather than one
+  average of the close with a spread around it; **Chaikin Volatility**
+  (`chaikin-volatility`); **Standard Deviation** (`standard-deviation`); and **Standard
+  Error** (`standard-error`). Trend gains **Linear Regression Slope** (`linreg-slope`), the
+  least-squares gradient in price per bar, and **Smoothed Moving Average** (`smma`),
+  Wilder's smoother with alpha `1 / length`. Volume gains **Net Volume** (`net-volume`),
+  the bar's own volume signed by the direction its close took. See
+  [the built-in catalog](/docs/indicators#the-built-in-catalog).
+
+- Three of those carry a decision worth stating, because each is a place two
+  implementations of the "same" study routinely disagree:
+
+  - **Standard Deviation is the population figure** (divide by n), not the sample one. That
+    is settled by measurement rather than by reading: at bar 4 of the fixture the standard
+    definition reads 1.5514, and the sample formula reads 1.7346.
+  - **Standard Error divides by `length - 2`**, since the fitted slope and intercept each
+    consume a degree of freedom. That is what separates it from a standard deviation, and
+    it is why the length input cannot go below 3.
+  - **Net Volume has no warmup gap.** Bar 0 has no previous close, so neither the up nor
+    the down comparison can hold and the bar reads 0, not a blank. It is drawn as a
+    histogram on base 0 rather than as a line: a signed quantity that flips every few bars
+    is unreadable as a line, and the sibling `volume` descriptor is already a histogram on
+    base 0. The numbers are identical either way.
+
+- **Three more trend overlays**, taking the catalogue from 99 to **102**. All three are
+  `onchart` and all three are Trend:
+
+  - **T3 Average** (`t3`), a smoothing filter built by nesting exponential averages and
+    recombining them with a weighting factor, so it turns faster than a triple EMA
+    without the overshoot a shorter length would buy. Defaults `length=5`, `factor=0.7`. The
+    nesting is what sets the warmup: each layer costs `2 * (length - 1)` bars, so at the
+    default length the first value prints at bar 24. Setting `factor=0` collapses it to a
+    plain chained average, which prints earlier. `highlightMovements` colours the line
+    per bar as it rises and falls.
+  - **Hull Suite** (`hull-suite`), a hull average plotted against its own value two bars
+    back, with the gap between them shaded so the turn is visible before the line has
+    finished making it. Three variations off one `mode` input: `Hma`, `Ehma` (the outer
+    pass is exponential rather than weighted) and `Thma` (which runs on half the length,
+    so it prints well before the other two). Default `length=55`. `visualSwitch` hides
+    the band, and `candleCol` hands the price candles the same trend colour.
+  - **Consolidation and Breakout** (`consolidation-breakout`), an inside-bar range
+    tracker. A bar that stays inside the previous range extends it; the range high and
+    low are drawn as rails, the inside bars are tinted, and the bar that finally closes
+    outside is marked with a triangle. A break only counts once the range has held for
+    more than one bar, so the follow-through bar right after a break is not itself a
+    second signal.
+
+**Changed**
+
+- **Ten defaults now match the standard definition** rather than a house preference:
+
+  | Indicator | Setting | Was | Now |
+  |---|---|--:|--:|
+  | `sma`, `ema`, `wma` | `length` | 20 | 9 |
+  | `stochastic` | `kSmoothing` | 3 | 1 |
+  | `cci` | `maLength` | 14 | 20 |
+  | `obv` | `maLength` | 14 | 9 |
+  | `ma-cross` | `longLength` | 21 | 26 |
+  | `alligator` | `jawLength` / `teethLength` / `lipsLength` | 13 / 8 / 5 | 21 / 13 / 8 |
+
+  This is visible on upgrade: an EMA added with no settings is now a 9-EMA. A chart saved
+  with [`saveState`](/docs/state) stores the settings each instance actually had, so a
+  restored layout keeps its old lengths and only newly added indicators pick up the new
+  numbers.
+
+- **Warmups moved**, so several studies now start later and start correct. EMA's first
+  print is at `length - 1` instead of bar 0; MACD and ADX moved when their legs became
+  SMA-seeded; Special K needs 725 bars before it prints, which is what its 12-term table
+  actually requires. A plot that starts later is not a regression: the earlier bars were
+  values the definition does not produce.
+
+**Fixed**
+
+- **EMA drew a seed as though it were a reading.** `addIndicator('ema')` called the base
+  bundle's `ema()`, which seeds from the first value and emits from bar 0. At length 14
+  that is 155 wrong bars against the standard definition, worst error 6.9e-4 on the seed
+  bar itself. The descriptor now uses the SMA-seeded EMA the rest of the tier already used,
+  and is exact. The raw `ema()` export is deliberately unchanged: it matches `openalgo.ta`
+  and is documented API.
+- **Parabolic SAR flipped trend on its own seed bar**, and clamped the stop into the
+  previous two bars' range *before* testing for a reversal, so a stop pulled back below the
+  bar could no longer be breached and reversals the definition fires were dropped. The
+  order is now propagate, reverse, accelerate, clamp. That is 39 wrong bars in 600 gone,
+  on top of this release's earlier correction to the reversal stop (`max(ep, this bar's
+  high)`).
+- **ADX went blank for the rest of the chart after one flat bar.** A bar whose true range
+  is exactly 0, which is what an instrument locked at one price by a circuit freeze or a
+  halt produces, gapped `+DI`, `-DI` and `DX`. Since ADX is a Wilder average over DX, that
+  single gap poisoned the recursion from there on. The last finite pair is now carried
+  across a zero or absent smoothed true range. ADX's true-range seeding was corrected
+  earlier in the same release.
+- **HMA sat 0.4 slopes high at every odd length.** The Hull average halves its length and
+  hands that to a weighted average. We floored the half, so a length of 9 asked for a
+  4-bar window where the definition asks for a 4.5-bar one, five bars weighted 4.5 down to
+  0.5. That shortened the fast leg's lag from 1.2 bars to 1, and the three passes then
+  cancelled to zero lag instead of the correct 0.4. Even lengths were always exact, which
+  is why it survived: the default of 9 is odd and the error is a smooth 4.6e-3, never a
+  visible break. The half is now carried at full precision; the outer period still floors
+  its square root, which is a different question and was always right.
+- **MACD**'s EMA legs are SMA-seeded, **Fisher Transform** no longer divides by a flat
+  window, **Chop Zone** takes its range off the high series, and **Special K** uses the
+  full 12-term table.
+
+**Sizes**
+
+Indicator tier 27.21 kB Brotli against a 30 kB budget, and 120.32 kB for every tier at
+once. The base engine is unchanged at 59.06 kB: all eleven new studies land in the lazy
+indicator tier, so a page that does not import it pays nothing for them.
+
 ## 1.8.2
 
 **Added**

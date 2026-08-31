@@ -65,7 +65,7 @@ describe('TV3 oscillator catalogue', () => {
 
   it('returns one full-length column of finite numbers or null per plot', () => {
     // Long enough that even Special K's signal line has values to check.
-    const data = wave(800);
+    const data = wave(1000);
     for (const d of RANGE_INDICATORS) {
       const values = run(d, data);
       for (const plot of d.plots) {
@@ -422,29 +422,30 @@ describe('Woodies CCI', () => {
 });
 
 describe("Pring's Special K", () => {
-  it('is the weighted sum of ten smoothed rates of change', () => {
+  it('is the weighted sum of twelve smoothed rates of change', () => {
     // A geometric series makes every roc term a constant, and an SMA of a
     // constant is that constant, so the whole study has a closed form.
     const r = 1.001;
-    const data = bars(800, (i) => 100 * Math.pow(r, i));
+    const data = bars(1200, (i) => 100 * Math.pow(r, i));
     const terms: readonly [number, number][] = [
-      [10, 10], [15, 15], [20, 20], [25, 25], [30, 30],
-      [40, 50], [50, 65], [65, 75], [75, 100], [100, 195],
+      [1, 10], [2, 15], [3, 20], [4, 30],
+      [1, 40], [2, 65], [3, 75], [4, 100],
+      [1, 195], [2, 265], [3, 390], [4, 530],
     ];
     let expected = 0;
     for (const [weight, length] of terms) expected += weight * 100 * (Math.pow(r, length) - 1);
     const out = run(SPECIAL_K, data);
-    expect(out.specialK[700] as number).toBeCloseTo(expected, 6);
+    expect(out.specialK[1000] as number).toBeCloseTo(expected, 6);
     // The signal is two SMAs of a constant, so it lands on the same number.
-    expect(out.signal[700] as number).toBeCloseTo(expected, 6);
+    expect(out.signal[1000] as number).toBeCloseTo(expected, 6);
   });
 
-  it('waits for the 195/130 term, so Special K starts at 324 and the signal at 522', () => {
-    const out = run(SPECIAL_K, wave(800));
-    expect(firstIndex(out.specialK)).toBe(324); // 195 + 130 - 1
-    expect(out.specialK[323]).toBeNull();
-    expect(firstIndex(out.signal)).toBe(522); // 324 + 99 + 99
-    expect(out.signal[521]).toBeNull();
+  it('waits for the 530/195 term, so Special K starts at 724 and the signal at 922', () => {
+    const out = run(SPECIAL_K, wave(1200));
+    expect(firstIndex(out.specialK)).toBe(724); // 530 + 195 - 1
+    expect(out.specialK[723]).toBeNull();
+    expect(firstIndex(out.signal)).toBe(922); // 724 + 99 + 99
+    expect(out.signal[921]).toBeNull();
   });
 
   it('prints nothing at all on a chart shorter than its longest term', () => {

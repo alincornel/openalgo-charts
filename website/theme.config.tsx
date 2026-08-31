@@ -54,7 +54,7 @@ const config = {
     const pageTitle = title && title !== 'OpenAlgo Charts' ? `${title} - OpenAlgo Charts` : 'OpenAlgo Charts';
     const description =
       (frontMatter as { description?: string }).description ??
-      'A from-scratch, dependency-free HTML5-canvas charting engine for OpenAlgo: 15 chart types, 91 built-in indicators plus your own, 43 drawing tools, on-chart trading, and live data, from a 59 KB base engine.';
+      'A from-scratch, dependency-free HTML5-canvas charting engine for OpenAlgo: 15 chart types, 102 built-in indicators plus your own, 43 drawing tools, on-chart trading, and live data, from a 59 KB base engine.';
     return (
       <>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />

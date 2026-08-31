@@ -50,11 +50,12 @@ const run = (d: IndicatorDescriptor, data: Bar[], overrides: Record<string, unkn
 describe('the reference platform averages — descriptor contract', () => {
   const data = wave();
 
-  it('exports the eight averages with unique ids, all on the price pane', () => {
-    expect(AVERAGE_INDICATORS).toHaveLength(8);
+  it('exports the ten averages with unique ids, all on the price pane', () => {
+    expect(AVERAGE_INDICATORS).toHaveLength(10);
     const ids = AVERAGE_INDICATORS.map((d) => d.id);
     expect(ids).toEqual([
       'ma-cross', 'mcginley-dynamic', 'median', 'ma-ribbon', 'tema', 'twap', 'vwma', 'alligator',
+      'smma', 't3',
     ]);
     expect(new Set(ids).size).toBe(ids.length);
     for (const d of AVERAGE_INDICATORS) expect(d.placement).toBe('onchart');
@@ -138,16 +139,16 @@ describe('MA Cross', () => {
     const i = data.length - 1;
     const out = run(MA_CROSS, data);
     expect(out.short[i] as number).toBeCloseTo(sma(closes, 9)[i], 10);
-    expect(out.long[i] as number).toBeCloseTo(sma(closes, 21)[i], 10);
+    expect(out.long[i] as number).toBeCloseTo(sma(closes, 26)[i], 10);
   });
 
   it('first prints each average at its own length - 1', () => {
     const out = run(MA_CROSS, wave());
     expect(firstLive(out.short)).toBe(8);
-    expect(firstLive(out.long)).toBe(20);
+    expect(firstLive(out.long)).toBe(25);
     // Nothing can cross before the slower average exists, and the comparison
-    // needs a previous bar for both, so the earliest possible cross is bar 21.
-    expect(firstLive(out.cross)).toBeGreaterThanOrEqual(21);
+    // needs a previous bar for both, so the earliest possible cross is bar 26.
+    expect(firstLive(out.cross)).toBeGreaterThanOrEqual(26);
   });
 });
 
@@ -359,16 +360,16 @@ describe('Williams Alligator', () => {
 
   it('first prints each line at length - 1 + offset', () => {
     const out = run(ALLIGATOR, wave());
-    expect(firstLive(out.jaw)).toBe(20);   // 13 - 1 + 8
-    expect(firstLive(out.teeth)).toBe(12); //  8 - 1 + 5
-    expect(firstLive(out.lips)).toBe(7);   //  5 - 1 + 3
+    expect(firstLive(out.jaw)).toBe(28);   // 21 - 1 + 8
+    expect(firstLive(out.teeth)).toBe(17); // 13 - 1 + 5
+    expect(firstLive(out.lips)).toBe(10);  //  8 - 1 + 3
   });
 
   it('matches the RMA composition the reference writes, bar for bar', () => {
     const data = wave();
     const hl2 = data.map((b) => (b.high + b.low) / 2);
     const out = run(ALLIGATOR, data);
-    const expected = rma(hl2, 13);
+    const expected = rma(hl2, 21);
     const i = data.length - 1;
     // The last slot of the jaw holds the value from 8 bars back.
     expect(out.jaw[i] as number).toBeCloseTo(expected[i - 8], 10);

@@ -1,5 +1,5 @@
 /**
- * Built-in overlays — the seven price-pane studies whose behaviour
+ * Built-in overlays, the ten price-pane studies whose behaviour
  * is specified against the published reference definitions rather than this library's own.
  * Part of the lazy `openalgo-charts/indicators` tier.
  *
@@ -10,11 +10,11 @@
  * land on the same pixels as a reference platform plot uses `smaSeededEma` from `./calc`.
  *
  * `atr` and the `sourceValues` helper come from the base bundle
- * (`openalgo-charts`), not deep paths — see the note in `src/indicators/index.ts`.
+ * (`openalgo-charts`), not deep paths, see the note in `src/indicators/index.ts`.
  */
 import { atr, sourceValues } from 'openalgo-charts';
 import type { IndicatorDescriptor, IndicatorSource } from 'openalgo-charts';
-import { sma, wma, highest, lowest, nulls, smaSeededEma, alma } from './calc';
+import { sma, wma, highest, lowest, nulls, smaSeededEma, alma, linreg } from './calc';
 
 const num = (s: Readonly<Record<string, unknown>>, k: string, d: number): number => {
   const v = s[k];
@@ -23,6 +23,10 @@ const num = (s: Readonly<Record<string, unknown>>, k: string, d: number): number
 /** the reference `input.int` is whole by construction; a settings blob carries whatever a UI wrote. */
 const int = (s: Readonly<Record<string, unknown>>, k: string, d: number, min = 1): number =>
   Math.max(min, Math.round(num(s, k, d)));
+const str = (s: Readonly<Record<string, unknown>>, k: string, d: string): string => {
+  const v = s[k];
+  return typeof v === 'string' && v !== '' ? v : d;
+};
 const src = (s: Readonly<Record<string, unknown>>, k = 'source'): IndicatorSource =>
   (s[k] as IndicatorSource) ?? 'close';
 
@@ -32,7 +36,7 @@ const lows = (bars: readonly { low: number }[]): number[] => bars.map((b) => b.l
 /**
  * `smaSeededEma` over a series that itself opens with a warmup gap. the reference `ema`
  * re-seeds from `sma(src, length)` for as long as its own previous value is
- * `na`, and that SMA stays `na` until the window holds `length` real values — so
+ * `na`, and that SMA stays `na` until the window holds `length` real values, so
  * an EMA of an EMA first prints at `2 * length - 2`, not at `length - 1`.
  * `smaSeededEma` seeds unconditionally from index 0, where a leading NaN would poison
  * the recursion forever, so it is only ever shown the live tail.
@@ -85,7 +89,7 @@ function shift(values: readonly number[], k: number): number[] {
 }
 
 /**
- * the reference fills these channels with `color.rgb(33, 150, 243, 95)` — 95 % transparent,
+ * the reference fills these channels with `color.rgb(33, 150, 243, 95)`, 95 % transparent,
  * so the band is a hint rather than a wash. Kept as-is so the overlay reads the
  * same here as on the reference platform.
  */
@@ -123,7 +127,7 @@ export const ALMA: IndicatorDescriptor = {
 /**
  * `2 * ema - ema(ema)`. The second pass runs over a series that is already NaN
  * for its own warmup, which is what pushes the first plotted bar out to
- * `2 * length - 2` — see `emaOfGapped`.
+ * `2 * length - 2`, see `emaOfGapped`.
  */
 export const DEMA: IndicatorDescriptor = {
   id: 'dema',
@@ -148,6 +152,31 @@ export const DEMA: IndicatorDescriptor = {
   },
 };
 
+/**
+ * Weighted average over a period that need not be a whole number, so a Hull
+ * average can halve an odd length without losing the remainder. A period of 4.5
+ * spans five bars weighted 4.5, 3.5, 2.5, 1.5 and 0.5, and the normaliser is the
+ * sum of those weights rather than the usual triangular number.
+ *
+ * At a whole period this is `wma` term for term, which is why only odd Hull
+ * lengths ever disagreed. It lives here rather than in the shared helpers
+ * because the Hull average is its only caller.
+ */
+function fractionalWma(values: readonly number[], period: number): number[] {
+  const n = values.length;
+  const out = new Array<number>(n).fill(NaN);
+  const span = Math.ceil(period);
+  if (period <= 0 || n < span) return out;
+  let denom = 0;
+  for (let k = 0; k < span; k++) denom += period - k;
+  for (let i = span - 1; i < n; i++) {
+    let acc = 0;
+    for (let k = 0; k < span; k++) acc += values[i - k] * (period - k);
+    out[i] = acc / denom;
+  }
+  return out;
+}
+
 export const HMA: IndicatorDescriptor = {
   id: 'hma',
   name: 'Hull Moving Average',
@@ -165,12 +194,14 @@ export const HMA: IndicatorDescriptor = {
   calc: (bars, s) => {
     const values = sourceValues(bars, src(s));
     const length = int(s, 'length', 9, 2);
-    // the reference `length / 2` divides two ints and truncates — `wma` takes an int
-    // period, so 9 smooths over 4 bars, never 4.5. Both periods are floored and
-    // clamped so a degenerate setting cannot ask for a zero-bar window.
-    const half = Math.max(1, Math.floor(length / 2));
+    // The half period is deliberately NOT floored. The reference halves the
+    // length in floating point, so an odd length asks its weighted average for a
+    // 4.5-bar window, and flooring to 4 left the fast leg a fifth of a bar early
+    // and the whole line 0.4 slopes high on a ramp. The outer period does floor
+    // its square root, which is why that one stays whole.
+    const half = Math.max(0.5, length / 2);
     const root = Math.max(1, Math.floor(Math.sqrt(length)));
-    const fast = wma(values, half);
+    const fast = fractionalWma(values, half);
     const slow = wma(values, length);
     // `wma` carries NaN through its accumulator, so the raw series' warmup
     // propagates into the smoothing pass without any masking here.
@@ -259,7 +290,15 @@ export const DONCHIAN: IndicatorDescriptor = {
  * Two stacked extremes: an ATR-padded high/low band, then the running extreme of
  * *that* over `q` bars, which is what keeps each stop monotone through a pullback.
  * The second pass is NaN-strict (`extremeStrict`), so nothing prints until the
- * whole `q`-bar window is past the ATR warmup — bar `p + q - 2`.
+ * whole `q`-bar window is past the ATR warmup, bar `p + q - 2`.
+ *
+ * The long stop is padded off the lowest **low**, which is the published
+ * definition and what the short stop mirrors. The reference implementation takes
+ * both extremes over the high series (it never reads a low at all), so the two
+ * long stops disagree by roughly the average high-low range while the short
+ * stops agree to the last bit. Measured, deliberate, and left alone: matching it
+ * would move a stop line for every existing user onto a reading that the
+ * published definition of this stop contradicts.
  */
 export const CHANDE_KROLL_STOP: IndicatorDescriptor = {
   id: 'chande-kroll-stop',
@@ -327,6 +366,305 @@ export const CHANDELIER_EXIT: IndicatorDescriptor = {
   },
 };
 
+/**
+ * Residual spread of the closes about the least squares line fitted to the last
+ * `period` of them: `sqrt((Syy - Sxy^2 / Sxx) / (period - 2))`. The divisor is
+ * `period - 2`, not `period` or `period - 1`, because the fitted slope and
+ * intercept each consume a degree of freedom, and that is what makes this a
+ * standard *error* rather than a standard deviation. x runs 1 to `period` over
+ * the window, oldest last, but only its spacing reaches the answer.
+ */
+function standardError(values: readonly number[], period: number): number[] {
+  const n = values.length;
+  const out = new Array<number>(n).fill(NaN);
+  if (period < 3 || n < period) return out;
+  const meanX = (period + 1) / 2;
+  for (let i = period - 1; i < n; i++) {
+    let sumY = 0;
+    for (let k = 0; k < period; k++) sumY += values[i - k];
+    const meanY = sumY / period;
+    let syy = 0;
+    let sxy = 0;
+    let sxx = 0;
+    for (let k = 0; k < period; k++) {
+      const dy = meanY - values[i - k];
+      const dx = meanX - k - 1;
+      syy += dy * dy;
+      sxy += dx * dy;
+      sxx += dx * dx;
+    }
+    out[i] = Math.sqrt((syy - (sxy * sxy) / sxx) / (period - 2));
+  }
+  return out;
+}
+
+/**
+ * Bands centred on the regression **endpoint**, not on a moving average of price:
+ * the fitted line's value at the newest bar of the window, pushed out by
+ * `errors` standard errors, and only then smoothed. The middle plot is that
+ * smoothed endpoint, so it is not the same line as a plain regression curve.
+ * All three legs are smoothed independently, which is why the first bar of each
+ * lands at `(periods - 1) + (averagePeriods - 1)`.
+ */
+export const STANDARD_ERROR_BANDS: IndicatorDescriptor = {
+  id: 'standard-error-bands',
+  name: 'Standard Error Bands',
+  category: 'Volatility',
+  placement: 'onchart',
+  inputs: [
+    { key: 'periods', type: 'number', label: 'Periods', default: 21, min: 3, max: 1000, step: 1 },
+    { key: 'errors', type: 'number', label: 'Standard Errors', default: 2, min: 0, max: 100, step: 0.1 },
+    {
+      key: 'method', type: 'select', label: 'Method', default: 'Simple',
+      options: [
+        { label: 'Simple', value: 'Simple' },
+        { label: 'Exponential', value: 'Exponential' },
+        { label: 'Weighted', value: 'Weighted' },
+      ],
+    },
+    { key: 'averagePeriods', type: 'number', label: 'Averaging Periods', default: 3, min: 1, max: 1000, step: 1 },
+    { key: 'basisColor', type: 'color', label: 'Basis', default: '#ff6d00' },
+    { key: 'bandColor', type: 'color', label: 'Bands', default: '#2962ff' },
+    { key: 'fillColor', type: 'color', label: 'Background', default: '#2196f3' },
+  ],
+  plots: [
+    { key: 'upper', type: 'line', title: 'SEB Upper', colorKey: 'bandColor', style: { color: '#2962ff', lineWidth: 1 } },
+    { key: 'basis', type: 'line', title: 'SEB Basis', colorKey: 'basisColor', style: { color: '#ff6d00', lineWidth: 1.5 } },
+    { key: 'lower', type: 'line', title: 'SEB Lower', colorKey: 'bandColor', style: { color: '#2962ff', lineWidth: 1 } },
+  ],
+  fills: [{
+    between: ['upper', 'lower'],
+    colorUpKey: 'fillColor',
+    colorDownKey: 'fillColor',
+    opacity: CHANNEL_FILL_OPACITY,
+  }],
+  calc: (bars, s) => {
+    // The source is hard-coded to `close` in the reference, so there is nothing
+    // to expose: a regression over highs would not be this indicator.
+    const values = sourceValues(bars, 'close');
+    const periods = int(s, 'periods', 21, 3);
+    const errors = num(s, 'errors', 2);
+    const avg = int(s, 'averagePeriods', 3);
+    const se = standardError(values, periods);
+    const mid = linreg(values, periods, 0);
+    // Each leg is smoothed on its own, so the band width is smoothed too, not
+    // recomputed around a smoothed middle.
+    const smooth = (v: readonly number[]): (number | null)[] => nulls(
+      s.method === 'Exponential' ? emaOfGapped(v, avg)
+        : s.method === 'Weighted' ? wma(v, avg) : sma(v, avg),
+    );
+    return {
+      upper: smooth(mid.map((m, i) => m + errors * se[i])),
+      basis: smooth(mid),
+      lower: smooth(mid.map((m, i) => m - errors * se[i])),
+    };
+  },
+};
+
+/**
+ * Two independent legs, a mean of highs and a mean of lows, each with its own
+ * length and its own plot-time displacement. Not a mean of the close with a
+ * spread around it, and simple throughout: there is no smoothing method here.
+ */
+export const MA_CHANNEL: IndicatorDescriptor = {
+  id: 'ma-channel',
+  name: 'Moving Average Channel',
+  category: 'Volatility',
+  placement: 'onchart',
+  inputs: [
+    { key: 'upperLength', type: 'number', label: 'Upper Length', default: 20, min: 1, max: 1000, step: 1 },
+    { key: 'lowerLength', type: 'number', label: 'Lower Length', default: 20, min: 1, max: 1000, step: 1 },
+    { key: 'upperOffset', type: 'number', label: 'Upper Offset', default: 0, min: -500, max: 500, step: 1 },
+    { key: 'lowerOffset', type: 'number', label: 'Lower Offset', default: 0, min: -500, max: 500, step: 1 },
+    { key: 'upperColor', type: 'color', label: 'Upper', default: '#2962ff' },
+    { key: 'lowerColor', type: 'color', label: 'Lower', default: '#ff6d00' },
+    { key: 'fillColor', type: 'color', label: 'Background', default: '#2196f3' },
+  ],
+  plots: [
+    { key: 'upper', type: 'line', title: 'MAC Upper', colorKey: 'upperColor', style: { color: '#2962ff', lineWidth: 1.5 } },
+    { key: 'lower', type: 'line', title: 'MAC Lower', colorKey: 'lowerColor', style: { color: '#ff6d00', lineWidth: 1.5 } },
+  ],
+  fills: [{
+    between: ['upper', 'lower'],
+    colorUpKey: 'fillColor',
+    colorDownKey: 'fillColor',
+    opacity: CHANNEL_FILL_OPACITY,
+  }],
+  calc: (bars, s) => ({
+    // Offsets are displacements, so they are the settings here that may be negative.
+    upper: nulls(shift(sma(highs(bars), int(s, 'upperLength', 20)), Math.round(num(s, 'upperOffset', 0)))),
+    lower: nulls(shift(sma(lows(bars), int(s, 'lowerLength', 20)), Math.round(num(s, 'lowerOffset', 0)))),
+  }),
+};
+
+const HULL_BULLISH = '#00ff00';
+const HULL_BEARISH = '#ff0000';
+const HULL_NEUTRAL = '#ff9800';
+
+/**
+ * The published definition divides its length by two and by three and lets the
+ * results truncate, so a short setting would otherwise hand a smoother a
+ * zero-bar window. One bar is the floor everywhere a length is derived.
+ */
+const span = (n: number): number => Math.max(1, Math.floor(n));
+
+/**
+ * The outer length is the only one that rounds. That asymmetry against `span`
+ * is in the definition, not an oversight: `sqrt(55)` is 7.42, and rounding it
+ * to 7 rather than truncating to 7 happens to agree here but does not at, say,
+ * `sqrt(50)`, where the two differ by a whole bar of smoothing.
+ */
+const rootSpan = (n: number): number => Math.max(1, Math.round(Math.sqrt(n)));
+
+function hullHma(values: readonly number[], n: number): number[] {
+  const fast = wma(values, span(n / 2));
+  const slow = wma(values, n);
+  // `wma` carries NaN through its accumulator, so the raw series' warmup
+  // propagates into the smoothing pass without any masking here.
+  return wma(fast.map((v, i) => 2 * v - slow[i]), rootSpan(n));
+}
+
+function hullEhma(values: readonly number[], n: number): number[] {
+  const fast = smaSeededEma(values, span(n / 2));
+  const slow = smaSeededEma(values, n);
+  // The difference inherits `slow`'s warmup gap, and `smaSeededEma` seeds
+  // unconditionally from index 0 where a leading NaN would poison the
+  // recursion forever, so the outer pass is only ever shown the live tail.
+  return emaOfGapped(fast.map((v, i) => 2 * v - slow[i]), rootSpan(n));
+}
+
+/**
+ * The odd one out: three windows combined and then smoothed over the **full**
+ * length rather than its square root, which is why the caller hands this one
+ * half the length the other two variations get.
+ */
+function hullThma(values: readonly number[], n: number): number[] {
+  const third = wma(values, span(n / 3));
+  const half = wma(values, span(n / 2));
+  const full = wma(values, n);
+  return wma(third.map((v, i) => v * 3 - half[i] - full[i]), n);
+}
+
+function hullSeries(values: readonly number[], mode: string, len: number): number[] {
+  if (mode === 'Ehma') return hullEhma(values, len);
+  // Halving the length here and nowhere else is deliberate in the published
+  // definition. Passing the full length would land this variation on a
+  // different line from the one users are comparing against.
+  if (mode === 'Thma') return hullThma(values, span(len / 2));
+  return hullHma(values, len);
+}
+
+/**
+ * The one colour decision both plots and the candles share: is the hull above
+ * where it stood two bars ago. Everything reads `mhull`, never its own value,
+ * so the band, the two lines and the candles cannot disagree, and switching the
+ * band off does not change what colour anything else is.
+ *
+ * A slot with nothing to compare against (the warmup, or the first two bars of
+ * a degenerate length) is not rising, so it takes the bearish colour. That is
+ * what comparing against an undefined value does in the published definition
+ * too, and on every such bar the line itself is a gap anyway.
+ */
+const hullTrendColor = (
+  hull: readonly (number | null)[] | undefined,
+  index: number,
+  s: Readonly<Record<string, unknown>>,
+): string => {
+  if (s.switchColor === false) return str(s, 'neutralColor', HULL_NEUTRAL);
+  const now = hull?.[index];
+  const back = hull?.[index - 2];
+  const rising = typeof now === 'number' && typeof back === 'number' && now > back;
+  return rising ? str(s, 'bullishColor', HULL_BULLISH) : str(s, 'bearishColor', HULL_BEARISH);
+};
+
+/**
+ * Hull Suite: one hull average plotted twice, the second copy displaced two
+ * bars. The band is therefore the average against its own recent past rather
+ * than a second study, and "the first plot is above the second" is exactly the
+ * rising condition, which is what lets a plain two-colour fill carry the trend.
+ *
+ * Three variations are offered because they trade lag against smoothness
+ * differently, and two quirks of the published definition are preserved rather
+ * than tidied: the Thma branch is handed half the length the other two get, and
+ * the intermediate lengths truncate while only the outer square root rounds.
+ * Anyone reading this beside the study they already run needs the same line.
+ *
+ * Deliberately not offered, because nothing here could back them: a line
+ * thickness input (`style.lineWidth` is static and there is no width settings
+ * key), a band transparency input (`opacity` is a fixed number on the fill spec,
+ * not a settings key), and a higher-timeframe mode (`calc` is handed the chart's
+ * own bars and has no way to request another resolution).
+ */
+export const HULL_SUITE: IndicatorDescriptor = {
+  id: 'hull-suite',
+  name: 'Hull Suite',
+  category: 'Trend',
+  placement: 'onchart',
+  inputs: [
+    { key: 'source', type: 'source', label: 'Source', default: 'close' },
+    {
+      key: 'mode', type: 'select', label: 'Variation', default: 'Hma',
+      options: [
+        { label: 'HMA', value: 'Hma' },
+        { label: 'THMA', value: 'Thma' },
+        { label: 'EHMA', value: 'Ehma' },
+      ],
+    },
+    { key: 'length', type: 'number', label: 'Length', default: 55, min: 1, max: 1000, step: 1 },
+    { key: 'lengthMult', type: 'number', label: 'Length Multiplier', default: 1, min: 0.1, max: 10, step: 0.1 },
+    { key: 'switchColor', type: 'boolean', label: 'Color Hull By Trend', default: true },
+    { key: 'candleCol', type: 'boolean', label: 'Color Candles By Trend', default: false },
+    { key: 'visualSwitch', type: 'boolean', label: 'Show Band', default: true },
+    { key: 'bullishColor', type: 'color', label: 'Bullish Color', default: HULL_BULLISH },
+    { key: 'bearishColor', type: 'color', label: 'Bearish Color', default: HULL_BEARISH },
+    { key: 'neutralColor', type: 'color', label: 'Neutral Color', default: HULL_NEUTRAL },
+  ],
+  plots: [
+    {
+      key: 'mhull', type: 'line', title: 'Hull',
+      // The neutral colour is the honest static fallback: it is what both lines
+      // wear when the trend colouring is switched off. `colorBy` wins bar by bar.
+      colorKey: 'neutralColor', style: { color: HULL_NEUTRAL, lineWidth: 2 },
+      colorBy: ({ index, values, settings }) => hullTrendColor(values.mhull, index, settings),
+    },
+    {
+      key: 'shull', type: 'line', title: 'Hull Displaced',
+      colorKey: 'neutralColor', style: { color: HULL_NEUTRAL, lineWidth: 2 },
+      colorBy: ({ index, values, settings }) => hullTrendColor(values.mhull, index, settings),
+    },
+  ],
+  fills: [{
+    between: ['mhull', 'shull'],
+    colorUp: HULL_BULLISH,
+    colorDown: HULL_BEARISH,
+    colorUpKey: 'bullishColor',
+    colorDownKey: 'bearishColor',
+    // Not CHANNEL_FILL_OPACITY: those bands are a hint around a line that
+    // carries the reading, whereas here the band is the reading and a 5 %
+    // wash would erase it.
+    opacity: 0.6,
+  }],
+  calc: (bars, s) => {
+    const values = sourceValues(bars, src(s));
+    const len = span(int(s, 'length', 55) * num(s, 'lengthMult', 1));
+    const hull = hullSeries(values, str(s, 'mode', 'Hma'), len);
+    // The displaced copy and its band are one control, so they have to vanish
+    // together: a lone line hanging two bars behind the hull reads as a second
+    // average, which is the one thing this plot is not.
+    const band = s.visualSwitch !== false;
+    return {
+      mhull: nulls(hull),
+      shull: nulls(band ? shift(hull, 2) : new Array<number>(hull.length).fill(NaN)),
+    };
+  },
+  barColors: ({ bars, values, settings }) => (
+    settings.candleCol === true
+      ? bars.map((_, i) => hullTrendColor(values.mhull, i, settings))
+      : bars.map(() => null)
+  ),
+};
+
 export const OVERLAY_INDICATORS: readonly IndicatorDescriptor[] = [
   ALMA, DEMA, HMA, ENVELOPE, DONCHIAN, CHANDE_KROLL_STOP, CHANDELIER_EXIT,
+  STANDARD_ERROR_BANDS, MA_CHANNEL, HULL_SUITE,
 ];

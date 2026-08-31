@@ -11,7 +11,7 @@
  */
 import { trueRange, sourceValues } from 'openalgo-charts';
 import type { IndicatorDescriptor, IndicatorSource } from 'openalgo-charts';
-import { sma, stdev, highest, lowest, nulls, smaSeededEma, rollingSum } from './calc';
+import { sma, stdev, highest, lowest, nulls, smaSeededEma, rollingSum, roc } from './calc';
 
 /**
  * the reference `color.new(c, t)` transparency, where 0 is opaque and 100 invisible.
@@ -408,7 +408,9 @@ export const CHOP_ZONE: IndicatorDescriptor = {
   calc: (bars) => {
     const n = bars.length;
     const hi = highest(bars.map((b) => b.high), CHOP_ZONE_PERIODS);
-    const lo = lowest(bars.map((b) => b.low), CHOP_ZONE_PERIODS);
+    // Both extremes come off the highs in the reference, so `span` rescales
+    // against the 30-bar range of the high series, not the high-low range.
+    const lo = lowest(bars.map((b) => b.high), CHOP_ZONE_PERIODS);
     const ema34 = smaSeededEma(bars.map((b) => b.close), CHOP_ZONE_EMA_LENGTH);
     const angle = new Array<number>(n).fill(NaN);
     for (let i = 1; i < n; i++) {
@@ -432,6 +434,99 @@ export const CHOP_ZONE: IndicatorDescriptor = {
   range: () => ({ min: 0, max: 1 }),
 };
 
+/**
+ * Chaikin Volatility: the rate of change of a smoothed high-to-low range, so it
+ * answers "is the bar getting wider?" rather than "how wide is it?".
+ *
+ * The smoother is an EMA, not an SMA: an average of ranges reacts to a single
+ * wide bar for `periods` bars and then drops it in one step, which prints a
+ * spurious second move on the rate of change. Zero is the neutral reading, and
+ * a zero denominator (a period of perfectly flat bars) has no rate of change to
+ * report, so it stays a gap rather than becoming Infinity.
+ */
+export const CHAIKIN_VOLATILITY: IndicatorDescriptor = {
+  id: 'chaikin-volatility',
+  name: 'Chaikin Volatility',
+  category: 'Volatility',
+  placement: 'pane',
+  inputs: [
+    { key: 'periods', type: 'number', label: 'Periods', default: 10, min: 1, max: 2000, step: 1 },
+    { key: 'rocLookback', type: 'number', label: 'Rate of Change Lookback', default: 10, min: 1, max: 2000, step: 1 },
+    { key: 'color', type: 'color', label: 'Chaikin Volatility', default: '#ab47bc' },
+  ],
+  plots: [{ key: 'chaikinVolatility', type: 'line', title: 'Chaikin Volatility', colorKey: 'color', style: { lineWidth: 1.5 } }],
+  calc: (bars, s) => ({
+    chaikinVolatility: nulls(
+      roc(smaSeededEma(bars.map((b) => b.high - b.low), num(s, 'periods', 10)), num(s, 'rocLookback', 10)),
+    ),
+  }),
+  levels: () => [{ price: 0, color: '#787b86', title: 'Zero', dashed: true }],
+};
+
+/**
+ * Standard Deviation: the population standard deviation of the close over
+ * `periods` bars, scaled by `deviations` so it can be read as the same band
+ * width a Bollinger set would draw.
+ */
+export const STANDARD_DEVIATION: IndicatorDescriptor = {
+  id: 'standard-deviation',
+  name: 'Standard Deviation',
+  category: 'Volatility',
+  placement: 'pane',
+  inputs: [
+    { key: 'periods', type: 'number', label: 'Periods', default: 5, min: 1, max: 2000, step: 1 },
+    { key: 'deviations', type: 'number', label: 'Deviations', default: 1, min: 0.001, max: 50, step: 0.1 },
+    { key: 'color', type: 'color', label: 'Standard Deviation', default: '#089981' },
+  ],
+  plots: [{ key: 'stdDev', type: 'line', title: 'Standard Deviation', colorKey: 'color', style: { lineWidth: 1.5 } }],
+  calc: (bars, s) => {
+    const mult = num(s, 'deviations', 1);
+    return { stdDev: nulls(stdev(bars.map((b) => b.close), num(s, 'periods', 5)).map((v) => v * mult)) };
+  },
+};
+
+/**
+ * Standard Error: the residual spread of the closes about the least-squares
+ * line fitted through them, which is what makes it an *error* rather than a
+ * deviation. Two degrees of freedom go into the fitted slope and intercept, so
+ * the divisor is `length - 2` and the input cannot go below 3.
+ */
+export const STANDARD_ERROR: IndicatorDescriptor = {
+  id: 'standard-error',
+  name: 'Standard Error',
+  category: 'Volatility',
+  placement: 'pane',
+  inputs: [
+    { key: 'length', type: 'number', label: 'Length', default: 14, min: 3, max: 2000, step: 1 },
+    { key: 'color', type: 'color', label: 'Standard Error', default: '#ff6d00' },
+  ],
+  plots: [{ key: 'stdErr', type: 'line', title: 'Standard Error', colorKey: 'color', style: { lineWidth: 1.5 } }],
+  calc: (bars, s) => {
+    const len = Math.max(3, Math.trunc(num(s, 'length', 14)));
+    const closes = bars.map((b) => b.close);
+    // x is the same 1..len ladder on every bar, so its spread is a constant and
+    // only the close side has to be re-summed.
+    const xBar = (len + 1) / 2;
+    let sxx = 0;
+    for (let k = 0; k < len; k++) sxx += (xBar - k - 1) ** 2;
+    const out = new Array<number>(closes.length).fill(NaN);
+    for (let i = len - 1; i < closes.length; i++) {
+      let sum = 0;
+      for (let k = 0; k < len; k++) sum += closes[i - k];
+      const mean = sum / len;
+      let syy = 0;
+      let sxy = 0;
+      for (let k = 0; k < len; k++) {
+        const dy = mean - closes[i - k];
+        syy += dy * dy;
+        sxy += (xBar - k - 1) * dy;
+      }
+      out[i] = Math.sqrt((syy - (sxy * sxy) / sxx) / (len - 2));
+    }
+    return { stdErr: nulls(out) };
+  },
+};
+
 export const VOLATILITY_INDICATORS: readonly IndicatorDescriptor[] = [
   BOLLINGER_PERCENT_B,
   BOLLINGER_BANDWIDTH,
@@ -440,4 +535,7 @@ export const VOLATILITY_INDICATORS: readonly IndicatorDescriptor[] = [
   HISTORICAL_VOLATILITY,
   AVERAGE_DAILY_RANGE,
   CHOP_ZONE,
+  CHAIKIN_VOLATILITY,
+  STANDARD_DEVIATION,
+  STANDARD_ERROR,
 ];
