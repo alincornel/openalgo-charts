@@ -288,7 +288,7 @@ via `getState()` / `restoreState()`, keeps the value you set.
 
 ### Sizes
 
-The indicator tier rises 25.04 to 27.21 kB: 1.10 kB for the first eight studies
+The indicator tier rises 25.04 to 27.27 kB: 1.10 kB for the first eight studies
 plus three fixes, and 1.07 kB for the three that landed late, so about 200 bytes
 a study across the eleven. Reuse is why it is not more. Standard Error Bands
 leans on `linreg`, `sma`, `wma` and the file's existing gapped EMA and adds only
@@ -313,18 +313,18 @@ would otherwise fail while the tier inside it passes. The arithmetic, in the
     93,110 B + 30,000 B, the new indicator ceiling
       = 123,110 B, rounded up to a 124 kB budget
 
-So "Everything" goes 120 kB to 124 kB and measures 120.32 kB against it. No other
+So "Everything" goes 120 kB to 124 kB and measures 120.38 kB against it. No other
 budget moved.
 
 | Tier | Measured | Budget |
 |---|---:|---:|
 | Base engine | 59.06 KB | 60 KB |
 | Base + trade | 66.67 KB | 68 KB |
-| Indicators | 27.21 KB | 30 KB |
+| Indicators | 27.27 KB | 30 KB |
 | Draw | 13.13 KB | 14 KB |
 | Transform | 2.66 KB | 5 KB |
 | Profile | 10.66 KB | 11 KB |
-| Everything | 120.32 KB | 124 KB |
+| Everything | 120.38 KB | 124 KB |
 
 Trade, draw, transform and profile measure exactly what they did in 1.8.2: no
 code outside `src/indicators/` changed except the version string. That string is

@@ -210,11 +210,11 @@ Enforced in CI by [`size-limit`](./.size-limit.json). Nothing is excluded, becau
 |---|---|---|
 | Base engine | 60 KB | 59.06 KB |
 | Base + trade | 68 KB | 66.67 KB |
-| Indicators tier | 30 KB | 27.21 KB |
+| Indicators tier | 30 KB | 27.27 KB |
 | Draw tier | 14 KB | 13.13 KB |
 | Transform tier | 5 KB | 2.66 KB |
 | Profile tier | 11 KB | 10.66 KB |
-| **Everything** | **124 KB** | **120.32 KB** |
+| **Everything** | **124 KB** | **120.38 KB** |
 
 ## Documentation
 

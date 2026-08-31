@@ -265,18 +265,18 @@ corrected in neither, because the second reader has no reason to doubt it.
 | --- | --: | --: |
 | Base engine | 59.06 kB | 60 kB |
 | Base + trade | 66.67 kB | 68 kB |
-| Indicator tier | 27.21 kB | 27 kB, exceeded by 213 B |
+| Indicator tier | 27.27 kB | 30 kB |
 | Draw tier | 13.13 kB | 14 kB |
 | Transform tier | 2.66 kB | 5 kB |
 | Profile tier | 10.66 kB | 11 kB |
-| Everything | 120.32 kB | 120 kB, exceeded by 323 B |
+| Everything | 120.38 kB | 124 kB |
 
-The last three indicators cost the tier roughly 1.07 kB Brotli between them and
-carried it past its limit, so `npm run size` fails on those two rows as this is
-written. That is a release decision (trim, or raise the budget), not a diagram
-problem: the diagram's job is to say 27 KB because 27.21 kB is what the file
-measures. Whoever settles it should also take the indicator-tier label in
-`.size-limit.json` from "99 built-ins" to 102.
+The eleven new indicators carried the tier past its old 27 kB limit, so that
+budget was raised to 30 kB and the aggregate to 124 kB. The two have to move
+together: `Everything` contains the tier, and every other tier sums to 93.11 kB,
+so an aggregate below 93.11 plus the tier's 30 kB ceiling would fail while the
+tier it contains passed. All seven rows pass as shipped, and the indicator-tier
+label in `.size-limit.json` reads 102 built-ins.
 
 Counts from the registry at runtime: 102 indicators, 43 drawing tools, 13 chart
 types in the base bundle and 15 once the transform tier registers its two.
