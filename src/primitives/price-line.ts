@@ -33,6 +33,12 @@ export interface PriceLineOptions {
   /** Info text segment (order type, price, P&L ...) — the classic left tag text. */
   leftLabel?: string;
   /**
+   * Custom pill segments. When present these replace badge/qty/leftLabel/closeButton.
+   * A segment with an id hit-tests independently, which lets trading tickets put
+   * side, quantity, type and submit actions directly on the draggable line.
+   */
+  pillSegments?: readonly PriceLinePillSegment[];
+  /**
    * Fraction of the plot width the line spans, measured from the right (price)
    * axis. 1 = full width (default); 0.3 = only the rightmost 30%, like a
    * partial-width order line. The right-axis tag is always drawn.
@@ -46,6 +52,15 @@ export interface PriceLineOptions {
   cursor?: string;
 }
 
+export interface PriceLinePillSegment {
+  id?: string;
+  text?: string;
+  close?: boolean;
+  fill?: string;
+  textColor?: string;
+  border?: string;
+}
+
 /** Pill/segment height in media px (shared by draw + hit-test). */
 const TAG_H = 18;
 /** Gap between segments in media px. */
@@ -56,7 +71,12 @@ export class PriceLine implements IPrimitive {
   private _host: PrimitiveHost | null = null;
   private _ghostPrice: number | null = null;
   /** Pill-group geometry from the last draw (media px) for hit-testing. */
-  private _group: { x0: number; x1: number; closeX0: number } | null = null;
+  private _group: {
+    x0: number;
+    x1: number;
+    closeX0: number;
+    segments: Array<{ id: string; x0: number; x1: number }>;
+  } | null = null;
 
   public constructor(opts: PriceLineOptions) {
     this._opts = opts;
@@ -133,9 +153,12 @@ export class PriceLine implements IPrimitive {
     const color = this._opts.color;
     // Hover/dragging visual states apply to interactive lines only (draggable
     // or cancellable); plain level lines stay static under the pointer.
-    const interactive = this._opts.cursor !== undefined || this._opts.closeButton === true;
+    const customSegmentHovered = this._opts.pillSegments?.some((segment) => segment.id === rc.hoverId) === true;
+    const interactive = this._opts.cursor !== undefined || this._opts.closeButton === true
+      || this._opts.pillSegments?.some((segment) => segment.id !== undefined) === true;
     const dragging = rc.dragId === this._opts.id;
-    const hovered = interactive && !dragging && (rc.hoverId === this._opts.id || rc.hoverId === `${this._opts.id}::close`);
+    const hovered = interactive && !dragging && (rc.hoverId === this._opts.id
+      || rc.hoverId === `${this._opts.id}::close` || customSegmentHovered);
     const closeHovered = rc.hoverId === `${this._opts.id}::close`;
 
     ctx.save();
@@ -193,7 +216,7 @@ export class PriceLine implements IPrimitive {
     ctx.fillText(label, xEnd + 1 + padX, y);
 
     // segmented pill group on the line: [badge][qty][label][✕]
-    const hasGroup = this._opts.badge !== undefined || this._opts.qty !== undefined ||
+    const hasGroup = this._opts.pillSegments !== undefined || this._opts.badge !== undefined || this._opts.qty !== undefined ||
       (this._opts.leftLabel !== undefined && this._opts.leftLabel !== '') || this._opts.closeButton === true;
     if (hasGroup) {
       // neutral "surface" segments: opaque so the line doesn't run through text
@@ -202,7 +225,20 @@ export class PriceLine implements IPrimitive {
       const surfaceText = transparentBg ? rc.theme.axisText : contrastText(rc.theme.background);
       const border = withAlpha(rc.theme.axisText, hovered || dragging ? 0.75 : 0.5);
       const segments: PillSegment[] = [];
-      if (this._opts.badge !== undefined) {
+      if (this._opts.pillSegments !== undefined) {
+        for (const segment of this._opts.pillSegments) {
+          const segmentHovered = segment.id !== undefined && rc.hoverId === segment.id;
+          const fill = segment.fill ?? surface;
+          segments.push({
+            id: segment.id,
+            text: segment.text,
+            close: segment.close,
+            fill: segmentHovered ? shade(fill, 0.12) : fill,
+            textColor: segment.textColor ?? (segment.fill === undefined ? surfaceText : contrastText(fill)),
+            border: segment.border ?? (segmentHovered ? withAlpha(rc.theme.axisText, 0.85) : border),
+          });
+        }
+      } else if (this._opts.badge !== undefined) {
         segments.push({
           text: this._opts.badge,
           fill: dragging ? shade(color, 0.2) : hovered ? shade(color, 0.12) : color,
@@ -210,13 +246,13 @@ export class PriceLine implements IPrimitive {
           border: shade(color, -0.25),
         });
       }
-      if (this._opts.qty !== undefined) {
+      if (this._opts.pillSegments === undefined && this._opts.qty !== undefined) {
         segments.push({ text: String(this._opts.qty), fill: surface, textColor: surfaceText, border });
       }
-      if (this._opts.leftLabel !== undefined && this._opts.leftLabel !== '') {
+      if (this._opts.pillSegments === undefined && this._opts.leftLabel !== undefined && this._opts.leftLabel !== '') {
         segments.push({ text: this._opts.leftLabel, fill: surface, textColor: surfaceText, border });
       }
-      if (this._opts.closeButton === true) {
+      if (this._opts.pillSegments === undefined && this._opts.closeButton === true) {
         segments.push({
           close: true,
           fill: closeHovered ? color : surface,
@@ -225,7 +261,13 @@ export class PriceLine implements IPrimitive {
         });
       }
       this._group = drawPillGroup(ctx, xStart + (extent === 1 ? 6 * dpr : 0), y, segments, {
-        height: boxH, padX, radius: r, gap: GAP * dpr, backplate: transparentBg ? undefined : rc.theme.background, dpr,
+        height: boxH,
+        padX,
+        radius: r,
+        gap: GAP * dpr,
+        backplate: transparentBg ? undefined : rc.theme.background,
+        maxX: this._opts.pillSegments === undefined ? undefined : xEnd - 4 * dpr,
+        dpr,
       });
     }
     ctx.restore();
@@ -239,6 +281,10 @@ export class PriceLine implements IPrimitive {
     // the ✕ segment routes as a click, the rest of the group drags the line.
     const g = this._group;
     if (g !== null && distance <= TAG_H / 2 + 1 && x >= g.x0 && x <= g.x1) {
+      const segment = g.segments.find((candidate) => x >= candidate.x0 && x <= candidate.x1);
+      if (segment !== undefined) {
+        return { externalId: segment.id, zOrder: 'normal', distance, cursor: 'pointer' };
+      }
       if (this._opts.closeButton && x >= g.closeX0) {
         return { externalId: `${this._opts.id}::close`, zOrder: 'normal', distance, cursor: 'pointer' };
       }

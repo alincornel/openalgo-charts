@@ -43,6 +43,10 @@ export interface TradingOrder {
   readOnly?: boolean;
   draggable?: boolean;
   variant?: TradingLineVariant;
+  /** Render an editable, unsubmitted order ticket directly on the price line. */
+  draft?: boolean;
+  /** Label for the draft submit action. Default `CONFIRM`. */
+  confirmLabel?: string;
 }
 
 export interface TradingTrade {
@@ -358,7 +362,9 @@ export class TradingController {
   }
 
   private _sig(o: PriceLineOptions): string {
-    return `${o.color}|${o.dashed}|${o.closeButton === true}|${o.cursor ?? ''}|${o.leftLabel !== undefined}|${o.badge ?? ''}|${o.qty ?? ''}`;
+    const segments = o.pillSegments?.map((segment) =>
+      `${segment.id ?? ''}:${segment.text ?? ''}:${segment.close === true}:${segment.fill ?? ''}`).join('|') ?? '';
+    return `${o.color}|${o.dashed}|${o.closeButton === true}|${o.cursor ?? ''}|${o.leftLabel !== undefined}|${o.badge ?? ''}|${o.qty ?? ''}|${segments}`;
   }
 
   /** Info segment for a position: live P&L text (side/size live in badge/qty). */
@@ -386,19 +392,31 @@ export class TradingController {
   private _orderOpts(o: TradingOrder): PriceLineOptions {
     const lineOnly = o.variant === 'line-only';
     const draggable = !lineOnly && (o.draggable ?? o.readOnly !== true);
-    const color = o.color ?? (o.bracketRole === 'tp' ? this._colors.tp
+    const color = o.color ?? (o.draft === true ? (o.side === 'buy' ? this._colors.buy : this._colors.sell)
+      : o.bracketRole === 'tp' ? this._colors.tp
       : o.bracketRole === 'sl' ? this._colors.sl
         : this._colors.order);
+    const id = `ord:${o.id}`;
+    const pillSegments = !lineOnly && o.draft === true ? [
+      { id: `${id}::side`, text: o.side.toUpperCase(), fill: color },
+      { id: `${id}::qty_dec`, text: '-' },
+      { id: `${id}::qty`, text: String(o.size) },
+      { id: `${id}::qty_inc`, text: '+' },
+      { id: `${id}::type`, text: o.type.replace('_', ' ').toUpperCase() },
+      { id: `${id}::confirm`, text: o.confirmLabel ?? 'CONFIRM', fill: this._colors.order },
+      { id: `${id}::close`, close: true },
+    ] : undefined;
     return {
       price: o.price,
       color,
       lineWidth: o.lineWidth ?? 1,
       dashed: (o.lineStyle ?? 'solid') !== 'solid',
-      id: `ord:${o.id}`,
-      badge: lineOnly ? undefined : (o.bracketRole ?? o.side).toUpperCase(),
-      qty: lineOnly ? undefined : o.size,
-      leftLabel: lineOnly || o.bracketRole !== undefined ? undefined : o.type.replace('_', ' ').toUpperCase(),
-      closeButton: !lineOnly && o.readOnly !== true,
+      id,
+      badge: lineOnly || o.draft === true ? undefined : (o.bracketRole ?? o.side).toUpperCase(),
+      qty: lineOnly || o.draft === true ? undefined : o.size,
+      leftLabel: lineOnly || o.bracketRole !== undefined || o.draft === true ? undefined : o.type.replace('_', ' ').toUpperCase(),
+      pillSegments,
+      closeButton: !lineOnly && o.draft !== true && o.readOnly !== true,
       extentFromRight: 0.3,
       cursor: draggable ? 'ns-resize' : undefined,
     };
@@ -415,6 +433,31 @@ export class TradingController {
         const id = base.slice(4);
         if (this._positions.has(id)) this._emit('trading:position_close', { positionId: id });
       }
+      return;
+    }
+    if (externalId.startsWith('ord:') && externalId.includes('::')) {
+      const separator = externalId.indexOf('::');
+      const id = externalId.slice(4, separator);
+      const action = externalId.slice(separator + 2);
+      const cur = this._orders.get(id);
+      if (cur === undefined || cur.entity.draft !== true) return;
+      if (action === 'confirm') {
+        this._emit('trading:order_submit', { order: { ...cur.entity } });
+        return;
+      }
+      const patch: Partial<TradingOrder> = action === 'side'
+        ? { side: cur.entity.side === 'buy' ? 'sell' : 'buy' }
+        : action === 'qty_dec'
+          ? { size: Math.max(1, cur.entity.size - 1) }
+          : action === 'qty_inc'
+            ? { size: cur.entity.size + 1 }
+            : action === 'type'
+              ? { type: cur.entity.type === 'limit' ? 'stop' : 'limit' }
+              : {};
+      if (Object.keys(patch).length === 0) return;
+      const order = { ...cur.entity, ...patch };
+      this.upsertOrder(order);
+      this._emit('trading:order_draft_change', { order: { ...order } });
       return;
     }
     // pill-body click

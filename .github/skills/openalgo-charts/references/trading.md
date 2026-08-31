@@ -114,8 +114,33 @@ Positions are drawn with a hard-coded `lineWidth: 2`, `dashed: false`, `extentFr
 | `readOnly` | `boolean` | no | Hides the cancel button and (unless `draggable` is set) disables drag |
 | `draggable` | `boolean` | no | Defaults to `readOnly !== true`; forced off by `variant: 'line-only'` |
 | `variant` | `'standard' \| 'line-only'` | no | Line + axis tag only |
+| `draft` | `boolean` | no | Renders side, quantity, type, confirm and cancel controls directly on the draggable line |
+| `confirmLabel` | `string` | no | Draft submit label, default `CONFIRM` |
 
 **`lineStyle: 'dotted'` renders identically to `'dashed'`.** The controller collapses it to `dashed: (lineStyle ?? 'solid') !== 'solid'`; `PriceLine` has no dotted dash pattern.
+
+### Editable draft line
+
+Set `draft: true` for an order that has not been sent to the broker. Its pill is
+`[BUY/SELL][-][qty][+][LIMIT/STOP][CONFIRM][close]`. The line itself remains
+draggable. Side, quantity and type changes are optimistic and emit
+`trading:order_draft_change`. Confirm emits `trading:order_submit`; it never
+talks to a broker by itself.
+
+```ts
+chart.trading.upsertOrder({
+  id: 'entry-draft', type: 'limit', side: 'buy', price: 2850,
+  size: 1, draft: true, draggable: true,
+});
+
+chart.trading.on('trading:order_draft_change', ({ order }) => {
+  draft = order;
+});
+
+chart.trading.on('trading:order_submit', async ({ order }) => {
+  await broker.place(order);
+});
+```
 
 ## `TradingTrade`
 
@@ -158,7 +183,7 @@ Diffing: `_sync` recreates a line whenever `color | dashed | closeButton | curso
 
 ## Event catalogue
 
-Six events, all emitted from `src/core/trading-controller.ts`. Names carry the `trading:` prefix on **both** buses — `chart.trading.on('trading:order_modify', cb)` and `chart.on('trading:order_modify', cb)` are the two valid forms; a bare `'order_modify'` matches nothing.
+Eight events, all emitted from `src/core/trading-controller.ts`. Names carry the `trading:` prefix on **both** buses: `chart.trading.on('trading:order_modify', cb)` and `chart.on('trading:order_modify', cb)` are the two valid forms; a bare `'order_modify'` matches nothing.
 
 | Event | Payload | Fired by |
 |---|---|---|
@@ -168,6 +193,8 @@ Six events, all emitted from `src/core/trading-controller.ts`. Names carry the `
 | `trading:position_close` | `{ positionId: string }` | Click on `pos:<id>::close` |
 | `trading:order_click` | `{ order: TradingOrder }` | Click on an order pill body |
 | `trading:position_click` | `{ position: TradingPosition }` | Click on a position pill body |
+| `trading:order_draft_change` | `{ order: TradingOrder }` | Side, quantity or type action on a draft line |
+| `trading:order_submit` | `{ order: TradingOrder }` | Confirm action on a draft line |
 
 `_emit` fans out to the controller's own listeners and then mirrors through `host.emit?.(...)`, which is `Chart.emit`. A `chart.on` listener that throws is swallowed; a `chart.trading.on` listener that throws propagates.
 

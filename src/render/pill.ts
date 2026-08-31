@@ -120,6 +120,8 @@ export const CLOSE_SEGMENT_W = 20;
 
 /** One segment of a broker-style pill group: text box or ✕ box. */
 export interface PillSegment {
+  /** Optional hit-test id for this individual segment. */
+  id?: string;
   /** Text content; omit for a ✕ (close) segment. */
   text?: string;
   /** Render a ✕ glyph instead of text. */
@@ -136,6 +138,8 @@ export interface PillGroupMetrics {
   x1: number;
   /** Left edge of the ✕ segment (Infinity when none), media px. */
   closeX0: number;
+  /** Bounds for individually interactive segments, in media px. */
+  segments: Array<{ id: string; x0: number; x1: number }>;
 }
 
 /**
@@ -149,19 +153,21 @@ export function drawPillGroup(
   x: number,
   yCenter: number,
   segments: readonly PillSegment[],
-  opts: { height: number; padX: number; radius: number; gap: number; backplate?: string; dpr: number },
+  opts: { height: number; padX: number; radius: number; gap: number; backplate?: string; maxX?: number; dpr: number },
 ): PillGroupMetrics {
   const { height, padX, radius, gap, dpr } = opts;
   const widths = segments.map((s) => (s.close === true ? CLOSE_SEGMENT_W * dpr : ctx.measureText(s.text ?? '').width + padX * 2));
   const total = widths.reduce((a, b) => a + b, 0) + gap * Math.max(0, segments.length - 1);
+  const originX = opts.maxX === undefined ? x : Math.max(0, Math.min(x, opts.maxX - total));
   if (opts.backplate !== undefined) {
     ctx.beginPath();
-    roundRectPath(ctx, x, yCenter - height / 2, total, height, radius);
+    roundRectPath(ctx, originX, yCenter - height / 2, total, height, radius);
     ctx.fillStyle = opts.backplate;
     ctx.fill();
   }
   let closeX0 = Number.POSITIVE_INFINITY;
-  let cx = x;
+  const interactiveSegments: PillGroupMetrics['segments'] = [];
+  let cx = originX;
   for (let i = 0; i < segments.length; i++) {
     const s = segments[i];
     const w = widths[i];
@@ -190,8 +196,8 @@ export function drawPillGroup(
       ctx.textBaseline = 'middle';
       ctx.fillText(s.text ?? '', cx + padX, yCenter);
     }
+    if (s.id !== undefined) interactiveSegments.push({ id: s.id, x0: cx / dpr, x1: (cx + w) / dpr });
     cx += w + gap;
   }
-  return { x0: x / dpr, x1: (cx - gap) / dpr, closeX0: closeX0 / dpr };
+  return { x0: originX / dpr, x1: (cx - gap) / dpr, closeX0: closeX0 / dpr, segments: interactiveSegments };
 }
-

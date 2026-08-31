@@ -133,6 +133,49 @@ describe('PriceLine visual states', () => {
     expect(pl.hitTest(300, y, rc)!.externalId).toBe('ord1'); // bare line drags
     expect(pl.hitTest(300, y, rc)!.cursor).toBe('ns-resize');
   });
+
+  it('hit-tests custom ticket segments independently while the bare line still drags', () => {
+    const rc = makeRc();
+    const pl = new PriceLine({
+      price: 100,
+      color: '#26a69a',
+      id: 'ord:draft',
+      cursor: 'ns-resize',
+      extentFromRight: 0.3,
+      pillSegments: [
+        { id: 'ord:draft::side', text: 'BUY', fill: '#26a69a' },
+        { id: 'ord:draft::qty_dec', text: '-' },
+      ],
+    });
+    pl.draw(makeCtx().ctx, rc);
+    const y = rc.priceScale.priceToY(100);
+    expect(pl.hitTest(435, y, rc)).toMatchObject({ externalId: 'ord:draft::side', cursor: 'pointer' });
+    expect(pl.hitTest(460, y, rc)).toMatchObject({ externalId: 'ord:draft::qty_dec', cursor: 'pointer' });
+    expect(pl.hitTest(300, y, rc)).toMatchObject({ externalId: 'ord:draft', cursor: 'ns-resize' });
+  });
+
+  it('keeps a wide custom ticket inside the plot on narrow charts', () => {
+    const rc = makeRc();
+    const pl = new PriceLine({
+      price: 100,
+      color: '#26a69a',
+      id: 'ord:mobile',
+      cursor: 'ns-resize',
+      extentFromRight: 0.3,
+      pillSegments: [
+        { id: 'ord:mobile::side', text: 'BUY' },
+        { id: 'ord:mobile::qty_dec', text: '-' },
+        { id: 'ord:mobile::qty', text: '1' },
+        { id: 'ord:mobile::qty_inc', text: '+' },
+        { id: 'ord:mobile::type', text: 'STOP' },
+        { id: 'ord:mobile::confirm', text: 'CONFIRM' },
+        { id: 'ord:mobile::close', close: true },
+      ],
+    });
+    pl.draw(makeCtx().ctx, rc);
+    const y = rc.priceScale.priceToY(100);
+    expect(pl.hitTest(586, y, rc)).toMatchObject({ externalId: 'ord:mobile::close', cursor: 'pointer' });
+  });
 });
 
 describe('trade primitives visual states', () => {

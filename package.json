@@ -83,6 +83,7 @@
     "soak": "node --expose-gc scripts/soak.mjs",
     "skills:coverage": "node scripts/check-skills-coverage.mjs",
     "docs": "typedoc",
+    "prepare": "npm run build",
     "verify": "npm run typecheck && npm run test && npm run build && npm run check:dts && npm run size && npm run shake",
     "prepublishOnly": "npm run verify",
     "check:dts": "node scripts/check-dts.mjs",

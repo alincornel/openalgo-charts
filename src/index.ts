@@ -143,7 +143,7 @@ export { IndicatorBackground } from './primitives/indicator-background';
 // and a tier that takes one in its own public API needs to name *this* one.
 export type { DataLayer, IndexedBar, SeriesId } from './model/data-layer';
 export { PriceLine } from './primitives/price-line';
-export type { PriceLineOptions } from './primitives/price-line';
+export type { PriceLineOptions, PriceLinePillSegment } from './primitives/price-line';
 // price-level family: previous close, session high/low, extended-hours opens
 // and closes, bid/ask: each a line and an axis tag that toggle together.
 export {

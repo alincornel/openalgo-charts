@@ -118,6 +118,35 @@ describe('TradingController', () => {
     expect(h.lines()[0].options().closeButton).toBe(false);
     expect(tc.getTrades()).toHaveLength(1);
   });
+
+  it('renders and edits a draft order directly on its price line', () => {
+    const h = fakeHost();
+    const tc = new TradingController(h.host);
+    const onChange = vi.fn();
+    const onSubmit = vi.fn();
+    tc.on('trading:order_draft_change', onChange);
+    tc.on('trading:order_submit', onSubmit);
+    tc.setOrders([{
+      id: 'draft-1', type: 'limit', side: 'buy', price: 100, size: 2,
+      draft: true, confirmLabel: 'PLACE', draggable: true,
+    }]);
+
+    const segments = h.lines()[0].options().pillSegments;
+    expect(segments?.map((segment) => segment.close === true ? 'close' : segment.text)).toEqual([
+      'BUY', '-', '2', '+', 'LIMIT', 'PLACE', 'close',
+    ]);
+
+    h.click('ord:draft-1::side');
+    h.click('ord:draft-1::qty_inc');
+    h.click('ord:draft-1::type');
+    expect(tc.getOrders()[0]).toMatchObject({ side: 'sell', size: 3, type: 'stop' });
+    expect(onChange).toHaveBeenCalledTimes(3);
+
+    h.click('ord:draft-1::confirm');
+    expect(onSubmit).toHaveBeenCalledWith({
+      order: expect.objectContaining({ id: 'draft-1', side: 'sell', size: 3, type: 'stop' }),
+    });
+  });
 });
 
 describe('TradingController — T2 (brackets, markers, settings, clicks)', () => {
