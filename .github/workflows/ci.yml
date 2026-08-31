@@ -25,6 +25,12 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npm run size
+      - name: Indicator performance
+        # The suite proves the numbers an indicator produces, never the cost of
+        # producing them, so an algorithmic regression ships silently otherwise.
+        # The budgets are a tenfold guard, not a tight bound: a failure here
+        # means something structural changed, not that a runner was slow.
+        run: npm run bench
       - name: Verify NOTICE ships in the package
         run: npm pack --dry-run 2>&1 | grep -q "NOTICE" || (echo "NOTICE missing from the npm package (add it to package.json files)" && exit 1)
       - name: No third-party product names in source

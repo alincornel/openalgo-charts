@@ -449,6 +449,7 @@ export class Chart {
   private readonly _indicators: IndicatorInstance[] = [];
   /** Guards indicator recompute against re-entry via its own `series.setData`. */
   private _recomputing = false;
+  private _indicatorsDirty = false;
   /** Instance id of the indicator whose colours are on the price bars, if any. */
   private _barColorOwner: string | null = null;
   private _barColors: readonly (string | null)[] | null = null;
@@ -933,8 +934,15 @@ export class Chart {
     return out;
   }
 
-  /** Every live indicator instance, in the order they were added. */
+  /**
+   * Every live indicator instance, in the order they were added.
+   *
+   * Flushes any pending recompute first. Indicator maths is deferred to the
+   * frame, so a caller that updates a bar and reads a value back in the same
+   * turn would otherwise see the previous tick's numbers.
+   */
   public indicators(): readonly IndicatorApi[] {
+    this._flushIndicators();
     return this._indicators;
   }
 
@@ -957,6 +965,7 @@ export class Chart {
 
   private _indicatorHost(): IndicatorHost {
     return {
+      flushIndicators: (): void => this._flushIndicators(),
       addIndicatorLegend: (o): PaneLegend => {
         // The first legend on a non-price pane also carries the pane-level
         // controls (move / maximize), the way a charting pane toolbar does;
@@ -1048,7 +1057,7 @@ export class Chart {
    *
    * Only one overlay can be on the candles, so this is last writer wins. That is
    * deterministic rather than arbitrary: publishers run inside
-   * `_recomputeIndicators`, in `addIndicator` order, so the same instance wins
+   * `_flushIndicators`, in `addIndicator` order, so the same instance wins
    * every frame. Withdrawal is gated on ownership, or the first publisher's
    * teardown would wipe the second one's colours. If the *winner* is removed
    * while another publisher is still live, the bars go back to their own colours
@@ -1105,12 +1114,38 @@ export class Chart {
   }
 
   /**
-   * Recompute every indicator after a source-data change. Reentrant-guarded:
-   * an indicator writes its plots with `series.setData`, which re-enters the
-   * same data-mutation path that called us.
+   * Mark every indicator stale after a source-data change, to be recomputed
+   * once before the next paint.
+   *
+   * Recomputing straight from the data update instead costs a full pass over
+   * every bar, for every indicator, for every tick. A busy symbol delivers ticks
+   * in bursts far faster than the display refreshes, so most of those passes are
+   * thrown away unseen: 50 ticks between two frames cost 50 recomputes per
+   * indicator and blocked the main thread for over half a second on a ten
+   * indicator chart. Deferring to the frame makes that one recompute, because
+   * only the last one could ever have been shown.
+   *
+   * `flushIndicators` therefore has to run before anything that can observe a
+   * value, which is the frame and the public `indicators()` accessor.
    */
-  private _recomputeIndicators(): void {
-    if (this._recomputing || this._indicators.length === 0) return;
+  private _invalidateIndicators(): void {
+    if (this._indicators.length === 0) return;
+    this._indicatorsDirty = true;
+    this._loop.requestFrame();
+  }
+
+  /**
+   * Recompute every stale indicator. Reentrant-guarded: an indicator writes its
+   * plots with `series.setData`, which re-enters the same data-mutation path
+   * that marked us dirty.
+   */
+  private _flushIndicators(): void {
+    if (!this._indicatorsDirty) return;
+    if (this._recomputing || this._indicators.length === 0) {
+      this._indicatorsDirty = false;
+      return;
+    }
+    this._indicatorsDirty = false;
     this._recomputing = true;
     try {
       for (const indicator of this._indicators) indicator.recompute();
@@ -1712,7 +1747,7 @@ export class Chart {
     if (kind === 'append' && !wasAtRight) {
       this._timeScale.setRightOffset(this._timeScale.rightOffset - 1);
     }
-    if (dataId === this._firstDataId.value) this._recomputeIndicators();
+    if (dataId === this._firstDataId.value) this._invalidateIndicators();
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
     this._updateAccessibleSummary();
   }
@@ -1742,7 +1777,7 @@ export class Chart {
       this._timeScale.fitContent(this._dataLayer.length);
       this._hasFitContent = true;
     }
-    if (dataId === this._firstDataId.value) this._recomputeIndicators();
+    if (dataId === this._firstDataId.value) this._invalidateIndicators();
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
     this._updateAccessibleSummary();
   }
@@ -1753,7 +1788,7 @@ export class Chart {
     // baseIndex shifts up by the inserted count; updating it keeps the same
     // bars on screen because (rightEdge − index) is invariant.
     this._timeScale.setBaseIndex(this._dataLayer.baseIndex);
-    if (dataId === this._firstDataId.value) this._recomputeIndicators();
+    if (dataId === this._firstDataId.value) this._invalidateIndicators();
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
     this._updateAccessibleSummary();
   }
@@ -1814,7 +1849,7 @@ export class Chart {
     // Not only a relabelling: a session-anchored indicator (VWAP, CPR, TWAP,
     // seasonality) resets on the chart's calendar, so moving the calendar
     // changes the numbers and not just the axis under them.
-    this._recomputeIndicators();
+    this._invalidateIndicators();
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
   }
 
@@ -2488,6 +2523,11 @@ export class Chart {
   }
 
   private _onFrame(): void {
+    // Before the mask is taken, not after: recomputing writes plot data, which
+    // invalidates, and that invalidation has to land in this frame's mask
+    // rather than in the next frame's.
+    this._flushIndicators();
+
     const mask = this._pending;
     this._pending = null;
     if (mask === null || mask.isEmpty()) return;

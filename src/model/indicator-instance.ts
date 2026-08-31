@@ -110,6 +110,13 @@ export interface IndicatorHost {
    */
   addIndicatorPrimitive?(primitive: IPrimitive, paneIndex: number): void;
   removeIndicatorPrimitive?(primitive: IPrimitive): void;
+  /**
+   * Recompute whatever the host has marked stale, before a caller reads a value.
+   *
+   * Optional, like `timezone`, so a host predating it still satisfies this
+   * interface: one that recomputes eagerly has nothing to flush.
+   */
+  flushIndicators?(): void;
   /** Bars of the primary price series — the calculation input. */
   sourceBars(): readonly Bar[];
   /** Index of a fresh pane for an indicator that wants its own. */
@@ -670,6 +677,11 @@ export class IndicatorInstance implements IndicatorApi {
   }
 
   public values(): IndicatorValues {
+    // The host defers recompute to the frame, so a caller that updates a bar and
+    // reads the value back in the same turn would otherwise get the previous
+    // tick's numbers. Flushing here keeps the read synchronous without putting
+    // the maths back on the data-update path.
+    this._host.flushIndicators?.();
     return this._values;
   }
 
