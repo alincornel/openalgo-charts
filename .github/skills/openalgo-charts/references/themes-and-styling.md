@@ -129,6 +129,8 @@ Returns a top-to-bottom `CanvasGradient` for a custom renderer or primitive. Cac
 | `markers`, `markersOnly`, `markerRadius` | — (radius default `2`) | line family |
 | `visible`, `title`, `priceLineVisible`, `lastValueVisible` | — (all default on/true) | every type |
 
+`lastValueVisible` tags every series on the readout scale, each in its own plot colour, not just the instrument. A series currently plotting a non-number draws no tag, so a study that is `na` says nothing rather than repeating a stale reading. Tags resolve against the ladder and each other by priority: the last price wins, a series value beats a plain tick, and two series values a tag-height apart resolve by series order rather than flickering.
+
 ```ts
 const series = chart.addSeries('candlestick', {
   style: { upColor: '#16a34a', downColor: '#dc2626', borderVisible: false },

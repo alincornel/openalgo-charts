@@ -26,7 +26,7 @@ All 13 are registered by importing `openalgo-charts`. `isPriceSeries` marks the 
 | `column` | Up/down coloured bars from `base` to `close` | **no** | `min(base, close)` .. `max(base, close)` | `upColor`, `downColor`, `base` (0) |
 | `histogram` | Single-colour bars from `base` to `close` | **no** | `min(base, close)` .. `max(base, close)` | `color` (`'#3a4666'`), `base` (0), per-bar `bar.color` |
 
-Every type also honours the universal keys `visible`, `priceLineVisible`, `lastValueVisible` and `title` from `SeriesStyle`. Colour keys left unset fall back to the theme — see [themes-and-styling](themes-and-styling.md) for the exact mapping.
+Every type also honours the universal keys `visible`, `priceLineVisible`, `lastValueVisible` and `title` from `SeriesStyle`. `lastValueVisible` covers **every** series on the pane's readout scale, not only the instrument: an overlay, a comparison line or an indicator plot each tags its own current value in its own colour, and setting it false is how a series opts out. Colour keys left unset fall back to the theme — see [themes-and-styling](themes-and-styling.md) for the exact mapping.
 
 **`colorByPreviousClose` colours a bar against the previous bar's close** instead of its own open, which is how most terminals paint one. Body, border and wick take a single verdict per bar, so the candle cannot disagree with itself. The leftmost drawn bar has no predecessor in the batch, so the pane supplies the close of the bar left of the visible range and it does not flip colour as you scroll; with nothing to compare against (the first bar of history, or a whitespace gap) it falls back to open-vs-close.
 

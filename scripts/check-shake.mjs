@@ -19,7 +19,13 @@ import { brotliCompressSync } from 'node:zlib';
 import { readFileSync } from 'node:fs';
 
 const BUNDLE = new URL('../dist/openalgo-charts.mjs', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
-const LIMIT_BYTES = 38 * 1024;
+// Raised from 38 to 39 kB in 1.8.6, for the per-series axis value tags: the
+// collection pass in the pane, the tag renderer, and the resolve that keeps two
+// of them off each other. Measured cost 0.31 kB brotli against a 37.89 kB
+// baseline. Raise this only with the same kind of note, and never to get a
+// build green: the point of the number is that a feature has to be worth its
+// bytes to a host that only wanted a chart.
+const LIMIT_BYTES = 39 * 1024;
 
 // Absent from a chart-only build. Each is a string that appears in the adapter
 // source and nowhere in the rendering core.

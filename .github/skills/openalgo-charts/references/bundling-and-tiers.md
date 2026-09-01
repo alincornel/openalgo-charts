@@ -14,7 +14,7 @@ Source of truth: `package.json` (`exports`, `sideEffects`, `files`), `rollup.con
 | `openalgo-charts/trade` | `dist/openalgo-charts.trade.mjs` | order/position/bracket primitives, DOM ladder, `OrderEngine`, `TradeController`, `FakeBroker` | no standalone row; 68 KB for base + trade | no |
 | `openalgo-charts/transform` | `dist/openalgo-charts.transform.mjs` | Renko, Range, Point & Figure, Kagi, Line Break, Heikin Ashi, `runTransform` | 5 KB | **yes**, registers the `point-figure` and `kagi` chart types |
 | `openalgo-charts/profile` | `dist/openalgo-charts.profile.mjs` | Volume Profile, TPO / Market Profile, Footprint, orderflow | 11 KB | no |
-| `openalgo-charts/indicators` | `dist/openalgo-charts.indicators.mjs` | 102 Tier-1 built-ins plus the Tier-2 contract | 27 KB | **yes**, registers all 102 descriptors |
+| `openalgo-charts/indicators` | `dist/openalgo-charts.indicators.mjs` | 102 Tier-1 built-ins plus the Tier-2 contract | 30 KB | **yes**, registers all 102 descriptors |
 | `openalgo-charts/draw` | `dist/openalgo-charts.draw.mjs` | 43 drawing tools, `DrawingController`, `DrawingLayer` | 14 KB | **yes**, registers every built-in tool |
 
 Types resolve per tier: `dist/index.d.ts`, `dist/trade/index.d.ts`, `dist/transform/index.d.ts`, `dist/profile/index.d.ts`, `dist/indicators/index.d.ts`, `dist/draw/index.d.ts`.
@@ -131,13 +131,13 @@ Enforced by `npm run size` (`size-limit`, Brotli, `@size-limit/file`), from `.si
 
 | Budget row | Files measured | Limit | Measured |
 |---|---|---|---|
-| Base engine | `openalgo-charts.mjs` | 60 KB | 59.38 KB |
-| Base + trade layer | base + `trade.mjs` | 68 KB | 66.99 KB |
+| Base engine | `openalgo-charts.mjs` | 60 KB | 59.68 KB |
+| Base + trade layer | base + `trade.mjs` | 68 KB | 67.29 KB |
 | Indicator tier | `indicators.mjs` | 30 KB | 27.27 KB |
 | Draw tier | `draw.mjs` | 14 KB | 13.13 KB |
 | Transform tier | `transform.mjs` | 5 KB | 2.66 KB |
 | Profile tier | `profile.mjs` | 11 KB | 10.66 KB |
-| Everything | all six bundles | 124 KB | 120.7 KB |
+| Everything | all six bundles | 124 KB | 121 KB |
 
 The indicator tier and the `Everything` row were both raised in 1.8.3, from 27 KB and 120 KB, to carry that release's eleven new indicators. They move together by necessity: `Everything` contains the tier, so an aggregate below all-other-tiers plus the tier's ceiling would fail while the tier itself passed. The limits in `.size-limit.json` are the budget of record: measure, do not quote these figures from memory.
 

@@ -11,5 +11,5 @@
 export * from './index';
 export * from './transform/index'; // side effect: registers 'point-figure' and 'kagi'
 export * from './profile/index';
-export * from './indicators/index'; // side effect: registers the 19 Tier-1 built-ins
+export * from './indicators/index'; // side effect: registers the 102 Tier-1 built-ins
 export * from './draw/index'; // side effect: registers the built-in drawing tools

@@ -2,6 +2,47 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.8.6
+
+Both items are about the same thing: an indicator that has computed a number
+should say what that number is, at the precision the instrument trades in. No
+indicator maths changed.
+
+### Added
+
+- **Every plotted series now carries its current value as a tag on the price
+  axis.** A study drew its line to the right edge and then said nothing about
+  where it actually sat, so reading a Supertrend stop off the chart meant tracing
+  the line back by eye against the ladder. The pane collected one tag and
+  stopped, which meant the instrument claimed the only slot and every overlay,
+  every indicator plot and every comparison series was skipped.
+
+  A tag is drawn in its own plot's colour, formatted by the same scale as the
+  ticks beside it, for any series on the pane's readout scale: an overlay on the
+  price pane, a study on a pane of its own, a volume histogram on its own pane.
+  A plot whose current value is `na` draws nothing rather than showing the last
+  number it happened to have, so a flipped Supertrend tags one half and not both.
+  Set `lastValueVisible: false` on a series style to opt out, the same flag that
+  has always controlled the instrument's own tag.
+
+  Tags are resolved against each other and against the ladder by the existing
+  priority table, with a new `seriesValue` rank between `previousClose` and
+  `tick`: two studies a rupee apart do not print over one another, a tag
+  suppresses the plain tick it would otherwise sit on, and the last-price tag
+  outranks all of them.
+
+### Fixed
+
+- **The legend rounded a four-figure price to whole numbers.** A Supertrend at
+  1339.70 read `1340` in the legend while the price axis two inches away read
+  1339.70. The legend formatter was a magnitude ladder written for volume
+  columns, and one of its rungs rounds anything at or above 1000 to no decimals:
+  fine for 12.35M of turnover, wrong for a price, and 0.30 out for anyone reading
+  a stop off it. The legend now formats to the precision the pane's tick implies,
+  which is the precision the axis prints. Panes with no tick, volume and open
+  interest among them, keep the compacting ladder, and a `minMove` of 0 still
+  means "infer" rather than "no decimals".
+
 ## 1.8.5
 
 Three axis defects, all reported off a live chart placed side by side with a

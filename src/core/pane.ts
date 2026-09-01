@@ -10,10 +10,11 @@ import { DataLayer } from '../model/data-layer';
 import type { SeriesRecord, PriceScaleId } from '../model/series';
 import { computeGridLines, drawGrid, resolveGridStyle, resolveScaleStyle, type CanvasOptions } from '../render/grid';
 import { getChartType, type DrawItem, type SeriesRenderContext } from '../model/chart-type-registry';
+import type { SeriesStyle } from '../render/series-style';
 import { conflationGroupSize, conflateItems } from '../model/conflation';
 import {
   drawPriceAxis, drawLeftPriceAxis, drawTimeAxis, drawLastPriceLabel, drawSessionClock,
-  drawTimeAxisPill, lastPriceTagHeight, AXIS_LABEL_PRIORITY,
+  drawTimeAxisPill, lastPriceTagHeight, AXIS_LABEL_PRIORITY, resolveAxisLabels, drawSeriesValueTag,
   type PlotLayout, type TickMarkType, type AxisLabelBand,
   type SessionClockOptions, type BarCountdownOptions,
 } from '../render/axis';
@@ -70,6 +71,22 @@ export interface PaneRenderContext {
   hoverId?: string | null;
   /** externalId of the line currently being dragged (active visual state). */
   dragId?: string | null;
+}
+
+/**
+ * The one colour that stands for a series, for a tag that is too small to carry
+ * more than one. Line-family series say it outright; a candle or bar family says
+ * it per direction, so the current bar picks the side.
+ *
+ * Undefined means the series has no colour of its own to borrow, and no tag is
+ * worth inventing one for.
+ */
+function seriesTagColor(style: SeriesStyle, up: boolean): string | undefined {
+  if (typeof style.color === 'string') return style.color;
+  const directional = up ? style.upColor : style.downColor;
+  if (typeof directional === 'string') return directional;
+  if (typeof style.closeColor === 'string') return style.closeColor;
+  return undefined;
 }
 
 export class Pane {
@@ -547,6 +564,12 @@ export class Pane {
     // whichever side its scale is drawn on.
     const readout = this._readoutScale();
     let lastEntry: { close: number; up: boolean; showLine: boolean; showTag: boolean } | null = null;
+    // Every other series on the readout scale that is currently plotting a
+    // number: an indicator overlay, a comparison line, a study on its own pane.
+    // The main series keeps its dedicated tag above; these are what tells a
+    // reader where a Supertrend or a moving average sits without tracing the
+    // line back to the edge by eye.
+    const valueTags: { price: number; color: string }[] = [];
     const groupSize = ctx.conflate
       ? conflationGroupSize(ctx.timeScale.barSpacing, dpr, 0.5, ctx.conflationFactor)
       : 1;
@@ -569,15 +592,30 @@ export class Pane {
       for (const it of items) if ((it.bar.volume ?? 0) > maxVolume) maxVolume = it.bar.volume ?? 0;
       const rc: SeriesRenderContext = { plotHeight: layout.plotHeight, maxVolume, theme: ctx.theme };
       entry.draw(g, items, priceToY, ctx.timeScale.barSpacing, dpr, s.style, rc);
-      if (entry.isPriceSeries && lastEntry === null && scale === readout) {
+      // Only the readout scale has a strip to write into. A volume overlay
+      // sitting on its own hidden scale is excluded by that alone, while a
+      // volume study on a pane of its own is on the readout scale and does get
+      // a tag, formatted by the same scale as the ladder beside it.
+      if (scale === readout) {
         const last = ctx.dataLayer.lastIndexedBar(s.dataId);
-        if (last !== null) {
+        if (last !== null && entry.isPriceSeries && lastEntry === null) {
+          // The first price series on the readout scale is the instrument, and
+          // it owns the last-price line and the countdown tag.
           lastEntry = {
             close: last.bar.close,
             up: last.bar.close >= last.bar.open,
             showLine: s.style.priceLineVisible !== false,
             showTag: s.style.lastValueVisible !== false,
           };
+        } else if (last !== null && s.style.lastValueVisible !== false) {
+          // A plot that is currently `na` writes NaN rather than dropping the
+          // point, and a tag for it would either be blank or, worse, the stale
+          // value from whenever the line last had one. A flipped Supertrend's
+          // dormant half shows no tag, which is the honest answer.
+          const color = seriesTagColor(s.style, last.bar.close >= last.bar.open);
+          if (color !== undefined && Number.isFinite(last.bar.close)) {
+            valueTags.push({ price: last.bar.close, color });
+          }
         }
       }
     }
@@ -605,18 +643,47 @@ export class Pane {
     // The countdown makes the tag taller, so it must be the same question here
     // and in the call below, or the reservation would be the wrong size.
     const withCountdown = ctx.barCountdown?.visible === true;
-    let reserved: AxisLabelBand[] | undefined;
+    //
+    // The series tags are resolved here rather than left to `drawPriceAxis`,
+    // which drops the flags of whatever it is handed: it decides which ticks
+    // survive a reservation, not which reservations survive each other. Two
+    // moving averages a rupee apart are exactly that second question, and the
+    // last-price tag outranking both of them is the answer we want.
+    const inPlot = (y: number): boolean => y >= 0 && y <= layout.plotHeight * dpr;
+    const bands: AxisLabelBand[] = [];
     if (lastEntry !== null && showLastTag) {
       const y = Math.round(readout.priceToY(lastEntry.close) * dpr);
-      if (y >= 0 && y <= layout.plotHeight * dpr) {
-        reserved = [{
-          y,
-          height: lastPriceTagHeight(dpr, withCountdown),
-          priority: AXIS_LABEL_PRIORITY.lastPrice,
-        }];
+      if (inPlot(y)) {
+        bands.push({ y, height: lastPriceTagHeight(dpr, withCountdown), priority: AXIS_LABEL_PRIORITY.lastPrice });
       }
     }
+    // Series tags share the right-hand strip, so a scale that has moved to the
+    // left has nowhere to put them, the same reason the last-price tag is
+    // suppressed there.
+    const tagBase = bands.length;
+    const showValueTags = readout === this._rightScale;
+    if (showValueTags) {
+      for (const t of valueTags) {
+        const y = Math.round(readout.priceToY(t.price) * dpr);
+        bands.push({
+          y,
+          height: inPlot(y) ? lastPriceTagHeight(dpr) : NaN,
+          priority: AXIS_LABEL_PRIORITY.seriesValue,
+        });
+      }
+    }
+    // Same gap the ladder is resolved with, so a tag that survives here is not
+    // then drawn a pixel from the tick it displaced.
+    const allowed = bands.length > 0 ? resolveAxisLabels(bands, 2 * dpr) : [];
+    const reserved: AxisLabelBand[] | undefined =
+      bands.length > 0 ? bands.filter((_, i) => allowed[i]) : undefined;
     if (this.priceScale.scaled) drawPriceAxis(g, this.priceScale, layout, dpr, axisStyle, reserved);
+    if (showValueTags) {
+      for (let i = 0; i < valueTags.length; i++) {
+        if (!allowed[tagBase + i]) continue;
+        drawSeriesValueTag(g, readout, valueTags[i].price, valueTags[i].color, layout, dpr, axisStyle);
+      }
+    }
     if (lastEntry !== null) {
       // The tag belongs in the right-hand strip, which a scale that has moved
       // to the left no longer has: the line still means something without it,

@@ -21,6 +21,7 @@ import { IndicatorBackground } from '../primitives/indicator-background';
 
 import { withAlpha } from '../render/pill';
 import { DEFAULT_TIMEZONE } from '../feed/time';
+import { precisionForStep } from '../scale/ticks';
 import {
   indicatorDefaults,
   indicatorStyleInputs,
@@ -44,8 +45,22 @@ function styleDefaults(descriptor: IndicatorDescriptor): IndicatorSettings {
   return out;
 }
 
-/** Legend numbers: enough precision to be useful, never a 17-digit float. */
-function formatValue(v: number): string {
+/**
+ * Legend numbers: enough precision to be useful, never a 17-digit float.
+ *
+ * `tick` is the pane's price step when the pane quotes prices. Given one, the
+ * value is formatted to exactly the precision that tick implies, which is the
+ * same precision the axis beside it prints.
+ *
+ * Without it the magnitude ladder below applies, and that ladder is wrong for a
+ * price: it rounds anything at or above 1000 to whole numbers, so a Supertrend
+ * sitting at 1339.70 on a stock read "1340" in the legend while the axis two
+ * inches away read 1339.70. The ladder is still right for the columns it was
+ * written for, volume and open interest, where 12345678 has to compact to
+ * 12.35M and the trailing paise are noise.
+ */
+function formatValue(v: number, tick?: number): string {
+  if (tick !== undefined && tick > 0) return v.toFixed(precisionForStep(tick));
   const a = Math.abs(v);
   if (a >= 1e9) return `${(v / 1e9).toFixed(2)}B`;
   if (a >= 1e6) return `${(v / 1e6).toFixed(2)}M`;
@@ -393,7 +408,10 @@ export class IndicatorInstance implements IndicatorApi {
       // reads the close, which is the number a candle legend shows anyway.
       const v = this._values[plot.ohlc?.close ?? plot.key]?.[i];
       if (v === null || v === undefined || !Number.isFinite(v)) continue;
-      out.push({ text: formatValue(v), color: this._plotColor(plot) });
+      // The tick of the pane this plot draws in, so a plot on its own pane is
+      // formatted by that pane's step and not the price pane's.
+      const tick = this._host.tickSize?.(this._plotPane(plot));
+      out.push({ text: formatValue(v, tick), color: this._plotColor(plot) });
     }
     this._legend.setValues(out);
   }

@@ -13,6 +13,7 @@
 import type { PriceScale } from '../scale/price-scale';
 import type { TimeScale } from '../scale/time-scale';
 import type { DataLayer } from '../model/data-layer';
+import { contrastText } from './pill';
 import {
   DEFAULT_TIMEZONE, IST_OFFSET_SECONDS, formatIstDate, formatIstTime, formatIstTimeSeconds,
   formatZonedDate, formatZonedTime, formatZonedTimeSeconds, isNewIstDay, isNewZonedDay,
@@ -132,6 +133,11 @@ export interface AxisLabelBand {
  *                    reconstructible by eye.
  *  - `previousClose` yesterday's close. Same class, and less often the reason
  *                    the chart is open, so it yields to a live session extreme.
+ *  - `seriesValue`   the current reading of a plotted series, typically an
+ *                    indicator's. A reader can recover it by following the line
+ *                    to the edge, so it yields to every level above it, but it
+ *                    is the number the line exists to communicate and a plain
+ *                    tick beside it is the more expendable of the two.
  *  - `tick`          the plain ladder. The one label a reader can interpolate
  *                    from its neighbours, so it is the one to drop.
  *
@@ -144,6 +150,7 @@ export const AXIS_LABEL_PRIORITY = {
   priceLine: 70,
   sessionLevel: 50,
   previousClose: 40,
+  seriesValue: 30,
   tick: 10,
 } as const;
 
@@ -601,6 +608,56 @@ export function lastPriceTagHeight(dpr: number, countdown = false): number {
   return (countdown ? AXIS_TAG_HEIGHT_COUNTDOWN : AXIS_TAG_HEIGHT) * dpr;
 }
 
+/**
+ * The current value of one plotted series, as a tag in the price-axis strip.
+ *
+ * This is the last-price tag's smaller sibling and is deliberately the same
+ * shape, because it means the same thing: where this line is right now. What it
+ * does not get is the dashed line across the plot, since the series already
+ * draws itself all the way to the edge, nor the bar countdown, which belongs to
+ * the instrument and not to a study computed from it.
+ *
+ * The price is formatted by the scale the series maps to, so a tag reads at the
+ * same precision as the ticks above and below it.
+ */
+/**
+ * One filled tag in the axis strip, sized to its own text. Shared by the
+ * last-price tag and the per-series ones so the two cannot drift apart in
+ * padding, height or baseline.
+ */
+function fillTag(
+  ctx: CanvasRenderingContext2D,
+  xStart: number, y: number, boxH: number, padX: number,
+  label: string, fill: string, text: string,
+): void {
+  const textW = ctx.measureText(label).width;
+  ctx.fillStyle = fill;
+  ctx.fillRect(xStart + 1, y - boxH / 2, textW + padX * 2, boxH);
+  ctx.fillStyle = text;
+  ctx.fillText(label, xStart + 1 + padX, y);
+}
+
+export function drawSeriesValueTag(
+  ctx: CanvasRenderingContext2D,
+  priceScale: PriceScale,
+  price: number,
+  fill: string,
+  layout: PlotLayout,
+  dpr: number,
+  style: AxisStyle = DEFAULT_AXIS_STYLE,
+): void {
+  if (!Number.isFinite(price)) return;
+  const y = Math.round(priceScale.priceToY(price) * dpr);
+  if (y < 0 || y > layout.plotHeight * dpr) return;
+  ctx.save();
+  ctx.font = scaleFont(style.font, dpr);
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  fillTag(ctx, Math.round(layout.plotWidth * dpr), y, lastPriceTagHeight(dpr), 6 * dpr,
+    priceScale.format(price), fill, contrastText(fill));
+  ctx.restore();
+}
+
 export function drawLastPriceLabel(
   ctx: CanvasRenderingContext2D,
   priceScale: PriceScale,
@@ -644,11 +701,7 @@ export function drawLastPriceLabel(
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     if (!withCountdown) {
-      const textW = ctx.measureText(label).width;
-      ctx.fillStyle = color;
-      ctx.fillRect(xStart + 1, y - boxH / 2, textW + padX * 2, boxH);
-      ctx.fillStyle = colors.text;
-      ctx.fillText(label, xStart + 1 + padX, y);
+      fillTag(ctx, xStart, y, boxH, padX, label, color, colors.text);
     } else {
       const clock = formatCountdown(
         barCountdownSeconds(countdown.lastBarTime, countdown.intervalSec, countdown.now()),
