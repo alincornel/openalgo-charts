@@ -510,6 +510,22 @@ describe('price-axis label overlap suppression', () => {
     }]);
     expect(texts(rec)).toEqual(ticks.map((p) => ps.format(p)).filter((_, i) => i !== 1));
   });
+
+  it('an explicit price-axis tick target overrides the height-derived count', () => {
+    const ps = scale();
+    const sparse = makeCtx();
+    const dense = makeCtx();
+
+    // Without a target the ladder is sized from the plot height; a target is a
+    // hard cap in either direction, so two explicit values must differ from
+    // each other and each must match the ladder asked for.
+    drawPriceAxis(sparse.ctx, ps, LAYOUT, 1, undefined, undefined, 4);
+    drawPriceAxis(dense.ctx, ps, LAYOUT, 1, undefined, undefined, 10);
+
+    expect(texts(sparse.rec).length).toBeLessThan(texts(dense.rec).length);
+    expect(texts(sparse.rec)).toEqual(ps.ticks(4).map((p) => ps.format(p)));
+    expect(texts(dense.rec)).toEqual(ps.ticks(10).map((p) => ps.format(p)));
+  });
 });
 
 // ---------------------------------------------------------------------------

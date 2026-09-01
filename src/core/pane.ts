@@ -28,6 +28,8 @@ export interface PaneRenderContext {
   dataLayer: DataLayer;
   dpr: number;
   priceAxisWidth: number;
+  /** Target maximum label count for the left and right price axes. */
+  priceTickCount?: number;
   /** Left inset (px) reserved chart-wide for a left price axis; 0/absent when none. */
   leftAxisWidth?: number;
   timeAxisHeight: number;
@@ -519,7 +521,10 @@ export class Pane {
     // Left price axis strip (absolute coords), drawn before the plot is shifted.
     if (this._leftScale && layout.plotLeft > 0) {
       if (this._leftScale.scaled) {
-        drawLeftPriceAxis(g, this._leftScale, layout.plotLeft, layout.plotHeight, dpr, axisStyle);
+        drawLeftPriceAxis(
+          g, this._leftScale, layout.plotLeft, layout.plotHeight, dpr, axisStyle,
+          undefined, ctx.priceTickCount,
+        );
       }
     }
 
@@ -677,7 +682,9 @@ export class Pane {
     const allowed = bands.length > 0 ? resolveAxisLabels(bands, 2 * dpr) : [];
     const reserved: AxisLabelBand[] | undefined =
       bands.length > 0 ? bands.filter((_, i) => allowed[i]) : undefined;
-    if (this.priceScale.scaled) drawPriceAxis(g, this.priceScale, layout, dpr, axisStyle, reserved);
+    if (this.priceScale.scaled) {
+      drawPriceAxis(g, this.priceScale, layout, dpr, axisStyle, reserved, ctx.priceTickCount);
+    }
     if (showValueTags) {
       for (let i = 0; i < valueTags.length; i++) {
         if (!allowed[tagBase + i]) continue;

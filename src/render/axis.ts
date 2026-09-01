@@ -227,11 +227,12 @@ export function drawPriceAxis(
   dpr: number,
   style: AxisStyle = DEFAULT_AXIS_STYLE,
   reserved?: readonly AxisLabelBand[],
+  maxTicks?: number,
 ): void {
   // The scale owns the ladder: in the rebasing modes a nice price is an ugly
   // percentage, so the values have to be chosen in label space (see
   // `PriceScale.ticks`). Linear and log get the same ladder as before.
-  const ticks = priceScale.ticks(priceTickCount(layout.plotHeight));
+  const ticks = priceScale.ticks(maxTicks ?? priceTickCount(layout.plotHeight));
   const keep = survivingTicks(ticks, priceScale, dpr, reserved);
   const xStart = Math.round(layout.plotWidth * dpr);
 
@@ -275,8 +276,9 @@ export function drawLeftPriceAxis(
   dpr: number,
   style: AxisStyle = DEFAULT_AXIS_STYLE,
   reserved?: readonly AxisLabelBand[],
+  maxTicks?: number,
 ): void {
-  const ticks = priceScale.ticks(priceTickCount(plotHeight));
+  const ticks = priceScale.ticks(maxTicks ?? priceTickCount(plotHeight));
   const keep = survivingTicks(ticks, priceScale, dpr, reserved);
   const xEdge = Math.round(plotLeft * dpr);
 

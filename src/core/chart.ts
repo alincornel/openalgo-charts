@@ -128,6 +128,12 @@ export interface ChartOptions {
   /** Full palette; pass `lightTheme` (the default), `darkTheme`, or a custom ChartTheme. */
   theme?: ChartTheme;
   priceAxisWidth?: number;
+  /**
+   * Target maximum number of labels on each price axis. The tick ladder still
+   * uses instrument-aware "nice" values, so the rendered count can be lower.
+   * Unset: derived from the pane's plot height.
+   */
+  priceTickCount?: number;
   timeAxisHeight?: number;
   /**
    * Where indicator legend rows start inside **one** pane, in media px. A host
@@ -392,6 +398,7 @@ export class Chart {
   private readonly _dataLayer = new DataLayer();
   private readonly _timeScale = new TimeScale();
   private readonly _priceAxisWidth: number;
+  private readonly _priceTickCount: number | undefined;
   private readonly _timeAxisHeight: number;
   private _pending: InvalidateMask | null = null;
   private _resizeObserver: ResizeObserver | null = null;
@@ -543,6 +550,9 @@ export class Chart {
     this._pixelRatio = options.pixelRatio ?? defaultPixelRatio;
     this._theme = options.theme ?? DEFAULT_THEME;
     this._priceAxisWidth = options.priceAxisWidth ?? 56;
+    // Unset means the axis picks a count from its plot height; an explicit
+    // value is a hard cap for hosts that want a denser or sparser ladder.
+    this._priceTickCount = options.priceTickCount == null ? undefined : Math.max(2, Math.round(options.priceTickCount));
     this._rightAxisWidth = this._priceAxisWidth; // the right axis is the default one
 
     if (options.legendOffset?.top !== undefined) this._legendOffset.top = options.legendOffset.top;
@@ -2593,6 +2603,7 @@ export class Chart {
       dataLayer: this._dataLayer,
       dpr: this._pixelRatio(),
       priceAxisWidth: this._rightAxisWidth,
+      priceTickCount: this._priceTickCount,
       timeAxisHeight: this._timeAxisHeight,
       showTimeAxis,
       conflate: this._conflate,
