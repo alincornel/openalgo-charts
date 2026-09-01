@@ -271,7 +271,7 @@ npm run verify     # typecheck + test + build + size
 
 ## Status &amp; limitations
 
-Version **1.8.3**. All engine build phases are implemented with 2408 unit tests across 129 files.
+Version **1.8.4**. All engine build phases are implemented with 2411 unit tests across 130 files.
 
 Known gaps, stated plainly:
 

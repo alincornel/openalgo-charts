@@ -2,6 +2,73 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.8.4
+
+A performance release. No indicator maths changed and no public surface moved:
+every number this engine draws is the same as in 1.8.3.
+
+### Changed
+
+- **Indicator recompute is scheduled with the frame instead of the data update.**
+  It ran synchronously inside `updateBar`, so a burst of live ticks spent a full
+  pass over every bar, for every indicator, on every tick, and threw all but the
+  last away unseen. Rendering was already coalesced into a frame; the maths was
+  not.
+
+  Measured on a 1875-bar chart, 50 ticks arriving between two frames:
+
+  | | recomputes per indicator | burst |
+  | --- | --: | --- |
+  | before | 50 | typical 175 ms, heavy 643 ms |
+  | after | 1 | typical 7 ms, heavy 21 ms |
+
+  That is 24x on a five indicator chart and 31x on a ten indicator one. 643 ms
+  of blocked main thread is roughly 38 dropped frames from a single burst, which
+  is what a trader sees as jank at the open.
+
+  **Deferring the maths does not defer the answer.** `chart.indicators()` and
+  `IndicatorInstance.values()` both flush any pending recompute before returning,
+  through a new optional `flushIndicators()` on `IndicatorHost`. A caller that
+  updates a bar and reads the value back in the same turn still gets the fresh
+  number. The hook is optional, so a host that implements `IndicatorHost` itself
+  needs no change.
+
+  This bounds recompute by the display refresh rather than by the tick rate. It
+  does not make a recompute cheaper, so a host still pays once per frame for
+  whatever history it has loaded.
+
+### Added
+
+- `npm run bench`, an indicator performance benchmark, now running in CI. The
+  test suite proves the numbers an indicator produces and never the cost of
+  producing them, so an algorithmic regression shipped silently before this.
+  Budgets are a tenfold guard rather than a tight bound.
+- `npm run soak`, a teardown and long-session memory harness. Measured: 1.30 kB
+  retained per chart over 300 create and destroy cycles, and a heap flat across
+  20,000 ticks (+9.4 bytes per tick, about 0.80 MB over a full trading session).
+  Deliberately not in the CI gate: heap thresholds on a shared runner are flaky,
+  and a memory test that cries wolf teaches people to ignore memory tests.
+
+### Fixed
+
+- Three documentation surfaces stated that `npm run size` was failing on the
+  indicator tier and the aggregate row. That was true for the hour between the
+  1.8.3 additions landing and the budgets being raised, and it never shipped.
+
+### Sizes
+
+| Bundle | Limit | Actual |
+|---|---|---|
+| Base engine | 60 KB | 59.2 KB |
+| Base + trade | 68 KB | 66.81 KB |
+| Indicators tier | 30 KB | 27.27 KB |
+| Draw tier | 14 KB | 13.13 KB |
+| Transform tier | 5 KB | 2.66 KB |
+| Profile tier | 11 KB | 10.66 KB |
+| **Everything** | **124 KB** | **120.53 KB** |
+
+2411 tests across 130 files.
+
 ## 1.8.3
 
 Eleven indicators added, taking the registry from 91 to 102, and every one of them

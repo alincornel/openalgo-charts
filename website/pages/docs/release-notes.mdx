@@ -8,6 +8,58 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 1.8.4
+
+A performance release. No indicator maths changed and no public surface moved, so every
+number this engine draws is identical to 1.8.3. If you upgrade from 1.8.3 your charts will
+look exactly the same, and behave better under a fast feed.
+
+**Changed**
+
+- **Indicator recompute is now scheduled with the frame rather than driven from the data
+  update.** It used to run synchronously inside the bar update, so a burst of live ticks
+  spent a full pass over every bar, for every indicator, on every tick, and threw all but
+  the last away unseen. Rendering was already coalesced into an animation frame; the maths
+  was not.
+
+  Measured on a 1875-bar chart with 50 ticks arriving between two frames:
+
+  | | recomputes per indicator | cost of the burst |
+  | --- | --: | --- |
+  | before | 50 | 175 ms with five indicators, 643 ms with ten |
+  | after | 1 | 7 ms with five, 21 ms with ten |
+
+  That is 24x and 31x. 643 ms of blocked main thread is roughly 38 dropped frames from one
+  burst, which is what a trader sees as jank at the open.
+
+  Deferring the maths does not defer the answer: `chart.indicators()` and an indicator's
+  `values()` both flush any pending recompute before returning, so a caller that updates a
+  bar and reads the value back in the same turn still gets the fresh number. The flush
+  hook on `IndicatorHost` is optional, so a host that implements the interface itself needs
+  no change.
+
+  One honest limit. This bounds recompute by the display refresh instead of by the tick
+  rate; it does not make a single recompute cheaper. A host that loads deep history still
+  pays for that history once per frame, so capping the bars fed to a live chart remains the
+  other half of the answer.
+
+**Added**
+
+- `npm run bench`, an indicator performance benchmark, now running in CI. The test suite
+  proves the numbers an indicator produces and never the cost of producing them, so an
+  algorithmic regression shipped silently before this.
+- `npm run soak`, a teardown and long-session memory harness, for the two questions a unit
+  suite cannot answer. Measured: **1.30 kB retained per chart** over 300 create and destroy
+  cycles, and a heap **flat across 20,000 ticks** (+9.4 bytes per tick, about 0.80 MB over
+  a full trading session). It is deliberately not in the CI gate, because heap thresholds
+  on a shared runner are flaky and a memory test that cries wolf teaches people to ignore
+  memory tests.
+
+**Sizes**
+
+Indicator tier 27.27 kB Brotli against a 30 kB budget, and 120.53 kB for every tier at
+once. The base engine is 59.2 kB.
+
 ## 1.8.3
 
 An accuracy release for the indicator tier. Every built-in was measured value by value
