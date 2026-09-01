@@ -47,6 +47,8 @@ yfinance (Python)  ──►  server.py /api/history  ──►  YFinanceDataFee
 | **Layout save/restore** | `chart.getState()` → `localStorage` → `chart.restoreState()`, reporting how many indicators and series descriptors round-tripped. |
 | **Volume overlay** | Volume rides an overlay price scale (`priceScaleId: ''`) inside the price pane, pinned to the bottom fifth — so the right-hand axis stays a clean price ladder instead of stacking a second numeric scale. |
 | **Chart trading** | Right-click for single orders; Buy/Sell Bracket for entry + OCO target/stop. Drag any line to re-price it. |
+| **Market replay** | Press Replay and pick the bar to start from: everything to its right greys out across every pane while you choose, because picking a start with the next twenty bars readable is picking on hindsight. Then walk it. On an interval with a finer one below it the displayed bar *forms* rather than landing complete, and the transport counts the steps (a 1d bar over 60m data takes 7). A "Replay" mark sits on the plot the whole time, since a chart replaying August looks exactly like one showing today. Leaving asks first. |
+| **Chart snapshot** | The camera saves the chart as a PNG or copies it to the clipboard, ready to paste. Built on `chart.takeScreenshot()`, so anything drawn on the canvas, watermark and replay mark included, is in the image. |
 
 ## Notes
 

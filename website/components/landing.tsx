@@ -15,9 +15,9 @@ return chart;`;
 
 const STATS: Array<[string, string]> = [
   ['0', 'runtime dependencies'],
-  ['121 KB', 'Brotli, every tier'],
+  ['122 KB', 'Brotli, every tier'],
   ['15', 'chart types'],
-  ['2436', 'tests, green'],
+  ['2466', 'tests, green'],
 ];
 
 export function Hero() {

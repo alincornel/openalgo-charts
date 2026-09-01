@@ -488,6 +488,49 @@
     #replaybar .rcount { color: var(--tx); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
     #replaybar .rclock { color: var(--faint); font-size: 11px; white-space: nowrap; }
     #replaybar .vsep { width: 1px; height: 18px; background: var(--bd-soft); flex: none; }
+    #replaybar .rsub { color: var(--acc); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+    /* ── select-bar prompt ──────────────────────────────────────────
+     * Sits where the transport will be, so the mode reads as one flow:
+     * choose a bar, then walk from it. */
+    #replaypick { position: absolute; left: 50%; bottom: 30px; z-index: 26; transform: translateX(-50%);
+      display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 8px;
+      background: var(--elev-1); border: 1px solid var(--bd); box-shadow: 0 6px 22px rgba(0,0,0,.45);
+      color: var(--tx); font-size: 12px; white-space: nowrap; }
+    #replaypick[hidden] { display: none; }
+    #replaypick .hint { color: var(--faint); }
+    #replaypick button { height: 26px; padding: 0 10px; border-radius: 6px; cursor: pointer;
+      background: var(--elev-2); border: 1px solid var(--bd); color: var(--tx); font-size: 12px; }
+    #replaypick button:hover { background: var(--elev-3, var(--elev-2)); }
+    /* The pick cursor says "click to choose", not "drag the chart". */
+    #chart.is-picking canvas { cursor: crosshair; }
+
+    /* ── leave-replay confirm ─────────────────────────────────────── */
+    #replayleave { position: absolute; inset: 0; z-index: 40; display: flex; align-items: center;
+      justify-content: center; background: rgba(0,0,0,.45); }
+    #replayleave[hidden] { display: none; }
+    #replayleave .box { width: 340px; padding: 18px; border-radius: 10px; background: var(--elev-1);
+      border: 1px solid var(--bd); box-shadow: 0 18px 50px rgba(0,0,0,.6); }
+    #replayleave h4 { margin: 0 0 8px; font-size: 14px; color: var(--tx); }
+    #replayleave p { margin: 0 0 16px; font-size: 12px; color: var(--faint); line-height: 1.5; }
+    #replayleave .row { display: flex; justify-content: flex-end; gap: 8px; }
+    #replayleave button { height: 28px; padding: 0 14px; border-radius: 6px; cursor: pointer;
+      border: 1px solid var(--bd); background: var(--elev-2); color: var(--tx); font-size: 12px; }
+    #replayleave button.primary { background: var(--tx); color: var(--bg); border-color: var(--tx); }
+
+    /* ── chart snapshot menu ──────────────────────────────────────── */
+    #snapmenu { position: absolute; z-index: 60; min-width: 220px; padding: 6px; border-radius: 8px;
+      background: var(--elev-1); border: 1px solid var(--bd); box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+    #snapmenu[hidden] { display: none; }
+    #snapmenu .head { padding: 6px 8px 4px; font-size: 10px; letter-spacing: .08em;
+      text-transform: uppercase; color: var(--faint); }
+    #snapmenu button { width: 100%; display: flex; align-items: center; gap: 10px; height: 30px;
+      padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--tx);
+      font-size: 12px; cursor: pointer; text-align: left; }
+    #snapmenu button:hover { background: var(--elev-2); }
+    #snapmenu button svg { width: 15px; height: 15px; fill: none; stroke: currentColor;
+      stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+    #snapmenu .key { margin-left: auto; color: var(--faint); font-size: 11px; }
 
     /* ── compare dialog ─────────────────────────────────────────── */
     #cmpmodal { position: fixed; inset: 0; z-index: 61; background: rgba(6,8,12,.55);
@@ -672,6 +715,27 @@
            state(), because the engine ships no DOM. Lives inside the stage so it
            comes along into chart-only full screen. -->
       <div id="replaybar" hidden></div>
+
+      <!-- Select-bar prompt. Replay opens here rather than jumping straight in:
+           the bar you start from is the whole premise of the exercise, so it is
+           chosen, not guessed at from the viewport. -->
+      <div id="replaypick" hidden>
+        <span><strong>Select a bar</strong> <span class="hint">to replay from</span></span>
+        <span class="hint" id="rp-picked"></span>
+        <button id="rp-pick-cancel">Cancel</button>
+      </div>
+
+      <!-- Leaving replay throws away the playhead, so it asks first. -->
+      <div id="replayleave" hidden>
+        <div class="box">
+          <h4>Leave replay?</h4>
+          <p>The chart goes back to the live session and the playhead is lost.</p>
+          <div class="row">
+            <button id="rp-leave-stay">Stay</button>
+            <button id="rp-leave-go" class="primary">Leave</button>
+          </div>
+        </div>
+      </div>
     </main>
     <!-- The linked second chart. Its header is built by renderPane2Bar(); the
          plot is a whole second Chart joined to the same link group, which is the
@@ -823,7 +887,7 @@
     // served against a dist/ built before these shipped should still draw a
     // chart and simply report the feature as unavailable.
     import * as engine from '/dist/openalgo-charts.mjs';
-    const { ReplayController, addComparison, comparisonController } = engine;
+    const { ReplayController, addComparison, comparisonController, TextWatermark, ReplayShade } = engine;
     const { chartSettingsSchema, readChartSettings, applyChartSettings } = engine;
     // Price-level family (previous close, session extremes, extended hours,
     // bid/ask). Read off the namespace for the same reason as the block above:
@@ -2339,6 +2403,25 @@
     const closeCompare = () => { el('cmpmodal').hidden = true; };
 
     el('cmp-add').addEventListener('click', () => addCompareSymbol(el('cmp-sym').value));
+
+    document.addEventListener('click', (e) => {
+      const menu = el('snapmenu');
+      if (menu && !menu.hidden && !menu.contains(e.target)) closeSnapMenu();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (!e.ctrlKey || e.key.toLowerCase() !== 's') return;
+      if (e.altKey) { e.preventDefault(); downloadSnapshot(); }
+      else if (e.shiftKey) { e.preventDefault(); copySnapshot(); }
+    });
+
+    el('rp-pick-cancel').addEventListener('click', cancelPick);
+    el('rp-leave-stay').addEventListener('click', () => { el('replayleave').hidden = true; });
+    el('rp-leave-go').addEventListener('click', exitReplay);
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      if (!el('replayleave').hidden) { el('replayleave').hidden = true; return; }
+      if (replayPicking) cancelPick();
+    });
     el('cmp-sym').addEventListener('keydown', (e) => {
       if (e.key === 'Enter') { e.preventDefault(); addCompareSymbol(el('cmp-sym').value); }
     });
@@ -2354,6 +2437,28 @@
     const REPLAY_SPEEDS = [0.5, 1, 2, 5, 10];
     let replay = null;
     let replaySpeed = 1;
+    /** Non-null while the user is choosing the bar to start from. */
+    let replayPickIndex = null;
+    let replayPicking = false;
+    /** One shade per pane: the future has to be hidden on all of them. */
+    let replayShades = [];
+    let replayMark = null;
+    /** Base-interval bars under the displayed ones, for intra-bar replay. */
+    let replaySubBars = null;
+
+    /**
+     * The interval a displayed bar is built from, so replay can form one in
+     * front of the user instead of landing it whole.
+     *
+     * One rung down, not the finest available: 1-minute bars under a daily chart
+     * would be 375 steps per candle, which is not a replay, it is a stall. The
+     * pairs stop where the feed does, and an interval with no rung below it
+     * simply replays bar by bar as before.
+     */
+    const REPLAY_SUB_INTERVAL = {
+      '5m': '1m', '15m': '5m', '30m': '15m', '60m': '15m', '1h': '15m',
+      '1d': '60m', '1wk': '1d', '1mo': '1d',
+    };
 
     /** Where the newest bar sits while replay is running (or the real one). */
     const lastBar = () => (replay ? replay.state().bar : null) || currentBars[currentBars.length - 1];
@@ -2370,35 +2475,185 @@
       return Math.max(floor, Math.min(total - 1, from));
     }
 
+    /**
+     * Step one: choose where to start.
+     *
+     * Replay used to open at the left edge of the viewport, which quietly
+     * decided the exercise for the user. The bar you start from is the whole
+     * premise -- "from here, what happens next?" -- so it is picked, and while
+     * it is being picked everything to the right is greyed. Choosing a start
+     * while able to read the next twenty bars is choosing on hindsight, which is
+     * the one thing replay exists to remove.
+     */
     function enterReplay() {
-      if (replay || !chart) return;
+      if (replay || replayPicking || !chart) return;
       if (!ReplayController) { el('status').textContent = 'replay is not in this build of dist/'; return; }
       const bars = price ? price.getData() : [];
       if (bars.length < 2) { el('status').textContent = 'replay needs bars'; return; }
+      replayPicking = true;
+      replayPickIndex = replayStartIndex(bars.length);
+      setShadeIndex(replayPickIndex);
+      el('chart').classList.add('is-picking');
+      el('replaypick').hidden = false;
+      syncPickHint();
+      renderToolbar();
+      el('status').textContent = 'replay: click a bar to start from (Esc to cancel)';
+    }
+
+    /**
+     * Move (or raise, or clear) the veil on every pane.
+     *
+     * Built lazily and per pane because a pane can appear while the picker is
+     * open -- an oscillator added mid-selection -- and a pane left bright to the
+     * right of the cut shows exactly what the shade is hiding on the one above.
+     */
+    function setShadeIndex(index) {
+      if (!ReplayShade || !chart) return;
+      const panes = chart.panes ? chart.panes() : [];
+      for (let i = replayShades.length; i < panes.length; i++) {
+        const shade = new ReplayShade({ index: null, lineVisible: i === 0 });
+        chart.addPrimitive(shade, i);
+        replayShades.push(shade);
+      }
+      for (const shade of replayShades) shade.setOptions({ index });
+    }
+
+    /** The hovered bar, while the picker is open. */
+    function movePick(index) {
+      if (!replayPicking || index === null || index === undefined) return;
+      const total = price ? price.getData().length : 0;
+      if (total === 0) return;
+      const clamped = Math.max(0, Math.min(total - 1, Math.round(index)));
+      if (clamped === replayPickIndex) return;
+      replayPickIndex = clamped;
+      setShadeIndex(clamped);
+      syncPickHint();
+    }
+
+    function syncPickHint() {
+      const bars = price ? price.getData() : [];
+      const b = bars[replayPickIndex];
+      const hint = el('rp-picked');
+      if (hint) hint.textContent = b ? barStamp(b.time) : '';
+    }
+
+    function cancelPick() {
+      if (!replayPicking) return;
+      replayPicking = false;
+      replayPickIndex = null;
+      setShadeIndex(null);
+      el('chart').classList.remove('is-picking');
+      el('replaypick').hidden = true;
+      renderToolbar();
+      el('status').textContent = 'replay cancelled';
+    }
+
+    /**
+     * Step two: walk forward from the chosen bar.
+     *
+     * The shade comes off here rather than staying on the un-walked future,
+     * because replay truncates the series: past the playhead there is nothing
+     * left to cover.
+     */
+    async function startReplayAt(index) {
+      if (!chart || replay) return;
+      const bars = price ? price.getData() : [];
+      if (bars.length < 2) return;
+      replayPicking = false;
+      el('chart').classList.remove('is-picking');
+      el('replaypick').hidden = true;
+      setShadeIndex(null);
+
+      const sub = await loadReplaySubBars();
       // Volume rides along: the DataLayer merges every series onto one axis, so
       // a full-length volume histogram would hold the axis open at bars the
       // price series has not reached yet.
       replay = new ReplayController(chart, {
         series: volume ? [price, volume] : [price],
-        startIndex: replayStartIndex(bars.length),
+        startIndex: Math.max(0, Math.min(bars.length - 1, index)),
+        subBars: sub || undefined,
         barMs: 1000,
         speed: replaySpeed,
       });
+      showReplayMark(true);
       buildReplayBar();
       el('replaybar').hidden = false;
       syncReplayBar();
       renderToolbar();
-      el('status').textContent = 'replay: press play, or scrub / step through the session';
+      const steps = replay.state().subSteps;
+      el('status').textContent = steps > 1
+        ? `replay: each ${req.interval} bar forms in ${steps} steps of ${REPLAY_SUB_INTERVAL[req.interval]}`
+        : 'replay: press play, or scrub / step through the session';
     }
 
+    /**
+     * The base-interval session under the displayed one.
+     *
+     * Fetched once per interval and kept, because it is history: closed bars do
+     * not change. A failure is not an error the user needs to see -- replay
+     * simply falls back to whole-bar steps -- so it is swallowed rather than
+     * blocking the mode on a second network call.
+     */
+    async function loadReplaySubBars() {
+      const finer = REPLAY_SUB_INTERVAL[req.interval];
+      if (!finer) return null;
+      if (replaySubBars && replaySubBars.interval === req.interval) return replaySubBars.bars;
+      try {
+        const bars = await fetchBars(req.symbol, finer, req.period);
+        if (!bars || bars.length === 0) return null;
+        replaySubBars = { interval: req.interval, bars };
+        return bars;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    /**
+     * The mode marker. A chart replaying August looks exactly like a chart
+     * showing today, and reading a live decision off history is the mistake this
+     * exists to prevent, so it goes on while replay is on and comes off with it.
+     */
+    function showReplayMark(on) {
+      if (!TextWatermark || !chart) return;
+      if (on) {
+        if (!replayMark) {
+          replayMark = new TextWatermark({ text: 'Replay' });
+          chart.addPrimitive(replayMark, 0);
+        } else {
+          replayMark.setOptions({ text: 'Replay' });
+        }
+      } else if (replayMark) {
+        replayMark.setOptions({ text: '' });
+      }
+    }
+
+    /**
+     * Leave without asking. Used by the confirm dialog, and by anything that is
+     * tearing the chart down anyway (a symbol or chart-type change), where a
+     * prompt would be asking permission for something already decided.
+     */
     function exitReplay() {
+      cancelPick();
       if (!replay) return;
       replay.stop();   // restores each driven series' data and the viewport
       replay = null;
+      showReplayMark(false);
       el('replaybar').hidden = true;
       el('replaybar').innerHTML = '';
+      el('replayleave').hidden = true;
       setLegend(currentBars[currentBars.length - 1]);
       renderToolbar();
+    }
+
+    /**
+     * The user-facing exit. Walking a session is work, and the playhead is the
+     * only record of how far it got, so closing the mode confirms rather than
+     * discarding it on a mis-click.
+     */
+    function askExitReplay() {
+      if (replayPicking) { cancelPick(); return; }
+      if (!replay) return;
+      el('replayleave').hidden = false;
     }
 
     function toggleReplayPlay() {
@@ -2444,11 +2699,11 @@
         bar.appendChild(s);
       };
 
-      btn('exit', 'Exit replay (puts the chart back)', exitReplay);
+      btn('exit', 'Exit replay (puts the chart back)', askExitReplay);
       sep();
-      btn('stepback', 'Step back one bar', () => replay && replay.stepBack());
+      btn('stepback', 'Step back', () => replay && replay.stepBack(), 'rp-back');
       btn('play', 'Play', toggleReplayPlay, 'rp-play');
-      btn('stepfwd', 'Step forward one bar', () => replay && replay.step());
+      btn('stepfwd', 'Step forward', () => replay && replay.step(), 'rp-fwd');
       sep();
 
       const scrub = document.createElement('input');
@@ -2464,6 +2719,10 @@
       count.className = 'rcount';
       count.id = 'rp-count';
       bar.appendChild(count);
+      const sub = document.createElement('span');
+      sub.className = 'rsub';
+      sub.id = 'rp-sub';
+      bar.appendChild(sub);
       const clock = document.createElement('span');
       clock.className = 'rclock';
       clock.id = 'rp-clock';
@@ -2477,6 +2736,92 @@
       bar.appendChild(speed);
     }
 
+    /* ── chart snapshot ──────────────────────────────────────────────────
+     * `chart.takeScreenshot()` returns a canvas with everything on it, the
+     * watermark and the replay mark included, because they are drawn on the
+     * chart rather than laid over it in HTML.
+     */
+
+    /** A PNG blob of the chart as it stands. */
+    function snapshotBlob() {
+      return new Promise((resolve, reject) => {
+        if (!chart || !chart.takeScreenshot) { reject(new Error('no screenshot in this build')); return; }
+        const canvas = chart.takeScreenshot();
+        canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('canvas produced no image'))), 'image/png');
+      });
+    }
+
+    function snapshotName() {
+      const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+      return `${(req.symbol || 'chart').replace(/[^A-Za-z0-9._-]/g, '')}-${req.interval}-${stamp}.png`;
+    }
+
+    async function downloadSnapshot() {
+      closeSnapMenu();
+      try {
+        const blob = await snapshotBlob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = snapshotName();
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        // Revoked on the next turn: revoking synchronously races the download in
+        // some browsers, which then saves an empty file.
+        setTimeout(() => URL.revokeObjectURL(url), 0);
+        el('status').textContent = 'saved ' + a.download;
+      } catch (err) {
+        el('status').textContent = 'snapshot failed: ' + err.message;
+      }
+    }
+
+    async function copySnapshot() {
+      closeSnapMenu();
+      try {
+        const blob = await snapshotBlob();
+        // The clipboard image API is the only one that pastes into a post
+        // composer. It needs a secure context and a user gesture, both of which
+        // a click on this menu item supplies.
+        if (!navigator.clipboard || typeof ClipboardItem === 'undefined') {
+          throw new Error('clipboard images need https or localhost');
+        }
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        el('status').textContent = 'chart copied, paste it anywhere';
+      } catch (err) {
+        el('status').textContent = 'copy failed: ' + err.message;
+      }
+    }
+
+    function openSnapMenu(anchor) {
+      let menu = el('snapmenu');
+      if (!menu) {
+        menu = document.createElement('div');
+        menu.id = 'snapmenu';
+        menu.innerHTML =
+          '<div class="head">Chart snapshot</div>'
+          + '<button id="snap-save">' + ticon('download') + '<span>Download image</span>'
+          + '<span class="key">Ctrl+Alt+S</span></button>'
+          + '<button id="snap-copy">' + ticon('copy') + '<span>Copy image</span>'
+          + '<span class="key">Ctrl+Shift+S</span></button>';
+        document.body.appendChild(menu);
+        el('snap-save').addEventListener('click', downloadSnapshot);
+        el('snap-copy').addEventListener('click', copySnapshot);
+      }
+      const r = anchor.getBoundingClientRect();
+      menu.hidden = false;
+      // Placed after unhiding so the measured width is the real one, and pulled
+      // back inside the window rather than opening off the right edge.
+      const w = menu.offsetWidth;
+      menu.style.top = (r.bottom + 6) + 'px';
+      menu.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, r.left)) + 'px';
+    }
+
+    function closeSnapMenu() {
+      const menu = el('snapmenu');
+      if (menu) menu.hidden = true;
+    }
+
     /** Everything the transport shows comes from one state() read. */
     function syncReplayBar() {
       if (!replay) return;
@@ -2488,6 +2833,15 @@
       }
       const count = el('rp-count');
       if (count) count.textContent = `${s.index + 1} / ${s.total}`;
+      // Only shown when a bar actually takes more than one step, so a plain
+      // whole-bar replay does not carry a permanent "1/1".
+      const sub = el('rp-sub');
+      if (sub) sub.textContent = s.subSteps > 1 ? `·  ${s.subIndex + 1}/${s.subSteps}` : '';
+      const back = el('rp-back');
+      const fwd = el('rp-fwd');
+      const unit = s.subSteps > 1 ? 'one step of the forming bar' : 'one bar';
+      if (back) back.title = 'Step back ' + unit;
+      if (fwd) fwd.title = 'Step forward ' + unit;
       const clock = el('rp-clock');
       if (clock) clock.textContent = s.bar ? barStamp(s.bar.time) : '';
       const play = el('rp-play');
@@ -2506,6 +2860,10 @@
       // and it has to reach the chart that is about to be thrown away.
       exitReplay();
       if (chart) chart.destroy();
+      // The primitives belonged to the destroyed chart; a stale handle would
+      // leave the next selection updating a shade nothing draws.
+      replayShades = [];
+      replayMark = null;
       // The handles belong to the destroyed chart; the specs outlive it.
       for (const c of comparisons) { c.handle = null; c.legend = null; }
       el('chart').innerHTML = '';
@@ -2687,7 +3045,16 @@
 
       // OHLC legend tracks the crosshair. The position P&L does NOT - it marks to
       // the LTP (the latest close here; with a live feed, update it on each tick).
-      chart.subscribeCrosshairMove((e) => setLegend(e.bar ?? lastBar()));
+      chart.subscribeCrosshairMove((e) => {
+        setLegend(e.bar ?? lastBar());
+        movePick(e.index);
+      });
+      // The pick is committed on a plain click. `subscribeClick` reports the
+      // primitive that was hit, which is the wrong question here: the shade
+      // deliberately reports no hit so the bar under it stays reachable.
+      el('chart').addEventListener('click', () => {
+        if (replayPicking && replayPickIndex !== null) startReplayAt(replayPickIndex);
+      });
       setLegend(lastBar());
       // Last, because the chart that just replaced the destroyed one has to be
       // the one in the group: the old entry is a corpse the group prunes on its
@@ -3819,6 +4186,9 @@
     // — the shell just drives them.
     const TOOLBAR_ICON = {
       search: '<circle cx="9" cy="9" r="5.5"/><path d="M13 13l4 4"/>',
+      camera: '<path d="M2.5 6.5h3l1.2-2h6.6l1.2 2h3v9h-15z"/><circle cx="10" cy="11" r="3"/>',
+      download: '<path d="M10 3v9m0 0 3.2-3.2M10 12 6.8 8.8"/><path d="M3.5 14v2.5h13V14"/>',
+      copy: '<rect x="6.5" y="6.5" width="9" height="9" rx="1.5"/><path d="M13 4.5H5A1.5 1.5 0 0 0 3.5 6v8"/>',
       candles: '<path d="M6 4v12M6 6h0"/><rect x="4" y="6" width="4" height="7"/><path d="M14 3v14"/><rect x="12" y="6" width="4" height="8"/>',
       bars: '<path d="M6 4v12M6 7h3M3 10h3"/><path d="M14 4v12M14 7h3M11 10h3"/>',
       line: '<path d="M3 14l4-5 4 3 6-8"/>',
@@ -4172,10 +4542,16 @@
 
       // replay: enter the session bar by bar, or leave and get the chart back
       const rp = tbtn(ticon('replay') + '<span>Replay</span>',
-        replay ? 'Exit replay' : 'Replay this session bar by bar');
-      if (replay) rp.classList.add('is-on');
-      rp.addEventListener('click', () => (replay ? exitReplay() : enterReplay()));
+        replay ? 'Exit replay' : replayPicking ? 'Cancel bar selection' : 'Replay this session bar by bar');
+      if (replay || replayPicking) rp.classList.add('is-on');
+      rp.addEventListener('click', () => ((replay || replayPicking) ? askExitReplay() : enterReplay()));
       bar.appendChild(rp);
+
+      // Snapshot. The chart is a picture people share, and the two things they
+      // do with it are save it and paste it, so both are one click from here.
+      const snap = tbtn(ticon('camera'), 'Chart snapshot');
+      snap.addEventListener('click', (e) => { e.stopPropagation(); openSnapMenu(snap); });
+      bar.appendChild(snap);
 
       // Split view and the link switches. Two controls over one group: the
       // toggle opens the second chart, the menu decides what crosses between

@@ -70,8 +70,21 @@ export interface ReplayState {
   playing: boolean;
   /** Multiplier over `barMs`: 2 plays two bars per `barMs`. */
   speed: number;
-  /** The bar at `index`, the replay clock's "now". Null when there is no data. */
+  /**
+   * The bar at `index`, the replay clock's "now". Null when there is no data.
+   *
+   * Under intra-bar replay this is the **partial** bar as it stands this step,
+   * not the completed one, which is what makes it the right thing to drive a
+   * host's own forming volume bar or an OHLC readout from.
+   */
   bar: Bar | null;
+  /**
+   * Which step of the forming bar this is, 0-based, and how many it takes. Both
+   * are 0 and 1 without `subBars`, so a transport that shows them needs no
+   * special case for the plain mode.
+   */
+  subIndex: number;
+  subSteps: number;
 }
 
 export interface ReplayOptions {
@@ -89,6 +102,26 @@ export interface ReplayOptions {
    * mutated, and never handed to the chart as-is: each frame gets its own slice.
    */
   bars?: readonly Bar[];
+  /**
+   * Finer-grained bars the displayed ones are built from: the 1-minute session
+   * under a 5-minute chart. Given these, the playhead advances a **sub-bar** at
+   * a time and the newest bar forms in front of the user the way a live one
+   * does, instead of appearing complete. A 5-minute bar over 1-minute data
+   * takes five steps.
+   *
+   * They must cover the same session as `bars` and be sorted by time; sub-bars
+   * outside any displayed bucket are ignored. The last step of a bucket emits
+   * the displayed bar **verbatim** rather than the aggregate, so a bucket always
+   * closes on exactly the number the chart would have shown without this option,
+   * whatever the two feeds disagree about in between.
+   *
+   * Only the first driven series forms partially. Followers are cut to completed
+   * buckets, because the controller cannot know how to half-aggregate an
+   * arbitrary one: a volume histogram is summed, not OHLC-merged. The partial
+   * bar reaches the host as `ReplayState.bar` on every frame, so a host that
+   * wants a growing volume bar writes it from there.
+   */
+  subBars?: readonly Bar[];
   /** Bar to open at (0-based). Default 0. */
   startIndex?: number;
   /** Wall-clock milliseconds per bar at speed 1. Default 1000. */
@@ -115,6 +148,29 @@ function countUpTo(bars: readonly Bar[], cutoff: number): number {
   return lo;
 }
 
+/**
+ * One partial bar from the sub-bars of a bucket consumed so far. Open is the
+ * first one's, close the last one's, extremes and volume accumulate: the same
+ * merge a live candle builder does, so a bar formed here and a bar formed from
+ * ticks are the same shape.
+ *
+ * `time` is the bucket's, not the sub-bar's, or the chart would index the
+ * partial as a new bar every step instead of replacing the forming one.
+ */
+function mergeSubBars(subs: readonly Bar[], from: number, to: number, time: number): Bar {
+  const first = subs[from];
+  let high = first.high;
+  let low = first.low;
+  let volume = first.volume ?? 0;
+  for (let i = from + 1; i <= to; i++) {
+    const b = subs[i];
+    if (b.high > high) high = b.high;
+    if (b.low < low) low = b.low;
+    volume += b.volume ?? 0;
+  }
+  return { time, open: first.open, high, low, close: subs[to].close, volume };
+}
+
 export class ReplayController {
   private readonly _chart: ReplayChartHost;
   private readonly _series: readonly SeriesApi[];
@@ -127,8 +183,22 @@ export class ReplayController {
   private readonly _schedule: ReplayScheduler;
   private readonly _barMs: number;
   private readonly _startIndex: number;
+  private readonly _subBars: readonly Bar[];
+  /**
+   * For each displayed bar, where its sub-bars start in `_subBars` and how many
+   * there are. Built once: the alternative is a binary search per step, on a
+   * path that runs on every played frame.
+   *
+   * A bucket with no sub-bars takes one step and shows the displayed bar, so a
+   * gap in the finer feed costs that bar its formation, not its existence.
+   */
+  private readonly _subStart: Int32Array;
+  private readonly _subCount: Int32Array;
+  private readonly _intra: boolean;
   private _speed: number;
   private _index: number;
+  /** Step within the forming bar, 0-based. Always 0 without `subBars`. */
+  private _sub = 0;
   private _playing = false;
   /** True once replay owns the chart's data; false before start and after stop. */
   private _active = false;
@@ -160,6 +230,11 @@ export class ReplayController {
     this._restore = list.map((s) => s.getData());
     this._bars = options.bars ?? this._restore[0];
     this._view = { barSpacing: chart.timeScale.barSpacing, rightOffset: chart.timeScale.rightOffset };
+    this._subBars = options.subBars ?? [];
+    this._intra = this._subBars.length > 0 && this._bars.length > 0;
+    const buckets = this._buildBuckets();
+    this._subStart = buckets.start;
+    this._subCount = buckets.count;
     this._startIndex = clamp(Math.floor(options.startIndex ?? 0), 0, Math.max(0, this._bars.length - 1));
     this._index = this._startIndex;
     const barMs = options.barMs ?? 1000;
@@ -169,24 +244,101 @@ export class ReplayController {
     this._onFrame = options.onFrame ?? null;
     this._now = options.now ?? (() => (typeof performance !== 'undefined' ? performance.now() : 0));
     this._schedule = options.scheduler ?? defaultScheduler;
-    this._apply(this._startIndex);
+    // Opening on a half-formed candle is not a position anyone asked for, so
+    // entering replay lands on the last step of `startIndex`, the same place a
+    // `seek` there would.
+    this._apply(this._startIndex, this._steps(this._startIndex) - 1);
+  }
+
+  /**
+   * Map every sub-bar onto the displayed bar whose bucket it falls in.
+   *
+   * The displayed bars' own times are the bucket starts, so one forward pass
+   * over both sorted arrays does it. A sub-bar before the first displayed bar
+   * belongs to no bucket and is dropped rather than folded into bar 0, which
+   * would open that bar at a price the chart never showed.
+   */
+  private _buildBuckets(): { start: Int32Array; count: Int32Array } {
+    const n = this._bars.length;
+    const start = new Int32Array(n);
+    const count = new Int32Array(n);
+    if (!this._intra) return { start, count };
+    const subs = this._subBars;
+    let d = -1;
+    for (let i = 0; i < subs.length; i++) {
+      const t = subs[i].time;
+      // Advance to the last displayed bar that opens at or before this sub-bar.
+      while (d + 1 < n && this._bars[d + 1].time <= t) {
+        d++;
+        start[d] = i;
+      }
+      if (d >= 0) count[d]++;
+    }
+    return { start, count };
+  }
+
+  /** How many steps the bar at `index` takes. At least one, always. */
+  private _steps(index: number): number {
+    if (!this._intra) return 1;
+    return Math.max(1, this._subCount[index]);
   }
 
   // ── transport ───────────────────────────────────────────────────────────
 
-  /** Jump the playhead to a bar. Out-of-range values clamp to the session. */
+  /**
+   * Jump the playhead to a bar. Out-of-range values clamp to the session.
+   *
+   * A seek lands on a **complete** bar even under intra-bar replay: scrubbing to
+   * a half-formed candle is not a position anyone asks for, and it would make
+   * the same slider position mean different things on the way past.
+   */
   public seek(index: number): void {
-    this._apply(index);
+    this._apply(index, this._steps(clamp(Math.floor(index), 0, Math.max(0, this._bars.length - 1))) - 1);
   }
 
-  /** Move `n` bars forward. Stops dead at the last bar. */
+  /**
+   * Move `n` steps forward. Stops dead at the end of the session.
+   *
+   * A step is one displayed bar normally, and one sub-bar under intra-bar
+   * replay, so the transport button means "advance the chart by the smallest
+   * amount it can show" in both modes.
+   */
   public step(n = 1): void {
-    this._apply(this._index + n);
+    this._advance(n);
   }
 
-  /** Move `n` bars back. Stops dead at the first bar. */
+  /** Move `n` steps back. Stops dead at the first bar. */
   public stepBack(n = 1): void {
-    this._apply(this._index - n);
+    this._advance(-n);
+  }
+
+  /**
+   * Move the playhead `delta` steps, carrying across bar boundaries.
+   *
+   * Written as a walk rather than arithmetic on a flat step count because
+   * buckets hold different numbers of sub-bars: a session with a gap, or a
+   * partial first bucket, has no constant steps-per-bar to divide by.
+   */
+  private _advance(delta: number): void {
+    if (!this._intra) {
+      this._apply(this._index + delta, 0);
+      return;
+    }
+    let i = this._index;
+    let sub = this._sub;
+    const last = this._bars.length - 1;
+    for (let k = 0; k < Math.abs(delta); k++) {
+      if (delta > 0) {
+        if (sub + 1 < this._steps(i)) sub++;
+        else if (i < last) { i++; sub = 0; }
+        else break;
+      } else {
+        if (sub > 0) sub--;
+        else if (i > 0) { i--; sub = this._steps(i) - 1; }
+        else break;
+      }
+    }
+    this._apply(i, sub);
   }
 
   /**
@@ -197,8 +349,8 @@ export class ReplayController {
     const speed = options.speed;
     if (speed !== undefined && speed > 0) this._speed = speed;
     if (this._bars.length === 0) return;
-    this._apply(this._index); // a host may go straight to play() after stop()
-    if (this._index >= this._bars.length - 1) {
+    this._apply(this._index, this._sub); // a host may go straight to play() after stop()
+    if (this._atEnd()) {
       this._end();
       return;
     }
@@ -230,6 +382,7 @@ export class ReplayController {
     if (!this._active) return;
     this._active = false;
     this._index = this._startIndex;
+    this._sub = 0;
     for (let i = 0; i < this._series.length; i++) this._series[i].setData(this._restore[i]);
     // Bar spacing and right offset *are* the viewport: the visible logical
     // range is (baseIndex + rightOffset) back by width / barSpacing, and
@@ -242,12 +395,23 @@ export class ReplayController {
 
   public state(): ReplayState {
     const total = this._bars.length;
+    const steps = total === 0 ? 1 : this._steps(this._index);
+    let bar: Bar | null = null;
+    if (total > 0) {
+      bar = this._bars[this._index];
+      if (this._intra && this._sub < steps - 1 && this._subCount[this._index] > 0) {
+        const from = this._subStart[this._index];
+        bar = mergeSubBars(this._subBars, from, from + this._sub, bar.time);
+      }
+    }
     return {
       index: this._index,
       total,
       playing: this._playing,
       speed: this._speed,
-      bar: total === 0 ? null : this._bars[this._index],
+      bar,
+      subIndex: this._sub,
+      subSteps: steps,
     };
   }
 
@@ -258,18 +422,38 @@ export class ReplayController {
    * and each played frame alike), so arriving at a bar leaves the chart in the
    * same state however the user got there.
    */
-  private _apply(index: number): void {
+  private _apply(index: number, sub = 0): void {
     const total = this._bars.length;
     if (total === 0) return;
     const next = clamp(Math.floor(index), 0, total - 1);
-    if (this._active && next === this._index) return;
+    const steps = this._steps(next);
+    const nextSub = clamp(Math.floor(sub), 0, steps - 1);
+    if (this._active && next === this._index && nextSub === this._sub) return;
     const first = !this._active;
     this._active = true;
     this._index = next;
-    this._series[0].setData(this._bars.slice(0, next + 1));
+    this._sub = nextSub;
+
+    const shown = this._bars.slice(0, next + 1);
+    // The last step of a bucket is the displayed bar itself, so a bucket always
+    // closes on the number the chart would have shown without `subBars`. Only
+    // the steps before it are aggregates, and only when the finer feed actually
+    // covers this bucket.
+    if (this._intra && nextSub < steps - 1 && this._subCount[next] > 0) {
+      const from = this._subStart[next];
+      shown[next] = mergeSubBars(this._subBars, from, from + nextSub, this._bars[next].time);
+    }
+    this._series[0].setData(shown);
     // Followers cut by time, not by count: a volume series may be shorter than
-    // the price series, or start later.
-    const cutoff = this._bars[next].time;
+    // the price series, or start later. Under intra-bar replay they stop at the
+    // last *completed* bucket, because summing a volume histogram and merging a
+    // candle are not the same operation and the controller is not told which it
+    // has. A host that wants its follower to grow with the forming bar writes it
+    // from `ReplayState.bar`, which `onFrame` hands over below.
+    const forming = this._intra && nextSub < steps - 1;
+    const cutoff = forming
+      ? (next > 0 ? this._bars[next - 1].time : Number.NEGATIVE_INFINITY)
+      : this._bars[next].time;
     for (let i = 1; i < this._series.length; i++) {
       const snap = this._restore[i];
       this._series[i].setData(snap.slice(0, countUpTo(snap, cutoff)));
@@ -296,9 +480,15 @@ export class ReplayController {
     } else {
       this._lastAdvance += due * this._interval;
     }
-    this._apply(this._index + due);
-    if (this._index >= this._bars.length - 1) this._end();
+    this._advance(due);
+    if (this._atEnd()) this._end();
   };
+
+  /** True on the last step of the last bar, which is where playback stops. */
+  private _atEnd(): boolean {
+    const last = this._bars.length - 1;
+    return this._index >= last && this._sub >= this._steps(last) - 1;
+  }
 
   /** The session is over: stop the timer and tell the host once. */
   private _end(): void {

@@ -1771,13 +1771,32 @@ export class Chart {
 
   private _setData(dataId: number, bars: readonly Bar[]): void {
     this._dataLayer.setSeriesData(dataId, bars);
+    // An indicator's plots are series in this same layer, so `baseIndex` is the
+    // longest of *all* of them, this one included. Replacing the primary series
+    // wholesale can therefore leave the axis measured against an indicator that
+    // has not been recomputed yet: shorten the price series and the indicator's
+    // own series still holds the old, longer count until the next frame.
+    //
+    // That is not a cosmetic lag. `baseIndex` is what converts a logical range
+    // into `rightOffset`, so a host that replaces its data and then positions
+    // the viewport in the same turn -- entering replay does exactly that -- aims
+    // at a right edge hundreds of bars past the end of the data and draws an
+    // empty chart. Recomputing before the base index is read closes that window.
+    //
+    // The tick path is deliberately left deferred, which is where the coalescing
+    // earns its keep: an appended bar makes the primary the longest series, so
+    // the base index is already right with the indicator a bar behind, and a
+    // burst of ticks between two frames still costs one recompute.
+    if (dataId === this._firstDataId.value) {
+      this._invalidateIndicators();
+      this._flushIndicators();
+    }
     this._timeScale.setBaseIndex(this._dataLayer.baseIndex);
     if (!this._hasFitContent && this._dataLayer.length > 0) {
       this._timeScale.setWidth(Math.max(0, this._width - this._rightAxisWidth - this._leftAxisWidth));
       this._timeScale.fitContent(this._dataLayer.length);
       this._hasFitContent = true;
     }
-    if (dataId === this._firstDataId.value) this._invalidateIndicators();
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
     this._updateAccessibleSummary();
   }

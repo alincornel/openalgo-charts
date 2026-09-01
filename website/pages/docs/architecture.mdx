@@ -53,14 +53,14 @@ feature you do not load costs nothing.
 
 | Tier | Brotli | Contents |
 |---|--:|---|
-| `openalgo-charts` | 59.7 KB | Engine, 13 chart types, panes and scales, primitives, registries, chart state, linking, bar cache, trading overlay, feeds |
+| `openalgo-charts` | 60.5 KB | Engine, 13 chart types, panes and scales, primitives, registries, chart state, linking, bar cache, trading overlay, feeds |
 | `openalgo-charts/indicators` | 27 KB | 102 built-ins, the `registerIndicator` contract, and the Tier-2 external-data contract |
 | `openalgo-charts/draw` | 13 KB | 43 drawing tools, headless controller, clipboard |
 | `openalgo-charts/profile` | 11 KB | Volume Profile, Market Profile (TPO), Footprint, order flow |
 | `openalgo-charts/trade` | 8 KB | Order, position and bracket tools, DOM ladder |
 | `openalgo-charts/transform` | 3 KB | Heikin Ashi, Renko, Range, Line Break, Point and Figure, Kagi |
 
-**121 KB Brotli** for every tier at once. Figures are the measured `size-limit`
+**122 KB Brotli** for every tier at once. Figures are the measured `size-limit`
 output and are enforced in CI, so a change that grows a bundle past its budget
 fails the build.
 

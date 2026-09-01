@@ -8,6 +8,48 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 1.8.7
+
+Market replay, reported broken from a live terminal and rebuilt around the question it
+exists to ask: from here, what happens next?
+
+**Fixed**
+
+- **Entering replay drew an empty chart.** The data was there and the price axis was
+  measured correctly; the viewport sat about 280 bars to the left of every bar. An
+  indicator's plots are series in the same data layer, so `dataLayer.baseIndex` counts
+  them, and 1.8.5 deferred indicator recompute to the frame. After replay truncated the
+  price series to a prefix, the indicator's own series stayed at full length for the rest
+  of the turn and held the base index up with it, so a host that truncates and then
+  positions the viewport in the same turn aimed at a right edge hundreds of bars past the
+  end of its data.
+
+  A wholesale `setData` now recomputes before the base index is read. The tick path stays
+  deferred, so a burst of ticks between two frames still costs one recompute.
+
+**Added**
+
+- **Intra-bar replay.** `ReplayController` takes `subBars`, the finer session the
+  displayed bars are built from, and steps a sub-bar at a time so the newest bar forms in
+  front of the user. One 5-minute bar over 1-minute data takes five steps. A bucket closes
+  on the displayed bar verbatim rather than on the aggregate, so two feeds that disagree
+  mid-bar still agree on every close. `ReplayState` gains `subIndex` and `subSteps`, and
+  its `bar` is the partial one while a bar forms.
+
+- **`TextWatermark`**: a word stamped faintly across the plot to say what mode the chart
+  is in. A chart replaying August looks exactly like a chart showing today.
+
+- **`ReplayShade`**: dims every bar after an index and rules a line at the cut, so a
+  replay start is picked on what was known at the time rather than on the shape of what
+  followed.
+
+The yfinance demo shows the whole flow, plus a snapshot menu that saves or copies the
+chart as a PNG.
+
+Base engine 60.53 kB Brotli against a budget raised from 60 to 62 kB, base + trade 68.14 kB
+against 70, and 121.86 kB for every tier at once. A host that never replays is unaffected:
+the tree-shaken chart-only import is 38.25 kB. 2466 tests across 137 files.
+
 ## 1.8.6
 
 An indicator that has computed a number should say what that number is, at the precision

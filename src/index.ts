@@ -158,6 +158,10 @@ export { SeriesMarkers, markerSizePx, effectiveMarkerPx, drawShape, drawLabel } 
 export type { SeriesMarker, MarkerShape, MarkerPosition, MarkerSize } from './primitives/markers';
 export { LogoWatermark, watermarkRect } from './primitives/watermark';
 export type { LogoWatermarkOptions, WatermarkPosition } from './primitives/watermark';
+export { TextWatermark } from './primitives/text-watermark';
+export type { TextWatermarkOptions } from './primitives/text-watermark';
+export { ReplayShade } from './primitives/replay-shade';
+export type { ReplayShadeOptions } from './primitives/replay-shade';
 export { BuySellButtons } from './primitives/buy-sell-buttons';
 export type { BuySellButtonsOptions } from './primitives/buy-sell-buttons';
 export { ChartTable, tableOrigin, DEFAULT_CHART_TABLE_OPTIONS } from './primitives/table';

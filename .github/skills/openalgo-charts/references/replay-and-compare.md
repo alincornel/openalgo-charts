@@ -25,6 +25,7 @@ replay.play({ speed: 2 });
 | `series` | `SeriesApi \| readonly SeriesApi[]` | `chart.primarySeries()` | The **first** owns the timeline. Omitting it throws when the chart has no primary series. |
 | `bars` | `readonly Bar[]` | the primary series' current data | The full session. Never mutated; each frame gets its own slice. |
 | `startIndex` | `number` | `0` | Clamped into the session. |
+| `subBars` | `readonly Bar[]` | none | The finer session the displayed bars are built from (1m under a 5m chart). With it, a step is one **sub-bar** and the newest bar forms in front of the user instead of landing complete. |
 | `barMs` | `number` | `1000` | Wall-clock ms per bar at speed 1. |
 | `speed` | `number` | `1` | Multiplier over `barMs`. |
 | `onFrame` | `(state: ReplayState) => void` | none | Called after the chart is updated, alongside the event. |
@@ -41,7 +42,44 @@ replay.play({ speed: 2 });
 | `play` | `({ speed? }) => void` | Re-speeds a running replay. On the last bar it emits `replay:end` and arms no timer. |
 | `pause` | `() => void` | Leaves the playhead where it is. |
 | `stop` | `() => void` | Restores data **and** viewport. Safe twice; a later `seek`/`step`/`play` re-enters from `startIndex`. |
-| `state` | `() => ReplayState` | `{ index, total, playing, speed, bar }`: everything a transport bar and a clock need. |
+| `state` | `() => ReplayState` | `{ index, total, playing, speed, bar, subIndex, subSteps }`: everything a transport bar and a clock need. |
+
+## Intra-bar replay
+
+Without `subBars` a step lands a finished candle, so the moment a trader is
+practising for -- watching a bar build and deciding before it closes -- never
+happens. Pass the interval one rung down and each displayed bar forms over
+several steps:
+
+```ts
+const replay = new ReplayController(chart, {
+  series: [price, volume],
+  bars: fiveMinute,
+  subBars: oneMinute,   // five steps per displayed bar
+  startIndex: pickedBar,
+});
+```
+
+Four things are worth knowing before wiring it up:
+
+- **A bucket closes on the displayed bar verbatim**, not on the aggregate. Two
+  feeds that disagree mid-bar therefore still agree on every close, so nothing
+  drifts and a replayed session ends where the plain one does.
+- **`state().bar` is the partial bar**, not the completed one, which is what
+  makes it the right thing to drive a host's OHLC readout or its own forming
+  volume bar from.
+- **Followers stop at the last completed bucket** while a bar forms. The
+  controller will not half-aggregate an arbitrary one, because a volume
+  histogram is summed and a candle is merged and it is not told which it has.
+  Write the forming follower from `state().bar` in `onFrame`.
+- **A seek lands on a completed bar**, including the one `startIndex` performs.
+  Scrubbing onto a half-formed candle would make the same slider position mean
+  different things on the way past.
+- A bucket the finer feed does not cover takes **one** step and shows the
+  displayed bar: a gap costs that bar its formation, not its existence.
+
+Pick the rung one step down, not the finest available. 1-minute bars under a
+daily chart are 375 steps per candle, which is not a replay, it is a stall.
 
 Events on the chart bus, all carrying a `ReplayState`: `replay:start` (first frame only), `replay:frame`, `replay:play`, `replay:pause`, `replay:end`, `replay:stop`.
 

@@ -2,6 +2,65 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.8.7
+
+Market replay, reported broken from a live terminal and rebuilt around the
+question it exists to ask: from here, what happens next?
+
+### Fixed
+
+- **Entering replay drew an empty chart.** The data was there and the price axis
+  was measured correctly; the viewport sat about 280 bars to the left of every
+  bar. An indicator's plots are series in the same data layer, so
+  `dataLayer.baseIndex` counts them, and 1.8.5 deferred indicator recompute to
+  the frame. After replay truncated the price series to a prefix, the indicator's
+  own series stayed at full length for the rest of the turn and held the base
+  index up with it. A host that truncates and then positions the viewport in the
+  same turn, which is exactly what entering replay does, converted its logical
+  range against a base index hundreds of bars too high.
+
+  A wholesale `setData` now recomputes before the base index is read. The tick
+  path stays deferred, which is where the coalescing earns its keep: an appended
+  bar makes the primary the longest series, so the base index is already right
+  with the indicator a bar behind, and a burst of ticks between two frames still
+  costs one recompute. Measured unchanged on the benchmark.
+
+### Added
+
+- **Intra-bar replay.** `ReplayController` takes `subBars`, the finer session
+  the displayed bars are built from, and steps a sub-bar at a time so the newest
+  bar forms in front of the user instead of landing complete. One 5-minute bar
+  over 1-minute data takes five steps. Without it, every step lands a finished
+  candle and the moment a trader is practising for, watching a bar build and
+  deciding before it closes, never happens.
+
+  A bucket closes on the displayed bar **verbatim** rather than on the aggregate,
+  so two feeds that disagree mid-bar still agree on every close and a replayed
+  session ends where the plain one does. `ReplayState` gains `subIndex` and
+  `subSteps`, and its `bar` is the partial one while a bar is forming, which is
+  what a host drives its own forming volume bar from. Followers stop at the last
+  completed bucket: a volume histogram is summed and a candle is merged, and the
+  controller is not told which it has. A seek still lands on a completed bar.
+
+- **`TextWatermark`**, a word stamped faintly across the plot to say what mode
+  the chart is in. A chart replaying August looks exactly like a chart showing
+  today, and reading a live decision off history is the mistake it prevents. It
+  shrinks to fit a narrow pane, hit-tests to nothing, and is captured by
+  `takeScreenshot()` because it is drawn on the canvas rather than over it.
+
+- **`ReplayShade`**, which dims every bar after an index and rules a line at the
+  cut. Choosing a replay start while the next twenty bars are readable is
+  choosing on hindsight, which is the one thing replay exists to remove. Add one
+  per pane: a bright volume pane gives away what the price pane is hiding.
+
+### Demo
+
+`examples/yfinance/` now shows the whole flow, which is where all of the above
+was proved: press Replay and pick a start bar with the future greyed across
+every pane, walk it with a sub-bar counter in the transport, and leave through a
+confirm rather than losing the playhead to a mis-click. A snapshot menu next to
+it saves or copies the chart as a PNG, watermark included.
+
 ## 1.8.6
 
 Both items are about the same thing: an indicator that has computed a number

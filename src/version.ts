@@ -1,5 +1,5 @@
 /** Library version string. Matches package.json (published npm release). */
-export const VERSION = '1.8.6';
+export const VERSION = '1.8.7';
 
 /** Returns the current library version. */
 export function version(): string {
