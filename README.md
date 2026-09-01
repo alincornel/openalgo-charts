@@ -9,7 +9,7 @@ Professional interactive charts, 102 built-in indicators plus your own custom on
 [![npm version](https://img.shields.io/npm/v/openalgo-charts.svg?color=cb3837&label=npm)](https://www.npmjs.com/package/openalgo-charts)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
 [![bundle](https://img.shields.io/badge/brotli-61%20KB%20base%20%C2%B7%20122%20KB%20all%20tiers-brightgreen.svg)](#size-budget)
-[![tests](https://img.shields.io/badge/tests-2466%20passing-brightgreen.svg)](#develop)
+[![tests](https://img.shields.io/badge/tests-2586%20passing-brightgreen.svg)](#develop)
 [![dependencies](https://img.shields.io/badge/runtime%20deps-0-brightgreen.svg)](#principles)
 
 [**Documentation**](https://marketcalls.github.io/openalgo-charts/) &nbsp;·&nbsp; [**Live examples**](https://marketcalls.github.io/openalgo-charts/examples) &nbsp;·&nbsp; [**Getting started**](./docs/getting-started.md) &nbsp;·&nbsp; [**Architecture**](./ARCHITECTURE.md)
@@ -62,7 +62,7 @@ in front of npm rather than being places you upload to. A chart is one HTML file
 ```html
 <div id="chart" style="width:100vw;height:100vh"></div>
 <script type="module">
-  import { createChart } from 'https://unpkg.com/openalgo-charts@1.8.8/dist/openalgo-charts.mjs';
+  import { createChart } from 'https://unpkg.com/openalgo-charts@1.8.9/dist/openalgo-charts.mjs';
   const chart = createChart(document.getElementById('chart'), { timezone: 'Asia/Kolkata' });
   chart.addSeries('candlestick').setData(bars);
 </script>
@@ -79,14 +79,14 @@ Import only what you use. Each tier is a separate bundle that registers into the
 
 | Import | Contents | Brotli |
 |---|---|---|
-| `openalgo-charts` | Engine, 13 chart types, panes &amp; scales, primitives, registries, chart state, chart linking, bar cache, interval registry, trading overlay, OpenAlgo feeds | 60.6 KB |
+| `openalgo-charts` | Engine, 13 chart types, panes &amp; scales, primitives, registries, chart state, chart linking, bar cache, interval registry, trading overlay, OpenAlgo feeds | 60.8 KB |
 | `openalgo-charts/indicators` | 102 built-in indicators, the `registerIndicator` contract for your own, and the Tier-2 (external-data) contract | 27.3 KB |
 | `openalgo-charts/draw` | 43 drawing tools + a headless drawing controller and clipboard | 13.1 KB |
 | `openalgo-charts/transform` | Heikin Ashi, Renko, Range bars, Line Break, Point &amp; Figure, Kagi | 2.7 KB |
 | `openalgo-charts/profile` | Volume Profile, Market Profile (TPO), Footprint, order flow | 10.7 KB |
 | `openalgo-charts/trade` | Order / position / bracket tools + DOM ladder | 7.6 KB |
 
-Everything together is **121.90 KB Brotli**. Figures are the measured `size-limit` output. The trade tier is listed as its delta over the base, so loading base + trade costs 68.18 KB.
+Everything together is **122.15 KB Brotli**. Figures are the measured `size-limit` output. The trade tier is listed as its delta over the base, so loading base + trade costs 68.43 KB.
 
 ## What's built
 
@@ -227,13 +227,13 @@ Enforced in CI by [`size-limit`](./.size-limit.json). Nothing is excluded, becau
 
 | Bundle | Limit | Actual |
 |---|---|---|
-| Base engine | 62 KB | 60.57 KB |
-| Base + trade | 70 KB | 68.18 KB |
+| Base engine | 62 KB | 60.83 KB |
+| Base + trade | 70 KB | 68.43 KB |
 | Indicators tier | 30 KB | 27.27 KB |
 | Draw tier | 14 KB | 13.13 KB |
 | Transform tier | 5 KB | 2.66 KB |
 | Profile tier | 11 KB | 10.66 KB |
-| **Everything** | **124 KB** | **121.90 KB** |
+| **Everything** | **124 KB** | **122.15 KB** |
 
 ## Documentation
 
@@ -273,7 +273,7 @@ cd examples/yfinance && pip install -r requirements.txt && python server.py
 ```bash
 npm install        # install dev toolchain
 npm run typecheck  # strict TypeScript check
-npm test           # unit tests (vitest) - 2466 across 137 files
+npm test           # unit tests (vitest) - 2586 across 140 files
 npm run build      # Rollup -> dist/ (minified ESM per tier + types)
 npm run size       # size-limit (Brotli) against the budget
 npm run e2e        # Playwright Chromium smoke tests
@@ -290,7 +290,7 @@ npm run verify     # typecheck + test + build + size
 
 ## Status &amp; limitations
 
-Version **1.8.8**. All engine build phases are implemented with 2466 unit tests across 137 files.
+Version **1.8.9**. All engine build phases are implemented with 2586 unit tests across 140 files.
 
 Known gaps, stated plainly:
 

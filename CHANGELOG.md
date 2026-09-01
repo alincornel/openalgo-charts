@@ -2,6 +2,63 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.8.9
+
+Indicator precision, reported as one indicator reading `0.6` where it should read
+`0.61`, and found to be wrong for a whole class of them.
+
+### Fixed
+
+- **A study pane was formatted in the instrument's tick size.**
+  `Chart.setPriceScaleOptions` documents `'primary'` scope as "each pane's right
+  scale only", and that is literally what it did: *every* pane's right scale,
+  not just pane 0's. A host pushing the instrument's tick down chart-wide, which
+  is the ordinary thing to do on a symbol change, therefore set the decimals on
+  every study pane too.
+
+  That is a category error. A tick size belongs to the instrument. An RSI is a
+  dimensionless 0..100 band and a Williams VIX Fix is a percentage; neither
+  trades in the instrument's tick. With a 0.10 tick the RSI axis read
+  `70.0 / 50.0 / 30.0` and the VIX Fix read `0.6`, in both cases a precision
+  nobody chose.
+
+  `minMove` is now the one field in the chart-wide block withheld from a pane
+  that does not quote the instrument. Pane 0 is one from birth, so a caller who
+  configures nothing sees byte-identical behaviour there; any other pane starts
+  out a study's until a host plots a price series on it, which promotes it and
+  hands it the tick. Scope semantics are unchanged for every other field.
+
+- **A study pane inferring precision from its own span still read too coarse.**
+  Withholding the tick is only half the answer: a 0..100 band implies a step of
+  one whole point, so the ladder was labelled `70` and a reading of 62.24 rounded
+  to `62`, past the part a trader comparing it to the level is looking at. Those
+  panes now carry `minPrecision: 2`, the same floor the percent-rebase branch has
+  always used. The floor lifts above five integer digits, where a decimal stops
+  being information: a cumulative study like OBV keeps its integer form, and a
+  study living inside a tenth of a point still gets its third decimal.
+
+  So an overlay study prints at the instrument's tick and a study on its own
+  pane prints at two decimals or finer. **Custom descriptors get this with
+  nothing to declare**, because the rule is keyed on the pane an indicator is
+  handed rather than on anything in the descriptor. Checked by sweeping the
+  registry rather than by fixing the two that were noticed.
+
+- **A click on a primitive fired twice.** `_onPointerMove` ends a gesture itself
+  when it finds the button already released, because a release over a context
+  menu or outside the window never arrives. The real `pointerup` still lands
+  afterwards, found no drag armed, and fell through to the plain click path to
+  fire the same click again at the stale press coordinates. Every control
+  addressed by `subscribeClick` doubled: an indicator legend's hide, maximize and
+  move-pane, a comparison row's remove, an order pill's cancel. A toggle that
+  fires twice is a control that looks dead. A gesture now ends once.
+
+### Demo
+
+`examples/yfinance/` gains a volume on/off control and real tooltips on its
+icon-only controls. The tooltip it replaces was clipped at the rail's edge by an
+`overflow-x` the rail never asked for, and the "double-click to keep the tool
+active" line it shows is now wired rather than merely claimed.
+
 ## 1.8.8
 
 Documentation and package metadata. No engine change: every number this library

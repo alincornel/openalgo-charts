@@ -313,7 +313,12 @@ export interface IndicatorCalcContext {
   /** Chart wall clock in UTC seconds, the clock the countdown row reads. */
   now(): number;
   /**
-   * The instrument's tick size, from the pane's price scale `minMove`.
+   * The instrument's tick size, from the **price pane's** `minMove`.
+   *
+   * The price pane and not the indicator's own, because `calc` runs on the
+   * instrument's bars whichever pane the plot lands in, and a study pane is not
+   * quoted in the instrument's tick: an RSI is a dimensionless 0..100 band, so
+   * its scale carries no tick at all to read.
    *
    * `undefined` when the host has not told the chart what it is, which is the
    * honest answer rather than a guessed 0.01: an indicator sizing a range in

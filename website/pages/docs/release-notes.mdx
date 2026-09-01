@@ -8,6 +8,44 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 1.8.9
+
+Indicator precision, reported as one indicator reading `0.6` where it should read `0.61`,
+and found to be wrong for a whole class of them.
+
+**Fixed**
+
+- **A study pane was formatted in the instrument's tick size.** `Chart.setPriceScaleOptions`
+  documents `'primary'` scope as "each pane's right scale only", and that is literally what
+  it did: every pane's right scale, not just pane 0's. A host pushing the instrument's tick
+  down chart-wide set the decimals on every study pane with it.
+
+  A tick size belongs to the instrument. An RSI is a dimensionless 0..100 band and a Williams
+  VIX Fix is a percentage; neither trades in it. With a 0.10 tick the RSI axis read
+  `70.0 / 50.0 / 30.0` and the VIX Fix read `0.6`.
+
+  `minMove` is now the one field in the chart-wide block withheld from a pane that does not
+  quote the instrument. Pane 0 is one from birth, so a caller who configures nothing sees
+  byte-identical behaviour there.
+
+- **Those panes now carry a two-decimal floor.** The span alone is too coarse for a bounded
+  oscillator, which would be labelled in whole points and round 62.24 to `62`. The floor
+  lifts above five integer digits, so a cumulative study keeps its integer form, and a study
+  inside a tenth of a point still gets a third decimal.
+
+  So an overlay study prints at the instrument's tick and a study on its own pane at two
+  decimals or finer. Custom descriptors get this with nothing to declare: the rule is keyed
+  on the pane, not on the descriptor.
+
+- **A click on a primitive fired twice.** The missed-release recovery in `_onPointerMove`
+  ends the gesture, and the real `pointerup` that followed fell through to the plain click
+  path and fired the same click again. Every `subscribeClick` control doubled: a legend's
+  hide, maximize and move-pane, a comparison row's remove, an order pill's cancel.
+
+**Demo**
+
+A volume on/off control, and real tooltips on the icon-only controls.
+
 ## 1.8.8
 
 Documentation and package metadata. No engine change: every number this library draws is

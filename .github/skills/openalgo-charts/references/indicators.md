@@ -541,15 +541,39 @@ calc(bars, settings, store, ctx) {
   ctx.interval   // same
   ctx.timezone
   ctx.now()
-  ctx.tickSize   // 1.8.2: the pane price scale's minMove, or undefined
+  ctx.tickSize   // the instrument's minMove, or undefined
 }
 ```
 
-`ctx.tickSize` is the number the axis already formats to and `snapToTick`
-already snaps to, so an indicator sizing a range in ticks reads it rather than
-adding an input for it. It is `undefined` when the host has not set `minMove`:
-the scale treats 0 as "infer precision from the visible range", which is not a
-tick size, and guessing one would be worse than saying nothing.
+`ctx.tickSize` is the number `snapToTick` snaps to, so an indicator sizing a range
+in ticks reads it rather than adding an input for it. It is `undefined` when the
+host has not set `minMove`: the scale treats 0 as "infer precision from the
+visible range", which is not a tick size, and guessing one would be worse than
+saying nothing.
+
+It is the **instrument's** tick, read from the price pane, not from whatever pane
+the study happens to draw in. `calc` runs on the instrument's bars whether the
+plot lands on the candles or on a pane of its own, so a study on its own pane
+still gets a real tick to size a range against.
+
+### What precision your plots print at
+
+Nothing to declare: it follows the pane, so a custom descriptor behaves exactly
+like a built-in.
+
+| `placement` | Where it draws | Precision |
+| --- | --- | --- |
+| `'onchart'` | The price pane | The instrument's tick. The plot **is** a price and has to agree with the axis it is drawn against, so a Supertrend on a 0.05 tick reads `1339.70`. |
+| `'pane'` | Its own pane | That pane's own span, floored at two decimals. An RSI reads `70.00` and a percentage study reads `0.61`. |
+
+A study pane does not inherit the instrument's tick, because it is not quoted in
+it: an RSI is a dimensionless 0..100 band. The two-decimal floor is there because
+the span alone is too coarse for a bounded oscillator, which would otherwise be
+labelled in whole points and round 62.24 to `62`. Above five integer digits the
+floor lifts, so a cumulative study like OBV keeps its integer form.
+
+If a plot of yours is a price but sits on its own pane, the honest fix is
+`overlay: true` on that plot so it draws on the candles, not a precision override.
 
 ## Free-standing geometry: `draws` (1.7.1)
 

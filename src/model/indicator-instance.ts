@@ -169,8 +169,12 @@ export interface IndicatorHost {
   /** Emit on the chart's event bus (indicator alerts, and `attach`'s own events). */
   emit?(event: string, payload: unknown): void;
   /**
-   * Tick size of the pane's price scale, or undefined when none is set.
+   * Tick size of the named pane's price scale, or undefined when none is set.
    * Optional so a host predating it still satisfies this interface.
+   *
+   * Per pane, and the panes genuinely differ: a pane that does not quote the
+   * instrument has no tick to report. Pane 0 is the price pane, so it is the
+   * one to ask for the instrument's own step.
    */
   tickSize?(paneIndex: number): number | undefined;
   /** Pin a pane's price scale to a fixed range, or release it with `null`. */
@@ -597,8 +601,13 @@ export class IndicatorInstance implements IndicatorApi {
       interval: this._host.interval?.(),
       timezone: this._host.timezone?.() ?? DEFAULT_TIMEZONE,
       now,
+      // Pane 0's, not this indicator's own pane: `calc` runs on the
+      // instrument's bars, so the step it sizes a range in is the instrument's,
+      // whatever units the pane it draws in happens to read. An oscillator's
+      // pane carries no tick at all (see `Chart._scalePatchFor`), so asking it
+      // would answer "nobody said" for every study off the price pane.
       // 0 is the scale's "infer from the visible range" sentinel, not a tick.
-      tickSize: this._host.tickSize?.(this.paneIndex) || undefined,
+      tickSize: this._host.tickSize?.(0) || undefined,
     };
   }
 

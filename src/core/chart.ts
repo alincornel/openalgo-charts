@@ -192,7 +192,8 @@ export interface ChartOptions {
   /**
    * Default price-scale options applied to every pane (tick size `minMove`,
    * `mode: 'linear' | 'logarithmic' | 'percentage' | 'indexed-to-100'`,
-   * `inverted`, and top/bottom margins).
+   * `inverted`, and top/bottom margins). `minMove` is the instrument's, so it
+   * lands only on panes that quote it, see `setPriceScaleOptions`.
    * Tune a single pane later via `chart.panes()[n].priceScale.setOptions(...)`.
    */
   priceScale?: Partial<PriceScaleOptions>;
@@ -367,6 +368,17 @@ function resolveRaf(
   return { schedule: (cb) => setTimeout(cb, 16) as unknown as number, cancel: (h) => clearTimeout(h) };
 }
 
+/**
+ * Decimals a pane that does not quote the instrument prints at least.
+ *
+ * Two, the same floor the percent-rebase branch of `PriceScale.precision`
+ * settles on, and for the same reason: a reading a trader compares against a
+ * level has to survive the comparison. It applies to every study on a pane of
+ * its own, a host's own registered descriptor included, because it is keyed on
+ * the pane rather than on anything the descriptor declares.
+ */
+const NON_INSTRUMENT_PRECISION = 2;
+
 export class Chart {
   private readonly _container: HTMLElement;
   private readonly _doc: Document;
@@ -434,6 +446,8 @@ export class Chart {
   private _dragStartY = 0;
   private _lastDragY = 0;
   // multi-touch: active pointers + current pinch gesture
+  /** Pointers whose gesture the missed-release recovery already ended. */
+  private readonly _endedPointers = new Set<number>();
   private readonly _pointers = new Map<number, { x: number; y: number; pane: number }>();
   private _pinch: PinchState | null = null;
   private _pinchPane = 0;
@@ -505,6 +519,16 @@ export class Chart {
   private _axisStartSpacing = 0;
   private _priceFormatter: ((price: number) => string) | null = null;
   private _priceScaleOptions: Partial<PriceScaleOptions> | null = null;
+  /**
+   * The panes whose numbers are the instrument's price, which is what decides
+   * whether a chart-wide `minMove` reaches them (see `_scalePatchFor`).
+   *
+   * Held by pane identity rather than by index, for the reason spelled out in
+   * `_createSeries`: `removePane` splices the array and `movePane` swaps two
+   * entries, so a pane's slot number is not the pane. Weak because a removed
+   * pane is destroyed and nothing else keeps it alive.
+   */
+  private readonly _pricePanes = new WeakSet<Pane>();
   private _timeFormatter: ((utcSeconds: number, tickMark?: TickMarkType) => string) | undefined = undefined;
   private _timezone: string = DEFAULT_TIMEZONE;
   private _leftAxisWidth = 0; // chart-wide reserved left-axis column (0 = none)
@@ -715,6 +739,11 @@ export class Chart {
     const paneIndex = options.paneIndex ?? 0;
     this._ensurePane(paneIndex);
     const record = createSeriesRecord(dataId, type, options.style, options.priceScaleId ?? 'right');
+    // A pane starts quoting the instrument the moment the host plots a price on
+    // it, which is how a second symbol on a pane of its own keeps a tick-sized
+    // axis. Indicator plots come through here with `claimPrimary` false, so an
+    // oscillator can never promote the pane it draws in.
+    if (claimPrimary && getChartType(type).isPriceSeries) this._claimPricePane(this._panes[paneIndex]);
     // The first price-type series drives the magnet crosshair + OHLC legend.
     const isPrimary = claimPrimary && this._firstDataId.value === null && getChartType(type).isPriceSeries;
     if (isPrimary) {
@@ -1029,6 +1058,11 @@ export class Chart {
       // The tick size the price scale is already formatting and snapping to.
       // Unlike symbol and interval, the chart genuinely knows this one, so an
       // indicator sizing a range in ticks does not have to be told twice.
+      //
+      // Answered per pane, so a pane that does not quote the instrument says
+      // undefined (see `_scalePatchFor`). That is what the legend beside that
+      // axis wants; an indicator's `calc` wants the instrument's own tick, and
+      // asks pane 0 for it.
       tickSize: (paneIndex: number): number | undefined => {
         const pane = this._panes[paneIndex] ?? this._panes[0];
         const min = pane?.priceScale.options.minMove ?? 0;
@@ -1415,6 +1449,11 @@ export class Chart {
    *    the right. Plot margins want this.
    *  - `'all'`: the hidden overlay scales too. Almost nothing should: an
    *    overlay's margins are its creator's placement, see `Pane.axisScales`.
+   *
+   * `minMove` is the one field no scope carries onto a pane that does not quote
+   * the instrument, whichever scope is asked for: see `_scalePatchFor`. Every
+   * other field is a property of the axis and reaches exactly as far as `scope`
+   * says.
    */
   public setPriceScaleOptions(
     patch: Partial<PriceScaleOptions>,
@@ -1423,9 +1462,60 @@ export class Chart {
     this._priceScaleOptions = { ...this._priceScaleOptions, ...patch };
     for (const pane of this._panes) {
       const scales = scope === 'all' ? pane.scales() : scope === 'axes' ? pane.axisScales() : [pane.priceScale];
-      for (const scale of scales) scale.setOptions(patch);
+      const forPane = this._scalePatchFor(pane, patch);
+      for (const scale of scales) scale.setOptions(forPane);
     }
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
+  }
+
+  /**
+   * A chart-wide price-scale patch as one pane should receive it.
+   *
+   * Every field in it describes the axis, except `minMove`, which describes the
+   * **instrument**: it is the step the symbol trades in, 0.05 on an NSE equity.
+   * A pane that plots something else is quoted in its own units, so handing it
+   * that step is not a coarse answer but an answer to a different question. It
+   * shipped as one: a host setting the instrument's 0.10 tick chart-wide made
+   * `PriceScale.precision` report one decimal on *every* pane, so a William VIX
+   * Fix reading 0.61 was labelled "0.6" and an RSI ladder read "70.0, 50.0,
+   * 30.0". Withheld, those axes fall back to inferring precision from the range
+   * they actually cover, which is the reading their own numbers imply.
+   *
+   * Only the chart-wide setters filter. An axis named outright
+   * (`setPriceAxisOptions`, a series' `priceFormat`) is the caller saying what
+   * that one axis quotes, and is obeyed.
+   */
+  private _scalePatchFor(pane: Pane, patch: Partial<PriceScaleOptions>): Partial<PriceScaleOptions> {
+    if (patch.minMove === undefined || this._pricePanes.has(pane)) return patch;
+    const out = { ...patch };
+    delete out.minMove;
+    // Withholding the tick is only half the answer. Left to the span alone a
+    // bounded oscillator reads too coarse (an RSI over 0..100 implies a step of
+    // 1 and prints "62" for 62.24), so the pane that does not quote the
+    // instrument gets the floor instead of the tick, not neither.
+    out.minPrecision = NON_INSTRUMENT_PRECISION;
+    return out;
+  }
+
+  /**
+   * Record that a pane quotes the instrument, and hand it the tick it was not
+   * given while it did not.
+   *
+   * Pane 0 is one from birth. Any other pane starts out an indicator's, so a
+   * host adding a second symbol to a pane of its own has to be able to promote
+   * one after the fact, or the comparison would lose the tick-sized axis it has
+   * always had.
+   */
+  private _claimPricePane(pane: Pane): void {
+    if (this._pricePanes.has(pane)) return;
+    this._pricePanes.add(pane);
+    const minMove = this._priceScaleOptions?.minMove;
+    // The floor comes off as the tick goes on: a declared tick is the stronger
+    // statement, and a promoted pane must end up indistinguishable from one
+    // that quoted the instrument all along.
+    for (const scale of pane.axisScales()) {
+      scale.setOptions(minMove !== undefined ? { minMove, minPrecision: 0 } : { minPrecision: 0 });
+    }
   }
 
   /** The primary pane's price-scale options (what the Scales tab reads). */
@@ -1540,7 +1630,7 @@ export class Chart {
     // it); the strip it vacated starts again from the chart-wide defaults, the
     // way a scale used for the first time does.
     const vacated = pane.scaleFor(from);
-    if (this._priceScaleOptions) vacated.setOptions(this._priceScaleOptions);
+    if (this._priceScaleOptions) vacated.setOptions(this._scalePatchFor(pane, this._priceScaleOptions));
     vacated.setPriceFormatter(this._priceFormatter);
     this._recomputeAxisColumns(); // the columns are reserved by what is in use
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
@@ -1815,8 +1905,20 @@ export class Chart {
   private _addPane(weight = 1): Pane {
     const pane = new Pane(this._doc);
     pane.weight = weight;
+    // Pane 0 quotes the instrument by construction: it is where `addSeries`
+    // puts a series that names no pane, and it exists before any host has said
+    // what goes on it. Every later pane is made for an indicator, so it holds
+    // its own units until a price series lands on it (`_claimPricePane`), and
+    // inherits the chart-wide defaults without the instrument's tick.
+    if (this._panes.length === 0) this._pricePanes.add(pane);
+    else {
+      // Independent of whether a host ever declares a tick. Most do not, and an
+      // oscillator on a chart with no tick at all still has to print a reading
+      // fine enough to compare against its own levels.
+      for (const scale of pane.scales()) scale.setOptions({ minPrecision: NON_INSTRUMENT_PRECISION });
+    }
     pane.priceScale.setPriceFormatter(this._priceFormatter);
-    if (this._priceScaleOptions) pane.priceScale.setOptions(this._priceScaleOptions);
+    if (this._priceScaleOptions) pane.priceScale.setOptions(this._scalePatchFor(pane, this._priceScaleOptions));
     this._panes.push(pane);
     this._container.appendChild(pane.element);
     return pane;
@@ -2084,10 +2186,16 @@ export class Chart {
         const pane = this._panes[i];
         if (pane === undefined) return;
         const scale = pane.priceScale;
-        scale.setOptions({
+        // Filtered like a chart-wide patch, and for a sharper reason: a saved
+        // tick on an oscillator's pane is a tick that was broadcast there, not
+        // one anybody chose, and it is exactly what a layout saved before this
+        // was fixed carries. Restoring it faithfully would put the wrong
+        // precision back on a pane the chart-wide setter no longer reaches to
+        // correct, so the defect would outlive the fix in every saved workspace.
+        scale.setOptions(this._scalePatchFor(pane, {
           marginTop: ps.priceScale.marginTop, marginBottom: ps.priceScale.marginBottom,
           minMove: ps.priceScale.minMove, mode: ps.priceScale.mode, inverted: ps.priceScale.inverted,
-        });
+        }));
         scale.setAutoScale(ps.priceScale.autoScale);
         if (!ps.priceScale.autoScale && ps.priceScale.range) scale.setPriceRange(ps.priceScale.range);
       });
@@ -2872,6 +2980,10 @@ export class Chart {
     // released over a context menu or outside the window), end any drag now.
     if (e.pointerType === 'mouse' && (e.buttons & 1) === 0 && (this._dragging || this._dragId !== null || this._axisDrag !== null)) {
       this._onPointerUp(e);
+      // Marked after the fact, not before: the recovery IS this pointer's one
+      // real end, so it has to run. What must be swallowed is the release that
+      // follows it.
+      this._endedPointers.add(e.pointerId);
       return;
     }
     const p = this._localPoint(e);
@@ -2963,6 +3075,14 @@ export class Chart {
 
   private readonly _onPointerUp = (e: PointerEvent): void => {
     try { this._container.releasePointerCapture?.(e.pointerId); } catch { /* already released */ }
+    // A gesture ends once. `_onPointerMove` calls this directly when it finds the
+    // button already released, because a release over a context menu or outside
+    // the window never reaches us -- and the real `pointerup` still arrives after
+    // it. Without this guard that second call finds the drag already torn down,
+    // falls through to the plain click branch, and fires the same click again at
+    // the stale press coordinates. Every host control addressed by
+    // `subscribeClick` doubles: a legend's hide toggles twice and looks dead.
+    if (this._endedPointers.has(e.pointerId)) { this._endedPointers.delete(e.pointerId); return; }
     this._pointers.delete(e.pointerId);
     if (this._pinch !== null) {
       // a finger lifted mid-pinch: end the gesture; don't start a drag with the remnant

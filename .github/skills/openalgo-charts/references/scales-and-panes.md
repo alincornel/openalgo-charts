@@ -15,7 +15,8 @@ import { DEFAULT_PRICE_SCALE_OPTIONS } from 'openalgo-charts';
 |---|---|---|---|
 | `marginTop` | `number` | `0.1` | Fraction of **pane height** kept empty above the data band. |
 | `marginBottom` | `number` | `0.1` | Fraction of **pane height** kept empty below the data band. |
-| `minMove` | `number` | `0` | Instrument tick size (e.g. `0.05`). `0` infers precision from the visible range. |
+| `minMove` | `number` | `0` | Instrument tick size (e.g. `0.05`). `0` infers precision from the visible range. **A chart-wide setter withholds this from a pane that does not quote the instrument**: see below. |
+| `minPrecision` | `number` | `0` | Least decimals a scale with no tick prints. Set to 2 on every study pane; ignored once `minMove` is set. |
 | `mode` | `'linear' \| 'logarithmic' \| 'percentage' \| 'indexed-to-100'` | `'linear'` | `logarithmic` maps through `log10`, clamped at `1e-10`. The last two rebase against a baseline, below. |
 | `inverted` | `boolean` | `false` | Price increases downward. |
 
@@ -79,6 +80,43 @@ ps.setAutoScale(true);                     // hand it back to the data
 Chart-wide equivalents, for a settings dialog: `chart.setPriceScaleOptions(patch, allScales = false)` writes each pane's right scale (`allScales` includes left and overlay), `chart.priceScaleOptions()` reads pane 0's, and `chart.setAutoScale(on)` flips every pane at once. See [settings-and-menus](settings-and-menus.md).
 
 ### Conversion and formatting
+
+## Precision follows what a pane measures, not where it sits
+
+`minMove` is a property of the **instrument**, so it is the one field in the
+chart-wide block that does not reach every pane. `Chart.setPriceScaleOptions`
+withholds it from a pane that does not quote the instrument, whatever `scope` is
+asked for; `mode`, `inverted` and the margins still reach every scale that scope
+names. Naming an axis outright (`setPriceAxisOptions`, a series' `priceFormat`)
+is the caller settling what that axis quotes, and is obeyed.
+
+Which panes quote it:
+
+- **Pane 0** does, from construction. A caller who configures nothing sees
+  byte-identical behaviour there, its left axis and its hidden overlay scale
+  included: the filter is per pane, not per scale.
+- **Any other pane** starts out a study's and holds its own units, until a host
+  plots a price series on it (a second symbol on a pane of its own), which
+  promotes it and hands it the tick it was not given.
+- An indicator's plots never promote their own pane, built in or custom.
+
+So an overlay study (`placement: 'onchart'`) is quoted in the instrument's tick,
+because it draws against the price axis and *is* a price: a Supertrend on a 0.05
+tick reads `1339.70`, which is the number an order snaps to. A study on a pane of
+its own (`placement: 'pane'`) is not: an RSI is a dimensionless 0..100 band and a
+Williams VIX Fix is a percentage, so precision comes from that pane's own span.
+
+The span alone reads too coarse, so those panes carry `minPrecision: 2`. A 0..100
+band implies a step of one whole point, which would label the ladder `70` and round
+a reading of 62.24 to `62`, past the part a trader comparing it to the level is
+looking at. Two decimals is the same floor the percent-rebase branch has always
+used, for the same reason. The floor lifts above five integer digits, where a
+decimal stops being information: an OBV of `1234567` keeps its integer form.
+
+**A custom descriptor gets all of this with nothing to declare.** The rule is
+keyed on the pane an indicator is handed, not on anything in the descriptor, so
+`registerIndicator` needs no precision field and there is no per-indicator list to
+keep in sync.
 
 `priceToY(price)` / `yToPrice(y)` are pane-local media px; `chart.priceToCoordinate` / `chart.coordinateToPrice` add the pane's top offset. `precision()` derives decimals from `minMove` (or `range/100`), `snapToTick(price)` rounds to `minMove`, `format(price)` renders the axis label, `setPriceFormatter(fn | null)` overrides it, `clampY(y)` clamps to the pane. Tick values come from `niceTicks(min, max, maxTicks = 6)` on the 1 / 2 / 2.5 / 5 / 10 ladder.
 

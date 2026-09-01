@@ -218,6 +218,23 @@
     .hint { color: var(--faint); font-size: 12px; font-style: italic; }
 
 
+    /* ── shared hover label for icon-only controls ─────────────── */
+    /* One element fixed to the viewport, not one per button. A tip parented
+       inside a rail button was clipped at the rail's right edge, because the
+       rail scrolls and `overflow-y: auto` makes overflow-x auto with it. It
+       never takes pointer events: on a 32px button the tip lands under the
+       cursor and would swallow the click it is describing. */
+    #tip { position: fixed; z-index: 200; left: 0; top: 0; max-width: 260px;
+      pointer-events: none; padding: 5px 9px; border-radius: 6px;
+      background: var(--elev-2); color: var(--tx); border: 1px solid var(--bd);
+      box-shadow: 0 6px 20px rgba(0,0,0,.45); font: 12px/1.4 system-ui, sans-serif;
+      opacity: 0; transition: opacity .09s ease; }
+    #tip.is-on { opacity: 1; }
+    #tip .tip-chord { color: var(--mut); margin-left: 10px; font-variant-numeric: tabular-nums; }
+    /* Second line: a gesture the control also answers to, dimmer than its name. */
+    #tip .tip-sub { display: block; margin-top: 2px; color: var(--faint); font-size: 11px; }
+    @media (prefers-reduced-motion: reduce) { #tip { transition: none; } }
+
     /* ── drawing: left tool rail + floating tool widget ─────────── */
     .rail { position: absolute; top: 0; left: 0; bottom: 0; width: 42px; z-index: 20;
       background: #0c0f16; border-right: 1px solid var(--bd-soft);
@@ -242,15 +259,11 @@
     .rail button:hover .railcaret { opacity: 1; }
     .rail button.is-on .railcaret { opacity: 1; }
     .rail button.is-on .railcaret svg { opacity: 1; }
-    /* Hover label. The native tooltip waits about a second and cannot be
-       styled, which is no use on a rail of near-identical glyphs. */
-    .rail .railtip { position: absolute; left: 100%; top: 50%; transform: translateY(-50%);
-      margin-left: 8px; white-space: nowrap; padding: 4px 8px; border-radius: 4px;
-      background: var(--elev-2); color: var(--tx); border: 1px solid var(--bd);
-      font-size: 12px; opacity: 0; pointer-events: none; transition: opacity .08s;
-      box-shadow: 0 4px 14px rgba(0,0,0,.35); z-index: 70; }
-    .rail button:hover .railtip { opacity: 1; }
-    .rail .railtip b { color: var(--faint); font-weight: 400; margin-left: 8px; }
+    /* A tool held open by a double-click keeps drawing until Escape, so it gets
+       a mark of its own: the is-on wash alone cannot say "and it will still be
+       here after the next drawing lands". */
+    .rail button.is-locked::after { content: ''; position: absolute; top: 3px; right: 3px;
+      width: 4px; height: 4px; border-radius: 50%; background: var(--acc-2); }
 
     .railmenu { position: fixed; z-index: 60; min-width: 226px; max-height: 86vh; overflow-y: auto;
       padding: 6px; background: var(--panel); border: 1px solid var(--bd);
@@ -466,6 +479,7 @@
     #ctxmenu button.buy::before { background: var(--buy); }
     #ctxmenu button.sell::before { background: var(--sell); }
     #ctxmenu button[data-act="cancelall"]::before { background: var(--faint); }
+    #ctxmenu button.is-on::before { background: var(--acc-2); }
     #ctxmenu hr { border: 0; border-top: 1px solid var(--bd-soft); margin: 5px 8px; }
 
     /* ── replay transport ───────────────────────────────────────── */
@@ -868,6 +882,11 @@
     <!-- Only drawn when the chart says the pointer was over an indicator. -->
     <hr data-sec="ind">
     <button data-act="indset">Indicator settings...</button>
+    <!-- The volume histogram's second control. The eye on its legend row is the
+         one that sits over the bars; this is the one a reader finds by
+         right-clicking the chart and reading down the list. -->
+    <hr data-sec="vol">
+    <button data-act="volshow">Volume<em></em></button>
     <hr>
     <button data-act="chartset">Settings...</button>
   </div>
@@ -1216,6 +1235,115 @@
       if (a >= 1e3) return (v / 1e3).toFixed(2) + 'K';
       return String(v);
     }
+
+    // ── shared hover label ─────────────────────────────────────────────────
+    // A `title` waits about a second, cannot be styled, and cannot carry a
+    // second line, which is no use on a rail of near-identical glyphs or on a
+    // toolbar of bare icons. One tip element serves every control: it is
+    // refilled and repositioned per target rather than built per button, so a
+    // toolbar that rebuilds itself on every state change leaks nothing.
+    const tipSpecs = new WeakMap();
+    let tipNode = null;
+    let tipFor = null;
+
+    /**
+     * Give `target` a hover label. `spec` is `{ title, sub, chord, side }` or a
+     * function returning one: a button whose meaning changes with state (the
+     * rail's last-picked tool, the transport's play/pause) has to be read at
+     * hover time, not frozen when the button was built.
+     *
+     * Any `title` already on the element moves to `aria-label` and is dropped,
+     * or the browser draws its own box over this one a second later.
+     */
+    function attachTip(target, spec) {
+      tipSpecs.set(target, spec);
+      const label = (typeof spec === 'function' ? spec() : spec).title;
+      if (label && !target.getAttribute('aria-label')) target.setAttribute('aria-label', label);
+      target.removeAttribute('title');
+      target.addEventListener('pointerenter', () => showTip(target));
+      target.addEventListener('pointerleave', hideTip);
+      // A press means the user has decided; the label has done its job and a
+      // tip left over a menu that just opened reads as part of the menu.
+      target.addEventListener('pointerdown', hideTip);
+      target.addEventListener('focus', () => showTip(target));
+      target.addEventListener('blur', hideTip);
+      return target;
+    }
+
+    function hideTip() {
+      if (!tipNode) return;
+      tipNode.classList.remove('is-on');
+      tipFor = null;
+    }
+
+    function showTip(target) {
+      const raw = tipSpecs.get(target);
+      if (!raw) return;
+      const spec = typeof raw === 'function' ? raw() : raw;
+      if (!spec || !spec.title) { hideTip(); return; }
+      // A label read at hover time is also the accessible name, so refresh it:
+      // the transport's play button is Play or Pause depending on the moment.
+      if (typeof raw === 'function') target.setAttribute('aria-label', spec.title);
+      if (!tipNode) {
+        tipNode = document.createElement('div');
+        tipNode.id = 'tip';
+        tipNode.setAttribute('role', 'presentation');
+      }
+      // Chart full screen puts the stage in the top layer, where nothing
+      // outside its subtree is painted: a tip left on <body> would simply not
+      // appear over the rail, which is the one place full screen still has one.
+      const host = document.fullscreenElement || document.body;
+      if (tipNode.parentNode !== host) host.appendChild(tipNode);
+      tipFor = target;
+      tipNode.innerHTML = esc(spec.title)
+        + (spec.chord ? '<span class="tip-chord">' + esc(spec.chord) + '</span>' : '')
+        + (spec.sub ? '<span class="tip-sub">' + esc(spec.sub) + '</span>' : '');
+      placeTip(target, spec.side || 'bottom');
+      tipNode.classList.add('is-on');
+    }
+
+    /**
+     * Anchor beside the control, then flip to the opposite side rather than
+     * open off the edge of the window. The rail sits against the left edge and
+     * the toolbar against the top, so both flips are reachable in normal use.
+     */
+    function placeTip(target, side) {
+      const r = target.getBoundingClientRect();
+      const w = tipNode.offsetWidth;
+      const h = tipNode.offsetHeight;
+      const pad = 6;
+      const gap = 8;
+      let x, y;
+      if (side === 'right' || side === 'left') {
+        const wantRight = side === 'right';
+        x = wantRight ? r.right + gap : r.left - gap - w;
+        if (wantRight ? x + w > window.innerWidth - pad : x < pad) {
+          x = wantRight ? r.left - gap - w : r.right + gap;
+        }
+        y = r.top + r.height / 2 - h / 2;
+      } else {
+        const wantBelow = side !== 'top';
+        y = wantBelow ? r.bottom + gap : r.top - gap - h;
+        if (wantBelow ? y + h > window.innerHeight - pad : y < pad) {
+          y = wantBelow ? r.top - gap - h : r.bottom + gap;
+        }
+        x = r.left + r.width / 2 - w / 2;
+      }
+      tipNode.style.left = Math.max(pad, Math.min(x, window.innerWidth - w - pad)) + 'px';
+      tipNode.style.top = Math.max(pad, Math.min(y, window.innerHeight - h - pad)) + 'px';
+    }
+
+    // Toolbars here rebuild wholesale, so the element a tip is describing can be
+    // torn out from under it. Anything that moves the page takes the tip down.
+    window.addEventListener('scroll', hideTip, true);
+    window.addEventListener('blur', hideTip);
+    window.addEventListener('resize', hideTip);
+    document.addEventListener('pointermove', (e) => {
+      if (!tipFor) return;
+      // `pointerleave` never fires for a button that was removed while hovered,
+      // which is exactly what a toolbar rebuild does.
+      if (!tipFor.isConnected || !(tipFor === e.target || tipFor.contains(e.target))) hideTip();
+    }, true);
     // The venue a yfinance symbol trades on. It answers three questions at once:
     // what the status line prints after the interval, what the ticker title mode
     // prefixes the name with, and which session table says whether the market is
@@ -1481,6 +1609,28 @@
     // simply flow underneath it.
     let symbolLegend = null;
     let volLegend = null;
+
+    // ── volume visibility ──────────────────────────────────────────────────
+    // The hidden `volshow` checkbox is the flag itself, not a second copy of
+    // it: `render()` reads it when it builds a fresh histogram, so every other
+    // control has to write through here or a chart-type switch would undo them.
+    const volumeShown = () => el('volshow').checked;
+
+    /**
+     * Show or hide the volume histogram on both charts. Hidden, never removed:
+     * the series keeps its data and its overlay price scale, so coming back is
+     * a repaint rather than a rebuild, and the legend row stays on the pane
+     * (dimmed, eye struck through) so there is something left to click.
+     */
+    function setVolumeShown(on) {
+      el('volshow').checked = on;
+      if (volume) volume.applyOptions({ visible: on });
+      if (volume2) volume2.applyOptions({ visible: on });
+      if (volLegend) volLegend.setOptions({ hidden: !on });
+      el('status').textContent = on ? 'volume shown' : 'volume hidden';
+      autosave();
+    }
+
     function setLegend(bar) {
       if (!symbolLegend) return;
       symbolLegend.setOptions({
@@ -2687,8 +2837,11 @@
       const btn = (icon, title, onClick, id) => {
         const b = document.createElement('button');
         b.innerHTML = ticon(icon);
-        b.title = title;
         if (id) b.id = id;
+        // The label is stored on the node, not captured here: syncReplayBar
+        // rewrites play/pause and the step units as the transport moves.
+        b.dataset.tip = title;
+        attachTip(b, () => ({ title: b.dataset.tip, side: 'top' }));
         b.addEventListener('click', onClick);
         bar.appendChild(b);
         return b;
@@ -2840,14 +2993,14 @@
       const back = el('rp-back');
       const fwd = el('rp-fwd');
       const unit = s.subSteps > 1 ? 'one step of the forming bar' : 'one bar';
-      if (back) back.title = 'Step back ' + unit;
-      if (fwd) fwd.title = 'Step forward ' + unit;
+      if (back) back.dataset.tip = 'Step back ' + unit;
+      if (fwd) fwd.dataset.tip = 'Step forward ' + unit;
       const clock = el('rp-clock');
       if (clock) clock.textContent = s.bar ? barStamp(s.bar.time) : '';
       const play = el('rp-play');
       if (play) {
         play.innerHTML = ticon(s.playing ? 'pause' : 'play');
-        play.title = s.playing ? 'Pause' : 'Play';
+        play.dataset.tip = s.playing ? 'Pause' : 'Play';
         play.classList.toggle('is-on', s.playing);
       }
       const speed = el('rp-speed');
@@ -2943,9 +3096,17 @@
         volume.priceScale().setOptions({ marginTop: 0.82, marginBottom: 0 });
         // A rebuild makes a fresh series, so the checkbox has to be re-applied
         // rather than assumed -- a chart-type switch would show it again.
-        if (!el('volshow').checked) volume.applyOptions({ visible: false });
+        if (!volumeShown()) volume.applyOptions({ visible: false });
         volume.setData(currentBars.map((b) => ({ time: b.time, open: 0, high: b.volume, low: 0, close: b.volume })));
-        volLegend = new PaneLegend({ id: 'volume', title: 'Vol', params: '', actions: [] });
+        // The eye is the only control the volume histogram has on the chart
+        // itself, and it is the one a reader reaches for: the row is already
+        // sitting over the bars it governs. No trash alongside it, because
+        // volume here is a fixture of the price pane rather than a study that
+        // can be re-added from a list, so a delete would only be a second
+        // spelling of hide.
+        volLegend = new PaneLegend({
+          id: 'volume', title: 'Vol', params: '', actions: ['hide'], hidden: !volumeShown(),
+        });
         chart.addPrimitive(volLegend, 0);
         markersApi = price.createMarkers(); // executed-fill arrows
         markersApi.setMarkers(fills);
@@ -2992,6 +3153,9 @@
           return;
         }
         if (id === 'position::close') { clearPosition(); saveState(); el('status').textContent = 'position closed'; return; }
+        // The volume row's eye. Ahead of the `::close` fallthrough below, which
+        // reads any other `::close` as an order line's cancel box.
+        if (id === 'volume::hide') { setVolumeShown(!volumeShown()); return; }
         // A comparison's legend row carries the same hide/close buttons every
         // other source's row does, so route them before the order lines.
         if (id.startsWith('cmp:')) {
@@ -3128,6 +3292,7 @@
               comparisons = saved.comparisons.map((c) => ({ symbol: c.symbol, color: c.color, bars: [] }));
             }
             if (saved.compareMode) cmpMode = saved.compareMode;
+            if (saved.volume !== undefined) setVolumeShown(saved.volume !== false);
             renderIndicatorChips();
             placeWatermark();
           }
@@ -3259,7 +3424,7 @@
       });
       volume2.priceScale().setOptions({ marginTop: 0.85, marginBottom: 0 });
       volume2.setData(bars2.map((b) => ({ time: b.time, open: 0, high: b.volume, low: 0, close: b.volume })));
-      if (!el('volshow').checked) volume2.applyOptions({ visible: false });
+      if (!volumeShown()) volume2.applyOptions({ visible: false });
       chart2.subscribeCrosshairMove((e) => setPane2Legend(e.bar ?? bars2[bars2.length - 1]));
       setPane2Legend(bars2[bars2.length - 1]);
       // A second drawing controller, so paste has somewhere else to land: the
@@ -3630,6 +3795,15 @@
         rowInd.textContent = (inst ? inst.name : 'Indicator') + ' settings...';
       }
 
+      // Volume is a fixture of a time-indexed chart only: a Renko brick or a
+      // P&F column has no source bar to hang it off, so `render()` leaves the
+      // series null and the row would have nothing to switch.
+      const rowVol = ctxMenu.querySelector('[data-act="volshow"]');
+      rowVol.hidden = !volume;
+      ctxMenu.querySelector('hr[data-sec="vol"]').hidden = !volume;
+      rowVol.classList.toggle('is-on', volumeShown());
+      rowVol.querySelector('em').textContent = volumeShown() ? 'Shown' : 'Hidden';
+
       // Unhide first, then measure: the menu's height depends on which rows
       // above survived, so a fixed clamp would be wrong for most of them.
       ctxMenu.hidden = false;
@@ -3671,6 +3845,7 @@
         clipboardAction(act);
         return;
       }
+      if (act === 'volshow') { setVolumeShown(!volumeShown()); return; }
       if (act === 'chartset') { openChartSettings(); return; }
       if (act === 'indset') { if (ctxIndicator) openSettings(ctxIndicator); return; }
       placeOrder(btn.getAttribute('data-side'), btn.getAttribute('data-type'), ctxPrice);
@@ -4081,10 +4256,7 @@
     el('hgrid').addEventListener('change', applyGrid);
     // Volume is hidden, not removed: the series keeps its data and its overlay
     // price scale, so switching it back on is instant.
-    el('volshow').addEventListener('change', () => {
-      if (volume) volume.applyOptions({ visible: el('volshow').checked });
-      if (volume2) volume2.applyOptions({ visible: el('volshow').checked });
-    });
+    el('volshow').addEventListener('change', () => setVolumeShown(el('volshow').checked));
 
     // Add an indicator live — no chart rebuild, no refetch. The handle it returns
     // is what a settings dialog or an objects panel would drive.
@@ -4116,6 +4288,9 @@
         dataset: datasetKey(req),
         comparisons: comparisons.map((c) => ({ symbol: c.symbol, color: c.color })),
         compareMode: cmpMode,
+        // Demo-owned like the comparisons: `render()` builds the histogram from
+        // this flag, so without it a hidden volume comes back on a reload.
+        volume: volumeShown(),
       };
     }
     el('lsave').addEventListener('click', () => {
@@ -4138,6 +4313,7 @@
       for (const c of comparisons.slice()) removeComparison(c);
       comparisons = (state.comparisons || []).map((c) => ({ symbol: c.symbol, color: c.color, bars: [] }));
       if (state.compareMode) cmpMode = state.compareMode;
+      if (state.volume !== undefined) setVolumeShown(state.volume !== false);
       syncComparisons();
       renderIndicatorChips();
       renderToolbar();
@@ -4421,8 +4597,8 @@
           chip = document.createElement('button');
           chip.id = 'fsexit';
           chip.className = 'fsexit';
-          chip.title = 'Exit full screen (Esc)';
           chip.innerHTML = ticon('fullscreenExit');
+          attachTip(chip, { title: 'Exit full screen', chord: 'Esc', side: 'bottom' });
           chip.addEventListener('click', toggleChartFullscreen);
           stage.appendChild(chip);
         }
@@ -4431,7 +4607,7 @@
       }
     }
 
-    document.addEventListener('fullscreenchange', () => { syncFullscreenChrome(); renderToolbar(); });
+    document.addEventListener('fullscreenchange', () => { hideTip(); syncFullscreenChrome(); renderToolbar(); });
 
     /** Rebuild the top toolbar from the current state of the hidden controls. */
     function renderToolbar() {
@@ -4639,15 +4815,17 @@
       bar.appendChild(status);
     }
 
-    function tbtn(html, title) {
+    function tbtn(html, title, sub) {
       const b = document.createElement('button');
       b.className = 'tbtn';
       b.innerHTML = html;
-      b.title = title;
+      // Styled label rather than `title`: half of these buttons are a bare
+      // glyph, and the native box arrives a second late in the wrong theme.
+      attachTip(b, { title, sub, side: 'bottom' });
       return b;
     }
-    function iconBtn(icon, title, onClick) {
-      const b = tbtn(ticon(icon), title);
+    function iconBtn(icon, title, onClick, sub) {
+      const b = tbtn(ticon(icon), title, sub);
       b.classList.add('tbtn--icon');
       b.addEventListener('click', onClick);
       return b;
@@ -4841,6 +5019,7 @@
           group.last = it.tool;            // the button re-activates this next time
           btn.innerHTML = svgIcon(it.icon) + caretEl();
           closeRailMenu();
+          setDrawLock(false);   // a pick from the list is one placement, like a single click
           if (draw) draw.setTool(it.tool);
         });
         m.appendChild(row);
@@ -4855,11 +5034,36 @@
     }
 
     const caretEl = () => '<i class="railcaret">' + svgIcon('wedge') + '</i>';
-    /** Hover label; `chord` is the tool's keyboard shortcut when it has one. */
-    const tipEl = (text, chord) =>
-      '<i class="railtip">' + esc(text) + (chord ? '<b>' + esc(chord) + '</b>' : '') + '</i>';
     /** Tool id -> chord, from the draw tier. */
     let SHORTCUTS = {};
+
+    /**
+     * Whether a tool stays armed once a drawing is finished. Off is the default
+     * everywhere: one click on the rail places one drawing and hands panning
+     * back. A double-click on the rail turns it on for the tool it picks, and
+     * anything that leaves the tool (Escape, the cursor button, another single
+     * click) turns it off again.
+     */
+    let drawLocked = false;
+    function setDrawLock(on) {
+      drawLocked = on;
+      // Both charts: the split is one workspace, and a tool that latched on one
+      // half but not the other is a difference nobody asked for.
+      if (draw) draw.setOptions({ stayInDrawingMode: on });
+      if (draw2) draw2.setOptions({ stayInDrawingMode: on });
+      syncRail(draw ? draw.activeTool() : null);
+    }
+
+    /** Which tool a rail button currently stands for, for its hover label. */
+    function railTool(g, tools) {
+      if (g.menu) return g.last || tools[0];
+      return tools.length === 1 ? tools[0] : undefined;
+    }
+    function railToolName(g, toolId) {
+      if (!g.menu || !toolId) return undefined;
+      const it = g.menu.find((i) => i.tool === toolId);
+      return it ? it.name : undefined;
+    }
 
     function buildRail() {
       const rail = el('rail');
@@ -4874,15 +5078,33 @@
         const b = document.createElement('button');
         const tools = g.menu ? g.menu.filter((i) => i.tool).map((i) => i.tool) : (g.tools || []);
         if (g.menu) g.last = g.last || tools[0];
-        const ownChord = !g.menu && tools.length === 1 ? SHORTCUTS[tools[0]] : undefined;
-        b.innerHTML =
-          svgIcon(g.icon) + (g.menu ? caretEl() : '') + tipEl(g.title, ownChord);
-        b.setAttribute('aria-label', g.title);
+        b.innerHTML = svgIcon(g.icon) + (g.menu ? caretEl() : '');
         b.dataset.tools = tools.join(',');
+        // Read at hover time, not here: a group button stands for whichever
+        // tool was last picked out of its flyout, so a label frozen at build
+        // time would still say "Lines" while the button drew a Gann fan.
+        attachTip(b, () => {
+          const tool = railTool(g, tools);
+          return {
+            title: railToolName(g, tool) || g.title,
+            chord: tool ? SHORTCUTS[tool] : undefined,
+            sub: tools.length ? 'Double-click to keep the tool active' : undefined,
+            side: 'right',
+          };
+        });
         b.addEventListener('click', (e) => {
           if (!draw) return;
           if (g.action === 'clear') { draw.clear(); return; }
           closeRailMenu();
+          // `detail` is the click count, so the second click of a double never
+          // falls through to the flyout branch below and re-opens the list.
+          if (e.detail >= 2 && tools.length) {
+            setDrawLock(true);
+            draw.setTool(g.menu ? g.last : tools[0]);
+            el('status').textContent = `${railToolName(g, railTool(g, tools)) || g.title} stays active until Escape`;
+            return;
+          }
+          setDrawLock(false);
           if (!g.menu) {
             if (tools.length === 0) { draw.setTool(null); return; }
             const at = tools.indexOf(draw.activeTool());
@@ -4907,7 +5129,9 @@
     function syncRail(tool) {
       for (const b of el('rail').querySelectorAll('button')) {
         const tools = (b.dataset.tools || '').split(',').filter(Boolean);
-        b.classList.toggle('is-on', tool === null ? tools.length === 0 : tools.indexOf(tool) >= 0);
+        const on = tool === null ? tools.length === 0 : tools.indexOf(tool) >= 0;
+        b.classList.toggle('is-on', on);
+        b.classList.toggle('is-locked', on && drawLocked && tools.length > 0);
       }
       el('drawtool').value = tool || '';
     }
@@ -4945,7 +5169,7 @@
       const button = (html, title, onClick, cls) => {
         const b = document.createElement('button');
         b.innerHTML = html;
-        b.title = title;
+        attachTip(b, { title, side: 'top' });
         if (cls) b.className = cls;
         if (onClick) b.addEventListener('click', onClick);
         w.appendChild(b);
@@ -4954,8 +5178,8 @@
 
       // Colour swatch opens the grid + opacity popover.
       const sw = document.createElement('button');
-      sw.title = 'Colour and opacity';
       sw.innerHTML = '<span class="swatch" style="background:' + esc(style.color || '#2962ff') + '"></span>';
+      attachTip(sw, { title: 'Colour and opacity', side: 'top' });
       sw.addEventListener('click', (e) => { e.stopPropagation(); toggleColorPop(); });
       w.appendChild(sw);
 
@@ -4963,8 +5187,8 @@
         const sizes = [10, 12, 13, 16, 20, 28, 40];
         const fs = document.createElement('button');
         fs.className = 'wbtn';
-        fs.title = 'Font size';
         fs.textContent = String(style.fontSize || 13);
+        attachTip(fs, { title: 'Font size', sub: 'Click to step through the sizes', side: 'top' });
         fs.addEventListener('click', () => {
           const next = sizes[(sizes.indexOf(style.fontSize || 13) + 1) % sizes.length];
           draw.update(id, { style: { fontSize: next } });
@@ -4976,8 +5200,8 @@
         const steps = [1, 1.5, 2, 3, 4];
         const th = document.createElement('button');
         th.className = 'wbtn';
-        th.title = 'Thickness';
         th.textContent = (style.lineWidth || 1.5) + 'px';
+        attachTip(th, { title: 'Line thickness', sub: 'Click to step through the widths', side: 'top' });
         th.addEventListener('click', () => {
           const next = steps[(steps.indexOf(style.lineWidth || 1.5) + 1) % steps.length];
           draw.update(id, { style: { lineWidth: next } });
@@ -5350,7 +5574,7 @@
       }
     })();
 
-    el('drawtool').addEventListener('change', () => draw && draw.setTool(el('drawtool').value || null));
+    el('drawtool').addEventListener('change', () => { if (!draw) return; setDrawLock(false); draw.setTool(el('drawtool').value || null); });
     el('drawundo').addEventListener('click', () => draw && draw.undo());
     el('drawredo').addEventListener('click', () => draw && draw.redo());
     el('drawdel').addEventListener('click', () => {
@@ -5387,20 +5611,20 @@
       if (d !== draw) {
         // The rest of this table is the main chart's rail and undo stack.
         if (e.key === 'Delete' || e.key === 'Backspace') { const id = d.selected(); if (id) { d.remove(id); e.preventDefault(); } }
-        else if (e.key === 'Escape') d.setTool(null);
+        else if (e.key === 'Escape') { setDrawLock(false); d.setTool(null); }
         else if (mod && key === 'z') { e.shiftKey ? d.redo() : d.undo(); e.preventDefault(); }
         else if (mod && key === 'y') { d.redo(); e.preventDefault(); }
         return;
       }
       if (e.key === 'Delete' || e.key === 'Backspace') { const id = draw.selected(); if (id) { draw.remove(id); e.preventDefault(); } }
-      else if (e.key === 'Escape') draw.setTool(null);
+      else if (e.key === 'Escape') { setDrawLock(false); draw.setTool(null); }
       else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.shiftKey ? draw.redo() : draw.undo(); e.preventDefault(); }
       else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { draw.redo(); e.preventDefault(); }
       else {
         // Alt+<key> arms a tool. The tier owns the chord table and matches the
         // modifiers exactly, so this cannot shadow a browser chord.
         const id = matchDrawingShortcut(e);
-        if (id) { draw.setTool(id); syncRail(id); e.preventDefault(); }
+        if (id) { setDrawLock(false); draw.setTool(id); syncRail(id); e.preventDefault(); }
       }
     });
 

@@ -130,7 +130,12 @@ describe('ChartOptions.priceScale applies per pane', () => {
     for (const pane of chart.panes()) {
       expect(pane.priceScale.options.mode).toBe('logarithmic');
       expect(pane.priceScale.options.inverted).toBe(true);
-      expect(pane.priceScale.options.minMove).toBe(0.05);
     }
+    // Every field but the tick. `minMove` is the instrument's trading step, so
+    // it lands on the pane that quotes the instrument and stops there: the
+    // second pane here plots volume, which is not priced in paise. See
+    // `Chart._scalePatchFor` and tests/indicator-pane-precision.test.ts.
+    expect(chart.panes()[0].priceScale.options.minMove).toBe(0.05);
+    expect(chart.panes()[1].priceScale.options.minMove).toBe(0);
   });
 });

@@ -33,8 +33,24 @@ export interface PriceScaleOptions {
   /** Fraction of pane height kept empty at top/bottom (default 0.1 each). */
   marginTop: number;
   marginBottom: number;
-  /** Instrument tick size (minMove), e.g. 0.05. 0 → infer from range. */
+  /**
+   * Instrument tick size (minMove), e.g. 0.05. 0 → infer from range.
+   *
+   * A property of the instrument and not of the axis, so it belongs only on a
+   * scale that quotes one. An oscillator's pane reads in its own units and is
+   * left at 0 there, which is why `Chart.setPriceScaleOptions` withholds it
+   * from those panes rather than broadcasting it like the rest of this block.
+   */
   minMove: number;
+  /**
+   * Least decimals a scale with no tick will print. 0 leaves the span to
+   * decide alone, which is right for a price axis and too coarse for a bounded
+   * oscillator: see `precision()`.
+   *
+   * Ignored once `minMove` is set, because a declared tick is a stronger
+   * statement about the instrument than a floor is about the axis.
+   */
+  minPrecision: number;
   /** Linear, logarithmic or rebased (percentage / indexed-to-100) price↔y mapping. */
   mode: PriceScaleMode;
   /** Flip the axis (price increases downward) — for spread/short views. */
@@ -45,9 +61,16 @@ export const DEFAULT_PRICE_SCALE_OPTIONS: PriceScaleOptions = {
   marginTop: 0.1,
   marginBottom: 0.1,
   minMove: 0,
+  minPrecision: 0,
   mode: 'linear',
   inverted: false,
 };
+
+/**
+ * Above this the floor lifts: the integer part already carries five digits, so
+ * a decimal adds width without adding information.
+ */
+const FLOOR_MAX_MAGNITUDE = 1e4;
 
 /**
  * Pure: compute a price range from data extremes plus top/bottom margins.
@@ -358,13 +381,28 @@ export class PriceScale {
    * price tick size means nothing: precision comes from the transformed span
    * instead, with two decimals as the floor traders expect of a percentage
    * ("+3.42%") and more only when the visible band is tighter than that.
+   *
+   * A scale carrying no tick is not quoting an instrument, so the span is all
+   * there is to go on. That alone reads too coarse on a bounded oscillator: an
+   * RSI spanning 0 to 100 implies a step of 1 and prints a whole-number ladder,
+   * so a reading of 62.24 lands on a rung labelled "62" and a trader comparing
+   * it to a 70 level is reading a number that has been rounded past the part
+   * they care about. `minPrecision` is the floor for that case, and it is the
+   * same two decimals the percent branch above already settles on for the same
+   * reason.
    */
   public precision(): number {
     if (this._rebase() !== null) {
       return Math.max(2, precisionForStep((this._t(this._max) - this._t(this._min)) / 100));
     }
     if (this._options.minMove > 0) return precisionForStep(this._options.minMove);
-    return precisionForStep((this._max - this._min) / 100);
+    const inferred = precisionForStep((this._max - this._min) / 100);
+    // Only where decimals are still information. Past five integer digits they
+    // are not: an on-balance-volume of 1,234,567.00 says nothing the integer
+    // did not, and the two zeroes cost the axis width that the digits need.
+    const magnitude = Math.max(Math.abs(this._min), Math.abs(this._max));
+    if (!Number.isFinite(magnitude) || magnitude >= FLOOR_MAX_MAGNITUDE) return inferred;
+    return Math.max(this._options.minPrecision, inferred);
   }
 
   /**
