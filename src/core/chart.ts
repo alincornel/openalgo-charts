@@ -165,6 +165,13 @@ export interface ChartOptions {
   axisChrome?: AxisChromeOptions;
   /** Time source for kinetic animation (defaults to performance.now). */
   now?: () => number;
+  /**
+   * Multiplier for each wheel-zoom step. `1` (default) preserves the shipped
+   * 1.1x step, values below 1 tame high-frequency trackpad bursts, values above
+   * 1 accelerate them, and 0 disables wheel zoom. Pinch and keyboard zoom are
+   * unaffected.
+   */
+  wheelZoomSensitivity?: number;
   /** Enable OHLC-preserving conflation when zoomed out (§4.4). Default false. */
   conflate?: boolean;
   /** Conflation aggressiveness (default 1). */
@@ -413,6 +420,7 @@ export class Chart {
   private _pointerInside = false;
   private _keyTarget: HTMLElement | Document | null = null;
   private readonly _now: () => number;
+  private readonly _wheelZoomSensitivity: number;
   private readonly _conflate: boolean;
   private readonly _conflationFactor: number;
   private _gridVert = true;
@@ -569,6 +577,9 @@ export class Chart {
     const sc = options.shortcuts;
     this._shortcuts = sc === false ? null : (sc instanceof ShortcutManager ? sc : new ShortcutManager(sc ?? {}));
     this._now = options.now ?? (() => (typeof performance !== 'undefined' ? performance.now() : 0));
+    this._wheelZoomSensitivity = Number.isFinite(options.wheelZoomSensitivity)
+      ? Math.max(0, options.wheelZoomSensitivity as number)
+      : 1;
     this._conflate = options.conflate ?? false;
     this._conflationFactor = options.conflationFactor ?? 1;
     this._priceFormatter = options.priceFormatter ?? null;
@@ -3231,8 +3242,13 @@ export class Chart {
   private readonly _onWheel = (e: WheelEvent): void => {
     this._unfreezeOverlay();
     e.preventDefault();
+    if (e.deltaY === 0 || this._wheelZoomSensitivity === 0) return;
     const p = this._localPoint(e);
-    const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+    // A mouse wheel commonly emits one event per notch, while a Mac trackpad
+    // emits a high-frequency burst. Scaling the exponent retains the exact old
+    // step at sensitivity 1 while letting hosts damp every event in that burst.
+    const step = Math.pow(1.1, this._wheelZoomSensitivity);
+    const factor = e.deltaY < 0 ? step : 1 / step;
     this._timeScale.zoomAtX(p.x, factor);
     this._maybeLoadHistory();
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));

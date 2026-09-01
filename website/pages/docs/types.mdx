@@ -93,6 +93,8 @@ interface ChartOptions {
   /** 'normal' follows the pointer exactly; 'magnet' snaps to nearest O/H/L/C. */
   crosshairMode?: 'normal' | 'magnet';
   now?: () => number;
+  /** Per-event wheel zoom multiplier. Default 1; use less than 1 for trackpads. */
+  wheelZoomSensitivity?: number;
   conflate?: boolean;
   conflationFactor?: number;
   grid?: { vertLines?: boolean; horzLines?: boolean };
