@@ -2,6 +2,36 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.8.8
+
+Documentation and package metadata. No engine change: every number this library
+draws is identical to 1.8.7.
+
+### Added
+
+- **A CDN guide**, and the two package fields that make the short URL work.
+
+  Every release has been on unpkg and jsDelivr since it was first published,
+  because both sit in front of npm rather than being places you upload to. But
+  nothing in the docs said so, and `https://unpkg.com/openalgo-charts` returned a
+  404: with no `main` (this package is ESM-first, through `exports`) the bare URL
+  had nothing to resolve to. `unpkg` and `jsdelivr` now point at the standalone
+  build, so it resolves.
+
+  The new page leads with the module form, which is the one to reach for: import
+  each tier straight from a URL and a chart carrying all 102 indicators is a
+  single HTML file with no build step, no bundler and no install.
+
+  It also writes down the two things the usual CDN-publishing advice gets wrong
+  for this library. There is no stylesheet, because the engine ships no DOM, so
+  the `<link rel="stylesheet">` such guides recommend would 404 on a file that
+  does not exist and is not meant to. And there is no CDN deployment step to
+  perform, because unpkg and jsDelivr mirror npm.
+
+  The standalone script is documented for what it is: **base tier only**. There
+  is no `registerBuiltinIndicators` on that global, so no built-in indicators and
+  no drawing tools come with it. It exists for a page that cannot load modules.
+
 ## 1.8.7
 
 Market replay, reported broken from a live terminal and rebuilt around the

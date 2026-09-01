@@ -1,6 +1,7 @@
 export default {
   '-- intro': { type: 'separator', title: 'Introduction' },
   'getting-started': 'Getting Started',
+  cdn: 'Use from a CDN',
   'core-concepts': 'Core Concepts',
   architecture: 'Architecture',
   frameworks: 'Framework Integration',

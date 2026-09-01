@@ -54,20 +54,39 @@ const chart = createChart(document.getElementById('chart'));
 chart.addSeries('candlestick').setData(generateBars(1700000000, 200, 3600));
 ```
 
+## No build step
+
+Every release is on unpkg and jsDelivr the moment it is published, because both sit
+in front of npm rather than being places you upload to. A chart is one HTML file:
+
+```html
+<div id="chart" style="width:100vw;height:100vh"></div>
+<script type="module">
+  import { createChart } from 'https://unpkg.com/openalgo-charts@1.8.8/dist/openalgo-charts.mjs';
+  const chart = createChart(document.getElementById('chart'), { timezone: 'Asia/Kolkata' });
+  chart.addSeries('candlestick').setData(bars);
+</script>
+```
+
+Each tier is its own file, so `openalgo-charts.indicators.mjs` next to it registers
+all 102 built-ins. Pin the version in anything you leave running. There is no
+stylesheet to load: the engine ships no DOM. See
+[Use from a CDN](https://marketcalls.github.io/openalgo-charts/docs/cdn).
+
 ## Tiers
 
 Import only what you use. Each tier is a separate bundle that registers into the base engine's registries, so the cost of a feature you don't load is zero.
 
 | Import | Contents | Brotli |
 |---|---|---|
-| `openalgo-charts` | Engine, 13 chart types, panes &amp; scales, primitives, registries, chart state, chart linking, bar cache, interval registry, trading overlay, OpenAlgo feeds | 60.5 KB |
+| `openalgo-charts` | Engine, 13 chart types, panes &amp; scales, primitives, registries, chart state, chart linking, bar cache, interval registry, trading overlay, OpenAlgo feeds | 60.6 KB |
 | `openalgo-charts/indicators` | 102 built-in indicators, the `registerIndicator` contract for your own, and the Tier-2 (external-data) contract | 27.3 KB |
 | `openalgo-charts/draw` | 43 drawing tools + a headless drawing controller and clipboard | 13.1 KB |
 | `openalgo-charts/transform` | Heikin Ashi, Renko, Range bars, Line Break, Point &amp; Figure, Kagi | 2.7 KB |
 | `openalgo-charts/profile` | Volume Profile, Market Profile (TPO), Footprint, order flow | 10.7 KB |
 | `openalgo-charts/trade` | Order / position / bracket tools + DOM ladder | 7.6 KB |
 
-Everything together is **121.86 KB Brotli**. Figures are the measured `size-limit` output. The trade tier is listed as its delta over the base, so loading base + trade costs 68.14 KB.
+Everything together is **121.90 KB Brotli**. Figures are the measured `size-limit` output. The trade tier is listed as its delta over the base, so loading base + trade costs 68.18 KB.
 
 ## What's built
 
@@ -208,13 +227,13 @@ Enforced in CI by [`size-limit`](./.size-limit.json). Nothing is excluded, becau
 
 | Bundle | Limit | Actual |
 |---|---|---|
-| Base engine | 62 KB | 60.53 KB |
-| Base + trade | 70 KB | 68.14 KB |
+| Base engine | 62 KB | 60.57 KB |
+| Base + trade | 70 KB | 68.18 KB |
 | Indicators tier | 30 KB | 27.27 KB |
 | Draw tier | 14 KB | 13.13 KB |
 | Transform tier | 5 KB | 2.66 KB |
 | Profile tier | 11 KB | 10.66 KB |
-| **Everything** | **124 KB** | **121.86 KB** |
+| **Everything** | **124 KB** | **121.90 KB** |
 
 ## Documentation
 
@@ -271,7 +290,7 @@ npm run verify     # typecheck + test + build + size
 
 ## Status &amp; limitations
 
-Version **1.8.7**. All engine build phases are implemented with 2466 unit tests across 137 files.
+Version **1.8.8**. All engine build phases are implemented with 2466 unit tests across 137 files.
 
 Known gaps, stated plainly:
 

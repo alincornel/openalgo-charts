@@ -77,7 +77,7 @@ Import only what you use. Each tier is a separate entry point that registers int
 | `openalgo-charts/profile` | Volume Profile, Market Profile (TPO), Footprint, order flow | 11 KB |
 | `openalgo-charts/trade` | Order engine, state machine, order/position/bracket lines, DOM ladder | 68 KB with base |
 
-Limits are the CI-enforced budgets in `.size-limit.json`; the whole package measures 121.86 KB Brotli against a 124 KB budget, and the indicator tier 27.27 KB against 30 KB. Both budgets were raised in 1.8.3 to carry that release's eleven new indicators, and the aggregate was raised to stay consistent with the tier: every other tier sums to 93.11 KB, so 93.11 plus the tier's 30 KB ceiling is 123.11 KB and the aggregate has to sit above that or it would fail while the tier it contains passes. Nothing is excluded from these figures because there are no runtime dependencies to exclude.
+Limits are the CI-enforced budgets in `.size-limit.json`; the whole package measures 121.90 KB Brotli against a 124 KB budget, and the indicator tier 27.27 KB against 30 KB. Both budgets were raised in 1.8.3 to carry that release's eleven new indicators, and the aggregate was raised to stay consistent with the tier: every other tier sums to 93.11 KB, so 93.11 plus the tier's 30 KB ceiling is 123.11 KB and the aggregate has to sit above that or it would fail while the tier it contains passes. Nothing is excluded from these figures because there are no runtime dependencies to exclude.
 
 The clipboard lives in the **draw** tier, not the base one, because it needs the drawing-tool registry. `DrawingClipboard` and friends come from `openalgo-charts/draw`.
 
