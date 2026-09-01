@@ -46,7 +46,16 @@ export {
   FIB_RETRACEMENT, FIB_EXTENSION,
   LONG_POSITION, SHORT_POSITION, MEASURE,
   TEXT, PATH,
+  // Annotations: the marks whose job is a human sentence on the chart.
+  NOTE, BALLOON, COMMENT, SIGNPOST, PRICE_NOTE, TABLE,
+  ARROW_UP, ARROW_DOWN, ARROW_LEFT, ARROW_RIGHT,
+  PRICE_LABEL, CALLOUT, FLAG_MARK,
 } from './tools';
+
+export {
+  DRAWING_TOOL_ICONS, drawingToolIcon, drawingToolIconIds,
+  ICON_VIEWBOX, ICON_STROKE, ICON_ATTRS,
+} from './icons';
 
 export { DrawingLayer } from './layer';
 export { DrawingController, type DrawingControllerOptions } from './controller';

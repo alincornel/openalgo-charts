@@ -8,13 +8,13 @@ Professional interactive charts, 102 built-in indicators plus your own custom on
 
 [![npm version](https://img.shields.io/npm/v/openalgo-charts.svg?color=cb3837&label=npm)](https://www.npmjs.com/package/openalgo-charts)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
-[![bundle](https://img.shields.io/badge/brotli-61%20KB%20base%20%C2%B7%20122%20KB%20all%20tiers-brightgreen.svg)](#size-budget)
-[![tests](https://img.shields.io/badge/tests-2590%20passing-brightgreen.svg)](#develop)
+[![bundle](https://img.shields.io/badge/brotli-61%20KB%20base%20%C2%B7%20124%20KB%20all%20tiers-brightgreen.svg)](#size-budget)
+[![tests](https://img.shields.io/badge/tests-2898%20passing-brightgreen.svg)](#develop)
 [![dependencies](https://img.shields.io/badge/runtime%20deps-0-brightgreen.svg)](#principles)
 
 [**Documentation**](https://marketcalls.github.io/openalgo-charts/) &nbsp;·&nbsp; [**Live examples**](https://marketcalls.github.io/openalgo-charts/examples) &nbsp;·&nbsp; [**Getting started**](./docs/getting-started.md) &nbsp;·&nbsp; [**Architecture**](./ARCHITECTURE.md)
 
-<img src="docs/architecture-diagram.svg" alt="OpenAlgo Charts architecture: seven layers from the public API down to feeds and data, with 102 built-in plus custom indicators, 43 drawing tools, and a six-tier bundle legend" width="920" />
+<img src="docs/architecture-diagram.svg" alt="OpenAlgo Charts architecture: seven layers from the public API down to feeds and data, with 102 built-in plus custom indicators, 51 drawing tools, and a six-tier bundle legend" width="920" />
 
 </div>
 
@@ -62,7 +62,7 @@ in front of npm rather than being places you upload to. A chart is one HTML file
 ```html
 <div id="chart" style="width:100vw;height:100vh"></div>
 <script type="module">
-  import { createChart } from 'https://unpkg.com/openalgo-charts@1.9.1/dist/openalgo-charts.mjs';
+  import { createChart } from 'https://unpkg.com/openalgo-charts@1.9.2/dist/openalgo-charts.mjs';
   const chart = createChart(document.getElementById('chart'), { timezone: 'Asia/Kolkata' });
   chart.addSeries('candlestick').setData(bars);
 </script>
@@ -79,14 +79,14 @@ Import only what you use. Each tier is a separate bundle that registers into the
 
 | Import | Contents | Brotli |
 |---|---|---|
-| `openalgo-charts` | Engine, 13 chart types, panes &amp; scales, primitives, registries, chart state, chart linking, bar cache, interval registry, trading overlay, OpenAlgo feeds | 60.8 KB |
+| `openalgo-charts` | Engine, 13 chart types, panes &amp; scales, primitives, registries, chart state, chart linking, bar cache, interval registry, trading overlay, OpenAlgo feeds | 60.9 KB |
 | `openalgo-charts/indicators` | 102 built-in indicators, the `registerIndicator` contract for your own, and the Tier-2 (external-data) contract | 27.3 KB |
-| `openalgo-charts/draw` | 43 drawing tools + a headless drawing controller and clipboard | 13.1 KB |
+| `openalgo-charts/draw` | 43 drawing tools + a headless drawing controller and clipboard | 15.4 KB |
 | `openalgo-charts/transform` | Heikin Ashi, Renko, Range bars, Line Break, Point &amp; Figure, Kagi | 2.7 KB |
 | `openalgo-charts/profile` | Volume Profile, Market Profile (TPO), Footprint, order flow | 10.7 KB |
 | `openalgo-charts/trade` | Order / position / bracket tools + DOM ladder | 7.6 KB |
 
-Everything together is **122.16 KB Brotli**. Figures are the measured `size-limit` output. The trade tier is listed as its delta over the base, so loading base + trade costs 68.45 KB.
+Everything together is **124.47 KB Brotli**. Figures are the measured `size-limit` output. The trade tier is listed as its delta over the base, so loading base + trade costs 68.49 KB.
 
 ## What's built
 
@@ -118,7 +118,7 @@ const draw = new DrawingController(chart, { magnet: true });
 draw.setTool('trend-line');   // the next two clicks place it
 ```
 
-43 tools. Lines: trend line, ray, extended line, arrow, horizontal line/ray, vertical line, cross line. Shapes: rectangle, rotated rectangle, ellipse, circle, triangle. Paths: path, polyline, arc, curve, double curve. Channels: parallel channel, fib channel. Fibonacci: retracement, extension, time zone, speed fan. Gann: fan, box. Cycles: cyclic lines, time cycles, sine line. Forecasting: long/short position (1:1 from one click, with risk/reward and risk-based sizing), forecast. Measurers: price range, date range, measure. Arrows: mark up, mark down. Text and notes: text, price label, callout, flag mark. Brushes: brush, highlighter (freehand).
+51 tools. Lines: trend line, ray, extended line, arrow, horizontal line/ray, vertical line, cross line. Shapes: rectangle, rotated rectangle, ellipse, circle, triangle. Paths: path, polyline, arc, curve, double curve. Channels: parallel channel, fib channel. Fibonacci: retracement, extension, time zone, speed fan. Gann: fan, box. Cycles: cyclic lines, time cycles, sine line. Forecasting: long/short position (1:1 from one click, with risk/reward and risk-based sizing), forecast. Measurers: price range, date range, measure. Arrows: mark up, down, left, right. Text and notes: text, price label, callout, flag mark. Annotations: note, balloon, comment, signpost, price note, table. Brushes: brush, highlighter (freehand).
 
 Headless by design: no toolbar, no dialogs. Placement with live preview, selection, whole-shape and per-anchor dragging, magnet snap to O/H/L/C, undo/redo (a drag is one step), and persistence. Anchors are `{ time, price }`, never pixels, so they survive zoom and resolve inside collapsed session gaps and past the last bar.
 
@@ -227,13 +227,13 @@ Enforced in CI by [`size-limit`](./.size-limit.json). Nothing is excluded, becau
 
 | Bundle | Limit | Actual |
 |---|---|---|
-| Base engine | 62 KB | 60.84 KB |
-| Base + trade | 70 KB | 68.45 KB |
+| Base engine | 62 KB | 60.88 KB |
+| Base + trade | 70 KB | 68.49 KB |
 | Indicators tier | 30 KB | 27.27 KB |
-| Draw tier | 14 KB | 13.13 KB |
+| Draw tier | 16 KB | 15.39 KB |
 | Transform tier | 5 KB | 2.66 KB |
 | Profile tier | 11 KB | 10.66 KB |
-| **Everything** | **124 KB** | **122.16 KB** |
+| **Everything** | **126 KB** | **124.47 KB** |
 
 ## Documentation
 
@@ -273,7 +273,7 @@ cd examples/yfinance && pip install -r requirements.txt && python server.py
 ```bash
 npm install        # install dev toolchain
 npm run typecheck  # strict TypeScript check
-npm test           # unit tests (vitest) - 2590 across 141 files
+npm test           # unit tests (vitest) - 2898 across 143 files
 npm run build      # Rollup -> dist/ (minified ESM per tier + types)
 npm run size       # size-limit (Brotli) against the budget
 npm run e2e        # Playwright Chromium smoke tests
@@ -290,7 +290,7 @@ npm run verify     # typecheck + test + build + size
 
 ## Status &amp; limitations
 
-Version **1.9.1**. All engine build phases are implemented with 2590 unit tests across 141 files.
+Version **1.9.2**. All engine build phases are implemented with 2898 unit tests across 143 files.
 
 Known gaps, stated plainly:
 

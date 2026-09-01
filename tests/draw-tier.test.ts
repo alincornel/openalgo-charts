@@ -150,9 +150,9 @@ describe('geometry', () => {
 
 describe('tool registry', () => {
   it('registers every built-in on tier import', () => {
-    expect(BUILTIN_DRAWING_TOOLS).toHaveLength(43);
+    expect(BUILTIN_DRAWING_TOOLS).toHaveLength(51);
     for (const t of BUILTIN_DRAWING_TOOLS) expect(hasDrawingTool(t.id)).toBe(true);
-    expect(registeredDrawingTools().length).toBeGreaterThanOrEqual(43);
+    expect(registeredDrawingTools().length).toBeGreaterThanOrEqual(51);
   });
 
   it('has unique ids and a sane anchor count', () => {

@@ -1257,6 +1257,388 @@ export const FLAG_MARK: DrawingTool = {
   },
 };
 
+
+/* ── annotations ───────────────────────────────────────────────────────────
+ * Tools whose whole job is to put a human sentence on the chart. They share
+ * the plate-and-tail machinery the callout already had, because a note, a
+ * balloon and a comment differ in where the tail leaves the plate and how the
+ * plate is shaped, not in anything structural.
+ */
+
+/** Text for an annotation, falling back to the tool's own default label. */
+function noteLines(c: DrawContext, fallback: string): string[] {
+  const t = c.style.text;
+  return (t === undefined || t === '' ? fallback : t).split('\n');
+}
+
+/**
+ * A plate of text with its top-left at (x, y), returned in device px.
+ *
+ * Distinct from `calloutBox`, which centres on a point: an annotation that
+ * grows downward from where it was dropped stays where the user put it as the
+ * text is typed, while a centred one creeps upward a half-line at a time.
+ */
+function notePlate(
+  c: DrawContext, lines: readonly string[], x: number, y: number,
+): { x: number; y: number; w: number; h: number } {
+  const d = c.rc.dpr;
+  const size = (c.style.fontSize ?? 12) * d;
+  c.ctx.save();
+  c.ctx.font = `${size}px ui-sans-serif, system-ui, sans-serif`;
+  let textW = 0;
+  for (const t of lines) textW = Math.max(textW, c.ctx.measureText(t).width);
+  c.ctx.restore();
+  return { x, y, w: textW + 16 * d, h: size * 1.45 * lines.length + 10 * d };
+}
+
+/** Fill the plate, stroke its border, and lay the lines inside it. */
+function paintPlate(
+  c: DrawContext,
+  box: { x: number; y: number; w: number; h: number },
+  lines: readonly string[],
+  radius = 6,
+): void {
+  const d = c.rc.dpr;
+  const size = (c.style.fontSize ?? 12) * d;
+  c.ctx.save();
+  c.ctx.setLineDash([]);
+  c.ctx.globalAlpha = c.style.fillOpacity ?? 1;
+  c.ctx.fillStyle = c.style.backgroundColor ?? c.style.color;
+  c.ctx.beginPath();
+  roundRectPath(c.ctx, box.x, box.y, box.w, box.h, radius * d);
+  c.ctx.fill();
+  c.ctx.globalAlpha = 1;
+  if (c.style.border === true) {
+    c.ctx.strokeStyle = c.style.borderColor ?? c.style.color;
+    c.ctx.lineWidth = Math.max(1, c.style.lineWidth * d);
+    c.ctx.stroke();
+  }
+  c.ctx.font = `${size}px ui-sans-serif, system-ui, sans-serif`;
+  c.ctx.textAlign = 'left';
+  c.ctx.textBaseline = 'middle';
+  c.ctx.fillStyle = c.style.fontColor
+    ?? contrastText(c.style.backgroundColor ?? c.style.color);
+  const lh = size * 1.45;
+  const top = box.y + box.h / 2 - (lh * (lines.length - 1)) / 2;
+  for (let i = 0; i < lines.length; i++) {
+    c.ctx.fillText(lines[i], box.x + 8 * d, top + lh * i);
+  }
+  c.ctx.restore();
+}
+
+/** Inside the plate, in media px. Annotations are grabbable anywhere on them. */
+function insidePlate(
+  x: number, y: number, bx: number, by: number, w: number, h: number,
+): number | null {
+  return x >= bx && x <= bx + w && y >= by && y <= by + h ? 0 : null;
+}
+
+/**
+ * The plate a hit test assumes, in media px.
+ *
+ * Hit testing runs without a canvas, so the real text cannot be measured. A
+ * fixed box is the honest approximation: it is generous enough that a plate is
+ * always grabbable, and the anchor dot below catches the rest.
+ */
+function notePlateGuess(
+  style: DrawingStyle, lines: number,
+): { w: number; h: number } {
+  const size = style.fontSize ?? 12;
+  return { w: 120, h: size * 1.45 * Math.max(1, lines) + 10 };
+}
+
+const linesOf = (style: DrawingStyle, fallback: string): number =>
+  ((style.text === undefined || style.text === '' ? fallback : style.text).split('\n')).length;
+
+/**
+ * Note — a pin at the bar with its text to the upper right.
+ *
+ * The pin is the point being annotated and the plate is the annotation, which
+ * is why the two are drawn as separate marks joined by a stem rather than as
+ * one bubble: the reader needs to see exactly which bar is meant, and a bubble
+ * wide enough to hold a sentence covers several.
+ */
+export const NOTE: DrawingTool = {
+  id: 'note', name: 'Note', points: 1,
+  defaultStyle: { text: 'Note', fontSize: 12, fillOpacity: 0.95 },
+  draw: (c) => {
+    const d = c.rc.dpr;
+    const p = c.pts[0];
+    const lines = noteLines(c, 'Note');
+    const box = notePlate(c, lines, p.x + 16 * d, p.y - 34 * d);
+    c.ctx.save();
+    c.ctx.setLineDash([]);
+    c.ctx.strokeStyle = c.style.color;
+    c.ctx.lineWidth = Math.max(1, c.style.lineWidth * d);
+    c.ctx.beginPath();
+    c.ctx.moveTo(p.x, p.y);
+    c.ctx.lineTo(box.x, box.y + box.h);
+    c.ctx.stroke();
+    // The pin head, so the annotated bar stays identifiable at any zoom.
+    c.ctx.fillStyle = c.style.color;
+    c.ctx.beginPath();
+    c.ctx.arc(p.x, p.y, 3.5 * d, 0, Math.PI * 2);
+    c.ctx.fill();
+    c.ctx.restore();
+    paintPlate(c, box, lines);
+  },
+  distance: (x, y, h) => {
+    const p = h.pts[0];
+    const g = notePlateGuess(h.drawing.style, linesOf(h.drawing.style, 'Note'));
+    const hit = insidePlate(x, y, p.x + 16, p.y - 34, g.w, g.h);
+    if (hit !== null) return hit;
+    return Math.hypot(x - p.x, y - p.y) <= 8 ? 0 : null;
+  },
+};
+
+/**
+ * Balloon — a speech bubble sitting above its anchor, tail pointing down.
+ *
+ * One anchor rather than the callout's two: a balloon is for saying something
+ * *about this bar*, so letting the bubble be dragged away from what it labels
+ * would only invite it to drift.
+ */
+export const BALLOON: DrawingTool = {
+  id: 'balloon', name: 'Balloon', points: 1,
+  defaultStyle: { text: 'Balloon', fontSize: 12, fillOpacity: 0.95 },
+  draw: (c) => {
+    const d = c.rc.dpr;
+    const p = c.pts[0];
+    const lines = noteLines(c, 'Balloon');
+    const size = notePlate(c, lines, 0, 0);
+    const box = { x: p.x - size.w / 2, y: p.y - size.h - 12 * d, w: size.w, h: size.h };
+    c.ctx.save();
+    c.ctx.setLineDash([]);
+    c.ctx.globalAlpha = c.style.fillOpacity ?? 0.95;
+    c.ctx.fillStyle = c.style.backgroundColor ?? c.style.color;
+    c.ctx.beginPath();
+    c.ctx.moveTo(p.x, p.y);
+    c.ctx.lineTo(p.x - 6 * d, box.y + box.h);
+    c.ctx.lineTo(p.x + 6 * d, box.y + box.h);
+    c.ctx.closePath();
+    c.ctx.fill();
+    c.ctx.restore();
+    paintPlate(c, box, lines, 8);
+  },
+  distance: (x, y, h) => {
+    const p = h.pts[0];
+    const g = notePlateGuess(h.drawing.style, linesOf(h.drawing.style, 'Balloon'));
+    const hit = insidePlate(x, y, p.x - g.w / 2, p.y - g.h - 12, g.w, g.h);
+    if (hit !== null) return hit;
+    return Math.hypot(x - p.x, y - p.y) <= 8 ? 0 : null;
+  },
+};
+
+/**
+ * Comment — a small square-cornered box with a tail off its bottom left.
+ *
+ * Deliberately plainer than the balloon: a chart that says something at every
+ * other bar needs one of these marks to be quiet, and the shape is the only
+ * thing distinguishing them once both are the user's own colour.
+ */
+export const COMMENT: DrawingTool = {
+  id: 'comment', name: 'Comment', points: 1,
+  defaultStyle: { text: 'Comment', fontSize: 11, fillOpacity: 0.92 },
+  draw: (c) => {
+    const d = c.rc.dpr;
+    const p = c.pts[0];
+    const lines = noteLines(c, 'Comment');
+    const size = notePlate(c, lines, 0, 0);
+    const box = { x: p.x + 8 * d, y: p.y - size.h - 10 * d, w: size.w, h: size.h };
+    c.ctx.save();
+    c.ctx.setLineDash([]);
+    c.ctx.globalAlpha = c.style.fillOpacity ?? 0.92;
+    c.ctx.fillStyle = c.style.backgroundColor ?? c.style.color;
+    c.ctx.beginPath();
+    c.ctx.moveTo(p.x, p.y);
+    c.ctx.lineTo(box.x, box.y + box.h - 5 * d);
+    c.ctx.lineTo(box.x + 10 * d, box.y + box.h);
+    c.ctx.closePath();
+    c.ctx.fill();
+    c.ctx.restore();
+    paintPlate(c, box, lines, 3);
+  },
+  distance: (x, y, h) => {
+    const p = h.pts[0];
+    const g = notePlateGuess(h.drawing.style, linesOf(h.drawing.style, 'Comment'));
+    const hit = insidePlate(x, y, p.x + 8, p.y - g.h - 10, g.w, g.h);
+    if (hit !== null) return hit;
+    return Math.hypot(x - p.x, y - p.y) <= 8 ? 0 : null;
+  },
+};
+
+/**
+ * Signpost — a post standing on the bar with its plate at the top.
+ *
+ * The one annotation anchored to *time* rather than to a level: the post is
+ * vertical so the plate can clear the price action entirely while the foot
+ * still names an exact bar. Useful for events, which happen at a moment and
+ * not at a price.
+ */
+export const SIGNPOST: DrawingTool = {
+  id: 'signpost', name: 'Signpost', points: 1,
+  defaultStyle: { text: 'Event', fontSize: 11, fillOpacity: 0.95 },
+  draw: (c) => {
+    const d = c.rc.dpr;
+    const p = c.pts[0];
+    const post = 34 * d;
+    const lines = noteLines(c, 'Event');
+    const size = notePlate(c, lines, 0, 0);
+    c.ctx.save();
+    c.ctx.setLineDash([]);
+    c.ctx.strokeStyle = c.style.color;
+    c.ctx.lineWidth = Math.max(1, c.style.lineWidth * d);
+    c.ctx.beginPath();
+    c.ctx.moveTo(p.x, p.y);
+    c.ctx.lineTo(p.x, p.y - post);
+    c.ctx.stroke();
+    c.ctx.fillStyle = c.style.color;
+    c.ctx.beginPath();
+    c.ctx.arc(p.x, p.y, 3 * d, 0, Math.PI * 2);
+    c.ctx.fill();
+    c.ctx.restore();
+    paintPlate(c, { x: p.x - size.w / 2, y: p.y - post - size.h, w: size.w, h: size.h }, lines, 4);
+  },
+  distance: (x, y, h) => {
+    const p = h.pts[0];
+    const g = notePlateGuess(h.drawing.style, linesOf(h.drawing.style, 'Event'));
+    const hit = insidePlate(x, y, p.x - g.w / 2, p.y - 34 - g.h, g.w, g.h);
+    if (hit !== null) return hit;
+    // The post itself, so a signpost whose plate is off-pane stays grabbable.
+    return Math.abs(x - p.x) <= 5 && y >= p.y - 34 && y <= p.y + 4 ? 0 : null;
+  },
+};
+
+/**
+ * Price note — the anchored price, with the user's text under it.
+ *
+ * The price is read off the anchor rather than typed, so dragging the note
+ * re-reads it. A typed price is a number that was true once, which on a chart
+ * is worse than no number at all.
+ */
+export const PRICE_NOTE: DrawingTool = {
+  id: 'price-note', name: 'Price Note', points: 1,
+  defaultStyle: { text: 'Note', fontSize: 11, fillOpacity: 0.95 },
+  draw: (c) => {
+    const d = c.rc.dpr;
+    const p = c.pts[0];
+    const lines = [c.formatPrice(c.drawing.points[0].price), ...noteLines(c, 'Note')];
+    const box = notePlate(c, lines, p.x + 14 * d, p.y - 12 * d);
+    c.ctx.save();
+    c.ctx.setLineDash([]);
+    c.ctx.strokeStyle = c.style.color;
+    c.ctx.lineWidth = Math.max(1, c.style.lineWidth * d);
+    c.ctx.beginPath();
+    c.ctx.moveTo(p.x, p.y);
+    c.ctx.lineTo(box.x, p.y);
+    c.ctx.stroke();
+    c.ctx.restore();
+    paintPlate(c, box, lines, 4);
+  },
+  distance: (x, y, h) => {
+    const p = h.pts[0];
+    const g = notePlateGuess(h.drawing.style, linesOf(h.drawing.style, 'Note') + 1);
+    const hit = insidePlate(x, y, p.x + 14, p.y - 12, g.w, g.h);
+    if (hit !== null) return hit;
+    return Math.hypot(x - p.x, y - p.y) <= 8 ? 0 : null;
+  },
+};
+
+/**
+ * Table — rows of text in a grid, anchored top-left.
+ *
+ * Cells come from `text`: a newline starts a row and a pipe separates columns,
+ * so a whole table is one editable string and survives `getState` with no new
+ * shape in the drawing model. The first row is drawn as a header because a
+ * table on a chart is nearly always labelled.
+ */
+export const TABLE: DrawingTool = {
+  id: 'table', name: 'Table', points: 1,
+  defaultStyle: {
+    text: 'Level|Price\nEntry|-\nStop|-', fontSize: 11,
+    fillOpacity: 0.92, border: true,
+  },
+  draw: (c) => {
+    const d = c.rc.dpr;
+    const p = c.pts[0];
+    const rows = tableRows(c.style);
+    const size = (c.style.fontSize ?? 11) * d;
+    const pad = 7 * d;
+    const rowH = size * 1.7;
+    c.ctx.save();
+    c.ctx.font = `${size}px ui-sans-serif, system-ui, sans-serif`;
+    // Column widths are the widest cell in each column, so a table with one
+    // long label does not stretch every other column to match it.
+    const cols = Math.max(...rows.map((r) => r.length));
+    const widths: number[] = [];
+    for (let i = 0; i < cols; i++) {
+      let w = 0;
+      for (const r of rows) w = Math.max(w, c.ctx.measureText(r[i] ?? '').width);
+      widths.push(w + pad * 2);
+    }
+    const total = widths.reduce((a, b) => a + b, 0);
+    const h = rowH * rows.length;
+    c.ctx.setLineDash([]);
+    c.ctx.globalAlpha = c.style.fillOpacity ?? 0.92;
+    c.ctx.fillStyle = c.style.backgroundColor ?? c.rc.theme.background;
+    c.ctx.beginPath();
+    roundRectPath(c.ctx, p.x, p.y, total, h, 4 * d);
+    c.ctx.fill();
+    c.ctx.globalAlpha = 1;
+    if (c.style.border !== false) {
+      c.ctx.strokeStyle = c.style.borderColor ?? c.style.color;
+      c.ctx.lineWidth = Math.max(1, c.style.lineWidth * d);
+      c.ctx.stroke();
+      // Rules between rows and columns, drawn faintly: the grid should organise
+      // the numbers, not compete with them.
+      c.ctx.globalAlpha = 0.45;
+      c.ctx.beginPath();
+      for (let r = 1; r < rows.length; r++) {
+        c.ctx.moveTo(p.x, p.y + rowH * r);
+        c.ctx.lineTo(p.x + total, p.y + rowH * r);
+      }
+      let cx = p.x;
+      for (let i = 0; i < widths.length - 1; i++) {
+        cx += widths[i];
+        c.ctx.moveTo(cx, p.y);
+        c.ctx.lineTo(cx, p.y + h);
+      }
+      c.ctx.stroke();
+      c.ctx.globalAlpha = 1;
+    }
+    c.ctx.textBaseline = 'middle';
+    c.ctx.textAlign = 'left';
+    for (let r = 0; r < rows.length; r++) {
+      c.ctx.fillStyle = c.style.fontColor ?? c.style.color;
+      c.ctx.font = r === 0
+        ? `600 ${size}px ui-sans-serif, system-ui, sans-serif`
+        : `${size}px ui-sans-serif, system-ui, sans-serif`;
+      let x = p.x;
+      for (let i = 0; i < widths.length; i++) {
+        c.ctx.fillText(rows[r][i] ?? '', x + pad, p.y + rowH * r + rowH / 2);
+        x += widths[i];
+      }
+    }
+    c.ctx.restore();
+  },
+  distance: (x, y, h) => {
+    const p = h.pts[0];
+    const rows = tableRows(h.drawing.style);
+    const size = h.drawing.style.fontSize ?? 11;
+    // Width cannot be measured without a canvas, so a column-count estimate.
+    const cols = Math.max(...rows.map((r) => r.length));
+    return insidePlate(x, y, p.x, p.y, cols * 70, size * 1.7 * rows.length);
+  },
+};
+
+/** Rows of cells from the pipe-and-newline encoding. Always at least one cell. */
+function tableRows(style: DrawingStyle): string[][] {
+  // An empty table is an empty grid, which reads as a rendering fault rather
+  // than as a table waiting for content, so it falls back like the rest.
+  const raw = style.text === undefined || style.text === '' ? 'Level|Price' : style.text;
+  return raw.split('\n').map((r) => r.split('|'));
+}
+
 /** Every built-in, in toolbar order. */
 /**
  * Measurers. `measure` reports price *and* time together; these two constrain it
@@ -1524,7 +1906,9 @@ export const CURVE: DrawingTool = {
 // ── arrows & brushes ──────────────────────────────────────────────────────
 
 /** A single-anchor marker that points at a bar. `up` sits below, pointing up. */
-function arrowMarker(id: string, name: string, up: boolean): DrawingTool {
+function arrowMarker(
+  id: string, name: string, up: boolean, axis: 'vertical' | 'left' | 'right' = 'vertical',
+): DrawingTool {
   return {
     id, name, points: 1,
     defaultStyle: { fill: true, fillOpacity: 0.9 },
@@ -1537,6 +1921,21 @@ function arrowMarker(id: string, name: string, up: boolean): DrawingTool {
       // Offset off the anchor so the marker sits beside the bar, not on top of it.
       const tipY = y + dir * 2 * d;
       c.ctx.beginPath();
+      if (axis !== 'vertical') {
+        // The same arrow rotated a quarter turn: the shaft runs along x and the
+        // head points at the bar, so a left or right mark reads as pointing
+        // *into* the price action rather than along it.
+        const h = axis === 'right' ? -1 : 1;
+        const tipX = x + h * 2 * d;
+        c.ctx.moveTo(tipX, y);
+        c.ctx.lineTo(tipX + h * w, y - w);
+        c.ctx.lineTo(tipX + h * w, y - w / 2.4);
+        c.ctx.lineTo(tipX + h * len, y - w / 2.4);
+        c.ctx.lineTo(tipX + h * len, y + w / 2.4);
+        c.ctx.lineTo(tipX + h * w, y + w / 2.4);
+        c.ctx.lineTo(tipX + h * w, y + w);
+        c.ctx.closePath();
+      } else {
       c.ctx.moveTo(x, tipY);
       c.ctx.lineTo(x - w, tipY + dir * w);
       c.ctx.lineTo(x - w / 2.4, tipY + dir * w);
@@ -1545,6 +1944,7 @@ function arrowMarker(id: string, name: string, up: boolean): DrawingTool {
       c.ctx.lineTo(x + w / 2.4, tipY + dir * w);
       c.ctx.lineTo(x + w, tipY + dir * w);
       c.ctx.closePath();
+      }
       c.ctx.save();
       c.ctx.globalAlpha = c.style.fillOpacity ?? 0.9;
       c.ctx.fillStyle = fillStyleOf(c);
@@ -1563,6 +1963,8 @@ function arrowMarker(id: string, name: string, up: boolean): DrawingTool {
 }
 export const ARROW_UP = arrowMarker('arrow-up', 'Arrow Up', true);
 export const ARROW_DOWN = arrowMarker('arrow-down', 'Arrow Down', false);
+export const ARROW_LEFT = arrowMarker('arrow-left', 'Arrow Left', true, 'left');
+export const ARROW_RIGHT = arrowMarker('arrow-right', 'Arrow Right', true, 'right');
 
 /** Highlighter — the brush with a fat, translucent stroke. */
 export const HIGHLIGHTER: DrawingTool = {
@@ -1776,6 +2178,8 @@ export const BUILTIN_DRAWING_TOOLS: readonly DrawingTool[] = [
   FIB_CHANNEL, FIB_TIME_ZONE, FIB_FAN, GANN_FAN, GANN_BOX,
   CYCLIC_LINES, TIME_CYCLES, SINE_LINE,
   TEXT, PATH, PRICE_LABEL, CALLOUT, FLAG_MARK,
+  NOTE, BALLOON, COMMENT, SIGNPOST, PRICE_NOTE, TABLE,
+  ARROW_LEFT, ARROW_RIGHT,
 ];
 
 let _registered = false;

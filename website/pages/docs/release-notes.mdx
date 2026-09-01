@@ -8,6 +8,44 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 1.9.2
+
+Eight annotation tools, and the icon set that was missing for all of them.
+
+**Added**
+
+- **Annotations**: `note`, `balloon`, `comment`, `signpost`, `price-note` and `table`, plus
+  `arrow-left` and `arrow-right`. 43 tools to 51.
+
+  They share plate-and-tail machinery, so what separates them is where the tail leaves the
+  plate: a note pins a bar and sits its text up-right, a balloon floats above with the tail
+  down, a comment is the quiet square version, and a signpost stands a post on the bar so
+  its plate clears the price action. The signpost is anchored to **time** rather than to a
+  level, which is what an event needs.
+
+  `price-note` reads its price off the anchor rather than storing one. `table` encodes its
+  cells in `style.text`, a newline per row and a pipe between columns, so a whole table is
+  one editable string.
+
+- **An icon for every drawing tool**, as path data: `DRAWING_TOOL_ICONS`,
+  `drawingToolIcon(id)`, `ICON_ATTRS`.
+
+  The engine still ships no DOM: these are strings, and the host still builds its own rail.
+  What it no longer does is draw fifty-one glyphs first, which every adopter had to do,
+  each set drifting on weight and grid until it read as fifty-one icons rather than one.
+
+  One grid, held mechanically by `tests/draw-icons.test.ts`: 24 viewBox, live area 2 to 22,
+  whole-unit coordinates, one stroke weight, round caps, a complexity ceiling and a minimum
+  span. Those checks caught two faults on their first run that reading the paths had not.
+
+  **Render at 24px or a multiple.** A 2-unit stroke on whole coordinates covers exactly two
+  device pixels at 1:1; at 18px the 0.75 scale puts it on 1.5 and every edge blurs across
+  two rows.
+
+**Changed**
+
+- Draw tier budget 14 to 16 kB, measured at 15.39 kB.
+
 ## 1.9.1
 
 The legend and the axis name the same number, so they now spell it the same way. Released

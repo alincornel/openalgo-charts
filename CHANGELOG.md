@@ -2,6 +2,65 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.9.2
+
+Eight annotation tools, and the icon set that was missing for all of them.
+
+### Added
+
+- **Annotations: `note`, `balloon`, `comment`, `signpost`, `price-note` and
+  `table`**, plus `arrow-left` and `arrow-right`. 43 tools to 51.
+
+  They share plate-and-tail machinery, so what separates them is where the tail
+  leaves the plate and how the plate is shaped: a note pins a bar and sits its
+  text up-right, a balloon floats above with the tail pointing down, a comment
+  is the quiet square version, and a signpost stands a post on the bar so its
+  plate can clear the price action entirely. That last one is anchored to
+  **time** rather than to a level, which is what an event needs.
+
+  `price-note` reads its price off the anchor rather than storing one, the same
+  as `price-label`: a typed price is a number that was true once, which on a
+  chart is worse than no number at all. `table` encodes its cells in
+  `style.text` with a newline per row and a pipe between columns, so a whole
+  table is one editable string and needs no new shape in the drawing model.
+
+  `arrowMarker` was hard-wired to a boolean up/down, which cannot express left
+  or right; it now takes an axis.
+
+- **An icon for every drawing tool**, as path data: `DRAWING_TOOL_ICONS`,
+  `drawingToolIcon(id)`, `drawingToolIconIds()`, and `ICON_ATTRS` carrying the
+  attribute bag a host puts on the `<svg>`.
+
+  The engine still ships no DOM. These are strings, and the host still builds
+  its own rail, flyouts and toolbar. What it no longer does is draw fifty-one
+  glyphs before it can show one, which is what every adopter had to do: the
+  demo drew its own set, the reference terminal drew another, and each drifted
+  on stroke weight, grid and density independently until the result read as
+  fifty-one icons rather than as one set. A shipped set is worth more than a
+  better glyph.
+
+  Every glyph is authored to one grid, and `tests/draw-icons.test.ts` holds all
+  of it mechanically: a 24 viewBox, a live area of 2 to 22, whole-unit
+  coordinates, a single stroke weight, round caps and joins, a complexity
+  ceiling, a minimum span, and no two glyphs drawing the same thing. A set of
+  this size cannot be kept consistent by review, and those checks caught two
+  faults on their first run that reading the paths had not: a spiral whose arc
+  chain landed the pen outside the box, and the same glyph then filling only
+  nine units of it.
+
+  **Render at 24px or an integer multiple.** With a 2-unit stroke on whole
+  coordinates, an orthogonal edge covers exactly two device pixels at 1:1. At
+  18px the 0.75 scale puts it on 1.5 pixels and every edge is anti-aliased
+  across two rows. That is a host sizing choice, and no path data can fix it:
+  it is why a hand-drawn set at a 1.5 stroke on whole coordinates never looked
+  crisp at any size.
+
+### Changed
+
+- The draw tier's budget goes from 14 to 16 kB for the eight tools and the icon
+  set, measured at 15.39 kB. The pattern clusters still to come (Elliott,
+  harmonics, pitchforks) are a sub-tier decision rather than another raise.
+
 ## 1.9.1
 
 The legend and the axis name the same number, so they now spell it the same way.

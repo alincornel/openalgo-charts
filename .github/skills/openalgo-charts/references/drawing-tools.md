@@ -17,7 +17,7 @@ const draw = new DrawingController(chart, { magnet: true });
 draw.setTool('trend-line');   // the next two clicks place it
 ```
 
-Importing `openalgo-charts/draw` calls `registerBuiltinDrawingTools()` as a side effect, registering all 43 tools into the base bundle's registry. No separate registration call is needed.
+Importing `openalgo-charts/draw` calls `registerBuiltinDrawingTools()` as a side effect, registering all 51 tools into the base bundle's registry. No separate registration call is needed.
 
 **The controller is headless: it ships no toolbar, no dialogs, no key listener.** It owns the model (`Drawing[]`), placement, selection, dragging, undo, and serialisation. Every button, flyout, colour picker, and text prompt is the host's.
 
@@ -65,9 +65,73 @@ The time axis is gapless — weekends, holidays, and session breaks collapse —
 
 Drag deltas are computed in data space too (`p.time - start.from.time`), so translating a shape keeps it on the same bars.
 
+## Annotations
+
+Six one-anchor tools whose job is a human sentence on the chart. They share
+plate-and-tail machinery, so what separates them is where the tail leaves the
+plate and how the plate is shaped:
+
+| `id` | Shape | Anchored to |
+|---|---|---|
+| `note` | Pin at the bar, plate up-right, stem between | A bar |
+| `balloon` | Speech bubble above, tail pointing down | A bar |
+| `comment` | Quieter square box, tail off the bottom left | A bar |
+| `signpost` | Vertical post with the plate at the top | **Time**, not price |
+| `price-note` | The anchor's price, with text beneath | A level |
+| `table` | A grid of cells | A corner |
+
+Two conventions worth knowing:
+
+- **`price-note` reads its price off the anchor** rather than storing one, the
+  same as `price-label`. A typed price is a number that was true once, which on
+  a chart is worse than no number.
+- **`table` encodes its cells in `style.text`**: a newline starts a row, a pipe
+  separates columns, and the first row is drawn bold as a header. One editable
+  string, so a table needs no new shape in the drawing model and survives
+  `getState` unchanged.
+
+Everything else comes from the shared text style: `text`, `fontSize`,
+`fontColor`, `backgroundColor`, `border`, `fillOpacity`.
+
+## Icons
+
+The tier ships a glyph for every tool, as path data:
+
+```ts
+import { drawingToolIcon, ICON_ATTRS } from 'openalgo-charts/draw';
+
+<svg {...ICON_ATTRS} width={24} height={24}>
+  <path d={drawingToolIcon('trend-line')} />
+</svg>
+```
+
+| Export | |
+|---|---|
+| `DRAWING_TOOL_ICONS` | `Record<string, string>` of tool id to `d` attribute |
+| `drawingToolIcon(id)` | One glyph, or `undefined` when there is none |
+| `drawingToolIconIds()` | Every id the set covers |
+| `ICON_VIEWBOX` | `'0 0 24 24'` |
+| `ICON_STROKE` | `2` |
+| `ICON_ATTRS` | The whole attribute bag for the `<svg>` |
+
+This is data, not DOM: the host still builds its own rail and flyouts. What it
+no longer does is draw fifty-one glyphs before it can show a toolbar, which is
+what every adopter had to do before, each drifting on weight and grid
+independently until the set read as fifty-one icons rather than one.
+
+**Render at 24px, or an integer multiple.** With a 2-unit stroke on integer
+coordinates, an orthogonal edge covers exactly two device pixels at 1:1. At 18px
+the 0.75 scale puts it on 1.5 pixels and every edge is anti-aliased across two
+rows: that is a host sizing choice and no path data can fix it.
+
+The set is held to one grid by `tests/draw-icons.test.ts`, which checks each
+glyph for the live area, whole units, a single weight, complexity and span. A
+set of this size cannot be kept consistent by review, and the checks caught two
+faults on the first run that reading the paths did not.
+
 ## Tool catalogue
 
-43 built-in tools. `Clicks` is what the user does; `Anchors` is what ends up in `drawing.points` (they differ only where `expand` is involved).
+51 built-in tools. `Clicks` is what the user does; `Anchors` is what ends up in `drawing.points` (they differ only where `expand` is involved).
 
 | Family | `id` | Clicks | Anchors | Shortcut |
 |---|---|---|---|---|
@@ -88,6 +152,8 @@ Drag deltas are computed in data space too (`p.time - start.from.time`), so tran
 | Measurers | `measure`, `price-range`, `date-range` | 2 | 2 | |
 | Arrows | `arrow-up`, `arrow-down` | 1 | 1 | |
 | Text / notes | `text`, `price-label`, `flag-mark` | 1 | 1 | |
+| Annotations | `note`, `balloon`, `comment`, `signpost`, `price-note`, `table` | 1 | 1 | |
+| Marks | `arrow-up`, `arrow-down`, `arrow-left`, `arrow-right` | 1 | 1 | |
 | Text / notes | `callout` | 2 | 2 | |
 | Brushes | `brush`, `highlighter` | press-drag-release | n samples | |
 
@@ -355,7 +421,11 @@ Related: [primitives-and-plugins](primitives-and-plugins.md) (the `IPrimitive` c
 
 ## Named tool exports
 
-As with the indicator tier, importing `openalgo-charts/draw` registers all 43 tools,
+Individual tools are exported too, under the UPPER_SNAKE form of the id:
+`NOTE`, `BALLOON`, `COMMENT`, `SIGNPOST`, `PRICE_NOTE`, `TABLE`, `CALLOUT`,
+`FLAG_MARK`, `ARROW_UP`, `ARROW_DOWN`, `ARROW_LEFT`, `ARROW_RIGHT`.
+
+As with the indicator tier, importing `openalgo-charts/draw` registers all 51 tools,
 but each descriptor is also exported by name for selective registration:
 
 ```ts
