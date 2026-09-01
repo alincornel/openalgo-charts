@@ -78,6 +78,7 @@
     "e2e": "playwright test",
     "size": "size-limit",
     "bench": "node scripts/bench-indicators.mjs",
+    "soak": "node --expose-gc scripts/soak.mjs",
     "skills:coverage": "node scripts/check-skills-coverage.mjs",
     "docs": "typedoc",
     "verify": "npm run typecheck && npm run test && npm run build && npm run check:dts && npm run size && npm run shake",
