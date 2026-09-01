@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1100" viewBox="0 0 1600 1100" font-family="Inter, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" role="img" aria-label="OpenAlgo Charts layered architecture">
 <title>OpenAlgo Charts architecture</title>
-<desc>Seven layers from public API down to feeds and data, with a six-tier bundle legend: base 59 KB, indicators 27 KB, draw 13 KB, profile 11 KB, trade 8 KB, transform 3 KB, everything 120 KB Brotli.</desc>
+<desc>Seven layers from public API down to feeds and data, with a six-tier bundle legend: base 59 KB, indicators 27 KB, draw 13 KB, profile 11 KB, trade 8 KB, transform 3 KB, everything 121 KB Brotli.</desc>
 
 <defs>
 <linearGradient id="titleGrad" x1="0" y1="0" x2="1" y2="0">
@@ -14,7 +14,7 @@
 
 <text x="800" y="58" fill="url(#titleGrad)" font-size="42" font-weight="700" text-anchor="middle">OpenAlgo Charts</text>
 <text x="800" y="94" fill="#B9C0CC" font-size="20" text-anchor="middle">Dependency-free HTML5 Canvas charting engine</text>
-<text x="800" y="124" font-size="20" text-anchor="middle" fill="#8B93A3"><tspan fill="#2DD4BF" font-weight="600">59 KB</tspan><tspan fill="#B9C0CC"> base, </tspan><tspan fill="#A78BFA" font-weight="600">120 KB</tspan><tspan fill="#B9C0CC"> everything</tspan><tspan fill="#6B7280"> (Brotli)</tspan></text>
+<text x="800" y="124" font-size="20" text-anchor="middle" fill="#8B93A3"><tspan fill="#2DD4BF" font-weight="600">59 KB</tspan><tspan fill="#B9C0CC"> base, </tspan><tspan fill="#A78BFA" font-weight="600">121 KB</tspan><tspan fill="#B9C0CC"> everything</tspan><tspan fill="#6B7280"> (Brotli)</tspan></text>
 
 <rect x="36" y="145" width="140" height="648" rx="14" fill="#0E1015" stroke="#2A2F3A" stroke-width="1.5"/>
 <text x="106" y="300" fill="#E8EBF0" font-size="21" font-weight="600" text-anchor="middle">Host</text>
@@ -193,7 +193,7 @@
 
 <rect x="1378" y="855" width="190" height="110" rx="12" fill="#0E1015" stroke="#4A5160" stroke-width="1.5" stroke-dasharray="6 5"/>
 <text x="1473" y="884" fill="#B9C0CC" font-size="16" text-anchor="middle" dominant-baseline="central">Everything</text>
-<text x="1473" y="915" fill="#E8EBF0" font-size="26" font-weight="700" text-anchor="middle" dominant-baseline="central">120 KB</text>
+<text x="1473" y="915" fill="#E8EBF0" font-size="26" font-weight="700" text-anchor="middle" dominant-baseline="central">121 KB</text>
 <text x="1473" y="944" fill="#7C8492" font-size="13" text-anchor="middle" dominant-baseline="central">All tiers combined</text>
 
 <rect x="330" y="990" width="940" height="76" rx="12" fill="#0C0E13" stroke="#2A2F3A" stroke-width="1.5"/>
