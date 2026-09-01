@@ -1,7 +1,7 @@
 # Getting started
 
 OpenAlgo Charts is a dependency-free, canvas-based financial charting engine.
-The base engine is about **~60.83 KB Brotli**; the full package (all tiers) is about **~122.15 KB Brotli**.
+The base engine is about **~60.84 KB Brotli**; the full package (all tiers) is about **~122.16 KB Brotli**.
 
 ## Install
 

@@ -177,6 +177,20 @@ export interface IndicatorHost {
    * one to ask for the instrument's own step.
    */
   tickSize?(paneIndex: number): number | undefined;
+  /**
+   * Write a number the way the price axis of that pane writes it.
+   *
+   * The legend sits inches from the axis and names the same quantity, so the
+   * two disagreeing is the reading a user has to reconcile themselves. Deriving
+   * the format here from a tick got that wrong twice over: a study pane carries
+   * no tick at all, so a percentage read `0.618` beside an axis saying `0.62`,
+   * and a price pane's tick alone misses the precision floor and the host's own
+   * formatter, so a volume study read seven digits where its axis said `1.20M`.
+   *
+   * Asking the scale removes the second opinion. Optional so a host driving
+   * this module alone still works, falling back to the magnitude ladder.
+   */
+  formatPrice?(paneIndex: number, value: number): string | undefined;
   /** Pin a pane's price scale to a fixed range, or release it with `null`. */
   setPaneRange(paneIndex: number, range: { min: number; max: number } | null): void;
 }
@@ -412,10 +426,12 @@ export class IndicatorInstance implements IndicatorApi {
       // reads the close, which is the number a candle legend shows anyway.
       const v = this._values[plot.ohlc?.close ?? plot.key]?.[i];
       if (v === null || v === undefined || !Number.isFinite(v)) continue;
-      // The tick of the pane this plot draws in, so a plot on its own pane is
-      // formatted by that pane's step and not the price pane's.
-      const tick = this._host.tickSize?.(this._plotPane(plot));
-      out.push({ text: formatValue(v, tick), color: this._plotColor(plot) });
+      // The pane this plot draws in, so a plot on its own pane is written the
+      // way that pane's axis writes it and not the price pane's.
+      const pane = this._plotPane(plot);
+      const text = this._host.formatPrice?.(pane, v)
+        ?? formatValue(v, this._host.tickSize?.(pane));
+      out.push({ text, color: this._plotColor(plot) });
     }
     this._legend.setValues(out);
   }

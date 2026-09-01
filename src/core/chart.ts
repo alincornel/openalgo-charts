@@ -995,6 +995,10 @@ export class Chart {
   private _indicatorHost(): IndicatorHost {
     return {
       flushIndicators: (): void => this._flushIndicators(),
+      // The scale that draws the ladder is the one that decides how a number on
+      // that pane is written, floor, tick, custom formatter and all.
+      formatPrice: (paneIndex: number, value: number): string | undefined =>
+        this._panes[paneIndex]?.priceScale.format(value),
       addIndicatorLegend: (o): PaneLegend => {
         // The first legend on a non-price pane also carries the pane-level
         // controls (move / maximize), the way a charting pane toolbar does;

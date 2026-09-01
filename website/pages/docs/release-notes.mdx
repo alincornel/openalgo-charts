@@ -8,6 +8,28 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 1.9.1
+
+The legend and the axis name the same number, so they now spell it the same way. Released
+as 1.9.1 rather than 1.9.0 at the maintainer's request.
+
+**Fixed**
+
+- **An indicator legend disagreed with the axis beside it.** Seen on a live chart: a
+  Supertrend legend read `1034.0` next to a price axis reading `1029.20`, and a Williams
+  VIX Fix legend read `0.618` next to its own axis reading `0.62`. The two sit inches
+  apart and describe the same quantity.
+
+  The legend worked its format out from the pane's tick size, which is wrong in both
+  directions: a study pane carries no tick at all since 1.8.9, so the legend fell through
+  to a magnitude ladder written for volume columns; and a price pane's tick alone knows
+  nothing about the two-decimal floor or a host's own price formatter, so a volume study
+  printed seven digits where its axis said `1.20M`.
+
+  The axis already answers all of that, so the legend asks it. `IndicatorHost` gains an
+  optional `formatPrice(paneIndex, value)`, answered by `Chart` from that pane's price
+  scale: one source of truth instead of two derivations that agreed by luck.
+
 ## 1.8.9
 
 Indicator precision, reported as one indicator reading `0.6` where it should read `0.61`,
