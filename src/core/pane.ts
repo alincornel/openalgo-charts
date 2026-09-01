@@ -524,6 +524,19 @@ export class Pane {
       drawGrid(g, lines, layout.plotWidth, layout.plotHeight, dpr, resolveGridStyle(ctx.theme, gridOpts, dpr));
     }
 
+    // Everything that draws *in* the plot is clipped to it.
+    //
+    // A bar is positioned by its centre and drawn outward, so the newest bar
+    // sitting against the right edge paints half a body and a wick past it, into
+    // the price-axis strip, where it shows through behind the labels. Scrolling
+    // the series under the axis makes it obvious. The axis ladder and the tags
+    // are drawn after this block is restored, because they live in that strip on
+    // purpose and clipping them would erase them.
+    g.save();
+    g.beginPath();
+    g.rect(0, 0, Math.round(layout.plotWidth * dpr), Math.round(layout.plotHeight * dpr));
+    g.clip();
+
     // bottom-layer primitives (background zones) draw behind series
     const prc = this._primitiveContext(ctx);
     for (const p of this._primitives) if (p.zOrder() === 'bottom') p.draw(g, prc);
@@ -568,6 +581,11 @@ export class Pane {
         }
       }
     }
+
+    // End of the plot clip. Everything below draws into the axis strip on
+    // purpose: the ladder, the last-price tag, the trading pills. Restoring here
+    // and not at the end of the frame is the whole point.
+    g.restore();
 
     // axis ticks first, then the last-price line/tag, then trading primitives —
     // order/position pill groups stay legible when the LTP crosses them

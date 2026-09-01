@@ -208,13 +208,13 @@ Enforced in CI by [`size-limit`](./.size-limit.json). Nothing is excluded, becau
 
 | Bundle | Limit | Actual |
 |---|---|---|
-| Base engine | 60 KB | 59.06 KB |
-| Base + trade | 68 KB | 66.67 KB |
+| Base engine | 60 KB | 59.38 KB |
+| Base + trade | 68 KB | 66.99 KB |
 | Indicators tier | 30 KB | 27.27 KB |
 | Draw tier | 14 KB | 13.13 KB |
 | Transform tier | 5 KB | 2.66 KB |
 | Profile tier | 11 KB | 10.66 KB |
-| **Everything** | **124 KB** | **120.38 KB** |
+| **Everything** | **124 KB** | **120.7 KB** |
 
 ## Documentation
 
@@ -271,7 +271,7 @@ npm run verify     # typecheck + test + build + size
 
 ## Status &amp; limitations
 
-Version **1.8.4**. All engine build phases are implemented with 2411 unit tests across 130 files.
+Version **1.8.5**. All engine build phases are implemented with 2420 unit tests across 131 files.
 
 Known gaps, stated plainly:
 

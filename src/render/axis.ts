@@ -76,6 +76,32 @@ export type ClockSource = () => number;
 /** Height of a price-axis tag in media px: last price, crosshair, price line. */
 export const AXIS_TAG_HEIGHT = 16;
 
+/**
+ * Media px of axis height one price label is given.
+ *
+ * The ladder used to ask for a flat six labels whatever the pane measured, so a
+ * tall chart read one price every 120 px and a short indicator pane crammed six
+ * into 90. Six is right for the short pane and far too sparse for the tall one:
+ * a trader reading a level off the axis ends up interpolating between labels
+ * that are hundreds of points apart.
+ *
+ * Deriving the count from the height instead keeps the *spacing* constant, which
+ * is what the eye actually reads. 32 px against an 11 px font is close to what
+ * a professional terminal prints (measured: 21 labels down 630 px, so 30 px
+ * apart) and lands a 700 px pane on about twenty prices rather than six.
+ *
+ * The ladder still snaps to a round step, so this is a request and not a
+ * promise: `niceTicks` walks up the 1 / 2 / 2.5 / 5 ladder until the count fits,
+ * and a range that has no round step at this density simply prints fewer.
+ */
+export const PRICE_LABEL_SPACING = 32;
+
+/** Labels that fit in `plotHeight`, clamped so a tiny pane still shows a ladder. */
+export function priceTickCount(plotHeight: number): number {
+  if (!Number.isFinite(plotHeight) || plotHeight <= 0) return 2;
+  return Math.max(2, Math.min(30, Math.round(plotHeight / PRICE_LABEL_SPACING)));
+}
+
 /** Height of the last-price tag once the countdown adds its second row. */
 export const AXIS_TAG_HEIGHT_COUNTDOWN = 28;
 
@@ -198,7 +224,7 @@ export function drawPriceAxis(
   // The scale owns the ladder: in the rebasing modes a nice price is an ugly
   // percentage, so the values have to be chosen in label space (see
   // `PriceScale.ticks`). Linear and log get the same ladder as before.
-  const ticks = priceScale.ticks(6);
+  const ticks = priceScale.ticks(priceTickCount(layout.plotHeight));
   const keep = survivingTicks(ticks, priceScale, dpr, reserved);
   const xStart = Math.round(layout.plotWidth * dpr);
 
@@ -243,7 +269,7 @@ export function drawLeftPriceAxis(
   style: AxisStyle = DEFAULT_AXIS_STYLE,
   reserved?: readonly AxisLabelBand[],
 ): void {
-  const ticks = priceScale.ticks(6);
+  const ticks = priceScale.ticks(priceTickCount(plotHeight));
   const keep = survivingTicks(ticks, priceScale, dpr, reserved);
   const xEdge = Math.round(plotLeft * dpr);
 
@@ -381,8 +407,36 @@ export function drawTimeAxis(
   ctx.lineTo(Math.round(layout.plotWidth * dpr), yBase + 0.5);
   ctx.stroke();
 
+  // Where to put a label: the regular grid, plus the first bar of every new day.
+  //
+  // A day boundary does not land on the grid in general, and it is exactly the
+  // label a reader needs most. With a session that has just opened there may be
+  // only a handful of bars after it, so the next grid tick is past the right
+  // edge and the date is never drawn at all: the axis then shows today's bars
+  // sitting under yesterday's date, with nothing marking the change. Forcing a
+  // mark at the boundary is what a professional terminal does, and it is why one
+  // prints "Sep" between two hourly labels rather than on the hour.
+  const boundaries = new Set<number>();
+  {
+    let prev = dataLayer.indexToTime(from);
+    for (let i = from + 1; i <= to; i++) {
+      const t = dataLayer.indexToTime(i);
+      if (t === undefined) continue;
+      if (prev !== undefined && isNewDay(prev, t)) boundaries.add(i);
+      prev = t;
+    }
+  }
+  const marks = [...new Set([...gridIndices(from, to, stride), ...boundaries])]
+    .sort((a, b) => a - b);
+
+  // Text is resolved in index order, because choosing between a date and a clock
+  // reading depends on the previous label, then placed in a second pass. The two
+  // cannot be one loop: a boundary has to be able to displace a grid tick drawn
+  // before it, and by then that tick is already on the canvas.
+  interface TimeLabel { x: number; text: string; half: number; boundary: boolean }
+  const placed: TimeLabel[] = [];
   let prevTime: number | undefined;
-  for (let i = from; i <= to; i += stride) {
+  for (const i of marks) {
     const time = dataLayer.indexToTime(i);
     if (time === undefined) continue;
     const x = Math.round(timeScale.indexToX(i) * dpr);
@@ -403,10 +457,39 @@ export function drawTimeAxis(
           ? secondsLabel(time)
           : timeLabel(time);
     }
-    ctx.fillText(label, x, yBase + 4 * dpr);
+    placed.push({
+      x,
+      text: label,
+      half: ctx.measureText(label).width / 2,
+      boundary: boundaries.has(i),
+    });
     prevTime = time;
   }
+
+  // Boundaries claim their space first, so a date always survives and the grid
+  // tick beside it yields. The other way round loses "Sep" to a 10:00 that its
+  // neighbours already imply, which is the whole point of forcing the mark.
+  const gap = 4 * dpr;
+  const taken: TimeLabel[] = [];
+  const fits = (l: TimeLabel): boolean =>
+    taken.every((t) => l.x + l.half + gap <= t.x - t.half || l.x - l.half - gap >= t.x + t.half);
+  // Boundaries still check each other: zoomed far out, two day changes can land
+  // within a label's width and would otherwise print through one another.
+  for (const l of placed) if (l.boundary && fits(l)) taken.push(l);
+  for (const l of placed) if (!l.boundary && fits(l)) taken.push(l);
+
+  // Resolved by priority, drawn left to right: the order labels are chosen in is
+  // not the order they belong on the axis.
+  taken.sort((a, b) => a.x - b.x);
+  for (const l of taken) ctx.fillText(l.text, l.x, yBase + 4 * dpr);
   ctx.restore();
+}
+
+/** Indices on the regular label grid. */
+function gridIndices(from: number, to: number, stride: number): number[] {
+  const out: number[] = [];
+  for (let i = from; i <= to; i += stride) out.push(i);
+  return out;
 }
 
 /**

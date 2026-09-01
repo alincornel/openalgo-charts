@@ -267,7 +267,10 @@ describe('the zone reaches the axis the same way the pane formatter did', () => 
     expect(paneGeometryLabels(march6)).toEqual(['20:30', '22:30', '07 Mar', '02:30', '04:30']);
     expect(paneGeometryLabels(march6, IST)).toEqual(['20:30', '22:30', '07 Mar', '02:30', '04:30']);
     expect(paneGeometryLabels(march6, NY)).toEqual(['10:00', '12:00', '14:00', '16:00', '18:00']);
-    expect(paneGeometryLabels(march7, NY)).toEqual(['23:00', '07 Mar', '03:00', '05:00', '07:00']);
+    // The date sits at the bar the day actually turns on, not on the first grid
+    // tick after it, so 01:00 keeps its own label instead of being overwritten.
+    expect(paneGeometryLabels(march7, NY))
+      .toEqual(['23:00', '07 Mar', '01:00', '03:00', '05:00', '07:00']);
     expect(paneGeometryLabels(march7, IST)).toEqual(['09:30', '11:30', '13:30', '15:30', '17:30']);
   });
 });

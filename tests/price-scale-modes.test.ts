@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import { PriceScale, type PriceScaleMode } from '../src/scale/price-scale';
 import { niceTicks, precisionForStep } from '../src/scale/ticks';
-import { drawPriceAxis, drawLeftPriceAxis, type PlotLayout } from '../src/render/axis';
+import { drawPriceAxis, drawLeftPriceAxis, priceTickCount, type PlotLayout } from '../src/render/axis';
 import { makeCtx, type RecordingContext } from './helpers/fake-ctx';
 
 /**
@@ -387,6 +387,21 @@ describe('linear and logarithmic are unchanged', () => {
   });
 });
 
+/**
+ * Every label evenly spaced, and every value a whole multiple of that spacing.
+ * That is what "a round ladder" means, and it holds however many rungs the
+ * pane height asks for.
+ */
+function expectRoundLadder(drawn: readonly (string | undefined)[], suffix = ''): void {
+  const values = drawn.map((l) => Number(String(l).replace(suffix, '')));
+  expect(values.length).toBeGreaterThan(2);
+  for (const v of values) expect(Number.isFinite(v)).toBe(true);
+  const step = values[1] - values[0];
+  expect(Math.abs(step)).toBeGreaterThan(0);
+  for (let i = 1; i < values.length; i++) expect(values[i] - values[i - 1]).toBeCloseTo(step, 6);
+  for (const v of values) expect(Math.abs(v / step - Math.round(v / step))).toBeLessThan(1e-6);
+}
+
 describe('the drawn axis reads the scale ladder', () => {
   const layout: PlotLayout = {
     plotWidth: 700, plotHeight: 400, priceAxisWidth: 60, timeAxisHeight: 24, plotLeft: 0,
@@ -412,20 +427,25 @@ describe('the drawn axis reads the scale ladder', () => {
     const ps = offBaseline('percentage');
     const { ctx, rec } = makeCtx();
     drawPriceAxis(ctx, ps, layout, 1);
-    expect(labels(rec)).toEqual(['-1.50%', '-1.00%', '-0.50%', '0.00%', '+0.50%', '+1.00%']);
+    // Asserted as a property, not a golden list: the label count follows the
+    // pane height, but "round percentages" does not. A renderer building its
+    // own ladder on round prices would give -1.75%, -0.97%, -0.19% ..., which
+    // is neither evenly spaced nor a multiple of its own step.
+    expectRoundLadder(labels(rec), '%');
   });
 
   it('labels the left axis from the same ladder', () => {
     const ps = offBaseline('indexed-to-100');
     const { ctx, rec } = makeCtx();
     drawLeftPriceAxis(ctx, ps, 60, layout.plotHeight, 1);
-    expect(labels(rec)).toEqual(['98.50', '99.00', '99.50', '100.00', '100.50', '101.00']);
+    expectRoundLadder(labels(rec));
   });
 
   it('leaves a linear axis on the prices it always drew', () => {
     const ps = makeScale('linear');
     const { ctx, rec } = makeCtx();
     drawPriceAxis(ctx, ps, layout, 1);
-    expect(labels(rec)).toEqual(niceTicks(90, 110, 6).map((p) => ps.format(p)));
+    expect(labels(rec))
+      .toEqual(niceTicks(90, 110, priceTickCount(layout.plotHeight)).map((p) => ps.format(p)));
   });
 });

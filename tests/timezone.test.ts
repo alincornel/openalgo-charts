@@ -360,7 +360,9 @@ describe('chart timezone', () => {
     // Twelve hours on, the New York day turns over mid-window and the IST one
     // does not: the date label moves to a different bar entirely.
     const later = hourlyBars(utc(2024, 3, 7, 1, 0, 0), 12);
-    expect(paintedLabels(later, NY)).toEqual(['23:00', '07 Mar', '03:00', '05:00', '07:00']);
+    // The date marks the bar the day turns on, so 01:00 keeps its own label.
+    expect(paintedLabels(later, NY))
+      .toEqual(['23:00', '07 Mar', '01:00', '03:00', '05:00', '07:00']);
     expect(paintedLabels(later, IST)).toEqual(['09:30', '11:30', '13:30', '15:30', '17:30']);
   });
 

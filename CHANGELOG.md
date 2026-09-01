@@ -2,6 +2,57 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 1.8.5
+
+Three axis defects, all reported off a live chart placed side by side with a
+professional terminal. No indicator maths changed.
+
+### Fixed
+
+- **The price ladder printed six labels whatever the pane measured.** A 700 px
+  pane read one price every 120 px where the reference terminal read one every
+  30, so a trader taking a level off the axis was interpolating between rungs
+  hundreds of points apart. The count now follows the pane height at a fixed
+  spacing (`PRICE_LABEL_SPACING`, 32 px), which puts about twenty prices on that
+  same pane instead of five. Both are internal, like the axis renderer they
+  serve; `PriceScale.ticks(maxTicks)` stays public and unchanged.
+
+  A denser ladder has one visible consequence, and it matches the reference: the
+  last-price tag now always suppresses the label next to it, because rungs sit
+  about a tag-height apart. Suppression was already the rule, there was simply
+  usually nothing close enough to suppress.
+
+- **A session that had just opened carried no date.** Time-axis labels were only
+  ever placed on the regular grid, so when a new day had fewer bars than the grid
+  stride, no tick landed inside it and the date was never drawn: today's bars sat
+  under yesterday's date with nothing marking the change. The first bar of a new
+  day is now always a candidate, and it outranks the grid tick beside it, which
+  is why a terminal prints "Sep" between two hourly labels rather than on the
+  hour. Labels are resolved by priority and drawn left to right.
+
+- **Bars painted into the price axis.** Nothing clipped the plot, and a bar is
+  positioned by its centre and drawn outward, so the newest one against the right
+  edge put half a body and a wick into the axis strip, behind the labels.
+  Scrolling the series under the axis made it obvious. The plot is now clipped
+  for series and primitives, and the clip is released before the ladder, the
+  last-price tag and the trading pills, which live in that strip on purpose.
+
+### Sizes
+
+| Bundle | Limit | Actual |
+|---|---|---|
+| Base engine | 60 KB | 59.38 KB |
+| Base + trade | 68 KB | 66.99 KB |
+| Indicators tier | 30 KB | 27.27 KB |
+| Draw tier | 14 KB | 13.13 KB |
+| Transform tier | 5 KB | 2.66 KB |
+| Profile tier | 11 KB | 10.66 KB |
+| **Everything** | **124 KB** | **120.7 KB** |
+
+The tree-shaken chart-only budget is now close: 37.89 KB against 38.00 KB.
+
+2420 tests across 131 files.
+
 ## 1.8.4
 
 A performance release. No indicator maths changed and no public surface moved:

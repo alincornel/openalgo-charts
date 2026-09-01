@@ -48,6 +48,10 @@ ps.baseline;                          // number | null
 
 `PriceScale.ticks(maxTicks = 6)` is the axis ladder and belongs to the scale, not the axis renderer. Linear and log get `niceTicks` over the price range; the rebasing modes get nice values chosen over the **transformed** range and mapped back, because a nice price is an ugly percentage (`+3.47%, +6.94%` instead of `+5.00%, +10.00%`).
 
+**How many rungs the axis asks for changed in 1.8.5.** The renderer used to pass a flat 6 whatever the pane measured, so a 700 px chart read one price every 120 px while a reference terminal read one every 30. It now derives the count from the pane height at a fixed spacing, `priceTickCount(plotHeight)` against `PRICE_LABEL_SPACING` (32 px, clamped to 2..30), which puts about twenty prices on that pane instead of six. Both live in `src/render/axis.ts` and are internal, like the axis renderer itself; the number a host sees is simply the denser ladder. The `maxTicks = 6` default on `ticks()` is untouched, and `ticks()` is public: it is a ceiling for a direct caller, not what the axis uses.
+
+`maxTicks` remains a request rather than a promise. `niceTicks` walks the 1 / 2 / 2.5 / 5 ladder until the count fits, so a range with no round step at that density simply prints fewer.
+
 ### Range control
 
 | Member | Notes |
@@ -201,7 +205,11 @@ chart.axisChromeOptions();
 
 **The bar interval is read back off the bars**, as a median of the recent gaps, not configured: the chart is never told its own timeframe, and one that switches mid-session has to follow. A median rather than a minimum, so a backfilled duplicate two seconds apart cannot halve the cadence; and only the tail is sampled, so a year of daily history does not outvote the intraday feed running now. Past a bar's close the count rolls into the next bar's cycle instead of stalling at `00:00:00`, because a feed a second late with the new bar should still show a running clock. With no readable cadence the row reads `--:--:--` rather than vanishing.
 
-**Price-axis ticks give way to the labels above them.** The pane reserves the band the last-price tag will occupy before the ladder is drawn, and a tick colliding with it is dropped instead of drawn through. The priority order is crosshair, then last price, then a price line, then a session level, then previous close, then a plain tick, on the principle that the label a reader could interpolate from its neighbours is the one to lose. A chart whose last price sits clear of every tick draws exactly the ladder it always did.
+**Price-axis ticks give way to the labels above them.** The pane reserves the band the last-price tag will occupy before the ladder is drawn, and a tick colliding with it is dropped instead of drawn through. The priority order is crosshair, then last price, then a price line, then a session level, then previous close, then a plain tick, on the principle that the label a reader could interpolate from its neighbours is the one to lose.
+
+Since the ladder became denser in 1.8.5 this is no longer a rare event: rungs sit about a tag-height apart, so the last-price tag now essentially always suppresses the label beside it. That matches a reference terminal, which hides the prices either side of its own tag for the same reason. The rule did not change, only how often it fires.
+
+**A host drawing its own last-price line should stop.** The engine already draws a dashed line across the plot and a filled axis tag at that price, coloured by the forming candle's direction. A second `PriceLine` at the same price puts two tags on one pixel row, printed through each other. The engine's is also the one to keep: it reserves its band before the ladder is drawn, so neighbouring prices yield to it rather than being painted over, and it carries the bar-close countdown. A `PriceLine` takes part in neither, since its tag is drawn straight onto the strip.
 
 ## Panes
 

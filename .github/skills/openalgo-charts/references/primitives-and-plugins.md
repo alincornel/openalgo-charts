@@ -84,6 +84,10 @@ The reason is in `src/core/canvas.ts`: the backing buffer is sized `round(media 
 
 Within a z-order band, primitives paint in attach order. `top` sits on the cheap-repaint canvas, so anything that must react to the cursor without a full repaint belongs there. `normal` deliberately paints *after* the last-price line so order pills stay legible when the LTP crosses them.
 
+**Steps 3 and 4 are clipped to the plot; nothing else is (1.8.5).** Bottom-layer primitives and the series draw inside a clip of `plotWidth` by `plotHeight`, which is released before the axis ladder. A bar is positioned by its centre and drawn outward, so without it the newest bar against the right edge put half a body and a wick into the price-axis strip, behind the labels.
+
+The practical consequence for a primitive author: a **`bottom`** primitive can no longer paint into the axis strips, which is what you want for a background zone or a shaded region. A **`normal`** or **`top`** primitive still can, deliberately, because that is where an axis tag or a price-line pill belongs. If your background shading suddenly stops at the plot edge, that is this change and it is the correct picture.
+
 ## Hit-testing and `externalId`
 
 The chart hit-tests one pane at a time and reduces the results with `bestHit`:

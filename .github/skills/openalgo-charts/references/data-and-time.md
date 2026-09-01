@@ -199,6 +199,19 @@ const chart = createChart(el, {
 
 **A `timeFormatter` overrides labels only, never the calendar.** Session anchors and pivot frames still resolve on `chart.timezone()`, so a formatter that renders New York hours on a chart left at `Asia/Kolkata` puts a VWAP restart in the middle of the drawn day. Set the zone as well.
 
+## Where the time axis puts a label
+
+Two kinds of position, since 1.8.5:
+
+- **The regular grid**, roughly every 80 px, which is what carries the clock readings.
+- **The first bar of every new day**, whether or not it lands on that grid.
+
+The second exists because labels used to be placed only on the grid. When a new session had fewer bars than the grid stride, no tick fell inside it and the date was never drawn at all: today's bars sat under yesterday's date with nothing marking the change, which is exactly what a chart looks like a few minutes after the open. Forcing the mark is also why a professional terminal prints "Sep" between two hourly labels rather than on the hour.
+
+Labels are then resolved by priority and drawn left to right. A boundary date outranks the grid tick beside it, because losing "Sep" to a 10:00 its neighbours already imply is the failure the forced mark exists to prevent. Two boundaries still check each other, so zoomed far out they do not print through one another.
+
+A `timeFormatter` sees the boundary as `tickMark: 'day'` (or `'month'` / `'year'`), so a host formatter gets the same treatment without changing.
+
 ## Tick, volume and calendar bars
 
 `TickBarAggregator` (`src/feed/tick-aggregator.ts`) builds bars from raw trade ticks on any `Bucketing` rule:

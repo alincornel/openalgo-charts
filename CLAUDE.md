@@ -112,6 +112,32 @@ called the draw tier 34 tools while `registeredDrawingTools()` returned 43.
 | A new descriptor hook or capability | `references/indicators.md`, the website docs page, a live example in `website/pages/examples.mdx` |
 | A release | `CHANGELOG.md`, `website/pages/docs/release-notes.mdx`, and drop every "(unreleased)" marker for what just shipped |
 
+### Before every npm publish
+
+**Do this before the commit, not after the publish.** Once a version is on the
+registry the docs shipped with it are wrong for good, and a follow-up commit
+does not change what a reader of that release sees. Every item is mandatory:
+
+1. `package.json` and `src/version.ts` carry the new version, and they agree.
+2. `CHANGELOG.md` has the entry.
+3. `website/pages/docs/release-notes.mdx` has the entry, and the website builds.
+4. `README.md`: the version line, the test and file counts, and **both size
+   tables**.
+5. **The bundle sizes, measured on the build that is about to ship.**
+6. `examples/yfinance/` still describes what it does. It is the reference host,
+   so a count or a claim that has drifted there is a claim the first-time reader
+   meets first.
+7. `.github/skills/` for anything a downstream author would now do differently.
+8. `npm run verify`, then the registry counts, then `npm run skills:coverage`.
+
+**Measure the sizes last, and substitute them by row label.** They move by
+hundredths whenever the bundle changes at all, including from the version string
+itself, so a figure copied from the previous release is already wrong. Worse, a
+`sed` keyed on the *old* number silently does nothing once that number has
+drifted, and reports success: the README's base-engine row sat two releases stale
+exactly that way, through three "successful" release runs. Read `npm run size`,
+match on the row name, and fail loudly when a row cannot be found.
+
 ### The API reference
 
 `typedoc.json` `entryPoints` must list **every** tier. It listed four for a long time,

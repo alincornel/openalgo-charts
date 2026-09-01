@@ -18,7 +18,7 @@ import {
   AXIS_LABEL_PRIORITY, AXIS_TAG_HEIGHT, AXIS_TAG_HEIGHT_COUNTDOWN,
   barCountdownSeconds, drawLastPriceLabel, drawLeftPriceAxis, drawPriceAxis,
   drawSessionClock, drawTimeAxisPill, formatCountdown, formatUtcOffset,
-  lastPriceTagHeight, medianBarInterval, resolveAxisLabels,
+  lastPriceTagHeight, medianBarInterval, priceTickCount, resolveAxisLabels,
   type AxisLabelBand, type BarTimeSource, type PlotLayout,
 } from '../src/render/axis';
 import { makeCtx, type Op, type RecordingContext } from './helpers/fake-ctx';
@@ -446,7 +446,7 @@ describe('price-axis label overlap suppression', () => {
 
   it('drops the tick a reserved last-price tag lands on, and only that one', () => {
     const ps = scale();
-    const ticks = ps.ticks(6);
+    const ticks = ps.ticks(priceTickCount(LAYOUT.plotHeight));
     const all = ticks.map((p) => ps.format(p));
     const collide = ticks[2];
 
@@ -461,7 +461,7 @@ describe('price-axis label overlap suppression', () => {
 
   it('costs more of the ladder once the countdown makes the tag taller', () => {
     const ps = scale();
-    const ticks = ps.ticks(6);
+    const ticks = ps.ticks(priceTickCount(LAYOUT.plotHeight));
     // 22px off a tick: a one-row tag clears it and a two-row tag does not, so
     // the taller tag is the one that has to take a label down with it.
     const y = Math.round(ps.priceToY(ticks[2])) + 22;
@@ -476,16 +476,20 @@ describe('price-axis label overlap suppression', () => {
   it('leaves the ladder whole when the reservation lands in clear air', () => {
     const ps = scale();
     const { ctx, rec } = makeCtx();
-    // The ladder here sits every 100px; 350 is as far from a tick as it gets.
+    // Midway between two rungs, derived rather than hardcoded: the ladder's
+    // spacing follows the pane height, so a fixed y stops being clear air the
+    // moment that density changes.
+    const rungs = ps.ticks(priceTickCount(LAYOUT.plotHeight));
+    const midway = (ps.priceToY(rungs[1]) + ps.priceToY(rungs[2])) / 2;
     drawPriceAxis(ctx, ps, LAYOUT, 1, undefined, [
-      { y: 350, height: 16, priority: AXIS_LABEL_PRIORITY.lastPrice },
+      { y: Math.round(midway), height: 16, priority: AXIS_LABEL_PRIORITY.lastPrice },
     ]);
-    expect(texts(rec)).toEqual(ps.ticks(6).map((p) => ps.format(p)));
+    expect(texts(rec)).toEqual(ps.ticks(priceTickCount(LAYOUT.plotHeight)).map((p) => ps.format(p)));
   });
 
   it('consults the priority rather than letting any reservation win', () => {
     const ps = scale();
-    const ticks = ps.ticks(6);
+    const ticks = ps.ticks(priceTickCount(LAYOUT.plotHeight));
     const { ctx, rec } = makeCtx();
     drawPriceAxis(ctx, ps, LAYOUT, 1, undefined, [{
       y: Math.round(ps.priceToY(ticks[2])),
@@ -497,7 +501,7 @@ describe('price-axis label overlap suppression', () => {
 
   it('applies the same rule to a left axis', () => {
     const ps = scale();
-    const ticks = ps.ticks(6);
+    const ticks = ps.ticks(priceTickCount(LAYOUT.plotHeight));
     const { ctx, rec } = makeCtx();
     drawLeftPriceAxis(ctx, ps, 60, LAYOUT.plotHeight, 1, undefined, [{
       y: Math.round(ps.priceToY(ticks[1])),
@@ -530,7 +534,7 @@ describe('a chart that configures no chrome draws exactly what it drew before', 
       { type: 'moveTo', args: [600.5, 0] },
       { type: 'lineTo', args: [600.5, 400] },
       { type: 'stroke', args: [], strokeStyle: '#2a3046', lineWidth: 1 },
-      ...ps.ticks(6).map((p) => ({
+      ...ps.ticks(priceTickCount(LAYOUT.plotHeight)).map((p) => ({
         type: 'fillText',
         args: [606, Math.round(ps.priceToY(p))],
         fillStyle: '#8b91a7',
@@ -551,7 +555,7 @@ describe('a chart that configures no chrome draws exactly what it drew before', 
       { type: 'moveTo', args: [59.5, 0] },
       { type: 'lineTo', args: [59.5, 400] },
       { type: 'stroke', args: [], strokeStyle: '#2a3046', lineWidth: 1 },
-      ...ps.ticks(6).map((p) => ({
+      ...ps.ticks(priceTickCount(LAYOUT.plotHeight)).map((p) => ({
         type: 'fillText',
         args: [54, Math.round(ps.priceToY(p))],
         fillStyle: '#8b91a7',
@@ -650,13 +654,13 @@ describe('the pane reserves the band its last-price tag will cover', () => {
   /** Every label the ladder asked for, before any suppression. */
   const ladder = (chart: Chart): string[] => {
     const ps = chart.panes()[0].priceScale;
-    return ps.ticks(6).map((p) => ps.format(p));
+    return ps.ticks(priceTickCount(LAYOUT.plotHeight)).map((p) => ps.format(p));
   };
 
   /** Where the ladder would have drawn a given label. */
   const yOf = (chart: Chart, label: string): number => {
     const ps = chart.panes()[0].priceScale;
-    const price = ps.ticks(6).find((p) => ps.format(p) === label) as number;
+    const price = ps.ticks(priceTickCount(LAYOUT.plotHeight)).find((p) => ps.format(p) === label) as number;
     return Math.round(ps.priceToY(price));
   };
 
@@ -684,15 +688,27 @@ describe('the pane reserves the band its last-price tag will cover', () => {
     expect(drawn.length).toBeGreaterThan(1);
   });
 
-  it('keeps every tick when the tag sits clear of all of them', () => {
+  it('suppresses only the ticks the tag actually covers, never its neighbours', () => {
+    // This used to assert "clear air leaves the whole ladder", with a fixture
+    // whose last price happened to land between two rungs. At the shipped label
+    // density that state is unreachable: rungs sit about a tag-height apart, so
+    // midway between two of them is exactly a tag-height from each and the tag
+    // always takes at least one label down. A reference terminal behaves the
+    // same way, suppressing the prices either side of its own last-price tag.
+    //
+    // The invariant worth pinning is therefore the other half of the rule, and
+    // it holds at any density: a tick that does NOT collide with the tag is
+    // drawn. Over-suppression is what would make the axis unreadable.
     const chart = mount([...Array.from({ length: 39 }, (_, i) => 90 + i * 0.5), 102.5]);
     const tag = tagBox(chart);
-    const all = ladder(chart);
-    // Precondition: this chart really has no collision to resolve.
-    for (const label of all) {
-      expect(Math.abs(yOf(chart, label) - tag.centre)).toBeGreaterThan(tag.h);
+    const drawn = new Set(drawnTicks(chart));
+    let collided = 0;
+    for (const label of ladder(chart)) {
+      if (Math.abs(yOf(chart, label) - tag.centre) > tag.h) expect(drawn.has(label)).toBe(true);
+      else collided++;
     }
-    expect(drawnTicks(chart)).toEqual(all);
+    // And the fixture is worth having only while it still exercises a collision.
+    expect(collided).toBeGreaterThan(0);
   });
 });
 

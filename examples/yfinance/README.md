@@ -39,7 +39,7 @@ yfinance (Python)  ──►  server.py /api/history  ──►  YFinanceDataFee
 
 | Feature | Where |
 |---|---|
-| **18 built-in indicators** | The picker is built from `registeredIndicators()`, not a hardcoded list — anything registered shows up, grouped by category. Add/remove live, no refetch. |
+| **102 built-in indicators** | The picker is built from `registeredIndicators()`, not a hardcoded list, so anything registered shows up, grouped by category. Add/remove live, no refetch. The count is the tier's, not the demo's: it went 91 to 102 in 1.8.3 and the picker needed no change. |
 | **Pane legends** | Every source gets a row: swatch, name, params, and one reading per plot in its own colour. Hover a row for inline controls — show/hide, settings, move pane, maximize, delete. |
 | **Generated settings** | The gear opens a form built from the descriptor's `inputs`. The same code renders MACD, Bollinger, or your own indicator — nothing is indicator-specific. |
 | **Draggable panes** | Drag the boundary between panes (cursor turns `row-resize`) to redistribute height. |
