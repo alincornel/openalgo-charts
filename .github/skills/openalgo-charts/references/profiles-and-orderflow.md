@@ -208,11 +208,13 @@ Nothing else in this file has that dependency — Volume Profile and Market Prof
 | `cumulativeDelta(bars)` | `number[]`, running total of `bar.delta`, same length as input. |
 | `stackedImbalances(cells, ratio = 3, minStack = 3)` | `StackedImbalance[]` of `{ startPrice, endPrice, side, count }` — runs of `minStack`+ consecutive same-side diagonal imbalances. |
 
-**The `max(1, ...)` in the imbalance test means an empty neighbour counts as volume 1.** A single ask print of 3 against an untouched row below is already a buy imbalance at the default ratio. Raise `ratio`, or filter with the primitive's `imbalanceThreshold`.
+**The `max(1, ...)` in the imbalance test means an empty neighbour counts as volume 1.** A single ask print of 3 against an untouched row below is already a buy imbalance at the default ratio. Raise `ratio`, or filter with the primitive's `imbalanceThreshold`. **`zeroFill` sharpens this**: with it on, "the row below" is the adjacent price rather than the next price that traded, so isolated prints flag more readily.
 
 ### `Footprint` primitive
 
-`new Footprint(opts?: Partial<FootprintOptions>)`, then `setBars(FootprintBar[])`. Also `setOptions(patch)`, `options()`, `stats()`, `autoscaleInfo()`, `hitTest(x, y)` returning `footprint:<time>`, `hoverAt(x, y, rc?)` returning `FootprintHover` = `{ time, price, cell, stats }` with `cell === null` when the pointer is over the stats table.
+`new Footprint(opts?: Partial<FootprintOptions>)`, then `setBars(FootprintBar[])`. Also `setOptions(patch)`, `options()`, `stats()`, `layout()`, `autoscaleInfo()`, `hitTest(x, y)` returning `footprint:<time>`, `hoverAt(x, y, rc?)` returning `FootprintHover` = `{ time, price, cell, stats }` with `cell === null` when the pointer is over the stats table.
+
+`layout()` returns `{ rowHeight, paneHeight, minTextHeight }` in media px from the **last paint** (zeroes before the first draw). It is the hook for a host that sizes rows by legibility rather than by a row count: `paneHeight / rowsPerBar` is the height a row would get, and anything under `minTextHeight` renders as a heatmap however few rows there are.
 
 `autoscaleInfo()` reports the cell price extent so top and bottom rows are not clipped — same as `VolumeProfile` and `MarketProfile`. Only `HorizontalProfile` returns `null` and never participates in autoscale. `DEFAULT_FOOTPRINT_OPTIONS`:
 
@@ -224,11 +226,15 @@ Nothing else in this file has that dependency — Volume Profile and Market Prof
 | `font` | `10` | |
 | `minTextHeight` / `textFade` | `11` / `4` | Below the threshold numbers fade out and the column becomes a heatmap. |
 | `displayMode` | `'bidask'` | `FootprintDisplayMode` = `'bidask' \| 'delta' \| 'volume'`. |
+| `cells` | `'bidAsk'` | `FootprintCellMode` = `'bidAsk' \| 'deltaVolume'`. `deltaVolume` draws the row's delta (signed, sell-coloured when negative) left, its total volume right. Ignored unless `displayMode` is `'bidask'`. |
+| `colorBy` | `'imbalance'` | `FootprintColorMode` = `'imbalance' \| 'delta'`. `delta` paints the whole row by the sign of its own delta, alpha scaled by its share of the bar's busiest row, and drops the saturated imbalance highlight. |
+| `zeroFill` / `maxZeroFillRows` | `false` / `400` | Draw a `0 x 0` row for every untraded price between the bar's high and low. Needs `tickSize`. Over the cap the bar falls back to its traded rows. Draw-only: stats, POC and `autoscaleInfo()` are unaffected. |
 | `imbalanceRatio` / `imbalanceThreshold` | `3` / `0` | Threshold ignores cells below that volume when flagging. |
 | `stackedImbalances` | `3` | Bracket runs of N+ same-side imbalances. 0 disables. |
 | `statsRows` | `['volume','delta','deltaPct','cvd']` | `FootprintStatRow[]`; `'trades'` also available. `[]` hides the table. |
 | `statsRowHeight` | `15` | Media px. |
-| `showCandle` / `showPoc` / `pocColor` | `true` / `true` / `#f0a020` | |
+| `candle` / `candleWidthFactor` | `'behind'` / `0.22` | `'off' \| 'behind' \| 'gutter'`. `behind` is the legacy 3 px delta-coloured range bar (**not** an OHLC candle). `gutter` reserves a strip out of the bar slot, shifts the ladder right by it, and draws a real OHLC candle read from `rc.bars()` matched by time. Factor is clamped to 3..14 media px. |
+| `showPoc` / `pocColor` / `pocOutline` | `true` / `#f0a020` / *(unset)* | `showPoc` is a 2 px tick in the left margin; `pocOutline` takes a colour and strokes the POC row itself. |
 | `buyColor` / `sellColor` | *(unset)* | Fall back to `theme.upColor` / `theme.downColor`. |
 | `radius` | `2` | Cell corner radius, media px. |
 
@@ -266,7 +272,7 @@ The README's "Known gaps" list is written against 1.0.8; the package is at 1.0.2
 | README claim | Status | Reality |
 |---|---|---|
 | "hardcoded colours (not theme-aware)" | Stale, with a caveat | `Footprint.draw` reads `rc.theme.upColor`, `downColor`, `background`, `axisText`; `buyColor` / `sellColor` are optional overrides. Cell and stats **text** ink is still hardcoded `#ffffff` / `#0d0f14`, and `pocColor` defaults to a fixed `#f0a020`. |
-| "a single display mode" | Stale | `FootprintDisplayMode` is `'bidask' \| 'delta' \| 'volume'`. |
+| "a single display mode" | Stale | `FootprintDisplayMode` is `'bidask' \| 'delta' \| 'volume'`, crossed with `cells` (`'bidAsk' \| 'deltaVolume'`) and `colorBy` (`'imbalance' \| 'delta'`). |
 | "no `setOptions`" | Stale | `setOptions(patch)` plus an `options()` getter, covered by `tests/profiles.test.ts`. |
 | "`stackedImbalances` computed but not drawn" | Stale | Runs of `>= options.stackedImbalances` draw an edge bracket (default 3). |
 

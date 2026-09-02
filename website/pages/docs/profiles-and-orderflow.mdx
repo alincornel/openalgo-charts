@@ -72,6 +72,65 @@ the chart's bar spacing unless you pin `cellWidth`, and when rows get shorter th
 `minTextHeight` the numbers drop out and the column degrades to a pure heatmap, so zooming
 out never turns into unreadable overlap.
 
+### Rows, holes and zero-fill
+
+A footprint built from trades only knows the prices that traded, so by default a column is a
+sparse ladder: the untraded prices inside the bar's range are holes, and whatever the host
+paints behind the column shows through them. `zeroFill: true` draws a row for every price on
+the tick grid between the bar's high and low, with `0 x 0` cells for the ones nothing traded
+at. It needs `tickSize` (without a row step there is no grid to fill) and it is **draw-only**:
+stats, POC and `autoscaleInfo()` still come from the traded cells, so a zero row can never win
+the POC. `maxZeroFillRows` (400) is the escape hatch for a session-gap bar, which would
+otherwise ask for tens of thousands of rows on one frame; a bar over the cap falls back to its
+traded rows.
+
+Zero-fill also changes what the diagonal imbalance rule compares against: the neighbour of a
+row becomes the **adjacent price** rather than the next price that happened to trade. With the
+`max(1, ...)` rule that makes an untouched row a real zero, so an isolated ask print flags a
+buy imbalance more readily. Raise `imbalanceRatio` or `imbalanceThreshold` if that is noisy.
+
+### What a row says, and what colours it
+
+`cells` picks the numbers. `'bidAsk'` (default) is bid volume against ask volume. `'deltaVolume'`
+puts the row's own delta on the left, signed and written in the sell colour when negative,
+against its total volume on the right. `colorBy` picks the tint independently: `'imbalance'`
+(default) grades each half against the bar's peak one-sided volume and fills the diagonal
+imbalances saturated, while `'delta'` gives the whole row one colour, the sign of its own
+delta, at an alpha set by how much of the bar's busiest row it carries, and drops the
+saturated highlight so the two signals do not fight. `pocOutline` takes a colour and strokes
+the highest-volume row, for when the `showPoc` tick in the margin gets lost in a dense ladder.
+
+### Where the candle goes
+
+`candle` decides what the primitive draws for the bar itself:
+
+| Value | What it draws |
+|---|---|
+| `'behind'` *(default)* | A 3 px delta-coloured range bar against the column. Not an OHLC candle: no open, no close. |
+| `'gutter'` | A real OHLC candle in a strip reserved out of the bar slot, to the left of the ladder. |
+| `'off'` | Nothing, for a host that leaves its own candlestick series visible. |
+
+`'gutter'` reserves `candleWidthFactor` of the slot (clamped to 3..14 media px), shifts the
+ladder right by it, and reads open/high/low/close from the pane's own price series through
+`rc.bars()`, matched **by time** rather than by the shared logical index. The wick is a
+hairline and the body carries the colour, so a narrow slot degrades to a readable direction
+strip instead of to nothing. The forming bar the series has not published yet gets a neutral
+wick over the cells' own extremes.
+
+A host using `'gutter'` should stop its own candlestick series from painting at the same x,
+with `bodyVisible: false, borderVisible: false, wickVisible: false` rather than
+`visible: false`: a hidden series drops out of autoscale, out of the crosshair readout and out
+of hit-testing, while an unpainted one still drives all three.
+
+### Sizing rows for legibility
+
+Below `minTextHeight` the numbers fade out and the column becomes a heatmap, which is a
+function of pane height, not of how many rows a bar has: a tall pane reads one-tick rows on a
+30-minute bar, a short one fades at ten. `layout()` reports the last paint's `rowHeight` and
+`paneHeight` in media px alongside `minTextHeight`, so a host that has to choose a row size
+*before* fetching (a `rowTicks` multiplier on a server-side ladder, say) can pick the finest
+one whose implied row height still clears the threshold instead of guessing a row count.
+
 The demo below **replays a classified tape** into a `FootprintAggregator`: ticks arrive a few
 at a time, the forming bar updates in place, and the tape loops when it runs out. That is the
 same path a live WebSocket trade feed takes.
@@ -79,6 +138,9 @@ same path a live WebSocket trade feed takes.
 <RunnableExample height={420} tiers={['profile']} code={`const chart = lib.createChart(el, { priceAxisWidth: 68 });
 const tick = 0.5;
 const price = chart.addSeries('candlestick');
+// The gutter candle is the bar now, so the series stops painting. Not
+// visible:false - a hidden series would drop out of autoscale and the crosshair.
+price.applyOptions({ bodyVisible: false, borderVisible: false, wickVisible: false });
 
 // Deterministic tape, so the demo replays the same session every time.
 let seed = 20240719;
@@ -105,6 +167,9 @@ const fp = new lib.Footprint({
   imbalanceRatio: 3,
   stackedImbalances: 3,
   statsRows: ['volume', 'delta', 'deltaPct', 'cvd'],
+  zeroFill: true,           // no holes for the pane to show through
+  candle: 'gutter',         // a real OHLC candle beside the ladder
+  pocOutline: '#f0a020',
 });
 chart.addPrimitive(fp);
 

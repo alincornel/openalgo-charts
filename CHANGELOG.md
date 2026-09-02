@@ -2,6 +2,47 @@
 
 All notable changes to OpenAlgo Charts.
 
+## Unreleased
+
+Footprint: a readable ladder instead of a hairline mesh.
+
+### Added
+
+- **`zeroFill` / `maxZeroFillRows`** on `Footprint`. A footprint built from
+  trades only knows the prices that traded, so a column is a sparse ladder and
+  whatever is painted behind it shows through the holes. `zeroFill` draws a
+  `0 x 0` row for every untraded price between the bar's high and low. Draw-only:
+  stats, POC and `autoscaleInfo()` still come from the traded cells. Bars needing
+  more than `maxZeroFillRows` (400) rows fall back to their traded rows, so a
+  session-gap bar cannot ask for tens of thousands of rows on one frame.
+
+- **`cells: 'bidAsk' | 'deltaVolume'`**. `deltaVolume` puts the row's own delta
+  on the left, signed and written in the sell colour when negative, against its
+  total volume on the right.
+
+- **`colorBy: 'imbalance' | 'delta'`**. `delta` paints the whole row by the sign
+  of its own delta, at an alpha set by its share of the bar's busiest row, and
+  drops the saturated imbalance highlight.
+
+- **`pocOutline`**, a colour that strokes the bar's highest-volume row. The
+  `showPoc` tick is a mark in the margin and is easy to lose in a dense ladder.
+
+- **`Footprint.layout()`**, returning `{ rowHeight, paneHeight, minTextHeight }`
+  in media px from the last paint, for a host that sizes rows by legibility
+  rather than by a fixed row count.
+
+### Changed
+
+- **`showCandle` is replaced by `candle: 'off' | 'behind' | 'gutter'`**, plus
+  `candleWidthFactor`. This is a breaking option change for any host that set
+  `showCandle`. `showCandle: true` never drew a candle: it drew a 3 px
+  delta-coloured range bar, which is now `candle: 'behind'` and stays the
+  default. `'gutter'` reserves a strip out of the bar slot, shifts the ladder
+  right by it, and draws a real OHLC candle there, read from the pane's own
+  price series through `rc.bars()` and matched by time.
+
+- Profile tier budget 11 -> 11.5 KB, and the full-package budget 126 -> 127 KB.
+
 ## 1.9.2
 
 Eight annotation tools, and the icon set that was missing for all of them.

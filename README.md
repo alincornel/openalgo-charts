@@ -227,13 +227,13 @@ Enforced in CI by [`size-limit`](./.size-limit.json). Nothing is excluded, becau
 
 | Bundle | Limit | Actual |
 |---|---|---|
-| Base engine | 62 KB | 60.88 KB |
-| Base + trade | 70 KB | 68.49 KB |
+| Base engine | 62 KB | 61.91 KB |
+| Base + trade | 70 KB | 69.57 KB |
 | Indicators tier | 30 KB | 27.27 KB |
 | Draw tier | 16 KB | 15.39 KB |
 | Transform tier | 5 KB | 2.66 KB |
-| Profile tier | 11 KB | 10.66 KB |
-| **Everything** | **126 KB** | **124.47 KB** |
+| Profile tier | 11.5 KB | 11.24 KB |
+| **Everything** | **127 KB** | **126.13 KB** |
 
 ## Documentation
 

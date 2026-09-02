@@ -8,6 +8,29 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## Unreleased
+
+Footprint: a readable ladder instead of a hairline mesh.
+
+**Added**
+
+- **`zeroFill` / `maxZeroFillRows`**: draw a `0 x 0` row for every untraded price between the
+  bar's high and low, so nothing painted behind the column shows through. Draw-only, and
+  capped so a session-gap bar falls back to its traded rows.
+- **`cells: 'bidAsk' | 'deltaVolume'`**: the row's own delta, signed, against its total volume.
+- **`colorBy: 'imbalance' | 'delta'`**: paint the whole row by the sign of its delta, alpha
+  scaled by its share of the bar's busiest row.
+- **`pocOutline`**: a colour that strokes the bar's highest-volume row.
+- **`Footprint.layout()`**: `{ rowHeight, paneHeight, minTextHeight }` in media px from the
+  last paint, for sizing rows by legibility rather than by a row count.
+
+**Changed**
+
+- **`showCandle` is replaced by `candle: 'off' | 'behind' | 'gutter'`** plus
+  `candleWidthFactor` - a breaking option change. `showCandle: true` never drew a candle, it
+  drew a delta-coloured range bar, which is now `'behind'` and stays the default. `'gutter'`
+  draws a real OHLC candle in a strip beside the ladder, read from the pane's price series.
+
 ## 1.9.2
 
 Eight annotation tools, and the icon set that was missing for all of them.
