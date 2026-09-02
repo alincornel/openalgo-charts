@@ -326,4 +326,92 @@ describe('profile primitives render', () => {
     expect(compactVol(-943_000)).toBe('-943K');
     expect(compactVol(512)).toBe('512');
   });
+
+  it('Footprint draws only traded rows by default', () => {
+    const r = rc();
+    // Two prints four rows apart: three interior rows never traded.
+    const fp = new Footprint({ tickSize: 0.05, statsRows: [], stackedImbalances: 0 });
+    fp.setBars([computeFootprint(1, [
+      { price: 100.0, qty: 5, side: 'ask' },
+      { price: 100.2, qty: 5, side: 'ask' },
+    ], 0.05)]);
+    const { ctx, rec } = makeCtx();
+    fp.draw(ctx, r);
+    expect(rec.count('roundRect')).toBe(4);   // 2 rows x (bid + ask)
+  });
+
+  it('Footprint zeroFill draws a row for every price between high and low', () => {
+    const r = rc();
+    const fp = new Footprint({ tickSize: 0.05, statsRows: [], stackedImbalances: 0, zeroFill: true });
+    fp.setBars([computeFootprint(1, [
+      { price: 100.0, qty: 5, side: 'ask' },
+      { price: 100.2, qty: 5, side: 'ask' },
+    ], 0.05)]);
+    const { ctx, rec } = makeCtx();
+    fp.draw(ctx, r);
+    expect(rec.count('roundRect')).toBe(10);  // 5 rows x 2, three of them 0 x 0
+  });
+
+  it('Footprint zeroFill leaves stats, POC and autoscale untouched', () => {
+    const b = computeFootprint(1, [
+      { price: 100.0, qty: 5, side: 'ask' },
+      { price: 100.2, qty: 9, side: 'bid' },
+    ], 0.05);
+    const plain = new Footprint({ tickSize: 0.05 });
+    const filled = new Footprint({ tickSize: 0.05, zeroFill: true });
+    plain.setBars([b]); filled.setBars([b]);
+    expect(filled.stats()).toEqual(plain.stats());          // volume, delta, cvd, trades, poc
+    expect(filled.autoscaleInfo()).toEqual(plain.autoscaleInfo());
+  });
+
+  it('Footprint zeroFill judges the diagonal against the adjacent row, not the next traded one', () => {
+    // ask 30 at 100.2 against an UNTRADED row below: with zeroFill that neighbour
+    // is a real 0 row (imbalance at the default max(1, 0) rule), without it the
+    // "row below" is the traded row four steps away.
+    const r = rc();
+    const bars = [computeFootprint(1, [
+      { price: 100.2, qty: 30, side: 'ask' },
+      { price: 100.0, qty: 40, side: 'bid' },
+    ], 0.05)];
+    const style = { tickSize: 0.05, statsRows: [] as [], imbalanceRatio: 3, buyColor: '#00ff00', sellColor: '#ff0000' };
+    const off = new Footprint(style);
+    const on = new Footprint({ ...style, zeroFill: true });
+    off.setBars(bars); on.setBars(bars);
+    const a = makeCtx(); off.draw(a.ctx, r);
+    const b = makeCtx(); on.draw(b.ctx, r);
+    const fills = (x: typeof a): (string | undefined)[] =>
+      x.rec.ops.filter((o) => o.type === 'fill').map((o) => o.fillStyle);
+    expect(fills(b)).not.toEqual(fills(a));
+    // A saturated cell is painted the raw colour; only zeroFill finds the diagonal.
+    expect(fills(b)).toContain('#00ff00');
+    expect(fills(a)).not.toContain('#00ff00');
+  });
+
+  it('Footprint zeroFill gives up on a bar whose range would need more rows than the cap', () => {
+    const r = rc();
+    const fp = new Footprint({
+      tickSize: 0.05, statsRows: [], stackedImbalances: 0, zeroFill: true, maxZeroFillRows: 3,
+    });
+    fp.setBars([computeFootprint(1, [
+      { price: 100.0, qty: 1, side: 'ask' },
+      { price: 100.2, qty: 1, side: 'ask' },   // 5 rows, over the cap
+    ], 0.05)]);
+    const { ctx, rec } = makeCtx();
+    fp.draw(ctx, r);
+    expect(rec.count('roundRect')).toBe(4);   // falls back to the traded rows
+  });
+
+  it('Footprint zeroFill leaves a session-gap bar alone under the default cap', () => {
+    const r = rc();
+    const fp = new Footprint({ tickSize: 0.05, statsRows: [], stackedImbalances: 0, zeroFill: true });
+    fp.setBars([computeFootprint(1, [
+      { price: 100.0, qty: 1, side: 'ask' },
+      { price: 200.0, qty: 1, side: 'ask' },   // 2000 rows apart
+    ], 0.05)]);
+    const { ctx, rec } = makeCtx();
+    fp.draw(ctx, r);
+    // Only the on-pane traded row survives the cull; a filled grid would have
+    // put ~60 rows (120 cells) inside the 98..103 window.
+    expect(rec.count('roundRect')).toBe(2);
+  });
 });

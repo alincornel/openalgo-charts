@@ -17,6 +17,7 @@
  */
 import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, PrimitiveHit, ZOrder } from 'openalgo-charts';
 import type { FootprintBar, FootprintCell } from './profile-model';
+import { bucketPrice, priceBuckets } from './profile-model';
 import { parseColor, withAlpha } from '../render/pill';
 
 /** Which metric a stats row shows. */
@@ -56,6 +57,19 @@ export interface FootprintOptions {
   showCandle: boolean;
   /** Mark the highest-volume row of each bar. */
   showPoc: boolean;
+  /**
+   * Draw a row for every price between the bar's highest and lowest traded
+   * level, including the ones nothing traded at (`0 x 0`). Off, the column is
+   * a sparse ladder and whatever is painted behind it shows through the gaps.
+   * Needs `tickSize`: without a row step there is no grid to fill.
+   */
+  zeroFill: boolean;
+  /**
+   * Bars needing more zero-filled rows than this fall back to their traded
+   * rows. A gap bar, or a `tickSize` that does not match the instrument, would
+   * otherwise ask for tens of thousands of rows on one frame.
+   */
+  maxZeroFillRows: number;
   /** Colours. All default to the chart theme. */
   buyColor?: string;
   sellColor?: string;
@@ -77,6 +91,8 @@ export const DEFAULT_FOOTPRINT_OPTIONS: FootprintOptions = {
   statsRowHeight: 15,
   showCandle: true,
   showPoc: true,
+  zeroFill: false,
+  maxZeroFillRows: 400,
   pocColor: '#f0a020',
   radius: 2,
 };
@@ -210,6 +226,31 @@ export class Footprint implements IPrimitive {
     });
   }
 
+  /**
+   * The rows a column actually draws. Plain `zeroFill` off: the traded cells,
+   * holes and all. On: every price on the grid between the bar's high and low,
+   * with `0 x 0` cells materialised for the ones nothing traded at, so the
+   * ladder is opaque and the diagonal is judged against the adjacent price
+   * rather than the next price that happened to trade. Falls back to the cells
+   * when there is no grid (`step <= 0`), nothing to bridge, or the span would
+   * need more rows than the cap.
+   */
+  private _rows(cells: readonly FootprintCell[], step: number): readonly FootprintCell[] {
+    if (!this._opts.zeroFill || step <= 0 || cells.length < 2) return cells;
+    const hi = cells[0].price;
+    const lo = cells[cells.length - 1].price;
+    if ((hi - lo) / step + 1 > this._opts.maxZeroFillRows) return cells;
+    const traded = new Map<number, FootprintCell>();
+    for (const c of cells) traded.set(bucketPrice(c.price, step), c);
+    const grid = priceBuckets(lo, hi, step);
+    const out: FootprintCell[] = [];
+    for (let i = grid.length - 1; i >= 0; i--) {
+      const p = grid[i];
+      out.push(traded.get(p) ?? { price: p, bidVol: 0, askVol: 0 });
+    }
+    return out;
+  }
+
   /** Row height in device px from the tick size (option, else the min cell gap). */
   private _rowHeight(cells: readonly FootprintCell[], rc: PrimitiveRenderContext): number {
     let tick = this._opts.tickSize ?? 0;
@@ -278,26 +319,26 @@ export class Footprint implements IPrimitive {
     const o = this._opts;
     const dpr = rc.dpr;
     const { bar, stats } = col;
-    const cells = bar.cells;
-    const rowH = this._rowHeight(cells, rc);
+    const rows = this._rows(bar.cells, o.tickSize ?? 0);
+    const rowH = this._rowHeight(rows, rc);
     this._rowH = rowH / dpr;
     const half = width / 2;
     const x0 = col.x - half;
     this._cols.push({ time: bar.time, x0: x0 / dpr, x1: (x0 + width) / dpr });
 
     let peak = 1;
-    for (const c of cells) peak = Math.max(peak, c.bidVol, c.askVol);
+    for (const c of rows) peak = Math.max(peak, c.bidVol, c.askVol);
 
     // Range line + body behind the cells: the bar is still a bar.
     if (o.showCandle) {
-      const yHi = rc.priceScale.priceToY(cells[0].price) * dpr - rowH / 2;
-      const yLo = rc.priceScale.priceToY(cells[cells.length - 1].price) * dpr + rowH / 2;
+      const yHi = rc.priceScale.priceToY(rows[0].price) * dpr - rowH / 2;
+      const yLo = rc.priceScale.priceToY(rows[rows.length - 1].price) * dpr + rowH / 2;
       const up = stats.delta >= 0;
       ctx.fillStyle = withAlpha(up ? buy : sell, 0.5);
       ctx.fillRect(x0 - 5 * dpr, yHi, 3 * dpr, yLo - yHi);
     }
 
-    const imbalanced = this._imbalances(cells);
+    const imbalanced = this._imbalances(rows);
     // 0 below the threshold, 1 a few px above it, linear between.
     const textAlpha = Math.max(0, Math.min(1,
       (rowH / dpr - o.minTextHeight) / Math.max(1, o.textFade) + 1));
@@ -307,8 +348,8 @@ export class Footprint implements IPrimitive {
       ctx.textAlign = 'center';
     }
 
-    for (let i = 0; i < cells.length; i++) {
-      const c = cells[i];
+    for (let i = 0; i < rows.length; i++) {
+      const c = rows[i];
       const y = rc.priceScale.priceToY(c.price) * dpr;
       const top = Math.round(y - rowH / 2);
       const h = Math.max(1, Math.round(rowH) - 1);
@@ -332,7 +373,7 @@ export class Footprint implements IPrimitive {
 
     // Stacked-imbalance brackets: the run is the signal, not the single cell.
     if (o.stackedImbalances > 0) {
-      for (const run of this._runs(cells, imbalanced, o.stackedImbalances)) {
+      for (const run of this._runs(rows, imbalanced, o.stackedImbalances)) {
         const yTop = rc.priceScale.priceToY(run.from) * dpr - rowH / 2;
         const yBot = rc.priceScale.priceToY(run.to) * dpr + rowH / 2;
         const bx = run.side === 'buy' ? col.x + half + 2 * dpr : x0 - 8 * dpr;
@@ -365,7 +406,11 @@ export class Footprint implements IPrimitive {
     if (textAlpha <= 0) return;
     // Fade rather than switch: zooming through the threshold reads as one
     // continuous change instead of numbers blinking on and off.
-    ctx.fillStyle = hot ? withAlpha('#0d0f14', textAlpha) : withAlpha('#ffffff', 0.9 * textAlpha);
+    // Zero-filled rows are context, not content: dimmer so the traded ladder
+    // still reads at a glance.
+    ctx.fillStyle = hot
+      ? withAlpha('#0d0f14', textAlpha)
+      : withAlpha('#ffffff', (value === 0 ? 0.45 : 0.9) * textAlpha);
     ctx.fillText(compactVol(display ?? value), x + w / 2, y + h / 2);
   }
 
