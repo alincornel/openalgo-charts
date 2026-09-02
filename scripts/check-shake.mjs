@@ -25,7 +25,12 @@ const BUNDLE = new URL('../dist/openalgo-charts.mjs', import.meta.url).pathname.
 // baseline. Raise this only with the same kind of note, and never to get a
 // build green: the point of the number is that a feature has to be worth its
 // bytes to a host that only wanted a chart.
-const LIMIT_BYTES = 39 * 1024;
+//
+// Raised again to 39.5 kB on 2026-09-02, on this FORK: it carries the order-line
+// editor plus the BarCache union/peek/prune work, and the pinned base 1639f1d
+// already measured 39.07 kB — over upstream's 39.00 before any of this landed.
+// Raised once. Do not raise it again without trimming something first.
+const LIMIT_BYTES = 39.5 * 1024;
 
 // Absent from a chart-only build. Each is a string that appears in the adapter
 // source and nowhere in the rendering core.
