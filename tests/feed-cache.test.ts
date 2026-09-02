@@ -798,3 +798,58 @@ describe('BarCache._put concurrency', () => {
     expect(entry.from).toBe(T0);
   });
 });
+
+/** A store that can list what it holds, as IndexedDB and localStorage both can. */
+class ListingStore extends RecordingStore {
+  public async keys(): Promise<string[]> {
+    return [...this.map.keys()];
+  }
+}
+
+describe('BarCache.prune', () => {
+  const DAY_MS = 86_400_000;
+  const WHOLE = { from: T0, to: T0 + 99 * MIN };
+
+  it('deletes a stale key this session never touched', async () => {
+    const store = new ListingStore();
+    const earlier = withBarCache(new StubFeed(makeBars(T0, 100)), { storage: store, now: () => UNION_NOW_MS });
+    await earlier.getBars({ ...UNION_REQ, ...WHOLE });
+
+    // A new session: the in-memory index is empty, so eviction can never see
+    // this key and it would otherwise sit in IndexedDB for ever.
+    const feed = new StubFeed(makeBars(T0, 100));
+    const cache = withBarCache(feed, { storage: store, now: () => UNION_NOW_MS + 3 * DAY_MS });
+    expect(cache.stats().entries).toBe(0);
+    expect(await cache.prune(2 * DAY_MS)).toBe(1);
+    expect(store.map.has(UNION_KEY)).toBe(false);
+    expect(await cache.peek(UNION_REQ)).toBeUndefined();
+  });
+
+  it('keeps an entry inside the cutoff', async () => {
+    const store = new ListingStore();
+    const cache = withBarCache(new StubFeed(makeBars(T0, 100)), { storage: store, now: () => UNION_NOW_MS });
+    await cache.getBars({ ...UNION_REQ, ...WHOLE });
+    expect(await cache.prune(DAY_MS)).toBe(0);
+    expect(store.map.has(UNION_KEY)).toBe(true);
+  });
+
+  it('prunes the in-memory store it ships with', async () => {
+    const feed = new StubFeed(makeBars(T0, 100));
+    let nowMs = UNION_NOW_MS;
+    const cache = withBarCache(feed, { now: () => nowMs });
+    await cache.getBars({ ...UNION_REQ, ...WHOLE });
+    nowMs += 3 * DAY_MS;
+    expect(await cache.prune(2 * DAY_MS)).toBe(1);
+    expect(cache.stats().entries).toBe(0);
+    await cache.getBars({ ...UNION_REQ, ...WHOLE });
+    expect(feed.count).toBe(2);
+  });
+
+  it('is a no-op for a store that cannot list its keys', async () => {
+    const store = new RecordingStore(); // no `keys()`
+    const cache = withBarCache(new StubFeed(makeBars(T0, 100)), { storage: store, now: () => UNION_NOW_MS });
+    await cache.getBars({ ...UNION_REQ, ...WHOLE });
+    expect(await cache.prune(0)).toBe(0);
+    expect(store.map.has(UNION_KEY)).toBe(true);
+  });
+});

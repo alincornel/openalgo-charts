@@ -40,8 +40,9 @@
  * measured without serialising. Byte counting would mean stringifying every
  * entry on every write, which costs more than the cache saves.
  *
- * **Storage.** In-memory by default. A host may inject `storage` to persist
- * (localStorage, IndexedDB) but the engine will not reach for either itself:
+ * **Storage.** In-memory by default, and `prune(maxAgeMs)` is how a persistent
+ * store sheds keys this session never touched. A host may inject `storage` to
+ * persist (localStorage, IndexedDB) but the engine will not reach for either:
  * choosing a persistence layer is the host's business, localStorage is
  * synchronous and small, and IndexedDB is asynchronous. Store methods may
  * therefore return a promise. `CachedBars` is plain JSON so it round-trips
@@ -100,6 +101,14 @@ export interface BarCacheStore {
   get(key: string): MaybePromise<CachedBars | undefined>;
   set(key: string, value: CachedBars): MaybePromise<void>;
   delete(key: string): MaybePromise<void>;
+  /**
+   * Every key this store holds, including keys written by earlier sessions.
+   * Optional, because a store need not be enumerable — but without it
+   * {@link BarCache.prune} has nothing to walk and does nothing, and a key for a
+   * symbol never reopened stays in the store for ever: recency and size are
+   * tracked in memory, so eviction cannot see it.
+   */
+  keys?(): MaybePromise<string[]>;
 }
 
 export interface BarCacheOptions {
@@ -212,6 +221,7 @@ class MemoryStore implements BarCacheStore {
   public get(key: string): CachedBars | undefined { return this._m.get(key); }
   public set(key: string, value: CachedBars): void { this._m.set(key, value); }
   public delete(key: string): void { this._m.delete(key); }
+  public keys(): string[] { return [...this._m.keys()]; }
 }
 
 /** Recency and size bookkeeping, kept in memory even when the store is not. */
@@ -353,6 +363,36 @@ export class BarCache implements DataFeed {
 
   public async clear(): Promise<void> {
     for (const k of [...this._index.keys()]) await this._drop(k);
+  }
+
+  /**
+   * Drop every entry whose tail was last revalidated longer than `maxAgeMs`
+   * ago, and report how many went.
+   *
+   * The bounds (`max`, `maxBars`) only see what THIS session has touched,
+   * because recency and size are tracked in memory. With a persistent store
+   * that leaves a hole: an entry written weeks ago for a symbol nobody has
+   * reopened is invisible to eviction and never expires either, since an
+   * expired entry is now kept rather than deleted. So it would live in
+   * IndexedDB for ever. `prune` is the answer, and it deliberately walks the
+   * STORE's keys rather than the in-memory index — the keys it needs to find
+   * are exactly the ones the index does not have. Call it on a timer, or once
+   * at startup.
+   *
+   * A store with no `keys()` cannot be walked, so this does nothing and returns
+   * 0 rather than pretending.
+   */
+  public async prune(maxAgeMs: number): Promise<number> {
+    if (this._backing.keys === undefined) return 0;
+    const cutoff = this._now() - maxAgeMs;
+    let dropped = 0;
+    for (const key of await this._backing.keys()) {
+      const entry = await this._backing.get(key);
+      if (entry === undefined || entry.storedAt >= cutoff) continue;
+      await this._drop(key);
+      dropped++;
+    }
+    return dropped;
   }
 
   public stats(): BarCacheStats {

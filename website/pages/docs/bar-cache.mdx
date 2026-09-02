@@ -209,6 +209,7 @@ await feed.peek(req);                           // read the entry, never fetch
 await feed.invalidate(req);                     // drop one series (symbol/exchange/interval)
 await feed.invalidate();                        // same as clear()
 await feed.clear();                             // drop everything this cache knows of
+await feed.prune(7 * 86_400_000);               // drop entries older than a week, this session or not
 feed.stats();                                   // { entries, bars, hits, misses, evictions }
 ```
 
@@ -253,10 +254,27 @@ const store: BarCacheStore = {
   },
   set(key, value) { localStorage.setItem('oac:' + key, JSON.stringify(value)); },
   delete(key) { localStorage.removeItem('oac:' + key); },
+  // Optional, and the only way `prune` can reach an earlier session's keys.
+  keys() { return Object.keys(localStorage).filter((k) => k.startsWith('oac:')).map((k) => k.slice(4)); },
 };
 
 const feed = withBarCache(source, { storage: store, maxBars: 20_000 });
 ```
+
+### Pruning what this session cannot see
+
+`max` and `maxBars` only bound what **this** session has touched, because recency and size are
+tracked in memory. An entry written last month for a symbol nobody has reopened is therefore
+invisible to eviction, and it no longer expires either, since an expired entry is kept rather
+than deleted. Left alone it sits in IndexedDB for ever.
+
+```ts
+await feed.prune(7 * 86_400_000);  // drop entries whose tail is over a week old; returns the count
+```
+
+`prune` walks the **store's** keys — the ones the in-memory index does not have are exactly
+the ones it exists to find — so it needs `keys()` on your store. Without it, `prune` returns 0
+and does nothing rather than pretending. Call it once at startup, or on a timer.
 
 <Callout type="warning">
 Recency and size are tracked **in memory**, so with a persistent store `clear()` drops only
