@@ -254,9 +254,11 @@ Two empty answers, meaning different things:
 | `undefined` | Nothing is stored for this series. Load it cold. |
 | `{ bars: [], from, to, … }` | An entry exists, but the window you asked for falls outside it. The coverage fields say where its bars actually are, so widen the window rather than refetch. |
 
-A peek touches LRU recency — an entry you are about to extend must not be the next victim —
-but it never evicts and never writes, so it can only make an entry safer, never cost another
-one its place.
+A peek touches LRU recency — an entry you are about to extend must not be the next victim.
+Nothing is written and nothing is evicted by the peek itself, but the touch **adopts** the
+entry into this session's index, which is the whole point after a reload, and from then on it
+counts towards `max` and `maxBars`. A later put can therefore evict something on its behalf:
+a peek is free when it runs, not free afterwards.
 
 Requests with no `from` or no `to` pass straight through in both directions: an open-ended
 range cannot be reasoned about, because there is no way to say what the entry then covers.

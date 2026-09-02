@@ -336,8 +336,11 @@ export class BarCache implements DataFeed {
    *     actually are, so a caller can widen the window instead of refetching.
    *
    * It does touch LRU recency, because an entry about to be extended must not
-   * be the next victim, but it never evicts and never writes: a peek can only
-   * make an entry safer, never cost another one its place.
+   * be the next victim. Nothing is written and nothing is evicted here, but the
+   * touch ADOPTS the entry into this session's index — which is the point over a
+   * persistent store, where a reload starts with an empty index — and from then
+   * on it counts towards `max` and `maxBars`. So a peek can make a LATER put
+   * evict on its behalf: it is free at the moment it runs, not free thereafter.
    */
   public async peek(
     req: Pick<BarsRequest, 'symbol' | 'exchange' | 'interval'> & { from?: UTCSeconds; to?: UTCSeconds },
@@ -509,7 +512,10 @@ export class BarCache implements DataFeed {
     const entry = this._mergeEntry(previous, fresh, from, to, interval, nowMs);
     if (entry === undefined) return;
     await this._backing.set(key, entry);
-    this._gen.set(key, gen + 1);
+    // Read-modify-write, not `gen + 1`: an `invalidate()` or an eviction may have
+    // bumped the generation during the awaits above, and rewinding it would make
+    // a hint taken before that drop look current again.
+    this._gen.set(key, (this._gen.get(key) ?? 0) + 1);
     this._index.set(key, { lastUsed: ++this._tick, bars: entry.bars.length });
     await this._evict();
   }
@@ -548,8 +554,9 @@ export class BarCache implements DataFeed {
       // page whose last bar sits immediately before the entry's first bar is
       // contiguous, even though its requested `to` is a whole span short of the
       // entry's `from`; comparing seconds there replaced a warm 2000-bar entry
-      // with the page that was meant to extend it. Coverage bounds are still
-      // honoured, so a request that deliberately stopped short still counts.
+      // with the page that was meant to extend it. The coverage terms
+      // (`previous.to + 1`, `to + 1`) are floors that keep the old seconds-level
+      // answer when a span cannot be resolved and `spanAfter` falls back to 1.
       const startsInTime = from <= Math.max(previous.to + 1, prevLast + spanAfter(prevLast));
       const endsInTime = Math.max(to + 1, freshLast + spanAfter(freshLast)) >= previous.from;
       union = startsInTime && endsInTime;

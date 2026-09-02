@@ -932,11 +932,24 @@ describe('BarCache.prune', () => {
     expect(feed.count).toBe(2);
   });
 
-  it('is a no-op for a store that cannot list its keys', async () => {
-    const store = new RecordingStore(); // no `keys()`
+  it('keeps an entry stamped exactly at the cutoff', async () => {
+    // The boundary is inclusive-keep: `prune(0)` on an entry stored this instant
+    // must not throw away what was just written.
+    const store = new ListingStore();
     const cache = withBarCache(new StubFeed(makeBars(T0, 100)), { storage: store, now: () => UNION_NOW_MS });
     await cache.getBars({ ...UNION_REQ, ...WHOLE });
     expect(await cache.prune(0)).toBe(0);
     expect(store.map.has(UNION_KEY)).toBe(true);
+  });
+
+  it('is a no-op for a store that cannot list its keys', async () => {
+    const store = new RecordingStore(); // no `keys()`
+    let nowMs = UNION_NOW_MS;
+    const cache = withBarCache(new StubFeed(makeBars(T0, 100)), { storage: store, now: () => nowMs });
+    await cache.getBars({ ...UNION_REQ, ...WHOLE });
+    nowMs += 3 * DAY_MS; // old enough that a listable store WOULD drop it
+    expect(await cache.prune(DAY_MS)).toBe(0);
+    expect(store.map.has(UNION_KEY)).toBe(true);
+    expect(store.deletes).not.toContain(UNION_KEY);
   });
 });
