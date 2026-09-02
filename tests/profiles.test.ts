@@ -612,4 +612,27 @@ describe('profile primitives render', () => {
     const b = makeCtx(); dlt.draw(b.ctx, rc());
     expect(cellFills(b.rec)).not.toContain('#00ff00');
   });
+
+  it('Footprint draws no POC outline unless one is asked for', () => {
+    const fp = new Footprint(cellStyle);
+    fp.setBars([twoRows(30, 2)]);
+    const { ctx, rec } = makeCtx();
+    fp.draw(ctx, rc());
+    expect(rec.count('strokeRect')).toBe(0);
+  });
+
+  it('Footprint pocOutline rings the bar highest-volume row', () => {
+    const r = rc();
+    const fp = new Footprint({ ...cellStyle, pocOutline: '#f0a020' });
+    fp.setBars([twoRows(30, 2)]);                 // 30 at 100.05 is the POC row
+    const { ctx, rec } = makeCtx();
+    fp.draw(ctx, r);
+    const boxes = rec.ops.filter((o) => o.type === 'strokeRect');
+    expect(boxes).toHaveLength(1);
+    expect(boxes[0].strokeStyle).toBe('#f0a020');
+    const [, y, , h] = boxes[0].args;
+    // The row box is snapped to whole px, so its centre lands within one of the price.
+    expect(Math.abs(y + h / 2 - r.priceScale.priceToY(100.05))).toBeLessThanOrEqual(1);
+    expect(fp.stats()[0].poc).toBe(100.05);
+  });
 });

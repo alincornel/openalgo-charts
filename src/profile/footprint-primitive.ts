@@ -93,6 +93,12 @@ export interface FootprintOptions {
   /** Mark the highest-volume row of each bar. */
   showPoc: boolean;
   /**
+   * Outline the bar's highest-volume row in this colour. Off when unset: the
+   * `showPoc` tick is a mark in the margin, this rings the row itself, and a
+   * ladder wants at most one of the two shouting.
+   */
+  pocOutline?: string;
+  /**
    * Draw a row for every price between the bar's highest and lowest traded
    * level, including the ones nothing traded at (`0 x 0`). Off, the column is
    * a sparse ladder and whatever is painted behind it shows through the gaps.
@@ -441,9 +447,16 @@ export class Footprint implements IPrimitive {
           byDelta ? rowColor : buy, bg, flag === 'buy', textAlpha, dpr);
       }
 
-      if (o.showPoc && c.price === stats.poc) {
-        ctx.fillStyle = o.pocColor;
-        ctx.fillRect(x0 - 2 * dpr, top, 2 * dpr, h);
+      if (c.price === stats.poc) {
+        if (o.showPoc) {
+          ctx.fillStyle = o.pocColor;
+          ctx.fillRect(x0 - 2 * dpr, top, 2 * dpr, h);
+        }
+        if (o.pocOutline !== undefined) {
+          ctx.strokeStyle = o.pocOutline;
+          ctx.lineWidth = Math.max(1, Math.round(dpr));
+          ctx.strokeRect(x0, top, colW - dpr, h);
+        }
       }
     }
 
