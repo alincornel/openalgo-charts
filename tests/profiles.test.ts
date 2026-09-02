@@ -563,4 +563,53 @@ describe('profile primitives render', () => {
     fp.draw(ctx, rc());
     expect(texts(rec)).toEqual(['5', '5', '0', '0', '5', '5']);   // high, filled, low
   });
+
+  const cellFills = (rec: RecordingContext): string[] =>
+    rec.ops.filter((o) => o.type === 'fill').map((o) => o.fillStyle as string);
+  const green = (rgb: string): number => Number(rgb.replace(/^rgba?\(/, '').split(',')[1]);
+  const twoRows = (topAsk: number, botBid: number): ReturnType<typeof computeFootprint> =>
+    computeFootprint(1, [
+      { price: 100.05, qty: topAsk, side: 'ask' }, { price: 100.0, qty: botBid, side: 'bid' },
+    ], 0.05);
+
+  it("Footprint colorBy 'delta' paints both halves of a row one colour", () => {
+    const style = { ...cellStyle, imbalanceRatio: 1e9 };
+    const imb = new Footprint(style);
+    imb.setBars([twoRows(10, 20)]);
+    const a = makeCtx(); imb.draw(a.ctx, rc());
+    expect(cellFills(a.rec)[0]).not.toBe(cellFills(a.rec)[1]);   // bid side vs ask side
+
+    const dlt = new Footprint({ ...style, colorBy: 'delta' });
+    dlt.setBars([twoRows(10, 20)]);
+    const b = makeCtx(); dlt.draw(b.ctx, rc());
+    const f = cellFills(b.rec);
+    expect(f[0]).toBe(f[1]);          // the +10 row, one colour across
+    expect(f[2]).toBe(f[3]);          // the -20 row
+    expect(f[0]).not.toBe(f[2]);      // and the two rows differ by sign
+    expect(green(f[0])).toBeGreaterThan(green(f[2]));
+  });
+
+  it("Footprint colorBy 'delta' scales the tint by the row's share of the bar's busiest row", () => {
+    const fp = new Footprint({ ...cellStyle, colorBy: 'delta' });
+    fp.setBars([computeFootprint(1, [
+      { price: 100.05, qty: 20, side: 'ask' }, { price: 100.0, qty: 5, side: 'ask' },
+    ], 0.05)]);
+    const { ctx, rec } = makeCtx();
+    fp.draw(ctx, rc());
+    const f = cellFills(rec);
+    expect(green(f[0])).toBeGreaterThan(green(f[2]));   // 20 of 20 against 5 of 20
+  });
+
+  it("Footprint colorBy 'delta' drops the saturated imbalance highlight", () => {
+    const bars = [twoRows(30, 2)];                      // ask 30 over bid 2: a buy imbalance
+    const imb = new Footprint({ ...cellStyle, imbalanceRatio: 3 });
+    imb.setBars(bars);
+    const a = makeCtx(); imb.draw(a.ctx, rc());
+    expect(cellFills(a.rec)).toContain('#00ff00');      // saturated
+
+    const dlt = new Footprint({ ...cellStyle, imbalanceRatio: 3, colorBy: 'delta' });
+    dlt.setBars(bars);
+    const b = makeCtx(); dlt.draw(b.ctx, rc());
+    expect(cellFills(b.rec)).not.toContain('#00ff00');
+  });
 });

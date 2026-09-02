@@ -74,6 +74,7 @@ export {
   type FootprintOptions,
   type FootprintDisplayMode,
   type FootprintCellMode,
+  type FootprintColorMode,
   type FootprintStatRow,
   type FootprintBarStats,
   type FootprintHover,

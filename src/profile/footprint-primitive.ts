@@ -29,6 +29,9 @@ export type FootprintDisplayMode = 'bidask' | 'delta' | 'volume';
 /** What the two halves of a `bidask` row carry. */
 export type FootprintCellMode = 'bidAsk' | 'deltaVolume';
 
+/** What sets a row's background colour. */
+export type FootprintColorMode = 'imbalance' | 'delta';
+
 export interface FootprintOptions {
   /**
    * Full column width (both halves) in media px. Omit to derive it from the
@@ -55,6 +58,14 @@ export interface FootprintOptions {
    * `displayMode` is `bidask`.
    */
   cells: FootprintCellMode;
+  /**
+   * What colours a row. `imbalance` grades each half against the bar's peak
+   * one-sided volume and saturates the diagonal imbalances. `delta` gives the
+   * whole row one colour, the sign of its own delta, at an alpha set by how
+   * much of the bar's busiest row it carries, and drops the saturated
+   * highlight: the ladder then reads as a heat map of who won each price.
+   */
+  colorBy: FootprintColorMode;
   /** Diagonal-imbalance ratio. */
   imbalanceRatio: number;
   /** Ignore cells below this volume when flagging imbalances. */
@@ -109,6 +120,7 @@ export const DEFAULT_FOOTPRINT_OPTIONS: FootprintOptions = {
   textFade: 4,
   displayMode: 'bidask',
   cells: 'bidAsk',
+  colorBy: 'imbalance',
   imbalanceRatio: 3,
   imbalanceThreshold: 0,
   stackedImbalances: 3,
@@ -384,6 +396,7 @@ export class Footprint implements IPrimitive {
       this._gutterCandle(ctx, rc, ohlc, rows, x0 - gutter / 2, gutter, buy, sell);
     }
 
+    const byDelta = o.colorBy === 'delta';
     const imbalanced = this._imbalances(rows);
     // 0 below the threshold, 1 a few px above it, linear between.
     const textAlpha = Math.max(0, Math.min(1,
@@ -401,23 +414,31 @@ export class Footprint implements IPrimitive {
       const h = Math.max(1, Math.round(rowH) - 1);
       if (top + h < 0 || top > cellBottom) continue; // cull off-pane rows
 
-      const flag = imbalanced.get(c.price);
+      const flag = byDelta ? undefined : imbalanced.get(c.price);
       const d = c.askVol - c.bidVol;
       const total = c.bidVol + c.askVol;
+      // In `delta` mode the row is one colour at one intensity; in `imbalance`
+      // each half answers for its own side.
+      const rowColor = d >= 0 ? buy : sell;
+      const rowTint = total / volPeak;
       if (o.displayMode !== 'bidask') {
         const v = o.displayMode === 'delta' ? d : total;
-        const color = o.displayMode === 'delta' ? (v >= 0 ? buy : sell) : mix(sell, buy, 0.5);
-        this._cell(ctx, x0, top, colW - dpr, h, v, Math.abs(v) / peak, color, bg, false, textAlpha, dpr);
+        const color = byDelta ? rowColor
+          : o.displayMode === 'delta' ? (v >= 0 ? buy : sell) : mix(sell, buy, 0.5);
+        this._cell(ctx, x0, top, colW - dpr, h, v, byDelta ? rowTint : Math.abs(v) / peak,
+          color, bg, false, textAlpha, dpr);
       } else if (o.cells === 'deltaVolume') {
         // The delta column stays flat: the sign is in the number's colour, so
         // the volume column is the only thing carrying intensity and the ladder
         // reads as one gradient instead of two competing ones.
         this._cell(ctx, x0, top, half - dpr, h, d, 0, bg, bg, false, textAlpha, dpr, d < 0 ? sell : undefined);
-        this._cell(ctx, x0 + half + dpr, top, half - dpr, h, total, total / volPeak,
-          mix(sell, buy, 0.5), bg, flag !== undefined, textAlpha, dpr);
+        this._cell(ctx, x0 + half + dpr, top, half - dpr, h, total, rowTint,
+          byDelta ? rowColor : mix(sell, buy, 0.5), bg, flag !== undefined, textAlpha, dpr);
       } else {
-        this._cell(ctx, x0, top, half - dpr, h, c.bidVol, c.bidVol / peak, sell, bg, flag === 'sell', textAlpha, dpr);
-        this._cell(ctx, x0 + half + dpr, top, half - dpr, h, c.askVol, c.askVol / peak, buy, bg, flag === 'buy', textAlpha, dpr);
+        this._cell(ctx, x0, top, half - dpr, h, c.bidVol, byDelta ? rowTint : c.bidVol / peak,
+          byDelta ? rowColor : sell, bg, flag === 'sell', textAlpha, dpr);
+        this._cell(ctx, x0 + half + dpr, top, half - dpr, h, c.askVol, byDelta ? rowTint : c.askVol / peak,
+          byDelta ? rowColor : buy, bg, flag === 'buy', textAlpha, dpr);
       }
 
       if (o.showPoc && c.price === stats.poc) {
