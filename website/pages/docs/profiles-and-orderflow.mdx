@@ -105,7 +105,8 @@ lost in a dense ladder. That ring is one closed rectangle around the whole row, 
 of it, rather than a set of corner marks: the row is what the eye is being pointed at, and a
 bracket reads as the edges of a range instead. `pocOutlineWidth` (1) is its weight in media
 px, so it holds on a retina pane, and the rectangle is inset by half of it so a fat ring
-stays inside its own row.
+stays inside its own row. It is capped by that row's own height and width, so asking for 8 px
+of ring on a 5 px row gives a filled row rather than a rectangle inside out.
 
 ### Tinting from a plate
 
@@ -129,6 +130,12 @@ new Footprint({
 });
 ```
 
+<Callout type="warning">
+Give `cellBaseColor` an **opaque** colour. The ramp blends channels and drops alpha, so an
+`rgba()` plate is painted at full opacity: it will not let the pane show through the way the
+same colour would on a plain fill.
+</Callout>
+
 ### A volume bar down the row
 
 `showVolumeBar` adds a horizontal histogram bar to each row, in the strip beside the ladder,
@@ -141,12 +148,21 @@ leave it room with `widthFactor` (or pin `cellWidth`) before switching it on.
 width. `volumeBarColor` pins one colour for every bar; unset, each row takes its own
 direction, the buy colour when its delta is positive and the sell colour when it is not.
 
+**The room arithmetic is `widthFactor * (1 + volumeBarWidthFactor) <= 1`**: the column takes
+`widthFactor` of the bar slot and a full-volume bar takes `volumeBarWidthFactor` of the column
+on top of that, so anything more and the longest bars run into the next column. A column is
+also floored at **24 media px** whatever the factor says, so on a zoomed-out chart the bars
+overlap regardless: that floor is the point at which to pin `cellWidth` or turn the bar off.
+
+With `stackedImbalances` on, the bar starts past the bracket lane rather than over it, so the
+run marks down the edge of the ladder stay readable.
+
 ```ts
 new Footprint({
   showVolumeBar: true,
   volumeBarColor: '#ff7e00',
   volumeBarWidthFactor: 0.6,
-  widthFactor: 0.6,           // leave the strip room in the slot
+  widthFactor: 0.6,           // 0.6 * 1.6 = 0.96, inside the slot
 });
 ```
 

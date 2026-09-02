@@ -113,7 +113,8 @@ export interface FootprintOptions {
   /**
    * Weight of that ring in media px, so it holds on a retina pane. Default 1.
    * The rectangle is inset by half of it, so a fat ring stays inside its own
-   * row rather than bleeding over the ones above and below.
+   * row rather than bleeding over the ones above and below, and it is capped
+   * by the row's own height and width: a short row takes a thinner ring.
    */
   pocOutlineWidth: number;
   /**
@@ -141,6 +142,10 @@ export interface FootprintOptions {
    * say) the same row is legible at zero intensity and the tint reads as
    * pressure rather than as presence. Unset, the pane background stays the
    * base and the ramp below is the legacy eased one.
+   *
+   * Opaque colours only: the ramp blends channels and drops alpha, so an
+   * `rgba()` plate is painted at full opacity rather than letting the pane
+   * show through it.
    */
   cellBaseColor?: string;
   /**
@@ -167,7 +172,13 @@ export interface FootprintOptions {
    * already in the cell numbers and in the tint, but neither is comparable
    * down a column at a glance, and a length is. Off by default: it draws
    * outside the column, so a host wants `widthFactor` (or `cellWidth`) to
-   * leave it room first.
+   * leave it room first, and `widthFactor * (1 + volumeBarWidthFactor) <= 1`
+   * is the arithmetic that keeps a full-volume bar inside its own bar slot.
+   * A column is floored at 24 media px, so at that floor the slot has to be
+   * wide enough for the bar on top of it.
+   *
+   * With `stackedImbalances` on, the bar starts past the bracket lane rather
+   * than over it.
    */
   showVolumeBar: boolean;
   /**
@@ -589,12 +600,14 @@ export class Footprint implements IPrimitive {
 
       // A histogram beside the ladder: the row's volume against the bar's
       // busiest row. Drawn after the cells, and clear of them, so it is
-      // neither painted over nor sitting under the numbers.
+      // neither painted over nor sitting under the numbers. The buy bracket
+      // claims x0 + colW + 2..5 dpr, so with runs enabled the bar starts past
+      // that lane rather than burying the run marks under itself.
       if (o.showVolumeBar && total > 0) {
         const len = colW * o.volumeBarWidthFactor * (total / volPeak);
         if (len >= 1) {
           ctx.fillStyle = o.volumeBarColor ?? (d >= 0 ? buy : sell);
-          ctx.fillRect(x0 + colW + dpr, top, len, h);
+          ctx.fillRect(x0 + colW + (o.stackedImbalances > 0 ? 6 : 1) * dpr, top, len, h);
         }
       }
 
@@ -605,8 +618,10 @@ export class Footprint implements IPrimitive {
         }
         if (o.pocOutline !== undefined) {
           // A stroke straddles its path, so inset by half a line width or the
-          // outline bleeds into the rows above and below.
-          const lw = Math.max(1, Math.round(o.pocOutlineWidth * dpr));
+          // outline bleeds into the rows above and below. Capped by the row it
+          // is ringing: a ring wider than a 6 px row would otherwise ask for a
+          // rect of negative size and invert itself.
+          const lw = Math.min(Math.max(1, Math.round(o.pocOutlineWidth * dpr)), h, colW);
           ctx.strokeStyle = o.pocOutline;
           ctx.lineWidth = lw;
           ctx.strokeRect(x0 + lw / 2, top + lw / 2, colW - lw, h - lw);

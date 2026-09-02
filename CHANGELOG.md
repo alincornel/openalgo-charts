@@ -39,7 +39,9 @@ Footprint: a readable ladder instead of a hairline mesh.
   A horizontal histogram bar a row, in the strip beside the ladder, its length
   the row's share of the bar's busiest row: volume is in the numbers and in
   the tint already, but neither is comparable down a column at a glance. Off
-  by default, since it draws outside the column and wants room made for it.
+  by default, since it draws outside the column and wants room made for it:
+  `widthFactor * (1 + volumeBarWidthFactor) <= 1`, against a 24 media px
+  column floor. With `stackedImbalances` on it starts past the bracket lane.
   Unset, `volumeBarColor` gives each row its own direction.
 
 - **`cellTextColor`** and **`cellTextColorHot`**, the ink on a graded cell and
@@ -49,8 +51,9 @@ Footprint: a readable ladder instead of a hairline mesh.
   delta still keeps its own sell colour ahead of `cellTextColor`.
 
 - **`pocOutlineWidth`** (1), the weight of the `pocOutline` ring in media px,
-  so it holds on a retina pane. The ring is inset by half of it and stays one
-  closed rectangle around the whole POC row, which is now pinned by a test.
+  so it holds on a retina pane. The ring is inset by half of it, capped by the
+  row it is ringing, and stays one closed rectangle around the whole POC row,
+  which is now pinned by a test.
 
 - **`Footprint.layout()`**, returning `{ rowHeight, paneHeight, minTextHeight }`
   in media px from the last paint, for a host that sizes rows by legibility
@@ -72,9 +75,8 @@ Footprint: a readable ladder instead of a hairline mesh.
   price series through `rc.bars()` and matched by time.
 
 - Profile tier budget 11 -> 11.8 KB, and the full-package budget 126 -> 127 KB.
-  The second raise is the footprint cell options above and the three that
-  follow them: the plate ramp, the per-row volume bar, the cell text colours
-  and the POC outline width.
+  11.5 -> 11.8 is the four footprint cell options listed above: the plate
+  ramp, the per-row volume bar, the cell text colours and the POC ring width.
 
 ## 1.9.2
 

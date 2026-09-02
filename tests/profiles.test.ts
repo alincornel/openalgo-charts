@@ -990,4 +990,52 @@ describe('profile primitives render', () => {
     expect(ring({}, hidpi).lineWidth).toBe(2);
     expect(ring({ pocOutlineWidth: 3 }, hidpi).lineWidth).toBe(6);
   });
+  it('Footprint volume bars clear the stacked-imbalance bracket lane', () => {
+    const r = rc();
+    // Three consecutive ask-dominant rows: a buy run, so the bracket draws in
+    // the lane just right of the ladder, which is where the bar starts too.
+    const fp = new Footprint({
+      ...cellStyle, showVolumeBar: true, stackedImbalances: 3, imbalanceRatio: 3,
+    });
+    fp.setBars([computeFootprint(1, [
+      { price: 100.15, qty: 90, side: 'ask' },
+      { price: 100.10, qty: 90, side: 'ask' },
+      { price: 100.05, qty: 90, side: 'ask' },
+      { price: 100.00, qty: 1, side: 'bid' },
+    ], 0.05)]);
+    const { ctx, rec } = makeCtx();
+    fp.draw(ctx, r);
+    const lane = rec.ops.filter((o) => o.type === 'moveTo' || o.type === 'lineTo');
+    const vols = rec.ops.filter((o) => o.type === 'fillRect');
+    expect(lane.length).toBeGreaterThan(0);          // the bracket really drew
+    expect(vols.length).toBeGreaterThan(0);
+    const bracketRight = Math.max(...lane.map((o) => o.args[0]));
+    const barLeft = Math.min(...vols.map((o) => o.args[0]));
+    expect(barLeft).toBeGreaterThanOrEqual(bracketRight);
+  });
+
+  it('Footprint keeps the volume bar tight to the ladder with no brackets to clear', () => {
+    const r = rc();
+    const fp = new Footprint({ ...cellStyle, showVolumeBar: true });   // stackedImbalances 0
+    fp.setBars([twoRows(30, 15)]);
+    const { ctx, rec } = makeCtx();
+    fp.draw(ctx, r);
+    const cells = rec.ops.filter((o) => o.type === 'roundRect');
+    const right = cells[1].args[0] + cells[1].args[2];
+    expect((rec.ops.find((o) => o.type === 'fillRect') as Op).args[0]).toBeCloseTo(right + 1);
+  });
+
+  it('Footprint clamps the POC ring to the row it is ringing', () => {
+    const r = rc();
+    const fp = new Footprint({ ...cellStyle, pocOutline: '#f0a020', pocOutlineWidth: 8 });
+    fp.setBars([twoRows(30, 2)]);
+    const { ctx, rec } = makeCtx();
+    fp.draw(ctx, r);
+    const box = rec.ops.filter((o) => o.type === 'strokeRect')[0];
+    // The row is 5 px tall here, so 8 px of ring cannot straddle it: clamped,
+    // the rect degrades to a filled row rather than inverting its height.
+    expect(box.lineWidth).toBe(5);
+    expect(box.args[3]).toBe(0);
+    expect(box.args[2]).toBeGreaterThanOrEqual(0);
+  });
 });

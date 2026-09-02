@@ -86,7 +86,7 @@ Import only what you use. Each tier is a separate bundle that registers into the
 | `openalgo-charts/profile` | Volume Profile, Market Profile (TPO), Footprint, order flow | 11.6 KB |
 | `openalgo-charts/trade` | Order / position / bracket tools + DOM ladder | 7.6 KB |
 
-Everything together is **126.48 KB Brotli**. Figures are the measured `size-limit` output. The trade tier is listed as its delta over the base, so loading base + trade costs 69.57 KB.
+Everything together is **126.50 KB Brotli**. Figures are the measured `size-limit` output. The trade tier is listed as its delta over the base, so loading base + trade costs 69.57 KB.
 
 ## What's built
 
@@ -232,8 +232,8 @@ Enforced in CI by [`size-limit`](./.size-limit.json). Nothing is excluded, becau
 | Indicators tier | 30 KB | 27.27 KB |
 | Draw tier | 16 KB | 15.39 KB |
 | Transform tier | 5 KB | 2.66 KB |
-| Profile tier | 11.8 KB | 11.59 KB |
-| **Everything** | **127 KB** | **126.48 KB** |
+| Profile tier | 11.8 KB | 11.61 KB |
+| **Everything** | **127 KB** | **126.50 KB** |
 
 ## Documentation
 
