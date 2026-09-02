@@ -736,4 +736,30 @@ describe('profile primitives render', () => {
     expect(box.args[1]).toBeCloseTo(cy + lw / 2);
     expect(box.args[1] + box.args[3]).toBeCloseTo(cy + ch - lw / 2);
   });
+
+  it('Footprint onLayout pushes the geometry once per change, not once per frame', () => {
+    const seen: { rowHeight: number; paneHeight: number; minTextHeight: number }[] = [];
+    const fp = new Footprint({ ...cellStyle, onLayout: (l) => { seen.push(l); } });
+    fp.setBars([twoRows(30, 2)]);
+    const r = rc();
+    fp.draw(makeCtx().ctx, r);
+    expect(seen).toEqual([{ rowHeight: 6, paneHeight: 400, minTextHeight: 1 }]);
+    fp.draw(makeCtx().ctx, r);
+    expect(seen).toHaveLength(1);                    // same geometry, no second push
+    fp.draw(makeCtx().ctx, { ...r, plotHeight: 300 });
+    expect(seen).toHaveLength(2);                    // the pane resized
+    expect(seen[1].paneHeight).toBe(300);
+  });
+
+  it('Footprint layout reports zeroes while there is nothing to draw', () => {
+    const seen: number[] = [];
+    const fp = new Footprint({ ...cellStyle, onLayout: (l) => { seen.push(l.paneHeight); } });
+    fp.setBars([twoRows(30, 2)]);
+    fp.draw(makeCtx().ctx, rc());
+    fp.setBars([]);
+    fp.draw(makeCtx().ctx, rc());
+    expect(fp.layout()).toEqual({ rowHeight: 0, paneHeight: 0, minTextHeight: 1 });
+    expect(seen).toEqual([400, 0]);
+    expect(fp.hitTest(rc().timeScale.indexToX(0), 50)).toBeNull();   // no stale columns
+  });
 });

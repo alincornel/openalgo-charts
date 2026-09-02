@@ -214,7 +214,9 @@ Nothing else in this file has that dependency — Volume Profile and Market Prof
 
 `new Footprint(opts?: Partial<FootprintOptions>)`, then `setBars(FootprintBar[])`. Also `setOptions(patch)`, `options()`, `stats()`, `layout()`, `autoscaleInfo()`, `hitTest(x, y)` returning `footprint:<time>`, `hoverAt(x, y, rc?)` returning `FootprintHover` = `{ time, price, cell, stats }` with `cell === null` when the pointer is over the stats table.
 
-`layout()` returns `{ rowHeight, paneHeight, minTextHeight }` in media px from the **last paint** (zeroes before the first draw). It is the hook for a host that sizes rows by legibility rather than by a row count: `paneHeight / rowsPerBar` is the height a row would get, and anything under `minTextHeight` renders as a heatmap however few rows there are.
+`layout()` returns `{ rowHeight, paneHeight, minTextHeight }` in media px from the **last paint**. It is the hook for a host that sizes rows by legibility rather than by a row count: `paneHeight / rowsPerBar` is the height a row would get, and anything under `minTextHeight` renders as a heatmap however few rows there are.
+
+**`rowHeight` is the clamped DRAW height, not the price step.** `_rowHeight` floors it at `6 * dpr` and falls back to `16 * dpr` when there is no tick size to infer from, so a row reported as 6 may be a much finer grid drawn at the floor. Both numbers are `0` before the first paint, while `_bars` is empty, and while no column is on screen. The `onLayout` option is the push half of the same fact, for a pane resize.
 
 `autoscaleInfo()` reports the cell price extent so top and bottom rows are not clipped — same as `VolumeProfile` and `MarketProfile`. Only `HorizontalProfile` returns `null` and never participates in autoscale. `DEFAULT_FOOTPRINT_OPTIONS`:
 
@@ -222,12 +224,12 @@ Nothing else in this file has that dependency — Volume Profile and Market Prof
 |---|---|---|
 | `cellWidth` | *(unset)* | Media px. Omitted means `max(24, barSpacing * widthFactor)`. |
 | `widthFactor` | `0.9` | Fraction of the bar slot when auto-sizing. |
-| `tickSize` | *(unset)* | Row height source. Omitted means the smallest gap between adjacent cells. |
+| `tickSize` | *(unset)* | Row height source. Omitted means the smallest gap between adjacent cells. **With `zeroFill` it is also the fill grid and must match the step the cells were aggregated at** - set it coarser and several cells share a row (they are summed, not dropped, but the ladder then disagrees with `stats()` about where the volume sat). |
 | `font` | `10` | |
 | `minTextHeight` / `textFade` | `11` / `4` | Below the threshold numbers fade out and the column becomes a heatmap. |
 | `displayMode` | `'bidask'` | `FootprintDisplayMode` = `'bidask' \| 'delta' \| 'volume'`. |
 | `cells` | `'bidAsk'` | `FootprintCellMode` = `'bidAsk' \| 'deltaVolume'`. `deltaVolume` draws the row's delta (signed, sell-coloured when negative) left, its total volume right. Ignored unless `displayMode` is `'bidask'`. |
-| `colorBy` | `'imbalance'` | `FootprintColorMode` = `'imbalance' \| 'delta'`. `delta` paints the whole row by the sign of its own delta, alpha scaled by its share of the bar's busiest row, and drops the saturated imbalance highlight. |
+| `colorBy` | `'imbalance'` | `FootprintColorMode` = `'imbalance' \| 'delta'`. `delta` paints the whole row by the sign of its own delta, alpha scaled by its share of the bar's busiest row, and drops the **per-cell** saturated imbalance highlight. The **stacked-imbalance brackets still draw** in `delta` mode; `stackedImbalances: 0` is the only way off. |
 | `zeroFill` / `maxZeroFillRows` | `false` / `400` | Draw a `0 x 0` row for every untraded price between the bar's high and low. Needs `tickSize`. Over the cap the bar falls back to its traded rows. Draw-only: stats, POC and `autoscaleInfo()` are unaffected. |
 | `imbalanceRatio` / `imbalanceThreshold` | `3` / `0` | Threshold ignores cells below that volume when flagging. |
 | `stackedImbalances` | `3` | Bracket runs of N+ same-side imbalances. 0 disables. |
@@ -237,6 +239,7 @@ Nothing else in this file has that dependency — Volume Profile and Market Prof
 | `showPoc` / `pocColor` / `pocOutline` | `true` / `#f0a020` / *(unset)* | `showPoc` is a 2 px tick in the left margin; `pocOutline` takes a colour and strokes the POC row itself. |
 | `buyColor` / `sellColor` | *(unset)* | Fall back to `theme.upColor` / `theme.downColor`. |
 | `radius` | `2` | Cell corner radius, media px. |
+| `onLayout` | *(unset)* | `(l: { rowHeight, paneHeight, minTextHeight }) => void`, called after a paint and only when the values changed. |
 
 `FootprintBarStats` is `{ time, volume, delta, deltaPct, cvd, trades, poc }`, recomputed on `setBars` because `cvd` needs bar order. `compactVol(v)` formats to three significant figures with a `K`/`M`/`B` suffix (`compactVol(4_530_000) === '4.53M'`).
 

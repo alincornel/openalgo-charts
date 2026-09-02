@@ -96,9 +96,12 @@ puts the row's own delta on the left, signed and written in the sell colour when
 against its total volume on the right. `colorBy` picks the tint independently: `'imbalance'`
 (default) grades each half against the bar's peak one-sided volume and fills the diagonal
 imbalances saturated, while `'delta'` gives the whole row one colour, the sign of its own
-delta, at an alpha set by how much of the bar's busiest row it carries, and drops the
-saturated highlight so the two signals do not fight. `pocOutline` takes a colour and strokes
-the highest-volume row, for when the `showPoc` tick in the margin gets lost in a dense ladder.
+delta, at an alpha set by how much of the bar's busiest row it carries. `'delta'` drops the
+**per-cell** saturated highlight so the two signals do not fight, but the
+**stacked-imbalance brackets down the edge still draw**: a run of imbalances is a structural
+read, not a cell colour, and `stackedImbalances: 0` is how you turn it off. `pocOutline` takes
+a colour and strokes the highest-volume row, for when the `showPoc` tick in the margin gets
+lost in a dense ladder.
 
 ### Where the candle goes
 
@@ -130,6 +133,23 @@ function of pane height, not of how many rows a bar has: a tall pane reads one-t
 `paneHeight` in media px alongside `minTextHeight`, so a host that has to choose a row size
 *before* fetching (a `rowTicks` multiplier on a server-side ladder, say) can pick the finest
 one whose implied row height still clears the threshold instead of guessing a row count.
+
+`rowHeight` is the **clamped draw height** of the last painted column, floored at 6 media px,
+so a row reported as 6 may be a much finer grid drawn at the floor; both numbers are 0 before
+the first paint and while nothing is on screen. A pane resize changes the answer and no data
+event announces it, so pass `onLayout` and get the same object pushed to you after any paint
+that moved it:
+
+```ts
+const fp = new Footprint({
+  tickSize: 0.25,
+  zeroFill: true,
+  candle: 'gutter',
+  onLayout: ({ rowHeight, minTextHeight }) => {
+    if (rowHeight < minTextHeight) coarsenTheLadder();   // refetch at a bigger rowTicks
+  },
+});
+```
 
 The demo below **replays a classified tape** into a `FootprintAggregator`: ticks arrive a few
 at a time, the forming bar updates in place, and the tape loops when it runs out. That is the

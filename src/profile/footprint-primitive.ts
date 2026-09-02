@@ -125,6 +125,12 @@ export interface FootprintOptions {
   pocColor: string;
   /** Cell corner radius in media px. */
   radius: number;
+  /**
+   * Called after a paint, and only when the values changed, with what
+   * `layout()` would return. The push signal a host needs to re-derive its row
+   * size when the pane resizes, which no data event announces.
+   */
+  onLayout?: (layout: { rowHeight: number; paneHeight: number; minTextHeight: number }) => void;
 }
 
 export const DEFAULT_FOOTPRINT_OPTIONS: FootprintOptions = {
@@ -208,6 +214,8 @@ export class Footprint implements IPrimitive {
   /** Last context the primitive drew with; see `draw`. */
   private _rc: PrimitiveRenderContext | null = null;
   private _plotH = 0;
+  /** What `onLayout` last saw, so an unchanged frame does not push again. */
+  private _layoutKey = '';
 
   public constructor(opts: Partial<FootprintOptions> = {}) {
     this._opts = { ...DEFAULT_FOOTPRINT_OPTIONS, ...opts };
@@ -262,10 +270,26 @@ export class Footprint implements IPrimitive {
    * rows there are. A host that fetches its ladder at a chosen row size (a
    * `rowTicks` multiplier, say) can pick the finest one whose implied row
    * height still clears the threshold, instead of guessing a row count.
-   * Zeroes before the first draw.
+   *
+   * `rowHeight` is the **clamped draw height** of the last column painted, not
+   * the raw price step: `_rowHeight` floors it at 6 media px (and falls back to
+   * 16 when there is no tick size to work from), so a row reported as 6 may be
+   * a much finer grid drawn at the floor. Both numbers are 0 before the first
+   * paint and while there are no bars or nothing on screen to draw.
+   *
+   * `onLayout` is the push half of the same fact, for a pane resize, which no
+   * data event announces.
    */
   public layout(): { rowHeight: number; paneHeight: number; minTextHeight: number } {
     return { rowHeight: this._rowH, paneHeight: this._plotH, minTextHeight: this._opts.minTextHeight };
+  }
+
+  /** Hand the host the geometry, once per change rather than once per frame. */
+  private _pushLayout(): void {
+    const key = `${this._rowH}|${this._plotH}|${this._opts.minTextHeight}`;
+    if (key === this._layoutKey) return;
+    this._layoutKey = key;
+    this._opts.onLayout?.(this.layout());
   }
 
   private _recomputeStats(): void {
@@ -361,7 +385,12 @@ export class Footprint implements IPrimitive {
     // Kept so `hoverAt` can map a pointer back to a cell without the host having
     // to fabricate a render context out of internals it should not need.
     this._rc = rc;
-    if (this._bars.length === 0) return;
+    // Reset up front: a stale row height or hit window outlives the bars it was
+    // measured from otherwise, and `layout()` promises zeroes when nothing drew.
+    this._rowH = 0;
+    this._plotH = 0;
+    this._cols = [];
+    if (this._bars.length === 0) { this._pushLayout(); return; }
     const o = this._opts;
     const dpr = rc.dpr;
     const buy = o.buyColor ?? rc.theme.upColor;
@@ -372,7 +401,6 @@ export class Footprint implements IPrimitive {
     const plotH = rc.plotHeight * dpr;
     const statsH = o.statsRows.length * o.statsRowHeight * dpr;
     this._plotH = rc.plotHeight;
-    this._cols = [];
 
     const cols: Column[] = [];
     for (let i = 0; i < this._bars.length; i++) {
@@ -382,7 +410,7 @@ export class Footprint implements IPrimitive {
       if (index === undefined || index < range.from - 1 || index > range.to + 1) continue;
       cols.push({ bar, x: Math.round(rc.timeScale.indexToX(index) * dpr), stats: this._stats[i] });
     }
-    if (cols.length === 0) return;
+    if (cols.length === 0) { this._pushLayout(); return; }
 
     // The pane's own OHLC, only when a gutter candle is going to ask for it.
     // `bars()` is the series' own array in time order, never the shared logical
@@ -398,6 +426,7 @@ export class Footprint implements IPrimitive {
     }
     if (o.statsRows.length > 0) this._drawStats(ctx, rc, cols, width, buy, sell, bg, plotH, statsH);
     ctx.restore();
+    this._pushLayout();
   }
 
   private _drawColumn(

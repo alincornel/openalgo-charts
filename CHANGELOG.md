@@ -22,14 +22,20 @@ Footprint: a readable ladder instead of a hairline mesh.
 
 - **`colorBy: 'imbalance' | 'delta'`**. `delta` paints the whole row by the sign
   of its own delta, at an alpha set by its share of the bar's busiest row, and
-  drops the saturated imbalance highlight.
+  drops the **per-cell** saturated imbalance highlight. The stacked-imbalance
+  brackets down the edge still draw; `stackedImbalances: 0` is the way off.
 
 - **`pocOutline`**, a colour that strokes the bar's highest-volume row. The
   `showPoc` tick is a mark in the margin and is easy to lose in a dense ladder.
 
 - **`Footprint.layout()`**, returning `{ rowHeight, paneHeight, minTextHeight }`
   in media px from the last paint, for a host that sizes rows by legibility
-  rather than by a fixed row count.
+  rather than by a fixed row count. `rowHeight` is the clamped draw height
+  (floored at 6 media px), and both numbers are 0 while nothing is drawn.
+
+- **`onLayout`**, the push half of `layout()`: called after a paint and only
+  when the values changed, so a host hears about a pane resize, which no data
+  event announces.
 
 ### Changed
 

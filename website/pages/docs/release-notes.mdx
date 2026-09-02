@@ -19,10 +19,13 @@ Footprint: a readable ladder instead of a hairline mesh.
   capped so a session-gap bar falls back to its traded rows.
 - **`cells: 'bidAsk' | 'deltaVolume'`**: the row's own delta, signed, against its total volume.
 - **`colorBy: 'imbalance' | 'delta'`**: paint the whole row by the sign of its delta, alpha
-  scaled by its share of the bar's busiest row.
+  scaled by its share of the bar's busiest row. Drops the per-cell imbalance highlight; the
+  stacked-imbalance brackets still draw.
 - **`pocOutline`**: a colour that strokes the bar's highest-volume row.
-- **`Footprint.layout()`**: `{ rowHeight, paneHeight, minTextHeight }` in media px from the
-  last paint, for sizing rows by legibility rather than by a row count.
+- **`Footprint.layout()`** and the **`onLayout`** option: `{ rowHeight, paneHeight,
+  minTextHeight }` in media px from the last paint, pulled or pushed, for sizing rows by
+  legibility rather than by a row count. `rowHeight` is the clamped draw height, floored at
+  6 media px, and both numbers are 0 while nothing is drawn.
 
 **Changed**
 
