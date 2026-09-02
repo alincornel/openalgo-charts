@@ -16,6 +16,7 @@
  * rebuilding the chart.
  */
 import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, PrimitiveHit, ZOrder } from 'openalgo-charts';
+import type { Bar } from '../model/bar';
 import type { FootprintBar, FootprintCell } from './profile-model';
 import { bucketPrice, priceBuckets } from './profile-model';
 import { parseColor, withAlpha } from '../render/pill';
@@ -53,8 +54,20 @@ export interface FootprintOptions {
   statsRows: readonly FootprintStatRow[];
   /** Row height of the stats table in media px. */
   statsRowHeight: number;
-  /** Draw the bar's range line + body behind the cells. */
-  showCandle: boolean;
+  /**
+   * Where the bar's candle goes. `'gutter'` reserves a strip on the left of the
+   * bar slot and draws a real OHLC candle there, read from the pane's price
+   * series, so the ladder is never painted over a body. `'behind'` is the older
+   * delta-coloured range line drawn against the column. `'off'` draws neither,
+   * for a host that leaves its own candlestick series visible.
+   */
+  candle: 'off' | 'behind' | 'gutter';
+  /**
+   * Fraction of the bar slot the gutter candle takes, clamped to 3..14 media
+   * px. The body fills 60% of it, so a narrow slot still reads as a coloured
+   * direction strip once the wick is down to a hairline.
+   */
+  candleWidthFactor: number;
   /** Mark the highest-volume row of each bar. */
   showPoc: boolean;
   /**
@@ -89,7 +102,8 @@ export const DEFAULT_FOOTPRINT_OPTIONS: FootprintOptions = {
   stackedImbalances: 3,
   statsRows: ['volume', 'delta', 'deltaPct', 'cvd'],
   statsRowHeight: 15,
-  showCandle: true,
+  candle: 'behind',
+  candleWidthFactor: 0.22,
   showPoc: true,
   zeroFill: false,
   maxZeroFillRows: 400,
@@ -303,11 +317,18 @@ export class Footprint implements IPrimitive {
     }
     if (cols.length === 0) return;
 
+    // The pane's own OHLC, only when a gutter candle is going to ask for it.
+    // `bars()` is the series' own array in time order, never the shared logical
+    // index, so columns are matched by time.
+    const ohlc = o.candle === 'gutter' ? rc.bars?.() ?? [] : [];
+
     ctx.save();
     ctx.textBaseline = 'middle';
     // The cells stop above the stats table so the two never overlap.
     const cellBottom = plotH - statsH;
-    for (const col of cols) this._drawColumn(ctx, rc, col, width, buy, sell, bg, cellBottom);
+    for (const col of cols) {
+      this._drawColumn(ctx, rc, col, width, buy, sell, bg, cellBottom, this._ohlcAt(ohlc, col.bar.time));
+    }
     if (o.statsRows.length > 0) this._drawStats(ctx, rc, cols, width, buy, sell, bg, plotH, statsH);
     ctx.restore();
   }
@@ -315,6 +336,7 @@ export class Footprint implements IPrimitive {
   private _drawColumn(
     ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext, col: Column,
     width: number, buy: string, sell: string, bg: string, cellBottom: number,
+    ohlc: Bar | undefined,
   ): void {
     const o = this._opts;
     const dpr = rc.dpr;
@@ -322,20 +344,28 @@ export class Footprint implements IPrimitive {
     const rows = this._rows(bar.cells, o.tickSize ?? 0);
     const rowH = this._rowHeight(rows, rc);
     this._rowH = rowH / dpr;
-    const half = width / 2;
-    const x0 = col.x - half;
-    this._cols.push({ time: bar.time, x0: x0 / dpr, x1: (x0 + width) / dpr });
+    // A gutter candle takes its strip out of the slot and the ladder shifts
+    // right by it, so the column is never drawn over a candle body.
+    const gutter = o.candle === 'gutter'
+      ? Math.max(3 * dpr, Math.min(14 * dpr, width * o.candleWidthFactor))
+      : 0;
+    const colW = Math.max(width - gutter, 12 * dpr);
+    const half = colW / 2;
+    const x0 = col.x - half + gutter / 2;
+    this._cols.push({ time: bar.time, x0: x0 / dpr, x1: (x0 + colW) / dpr });
 
     let peak = 1;
     for (const c of rows) peak = Math.max(peak, c.bidVol, c.askVol);
 
     // Range line + body behind the cells: the bar is still a bar.
-    if (o.showCandle) {
+    if (o.candle === 'behind') {
       const yHi = rc.priceScale.priceToY(rows[0].price) * dpr - rowH / 2;
       const yLo = rc.priceScale.priceToY(rows[rows.length - 1].price) * dpr + rowH / 2;
       const up = stats.delta >= 0;
       ctx.fillStyle = withAlpha(up ? buy : sell, 0.5);
       ctx.fillRect(x0 - 5 * dpr, yHi, 3 * dpr, yLo - yHi);
+    } else if (o.candle === 'gutter') {
+      this._gutterCandle(ctx, rc, ohlc, rows, x0 - gutter / 2, gutter, buy, sell);
     }
 
     const imbalanced = this._imbalances(rows);
@@ -358,11 +388,11 @@ export class Footprint implements IPrimitive {
       const flag = imbalanced.get(c.price);
       if (o.displayMode === 'bidask') {
         this._cell(ctx, x0, top, half - dpr, h, c.bidVol, peak, sell, bg, flag === 'sell', textAlpha, dpr);
-        this._cell(ctx, col.x + dpr, top, half - dpr, h, c.askVol, peak, buy, bg, flag === 'buy', textAlpha, dpr);
+        this._cell(ctx, x0 + half + dpr, top, half - dpr, h, c.askVol, peak, buy, bg, flag === 'buy', textAlpha, dpr);
       } else {
         const v = o.displayMode === 'delta' ? c.askVol - c.bidVol : c.bidVol + c.askVol;
         const color = o.displayMode === 'delta' ? (v >= 0 ? buy : sell) : mix(sell, buy, 0.5);
-        this._cell(ctx, x0, top, width - dpr, h, Math.abs(v), peak, color, bg, false, textAlpha, dpr, v);
+        this._cell(ctx, x0, top, colW - dpr, h, Math.abs(v), peak, color, bg, false, textAlpha, dpr, v);
       }
 
       if (o.showPoc && c.price === stats.poc) {
@@ -376,7 +406,7 @@ export class Footprint implements IPrimitive {
       for (const run of this._runs(rows, imbalanced, o.stackedImbalances)) {
         const yTop = rc.priceScale.priceToY(run.from) * dpr - rowH / 2;
         const yBot = rc.priceScale.priceToY(run.to) * dpr + rowH / 2;
-        const bx = run.side === 'buy' ? col.x + half + 2 * dpr : x0 - 8 * dpr;
+        const bx = run.side === 'buy' ? x0 + colW + 2 * dpr : x0 - 8 * dpr;
         ctx.strokeStyle = run.side === 'buy' ? buy : sell;
         ctx.lineWidth = Math.max(1, Math.round(1.5 * dpr));
         ctx.beginPath();
@@ -386,6 +416,49 @@ export class Footprint implements IPrimitive {
         ctx.stroke();
       }
     }
+  }
+
+  /** The pane's OHLC row for `time`, by binary search over the series' array. */
+  private _ohlcAt(bars: readonly Bar[], time: number): Bar | undefined {
+    let lo = 0;
+    let hi = bars.length - 1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      const t = bars[mid].time;
+      if (t === time) return bars[mid];
+      if (t < time) lo = mid + 1; else hi = mid - 1;
+    }
+    return undefined;
+  }
+
+  /**
+   * A real OHLC candle in the reserved strip: a hairline wick high to low and a
+   * body open to close, coloured by direction. The body is what carries the
+   * colour, so once the slot narrows the whole thing degrades to a readable
+   * direction strip rather than to nothing. The forming bar the price series
+   * has not published yet gets a neutral wick over the cells' own extremes:
+   * the ladder knows its range, it does not yet know its open and close.
+   */
+  private _gutterCandle(
+    ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext, ohlc: Bar | undefined,
+    rows: readonly FootprintCell[], cx: number, gutter: number, buy: string, sell: string,
+  ): void {
+    const dpr = rc.dpr;
+    const y = (p: number): number => rc.priceScale.priceToY(p) * dpr;
+    const wickW = Math.max(1, Math.round(dpr));
+    if (ohlc === undefined) {
+      ctx.fillStyle = withAlpha(rc.theme.axisText, 0.5);
+      const yTop = y(rows[0].price);
+      ctx.fillRect(cx - wickW / 2, yTop, wickW, Math.max(1, y(rows[rows.length - 1].price) - yTop));
+      return;
+    }
+    ctx.fillStyle = ohlc.close >= ohlc.open ? buy : sell;
+    const yHi = y(ohlc.high);
+    ctx.fillRect(cx - wickW / 2, yHi, wickW, Math.max(1, y(ohlc.low) - yHi));
+    const bodyW = Math.max(2 * dpr, gutter * 0.6);
+    const yo = y(ohlc.open);
+    const yc = y(ohlc.close);
+    ctx.fillRect(cx - bodyW / 2, Math.min(yo, yc), bodyW, Math.max(1, Math.abs(yc - yo)));
   }
 
   /** One filled, intensity-graded cell with its number. */

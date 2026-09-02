@@ -14,7 +14,7 @@ import type { PrimitiveRenderContext } from '../src/primitives/primitive';
 import { PriceScale } from '../src/scale/price-scale';
 import { TimeScale } from '../src/scale/time-scale';
 import { DataLayer } from '../src/model/data-layer';
-import { makeCtx, type RecordingContext } from './helpers/fake-ctx';
+import { makeCtx, type Op, type RecordingContext } from './helpers/fake-ctx';
 
 const bar = (time: number, o: number, h: number, l: number, c: number, v: number): Bar => ({ time, open: o, high: h, low: l, close: c, volume: v });
 
@@ -413,5 +413,104 @@ describe('profile primitives render', () => {
     // Only the on-pane traded row survives the cull; a filled grid would have
     // put ~60 rows (120 cells) inside the 98..103 window.
     expect(rec.count('roundRect')).toBe(2);
+  });
+
+  /** `rc()` plus the pane's OHLC, which `PrimitiveRenderContext.bars` is optional about. */
+  const rcBars = (ohlc: Bar[]): PrimitiveRenderContext => ({ ...rc(), bars: () => ohlc });
+
+  const askBar = (): ReturnType<typeof computeFootprint> => computeFootprint(1, [
+    { price: 100.0, qty: 5, side: 'ask' },
+    { price: 100.2, qty: 7, side: 'ask' },
+  ], 0.05);
+  const candleStyle = {
+    tickSize: 0.05, statsRows: [] as [], stackedImbalances: 0, showPoc: false,
+    buyColor: '#00ff00', sellColor: '#ff0000',
+  };
+  const rects = (rec: RecordingContext): Op[] => rec.ops.filter((o) => o.type === 'fillRect');
+
+  it("Footprint candle 'off' draws neither a range bar nor a candle", () => {
+    const fp = new Footprint({ ...candleStyle, candle: 'off' });
+    fp.setBars([askBar()]);
+    const { ctx, rec } = makeCtx();
+    fp.draw(ctx, rcBars([bar(1, 100.0, 100.3, 99.9, 100.25, 0)]));
+    expect(rects(rec)).toHaveLength(0);
+  });
+
+  it("Footprint 'behind' keeps the legacy delta-coloured range bar", () => {
+    const fp = new Footprint({ ...candleStyle, candle: 'behind' });
+    fp.setBars([askBar()]);   // all ask, so delta > 0
+    const { ctx, rec } = makeCtx();
+    fp.draw(ctx, rcBars([bar(1, 100.25, 100.3, 99.9, 100.0, 0)]));   // close < open
+    const r = rects(rec);
+    expect(r).toHaveLength(1);                       // one range bar, no OHLC pair
+    expect(r[0].fillStyle).not.toBe('#00ff00');      // half-alpha, not the raw colour
+    expect(r[0].fillStyle).toContain('0');           // rgba(...)
+  });
+
+  it("Footprint 'gutter' draws a wick from high to low and a body from open to close", () => {
+    const r = rcBars([bar(1, 100.0, 100.3, 99.9, 100.25, 0)]);
+    const fp = new Footprint({ ...candleStyle, candle: 'gutter' });
+    fp.setBars([askBar()]);
+    const { ctx, rec } = makeCtx();
+    fp.draw(ctx, r);
+    const [wick, body] = rects(rec);
+    expect(rects(rec)).toHaveLength(2);
+    expect(wick.args[1]).toBeCloseTo(r.priceScale.priceToY(100.3));
+    expect(wick.args[1] + wick.args[3]).toBeCloseTo(r.priceScale.priceToY(99.9));
+    expect(body.args[1]).toBeCloseTo(r.priceScale.priceToY(100.25));
+    expect(body.args[1] + body.args[3]).toBeCloseTo(r.priceScale.priceToY(100.0));
+    // The body is the direction strip; the wick is a hairline that vanishes into
+    // it once the slot is narrow.
+    expect(body.args[2]).toBeGreaterThan(wick.args[2]);
+    expect(wick.args[2]).toBe(1);
+    expect(body.fillStyle).toBe('#00ff00');          // close > open
+  });
+
+  it("Footprint 'gutter' colours the body by close vs open, not by delta", () => {
+    const fp = new Footprint({ ...candleStyle, candle: 'gutter' });
+    fp.setBars([askBar()]);                          // delta > 0
+    const { ctx, rec } = makeCtx();
+    fp.draw(ctx, rcBars([bar(1, 100.25, 100.3, 99.9, 100.0, 0)]));   // close < open
+    expect(rects(rec)[1].fillStyle).toBe('#ff0000');
+  });
+
+  it("Footprint 'gutter' pushes the ladder right so the candle has its own strip", () => {
+    const r = rcBars([bar(1, 100.0, 100.3, 99.9, 100.25, 0)]);
+    const leftmost = (rec: RecordingContext): number =>
+      Math.min(...rec.ops.filter((o) => o.type === 'roundRect').map((o) => o.args[0]));
+    const off = new Footprint({ ...candleStyle, candle: 'off' });
+    off.setBars([askBar()]);
+    const a = makeCtx(); off.draw(a.ctx, r);
+    const on = new Footprint({ ...candleStyle, candle: 'gutter' });
+    on.setBars([askBar()]);
+    const b = makeCtx(); on.draw(b.ctx, r);
+    expect(leftmost(b.rec)).toBeGreaterThan(leftmost(a.rec));
+  });
+
+  it("Footprint 'gutter' moves the hit window with the ladder", () => {
+    const r = rcBars([bar(1, 100.0, 100.3, 99.9, 100.25, 0)]);
+    const off = new Footprint({ ...candleStyle, candle: 'off' });
+    off.setBars([askBar()]);
+    const a = makeCtx();
+    off.draw(a.ctx, r);
+    // The left edge of the unguttered ladder, taken from what it actually drew.
+    const leftEdge = Math.min(...a.rec.ops.filter((o) => o.type === 'roundRect').map((o) => o.args[0])) + 1;
+    expect(off.hitTest(leftEdge, 50)).not.toBeNull();
+    const on = new Footprint({ ...candleStyle, candle: 'gutter' });
+    on.setBars([askBar()]);
+    on.draw(makeCtx().ctx, r);
+    expect(on.hitTest(leftEdge, 50)).toBeNull();     // that x is gutter now
+  });
+
+  it("Footprint 'gutter' falls back to the cell range when the pane has no OHLC", () => {
+    const r = rc();                                   // no `bars` provider at all
+    const fp = new Footprint({ ...candleStyle, candle: 'gutter' });
+    fp.setBars([askBar()]);
+    const { ctx, rec } = makeCtx();
+    expect(() => fp.draw(ctx, r)).not.toThrow();
+    const only = rects(rec);
+    expect(only).toHaveLength(1);                     // a wick, no body
+    expect(only[0].args[1]).toBeCloseTo(r.priceScale.priceToY(100.2));
+    expect(only[0].args[1] + only[0].args[3]).toBeCloseTo(r.priceScale.priceToY(100.0));
   });
 });
