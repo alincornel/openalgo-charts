@@ -300,9 +300,9 @@ describe('BarCache injected storage', () => {
     expect(store.sets).toEqual(['RELIANCE|NSE|1m']);
     await cache.getBars(REQ);
     expect(feed.count).toBe(1);
-    // Two lookups, plus the read `_put` makes to union the fresh bars with
-    // whatever the store already held for the series.
-    expect(store.gets.length).toBe(3);
+    // Two lookups and no more: the entry the first lookup read is handed to the
+    // put, so filling the entry does not read it back.
+    expect(store.gets.length).toBe(2);
     expect(store.map.get('RELIANCE|NSE|1m')?.bars.length).toBe(60);
   });
 
@@ -766,6 +766,20 @@ describe('BarCache._put concurrency', () => {
     const { store, cache } = slowSetup();
     await cache.getBars({ ...UNION_REQ, ...TAIL, noCache: true });
     await cache.getBars({ ...UNION_REQ, ...PAGE, noCache: true });
+    const entry = store.map.get(UNION_KEY)!;
+    expect(entry.bars.length).toBe(99);
+    expect(entry.from).toBe(T0);
+  });
+
+  it('re-reads the entry when a queued write has invalidated the hint', async () => {
+    // Both lookups miss and both carry the entry they read (nothing) into their
+    // put. The second put runs behind the first, so its hint is stale and must
+    // be thrown away rather than unioned against.
+    const { store, cache } = slowSetup();
+    await Promise.all([
+      cache.getBars({ ...UNION_REQ, ...TAIL }),
+      cache.getBars({ ...UNION_REQ, ...PAGE }),
+    ]);
     const entry = store.map.get(UNION_KEY)!;
     expect(entry.bars.length).toBe(99);
     expect(entry.from).toBe(T0);

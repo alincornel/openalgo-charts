@@ -217,6 +217,13 @@ class MemoryStore implements BarCacheStore {
 /** Recency and size bookkeeping, kept in memory even when the store is not. */
 interface IndexEntry { lastUsed: number; bars: number }
 
+/**
+ * The entry a lookup already read, plus the write generation it was read at.
+ * The generation is what makes it safe to reuse: a queued put or an eviction in
+ * between bumps it, and the put falls back to reading the store.
+ */
+interface EntryHint { entry: CachedBars | undefined; gen: number }
+
 export class BarCache implements DataFeed {
   /** The wrapped feed, for callers that need something this wrapper does not forward. */
   public readonly source: DataFeed;
@@ -230,6 +237,8 @@ export class BarCache implements DataFeed {
   private readonly _index = new Map<string, IndexEntry>();
   /** One write chain per key, so concurrent puts cannot lose each other. */
   private readonly _writes = new Map<string, Promise<void>>();
+  /** Bumped on every commit and every drop, so a stale read is detectable. */
+  private readonly _gen = new Map<string, number>();
   private _tick = 0;
   private _hits = 0;
   private _misses = 0;
@@ -276,8 +285,15 @@ export class BarCache implements DataFeed {
       return this.source.getBars(req);
     }
     const key = barCacheKey(req);
+    // The entry the lookup reads is handed to the put below, so a miss costs ONE
+    // store read instead of two. Over IndexedDB an entry is measured in
+    // megabytes and every read deserialises the whole of it on the main thread,
+    // which is a real cost on the hot path rather than a rounding error.
+    let hint: EntryHint | undefined;
     if (req.noCache !== true) {
-      const hit = await this._lookup(key, req.from, req.to);
+      const entry = await this._backing.get(key);
+      hint = { entry, gen: this._gen.get(key) ?? 0 };
+      const hit = entry === undefined ? undefined : this._serve(key, entry, req.from, req.to);
       if (hit !== undefined) {
         this._hits++;
         return hit;
@@ -287,7 +303,7 @@ export class BarCache implements DataFeed {
     // Awaited, not caught: a rejected fetch must propagate untouched and must
     // leave the previous entry alone. Nothing is written unless bars arrive.
     const bars = await this.source.getBars(req);
-    await this._put(key, req.from, req.to, req.interval, bars);
+    await this._put(key, req.from, req.to, req.interval, bars, hint);
     return bars;
   }
 
@@ -332,15 +348,11 @@ export class BarCache implements DataFeed {
    */
   public async invalidate(req?: Pick<BarsRequest, 'symbol' | 'exchange' | 'interval'>): Promise<void> {
     if (req === undefined) return this.clear();
-    const key = barCacheKey(req);
-    this._index.delete(key);
-    await this._backing.delete(key);
+    await this._drop(barCacheKey(req));
   }
 
   public async clear(): Promise<void> {
-    const keys = [...this._index.keys()];
-    this._index.clear();
-    for (const k of keys) await this._backing.delete(k);
+    for (const k of [...this._index.keys()]) await this._drop(k);
   }
 
   public stats(): BarCacheStats {
@@ -349,9 +361,8 @@ export class BarCache implements DataFeed {
     return { entries: this._index.size, bars, hits: this._hits, misses: this._misses, evictions: this._evictions };
   }
 
-  private async _lookup(key: string, from: UTCSeconds, to: UTCSeconds): Promise<Bar[] | undefined> {
-    const entry = await this._backing.get(key);
-    if (entry === undefined) return undefined;
+  /** The three checks and the slice, over an entry the caller has already read. */
+  private _serve(key: string, entry: CachedBars, from: UTCSeconds, to: UTCSeconds): Bar[] | undefined {
     const nowMs = this._now();
     const nowSec = Math.floor(nowMs / 1000);
     // One bar's span at the tail, read off the entry rather than re-resolving
@@ -390,9 +401,16 @@ export class BarCache implements DataFeed {
    * read, silently dropping the first one's bars. Chaining costs nothing when
    * there is no contention: the map is empty and the put runs immediately.
    */
-  private _put(key: string, from: UTCSeconds, to: UTCSeconds, interval: string, bars: Bar[]): Promise<void> {
+  private _put(
+    key: string,
+    from: UTCSeconds,
+    to: UTCSeconds,
+    interval: string,
+    bars: Bar[],
+    hint?: EntryHint,
+  ): Promise<void> {
     const queued = (this._writes.get(key) ?? Promise.resolve()).then(
-      () => this._commit(key, from, to, interval, bars),
+      () => this._commit(key, from, to, interval, bars, hint),
     );
     // The chain is joined on a SETTLED promise: one failed write must not
     // poison every later put for the key. The caller still sees the rejection.
@@ -404,7 +422,14 @@ export class BarCache implements DataFeed {
     return queued;
   }
 
-  private async _commit(key: string, from: UTCSeconds, to: UTCSeconds, interval: string, bars: Bar[]): Promise<void> {
+  private async _commit(
+    key: string,
+    from: UTCSeconds,
+    to: UTCSeconds,
+    interval: string,
+    bars: Bar[],
+    hint?: EntryHint,
+  ): Promise<void> {
     const nowMs = this._now();
     const nowSec = Math.floor(nowMs / 1000);
     let end = bars.length;
@@ -422,9 +447,16 @@ export class BarCache implements DataFeed {
     }
     if (end === 0) return; // Nothing closed to cache, and an empty entry would only mislead.
     const fresh = cloneBars(bars.slice(0, end));
-    const entry = this._mergeEntry(await this._backing.get(key), fresh, from, to, interval, nowMs);
+    const gen = this._gen.get(key) ?? 0;
+    // A hint is only good while nothing has written to the key since it was
+    // read. A put queued ahead of this one, or an eviction, makes it a stale
+    // base to union against, and reading the store is then the cheap option
+    // next to silently dropping bars.
+    const previous = hint !== undefined && hint.gen === gen ? hint.entry : await this._backing.get(key);
+    const entry = this._mergeEntry(previous, fresh, from, to, interval, nowMs);
     if (entry === undefined) return;
     await this._backing.set(key, entry);
+    this._gen.set(key, gen + 1);
     this._index.set(key, { lastUsed: ++this._tick, bars: entry.bars.length });
     await this._evict();
   }
@@ -529,6 +561,9 @@ export class BarCache implements DataFeed {
 
   private async _drop(key: string): Promise<void> {
     this._index.delete(key);
+    // A hint taken before this drop must not be unioned against afterwards: it
+    // would resurrect an entry the cache has just decided to forget.
+    this._gen.set(key, (this._gen.get(key) ?? 0) + 1);
     await this._backing.delete(key);
   }
 

@@ -158,6 +158,16 @@ ones a scroll-back can refetch cheaply. The entry's coverage start moves up with
 request reaching further back misses and refetches rather than being served a series that
 silently starts late.
 
+<Callout type="warning">
+**Over IndexedDB, keep `maxBars` in the low thousands.** Because a put now unions, an entry
+grows until it hits the cap, and every put pays for the whole entry: one read, one merge, one
+write. Measured here on a structured-clone store, a 10-bar tail put against a **50,000-bar**
+entry costs **15-22 ms** and moves **4.5 MB in and 4.5 MB out** — a main-thread stall the
+user feels, several times a session. The same put against a **5,000-bar** entry is **1.8 ms**
+and 0.45 MB. The 250,000 default suits the in-memory `Map` it ships with, not a persistent
+store; a persistent host should set `maxBars` to roughly what its charts actually paint.
+</Callout>
+
 ## Options
 
 | Option | Type | Default | Description |
