@@ -6,7 +6,7 @@ import {
   computeFootprint, diagonalImbalances, cumulativeDelta, stackedImbalances, type ClassifiedTrade,
 } from '../src/profile/footprint';
 import { HorizontalProfile } from '../src/profile/profile-primitive';
-import { Footprint, compactVol } from '../src/profile/footprint-primitive';
+import { Footprint, compactVol, type FootprintOptions } from '../src/profile/footprint-primitive';
 import { FootprintAggregator } from '../src/profile/footprint-aggregator';
 import { priceBuckets } from '../src/profile/profile-model';
 import type { Bar } from '../src/model/bar';
@@ -761,5 +761,78 @@ describe('profile primitives render', () => {
     expect(fp.layout()).toEqual({ rowHeight: 0, paneHeight: 0, minTextHeight: 1 });
     expect(seen).toEqual([400, 0]);
     expect(fp.hitTest(rc().timeScale.indexToX(0), 50)).toBeNull();   // no stale columns
+  });
+  it('Footprint keeps the background ramp, and ignores the plate knobs, until a plate is set', () => {
+    const r = rc();
+    const bars = [twoRows(30, 2)];
+    const plain = new Footprint({ ...cellStyle, imbalanceRatio: 1e9 });
+    plain.setBars(bars);
+    const a = makeCtx(); plain.draw(a.ctx, r);
+    // tintFloor, tintGain and tintCurve shape the plate ramp only. With no
+    // plate the legacy background ramp has to survive them op for op.
+    const knobs = new Footprint({
+      ...cellStyle, imbalanceRatio: 1e9, tintFloor: 0.9, tintGain: 0.1, tintCurve: 'linear',
+    });
+    knobs.setBars(bars);
+    const b = makeCtx(); knobs.draw(b.ctx, r);
+    expect(b.rec.ops).toEqual(a.rec.ops);
+    expect(knobs.stats()).toEqual(plain.stats());
+    expect(knobs.autoscaleInfo()).toEqual(plain.autoscaleInfo());
+    // And the ramp is still the eased one off the pane: 0.08 of the way at zero
+    // volume, 0.70 at the bar's peak side, mixed per channel off #0d0e12.
+    const f = cellFills(a.rec);
+    expect(f[0]).toBe('rgb(32,13,17)');    // 0 bid, sell #ff0000 at 0.08
+    expect(f[1]).toBe('rgb(4,183,5)');     // 30 of 30 ask, buy #00ff00 at 0.70
+  });
+
+  it('Footprint cellBaseColor tints from an opaque plate instead of the pane background', () => {
+    const r = rc();
+    const fp = new Footprint({ ...cellStyle, imbalanceRatio: 1e9, cellBaseColor: '#a0a0a0' });
+    fp.setBars([twoRows(30, 2)]);
+    const { ctx, rec } = makeCtx();
+    fp.draw(ctx, r);
+    const f = cellFills(rec);
+    // tintFloor 0 with tintGain 1: an untraded half is the bare plate and the
+    // bar's peak side is the raw colour. A one-lot row now sits on an opaque
+    // plate rather than fading into the pane, which is the whole point.
+    expect(f[0]).toBe('rgb(160,160,160)');
+    expect(f[1]).toBe('rgb(0,255,0)');
+    expect(f[3]).toBe('rgb(160,160,160)');
+    expect(f[2]).not.toBe('rgb(160,160,160)');   // 2 of 30 bid, faintly tinted
+  });
+
+  it('Footprint cellBaseColor also backs the flat delta column', () => {
+    const fp = new Footprint({ ...cellStyle, cells: 'deltaVolume', cellBaseColor: '#a0a0a0' });
+    fp.setBars([twoRows(30, 2)]);
+    const { ctx, rec } = makeCtx();
+    fp.draw(ctx, rc());
+    // The delta half carries no intensity, so it is the plate itself. Left on
+    // the pane background it would read as a hole in the ladder.
+    expect(cellFills(rec)[0]).toBe('rgb(160,160,160)');
+  });
+
+  it('Footprint tintCurve, tintFloor and tintGain shape the plate ramp', () => {
+    const r = rc();
+    const bars = [computeFootprint(1, [
+      { price: 100.05, qty: 100, side: 'ask' }, { price: 100.0, qty: 25, side: 'ask' },
+    ], 0.05)];
+    const paint = (o: Partial<FootprintOptions>): string[] => {
+      const fp = new Footprint({ ...cellStyle, imbalanceRatio: 1e9, cellBaseColor: '#a0a0a0', ...o });
+      fp.setBars(bars);
+      const { ctx, rec } = makeCtx();
+      fp.draw(ctx, r);
+      return cellFills(rec);
+    };
+    // The quiet row carries a quarter of the peak: eased that reads at half the
+    // ramp, linear at a quarter of it.
+    expect(paint({})[3]).toBe('rgb(80,208,80)');
+    expect(paint({ tintCurve: 'linear' })[3]).toBe('rgb(120,184,120)');
+    // Gain 0 flattens the ladder to one tone at the floor.
+    const flat = paint({ tintFloor: 0.6, tintGain: 0 });
+    expect(flat[1]).toBe('rgb(64,217,64)');
+    expect(flat[3]).toBe(flat[1]);
+    // The ramp is clamped, so a floor plus a full gain lands on the raw colour
+    // rather than overshooting it into nonsense.
+    expect(paint({ tintFloor: 0.5 })[1]).toBe('rgb(0,255,0)');
   });
 });

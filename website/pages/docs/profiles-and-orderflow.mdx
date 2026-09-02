@@ -103,6 +103,28 @@ read, not a cell colour, and `stackedImbalances: 0` is how you turn it off. `poc
 a colour and strokes the highest-volume row, for when the `showPoc` tick in the margin gets
 lost in a dense ladder.
 
+### Tinting from a plate
+
+By default a cell ramps from the **pane background** towards its colour, so the quiet end of
+the ladder sits near black and a one-lot row is close to a hole the pane shows through. Set
+`cellBaseColor` and cells ramp from that opaque plate instead: a light grey is the desktop
+convention, and it keeps every row legible at zero intensity so the tint reads as pressure
+rather than as presence. It backs the flat delta column of `cells: 'deltaVolume'` too.
+
+`tintFloor`, `tintGain` and `tintCurve` shape that ramp, and apply **only** while
+`cellBaseColor` is set: with no plate the legacy eased background ramp is used unchanged.
+`tintFloor` (0) is where a zero-volume cell starts, `tintGain` (1) how far a full-intensity
+one travels, clamped together to the raw colour, and `tintCurve` is `'sqrt'` (eased, lifting
+the quiet rows) or `'linear'` (proportional, how a plate is usually graded).
+
+```ts
+new Footprint({
+  cellBaseColor: '#a0a0a0',   // grey plate, white at full volume
+  tintFloor: 0.08,            // never quite the bare plate
+  tintCurve: 'linear',
+});
+```
+
 ### Where the candle goes
 
 `candle` decides what the primitive draws for the bar itself:

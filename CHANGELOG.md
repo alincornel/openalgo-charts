@@ -28,6 +28,13 @@ Footprint: a readable ladder instead of a hairline mesh.
 - **`pocOutline`**, a colour that strokes the bar's highest-volume row. The
   `showPoc` tick is a mark in the margin and is easy to lose in a dense ladder.
 
+- **`cellBaseColor`**, plus **`tintFloor`**, **`tintGain`** and **`tintCurve`**.
+  Cells ramp from an opaque plate instead of from the pane background, so a
+  low-volume row stays legible rather than fading into a dark pane, and the
+  ramp off that plate is the caller's to shape. The three knobs apply only
+  while `cellBaseColor` is set; with no plate the legacy eased background ramp
+  is unchanged.
+
 - **`Footprint.layout()`**, returning `{ rowHeight, paneHeight, minTextHeight }`
   in media px from the last paint, for a host that sizes rows by legibility
   rather than by a fixed row count. `rowHeight` is the clamped draw height
@@ -47,7 +54,10 @@ Footprint: a readable ladder instead of a hairline mesh.
   right by it, and draws a real OHLC candle there, read from the pane's own
   price series through `rc.bars()` and matched by time.
 
-- Profile tier budget 11 -> 11.5 KB, and the full-package budget 126 -> 127 KB.
+- Profile tier budget 11 -> 11.8 KB, and the full-package budget 126 -> 127 KB.
+  The second raise is the footprint cell options above and the three that
+  follow them: the plate ramp, the per-row volume bar, the cell text colours
+  and the POC outline width.
 
 ## 1.9.2
 

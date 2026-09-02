@@ -123,6 +123,34 @@ export interface FootprintOptions {
   buyColor?: string;
   sellColor?: string;
   pocColor: string;
+  /**
+   * Opaque plate a cell is tinted **from**, in place of the pane background.
+   *
+   * A ladder tinted off a dark pane spends its low end near black, so a
+   * one-lot row is a hole the pane shows through. Given a plate (a light grey,
+   * say) the same row is legible at zero intensity and the tint reads as
+   * pressure rather than as presence. Unset, the pane background stays the
+   * base and the ramp below is the legacy eased one.
+   */
+  cellBaseColor?: string;
+  /**
+   * Where the plate ramp starts, 0 being the bare plate and 1 the raw colour.
+   * Ignored while `cellBaseColor` is unset. Default 0.
+   */
+  tintFloor: number;
+  /**
+   * How much of the remaining distance to the colour a full-intensity cell
+   * travels. Clamped with the floor to 1, so `0.5 + 1` still lands on the
+   * colour rather than past it. Ignored while `cellBaseColor` is unset.
+   * Default 1.
+   */
+  tintGain: number;
+  /**
+   * Shape of the plate ramp. `sqrt` eases it, lifting the quiet rows; `linear`
+   * is proportional, which is how the desktop terminals grade a plate. Ignored
+   * while `cellBaseColor` is unset.
+   */
+  tintCurve: 'linear' | 'sqrt';
   /** Cell corner radius in media px. */
   radius: number;
   /**
@@ -152,6 +180,9 @@ export const DEFAULT_FOOTPRINT_OPTIONS: FootprintOptions = {
   zeroFill: false,
   maxZeroFillRows: 400,
   pocColor: '#f0a020',
+  tintFloor: 0,
+  tintGain: 1,
+  tintCurve: 'sqrt',
   radius: 2,
 };
 
@@ -396,6 +427,7 @@ export class Footprint implements IPrimitive {
     const buy = o.buyColor ?? rc.theme.upColor;
     const sell = o.sellColor ?? rc.theme.downColor;
     const bg = rc.theme.background;
+    const plate = o.cellBaseColor ?? bg;
     const range = rc.timeScale.visibleRange();
     const width = this._columnWidth(rc);
     const plotH = rc.plotHeight * dpr;
@@ -422,7 +454,7 @@ export class Footprint implements IPrimitive {
     // The cells stop above the stats table so the two never overlap.
     const cellBottom = plotH - statsH;
     for (const col of cols) {
-      this._drawColumn(ctx, rc, col, width, buy, sell, bg, cellBottom, this._ohlcAt(ohlc, col.bar.time));
+      this._drawColumn(ctx, rc, col, width, buy, sell, plate, cellBottom, this._ohlcAt(ohlc, col.bar.time));
     }
     if (o.statsRows.length > 0) this._drawStats(ctx, rc, cols, width, buy, sell, bg, plotH, statsH);
     ctx.restore();
@@ -431,7 +463,7 @@ export class Footprint implements IPrimitive {
 
   private _drawColumn(
     ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext, col: Column,
-    width: number, buy: string, sell: string, bg: string, cellBottom: number,
+    width: number, buy: string, sell: string, base: string, cellBottom: number,
     ohlc: Bar | undefined,
   ): void {
     const o = this._opts;
@@ -498,19 +530,19 @@ export class Footprint implements IPrimitive {
         const color = byDelta ? rowColor
           : o.displayMode === 'delta' ? (v >= 0 ? buy : sell) : mix(sell, buy, 0.5);
         this._cell(ctx, x0, top, colW - dpr, h, v, byDelta ? rowTint : Math.abs(v) / peak,
-          color, bg, false, textAlpha, dpr);
+          color, base, false, textAlpha, dpr);
       } else if (o.cells === 'deltaVolume') {
         // The delta column stays flat: the sign is in the number's colour, so
         // the volume column is the only thing carrying intensity and the ladder
         // reads as one gradient instead of two competing ones.
-        this._cell(ctx, x0, top, half - dpr, h, d, 0, bg, bg, false, textAlpha, dpr, d < 0 ? sell : undefined);
+        this._cell(ctx, x0, top, half - dpr, h, d, 0, base, base, false, textAlpha, dpr, d < 0 ? sell : undefined);
         this._cell(ctx, x0 + half + dpr, top, half - dpr, h, total, rowTint,
-          byDelta ? rowColor : mix(sell, buy, 0.5), bg, flag !== undefined, textAlpha, dpr);
+          byDelta ? rowColor : mix(sell, buy, 0.5), base, flag !== undefined, textAlpha, dpr);
       } else {
         this._cell(ctx, x0, top, half - dpr, h, c.bidVol, byDelta ? rowTint : c.bidVol / peak,
-          byDelta ? rowColor : sell, bg, flag === 'sell', textAlpha, dpr);
+          byDelta ? rowColor : sell, base, flag === 'sell', textAlpha, dpr);
         this._cell(ctx, x0 + half + dpr, top, half - dpr, h, c.askVol, byDelta ? rowTint : c.askVol / peak,
-          byDelta ? rowColor : buy, bg, flag === 'buy', textAlpha, dpr);
+          byDelta ? rowColor : buy, base, flag === 'buy', textAlpha, dpr);
       }
 
       if (c.price === stats.poc) {
@@ -601,13 +633,12 @@ export class Footprint implements IPrimitive {
    */
   private _cell(
     ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number,
-    value: number, tint: number, color: string, bg: string,
+    value: number, tint: number, color: string, base: string,
     hot: boolean, textAlpha: number, dpr: number, textColor?: string,
   ): void {
     if (w <= 0) return;
-    // Saturated when imbalanced, otherwise a background→colour ramp. The eased
-    // curve keeps low-volume rows visible instead of crushing them to black.
-    ctx.fillStyle = hot ? color : mix(bg, color, 0.08 + 0.62 * Math.sqrt(tint > 0 ? tint : 0));
+    // Saturated when imbalanced, otherwise a base→colour ramp.
+    ctx.fillStyle = hot ? color : mix(base, color, this._tint(tint));
     const r = Math.min(this._opts.radius * dpr, h / 2, w / 2);
     ctx.beginPath();
     ctx.roundRect(x, y, w, h, r);
@@ -621,6 +652,24 @@ export class Footprint implements IPrimitive {
       ? withAlpha('#0d0f14', textAlpha)
       : withAlpha(textColor ?? '#ffffff', (value === 0 ? 0.45 : 0.9) * textAlpha);
     ctx.fillText(compactVol(value), x + w / 2, y + h / 2);
+  }
+
+  /**
+   * How far a cell's ramp has travelled from its base towards its colour.
+   *
+   * Off the pane background the ramp is the eased legacy one: it starts at
+   * 0.08 so a one-lot row is still visible against a dark pane, and stops
+   * short of the raw colour so the saturated imbalance fill stays a step
+   * above everything else. Neither constraint holds off a `cellBaseColor`
+   * plate, which is opaque at zero and usually light, so there the ramp is
+   * the caller's: `tintFloor` to `tintFloor + tintGain`, eased or linear.
+   */
+  private _tint(t: number): number {
+    const o = this._opts;
+    const s = t > 0 ? t : 0;
+    if (o.cellBaseColor === undefined) return 0.08 + 0.62 * Math.sqrt(s);
+    const a = o.tintFloor + o.tintGain * (o.tintCurve === 'linear' ? s : Math.sqrt(s));
+    return a < 0 ? 0 : a > 1 ? 1 : a;
   }
 
   /** Price → imbalance side, using the diagonal (ask vs the bid one tick below). */
