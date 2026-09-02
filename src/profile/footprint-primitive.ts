@@ -26,6 +26,9 @@ export type FootprintStatRow = 'volume' | 'delta' | 'deltaPct' | 'cvd' | 'trades
 
 export type FootprintDisplayMode = 'bidask' | 'delta' | 'volume';
 
+/** What the two halves of a `bidask` row carry. */
+export type FootprintCellMode = 'bidAsk' | 'deltaVolume';
+
 export interface FootprintOptions {
   /**
    * Full column width (both halves) in media px. Omit to derive it from the
@@ -44,6 +47,14 @@ export interface FootprintOptions {
   textFade: number;
   /** `bidask` two columns; `delta` or `volume` a single column. */
   displayMode: FootprintDisplayMode;
+  /**
+   * Which numbers a two-column row shows. `bidAsk` is bid against ask.
+   * `deltaVolume` is the row's own delta on the left (signed, in the sell
+   * colour when negative) against its total volume on the right, which is how
+   * the desktop order-flow terminals read a ladder. Ignored unless
+   * `displayMode` is `bidask`.
+   */
+  cells: FootprintCellMode;
   /** Diagonal-imbalance ratio. */
   imbalanceRatio: number;
   /** Ignore cells below this volume when flagging imbalances. */
@@ -97,6 +108,7 @@ export const DEFAULT_FOOTPRINT_OPTIONS: FootprintOptions = {
   minTextHeight: 11,
   textFade: 4,
   displayMode: 'bidask',
+  cells: 'bidAsk',
   imbalanceRatio: 3,
   imbalanceThreshold: 0,
   stackedImbalances: 3,
@@ -355,7 +367,11 @@ export class Footprint implements IPrimitive {
     this._cols.push({ time: bar.time, x0: x0 / dpr, x1: (x0 + colW) / dpr });
 
     let peak = 1;
-    for (const c of rows) peak = Math.max(peak, c.bidVol, c.askVol);
+    let volPeak = 1;
+    for (const c of rows) {
+      peak = Math.max(peak, c.bidVol, c.askVol);
+      volPeak = Math.max(volPeak, c.bidVol + c.askVol);
+    }
 
     // Range line + body behind the cells: the bar is still a bar.
     if (o.candle === 'behind') {
@@ -386,13 +402,22 @@ export class Footprint implements IPrimitive {
       if (top + h < 0 || top > cellBottom) continue; // cull off-pane rows
 
       const flag = imbalanced.get(c.price);
-      if (o.displayMode === 'bidask') {
-        this._cell(ctx, x0, top, half - dpr, h, c.bidVol, peak, sell, bg, flag === 'sell', textAlpha, dpr);
-        this._cell(ctx, x0 + half + dpr, top, half - dpr, h, c.askVol, peak, buy, bg, flag === 'buy', textAlpha, dpr);
-      } else {
-        const v = o.displayMode === 'delta' ? c.askVol - c.bidVol : c.bidVol + c.askVol;
+      const d = c.askVol - c.bidVol;
+      const total = c.bidVol + c.askVol;
+      if (o.displayMode !== 'bidask') {
+        const v = o.displayMode === 'delta' ? d : total;
         const color = o.displayMode === 'delta' ? (v >= 0 ? buy : sell) : mix(sell, buy, 0.5);
-        this._cell(ctx, x0, top, colW - dpr, h, Math.abs(v), peak, color, bg, false, textAlpha, dpr, v);
+        this._cell(ctx, x0, top, colW - dpr, h, v, Math.abs(v) / peak, color, bg, false, textAlpha, dpr);
+      } else if (o.cells === 'deltaVolume') {
+        // The delta column stays flat: the sign is in the number's colour, so
+        // the volume column is the only thing carrying intensity and the ladder
+        // reads as one gradient instead of two competing ones.
+        this._cell(ctx, x0, top, half - dpr, h, d, 0, bg, bg, false, textAlpha, dpr, d < 0 ? sell : undefined);
+        this._cell(ctx, x0 + half + dpr, top, half - dpr, h, total, total / volPeak,
+          mix(sell, buy, 0.5), bg, flag !== undefined, textAlpha, dpr);
+      } else {
+        this._cell(ctx, x0, top, half - dpr, h, c.bidVol, c.bidVol / peak, sell, bg, flag === 'sell', textAlpha, dpr);
+        this._cell(ctx, x0 + half + dpr, top, half - dpr, h, c.askVol, c.askVol / peak, buy, bg, flag === 'buy', textAlpha, dpr);
       }
 
       if (o.showPoc && c.price === stats.poc) {
@@ -461,17 +486,20 @@ export class Footprint implements IPrimitive {
     ctx.fillRect(cx - bodyW / 2, Math.min(yo, yc), bodyW, Math.max(1, Math.abs(yc - yo)));
   }
 
-  /** One filled, intensity-graded cell with its number. */
+  /**
+   * One filled, intensity-graded cell with its number. `tint` is the 0..1 share
+   * of whatever the caller is grading against, kept out of here because a row
+   * can be graded by its own side, by its total volume, or not at all.
+   */
   private _cell(
     ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number,
-    value: number, peak: number, color: string, bg: string,
-    hot: boolean, textAlpha: number, dpr: number, display?: number,
+    value: number, tint: number, color: string, bg: string,
+    hot: boolean, textAlpha: number, dpr: number, textColor?: string,
   ): void {
     if (w <= 0) return;
-    const t = peak > 0 ? value / peak : 0;
     // Saturated when imbalanced, otherwise a background→colour ramp. The eased
     // curve keeps low-volume rows visible instead of crushing them to black.
-    ctx.fillStyle = hot ? color : mix(bg, color, 0.08 + 0.62 * Math.sqrt(t));
+    ctx.fillStyle = hot ? color : mix(bg, color, 0.08 + 0.62 * Math.sqrt(tint > 0 ? tint : 0));
     const r = Math.min(this._opts.radius * dpr, h / 2, w / 2);
     ctx.beginPath();
     ctx.roundRect(x, y, w, h, r);
@@ -483,8 +511,8 @@ export class Footprint implements IPrimitive {
     // still reads at a glance.
     ctx.fillStyle = hot
       ? withAlpha('#0d0f14', textAlpha)
-      : withAlpha('#ffffff', (value === 0 ? 0.45 : 0.9) * textAlpha);
-    ctx.fillText(compactVol(display ?? value), x + w / 2, y + h / 2);
+      : withAlpha(textColor ?? '#ffffff', (value === 0 ? 0.45 : 0.9) * textAlpha);
+    ctx.fillText(compactVol(value), x + w / 2, y + h / 2);
   }
 
   /** Price → imbalance side, using the diagonal (ask vs the bid one tick below). */

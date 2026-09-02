@@ -513,4 +513,54 @@ describe('profile primitives render', () => {
     expect(only[0].args[1]).toBeCloseTo(r.priceScale.priceToY(100.2));
     expect(only[0].args[1] + only[0].args[3]).toBeCloseTo(r.priceScale.priceToY(100.0));
   });
+
+  const texts = (rec: RecordingContext): (string | undefined)[] =>
+    rec.ops.filter((o) => o.type === 'fillText').map((o) => o.text);
+  const cellStyle = {
+    tickSize: 0.05, statsRows: [] as [], stackedImbalances: 0, showPoc: false,
+    candle: 'off' as const, minTextHeight: 1, buyColor: '#00ff00', sellColor: '#ff0000',
+  };
+
+  it("Footprint 'bidAsk' cells stay bid against ask", () => {
+    const fp = new Footprint(cellStyle);
+    fp.setBars([computeFootprint(1, [
+      { price: 100.0, qty: 7, side: 'ask' }, { price: 100.0, qty: 2, side: 'bid' },
+    ], 0.05)]);
+    const { ctx, rec } = makeCtx();
+    fp.draw(ctx, rc());
+    expect(texts(rec)).toEqual(['2', '7']);
+  });
+
+  it("Footprint 'deltaVolume' cells show the row delta against the row volume", () => {
+    const fp = new Footprint({ ...cellStyle, cells: 'deltaVolume' });
+    fp.setBars([computeFootprint(1, [
+      { price: 100.0, qty: 7, side: 'ask' }, { price: 100.0, qty: 2, side: 'bid' },
+    ], 0.05)]);
+    const { ctx, rec } = makeCtx();
+    fp.draw(ctx, rc());
+    expect(texts(rec)).toEqual(['5', '9']);   // delta 7-2, volume 7+2
+  });
+
+  it("Footprint 'deltaVolume' writes a negative row delta in the sell colour", () => {
+    const fp = new Footprint({ ...cellStyle, cells: 'deltaVolume' });
+    fp.setBars([computeFootprint(1, [
+      { price: 100.0, qty: 2, side: 'ask' }, { price: 100.0, qty: 9, side: 'bid' },
+    ], 0.05)]);
+    const { ctx, rec } = makeCtx();
+    fp.draw(ctx, rc());
+    const delta = rec.ops.filter((o) => o.type === 'fillText').find((o) => o.text === '-7');
+    expect(delta?.fillStyle).toBe('rgba(255,0,0,0.9)');
+    const vol = rec.ops.filter((o) => o.type === 'fillText').find((o) => o.text === '11');
+    expect(vol?.fillStyle).toBe('rgba(255,255,255,0.9)');
+  });
+
+  it("Footprint 'deltaVolume' reads 0 | 0 on a zero-filled row", () => {
+    const fp = new Footprint({ ...cellStyle, cells: 'deltaVolume', zeroFill: true });
+    fp.setBars([computeFootprint(1, [
+      { price: 100.0, qty: 5, side: 'ask' }, { price: 100.1, qty: 5, side: 'ask' },
+    ], 0.05)]);
+    const { ctx, rec } = makeCtx();
+    fp.draw(ctx, rc());
+    expect(texts(rec)).toEqual(['5', '5', '0', '0', '5', '5']);   // high, filled, low
+  });
 });
