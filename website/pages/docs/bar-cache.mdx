@@ -78,21 +78,26 @@ coverage, and they fail for different reasons:
 
 | Gate | Test | Why |
 |---|---|---|
-| Age | `now - storedAt` is within `ttlMs` | An absolute bound, so nothing is served indefinitely. |
+| Tail freshness | `now - storedAt` is within `ttlMs`, **or** `req.to` stops short of the last two bar spans | A closed bar is immutable, so age alone says nothing about it. Only the recent tail can still change under you (a late print, a backend correction), so the TTL gates the tail and nothing else. |
 | Coverage start | `req.from` is not older than the entry's `from` | Older bars than the entry holds is a real gap at the left edge. Painting a chart that silently starts late is worse than a refetch. |
 | Coverage end | `req.to` is within the entry's `to`, **or** the bar after the last closed one is still forming | Nothing new can have closed, so a fetch would return the same bars. |
 
 The last gate is measured on the feed's **own bar grid** (`entry.to + 1 + intervalSec`),
 not against UTC midnight, so a daily Indian bar opening at 03:45 UTC is judged against its
-own session rather than the wrong boundary. The effect is what you want from a warm cache: a
-closed session stays usable for the whole TTL, while a 1-minute chart is only reused inside
-the current minute.
+own session rather than the wrong boundary. The effect is what you want from a warm cache:
+yesterday's closed session stays usable for days, while the live tail is re-read once per
+TTL.
+
+An entry past its TTL is **kept**, not deleted. Its closed bars are still the fastest correct
+paint available, and only the request that reaches into the tail pays for a refetch — which
+then rewrites the same entry. Drop one by hand with `invalidate()`.
 
 <Callout type="warning">
 **Out of hours, cap your `to` at the newest bar you have.** The cache cannot know a venue is
-shut, and it only allows a hit past its coverage while the next bar is still forming. Ask
-for `to: nowSec` at 21:00 on a closed market and every load is a cold one, forever. A host
-that already has a session table should clamp instead:
+shut, and it only allows a hit past its coverage while the next bar is still forming. Ask for
+`to: nowSec` at 21:00 on a closed market and every load refetches the tail — cheap, but not
+free, and the whole page comes back rather than the tail alone. A host that already has a
+session table should clamp instead:
 
 ```ts
 const to = marketOpen ? nowSec : lastBarTime;
@@ -151,7 +156,7 @@ silently starts late.
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `ttlMs` | `number` | `300_000` | Absolute age bound. |
+| `ttlMs` | `number` | `300_000` | How long the tail stays trusted. Bounds only requests that reach into the last two bar spans. |
 | `max` | `number` | `24` | Maximum entries. |
 | `maxBars` | `number` | `250_000` | Maximum total cached bars. |
 | `storage` | `BarCacheStore` | in-memory `Map` | Backing store. Sync or async. |
@@ -218,8 +223,9 @@ const feed = withBarCache(source, { storage: store, maxBars: 20_000 });
 
 <Callout type="warning">
 Recency and size are tracked **in memory**, so with a persistent store `clear()` drops only
-what this session has touched. Keys written by an earlier session are dropped when they are
-next read and found expired. A store that outlives the process is responsible for its own
+what this session has touched. A key written by an earlier session is adopted when it is next
+read — expired or not, since expiry now only forces a tail refetch — and comes under this
+session's bounds from then on. A store that outlives the process is responsible for its own
 overall quota, which for `localStorage` means keeping `maxBars` small.
 </Callout>
 

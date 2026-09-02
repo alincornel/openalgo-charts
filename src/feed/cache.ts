@@ -13,13 +13,18 @@
  * which is exactly the traffic warm-load is meant to remove.
  *
  * **Freshness.** Two independent gates, both of which must pass:
- *   1. `ttlMs` bounds absolute age.
+ *   1. `ttlMs` bounds the age of the TAIL, not of the entry. A closed bar is
+ *      immutable, so age alone says nothing about it; only the last couple of
+ *      bars can still change under us (a late print, a backend heal, a session
+ *      rebuild). So the gate fires only for a request that reaches into the
+ *      last two bar spans, and an entry past its TTL is kept rather than
+ *      deleted — its older bars remain the fastest correct answer available.
  *   2. Nothing new can have closed. An entry is complete through `to`; the next
  *      bar closes at `to + 1 + intervalSec`, measured on the feed's own bar
  *      grid rather than on UTC midnight, so a daily Indian bar opening at 03:45
  *      UTC is judged against its own session, not against the wrong boundary.
- * The effect is what you want from a warm cache: a closed session stays usable
- * for the whole TTL, while a 1m chart is only reused inside the current minute.
+ * The effect is what you want from a warm cache: yesterday's closed session
+ * stays usable for days, while the live tail is re-read once per TTL.
  *
  * **The forming bar is never cached.** A bar whose close time is still in the
  * future keeps moving, and serving yesterday's snapshot of it to a live chart
@@ -59,7 +64,7 @@ export interface CachedBars {
   from: UTCSeconds;
   /** Coverage end (inclusive): the last instant this entry is complete to. */
   to: UTCSeconds;
-  /** Wall clock (ms) at store time, for TTL. */
+  /** Wall clock (ms) when the TAIL was last revalidated, for the TTL gate. */
   storedAt: number;
   /**
    * When the bar AFTER this entry's coverage closes, so freshness needs no
@@ -80,7 +85,11 @@ export interface BarCacheStore {
 }
 
 export interface BarCacheOptions {
-  /** Absolute age bound, ms. Default 5 minutes. */
+  /**
+   * How long the tail stays trusted, ms. Default 5 minutes. It bounds only
+   * requests that reach into the last two bar spans; closed bars behind that
+   * are served whatever the entry's age.
+   */
   ttlMs?: number;
   /** Maximum entries before LRU eviction. Default 24. */
   max?: number;
@@ -261,9 +270,11 @@ export class BarCache implements DataFeed {
   /**
    * Drop one series, or (with no argument) everything this cache knows of.
    * "Knows of" is literal with an injected persistent store: recency and size
-   * are tracked in memory, so keys written by an earlier session are dropped
-   * when they are next read and found expired, not by `clear()`. A store that
-   * outlives the process is responsible for its own overall quota.
+   * are tracked in memory, so a key written by an earlier session is adopted
+   * when it is next read — expired or not, since expiry now only forces a tail
+   * refetch — and comes under this instance's bounds from then on, rather than
+   * being reachable by `clear()` before that. A store that outlives the process
+   * is responsible for its own overall quota.
    */
   public async invalidate(req?: Pick<BarsRequest, 'symbol' | 'exchange' | 'interval'>): Promise<void> {
     if (req === undefined) return this.clear();
@@ -288,16 +299,24 @@ export class BarCache implements DataFeed {
     const entry = await this._backing.get(key);
     if (entry === undefined) return undefined;
     const nowMs = this._now();
-    if (nowMs - entry.storedAt > this._ttlMs) {
-      await this._drop(key);
-      return undefined;
-    }
+    const nowSec = Math.floor(nowMs / 1000);
+    // One bar's span at the tail, read off the entry rather than re-resolving
+    // the interval: `nextClose` is the close of the bar AFTER the last one held,
+    // and `to + 1` is that last bar's close.
+    const span = Math.max(1, entry.nextClose - (entry.to + 1));
+    // A closed bar is immutable, so age alone is no reason to throw an entry
+    // away — that is what made a warm chart cold on every reload and out of
+    // hours. Only the recent tail can still change under us: a late print, a
+    // backend heal, a session rebuild. So the TTL gates the tail and nothing
+    // else, and an expired entry is KEPT: its older bars are still the fastest
+    // correct paint available, and a host that wants them gone calls
+    // `invalidate()`.
+    if (to > nowSec - 2 * span && nowMs - entry.storedAt > this._ttlMs) return undefined;
     // Older bars than we hold: a real gap at the left edge, so refetch rather
     // than paint a chart that silently starts late.
     if (from < entry.from) return undefined;
     // Past our coverage: allowed only while the bar after our last closed one
     // is still forming, i.e. nothing new could have been fetched anyway.
-    const nowSec = Math.floor(nowMs / 1000);
     if (to > entry.to && nowSec >= entry.nextClose) return undefined;
     this._index.set(key, { lastUsed: ++this._tick, bars: entry.bars.length });
     const out: Bar[] = [];

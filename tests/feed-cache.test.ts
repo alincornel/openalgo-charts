@@ -320,7 +320,10 @@ describe('BarCache injected storage', () => {
     expect(bars.length).toBe(60);
   });
 
-  it('deletes an expired entry from the store rather than leaving it', async () => {
+  it('keeps an expired entry in the store rather than deleting it', async () => {
+    // The TTL only says the TAIL needs revalidating. The closed bars behind it
+    // are still the fastest correct paint available, so the entry is rewritten
+    // by the refetch, never thrown away.
     const store = new RecordingStore();
     const feed = new StubFeed(makeBars(T0, 60));
     let nowMs = (T0 + 3600) * 1000;
@@ -328,7 +331,9 @@ describe('BarCache injected storage', () => {
     await cache.getBars(REQ);
     nowMs += 11_000;
     await cache.getBars(REQ);
-    expect(store.deletes).toContain('RELIANCE|NSE|1m');
+    expect(feed.count).toBe(2);
+    expect(store.deletes).not.toContain('RELIANCE|NSE|1m');
+    expect(store.map.get('RELIANCE|NSE|1m')?.bars.length).toBe(60);
   });
 });
 
@@ -554,5 +559,58 @@ describe('BarCache._put union', () => {
     expect(entry.bars[entry.bars.length - 1].time).toBe(T0 + 59 * MIN);
     expect(entry.bars.some((b) => b.time === T0 + 60 * MIN)).toBe(false);
     expect(entry.to).toBe(T0 + 60 * MIN - 1);
+  });
+});
+
+describe('BarCache TTL as a tail gate', () => {
+  const DAY = 86_400;
+
+  function ttlSetup(ttlMs = 10_000) {
+    const store = new RecordingStore();
+    const feed = new StubFeed(makeBars(T0, 100));
+    let nowMs = UNION_NOW_MS;
+    const cache = withBarCache(feed, { storage: store, ttlMs, now: () => nowMs });
+    return { store, feed, cache, setNow: (ms: number) => { nowMs = ms; } };
+  }
+
+  it('serves closed bars from an entry older than the TTL when the request stops short of the tail', async () => {
+    const { feed, cache, setNow } = ttlSetup();
+    await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 99 * MIN });
+    expect(feed.count).toBe(1);
+    setNow(UNION_NOW_MS + DAY * 1000); // a day later: every one of those bars is still closed
+    const bars = await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 50 * MIN });
+    expect(feed.count).toBe(1);
+    expect(bars.length).toBe(51);
+    expect(bars[0].time).toBe(T0);
+  });
+
+  it('refetches when the request reaches into the last two bar spans', async () => {
+    const { feed, cache, setNow } = ttlSetup();
+    await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 99 * MIN });
+    const laterMs = UNION_NOW_MS + DAY * 1000;
+    setNow(laterMs);
+    await cache.getBars({ ...UNION_REQ, from: T0, to: Math.floor(laterMs / 1000) });
+    expect(feed.count).toBe(2);
+  });
+
+  it('keeps the entry instead of deleting it when the TTL has passed', async () => {
+    const { store, cache, setNow } = ttlSetup();
+    await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 99 * MIN });
+    const laterMs = UNION_NOW_MS + DAY * 1000;
+    setNow(laterMs);
+    await cache.getBars({ ...UNION_REQ, from: T0, to: Math.floor(laterMs / 1000) });
+    expect(store.deletes).not.toContain(UNION_KEY);
+    expect(store.map.has(UNION_KEY)).toBe(true);
+  });
+
+  it('still refetches an unexpired entry whose coverage ended before the next close', async () => {
+    const { feed, cache, setNow } = ttlSetup(10 * 60_000);
+    await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 99 * MIN });
+    setNow((T0 + 99 * MIN + 59) * 1000); // the T0+99m bar is still forming
+    await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 99 * MIN + 59 });
+    expect(feed.count).toBe(1);
+    setNow((T0 + 100 * MIN + 1) * 1000); // it has closed: a fresh fetch would return more
+    await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 100 * MIN + 1 });
+    expect(feed.count).toBe(2);
   });
 });
