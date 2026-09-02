@@ -528,6 +528,31 @@ describe('BarCache._put union', () => {
     expect(entry.bars[0].time).toBe(T0 + 50 * MIN);
   });
 
+  it('drops a cached bar the server no longer reports inside the refetched window', async () => {
+    const { store, feed, cache } = unionSetup();
+    await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 99 * MIN, noCache: true });
+    // A corrected bucketing: the server stops reporting a bar we hold. Leaving
+    // it would paint a ghost candle nothing on the server agrees with.
+    feed.bars = feed.bars.filter((b) => b.time !== T0 + 95 * MIN);
+    await cache.getBars({ ...UNION_REQ, from: T0 + 90 * MIN, to: T0 + 99 * MIN, noCache: true });
+    const entry = store.map.get(UNION_KEY)!;
+    expect(entry.bars.some((b) => b.time === T0 + 95 * MIN)).toBe(false);
+    expect(entry.bars.length).toBe(98);
+    expect(entry.bars[0].time).toBe(T0);
+  });
+
+  it('keeps cached bars outside the range the server actually returned', async () => {
+    const { store, feed, cache } = unionSetup();
+    await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 99 * MIN, noCache: true });
+    // The server answers SHORT at the left edge of what we asked for. Deleting
+    // up to the requested `from` would punch a hole in bars it never covered.
+    feed.bars = feed.bars.filter((b) => b.time < T0 + 90 * MIN || b.time >= T0 + 95 * MIN);
+    await cache.getBars({ ...UNION_REQ, from: T0 + 90 * MIN, to: T0 + 99 * MIN, noCache: true });
+    const entry = store.map.get(UNION_KEY)!;
+    expect(entry.bars.length).toBe(99);
+    for (let i = 90; i < 95; i++) expect(entry.bars.some((b) => b.time === T0 + i * MIN)).toBe(true);
+  });
+
   it('keeps the newest bars and moves `from` up when the union exceeds maxBars', async () => {
     const { store, cache } = unionSetup({ maxBars: 50 });
     await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 39 * MIN, noCache: true });

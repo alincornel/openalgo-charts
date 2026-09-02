@@ -428,12 +428,25 @@ export class BarCache implements DataFeed {
     const union = previous !== undefined && from <= previous.to + 1 && to + 1 >= previous.from;
     let bars = fresh;
     if (union) {
-      const byTime = new Map<UTCSeconds, Bar>();
-      for (const bar of previous!.bars) byTime.set(bar.time, bar);
-      // Fresh wins on every timestamp it carries: the server is the truth for
-      // the whole range it was asked about, a corrected close included.
-      for (const bar of fresh) byTime.set(bar.time, bar);
-      bars = [...byTime.values()].sort((a, b) => a.time - b.time);
+      // The server is the truth for the range it ANSWERED, deletions included:
+      // a corrected bucketing that drops a bar must drop it here too, or the
+      // chart paints a ghost candle nothing upstream agrees with. The window is
+      // the first and last bar actually returned, NOT the requested `from`/`to`
+      // — an answer truncated at either edge would otherwise punch a hole
+      // through cached bars the server never spoke about.
+      const authorityFrom = fresh[0].time;
+      const authorityTo = fresh[fresh.length - 1].time;
+      const previousBars = previous!.bars;
+      // Both arrays are ascending and `fresh` owns one contiguous window, so
+      // the union is a three-way concat rather than a sort: everything the
+      // entry holds before the window, the window itself, everything after.
+      const merged: Bar[] = [];
+      let i = 0;
+      while (i < previousBars.length && previousBars[i].time < authorityFrom) merged.push(previousBars[i++]);
+      for (const bar of fresh) merged.push(bar);
+      while (i < previousBars.length && previousBars[i].time <= authorityTo) i++;
+      while (i < previousBars.length) merged.push(previousBars[i++]);
+      bars = merged;
     }
     // A merged series past the budget keeps the NEWEST bars: the oldest are the
     // ones a scroll-back can refetch cheaply. `from` moves up with them, so the

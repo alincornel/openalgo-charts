@@ -62,8 +62,11 @@ part of the key:
 - one entry per series holds the set that was fetched, and a **narrower** request is served
   by slicing it;
 - a request the entry cannot cover refetches, and the result is **unioned** into the entry, so
-  a ten-bar tail fetch extends the series instead of shrinking it to ten bars. The fresh bars
-  win on every timestamp they carry, which is how a corrected close replaces a stored one;
+  a ten-bar tail fetch extends the series instead of shrinking it to ten bars. Inside the
+  window the server actually answered — its first returned bar to its last, **not** the
+  requested `from`/`to` — the answer wins outright: a corrected close replaces the stored one
+  and a bar the server no longer reports is deleted rather than left as a ghost. A truncated
+  answer therefore cannot punch a hole through bars the server never spoke about;
 - the one case that still **replaces** is two ranges with a hole between them. Coverage is a
   single interval, so a union across a gap would claim bars the entry does not hold, and a
   later request inside the gap would be served short instead of refetching.
