@@ -754,6 +754,18 @@ describe('BarCache.peek', () => {
     expect(peeked.from).toBe(T0);
   });
 
+  it('reports an entry whose bars fall outside the window as empty, not missing', async () => {
+    // The two empty answers mean different things: `undefined` is "nothing
+    // stored, load it cold", while an entry with no bars in the window still
+    // tells the caller where its bars actually are.
+    const { cache } = unionSetup();
+    await cache.getBars({ ...UNION_REQ, from: T0 + 50 * MIN, to: T0 + 99 * MIN, noCache: true });
+    const peeked = await cache.peek({ ...UNION_REQ, from: T0, to: T0 + 10 * MIN });
+    expect(peeked).toBeDefined();
+    expect(peeked!.bars).toEqual([]);
+    expect(peeked!.from).toBe(T0 + 50 * MIN);
+  });
+
   it('returns an entry the TTL would have rejected', async () => {
     const store = new RecordingStore();
     const feed = new StubFeed(makeBars(T0, 100));

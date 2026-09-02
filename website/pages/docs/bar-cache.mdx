@@ -220,11 +220,25 @@ for the rest myself". `peek` can: it never fetches, never drops an entry, and ne
 a hit or a miss.
 
 ```ts
-const held = await feed.peek({ symbol: 'RELIANCE', exchange: 'NSE', interval: '1m' });
-if (held !== undefined) {
-  chart.setData(held.bars);                    // closed bars, on screen in this frame
-  const tail = await feed.getBars({ ...req, from: held.bars.at(-1)!.time - 8 * 60, to: nowSec, noCache: true });
-  // …and reconcile: everything from `tail[0].time` is the server's truth.
+const req = { symbol: 'RELIANCE', exchange: 'NSE', interval: '1m' };
+const INTERVAL_SECONDS = 60;
+const OVERLAP_BARS = 8;   // re-read this many bars behind the newest one we hold
+
+const series = chart.addSeries('candlestick');
+const held = await feed.peek(req);
+
+if (held !== undefined && held.bars.length > 0) {
+  series.setData(held.bars);                       // closed bars, painted in this frame
+  const newest = held.bars[held.bars.length - 1].time;
+  const tail = await feed.getBars({
+    ...req,
+    from: newest - OVERLAP_BARS * INTERVAL_SECONDS,
+    to: Math.floor(Date.now() / 1000),
+    noCache: true,
+  });
+  // Everything from `tail[0].time` is the server's truth, deletions included.
+  // The overlap is what catches a late print or a corrected close at the edge
+  // of what you held, so never ask from "the bar after the last one".
 }
 ```
 
@@ -232,6 +246,17 @@ It returns the entry's own coverage (`from`, `to`, `nextClose`) and `storedAt`, 
 can see a left-edge gap and decide for itself whether the gap to the tail is worth stitching
 or whether a cold load is cheaper. Bars are clones, and only bars this cache considers closed
 are ever in there: the forming one was dropped on store.
+
+Two empty answers, meaning different things:
+
+| Answer | Means |
+|---|---|
+| `undefined` | Nothing is stored for this series. Load it cold. |
+| `{ bars: [], from, to, … }` | An entry exists, but the window you asked for falls outside it. The coverage fields say where its bars actually are, so widen the window rather than refetch. |
+
+A peek touches LRU recency — an entry you are about to extend must not be the next victim —
+but it never evicts and never writes, so it can only make an entry safer, never cost another
+one its place.
 
 Requests with no `from` or no `to` pass straight through in both directions: an open-ended
 range cannot be reasoned about, because there is no way to say what the entry then covers.

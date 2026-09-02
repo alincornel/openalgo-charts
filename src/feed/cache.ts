@@ -12,14 +12,17 @@
  * would miss on every pan and on every "same chart, one bar later" reload,
  * which is exactly the traffic warm-load is meant to remove.
  *
- * **Freshness.** Two independent gates, both of which must pass:
+ * **Freshness.** Three independent checks, all of which must pass:
  *   1. `ttlMs` bounds the age of the TAIL, not of the entry. A closed bar is
  *      immutable, so age alone says nothing about it; only the last couple of
  *      bars can still change under us (a late print, a backend heal, a session
  *      rebuild). So the gate fires only for a request that reaches into the
  *      last two bar spans, and an entry past its TTL is kept rather than
  *      deleted — its older bars remain the fastest correct answer available.
- *   2. Nothing new can have closed. An entry is complete through `to`; the next
+ *   2. The request does not reach further back than the entry's own `from`:
+ *      older bars than we hold are a real gap at the left edge, and painting a
+ *      chart that silently starts late is worse than a refetch.
+ *   3. Nothing new can have closed. An entry is complete through `to`; the next
  *      bar closes at `to + 1 + intervalSec`, measured on the feed's own bar
  *      grid rather than on UTC midnight, so a daily Indian bar opening at 03:45
  *      UTC is judged against its own session, not against the wrong boundary.
@@ -79,18 +82,16 @@ export interface CachedBars {
   nextClose: UTCSeconds;
 }
 
-/** What the store holds for one series, as reported by {@link BarCache.peek}. */
-export interface CachedPeek {
+/**
+ * What the store holds for one series, as reported by {@link BarCache.peek}.
+ *
+ * The coverage fields are the entry's own, so they carry exactly the meaning
+ * {@link CachedBars} gives them; only `bars` differs, being the slice inside the
+ * requested window rather than everything the entry holds.
+ */
+export interface CachedPeek extends Omit<CachedBars, 'bars'> {
   /** Closed bars inside the requested window, ascending. Clones. */
   bars: Bar[];
-  /** Entry coverage start. */
-  from: UTCSeconds;
-  /** Entry coverage end (inclusive). */
-  to: UTCSeconds;
-  /** Wall clock (ms) when the tail was last revalidated. */
-  storedAt: number;
-  /** When the bar after the entry's coverage closes. */
-  nextClose: UTCSeconds;
 }
 
 /**
@@ -327,6 +328,16 @@ export class BarCache implements DataFeed {
    * counts as a hit or a miss, and returns only bars this cache considers
    * closed — the forming bar was dropped on store and is not here to be served.
    * Coverage is reported as-is so the caller can see a left-edge gap.
+   *
+   * Two empty answers, and they mean different things:
+   *   - `undefined` — nothing is stored for this series. Load it cold.
+   *   - `{ bars: [], from, to, … }` — an entry EXISTS, but the requested window
+   *     falls outside what it holds. The coverage fields say where its bars
+   *     actually are, so a caller can widen the window instead of refetching.
+   *
+   * It does touch LRU recency, because an entry about to be extended must not
+   * be the next victim, but it never evicts and never writes: a peek can only
+   * make an entry safer, never cost another one its place.
    */
   public async peek(
     req: Pick<BarsRequest, 'symbol' | 'exchange' | 'interval'> & { from?: UTCSeconds; to?: UTCSeconds },
@@ -405,9 +416,11 @@ export class BarCache implements DataFeed {
   private _serve(key: string, entry: CachedBars, from: UTCSeconds, to: UTCSeconds): Bar[] | undefined {
     const nowMs = this._now();
     const nowSec = Math.floor(nowMs / 1000);
-    // One bar's span at the tail, read off the entry rather than re-resolving
-    // the interval: `nextClose` is the close of the bar AFTER the last one held,
-    // and `to + 1` is that last bar's close.
+    // An UPPER BOUND on one bar's span at the tail, read off the entry rather
+    // than re-resolving the interval: `nextClose` is the close of the bar AFTER
+    // the last one held, and `to + 1` is at or before that last bar's close (a
+    // request that stopped short clips `to`). Erring high only widens the window
+    // in which the tail is rechecked, which is the safe direction.
     const span = Math.max(1, entry.nextClose - (entry.to + 1));
     // A closed bar is immutable, so age alone is no reason to throw an entry
     // away — that is what made a warm chart cold on every reload and out of
