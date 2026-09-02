@@ -35,6 +35,13 @@ Footprint: a readable ladder instead of a hairline mesh.
   while `cellBaseColor` is set; with no plate the legacy eased background ramp
   is unchanged.
 
+- **`showVolumeBar`**, plus **`volumeBarColor`** and **`volumeBarWidthFactor`**.
+  A horizontal histogram bar a row, in the strip beside the ladder, its length
+  the row's share of the bar's busiest row: volume is in the numbers and in
+  the tint already, but neither is comparable down a column at a glance. Off
+  by default, since it draws outside the column and wants room made for it.
+  Unset, `volumeBarColor` gives each row its own direction.
+
 - **`Footprint.layout()`**, returning `{ rowHeight, paneHeight, minTextHeight }`
   in media px from the last paint, for a host that sizes rows by legibility
   rather than by a fixed row count. `rowHeight` is the clamped draw height

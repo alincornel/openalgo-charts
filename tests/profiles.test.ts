@@ -835,4 +835,82 @@ describe('profile primitives render', () => {
     // rather than overshooting it into nonsense.
     expect(paint({ tintFloor: 0.5 })[1]).toBe('rgb(0,255,0)');
   });
+  it('Footprint draws no per-row volume bar unless one is asked for', () => {
+    const r = rc();
+    const bars = [twoRows(30, 15)];
+    const off = new Footprint(cellStyle);
+    off.setBars(bars);
+    const a = makeCtx(); off.draw(a.ctx, r);
+    // The colour and the width factor are inert on their own: a host that
+    // styles the bar without switching it on gets today's ladder back.
+    const styled = new Footprint({ ...cellStyle, volumeBarColor: '#ff7e00', volumeBarWidthFactor: 2 });
+    styled.setBars(bars);
+    const b = makeCtx(); styled.draw(b.ctx, r);
+    expect(b.rec.ops).toEqual(a.rec.ops);
+    expect(a.rec.count('fillRect')).toBe(0);
+    expect(styled.stats()).toEqual(off.stats());
+    expect(styled.autoscaleInfo()).toEqual(off.autoscaleInfo());
+  });
+
+  it('Footprint showVolumeBar draws one bar a row, scaled by the bar busiest row', () => {
+    const r = rc();
+    const fp = new Footprint({ ...cellStyle, showVolumeBar: true });
+    fp.setBars([twoRows(30, 15)]);
+    const { ctx, rec } = makeCtx();
+    fp.draw(ctx, r);
+    const cells = rec.ops.filter((o) => o.type === 'roundRect');
+    const vols = rec.ops.filter((o) => o.type === 'fillRect');
+    expect(vols).toHaveLength(cells.length / 2);        // one a row, not one a cell
+    const colW = 24;                                   // the auto-sized column
+    const right = cells[1].args[0] + cells[1].args[2];  // the ladder's right edge
+    // The busiest row runs the full length and the half-volume row half of it,
+    // both clear of the ask cells rather than under their numbers.
+    expect(vols[0].args[0]).toBeCloseTo(right + 1);
+    expect(vols[0].args[2]).toBeCloseTo(colW * 0.5);
+    expect(vols[1].args[2]).toBeCloseTo(colW * 0.5 * 0.5);
+    // Row aligned, so the bar reads as part of its row.
+    expect(vols[0].args[1]).toBe(cells[0].args[1]);
+    expect(vols[0].args[3]).toBe(cells[0].args[3]);
+  });
+
+  it('Footprint volume bars take the row direction unless a colour is pinned', () => {
+    const r = rc();
+    const fp = new Footprint({ ...cellStyle, showVolumeBar: true });
+    fp.setBars([twoRows(30, 15)]);                     // an ask row over a bid row
+    const { ctx, rec } = makeCtx();
+    fp.draw(ctx, r);
+    expect(rec.ops.filter((o) => o.type === 'fillRect').map((o) => o.fillStyle))
+      .toEqual(['#00ff00', '#ff0000']);
+    const pinned = new Footprint({ ...cellStyle, showVolumeBar: true, volumeBarColor: '#ff7e00' });
+    pinned.setBars([twoRows(30, 15)]);
+    const b = makeCtx(); pinned.draw(b.ctx, r);
+    expect(b.rec.ops.filter((o) => o.type === 'fillRect').map((o) => o.fillStyle))
+      .toEqual(['#ff7e00', '#ff7e00']);
+  });
+
+  it('Footprint volumeBarWidthFactor measures the bar against the column', () => {
+    const r = rc();
+    const paint = (f: number): number => {
+      const fp = new Footprint({ ...cellStyle, showVolumeBar: true, volumeBarWidthFactor: f, cellWidth: 40 });
+      fp.setBars([twoRows(30, 15)]);
+      const { ctx, rec } = makeCtx();
+      fp.draw(ctx, r);
+      return (rec.ops.find((o) => o.type === 'fillRect') as Op).args[2];
+    };
+    expect(paint(0.5)).toBeCloseTo(20);
+    expect(paint(1)).toBeCloseTo(40);
+  });
+
+  it('Footprint volume bars cost a visible row each, not a row of the bar', () => {
+    const r = rc();                                    // the pane covers 98..103
+    const fp = new Footprint({ ...cellStyle, showVolumeBar: true, zeroFill: true });
+    fp.setBars([computeFootprint(1, [
+      { price: 100.0, qty: 1, side: 'ask' },
+      { price: 200.0, qty: 1, side: 'ask' },
+    ], 0.05)]);
+    const { ctx, rec } = makeCtx();
+    fp.draw(ctx, r);
+    expect(rec.count('roundRect')).toBe(2);            // one row survives the cull
+    expect(rec.count('fillRect')).toBe(1);             // and one bar with it
+  });
 });

@@ -125,6 +125,27 @@ new Footprint({
 });
 ```
 
+### A volume bar down the row
+
+`showVolumeBar` adds a horizontal histogram bar to each row, in the strip beside the ladder,
+its length the row's share of the bar's busiest row. Volume is already in the numbers and in
+the tint, but neither is comparable down a column at a glance and a length is, which is why
+the desktop terminals draw one. It is off by default because it draws **outside** the column:
+leave it room with `widthFactor` (or pin `cellWidth`) before switching it on.
+
+`volumeBarWidthFactor` (0.5) is the length of a full-volume bar as a fraction of the column
+width. `volumeBarColor` pins one colour for every bar; unset, each row takes its own
+direction, the buy colour when its delta is positive and the sell colour when it is not.
+
+```ts
+new Footprint({
+  showVolumeBar: true,
+  volumeBarColor: '#ff7e00',
+  volumeBarWidthFactor: 0.6,
+  widthFactor: 0.6,           // leave the strip room in the slot
+});
+```
+
 ### Where the candle goes
 
 `candle` decides what the primitive draws for the bar itself:

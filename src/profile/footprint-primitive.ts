@@ -151,6 +151,25 @@ export interface FootprintOptions {
    * while `cellBaseColor` is unset.
    */
   tintCurve: 'linear' | 'sqrt';
+  /**
+   * Draw a horizontal histogram bar for each row in the strip beside the
+   * ladder, its length the row's share of the bar's busiest row. Volume is
+   * already in the cell numbers and in the tint, but neither is comparable
+   * down a column at a glance, and a length is. Off by default: it draws
+   * outside the column, so a host wants `widthFactor` (or `cellWidth`) to
+   * leave it room first.
+   */
+  showVolumeBar: boolean;
+  /**
+   * Colour of that bar. Unset, each row takes its own direction, the buy
+   * colour when its delta is positive and the sell colour when it is not.
+   */
+  volumeBarColor?: string;
+  /**
+   * Length of a full-volume bar as a fraction of the column width. Default
+   * 0.5.
+   */
+  volumeBarWidthFactor: number;
   /** Cell corner radius in media px. */
   radius: number;
   /**
@@ -183,6 +202,8 @@ export const DEFAULT_FOOTPRINT_OPTIONS: FootprintOptions = {
   tintFloor: 0,
   tintGain: 1,
   tintCurve: 'sqrt',
+  showVolumeBar: false,
+  volumeBarWidthFactor: 0.5,
   radius: 2,
 };
 
@@ -543,6 +564,17 @@ export class Footprint implements IPrimitive {
           byDelta ? rowColor : sell, base, flag === 'sell', textAlpha, dpr);
         this._cell(ctx, x0 + half + dpr, top, half - dpr, h, c.askVol, byDelta ? rowTint : c.askVol / peak,
           byDelta ? rowColor : buy, base, flag === 'buy', textAlpha, dpr);
+      }
+
+      // A histogram beside the ladder: the row's volume against the bar's
+      // busiest row. Drawn after the cells, and clear of them, so it is
+      // neither painted over nor sitting under the numbers.
+      if (o.showVolumeBar && total > 0) {
+        const len = colW * o.volumeBarWidthFactor * (total / volPeak);
+        if (len >= 1) {
+          ctx.fillStyle = o.volumeBarColor ?? (d >= 0 ? buy : sell);
+          ctx.fillRect(x0 + colW + dpr, top, len, h);
+        }
       }
 
       if (c.price === stats.poc) {
