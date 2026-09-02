@@ -592,9 +592,11 @@ export class BarCache implements DataFeed {
       // Complete through whichever ends first: what we asked for, or the close
       // of the last bar we actually hold.
       to: Math.min(coveredTo, lastClose - 1),
-      // `storedAt` answers "when was the TAIL last revalidated". An older-page
-      // fetch adds bars behind the tail and proves nothing about it.
-      storedAt: union && to < previous!.to ? previous!.storedAt : nowMs,
+      // `storedAt` answers "when was the TAIL last revalidated". A fetch that
+      // ends behind the entry's coverage proves nothing about it — and that is
+      // just as true when the range is disjoint enough to replace the entry as
+      // when it unions, so the clock is carried over either way.
+      storedAt: previous !== undefined && to < previous.to ? previous.storedAt : nowMs,
       nextClose,
     };
   }

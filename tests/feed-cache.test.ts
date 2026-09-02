@@ -595,6 +595,64 @@ describe('BarCache._put union', () => {
     expect(store.map.get(UNION_KEY)!.storedAt).toBe(tailStoredAt);
   });
 
+  it('does not restart the freshness clock when a replace lands an older page', async () => {
+    const { store, cache, setNow } = unionSetup();
+    await cache.getBars({ ...UNION_REQ, from: T0 + 50 * MIN, to: T0 + 99 * MIN, noCache: true });
+    const tailStoredAt = store.map.get(UNION_KEY)!.storedAt;
+    setNow(UNION_NOW_MS + 60_000);
+    // A hole, so this replaces — but it is still an older page, and it
+    // revalidates nothing about any tail.
+    await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 40 * MIN, noCache: true });
+    const entry = store.map.get(UNION_KEY)!;
+    expect(entry.bars.length).toBe(41);
+    expect(entry.storedAt).toBe(tailStoredAt);
+  });
+
+  it('unions a fresh range that sits strictly inside the entry', async () => {
+    const { store, cache, setNow } = unionSetup();
+    await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 99 * MIN, noCache: true });
+    const before = store.map.get(UNION_KEY)!;
+    setNow(UNION_NOW_MS + 60_000);
+    await cache.getBars({ ...UNION_REQ, from: T0 + 50 * MIN, to: T0 + 59 * MIN, noCache: true });
+    const entry = store.map.get(UNION_KEY)!;
+    expect(entry.bars.length).toBe(99);
+    expect(entry.from).toBe(T0);
+    expect(entry.to).toBe(before.to);
+    expect(entry.storedAt).toBe(before.storedAt); // an interior page proves nothing about the tail
+  });
+
+  it('keeps one entry for an identical re-request', async () => {
+    const { store, cache, setNow } = unionSetup();
+    await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 99 * MIN, noCache: true });
+    const before = store.map.get(UNION_KEY)!;
+    setNow(UNION_NOW_MS + 10_000); // still inside the forming bar, so nothing new closed
+    await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 99 * MIN, noCache: true });
+    const entry = store.map.get(UNION_KEY)!;
+    expect(entry.bars.length).toBe(99); // no duplication, no shrink
+    expect(entry.from).toBe(T0);
+    expect(entry.to).toBe(before.to);
+    expect(entry.storedAt).toBe(UNION_NOW_MS + 10_000); // this one DID revalidate the tail
+  });
+
+  it('leaves the entry untouched when the fetch returns only a forming bar', async () => {
+    const { store, cache } = unionSetup();
+    await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 99 * MIN, noCache: true });
+    const writes = store.sets.length;
+    await cache.getBars({ ...UNION_REQ, from: T0 + 99 * MIN, to: T0 + 99 * MIN, noCache: true });
+    const entry = store.map.get(UNION_KEY)!;
+    expect(entry.bars.length).toBe(99);
+    expect(store.sets.length).toBe(writes); // nothing was written at all
+  });
+
+  it('leaves the previous entry intact when the fresh page alone exceeds maxBars', async () => {
+    const { store, cache } = unionSetup({ maxBars: 50 });
+    await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 39 * MIN, noCache: true });
+    await cache.getBars({ ...UNION_REQ, from: T0 + 30 * MIN, to: T0 + 99 * MIN, noCache: true }); // 69 bars
+    const entry = store.map.get(UNION_KEY)!;
+    expect(entry.bars.length).toBe(40);
+    expect(entry.from).toBe(T0);
+  });
+
   it('still drops the trailing unclosed bar after a union', async () => {
     const { store, cache, setNow } = unionSetup({ nowMs: (T0 + 50 * MIN + 30) * 1000 });
     await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 49 * MIN, noCache: true });
@@ -717,6 +775,23 @@ describe('BarCache.peek', () => {
     const second = (await cache.peek(UNION_REQ))!;
     expect(second.bars.length).toBe(99);
     expect(second.bars[0].close).toBe(100.5);
+  });
+
+  it('reads a store filled by an earlier session, with a cold in-memory index', async () => {
+    // The reload path: a fresh cache instance knows nothing, but the store is
+    // warm. `peek` must answer from it without a fetch.
+    const store = new RecordingStore();
+    const earlier = withBarCache(new StubFeed(makeBars(T0, 100)), { storage: store, now: () => UNION_NOW_MS });
+    await earlier.getBars({ ...UNION_REQ, from: T0, to: T0 + 99 * MIN });
+
+    const feed = new StubFeed(makeBars(T0, 100));
+    const cache = withBarCache(feed, { storage: store, now: () => UNION_NOW_MS + 86_400_000 });
+    expect(cache.stats().entries).toBe(0);
+    const peeked = (await cache.peek(UNION_REQ))!;
+    expect(peeked.bars.length).toBe(99);
+    expect(feed.count).toBe(0);
+    // and the peek adopts it, so this session's bounds now account for it
+    expect(cache.stats().entries).toBe(1);
   });
 
   it('touches LRU recency so the peeked entry is not the next victim', async () => {
