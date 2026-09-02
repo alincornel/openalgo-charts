@@ -61,7 +61,12 @@ part of the key:
 
 - one entry per series holds the set that was fetched, and a **narrower** request is served
   by slicing it;
-- a request the entry cannot cover refetches and replaces it.
+- a request the entry cannot cover refetches, and the result is **unioned** into the entry, so
+  a ten-bar tail fetch extends the series instead of shrinking it to ten bars. The fresh bars
+  win on every timestamp they carry, which is how a corrected close replaces a stored one;
+- the one case that still **replaces** is two ranges with a hole between them. Coverage is a
+  single interval, so a union across a gap would claim bars the entry does not hold, and a
+  later request inside the gap would be served short instead of refetching.
 
 Keying on the range would miss on every pan and on every "same chart, one bar later"
 reload, which is exactly the traffic a warm cache exists to remove.
@@ -136,6 +141,11 @@ honest proxy for bytes that can be measured without serialising, and byte counti
 mean stringifying every entry on every write, which costs more than the cache saves. A
 single series larger than the whole `maxBars` budget is simply **not cached**, since it would
 evict everything else and then itself on the next write.
+
+When a union pushes one entry past `maxBars`, the **newest** bars are kept: the oldest are the
+ones a scroll-back can refetch cheaply. The entry's coverage start moves up with them, so a
+request reaching further back misses and refetches rather than being served a series that
+silently starts late.
 
 ## Options
 

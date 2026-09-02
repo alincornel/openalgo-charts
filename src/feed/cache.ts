@@ -326,28 +326,78 @@ export class BarCache implements DataFeed {
       end--;
     }
     if (end === 0) return; // Nothing closed to cache, and an empty entry would only mislead.
-    // One series larger than the whole budget would evict everything else and
-    // then itself on the next write, so it is simply not cached.
-    if (end > this._maxBars) return;
-    const closed = cloneBars(bars.slice(0, end));
-    const last = closed[closed.length - 1];
-    // Non-null by construction: the loop above only stopped on a bar that had a
-    // close, and `nextClose` is the close of the bar that follows it, which is
+    const fresh = cloneBars(bars.slice(0, end));
+    const entry = this._mergeEntry(await this._backing.get(key), fresh, from, to, interval, nowMs);
+    if (entry === undefined) return;
+    await this._backing.set(key, entry);
+    this._index.set(key, { lastUsed: ++this._tick, bars: entry.bars.length });
+    await this._evict();
+  }
+
+  /**
+   * Union the fresh bars into what the entry already holds, so a small tail
+   * fetch EXTENDS the series instead of replacing it with the tail. Replacing
+   * was correct while every request covered the whole visible range; a
+   * cache-first seed asks for ten bars, and replacing there would throw away
+   * the very history the seed just painted.
+   *
+   * Replacement survives for the one case a union would lie about: two ranges
+   * with a hole between them. `from`..`to` is a single interval, so a union
+   * across a hole would claim coverage the entry does not have, and a later
+   * request inside the hole would be served short instead of refetching.
+   */
+  private _mergeEntry(
+    previous: CachedBars | undefined,
+    fresh: Bar[],
+    from: UTCSeconds,
+    to: UTCSeconds,
+    interval: string,
+    nowMs: number,
+  ): CachedBars | undefined {
+    const union = previous !== undefined && from <= previous.to + 1 && to + 1 >= previous.from;
+    let bars = fresh;
+    if (union) {
+      const byTime = new Map<UTCSeconds, Bar>();
+      for (const bar of previous!.bars) byTime.set(bar.time, bar);
+      // Fresh wins on every timestamp it carries: the server is the truth for
+      // the whole range it was asked about, a corrected close included.
+      for (const bar of fresh) byTime.set(bar.time, bar);
+      bars = [...byTime.values()].sort((a, b) => a.time - b.time);
+    }
+    // A merged series past the budget keeps the NEWEST bars: the oldest are the
+    // ones a scroll-back can refetch cheaply. `from` moves up with them, so the
+    // next request reaching further back misses and refetches rather than being
+    // served a series that silently starts late.
+    let trimmed = false;
+    if (bars.length > this._maxBars) {
+      // One series larger than the whole budget would evict everything else and
+      // then itself on the next write, so it is simply not cached.
+      if (fresh.length > this._maxBars) return undefined;
+      bars = bars.slice(bars.length - this._maxBars);
+      trimmed = true;
+    }
+    const last = bars[bars.length - 1];
+    // Non-null by construction: the caller only kept bars that had a close, and
+    // `nextClose` is the close of the bar that follows the last one, which is
     // the instant a hit past coverage stops being safe.
     const lastClose = this._barCloses(interval, last.time) as UTCSeconds;
     const nextClose = this._barCloses(interval, lastClose) ?? lastClose;
-    const entry: CachedBars = {
-      bars: closed,
-      from,
+    const coveredFrom = union ? Math.min(previous!.from, from) : from;
+    const coveredTo = union ? Math.max(previous!.to, to) : to;
+    return {
+      bars,
+      // NOT `bars[0].time` in the untrimmed case: an instrument whose history
+      // starts later than the request must keep the requested `from` as
+      // coverage, or gate (2) turns every identical reload into a miss.
+      from: trimmed ? bars[0].time : coveredFrom,
       // Complete through whichever ends first: what we asked for, or the close
       // of the last bar we actually hold.
-      to: Math.min(to, lastClose - 1),
-      storedAt: nowMs,
+      to: Math.min(coveredTo, lastClose - 1),
+      // `storedAt` answers "when was the TAIL last revalidated". An older-page
+      // fetch adds bars behind the tail and proves nothing about it.
+      storedAt: union && to < previous!.to ? previous!.storedAt : nowMs,
       nextClose,
     };
-    await this._backing.set(key, entry);
-    this._index.set(key, { lastUsed: ++this._tick, bars: closed.length });
-    await this._evict();
   }
 
   private async _drop(key: string): Promise<void> {

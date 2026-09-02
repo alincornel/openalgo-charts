@@ -300,7 +300,9 @@ describe('BarCache injected storage', () => {
     expect(store.sets).toEqual(['RELIANCE|NSE|1m']);
     await cache.getBars(REQ);
     expect(feed.count).toBe(1);
-    expect(store.gets.length).toBe(2);
+    // Two lookups, plus the read `_put` makes to union the fresh bars with
+    // whatever the store already held for the series.
+    expect(store.gets.length).toBe(3);
     expect(store.map.get('RELIANCE|NSE|1m')?.bars.length).toBe(60);
   });
 
@@ -452,5 +454,105 @@ describe('BarCache isolation and passthrough', () => {
     off();
     expect(live.subscribed).toBe(0);
     expect(wrapped.source).toBe(live);
+  });
+});
+
+/**
+ * Bars T0 .. T0+99m against a clock 30s into the T0+99m bar, so the newest bar
+ * the stub returns is still forming and is dropped on store. That is the shape
+ * a live chart actually fetches in.
+ */
+const UNION_NOW_MS = (T0 + 99 * MIN + 30) * 1000;
+const UNION_KEY = 'X|E|1m';
+const UNION_REQ = { symbol: 'X', exchange: 'E', interval: '1m' };
+
+function unionSetup(overrides: { max?: number; maxBars?: number; nowMs?: number } = {}) {
+  const store = new RecordingStore();
+  const feed = new StubFeed(makeBars(T0, 100));
+  let nowMs = overrides.nowMs ?? UNION_NOW_MS;
+  const cache = withBarCache(feed, {
+    storage: store,
+    max: overrides.max,
+    maxBars: overrides.maxBars,
+    now: () => nowMs,
+  });
+  return { store, feed, cache, setNow: (ms: number) => { nowMs = ms; } };
+}
+
+describe('BarCache._put union', () => {
+  it('extends an entry with a tail fetch instead of shrinking it to the tail', async () => {
+    const { store, cache } = unionSetup();
+    await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 99 * MIN, noCache: true });
+    await cache.getBars({ ...UNION_REQ, from: T0 + 90 * MIN, to: T0 + 99 * MIN, noCache: true });
+    const entry = store.map.get(UNION_KEY)!;
+    expect(entry.bars.length).toBe(99); // was 9 before this change: the tail replaced the page
+    expect(entry.from).toBe(T0);
+    expect(entry.bars[0].time).toBe(T0);
+    expect(entry.bars[entry.bars.length - 1].time).toBe(T0 + 98 * MIN);
+  });
+
+  it('lets the fresh bar win on a timestamp both ranges carry', async () => {
+    const { store, feed, cache } = unionSetup();
+    await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 99 * MIN, noCache: true });
+    // A closed bar the server later corrects: a late print, a backend heal.
+    feed.bars[95] = { ...feed.bars[95], close: 999 };
+    await cache.getBars({ ...UNION_REQ, from: T0 + 90 * MIN, to: T0 + 99 * MIN, noCache: true });
+    const entry = store.map.get(UNION_KEY)!;
+    expect(entry.bars.find((b) => b.time === T0 + 95 * MIN)!.close).toBe(999);
+    // and a bar the second range never covered is untouched
+    expect(entry.bars.find((b) => b.time === T0 + 10 * MIN)!.close).toBe(110.5);
+  });
+
+  it('extends coverage backwards for an older page', async () => {
+    const { store, cache } = unionSetup();
+    await cache.getBars({ ...UNION_REQ, from: T0 + 50 * MIN, to: T0 + 99 * MIN, noCache: true });
+    await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 50 * MIN, noCache: true });
+    const entry = store.map.get(UNION_KEY)!;
+    expect(entry.from).toBe(T0);
+    expect(entry.bars.length).toBe(99);
+    expect(entry.bars[0].time).toBe(T0);
+  });
+
+  it('replaces, not unions, when the two ranges leave a hole', async () => {
+    const { store, cache } = unionSetup();
+    await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 9 * MIN, noCache: true });
+    await cache.getBars({ ...UNION_REQ, from: T0 + 50 * MIN, to: T0 + 59 * MIN, noCache: true });
+    const entry = store.map.get(UNION_KEY)!;
+    expect(entry.from).toBe(T0 + 50 * MIN);
+    expect(entry.bars.length).toBe(10);
+    expect(entry.bars[0].time).toBe(T0 + 50 * MIN);
+  });
+
+  it('keeps the newest bars and moves `from` up when the union exceeds maxBars', async () => {
+    const { store, cache } = unionSetup({ maxBars: 50 });
+    await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 39 * MIN, noCache: true });
+    await cache.getBars({ ...UNION_REQ, from: T0 + 30 * MIN, to: T0 + 69 * MIN, noCache: true });
+    const entry = store.map.get(UNION_KEY)!;
+    expect(entry.bars.length).toBe(50);
+    expect(entry.bars[0].time).toBe(T0 + 20 * MIN);
+    expect(entry.bars[49].time).toBe(T0 + 69 * MIN);
+    // `from` moves up with the trim, so a request reaching further back misses.
+    expect(entry.from).toBe(entry.bars[0].time);
+  });
+
+  it('does not restart the freshness clock on an older-page put', async () => {
+    const { store, cache, setNow } = unionSetup();
+    await cache.getBars({ ...UNION_REQ, from: T0 + 50 * MIN, to: T0 + 99 * MIN, noCache: true });
+    const tailStoredAt = store.map.get(UNION_KEY)!.storedAt;
+    setNow(UNION_NOW_MS + 60_000);
+    await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 50 * MIN, noCache: true });
+    expect(store.map.get(UNION_KEY)!.storedAt).toBe(tailStoredAt);
+  });
+
+  it('still drops the trailing unclosed bar after a union', async () => {
+    const { store, cache, setNow } = unionSetup({ nowMs: (T0 + 50 * MIN + 30) * 1000 });
+    await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 49 * MIN, noCache: true });
+    setNow((T0 + 60 * MIN + 30) * 1000);
+    await cache.getBars({ ...UNION_REQ, from: T0 + 45 * MIN, to: T0 + 61 * MIN, noCache: true });
+    const entry = store.map.get(UNION_KEY)!;
+    expect(entry.bars.length).toBe(60);
+    expect(entry.bars[entry.bars.length - 1].time).toBe(T0 + 59 * MIN);
+    expect(entry.bars.some((b) => b.time === T0 + 60 * MIN)).toBe(false);
+    expect(entry.to).toBe(T0 + 60 * MIN - 1);
   });
 });
