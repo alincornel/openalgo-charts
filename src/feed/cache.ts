@@ -425,7 +425,26 @@ export class BarCache implements DataFeed {
     interval: string,
     nowMs: number,
   ): CachedBars | undefined {
-    const union = previous !== undefined && from <= previous.to + 1 && to + 1 >= previous.from;
+    // One bar's span at a given start, for adjacency. Null (a tick series, an
+    // unregistered code) collapses this to the plain seconds comparison.
+    const spanAfter = (t: UTCSeconds): number => {
+      const close = this._barCloses(interval, t);
+      return close === null ? 1 : Math.max(1, close - t);
+    };
+    let union = false;
+    if (previous !== undefined) {
+      const prevLast = previous.bars[previous.bars.length - 1].time;
+      const freshLast = fresh[fresh.length - 1].time;
+      // Adjacency is a question about the BAR GRID, not about seconds. An older
+      // page whose last bar sits immediately before the entry's first bar is
+      // contiguous, even though its requested `to` is a whole span short of the
+      // entry's `from`; comparing seconds there replaced a warm 2000-bar entry
+      // with the page that was meant to extend it. Coverage bounds are still
+      // honoured, so a request that deliberately stopped short still counts.
+      const startsInTime = from <= Math.max(previous.to + 1, prevLast + spanAfter(prevLast));
+      const endsInTime = Math.max(to + 1, freshLast + spanAfter(freshLast)) >= previous.from;
+      union = startsInTime && endsInTime;
+    }
     let bars = fresh;
     if (union) {
       // The server is the truth for the range it ANSWERED, deletions included:

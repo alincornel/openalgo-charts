@@ -518,6 +518,27 @@ describe('BarCache._put union', () => {
     expect(entry.bars[0].time).toBe(T0);
   });
 
+  it('unions two pages that are adjacent on the bar grid', async () => {
+    const { store, cache } = unionSetup();
+    await cache.getBars({ ...UNION_REQ, from: T0 + 50 * MIN, to: T0 + 99 * MIN, noCache: true });
+    // The older page's last bar sits immediately before the entry's first one:
+    // contiguous on the bar grid, one whole span apart in seconds.
+    await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 49 * MIN, noCache: true });
+    const entry = store.map.get(UNION_KEY)!;
+    expect(entry.bars.length).toBe(99);
+    expect(entry.from).toBe(T0);
+    expect(entry.bars[0].time).toBe(T0);
+  });
+
+  it('still replaces when an older page leaves a bar-sized hole', async () => {
+    const { store, cache } = unionSetup();
+    await cache.getBars({ ...UNION_REQ, from: T0 + 50 * MIN, to: T0 + 99 * MIN, noCache: true });
+    await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 48 * MIN, noCache: true }); // T0+49m missing
+    const entry = store.map.get(UNION_KEY)!;
+    expect(entry.bars.length).toBe(49);
+    expect(entry.from).toBe(T0);
+  });
+
   it('replaces, not unions, when the two ranges leave a hole', async () => {
     const { store, cache } = unionSetup();
     await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 9 * MIN, noCache: true });
