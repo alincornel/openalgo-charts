@@ -449,7 +449,9 @@ describe('profile primitives render', () => {
 
   it("Footprint 'gutter' draws a wick from high to low and a body from open to close", () => {
     const r = rcBars([bar(1, 100.0, 100.3, 99.9, 100.25, 0)]);
-    const fp = new Footprint({ ...candleStyle, candle: 'gutter' });
+    // A roomy slot: the default 24 px one leaves a 5 px gutter, which is strip
+    // territory (see the narrow-slot test below).
+    const fp = new Footprint({ ...candleStyle, candle: 'gutter', cellWidth: 60 });
     fp.setBars([askBar()]);
     const { ctx, rec } = makeCtx();
     fp.draw(ctx, r);
@@ -650,5 +652,88 @@ describe('profile primitives render', () => {
     const l = coarse.layout();
     expect(l.rowHeight).toBeCloseTo(20, 6);              // 0.25 over the same pane
     expect(l.rowHeight).toBeGreaterThanOrEqual(l.minTextHeight);
+  });
+
+  it("Footprint 'gutter' degrades to a full-height direction strip in a narrow slot", () => {
+    const r = rcBars([bar(1, 100.0, 100.3, 99.9, 100.25, 0)]);
+    // 14 px of slot leaves a 3 px gutter: a body over open-close there is a stub
+    // nobody can read, so the strip takes the whole range and carries the colour.
+    const fp = new Footprint({ ...candleStyle, candle: 'gutter', cellWidth: 14 });
+    fp.setBars([askBar()]);
+    const { ctx, rec } = makeCtx();
+    fp.draw(ctx, r);
+    const [wick, strip] = rects(rec);
+    expect(rects(rec)).toHaveLength(2);
+    expect(wick.args[2]).toBe(1);                     // still a hairline wick
+    expect(strip.args[1]).toBeCloseTo(r.priceScale.priceToY(100.3));
+    expect(strip.args[1] + strip.args[3]).toBeCloseTo(r.priceScale.priceToY(99.9));
+    expect(strip.fillStyle).toBe('#00ff00');          // close > open
+
+    const down = new Footprint({ ...candleStyle, candle: 'gutter', cellWidth: 14 });
+    down.setBars([askBar()]);
+    const b = makeCtx();
+    down.draw(b.ctx, rcBars([bar(1, 100.25, 100.3, 99.9, 100.0, 0)]));
+    expect(rects(b.rec)[1].fillStyle).toBe('#ff0000');
+  });
+
+  it('Footprint hoverAt reports a zero-filled row instead of snapping to a traded one', () => {
+    const r = rc();
+    const fp = new Footprint({ tickSize: 0.05, statsRows: [], zeroFill: true });
+    fp.setBars([computeFootprint(1, [
+      { price: 100.0, qty: 5, side: 'ask' },
+      { price: 100.2, qty: 7, side: 'ask' },
+    ], 0.05)]);
+    fp.draw(makeCtx().ctx, r);
+    const x = r.timeScale.indexToX(0);
+    // 100.05 is one row above a traded print, so the old scan snapped to it.
+    expect(fp.hoverAt(x, r.priceScale.priceToY(100.05), r)?.cell)
+      .toEqual({ price: 100.05, bidVol: 0, askVol: 0 });
+    expect(fp.hoverAt(x, r.priceScale.priceToY(100.2), r)?.cell?.askVol).toBe(7);
+  });
+
+  it('Footprint zeroFill survives cells handed over low to high', () => {
+    const r = rc();
+    const fp = new Footprint({ ...cellStyle, zeroFill: true });
+    // `FootprintBar.cells` is documented high to low, but nothing enforces it.
+    fp.setBars([{
+      time: 1,
+      cells: [{ price: 100.0, bidVol: 0, askVol: 5 }, { price: 100.1, bidVol: 0, askVol: 5 }],
+      delta: 10,
+    }]);
+    const { ctx, rec } = makeCtx();
+    expect(() => fp.draw(ctx, r)).not.toThrow();
+    expect(rec.count('roundRect')).toBe(6);          // 3 rows, still filled
+  });
+
+  it('Footprint zeroFill sums cells that collide on the row grid', () => {
+    const r = rc();
+    const fp = new Footprint({ ...cellStyle, zeroFill: true });
+    // Aggregated at 0.01 but drawn on a 0.05 grid: the two prints share a row.
+    fp.setBars([{
+      time: 1,
+      cells: [{ price: 100.01, bidVol: 0, askVol: 3 }, { price: 100.0, bidVol: 0, askVol: 4 }],
+      delta: 7,
+    }]);
+    const { ctx, rec } = makeCtx();
+    fp.draw(ctx, r);
+    expect(texts(rec)).toEqual(['0', '7']);          // not '4', which is last-wins
+  });
+
+  it('Footprint pocOutline lands on the row rect, not across its edges', () => {
+    const r = rc();
+    const fp = new Footprint({ ...cellStyle, pocOutline: '#f0a020' });
+    fp.setBars([twoRows(30, 2)]);
+    const { ctx, rec } = makeCtx();
+    fp.draw(ctx, r);
+    const cells = rec.ops.filter((o) => o.type === 'roundRect');
+    const box = rec.ops.filter((o) => o.type === 'strokeRect')[0];
+    const [cx, cy, , ch] = cells[0].args;                       // POC row, bid half
+    const right = cells[1].args[0] + cells[1].args[2];          // ask half's right edge
+    const lw = 1;                                              // dpr 1
+    // A stroke straddles its path, so the rect is inset by half a line width.
+    expect(box.args[0]).toBeCloseTo(cx + lw / 2);
+    expect(box.args[0] + box.args[2]).toBeCloseTo(right - lw / 2);
+    expect(box.args[1]).toBeCloseTo(cy + lw / 2);
+    expect(box.args[1] + box.args[3]).toBeCloseTo(cy + ch - lw / 2);
   });
 });

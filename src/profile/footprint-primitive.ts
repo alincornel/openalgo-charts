@@ -40,7 +40,15 @@ export interface FootprintOptions {
   cellWidth?: number;
   /** Fraction of the bar slot a column may occupy when auto-sizing. Default 0.9. */
   widthFactor: number;
-  /** Price step → row height. Inferred from the cell spacing when omitted. */
+  /**
+   * Price step → row height. Inferred from the cell spacing when omitted.
+   *
+   * With `zeroFill` this is also the grid the rows are filled onto, and it is a
+   * precondition that it matches the step the cells were **aggregated** at. Set
+   * it coarser and several cells land on one row; they are summed rather than
+   * dropped, but the ladder then disagrees with `stats()` about where the
+   * volume sat.
+   */
   tickSize?: number;
   /** Cell text size in media px. Default 10. */
   font: number;
@@ -297,18 +305,31 @@ export class Footprint implements IPrimitive {
    */
   private _rows(cells: readonly FootprintCell[], step: number): readonly FootprintCell[] {
     if (!this._opts.zeroFill || step <= 0 || cells.length < 2) return cells;
-    const hi = cells[0].price;
-    const lo = cells[cells.length - 1].price;
-    if ((hi - lo) / step + 1 > this._opts.maxZeroFillRows) return cells;
+    // The extremes are scanned rather than read off the ends: `cells` is
+    // documented high to low and nothing enforces it, and an ascending array
+    // would otherwise ask for an empty grid.
+    let hi = -Infinity;
+    let lo = Infinity;
     const traded = new Map<number, FootprintCell>();
-    for (const c of cells) traded.set(bucketPrice(c.price, step), c);
+    for (const c of cells) {
+      if (c.price > hi) hi = c.price;
+      if (c.price < lo) lo = c.price;
+      const key = bucketPrice(c.price, step);
+      const seen = traded.get(key);
+      // Cells colliding on the grid are summed, never last-wins: a `tickSize`
+      // coarser than the aggregation step would otherwise lose volume silently.
+      traded.set(key, seen === undefined ? c : {
+        price: key, bidVol: seen.bidVol + c.bidVol, askVol: seen.askVol + c.askVol,
+      });
+    }
+    if ((hi - lo) / step + 1 > this._opts.maxZeroFillRows) return cells;
     const grid = priceBuckets(lo, hi, step);
     const out: FootprintCell[] = [];
     for (let i = grid.length - 1; i >= 0; i--) {
       const p = grid[i];
       out.push(traded.get(p) ?? { price: p, bidVol: 0, askVol: 0 });
     }
-    return out;
+    return out.length > 0 ? out : cells;
   }
 
   /** Row height in device px from the tick size (option, else the min cell gap). */
@@ -469,9 +490,12 @@ export class Footprint implements IPrimitive {
           ctx.fillRect(x0 - 2 * dpr, top, 2 * dpr, h);
         }
         if (o.pocOutline !== undefined) {
+          // A stroke straddles its path, so inset by half a line width or the
+          // outline bleeds into the rows above and below.
+          const lw = Math.max(1, Math.round(dpr));
           ctx.strokeStyle = o.pocOutline;
-          ctx.lineWidth = Math.max(1, Math.round(dpr));
-          ctx.strokeRect(x0, top, colW - dpr, h);
+          ctx.lineWidth = lw;
+          ctx.strokeRect(x0 + lw / 2, top + lw / 2, colW - lw, h - lw);
         }
       }
     }
@@ -529,10 +553,15 @@ export class Footprint implements IPrimitive {
     }
     ctx.fillStyle = ohlc.close >= ohlc.open ? buy : sell;
     const yHi = y(ohlc.high);
-    ctx.fillRect(cx - wickW / 2, yHi, wickW, Math.max(1, y(ohlc.low) - yHi));
+    const yLo = y(ohlc.low);
+    ctx.fillRect(cx - wickW / 2, yHi, wickW, Math.max(1, yLo - yHi));
     const bodyW = Math.max(2 * dpr, gutter * 0.6);
-    const yo = y(ohlc.open);
-    const yc = y(ohlc.close);
+    // Under about 4 px a body over open-close is a stub that reads as noise, so
+    // the strip takes the whole range instead and says only what it can: which
+    // way the bar went.
+    const strip = bodyW < 4 * dpr;
+    const yo = strip ? yHi : y(ohlc.open);
+    const yc = strip ? yLo : y(ohlc.close);
     ctx.fillRect(cx - bodyW / 2, Math.min(yo, yc), bodyW, Math.max(1, Math.abs(yc - yo)));
   }
 
@@ -699,7 +728,10 @@ export class Footprint implements IPrimitive {
     const price = ctx.priceScale.yToPrice(y);
     let cell: FootprintCell | null = null;
     let best = Infinity;
-    for (const c of bar.cells) {
+    // The rows the painter drew, not the traded cells: with `zeroFill` the
+    // pointer is over a `0 x 0` row as often as not, and snapping it to the
+    // nearest print reports a row the user is not looking at.
+    for (const c of this._rows(bar.cells, this._opts.tickSize ?? 0)) {
       const d = Math.abs(ctx.priceScale.priceToY(c.price) - y);
       if (d < best && d <= Math.max(4, this._rowH)) { best = d; cell = c; }
     }
