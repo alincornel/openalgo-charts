@@ -729,3 +729,58 @@ describe('BarCache.peek', () => {
     expect((await cache.peek({ ...UNION_REQ, symbol: 'A' }))!.bars.length).toBe(99);
   });
 });
+
+/** Every store operation crosses a task boundary, the way IndexedDB does. */
+const tick = (): Promise<void> => new Promise<void>((resolve) => { setTimeout(resolve, 0); });
+
+class SlowStore extends RecordingStore {
+  public async get(key: string): Promise<CachedBars | undefined> {
+    await tick();
+    return super.get(key);
+  }
+  public async set(key: string, value: CachedBars): Promise<void> {
+    await tick();
+    return super.set(key, value);
+  }
+}
+
+class SlowFeed extends StubFeed {
+  public async getBars(req: BarsRequest): Promise<Bar[]> {
+    await tick();
+    return super.getBars(req);
+  }
+}
+
+describe('BarCache._put concurrency', () => {
+  const TAIL = { from: T0 + 50 * MIN, to: T0 + 99 * MIN };
+  const PAGE = { from: T0, to: T0 + 50 * MIN };
+
+  function slowSetup() {
+    const store = new SlowStore();
+    const feed = new SlowFeed(makeBars(T0, 100));
+    const cache = withBarCache(feed, { storage: store, now: () => UNION_NOW_MS });
+    return { store, cache };
+  }
+
+  it('ends with the union when the two puts run in sequence', async () => {
+    const { store, cache } = slowSetup();
+    await cache.getBars({ ...UNION_REQ, ...TAIL, noCache: true });
+    await cache.getBars({ ...UNION_REQ, ...PAGE, noCache: true });
+    const entry = store.map.get(UNION_KEY)!;
+    expect(entry.bars.length).toBe(99);
+    expect(entry.from).toBe(T0);
+  });
+
+  it('ends with the union when the two puts race', async () => {
+    // An older-page lazy load racing a resume recovery. Both read the entry
+    // before either writes, so an unguarded put loses one of them outright.
+    const { store, cache } = slowSetup();
+    await Promise.all([
+      cache.getBars({ ...UNION_REQ, ...TAIL, noCache: true }),
+      cache.getBars({ ...UNION_REQ, ...PAGE, noCache: true }),
+    ]);
+    const entry = store.map.get(UNION_KEY)!;
+    expect(entry.bars.length).toBe(99);
+    expect(entry.from).toBe(T0);
+  });
+});

@@ -228,6 +228,8 @@ export class BarCache implements DataFeed {
   private readonly _now: () => number;
   private readonly _barCloses: (interval: string, barStartSec: UTCSeconds) => number | null;
   private readonly _index = new Map<string, IndexEntry>();
+  /** One write chain per key, so concurrent puts cannot lose each other. */
+  private readonly _writes = new Map<string, Promise<void>>();
   private _tick = 0;
   private _hits = 0;
   private _misses = 0;
@@ -380,7 +382,29 @@ export class BarCache implements DataFeed {
     return out;
   }
 
-  private async _put(key: string, from: UTCSeconds, to: UTCSeconds, interval: string, bars: Bar[]): Promise<void> {
+  /**
+   * Serialise writes per key. Two puts for one series overlap routinely — an
+   * older-page lazy load racing a resume recovery, two panes on the same symbol
+   * — and every put reads the entry before it writes. Over an async store both
+   * would read the same entry and the second would commit a union of what it
+   * read, silently dropping the first one's bars. Chaining costs nothing when
+   * there is no contention: the map is empty and the put runs immediately.
+   */
+  private _put(key: string, from: UTCSeconds, to: UTCSeconds, interval: string, bars: Bar[]): Promise<void> {
+    const queued = (this._writes.get(key) ?? Promise.resolve()).then(
+      () => this._commit(key, from, to, interval, bars),
+    );
+    // The chain is joined on a SETTLED promise: one failed write must not
+    // poison every later put for the key. The caller still sees the rejection.
+    const settled = queued.then(() => undefined, () => undefined);
+    this._writes.set(key, settled);
+    void settled.then(() => {
+      if (this._writes.get(key) === settled) this._writes.delete(key);
+    });
+    return queued;
+  }
+
+  private async _commit(key: string, from: UTCSeconds, to: UTCSeconds, interval: string, bars: Bar[]): Promise<void> {
     const nowMs = this._now();
     const nowSec = Math.floor(nowMs / 1000);
     let end = bars.length;
