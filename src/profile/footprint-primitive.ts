@@ -170,6 +170,16 @@ export interface FootprintOptions {
    * 0.5.
    */
   volumeBarWidthFactor: number;
+  /**
+   * Ink for the cell numbers. Unset, the renderer picks: white for a graded
+   * cell, dimmed on a zero row, and near-black on a saturated one, which is
+   * the right pair over a dark pane and the wrong one over a light plate. A
+   * signed `deltaVolume` delta keeps its own colour ahead of this, since
+   * there the colour is the number's meaning rather than its theme.
+   */
+  cellTextColor?: string;
+  /** Ink for the numbers on a saturated (imbalanced) cell. */
+  cellTextColorHot?: string;
   /** Cell corner radius in media px. */
   radius: number;
   /**
@@ -669,9 +679,10 @@ export class Footprint implements IPrimitive {
     hot: boolean, textAlpha: number, dpr: number, textColor?: string,
   ): void {
     if (w <= 0) return;
+    const o = this._opts;
     // Saturated when imbalanced, otherwise a base→colour ramp.
     ctx.fillStyle = hot ? color : mix(base, color, this._tint(tint));
-    const r = Math.min(this._opts.radius * dpr, h / 2, w / 2);
+    const r = Math.min(o.radius * dpr, h / 2, w / 2);
     ctx.beginPath();
     ctx.roundRect(x, y, w, h, r);
     ctx.fill();
@@ -681,8 +692,8 @@ export class Footprint implements IPrimitive {
     // Zero-filled rows are context, not content: dimmer so the traded ladder
     // still reads at a glance.
     ctx.fillStyle = hot
-      ? withAlpha('#0d0f14', textAlpha)
-      : withAlpha(textColor ?? '#ffffff', (value === 0 ? 0.45 : 0.9) * textAlpha);
+      ? withAlpha(o.cellTextColorHot ?? '#0d0f14', textAlpha)
+      : withAlpha(textColor ?? o.cellTextColor ?? '#ffffff', (value === 0 ? 0.45 : 0.9) * textAlpha);
     ctx.fillText(compactVol(value), x + w / 2, y + h / 2);
   }
 

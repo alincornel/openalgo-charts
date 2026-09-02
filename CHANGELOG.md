@@ -42,6 +42,12 @@ Footprint: a readable ladder instead of a hairline mesh.
   by default, since it draws outside the column and wants room made for it.
   Unset, `volumeBarColor` gives each row its own direction.
 
+- **`cellTextColor`** and **`cellTextColorHot`**, the ink on a graded cell and
+  on a saturated one. The automatic pair (white at 0.9, near-black once a cell
+  saturates) is right over a dark pane and wrong over a light `cellBaseColor`
+  plate. Unset, that automatic choice is unchanged, and a signed `deltaVolume`
+  delta still keeps its own sell colour ahead of `cellTextColor`.
+
 - **`Footprint.layout()`**, returning `{ rowHeight, paneHeight, minTextHeight }`
   in media px from the last paint, for a host that sizes rows by legibility
   rather than by a fixed row count. `rowHeight` is the clamped draw height

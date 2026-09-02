@@ -146,6 +146,23 @@ new Footprint({
 });
 ```
 
+### The ink on a cell
+
+Unset, the renderer picks the cell numbers' colour: white at 0.9 alpha on a graded cell,
+dimmed to 0.45 on a zero row, and near-black on a saturated (imbalanced) one. That is the
+right pair over a dark pane and the wrong one over a light `cellBaseColor` plate, so
+`cellTextColor` and `cellTextColorHot` take it over. A signed `deltaVolume` delta keeps its
+own sell colour ahead of `cellTextColor`: there the colour is the number's meaning, not its
+theme.
+
+```ts
+new Footprint({
+  cellBaseColor: '#a0a0a0',
+  cellTextColor: '#000000',      // black on the plate
+  cellTextColorHot: '#ffffff',   // white once a cell saturates
+});
+```
+
 ### Where the candle goes
 
 `candle` decides what the primitive draws for the bar itself:

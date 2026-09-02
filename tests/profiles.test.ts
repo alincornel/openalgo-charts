@@ -913,4 +913,51 @@ describe('profile primitives render', () => {
     expect(rec.count('roundRect')).toBe(2);            // one row survives the cull
     expect(rec.count('fillRect')).toBe(1);             // and one bar with it
   });
+  it('Footprint writes white on a graded cell and near-black on a saturated one', () => {
+    const r = rc();
+    const fp = new Footprint({ ...cellStyle, imbalanceRatio: 3 });
+    fp.setBars([twoRows(30, 2)]);          // the 30 ask is a buy imbalance
+    const { ctx, rec } = makeCtx();
+    fp.draw(ctx, r);
+    // The automatic choice, which an unset pair has to leave exactly as it is:
+    // white at 0.9, dimmed to 0.45 on a zero row, near-black on a hot plate.
+    expect(rec.ops.filter((o) => o.type === 'fillText').map((o) => [o.text, o.fillStyle])).toEqual([
+      ['0', 'rgba(255,255,255,0.45)'],
+      ['30', 'rgba(13,15,20,1)'],
+      ['2', 'rgba(255,255,255,0.9)'],
+      ['0', 'rgba(255,255,255,0.45)'],
+    ]);
+  });
+
+  it('Footprint cellTextColor and cellTextColorHot restyle the numbers without moving them', () => {
+    const r = rc();
+    const style = { ...cellStyle, imbalanceRatio: 3 };
+    const plain = new Footprint(style);
+    plain.setBars([twoRows(30, 2)]);
+    const a = makeCtx(); plain.draw(a.ctx, r);
+    const themed = new Footprint({ ...style, cellTextColor: '#101010', cellTextColorHot: '#fefefe' });
+    themed.setBars([twoRows(30, 2)]);
+    const b = makeCtx(); themed.draw(b.ctx, r);
+    const text = (rec: RecordingContext): Op[] => rec.ops.filter((o) => o.type === 'fillText');
+    expect(text(b.rec).map((o) => o.fillStyle)).toEqual([
+      'rgba(16,16,16,0.45)', 'rgba(254,254,254,1)', 'rgba(16,16,16,0.9)', 'rgba(16,16,16,0.45)',
+    ]);
+    // Only the ink changed: same numbers in the same places on the same plates.
+    expect(text(b.rec).map((o) => [o.text, ...o.args])).toEqual(text(a.rec).map((o) => [o.text, ...o.args]));
+    expect(b.rec.ops.filter((o) => o.type === 'fill')).toEqual(a.rec.ops.filter((o) => o.type === 'fill'));
+  });
+
+  it('Footprint keeps the deltaVolume sign colour ahead of cellTextColor', () => {
+    const fp = new Footprint({ ...cellStyle, cells: 'deltaVolume', cellTextColor: '#101010' });
+    fp.setBars([computeFootprint(1, [
+      { price: 100.0, qty: 2, side: 'ask' }, { price: 100.0, qty: 9, side: 'bid' },
+    ], 0.05)]);
+    const { ctx, rec } = makeCtx();
+    fp.draw(ctx, rc());
+    const t = rec.ops.filter((o) => o.type === 'fillText');
+    // A negative row delta says which way it went in the sell colour. That is
+    // the number's meaning, not its theme, so the ink colour does not take it.
+    expect(t.find((o) => o.text === '-7')?.fillStyle).toBe('rgba(255,0,0,0.9)');
+    expect(t.find((o) => o.text === '11')?.fillStyle).toBe('rgba(16,16,16,0.9)');
+  });
 });
