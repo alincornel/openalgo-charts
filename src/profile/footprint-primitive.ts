@@ -104,8 +104,18 @@ export interface FootprintOptions {
    * Outline the bar's highest-volume row in this colour. Off when unset: the
    * `showPoc` tick is a mark in the margin, this rings the row itself, and a
    * ladder wants at most one of the two shouting.
+   *
+   * The ring is one closed rectangle around the whole row, both halves, and
+   * not a set of corner marks: the row is the unit the eye is being pointed
+   * at, and a bracket reads as the edges of a range instead.
    */
   pocOutline?: string;
+  /**
+   * Weight of that ring in media px, so it holds on a retina pane. Default 1.
+   * The rectangle is inset by half of it, so a fat ring stays inside its own
+   * row rather than bleeding over the ones above and below.
+   */
+  pocOutlineWidth: number;
   /**
    * Draw a row for every price between the bar's highest and lowest traded
    * level, including the ones nothing traded at (`0 x 0`). Off, the column is
@@ -206,6 +216,7 @@ export const DEFAULT_FOOTPRINT_OPTIONS: FootprintOptions = {
   candle: 'behind',
   candleWidthFactor: 0.22,
   showPoc: true,
+  pocOutlineWidth: 1,
   zeroFill: false,
   maxZeroFillRows: 400,
   pocColor: '#f0a020',
@@ -595,7 +606,7 @@ export class Footprint implements IPrimitive {
         if (o.pocOutline !== undefined) {
           // A stroke straddles its path, so inset by half a line width or the
           // outline bleeds into the rows above and below.
-          const lw = Math.max(1, Math.round(dpr));
+          const lw = Math.max(1, Math.round(o.pocOutlineWidth * dpr));
           ctx.strokeStyle = o.pocOutline;
           ctx.lineWidth = lw;
           ctx.strokeRect(x0 + lw / 2, top + lw / 2, colW - lw, h - lw);

@@ -48,6 +48,10 @@ Footprint: a readable ladder instead of a hairline mesh.
   plate. Unset, that automatic choice is unchanged, and a signed `deltaVolume`
   delta still keeps its own sell colour ahead of `cellTextColor`.
 
+- **`pocOutlineWidth`** (1), the weight of the `pocOutline` ring in media px,
+  so it holds on a retina pane. The ring is inset by half of it and stays one
+  closed rectangle around the whole POC row, which is now pinned by a test.
+
 - **`Footprint.layout()`**, returning `{ rowHeight, paneHeight, minTextHeight }`
   in media px from the last paint, for a host that sizes rows by legibility
   rather than by a fixed row count. `rowHeight` is the clamped draw height

@@ -101,7 +101,11 @@ delta, at an alpha set by how much of the bar's busiest row it carries. `'delta'
 **stacked-imbalance brackets down the edge still draw**: a run of imbalances is a structural
 read, not a cell colour, and `stackedImbalances: 0` is how you turn it off. `pocOutline` takes
 a colour and strokes the highest-volume row, for when the `showPoc` tick in the margin gets
-lost in a dense ladder.
+lost in a dense ladder. That ring is one closed rectangle around the whole row, both halves
+of it, rather than a set of corner marks: the row is what the eye is being pointed at, and a
+bracket reads as the edges of a range instead. `pocOutlineWidth` (1) is its weight in media
+px, so it holds on a retina pane, and the rectangle is inset by half of it so a fat ring
+stays inside its own row.
 
 ### Tinting from a plate
 

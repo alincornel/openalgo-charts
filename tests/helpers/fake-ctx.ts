@@ -50,7 +50,10 @@ export class RecordingContext {
     this.ops.push({ type: 'fillRect', args: [x, y, w, h], fillStyle: this.fillStyle });
   }
   public strokeRect(x: number, y: number, w: number, h: number): void {
-    this.ops.push({ type: 'strokeRect', args: [x, y, w, h], strokeStyle: this.strokeStyle });
+    // The line width comes along for the same reason `stroke` records it: a
+    // stroke's weight is context state, not an argument, so an option that
+    // changes only the weight would otherwise leave an identical op stream.
+    this.ops.push({ type: 'strokeRect', args: [x, y, w, h], strokeStyle: this.strokeStyle, lineWidth: this.lineWidth });
   }
   public setLineDash(d: number[]): void { this.ops.push({ type: 'setLineDash', args: [...d] }); }
   public rect(x: number, y: number, w: number, h: number): void { this.ops.push({ type: 'rect', args: [x, y, w, h] }); }

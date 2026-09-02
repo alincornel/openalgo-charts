@@ -726,7 +726,14 @@ describe('profile primitives render', () => {
     const { ctx, rec } = makeCtx();
     fp.draw(ctx, r);
     const cells = rec.ops.filter((o) => o.type === 'roundRect');
-    const box = rec.ops.filter((o) => o.type === 'strokeRect')[0];
+    const boxes = rec.ops.filter((o) => o.type === 'strokeRect');
+    const box = boxes[0];
+    // One closed rectangle around the whole row, not four corner marks: the
+    // row is the unit the eye is being pointed at, and a bracket reads as a
+    // range instead. Nothing is stroked as a path here.
+    expect(boxes).toHaveLength(1);
+    expect(rec.count('stroke')).toBe(0);
+    expect(rec.count('moveTo')).toBe(0);
     const [cx, cy, , ch] = cells[0].args;                       // POC row, bid half
     const right = cells[1].args[0] + cells[1].args[2];          // ask half's right edge
     const lw = 1;                                              // dpr 1
@@ -959,5 +966,28 @@ describe('profile primitives render', () => {
     // the number's meaning, not its theme, so the ink colour does not take it.
     expect(t.find((o) => o.text === '-7')?.fillStyle).toBe('rgba(255,0,0,0.9)');
     expect(t.find((o) => o.text === '11')?.fillStyle).toBe('rgba(16,16,16,0.9)');
+  });
+  it('Footprint pocOutlineWidth thickens the ring, in media px', () => {
+    const r = rc();
+    const ring = (o: Partial<FootprintOptions>, into: PrimitiveRenderContext): Op => {
+      const fp = new Footprint({ ...cellStyle, pocOutline: '#f0a020', ...o });
+      fp.setBars([twoRows(30, 2)]);
+      const { ctx, rec } = makeCtx();
+      fp.draw(ctx, into);
+      return rec.ops.filter((op) => op.type === 'strokeRect')[0];
+    };
+    // The default is the hairline the ladder shipped with.
+    expect(ring({}, r).lineWidth).toBe(1);
+    const thick = ring({ pocOutlineWidth: 3 }, r);
+    expect(thick.lineWidth).toBe(3);
+    // A stroke straddles its path, so the inset follows the width and a fat
+    // ring still lands inside its own row instead of over its neighbours.
+    expect(thick.args[0]).toBeCloseTo(ring({}, r).args[0] + 1);
+    expect(thick.args[2]).toBeCloseTo(ring({}, r).args[2] - 2);
+    // Media px, so the ring is the same weight on a retina pane: 1 becomes 2
+    // device px there and 3 becomes 6.
+    const hidpi = { ...r, dpr: 2 };
+    expect(ring({}, hidpi).lineWidth).toBe(2);
+    expect(ring({ pocOutlineWidth: 3 }, hidpi).lineWidth).toBe(6);
   });
 });
