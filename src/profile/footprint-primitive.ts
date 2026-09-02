@@ -244,6 +244,22 @@ export class Footprint implements IPrimitive {
     return this._stats;
   }
 
+  /**
+   * Row and pane geometry from the last paint, in media px, plus the threshold
+   * the numbers fade out under.
+   *
+   * This is the hook for a host that sizes its rows by LEGIBILITY rather than
+   * by a fixed row count: `paneHeight / rowsPerBar` is the height a row would
+   * get, and anything under `minTextHeight` renders as a heatmap however few
+   * rows there are. A host that fetches its ladder at a chosen row size (a
+   * `rowTicks` multiplier, say) can pick the finest one whose implied row
+   * height still clears the threshold, instead of guessing a row count.
+   * Zeroes before the first draw.
+   */
+  public layout(): { rowHeight: number; paneHeight: number; minTextHeight: number } {
+    return { rowHeight: this._rowH, paneHeight: this._plotH, minTextHeight: this._opts.minTextHeight };
+  }
+
   private _recomputeStats(): void {
     let cvd = 0;
     this._stats = this._bars.map((bar) => {

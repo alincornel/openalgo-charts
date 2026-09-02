@@ -635,4 +635,20 @@ describe('profile primitives render', () => {
     expect(Math.abs(y + h / 2 - r.priceScale.priceToY(100.05))).toBeLessThanOrEqual(1);
     expect(fp.stats()[0].poc).toBe(100.05);
   });
+
+  it('Footprint reports the row and pane geometry a host needs to size rows by legibility', () => {
+    const fine = new Footprint({ ...cellStyle, minTextHeight: 12 });
+    fine.setBars([twoRows(30, 2)]);
+    expect(fine.layout()).toEqual({ rowHeight: 0, paneHeight: 0, minTextHeight: 12 });  // nothing drawn yet
+    fine.draw(makeCtx().ctx, rc());
+    // 0.05 over a 5-point pane 400 px tall: 4 px a row, floored at 6, unreadable.
+    expect(fine.layout()).toEqual({ rowHeight: 6, paneHeight: 400, minTextHeight: 12 });
+
+    const coarse = new Footprint({ ...cellStyle, tickSize: 0.25, minTextHeight: 12 });
+    coarse.setBars([twoRows(30, 2)]);
+    coarse.draw(makeCtx().ctx, rc());
+    const l = coarse.layout();
+    expect(l.rowHeight).toBeCloseTo(20, 6);              // 0.25 over the same pane
+    expect(l.rowHeight).toBeGreaterThanOrEqual(l.minTextHeight);
+  });
 });
