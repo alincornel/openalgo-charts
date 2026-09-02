@@ -49,6 +49,10 @@
  *
  * **Opt-out.** `getBars({ ..., noCache: true })` always hits the network (and
  * refreshes the entry); `invalidate()` and `clear()` drop entries by hand.
+ *
+ * **Look before you leap.** `peek()` reports what is stored without fetching,
+ * for a host that wants to paint closed bars immediately and then ask for the
+ * tail itself. A miss inside `getBars` is a fetch, so it cannot express that.
  */
 import type { Bar, UTCSeconds } from '../model/bar';
 import type { BarsRequest, DataFeed, MarketDepth, UnsubscribeFn } from './types';
@@ -71,6 +75,20 @@ export interface CachedBars {
    * re-resolve. Null is impossible here: an entry whose bars have no knowable
    * close is never stored in the first place.
    */
+  nextClose: UTCSeconds;
+}
+
+/** What the store holds for one series, as reported by {@link BarCache.peek}. */
+export interface CachedPeek {
+  /** Closed bars inside the requested window, ascending. Clones. */
+  bars: Bar[];
+  /** Entry coverage start. */
+  from: UTCSeconds;
+  /** Entry coverage end (inclusive). */
+  to: UTCSeconds;
+  /** Wall clock (ms) when the tail was last revalidated. */
+  storedAt: number;
+  /** When the bar after the entry's coverage closes. */
   nextClose: UTCSeconds;
 }
 
@@ -174,6 +192,10 @@ export function barCloseSec(interval: string, barStartSec: UTCSeconds, zone?: st
   return nextBucketStart(b, barStartSec, zone);
 }
 
+// `from` and `to` are optional on `BarsRequest`, so a caller holding only the
+// three key fields (`invalidate`, `peek`) is already assignable here. Narrowing
+// the parameter to a `Pick` would reject a full request literal instead, on the
+// excess-property check.
 export function barCacheKey(req: BarsRequest): string {
   return `${req.symbol}|${req.exchange}|${req.interval}`;
 }
@@ -265,6 +287,36 @@ export class BarCache implements DataFeed {
     const bars = await this.source.getBars(req);
     await this._put(key, req.from, req.to, req.interval, bars);
     return bars;
+  }
+
+  /**
+   * What this cache holds for a series, without ever fetching.
+   *
+   * `getBars` cannot express "paint what you have, I will ask for the rest
+   * myself": a miss there IS a fetch. A live chart that wants to paint closed
+   * bars from disk in the frame it mounts, and only then request the tail,
+   * needs to look before it leaps. `peek` never fetches, never drops, never
+   * counts as a hit or a miss, and returns only bars this cache considers
+   * closed — the forming bar was dropped on store and is not here to be served.
+   * Coverage is reported as-is so the caller can see a left-edge gap.
+   */
+  public async peek(
+    req: Pick<BarsRequest, 'symbol' | 'exchange' | 'interval'> & { from?: UTCSeconds; to?: UTCSeconds },
+  ): Promise<CachedPeek | undefined> {
+    const key = barCacheKey(req);
+    const entry = await this._backing.get(key);
+    if (entry === undefined || entry.bars.length === 0) return undefined;
+    // An entry about to be extended must not be the next LRU victim.
+    this._index.set(key, { lastUsed: ++this._tick, bars: entry.bars.length });
+    const from = req.from ?? entry.bars[0].time;
+    const to = req.to ?? entry.bars[entry.bars.length - 1].time;
+    const bars: Bar[] = [];
+    for (const b of entry.bars) {
+      if (b.time < from) continue;
+      if (b.time > to) break;
+      bars.push({ ...b });
+    }
+    return { bars, from: entry.from, to: entry.to, storedAt: entry.storedAt, nextClose: entry.nextClose };
   }
 
   /**

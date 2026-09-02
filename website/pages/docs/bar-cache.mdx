@@ -189,11 +189,32 @@ then passed straight through, uncached.
 
 ```ts
 await feed.getBars({ ...req, noCache: true });  // always fetch, and refresh the entry
+await feed.peek(req);                           // read the entry, never fetch
 await feed.invalidate(req);                     // drop one series (symbol/exchange/interval)
 await feed.invalidate();                        // same as clear()
 await feed.clear();                             // drop everything this cache knows of
 feed.stats();                                   // { entries, bars, hits, misses, evictions }
 ```
+
+## Looking before you leap
+
+A miss inside `getBars` **is** a fetch, so it cannot express "paint what you have, I will ask
+for the rest myself". `peek` can: it never fetches, never drops an entry, and never counts as
+a hit or a miss.
+
+```ts
+const held = await feed.peek({ symbol: 'RELIANCE', exchange: 'NSE', interval: '1m' });
+if (held !== undefined) {
+  chart.setData(held.bars);                    // closed bars, on screen in this frame
+  const tail = await feed.getBars({ ...req, from: held.bars.at(-1)!.time - 8 * 60, to: nowSec, noCache: true });
+  // …and reconcile: everything from `tail[0].time` is the server's truth.
+}
+```
+
+It returns the entry's own coverage (`from`, `to`, `nextClose`) and `storedAt`, so a caller
+can see a left-edge gap and decide for itself whether the gap to the tail is worth stitching
+or whether a cold load is cheaper. Bars are clones, and only bars this cache considers closed
+are ever in there: the forming one was dropped on store.
 
 Requests with no `from` or no `to` pass straight through in both directions: an open-ended
 range cannot be reasoned about, because there is no way to say what the entry then covers.

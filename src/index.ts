@@ -212,7 +212,7 @@ export type { TickTimeframe, AggTick, BarUpdate, TickBarOptions } from './feed/t
 // gets it, not just OpenAlgoDataFeed.
 export { withBarCache, BarCache, barCacheKey, barCloseSec } from './feed/cache';
 export type {
-  BarCacheOptions, BarCacheStore, BarCacheStats, CachedBars, CachedBarsRequest, MaybePromise,
+  BarCacheOptions, BarCacheStore, BarCacheStats, CachedBars, CachedBarsRequest, CachedPeek, MaybePromise,
 } from './feed/cache';
 
 // interval registry: an interval code resolves to a bucketing rule, which is

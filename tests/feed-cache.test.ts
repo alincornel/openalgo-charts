@@ -614,3 +614,72 @@ describe('BarCache TTL as a tail gate', () => {
     expect(feed.count).toBe(2);
   });
 });
+
+describe('BarCache.peek', () => {
+  it('returns undefined for an unknown series without touching the feed', async () => {
+    const { feed, cache } = unionSetup();
+    expect(await cache.peek(UNION_REQ)).toBeUndefined();
+    expect(feed.count).toBe(0);
+  });
+
+  it('returns the cached closed bars and the entry coverage, without fetching', async () => {
+    const { store, feed, cache } = unionSetup();
+    await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 99 * MIN });
+    const before = cache.stats();
+    const peeked = (await cache.peek(UNION_REQ))!;
+    const entry = store.map.get(UNION_KEY)!;
+    expect(feed.count).toBe(1);
+    expect(peeked.bars.length).toBe(99);
+    // The forming bar was dropped on store, so it is not here to be served.
+    expect(peeked.bars[peeked.bars.length - 1].time).toBe(T0 + 98 * MIN);
+    expect(peeked.from).toBe(entry.from);
+    expect(peeked.to).toBe(entry.to);
+    expect(peeked.storedAt).toBe(entry.storedAt);
+    expect(peeked.nextClose).toBe(entry.nextClose);
+    // A peek is neither a hit nor a miss: it is a look, not a request.
+    expect(cache.stats()).toMatchObject({ hits: before.hits, misses: before.misses });
+  });
+
+  it('slices to the requested window', async () => {
+    const { cache } = unionSetup();
+    await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 99 * MIN });
+    const peeked = (await cache.peek({ ...UNION_REQ, from: T0 + 50 * MIN, to: T0 + 59 * MIN }))!;
+    expect(peeked.bars.length).toBe(10);
+    expect(peeked.bars[0].time).toBe(T0 + 50 * MIN);
+    // Coverage is still reported as-is, so the caller can see the left-edge gap.
+    expect(peeked.from).toBe(T0);
+  });
+
+  it('returns an entry the TTL would have rejected', async () => {
+    const store = new RecordingStore();
+    const feed = new StubFeed(makeBars(T0, 100));
+    let nowMs = UNION_NOW_MS;
+    const cache = withBarCache(feed, { storage: store, ttlMs: 10_000, now: () => nowMs });
+    await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 99 * MIN });
+    nowMs += 86_400_000;
+    const peeked = (await cache.peek(UNION_REQ))!;
+    expect(peeked.bars.length).toBe(99);
+    expect(feed.count).toBe(1);
+  });
+
+  it('hands out clones', async () => {
+    const { cache } = unionSetup();
+    await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 99 * MIN });
+    const first = (await cache.peek(UNION_REQ))!;
+    first.bars[0].close = -1;
+    first.bars.length = 1;
+    const second = (await cache.peek(UNION_REQ))!;
+    expect(second.bars.length).toBe(99);
+    expect(second.bars[0].close).toBe(100.5);
+  });
+
+  it('touches LRU recency so the peeked entry is not the next victim', async () => {
+    const { store, cache } = unionSetup({ max: 2 });
+    await cache.getBars({ ...UNION_REQ, symbol: 'A', from: T0, to: T0 + 99 * MIN });
+    await cache.getBars({ ...UNION_REQ, symbol: 'B', from: T0, to: T0 + 99 * MIN });
+    expect(await cache.peek({ ...UNION_REQ, symbol: 'A' })).toBeDefined(); // A is now the most recent
+    await cache.getBars({ ...UNION_REQ, symbol: 'C', from: T0, to: T0 + 99 * MIN }); // evicts B
+    expect(store.map.has('B|E|1m')).toBe(false);
+    expect((await cache.peek({ ...UNION_REQ, symbol: 'A' }))!.bars.length).toBe(99);
+  });
+});
