@@ -24,13 +24,13 @@ const bars = (n: number): Bar[] => Array.from({ length: n }, (_, i) => {
   return { time: 1700000000 + i * 60, open: c, high: c + 2, low: c - 2, close: c, volume: 10 };
 });
 
-function makeChart(): { chart: Chart; el: FakeElement; moves: Array<{ price: number | null }> } {
+function makeChart(painted = true): { chart: Chart; el: FakeElement; moves: Array<{ price: number | null }> } {
   const el = fakeDocument().createElement('div') as unknown as FakeElement;
   const chart = new Chart(el, {
     document: fakeDocument(),
     pixelRatio: () => 1,
     shortcuts: false,
-    raf: { schedule: (cb: () => void) => { cb(); return 1; }, cancel: () => {} },
+    raf: painted ? { schedule: (cb: () => void) => { cb(); return 1; }, cancel: () => {} } : { schedule: () => 0 },
   });
   chart.applySize(W, H);
   chart.addSeries('candlestick').setData(bars(120));
@@ -55,8 +55,13 @@ describe('long press summons the crosshair', () => {
     vi.advanceTimersByTime(500);
 
     // `not.toBeNull()` would pass on an empty list, which is exactly the state
-    // this test exists to reject, so the price has to BE a price.
-    expect(typeof last(moves)?.price).toBe('number');
+    // this test exists to reject, so the price has to BE a price, and one that
+    // could have come from this data: the bars run 93 to 107, and a pane that
+    // was never measured answers off a 0..1 placeholder scale instead.
+    const price = last(moves)?.price as number;
+    expect(typeof price).toBe('number');
+    expect(price).toBeGreaterThan(90);
+    expect(price).toBeLessThan(110);
     expect(chart.timeScale.rightOffset).toBe(offsetBefore);
   });
 
@@ -79,7 +84,9 @@ describe('long press summons the crosshair', () => {
     el.dispatch('pointerdown', touch('down', 300, 250));
     vi.advanceTimersByTime(500);
     el.dispatch('pointerup', touch('up', 300, 250));
-    expect(typeof last(moves)?.price).toBe('number');
+    const price = last(moves)?.price as number;
+    expect(price).toBeGreaterThan(90);
+    expect(price).toBeLessThan(110);
   });
 
   it('is dismissed by the next plain tap on the plot', () => {
@@ -121,6 +128,19 @@ describe('long press summons the crosshair', () => {
     // A mouse already has hover, and its crosshair follows the pointer without
     // being asked. Only the moves it makes should appear here, and it made none.
     expect(moves.filter((m) => m.price !== null)).toHaveLength(0);
+  });
+
+  it('reads a real price on a chart no frame has painted yet', () => {
+    // The pane's readout scale sits on its 0..1 placeholder until something
+    // measures it, so a long press between `setData` and the first frame used
+    // to report a crosshair price of about 0.5. Every other path that turns a
+    // y into a price scales the pane first; this one has to as well.
+    const { el, moves } = makeChart(false);
+    el.dispatch('pointerdown', touch('down', 300, 250));
+    vi.advanceTimersByTime(500);
+    const price = last(moves)?.price as number;
+    expect(price).toBeGreaterThan(90);
+    expect(price).toBeLessThan(110);
   });
 
   it('hideCrosshair puts it away and says so', () => {

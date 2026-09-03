@@ -3064,6 +3064,10 @@ export class Chart {
         this._dragging = false;
         this._pointerMoved = true;
         this._dragVelocity = 0;
+        // The pane has to be measured before its y is read as a price, or the
+        // crosshair reports a number off the 0..1 placeholder scale. Every
+        // other path that turns a y into a price does this first.
+        this._ensureScaled(p.pane);
         this._updateCursor(p.pane, p.x, p.localY, p.y);
       }, CROSSHAIR_PRESS_MS);
     }
