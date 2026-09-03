@@ -21,6 +21,7 @@ export {
   DEFAULT_VOLUME_PROFILE_PRIMITIVE_OPTIONS,
   type VolumeProfilePrimitiveOptions,
   type VolumeDisplayMode,
+  type VolumeProfileAnchor,
   type VolumeProfileSide,
 } from './volume-profile-primitive';
 export { computeTpo } from './tpo';

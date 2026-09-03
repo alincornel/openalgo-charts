@@ -13,11 +13,26 @@ import type { VolumeProfileFamilyResult, VolumeProfileSessionResult } from './vo
 
 export type VolumeDisplayMode = 'total' | 'buySell' | 'delta';
 export type VolumeProfileSide = 'left' | 'right';
+/**
+ * What the bars grow out of.
+ *
+ * `session` measures from the session's own edge on the TIME axis, so the
+ * profile travels with its bars: pan, and it moves. That is what a session or
+ * fixed-range profile wants, and it stays the default.
+ *
+ * `pane` measures from the pane's edge in PIXELS, ignoring time entirely, so
+ * the profile sits flush against the price axis and holds still. That is what a
+ * visible-range profile wants — its "session" is the viewport, and anchoring it
+ * to the last bar leaves a gap wherever the chart carries a right-hand offset.
+ */
+export type VolumeProfileAnchor = 'session' | 'pane';
 
 export interface VolumeProfilePrimitiveOptions {
   displayMode: VolumeDisplayMode;
-  /** Anchor the bars at the session's left or right edge. */
+  /** Which edge the bars grow out of — see `anchorTo` for WHICH edge that is. */
   side: VolumeProfileSide;
+  /** Measure `side` from the session's time span (default) or the pane. */
+  anchorTo: VolumeProfileAnchor;
   /** Maximum bar length in media px. */
   width: number;
   opacity: number;
@@ -44,6 +59,7 @@ export interface VolumeProfilePrimitiveOptions {
 export const DEFAULT_VOLUME_PROFILE_PRIMITIVE_OPTIONS: VolumeProfilePrimitiveOptions = {
   displayMode: 'total',
   side: 'right',
+  anchorTo: 'session',
   width: 90,
   opacity: 0.85,
   barColor: '#3b5168',
@@ -138,7 +154,16 @@ export class VolumeProfile implements IPrimitive {
     const yOf = (p: number): number => rc.priceScale.priceToY(p) * dpr;
     const rowH = Math.max(1, Math.abs(rc.priceScale.priceToY(s.poc) - rc.priceScale.priceToY(s.poc + tick)) * dpr);
     const widthDev = o.width * dpr;
-    const anchor = o.side === 'right' ? x1 : x0;
+    // The baseline the bars grow out of, and the tip they grow towards. With
+    // `anchorTo: 'pane'` the baseline is the pane's own edge in device px, so
+    // the band ignores where the session's bars happen to fall and stays put
+    // under a pan — the price axis starts at `plotWidth`, so that IS the right
+    // edge of the drawable area and nothing is clipped by or drawn over it.
+    const right = o.side === 'right';
+    const pane = o.anchorTo === 'pane';
+    const base = pane ? (right ? rc.plotWidth * dpr : 0) : right ? x1 : x0;
+    const tip = right ? base - widthDev : base + widthDev;
+    const bandLeft = Math.min(base, tip);
 
     let maxMetric = 0;
     for (const l of s.levels) {
@@ -153,7 +178,7 @@ export class VolumeProfile implements IPrimitive {
     if (o.highlightValueArea) {
       const yTop = yOf(s.vah) - rowH / 2;
       const yBot = yOf(s.val) + rowH / 2;
-      const fx = o.side === 'right' ? x1 - widthDev : x0;
+      const fx = bandLeft;
       ctx.globalAlpha = o.valueAreaFillOpacity;
       ctx.fillStyle = o.valueAreaFillColor;
       ctx.fillRect(fx, yTop, widthDev, yBot - yTop);
@@ -167,33 +192,48 @@ export class VolumeProfile implements IPrimitive {
       const y = yOf(l.price);
       const top = y - rowH / 2;
       const h = Math.max(1, rowH - 1);
-      let cursor = anchor;
+      let cursor = base;
       ctx.globalAlpha = alpha;
       for (const seg of this._segments(l, maxMetric, widthDev)) {
         if (seg.len <= 0) continue;
-        const x = o.side === 'right' ? cursor - seg.len : cursor;
+        const x = right ? cursor - seg.len : cursor;
         ctx.fillStyle = seg.color;
         ctx.fillRect(x, top, seg.len, h);
-        cursor = o.side === 'right' ? cursor - seg.len : cursor + seg.len;
+        cursor = right ? cursor - seg.len : cursor + seg.len;
       }
     }
     ctx.globalAlpha = 1;
 
-    // POC / VAH / VAL lines + labels across the session
+    // POC / VAH / VAL lines + labels across the session. None of this depends
+    // on price, so it is computed once here rather than per line.
+    //
+    // A pane-anchored band can sit outside the session's own time span, so the
+    // line is stretched to reach it: a POC line that stops short of the row it
+    // marks reads as a different level. And `labelSide` is meaningless under a
+    // pane anchor — one side of the band IS the price axis — so the label hangs
+    // off the bars' tip, the only side with room. Session anchoring keeps
+    // honouring the option, unchanged.
+    const lineFrom = pane ? Math.min(x0, bandLeft) : x0;
+    const lineTo = pane ? Math.max(x1, bandLeft + widthDev) : x1;
+    const labelAlign = (pane ? right : o.labelSide !== 'right') ? 'right' : 'left';
+    const pad = 3 * dpr;
+    const labelX = pane
+      ? (right ? tip - pad : tip + pad)
+      : (o.labelSide === 'right' ? x1 + pad : x0 - pad);
     const hline = (price: number, color: string, label: string): void => {
       const y = Math.round(yOf(price)) + 0.5;
       ctx.strokeStyle = color;
       ctx.lineWidth = Math.max(1, Math.round(dpr));
       ctx.beginPath();
-      ctx.moveTo(x0, y);
-      ctx.lineTo(x1, y);
+      ctx.moveTo(lineFrom, y);
+      ctx.lineTo(lineTo, y);
       ctx.stroke();
       if (label !== '') {
         ctx.font = `${9 * dpr}px ui-sans-serif, system-ui, sans-serif`;
         ctx.textBaseline = 'middle';
         ctx.fillStyle = color;
-        if (o.labelSide === 'right') { ctx.textAlign = 'left'; ctx.fillText(label, x1 + 3 * dpr, y); }
-        else { ctx.textAlign = 'right'; ctx.fillText(label, x0 - 3 * dpr, y); }
+        ctx.textAlign = labelAlign;
+        ctx.fillText(label, labelX, y);
       }
     };
     if (o.showValueArea) {

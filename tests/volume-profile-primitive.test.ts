@@ -67,3 +67,91 @@ describe('VolumeProfile primitive', () => {
     expect(empty.autoscaleInfo()).toBeNull();
   });
 });
+
+// ─── anchorTo: where the bars grow out of ───────────────────────────────────
+//
+// `makeRc` maps the session's end index (5) to media x 300, so with dpr 2 the
+// session's right edge is device x 600 while the pane's is `plotWidth * dpr` =
+// 1200. The two are far apart on purpose: every assertion below would pass by
+// accident if they coincided.
+
+function geometry() {
+  const rects: { x: number; w: number }[] = [];
+  const lines: { from: number; to: number }[] = [];
+  const texts: { x: number; align: string }[] = [];
+  let pendingFrom = 0;
+  let align = '';
+  const ctx = {
+    canvas: {}, globalAlpha: 1, fillStyle: '', strokeStyle: '', lineWidth: 1, font: '',
+    textBaseline: '',
+    get textAlign() { return align; },
+    set textAlign(v: string) { align = v; },
+    save() {}, restore() {}, beginPath() {},
+    moveTo(x: number) { pendingFrom = x; },
+    lineTo(x: number) { lines.push({ from: pendingFrom, to: x }); },
+    stroke() {},
+    fillRect(x: number, _y: number, w: number) { rects.push({ x, w }); },
+    fillText(_t: string, x: number) { texts.push({ x, align }); },
+  } as unknown as CanvasRenderingContext2D;
+  return { ctx, rects, lines, texts };
+}
+
+const SESSION_RIGHT_DEV = 600;
+const PANE_RIGHT_DEV = 1200;
+const WIDTH_DEV = 90 * 2;
+
+describe('VolumeProfile anchorTo', () => {
+  it('defaults to the session edge, so existing consumers do not move', () => {
+    const { result, t0 } = makeResult();
+    const explicit = new VolumeProfile(result, { anchorTo: 'session' });
+    const implicit = new VolumeProfile(result);
+    const a = geometry(); explicit.draw(a.ctx, makeRc(t0, t0 + 1800));
+    const b = geometry(); implicit.draw(b.ctx, makeRc(t0, t0 + 1800));
+    expect(b.rects).toEqual(a.rects);
+    expect(b.lines).toEqual(a.lines);
+    expect(b.texts).toEqual(a.texts);
+    // and that geometry really is the session's right edge, not the pane's
+    const rightmost = Math.max(...a.rects.map((r) => r.x + r.w));
+    expect(rightmost).toBe(SESSION_RIGHT_DEV);
+  });
+
+  it('anchors the band at the pane edge when asked, on the right', () => {
+    const { result, t0 } = makeResult();
+    const vp = new VolumeProfile(result, { anchorTo: 'pane', side: 'right' });
+    const g = geometry(); vp.draw(g.ctx, makeRc(t0, t0 + 1800));
+    const rightmost = Math.max(...g.rects.map((r) => r.x + r.w));
+    const leftmost = Math.min(...g.rects.map((r) => r.x));
+    expect(rightmost).toBe(PANE_RIGHT_DEV);
+    expect(leftmost).toBeGreaterThanOrEqual(PANE_RIGHT_DEV - WIDTH_DEV);
+  });
+
+  it('anchors at x=0 on the left, and never spills past the band', () => {
+    const { result, t0 } = makeResult();
+    const vp = new VolumeProfile(result, { anchorTo: 'pane', side: 'left' });
+    const g = geometry(); vp.draw(g.ctx, makeRc(t0, t0 + 1800));
+    expect(Math.min(...g.rects.map((r) => r.x))).toBe(0);
+    expect(Math.max(...g.rects.map((r) => r.x + r.w))).toBeLessThanOrEqual(WIDTH_DEV);
+  });
+
+  it('stretches the POC line to reach a pane-anchored band', () => {
+    const { result, t0 } = makeResult();
+    const vp = new VolumeProfile(result, { anchorTo: 'pane', side: 'right', showPoc: true });
+    const g = geometry(); vp.draw(g.ctx, makeRc(t0, t0 + 1800));
+    expect(g.lines.length).toBeGreaterThan(0);
+    // every line must span far enough right to touch the bars it marks
+    for (const l of g.lines) expect(Math.max(l.from, l.to)).toBeGreaterThanOrEqual(PANE_RIGHT_DEV - WIDTH_DEV);
+  });
+
+  it('keeps a pane-anchored label inside the pane, off the bars tip', () => {
+    const { result, t0 } = makeResult();
+    // labelSide 'right' would put the label past the pane edge, over the price
+    // axis — pane anchoring must ignore it and use the tip instead.
+    const vp = new VolumeProfile(result, { anchorTo: 'pane', side: 'right', labelSide: 'right' });
+    const g = geometry(); vp.draw(g.ctx, makeRc(t0, t0 + 1800));
+    expect(g.texts.length).toBeGreaterThan(0);
+    for (const t of g.texts) {
+      expect(t.x).toBeLessThan(PANE_RIGHT_DEV - WIDTH_DEV);
+      expect(t.align).toBe('right');
+    }
+  });
+});
