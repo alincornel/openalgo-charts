@@ -116,7 +116,7 @@ entry actually holds, and they fail for different reasons:
 | Gate | Test | Why |
 |---|---|---|
 | Tail freshness | `now - storedAt` is within `ttlMs`, **or** the ask ends short of the last two bar spans | A closed bar is immutable, so age alone says nothing about it. Only the recent tail can still change under you (a late print, a backend correction), so the TTL gates the tail and nothing else. |
-| Left edge | The entry holds `count` bars at or before `endSec` — or, for a window ask, its oldest bar is not newer than `from` — **or** the entry is `short` | Fewer bars than you asked for is a real gap, and painting a chart that silently starts late is worse than a refetch. A market that was shut is not a gap, and only the server can tell the two apart. |
+| Left edge | The entry holds `count` bars at or before `endSec` — or, for a window ask, its oldest bar is not newer than `from` — **or** the entry is `short` and that belief is younger than `ttlMs` | Fewer bars than you asked for is a real gap, and painting a chart that silently starts late is worse than a refetch. A market that was shut is not a gap, and only the server can tell the two apart. |
 | Right edge | The ask ends before the close of the last bar held, **or** the bar after it is still forming | Nothing new can have closed, so a fetch would return the same bars. |
 
 The right-edge gate is measured on the feed's **own bar grid** (`nextClose`), not against UTC
@@ -143,8 +143,19 @@ and it must guess: guess one way and it refetches an identical empty answer on e
 guess the other and it stops paging over a gap it could have filled. With it, both are
 answered by the party that knows.
 
-It is not a one-way door — a transient shortfall (a heal mid-flight, a hole in the server's
-store) must not end paging for the life of the entry — so it is cleared by:
+**It is a belief, not a fact, and it carries its age** in `shortAt`. A server clamp, a heal in flight or a
+store still filling all answer short for reasons that pass, so `short` is **re-checked once
+per `ttlMs`**: the first left-edge ask after the belief goes stale reaches the network, and
+either proves there is older history — the entry grows and the flag clears — or renews the
+belief for another TTL. An exhausted series therefore costs one probe per TTL, not a loop,
+and a transient shortfall costs one TTL of paging rather than the life of the entry.
+
+`shortAt` is deliberately **not** `storedAt`: the tail is revalidated on every new bar, so a
+clock shared with it would never grow old. For the same reason a tail fetch carries the
+previous stamp rather than renewing it — an answer that established nothing about the left
+edge cannot renew a verdict about it either.
+
+Besides the probe, `short` is cleared by:
 
 - any later answer that establishes the left edge in full;
 - a `maxBars` trim, after which the entry no longer holds the edge it was speaking about;
@@ -200,10 +211,23 @@ mean stringifying every entry on every write, which costs more than the cache sa
 single series larger than the whole `maxBars` budget is simply **not cached**, since it would
 evict everything else and then itself on the next write.
 
+### An entry is a window on the newest `maxBars` bars
+
 When a union pushes one entry past `maxBars`, the **newest** bars are kept: the oldest are the
-ones a scroll-back can refetch cheaply. The entry's coverage start moves up with them, so a
-request reaching further back misses and refetches rather than being served a series that
-silently starts late.
+ones a scroll-back can refetch cheaply, and the tail is what a reload paints and what a live
+subscription continues. That gives the entry one shape and three rules:
+
+- it never grows past `maxBars`;
+- it is **never shrunk below** that by an older page. A scroll-back past the window is
+  answered from the network and simply **not cached** — nothing is written, so a deep page
+  costs no IndexedDB traffic and cannot take the tail's place;
+- the left edge it no longer holds is no longer claimed: `short` is cleared by the trim, so a
+  request reaching further back misses and refetches rather than being served a series that
+  silently starts late.
+
+The one disjoint fetch that still **replaces** the entry is one that lands **newer** than
+everything it holds — a fortnight's absence, where the stale bars are behind a band nobody
+asked about and the tail is what is being replaced rather than thrown away.
 
 <Callout type="warning">
 **Over IndexedDB, keep `maxBars` in the low thousands.** Because a put now unions, an entry
@@ -307,7 +331,8 @@ The default store is an in-memory `Map`, and the engine will not reach for `loca
 IndexedDB itself: choosing a persistence layer is the host's business, one of them is
 synchronous and small and the other is asynchronous. Inject your own instead. Every store
 method may return a promise, and `CachedBars` (`{ bars, storedAt, nextClose, short? }`) is
-plain JSON, so it round-trips through `JSON.stringify` unchanged:
+plain JSON — `shortAt` rides beside `short` — so it round-trips through `JSON.stringify`
+unchanged:
 
 ```ts
 import { withBarCache, type BarCacheStore, type CachedBars } from 'openalgo-charts';
@@ -328,7 +353,7 @@ const feed = withBarCache(source, { storage: store, maxBars: 20_000 });
 
 <Callout type="warning">
 **The persisted shape changed in this release.** `CachedBars` no longer carries `from`/`to`;
-coverage is the bars, plus `short`. Entries written by an older version are missing `short`
+coverage is the bars, plus `short`/`shortAt`. Entries written by an older version are missing `short`
 and are simply read as "not known to be short", but a host that keyed its store on a
 namespace should **bump it** and let the old keys be swept — an entry whose left edge was
 established by a truncated answer would otherwise be trusted a little further than it earned.

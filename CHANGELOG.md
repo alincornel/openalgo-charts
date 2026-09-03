@@ -130,6 +130,22 @@ Footprint: a readable ladder instead of a hairline mesh.
   full answer, by a `maxBars` trim, and by `invalidate`/`clear`/`prune`; a
   merely sparse tail answer never sets it.
 
+- **`short` is a belief with an age, not a fact.** It carries `shortAt` and is
+  re-checked once per `ttlMs`. A transient shortfall — a server clamp, a heal in
+  flight, a store still filling — used to end paging for that series until
+  `prune`, a contract roll or a manual reset: a 144-bar page was served one bar
+  from disk with no request at all. One probe per TTL either proves there is
+  older history and clears the flag, or renews the belief. The stamp is
+  deliberately not `storedAt`, which the tail renews on every new bar.
+
+- **`maxBars` is a window on the newest bars, never a shrink.** A page older than
+  the window is answered from the network and not cached: it is no longer written
+  back after the trim discards it, and — the real bug — it can no longer REPLACE
+  the entry once a deep scroll-back's anchor walks past what the entry holds.
+  Measured at `maxBars: 5_000`, page 22 of a 1m scroll-back took the entry from
+  5000 bars to 144, invisibly, and made the next reload cold. Replacement now
+  survives only for a fetch landing NEWER than a stale entry.
+
 - Base engine budget 62 -> 63 kB, for the bar-indexed gates and the request
   adapter: 0.23 kB brotli measured against a 61.94 kB baseline.
 
