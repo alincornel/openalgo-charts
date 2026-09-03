@@ -109,8 +109,20 @@ export interface CachedBars {
    * Absent means "not known to be short". It is cleared by any later answer
    * that establishes the left edge in full, and by a `maxBars` trim, after
    * which the entry no longer holds the left edge it was speaking about.
+   *
+   * It is a BELIEF, not a fact, which is why it carries {@link
+   * CachedBars.shortAt}: a server clamp, a heal in flight or a store still
+   * filling all answer short for reasons that pass, and a belief with no age
+   * on it ends paging for that series until something drops the entry.
    */
   short?: boolean;
+  /**
+   * Wall clock (ms) when `short` was last established or confirmed. Only
+   * meaningful while `short` is true, and deliberately NOT `storedAt`: the tail
+   * is revalidated on every new bar, so a clock shared with it would never
+   * grow old and the belief would never be re-checked.
+   */
+  shortAt?: number;
 }
 
 /**
@@ -533,9 +545,13 @@ export class BarCache implements DataFeed {
     // that cannot be stored — the forming one above all — and gating on it
     // would miss on every live request.
     //
-    // Unless the entry is `short`: the server has already said it has no more,
-    // and asking again is an identical answer every time the user drags left.
-    if (entry.short !== true) {
+    // Unless the entry is `short` and that belief is still fresh: the server
+    // has said it has no more, and asking again is an identical answer every
+    // time the user drags left. But `short` is a belief with an age, so it is
+    // re-checked once per TTL — one request, which is the only thing that can
+    // prove there IS older history after a transient shortfall, and cheaper
+    // than a series that can never be paged again.
+    if (entry.short !== true || nowMs - (entry.shortAt ?? 0) > this._ttlMs) {
       if (ask.from !== undefined) {
         if (ask.from < entry.bars[0].time) return undefined;
       } else {
@@ -719,11 +735,19 @@ export class BarCache implements DataFeed {
     // coming back short says nothing about history and must not end paging.
     // A trim clears it, because the entry no longer holds the edge it spoke of.
     let short = answeredShort;
-    if (union && fresh[0].time > prevFirst) short = previous!.short === true;
+    let shortAt = nowMs;
+    if (union && fresh[0].time > prevFirst) {
+      short = previous!.short === true;
+      // Carried, not restamped: an answer that established nothing about the
+      // left edge cannot renew a belief about it either, or a chart taking its
+      // tail every minute would keep an exhausted verdict alive for ever.
+      shortAt = previous!.shortAt ?? nowMs;
+    }
     if (trimmed) short = false;
     return {
       bars,
       short,
+      shortAt,
       // `storedAt` answers "when was the TAIL last revalidated". An answer that
       // ends behind the newest bar the entry already held proves nothing about
       // it — and that is just as true when the fetch is disjoint enough to

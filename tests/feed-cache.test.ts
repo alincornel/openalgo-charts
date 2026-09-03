@@ -1143,3 +1143,66 @@ describe('BarCache request shapes', () => {
     expect(last10[9].time).toBe(T0 + 98 * MIN);
   });
 });
+
+/**
+ * `short` is a BELIEF WITH AN AGE, and the entry is a WINDOW on the newest
+ * `maxBars` bars. Both of those are things the first cut got wrong in the same
+ * direction: it treated a one-off answer as a permanent fact about the server.
+ */
+function beliefSetup(overrides: { ttlMs?: number; maxBars?: number; bars?: Bar[]; nowSec?: number } = {}) {
+  const store = new RecordingStore();
+  const feed = new CountFeed(overrides.bars ?? makeBars(T0, 40));
+  let nowMs = (overrides.nowSec ?? T0 + 40 * MIN) * 1000;
+  const cache = withBarCache(feed, {
+    storage: store,
+    ttlMs: overrides.ttlMs ?? 60_000,
+    maxBars: overrides.maxBars,
+    now: () => nowMs,
+  });
+  return { store, feed, cache, advanceMs: (ms: number) => { nowMs += ms; } };
+}
+
+describe('BarCache short is a belief with an age', () => {
+  const EXHAUSTED = { ...UNION_REQ, endSec: T0 + 39 * MIN, count: 200 };
+
+  it('stands without a request while the belief is fresh', async () => {
+    const { feed, cache, advanceMs } = beliefSetup();
+    await cache.getBars(EXHAUSTED);
+    expect(feed.count).toBe(1);
+    advanceMs(59_000);
+    await cache.getBars(EXHAUSTED);
+    expect(feed.count).toBe(1);
+  });
+
+  it('re-checks the left edge once the TTL has passed, and grows on the truth', async () => {
+    // The shortfall was transient: a server clamp, a heal in flight, a store
+    // still filling. Nothing about that answer is a fact about the market.
+    const { store, feed, cache, advanceMs } = beliefSetup();
+    await cache.getBars(EXHAUSTED);
+    expect(store.map.get(UNION_KEY)!.short).toBe(true);
+
+    feed.bars = makeBars(T0 - 210 * MIN, 250); // the backend comes back with its history
+    advanceMs(61_000);
+    const bars = await cache.getBars(EXHAUSTED);
+    expect(feed.count).toBe(2);
+    expect(bars.length).toBe(200);
+    const entry = store.map.get(UNION_KEY)!;
+    expect(entry.bars.length).toBe(200);
+    expect(entry.short).toBe(false);
+    expect(entry.bars[0].time).toBe(T0 - 160 * MIN);
+  });
+
+  it('probes a genuinely exhausted series at most once per TTL', async () => {
+    const { feed, cache, advanceMs } = beliefSetup();
+    await cache.getBars(EXHAUSTED);
+    advanceMs(61_000);
+    await cache.getBars(EXHAUSTED);
+    expect(feed.count).toBe(2); // one probe
+    await cache.getBars(EXHAUSTED);
+    await cache.getBars(EXHAUSTED);
+    expect(feed.count).toBe(2); // and the refreshed belief stands again
+    advanceMs(61_000);
+    await cache.getBars(EXHAUSTED);
+    expect(feed.count).toBe(3);
+  });
+});
