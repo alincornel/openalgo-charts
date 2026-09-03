@@ -3307,12 +3307,14 @@ export class Chart {
     // Always hit-test a clean click: the chart's own chrome (pane-legend
     // buttons) must work whether or not the host subscribed to clicks.
     if (!this._pointerMoved) {
-      // A tap on the plot dismisses a crosshair left there by a long press.
-      // Buttons never reach here (they return from the tap branch above), so
-      // whatever the crosshair put on screen stays tappable.
-      if (this._crosshairSticky) this.hideCrosshair();
       const isBottom = this._downPane === this._bottomPaneIndex();
       const hit = this._panes[this._downPane]?.hitTestPrimitives(this._downX - this._leftAxisWidth, this._downLocalY, this._renderContext(isBottom));
+      // A tap on EMPTY plot dismisses a crosshair left there by a long press.
+      // A tap on something is not plain, and must not clear it: a host button
+      // summoned by the crosshair reads the price the crosshair is showing, and
+      // clearing it here took that price away one line before the click that
+      // needed it was delivered. The host dismisses it itself when it is done.
+      if (hit == null && this._crosshairSticky) this.hideCrosshair();
       // Pane-legend buttons are the chart's own chrome — handle them here so
       // the host doesn't have to re-implement remove/hide/move/maximize.
       if (hit && this._handleLegendAction(hit.externalId)) return;

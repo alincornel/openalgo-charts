@@ -143,6 +143,42 @@ describe('long press summons the crosshair', () => {
     expect(price).toBeLessThan(110);
   });
 
+  it('survives a tap on something, because that tap may need its price', () => {
+    // The failure this pins: a host button that appears at the crosshair reads
+    // the crosshair's price when tapped, and the chart used to clear the
+    // crosshair one line before delivering that click, so the button always
+    // read null and did nothing.
+    const { chart, el, moves } = makeChart();
+    const price = chart.coordinateToPrice(200, 0) as number;
+    chart.trading.setPositions([
+      { id: 'p1', side: 'long', entryPrice: price, size: 1, tpButton: true, extentFromRight: 1 },
+    ]);
+    chart.applySize(W, H);
+    const onTp = vi.fn(() => {
+      // Read at delivery time, which is when a host reads it.
+      expect(last(moves)?.price).not.toBeNull();
+    });
+    chart.trading.on('trading:position_tp', onTp);
+
+    el.dispatch('pointerdown', touch('down', 300, 250));
+    vi.advanceTimersByTime(500);
+    el.dispatch('pointerup', touch('up', 300, 250));
+
+    let x = -1;
+    let hovered: string | null = null;
+    const off = chart.on('hover', (payload) => { hovered = (payload as { id: string | null }).id; });
+    for (let candidate = 0; candidate < 700; candidate += 2) {
+      el.dispatch('pointermove', pointer('move', candidate, 200, { buttons: 0 }));
+      if (hovered === 'pos:p1::tp') { x = candidate; break; }
+    }
+    off();
+    expect(x).toBeGreaterThan(-1);
+
+    el.dispatch('pointerdown', touch('down', x, 200));
+    el.dispatch('pointerup', touch('up', x, 200));
+    expect(onTp).toHaveBeenCalledTimes(1);
+  });
+
   it('hideCrosshair puts it away and says so', () => {
     const { chart, el, moves } = makeChart();
     el.dispatch('pointerdown', touch('down', 300, 250));
