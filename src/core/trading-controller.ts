@@ -7,7 +7,7 @@
  * framework-free API.
  */
 import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, ZOrder } from '../primitives/primitive';
-import { PriceLine, type PriceLineOptions } from '../primitives/price-line';
+import { PriceLine, type PriceLineOptions, type PriceLinePillSegment } from '../primitives/price-line';
 import { contrastText, roundRectPath } from '../render/pill';
 
 export type PositionSide = 'long' | 'short';
@@ -39,6 +39,17 @@ export interface TradingPosition {
    * line the overlay draws: see `DEFAULT_LINE_AUTOSCALE`.
    */
   autoscale?: boolean;
+  /**
+   * Offer a take-profit / stop-loss button on the pill, emitting
+   * `trading:position_tp` / `trading:position_sl` when tapped.
+   *
+   * The host decides when to show each one, because only the host knows
+   * whether this position already has that leg working at the broker. They are
+   * independent for the same reason: a position with a stop and no target
+   * should offer the target alone.
+   */
+  tpButton?: boolean;
+  slButton?: boolean;
 }
 
 export interface TradingOrder {
@@ -63,6 +74,13 @@ export interface TradingOrder {
   extentFromRight?: number;
   /** See `TradingPosition.autoscale`. */
   autoscale?: boolean;
+  /**
+   * Free text on the pill after the type label, for what the line is worth
+   * rather than what it is: the money a bracket makes or loses if it fills.
+   * Pre-formatted, like `pnlText`, because currency and precision are the
+   * host's business and this engine has no opinion on either.
+   */
+  note?: string;
 }
 
 export interface TradingTrade {
@@ -150,6 +168,14 @@ const DEFAULT_LINE_EXTENT = 0.3;
  * ask for it per entity.
  */
 const DEFAULT_LINE_AUTOSCALE = false;
+
+/**
+ * Width floor, media px, for a pill segment that exists to be tapped. `TP`
+ * measures about 27 px sized to its own glyphs, which is a fine mouse target
+ * and a poor thumb one, and these buttons place real orders. The box grows;
+ * the text stays where it is and centres inside it.
+ */
+const TOUCH_SEGMENT_W = 40;
 
 /** Nearest bar index to a UTC-seconds time (binary search over the sorted times). */
 function snapToIndex(dl: { length: number; indexToTime(i: number): number | undefined }, timeSec: number): number | undefined {
@@ -390,7 +416,9 @@ export class TradingController {
       if (cur !== undefined && cur.sig === sig) {
         cur.entity = entity;
         cur.line.setPrice(opts.price);
-        if (opts.leftLabel !== undefined) cur.line.setLeftLabel(opts.leftLabel);
+        // Everything the signature left out, patched in place: same primitive,
+        // same drag, new numbers.
+        cur.line.setOptions({ leftLabel: opts.leftLabel, note: opts.note, pillSegments: opts.pillSegments });
       } else {
         if (cur !== undefined) this._host.removePrimitive(cur.line);
         const line = new PriceLine(opts);
@@ -403,10 +431,18 @@ export class TradingController {
     }
   }
 
+  /**
+   * What makes a line a DIFFERENT line: its colour, its interactions, the
+   * shape of its pill. Text that moves with the market is deliberately absent
+   * (a position's P&L, the money on a bracket, a draft's quantity): those are
+   * patched onto the live primitive in `_sync`, and putting them here would
+   * tear the line down and rebuild it on every tick, flickering it and
+   * stranding any drag in progress.
+   */
   private _sig(o: PriceLineOptions): string {
     const segments = o.pillSegments?.map((segment) =>
-      `${segment.id ?? ''}:${segment.text ?? ''}:${segment.close === true}:${segment.fill ?? ''}`).join('|') ?? '';
-    return `${o.color}|${o.dashed}|${o.closeButton === true}|${o.cursor ?? ''}|${o.leftLabel !== undefined}|${o.badge ?? ''}|${o.qty ?? ''}|${o.extentFromRight ?? ''}|${o.autoscale === true}|${segments}`;
+      `${segment.id ?? ''}:${segment.close === true}:${segment.fill ?? ''}`).join('|') ?? '';
+    return `${o.color}|${o.dashed}|${o.closeButton === true}|${o.cursor ?? ''}|${o.leftLabel !== undefined}|${o.note !== undefined}|${o.badge ?? ''}|${o.qty ?? ''}|${o.extentFromRight ?? ''}|${o.autoscale === true}|${segments}`;
   }
 
   /** Info segment for a position: live P&L text (side/size live in badge/qty). */
@@ -415,18 +451,42 @@ export class TradingController {
     return `${p.pnlText}${p.pnlPercent !== undefined ? ` (${p.pnlPercent})` : ''}`;
   }
 
+  /**
+   * The pill as individually hit-testable segments, which is what it takes to
+   * put buttons on it. Built only when the host asked for one, so a position
+   * with no buttons keeps the classic badge/qty/label path and draws exactly
+   * as it did.
+   */
+  private _positionSegments(p: TradingPosition, color: string): PriceLinePillSegment[] | undefined {
+    if (p.tpButton !== true && p.slButton !== true) return undefined;
+    const id = `pos:${p.id}`;
+    const segments: PriceLinePillSegment[] = [
+      { text: p.side.toUpperCase(), fill: color },
+      { text: String(p.size) },
+    ];
+    const pnl = this._positionPill(p);
+    if (pnl !== '') segments.push({ text: pnl });
+    if (p.tpButton === true) segments.push({ id: `${id}::tp`, text: 'TP', fill: this._colors.tp, minWidth: TOUCH_SEGMENT_W });
+    if (p.slButton === true) segments.push({ id: `${id}::sl`, text: 'SL', fill: this._colors.sl, minWidth: TOUCH_SEGMENT_W });
+    if (p.readOnly !== true) segments.push({ id: `${id}${CLOSE_SUFFIX}`, close: true, minWidth: TOUCH_SEGMENT_W });
+    return segments;
+  }
+
   private _positionOpts(p: TradingPosition): PriceLineOptions {
     const lineOnly = p.variant === 'line-only';
+    const color = p.color ?? (p.side === 'long' ? this._colors.long : this._colors.short);
+    const pillSegments = lineOnly ? undefined : this._positionSegments(p, color);
     return {
       price: p.entryPrice,
-      color: p.color ?? (p.side === 'long' ? this._colors.long : this._colors.short),
+      color,
       lineWidth: 2,
       dashed: false,
       id: `pos:${p.id}`,
-      badge: lineOnly ? undefined : p.side.toUpperCase(),
-      qty: lineOnly ? undefined : p.size,
-      leftLabel: lineOnly ? undefined : this._positionPill(p),
-      closeButton: !lineOnly && p.readOnly !== true,
+      badge: lineOnly || pillSegments !== undefined ? undefined : p.side.toUpperCase(),
+      qty: lineOnly || pillSegments !== undefined ? undefined : p.size,
+      leftLabel: lineOnly || pillSegments !== undefined ? undefined : this._positionPill(p),
+      pillSegments,
+      closeButton: !lineOnly && pillSegments === undefined && p.readOnly !== true,
       extentFromRight: p.extentFromRight ?? DEFAULT_LINE_EXTENT,
       pillInsetFromRight: DEFAULT_LINE_EXTENT,
       autoscale: p.autoscale ?? DEFAULT_LINE_AUTOSCALE,
@@ -459,6 +519,7 @@ export class TradingController {
       badge: lineOnly || o.draft === true ? undefined : (o.bracketRole ?? o.side).toUpperCase(),
       qty: lineOnly || o.draft === true ? undefined : o.size,
       leftLabel: lineOnly || o.bracketRole !== undefined || o.draft === true ? undefined : o.type.replace('_', ' ').toUpperCase(),
+      note: lineOnly || o.draft === true ? undefined : o.note,
       pillSegments,
       closeButton: !lineOnly && o.draft !== true && o.readOnly !== true,
       extentFromRight: o.extentFromRight ?? DEFAULT_LINE_EXTENT,
@@ -479,6 +540,15 @@ export class TradingController {
         const id = base.slice(4);
         if (this._positions.has(id)) this._emit('trading:position_close', { positionId: id });
       }
+      return;
+    }
+    if (externalId.startsWith('pos:') && externalId.includes('::')) {
+      const separator = externalId.indexOf('::');
+      const id = externalId.slice(4, separator);
+      const action = externalId.slice(separator + 2);
+      if (!this._positions.has(id)) return;
+      if (action === 'tp') this._emit('trading:position_tp', { positionId: id });
+      else if (action === 'sl') this._emit('trading:position_sl', { positionId: id });
       return;
     }
     if (externalId.startsWith('ord:') && externalId.includes('::')) {

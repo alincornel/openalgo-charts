@@ -124,6 +124,13 @@ export interface PillSegment {
   id?: string;
   /** Text content; omit for a ✕ (close) segment. */
   text?: string;
+  /**
+   * Floor on the segment's width in media px, before dpr. A label sized to its
+   * own glyphs makes a fine mouse target and a poor thumb one: `TP` measures
+   * about 27 px, and a finger contact patch is nearer 40. Widen the box the
+   * text sits in rather than the text.
+   */
+  minWidth?: number;
   /** Render a ✕ glyph instead of text. */
   close?: boolean;
   fill: string;
@@ -156,7 +163,10 @@ export function drawPillGroup(
   opts: { height: number; padX: number; radius: number; gap: number; backplate?: string; maxX?: number; dpr: number },
 ): PillGroupMetrics {
   const { height, padX, radius, gap, dpr } = opts;
-  const widths = segments.map((s) => (s.close === true ? CLOSE_SEGMENT_W * dpr : ctx.measureText(s.text ?? '').width + padX * 2));
+  const widths = segments.map((s) => Math.max(
+    (s.minWidth ?? 0) * dpr,
+    s.close === true ? CLOSE_SEGMENT_W * dpr : ctx.measureText(s.text ?? '').width + padX * 2,
+  ));
   const total = widths.reduce((a, b) => a + b, 0) + gap * Math.max(0, segments.length - 1);
   const originX = opts.maxX === undefined ? x : Math.max(0, Math.min(x, opts.maxX - total));
   if (opts.backplate !== undefined) {
@@ -194,7 +204,10 @@ export function drawPillGroup(
       ctx.fillStyle = s.textColor;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      ctx.fillText(s.text ?? '', cx + padX, yCenter);
+      // Centre the glyphs in a box widened past them, or a padded touch target
+      // reads as left-aligned text with dead space stuck on the end.
+      const text = s.text ?? '';
+      ctx.fillText(text, cx + Math.max(padX, (w - ctx.measureText(text).width) / 2), yCenter);
     }
     if (s.id !== undefined) interactiveSegments.push({ id: s.id, x0: cx / dpr, x1: (cx + w) / dpr });
     cx += w + gap;

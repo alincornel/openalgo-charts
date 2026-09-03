@@ -96,6 +96,8 @@ The payload argument is typed `unknown` on both buses; destructure with a local 
 | `variant` | `'standard' \| 'line-only'` | no | `line-only` drops badge, qty, info and the cancel button |
 | `extentFromRight` | `number` | no | Fraction of the plot width the line spans, from the price axis. Default `0.3`; pass `1` for a full-width line |
 | `autoscale` | `boolean` | no | Default `false`: overlay lines do not widen the pane's price range. Pass `true` for a line that pulls itself into view |
+| `tpButton` | `boolean` | no | Adds a `TP` button to the pill; a tap emits `trading:position_tp` |
+| `slButton` | `boolean` | no | Adds an `SL` button to the pill; a tap emits `trading:position_sl` |
 
 Positions are drawn with a hard-coded `lineWidth: 2`, `dashed: false`. **Position lines are never draggable**: `_positionOpts` sets no `cursor`, so there is no `trading:position_modify` event.
 
@@ -120,6 +122,7 @@ Positions are drawn with a hard-coded `lineWidth: 2`, `dashed: false`. **Positio
 | `confirmLabel` | `string` | no | Draft submit label, default `CONFIRM` |
 | `extentFromRight` | `number` | no | As on `TradingPosition`. Default `0.3` |
 | `autoscale` | `boolean` | no | As on `TradingPosition`. Default `false` |
+| `note` | `string` | no | Extra pill segment after the type label, for what the line is worth if it fills. Pre-formatted by the host |
 
 **`lineStyle: 'dotted'` renders identically to `'dashed'`.** The controller collapses it to `dashed: (lineStyle ?? 'solid') !== 'solid'`; `PriceLine` has no dotted dash pattern.
 
@@ -183,11 +186,15 @@ Markers snap to the **nearest bar index**, not an exact time; sub-bar fill preci
 
 **`updatePositionPnl`'s second argument is discarded.** The source does `void unrealizedPnl`; only `pnlText` and `pnlPercent` reach the pill. Format the number yourself.
 
-Diffing: `_sync` recreates a line whenever `color | dashed | closeButton | cursor | hasLeftLabel | badge | qty | extentFromRight | autoscale` changes and otherwise patches `price` + `leftLabel` in place. Changing `size` therefore rebuilds the primitive; changing only `price` does not.
+Diffing: `_sync` recreates a line whenever its STRUCTURE changes (`color | dashed | closeButton | cursor | hasLeftLabel | hasNote | badge | qty | extentFromRight | autoscale`, plus each pill segment's id, close flag and fill) and otherwise patches `price`, `leftLabel`, `note` and `pillSegments` in place. Segment TEXT is deliberately outside the signature: a position's P&L and a bracket's money move with every print, and rebuilding the primitive at that rate would flicker the pill and strand a drag in progress.
+
+### Buttons on the position pill
+
+`tpButton` / `slButton` switch the position pill from the badge/qty/label form to individually hit-testable segments: `[LONG][qty][pnl][TP][SL][x]`. The buttons are independent, because a position that already has a stop should be offered the target alone, and the controller cannot know: only the host sees the broker's book. Each button is drawn at least 40 media px wide, which is a thumb target rather than a glyph.
 
 ## Event catalogue
 
-Eight events, all emitted from `src/core/trading-controller.ts`. Names carry the `trading:` prefix on **both** buses: `chart.trading.on('trading:order_modify', cb)` and `chart.on('trading:order_modify', cb)` are the two valid forms; a bare `'order_modify'` matches nothing.
+Ten events, all emitted from `src/core/trading-controller.ts`. Names carry the `trading:` prefix on **both** buses: `chart.trading.on('trading:order_modify', cb)` and `chart.on('trading:order_modify', cb)` are the two valid forms; a bare `'order_modify'` matches nothing.
 
 | Event | Payload | Fired by |
 |---|---|---|
@@ -199,6 +206,8 @@ Eight events, all emitted from `src/core/trading-controller.ts`. Names carry the
 | `trading:position_click` | `{ position: TradingPosition }` | Click on a position pill body |
 | `trading:order_draft_change` | `{ order: TradingOrder }` | Side, quantity or type action on a draft line |
 | `trading:order_submit` | `{ order: TradingOrder }` | Confirm action on a draft line |
+| `trading:position_tp` | `{ positionId: string }` | Click on `pos:<id>::tp`, the pill's `TP` button |
+| `trading:position_sl` | `{ positionId: string }` | Click on `pos:<id>::sl`, the pill's `SL` button |
 
 `_emit` fans out to the controller's own listeners and then mirrors through `host.emit?.(...)`, which is `Chart.emit`. A `chart.on` listener that throws is swallowed; a `chart.trading.on` listener that throws propagates.
 

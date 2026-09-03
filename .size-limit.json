@@ -11,7 +11,7 @@
       "dist/openalgo-charts.mjs",
       "dist/openalgo-charts.trade.mjs"
     ],
-    "limit": "70 kB",
+    "limit": "70.3 kB",
     "brotli": true
   },
   {
@@ -48,7 +48,7 @@
       "dist/openalgo-charts.indicators.mjs",
       "dist/openalgo-charts.draw.mjs"
     ],
-    "limit": "127.1 kB",
+    "limit": "127.5 kB",
     "brotli": true
   }
 ]

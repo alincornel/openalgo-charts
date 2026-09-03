@@ -33,6 +33,13 @@ export interface PriceLineOptions {
   /** Info text segment (order type, price, P&L ...) — the classic left tag text. */
   leftLabel?: string;
   /**
+   * A second info segment, drawn after `leftLabel`. Separate from it because
+   * the two carry different kinds of fact and change at different rates: the
+   * label says what the line IS (order type, side), the note says what it is
+   * currently WORTH, which moves with the market.
+   */
+  note?: string;
+  /**
    * Custom pill segments. When present these replace badge/qty/leftLabel/closeButton.
    * A segment with an id hit-tests independently, which lets trading tickets put
    * side, quantity, type and submit actions directly on the draggable line.
@@ -84,6 +91,8 @@ export interface PriceLinePillSegment {
   fill?: string;
   textColor?: string;
   border?: string;
+  /** Floor on the segment's width in media px, for a segment meant to be tapped. */
+  minWidth?: number;
 }
 
 /** Clamp an optional 0..1 fraction, falling back when it was not given. */
@@ -94,6 +103,14 @@ function fraction(value: number | undefined, fallback: number): number {
 
 /** Pill/segment height in media px (shared by draw + hit-test). */
 const TAG_H = 18;
+/**
+ * How far above and below the drawn pill still counts as a press on it, media
+ * px. Deliberately larger than half the pill: the pill is sized to look right
+ * at a glance, and an 18 px band is a comfortable mouse target and a poor
+ * thumb one. Widening the hit area rather than the drawing keeps the chart
+ * looking the same and still gives a finger something to land on.
+ */
+const PILL_HIT_H = 28;
 /** Gap between segments in media px. */
 const GAP = 2;
 
@@ -251,7 +268,8 @@ export class PriceLine implements IPrimitive {
 
     // segmented pill group on the line: [badge][qty][label][✕]
     const hasGroup = this._opts.pillSegments !== undefined || this._opts.badge !== undefined || this._opts.qty !== undefined ||
-      (this._opts.leftLabel !== undefined && this._opts.leftLabel !== '') || this._opts.closeButton === true;
+      (this._opts.leftLabel !== undefined && this._opts.leftLabel !== '') ||
+      (this._opts.note !== undefined && this._opts.note !== '') || this._opts.closeButton === true;
     if (hasGroup) {
       // neutral "surface" segments: opaque so the line doesn't run through text
       const transparentBg = rc.theme.background === 'transparent';
@@ -270,6 +288,7 @@ export class PriceLine implements IPrimitive {
             fill: segmentHovered ? shade(fill, 0.12) : fill,
             textColor: segment.textColor ?? (segment.fill === undefined ? surfaceText : contrastText(fill)),
             border: segment.border ?? (segmentHovered ? withAlpha(rc.theme.axisText, 0.85) : border),
+            minWidth: segment.minWidth,
           });
         }
       } else if (this._opts.badge !== undefined) {
@@ -285,6 +304,9 @@ export class PriceLine implements IPrimitive {
       }
       if (this._opts.pillSegments === undefined && this._opts.leftLabel !== undefined && this._opts.leftLabel !== '') {
         segments.push({ text: this._opts.leftLabel, fill: surface, textColor: surfaceText, border });
+      }
+      if (this._opts.pillSegments === undefined && this._opts.note !== undefined && this._opts.note !== '') {
+        segments.push({ text: this._opts.note, fill: surface, textColor: surfaceText, border });
       }
       if (this._opts.pillSegments === undefined && this._opts.closeButton === true) {
         segments.push({
@@ -316,7 +338,7 @@ export class PriceLine implements IPrimitive {
     // Inside the pill group (segment boxes are taller than the 4px line zone):
     // the ✕ segment routes as a click, the rest of the group drags the line.
     const g = this._group;
-    if (g !== null && distance <= TAG_H / 2 + 1 && x >= g.x0 && x <= g.x1) {
+    if (g !== null && distance <= PILL_HIT_H / 2 && x >= g.x0 && x <= g.x1) {
       const segment = g.segments.find((candidate) => x >= candidate.x0 && x <= candidate.x1);
       if (segment !== undefined) {
         return { externalId: segment.id, zOrder: 'normal', distance, cursor: 'pointer' };
