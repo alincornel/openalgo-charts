@@ -16,12 +16,40 @@ import { withBarCache, OpenAlgoDataFeed } from 'openalgo-charts';
 
 const feed = withBarCache(new OpenAlgoDataFeed(config), { ttlMs: 60_000 });
 
-const bars = await feed.getBars({ symbol: 'RELIANCE', exchange: 'NSE', interval: '5m', from, to });
+// A bar count and an end: "the last 500 bars you have at or before now".
+const bars = await feed.getBars({ symbol: 'RELIANCE', exchange: 'NSE', interval: '5m', endSec, count: 500 });
+// A clock window still works, and is answered as a window.
+const win = await feed.getBars({ symbol: 'RELIANCE', exchange: 'NSE', interval: '5m', from, to });
 ```
 
 A symbol switch and back, a timeframe flip and back, a reload, or a four-chart
 [linked grid](/docs/chart-linking) opening the same series in every pane: all of those hit
 the same entry instead of the network.
+
+## Ask for bars, not for a stretch of clock
+
+`{ endSec, count }` is the request shape this cache reasons in, and `{ from, to }` is
+adapted onto it. The difference only shows on a market that closes, and then it shows
+everywhere at once:
+
+| | asks for | on a Monday morning at 1m |
+|---|---|---|
+| `{ from: now - 2000 * 60, to: now }` | 33.3 hours of clock | 960 bars, because a 49-hour weekend sits inside that window |
+| `{ endSec: now, count: 2000 }` | 2000 bars | 2000 bars |
+
+A window is also unable to page back **across** the closure: to reach Friday from the
+Sunday open at one minute a bar you must ask for a window wider than 49 hours, and a chart
+that holds 960 bars asks for a window sized to what it holds. Every drag then repeats the
+same empty answer. A count has nothing to be wrong about — 144 more bars ending at the
+oldest bar painted walks over the weekend by itself, because the server counts bars too.
+
+<Callout type="info">
+This is why there is **no market calendar** in here, and why you should not add one to the
+host either. Weekends, a daily maintenance break, a per-product halt, ten holidays a year,
+four half days, all of it tz-aware across two DST regimes that desync for three weeks every
+spring: that is a second source of truth which is wrong the first January nobody updates it.
+The server already knows. Ask it for a count, and read `short` when it runs out.
+</Callout>
 
 ## Never serve the forming bar
 
@@ -56,8 +84,10 @@ completed history and re-fetch only the tail.
 
 ## The key deliberately excludes the range
 
-An entry is keyed `symbol | exchange | interval`. The requested `from` and `to` are **not**
-part of the key:
+An entry is keyed `symbol | exchange | interval`. What was requested is **not** part of the
+key, and it is not stored either — coverage **is** the bars. The left edge is `bars[0]`, the
+right edge is the close of the last bar, and nothing between them is claimed that is not
+held:
 
 - one entry per series holds the set that was fetched, and a **narrower** request is served
   by slicing it;
@@ -67,50 +97,67 @@ part of the key:
   requested `from`/`to` — the answer wins outright: a corrected close replaces the stored one
   and a bar the server no longer reports is deleted rather than left as a ghost. A truncated
   answer therefore cannot punch a hole through bars the server never spoke about;
-- the one case that still **replaces** is two ranges with a hole between them. Coverage is a
-  single interval, so a union across a gap would claim bars the entry does not hold, and a
-  later request inside the gap would be served short instead of refetching. "Hole" is judged
-  on the **bar grid**: a page whose last bar sits immediately before the entry's first one is
-  adjacent and unions, even though its requested `to` is a whole bar span short of the
-  entry's `from`. Miss a bar between the two and it replaces.
+- the one case that still **replaces** is a fetch separated from the entry by a band nobody
+  asked about. "Adjacent" is judged on the **bar grid** and on the **ask**, not on the
+  answer: a page whose last bar sits immediately before the entry's first one is adjacent
+  and unions, and so is a page that *asked* up to the entry's left edge and came back with
+  Friday's bars because the market was shut in between — that band was answered, and
+  answered empty. A fetch that stops short of the entry with an unasked band between them
+  replaces, because nothing has spoken for what is in it.
 
 Keying on the range would miss on every pan and on every "same chart, one bar later"
 reload, which is exactly the traffic a warm cache exists to remove.
 
 ## When a hit is allowed
 
-Three tests, all of which must pass. Age is one; the other two are the ends of the entry's
-coverage, and they fail for different reasons:
+Three tests, all of which must pass. Age is one; the other two are the ends of what the
+entry actually holds, and they fail for different reasons:
 
 | Gate | Test | Why |
 |---|---|---|
-| Tail freshness | `now - storedAt` is within `ttlMs`, **or** `req.to` stops short of the last two bar spans | A closed bar is immutable, so age alone says nothing about it. Only the recent tail can still change under you (a late print, a backend correction), so the TTL gates the tail and nothing else. |
-| Coverage start | `req.from` is not older than the entry's `from` | Older bars than the entry holds is a real gap at the left edge. Painting a chart that silently starts late is worse than a refetch. |
-| Coverage end | `req.to` is within the entry's `to`, **or** the bar after the last closed one is still forming | Nothing new can have closed, so a fetch would return the same bars. |
+| Tail freshness | `now - storedAt` is within `ttlMs`, **or** the ask ends short of the last two bar spans | A closed bar is immutable, so age alone says nothing about it. Only the recent tail can still change under you (a late print, a backend correction), so the TTL gates the tail and nothing else. |
+| Left edge | The entry holds `count` bars at or before `endSec` — or, for a window ask, its oldest bar is not newer than `from` — **or** the entry is `short` | Fewer bars than you asked for is a real gap, and painting a chart that silently starts late is worse than a refetch. A market that was shut is not a gap, and only the server can tell the two apart. |
+| Right edge | The ask ends before the close of the last bar held, **or** the bar after it is still forming | Nothing new can have closed, so a fetch would return the same bars. |
 
-The last gate is measured on the feed's **own bar grid** (`entry.to + 1 + intervalSec`),
-not against UTC midnight, so a daily Indian bar opening at 03:45 UTC is judged against its
-own session rather than the wrong boundary. The effect is what you want from a warm cache:
-yesterday's closed session stays usable for days, while the live tail is re-read once per
-TTL.
+The right-edge gate is measured on the feed's **own bar grid** (`nextClose`), not against UTC
+midnight, so a daily Indian bar opening at 03:45 UTC is judged against its own session rather
+than the wrong boundary. The effect is what you want from a warm cache: yesterday's closed
+session stays usable for days, while the live tail is re-read once per TTL.
+
+A window ask is deliberately gated on its own `from` rather than on the count it implies:
+a window ending at `now` always has room for one more bar than can ever be stored — the
+forming one — so counting it would miss on every live request.
 
 An entry past its TTL is **kept**, not deleted. Its closed bars are still the fastest correct
 paint available, and only the request that reaches into the tail pays for a refetch — which
 then rewrites the same entry. Drop one by hand with `invalidate()`.
 
-<Callout type="warning">
-**Out of hours, cap your `to` at the newest bar you have.** The cache cannot know a venue is
-shut, and it only allows a hit past its coverage while the next bar is still forming. Ask for
-`to: nowSec` at 21:00 on a closed market and every load refetches the tail — cheap, but not
-free, and the whole page comes back rather than the tail alone. A host that already has a
-session table should clamp instead:
+## `short`: the server's own word for "there is no more"
 
-```ts
-const to = marketOpen ? nowSec : lastBarTime;
-```
+An entry carries one boolean beside its bars. `short` is set when the fetch that established
+the entry's **left edge** asked for more bars than it got back, and it is the only evidence
+available that no older history exists.
 
-In the yfinance demo that single change turns a reload from "fetched 320 ms" into
-"warm 1 ms".
+Without it a chart cannot tell "the market was shut here" from "I have never fetched here",
+and it must guess: guess one way and it refetches an identical empty answer on every drag,
+guess the other and it stops paging over a gap it could have filled. With it, both are
+answered by the party that knows.
+
+It is not a one-way door — a transient shortfall (a heal mid-flight, a hole in the server's
+store) must not end paging for the life of the entry — so it is cleared by:
+
+- any later answer that establishes the left edge in full;
+- a `maxBars` trim, after which the entry no longer holds the edge it was speaking about;
+- `invalidate()`, `clear()` and `prune()`.
+
+A **tail** fetch that comes back short does not set it. Being short of a window's capacity
+somewhere in the middle of a session says nothing about how far back history goes.
+
+<Callout type="info">
+Out of hours a count ask is warm without any help from you: "the last 500 bars at or before
+now" is a question the entry can answer whether or not the venue is open. It is only the
+window shape that goes cold when nothing new can close, and the fix for that is to ask in
+bars.
 </Callout>
 
 ## What it actually buys you
@@ -177,33 +224,25 @@ store; a persistent host should set `maxBars` to roughly what its charts actuall
 | `maxBars` | `number` | `250_000` | Maximum total cached bars. |
 | `storage` | `BarCacheStore` | in-memory `Map` | Backing store. Sync or async. |
 | `now` | `() => number` | `Date.now` | Injectable clock, for tests and for a host with a server clock. |
-| `intervalSeconds` | `(interval: string) => number` | built-in token parser | Bar length for interval codes the parser does not know. Return `0` to disable caching for that code. |
+| `barCloses` | `(interval, barStartSec) => number \| null` | the [interval registry](/docs/custom-intervals) | When a bar that opened at `barStartSec` closes. `null` means "unknowable", and such a series is not cached at all. |
+| `timezone` | `string` | engine default | IANA zone for calendar intervals, where a month is not a fixed number of seconds. |
 
-The built-in parser reads the usual tokens and is **case-sensitive where it disambiguates**:
-lowercase `m` is minutes, uppercase `M` is months. Treating a monthly bar as a minute would
-make the cache believe a new bar had closed every 60 seconds. An unrecognised token falls
-back to 60 s, which errs toward refetching rather than toward serving something stale.
+Interval codes are resolved through the registry, which is **case-sensitive where it
+disambiguates**: lowercase `m` is minutes, uppercase `M` is months. Treating a monthly bar as
+a minute would make the cache believe a new bar had closed every 60 seconds.
 
 <Callout type="info">
-Register a [custom interval](/docs/custom-intervals) such as `1Q` and you should hand the
-cache its length too, since a code the parser does not recognise is gated at a minute:
-
-```ts
-import { withBarCache } from 'openalgo-charts';
-
-const feed = withBarCache(source, {
-  // Consulted only for codes the built-in parser does not recognise.
-  intervalSeconds: (code) => (code === '1Q' ? 92 * 86400 : 0),
-});
-```
-
-Return `0` for tick, Renko and range codes, whose bars have no clock length at all: they are
-then passed straight through, uncached.
+A code nothing recognises, and a tick or Renko series whose bars have no clock length at all,
+resolve to `null` — nothing says which of their bars are complete, so they are passed straight
+through, uncached, rather than guessed at. Register a
+[custom interval](/docs/custom-intervals) and the cache learns it with everything else.
 </Callout>
 
 ## Opting out and invalidating
 
 ```ts
+await feed.getBars({ ...req, endSec, count });  // the last `count` bars at or before `endSec`
+await feed.getBars({ ...req, from, to });       // a clock window, answered as a window
 await feed.getBars({ ...req, noCache: true });  // always fetch, and refresh the entry
 await feed.peek(req);                           // read the entry, never fetch
 await feed.invalidate(req);                     // drop one series (symbol/exchange/interval)
@@ -221,38 +260,36 @@ a hit or a miss.
 
 ```ts
 const req = { symbol: 'RELIANCE', exchange: 'NSE', interval: '1m' };
-const INTERVAL_SECONDS = 60;
 const OVERLAP_BARS = 8;   // re-read this many bars behind the newest one we hold
 
 const series = chart.addSeries('candlestick');
-const held = await feed.peek(req);
+const held = await feed.peek({ ...req, endSec: Math.floor(Date.now() / 1000), count: 500 });
 
 if (held !== undefined && held.bars.length > 0) {
   series.setData(held.bars);                       // closed bars, painted in this frame
-  const newest = held.bars[held.bars.length - 1].time;
   const tail = await feed.getBars({
     ...req,
-    from: newest - OVERLAP_BARS * INTERVAL_SECONDS,
-    to: Math.floor(Date.now() / 1000),
+    endSec: Math.floor(Date.now() / 1000),
+    count: OVERLAP_BARS,
     noCache: true,
   });
   // Everything from `tail[0].time` is the server's truth, deletions included.
   // The overlap is what catches a late print or a corrected close at the edge
-  // of what you held, so never ask from "the bar after the last one".
+  // of what you held, so never ask for "the bars after the last one".
 }
 ```
 
-It returns the entry's own coverage (`from`, `to`, `nextClose`) and `storedAt`, so a caller
-can see a left-edge gap and decide for itself whether the gap to the tail is worth stitching
-or whether a cold load is cheaper. Bars are clones, and only bars this cache considers closed
-are ever in there: the forming one was dropped on store.
+It returns `storedAt`, `nextClose` and `short` beside the bars, so a caller can tell a left
+edge the server has run out of from one it has simply not fetched yet, and decide whether the
+gap to the tail is worth stitching or a cold load is cheaper. Bars are clones, and only bars
+this cache considers closed are ever in there: the forming one was dropped on store.
 
 Two empty answers, meaning different things:
 
 | Answer | Means |
 |---|---|
 | `undefined` | Nothing is stored for this series. Load it cold. |
-| `{ bars: [], from, to, … }` | An entry exists, but the window you asked for falls outside it. The coverage fields say where its bars actually are, so widen the window rather than refetch. |
+| `{ bars: [], … }` | An entry exists, but nothing it holds is inside the window you asked for. Peek again without one to see where its bars are. |
 
 A peek touches LRU recency — an entry you are about to extend must not be the next victim.
 Nothing is written and nothing is evicted by the peek itself, but the touch **adopts** the
@@ -260,16 +297,17 @@ entry into this session's index, which is the whole point after a reload, and fr
 counts towards `max` and `maxBars`. A later put can therefore evict something on its behalf:
 a peek is free when it runs, not free afterwards.
 
-Requests with no `from` or no `to` pass straight through in both directions: an open-ended
-range cannot be reasoned about, because there is no way to say what the entry then covers.
+A request that is neither `{ endSec, count }` nor `{ from, to }` passes straight through in
+both directions, uncached: an open-ended ask cannot be reasoned about, because there is no
+way to say what the answer was meant to contain.
 
 ## Persisting across reloads
 
 The default store is an in-memory `Map`, and the engine will not reach for `localStorage` or
 IndexedDB itself: choosing a persistence layer is the host's business, one of them is
 synchronous and small and the other is asynchronous. Inject your own instead. Every store
-method may return a promise, and `CachedBars` is plain JSON, so it round-trips through
-`JSON.stringify` unchanged:
+method may return a promise, and `CachedBars` (`{ bars, storedAt, nextClose, short? }`) is
+plain JSON, so it round-trips through `JSON.stringify` unchanged:
 
 ```ts
 import { withBarCache, type BarCacheStore, type CachedBars } from 'openalgo-charts';
@@ -287,6 +325,14 @@ const store: BarCacheStore = {
 
 const feed = withBarCache(source, { storage: store, maxBars: 20_000 });
 ```
+
+<Callout type="warning">
+**The persisted shape changed in this release.** `CachedBars` no longer carries `from`/`to`;
+coverage is the bars, plus `short`. Entries written by an older version are missing `short`
+and are simply read as "not known to be short", but a host that keyed its store on a
+namespace should **bump it** and let the old keys be swept — an entry whose left edge was
+established by a truncated answer would otherwise be trusted a little further than it earned.
+</Callout>
 
 ### Pruning what this session cannot see
 

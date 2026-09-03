@@ -92,6 +92,37 @@ Footprint: a readable ladder instead of a hairline mesh.
   11.5 -> 11.8 is the four footprint cell options listed above: the plate
   ramp, the per-row volume bar, the cell text colours and the POC ring width.
 
+- **The bar cache asks for a COUNT and an END, and judges itself on the bars it
+  holds.** `getBars`/`peek` take `{ endSec, count }` — "the last `count` bars at
+  or before this instant" — beside the `{ from, to }` window, which is adapted
+  onto it and still answered as a window, so a host that never learned the new
+  shape is unaffected. `BarsRequest` gains optional `endSec`/`count`.
+
+  A clock window assumes the market never closes. On a Monday at one minute a
+  bar, `from = now - 2000 * 60` spans a 49-hour weekend and holds 960 of the
+  2000 bars asked for, and no window a chart holding 960 bars can compute is
+  wide enough to page back over that weekend — the left edge is a silent dead
+  end. A count has nothing to be wrong about.
+
+- **BREAKING (persisted shape): `CachedBars` is `{ bars, storedAt, nextClose,
+  short? }`.** `from` and `to` are gone: coverage IS the bars, so nothing can
+  claim a band it was never told about and then serve `[]` for it from disk.
+  `CachedPeek` drops them with it. Entries written by 1.9.2 still read (they
+  are simply "not known to be short"), but a host persisting to localStorage or
+  IndexedDB under a namespace should bump it and let the old keys be swept.
+
+- **`short`, the only evidence that history has ended.** Set when the fetch that
+  established an entry's left edge asked for more bars than it got back, and
+  reported by `peek`. Without it a chart cannot tell "the market was shut here"
+  from "I have never fetched here", and a client-side market calendar is the
+  alternative — a second source of truth that goes stale every year, differs per
+  product, and cannot know about an unplanned halt. It is cleared by any later
+  full answer, by a `maxBars` trim, and by `invalidate`/`clear`/`prune`; a
+  merely sparse tail answer never sets it.
+
+- Base engine budget 62 -> 63 kB, for the bar-indexed gates and the request
+  adapter: 0.23 kB brotli measured against a 61.94 kB baseline.
+
 ## 1.9.2
 
 Eight annotation tools, and the icon set that was missing for all of them.
