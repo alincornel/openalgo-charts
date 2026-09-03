@@ -129,6 +129,8 @@ chart.shortcuts?.on((e) => track(e.command)); // { command, combo, isCustom }; r
 
 The constructor sets `touch-action: none` on the container, so the browser does not steal pan or pinch. One finger pans both axes; two fingers pinch-zoom and pan; a double-tap raises the synthetic `dblclick` and resets the scale; a tap under 3 px of travel is a click and hit-tests primitives.
 
+A long press (450 ms, under 10 px of travel) on a touch pointer summons the crosshair at the finger, suspends the pan for the rest of that gesture, and leaves the crosshair on screen when the finger lifts. It is dismissed by the next plain tap on the plot, by `chart.hideCrosshair()`, or by a mouse leaving the plot. It stays because anything the crosshair reveals (a price-axis button, a host's own control) has to still be there once the finger is off the glass. A second finger makes the gesture a pinch and cancels the press; a mouse never long-presses, because it already hovers.
+
 A press that lands on a primitive hit reporting `cursor: 'pointer'` (a pill segment, a cancel `x`, a legend or panel control) does NOT pan. It is held as a tap and resolved on release, with up to 12 px of travel allowed, because a thumb rolls several pixels between contact and lift; travel beyond that abandons the press rather than converting it into a pan. Without this a finger could not work any on-chart button: the chart scrolled under it and the release was discarded.
 
 **A scrollable ancestor can still swallow touch before the chart sees it.** Put `touch-action: none` on the scroll container too, or move the chart out of the native-scroll region.

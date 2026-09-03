@@ -165,6 +165,8 @@ Core event names: `ready`, `crosshair:move`, `click`, `hover`, `drag`, `drag:end
 
 `CrosshairMoveEvent`: `time: number | null`, `index: number | null`, `price: number | null`, `bar: Bar | null`, `point: { x, y } | null`, `paneIndex?: number | null`. Every field is `null` on pointer-leave. The emitted payload also carries a `pressed: boolean` that the declared interface does not list.
 
+On touch there is no pointer-leave, so a crosshair summoned by a long press (see [interactions](interactions.md)) stays until the next plain tap on the plot or a call to `chart.hideCrosshair()`, which clears it and emits the all-null event. A host that draws something at the crosshair price depends on that: the crosshair has to outlive the finger for anything it reveals to be tappable.
+
 ## History paging
 
 ```ts

@@ -108,6 +108,48 @@ describe('position pill buttons', () => {
   });
 });
 
+describe('the pill on a phone-sized plot', () => {
+  /** The same context, at the plot width a 390 px phone actually gives. */
+  function narrowRc(): PrimitiveRenderContext {
+    return { ...rc(), plotWidth: 334, timeScale: rc().timeScale };
+  }
+
+  it('slides left to stay inside the plot instead of running under the axis', () => {
+    // 334 px of plot is a 390 px phone minus its price axis. The pill anchors
+    // at 30% from the right, which on a screen this narrow leaves nowhere near
+    // enough room for six segments, so it has to give ground to the left.
+    const line = new PriceLine({
+      price: 50, color: '#2f6df6', id: 'pos:p1', extentFromRight: 1, pillInsetFromRight: 0.3,
+      pillSegments: [
+        { text: 'LONG', fill: '#2f6df6' },
+        { text: '1' },
+        { text: '-$1,234.50' },
+        { id: 'pos:p1::tp', text: 'TP', fill: '#26a69a', minWidth: 40 },
+        { id: 'pos:p1::sl', text: 'SL', fill: '#ef5350', minWidth: 40 },
+        { id: 'pos:p1::close', close: true, minWidth: 40 },
+      ],
+    });
+    const context = narrowRc();
+    line.draw(new RecordingContext() as unknown as CanvasRenderingContext2D, context);
+
+    // Every button still answers, and none of them sits off the plot.
+    for (const id of ['pos:p1::tp', 'pos:p1::sl', 'pos:p1::close']) {
+      const x = firstXAnswering(line, context, id);
+      expect(x).not.toBeNull();
+      expect(x as number).toBeGreaterThanOrEqual(0);
+      expect(x as number).toBeLessThanOrEqual(context.plotWidth);
+    }
+  });
+
+  /** The leftmost x at which the line hit-tests as `id`, or null. */
+  function firstXAnswering(line: PriceLine, context: PrimitiveRenderContext, id: string): number | null {
+    for (let x = 0; x <= context.plotWidth; x += 1) {
+      if (line.hitTest(x, 200, context)?.externalId === id) return x;
+    }
+    return null;
+  }
+});
+
 describe('a pill segment is a target, not a glyph', () => {
   /** Draw a pill and report which id a press at (x, y) resolves to. */
   function pressed(line: PriceLine, x: number, y: number): string | null {

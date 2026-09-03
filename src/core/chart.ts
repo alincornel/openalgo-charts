@@ -40,6 +40,17 @@ const LEGEND_TOP_EPS = 12;
 const TAP_SLOP = 12;
 
 /**
+ * How long a finger has to rest before it summons the crosshair, in ms. A
+ * touch device has no hover, so a press is the only gesture left that can mean
+ * "tell me about this point" rather than "move the chart", and every mobile
+ * chart in existence spends the long press on exactly that.
+ */
+const CROSSHAIR_PRESS_MS = 450;
+
+/** How far the finger may travel before the press is a pan, not a long press. */
+const CROSSHAIR_PRESS_SLOP = 10;
+
+/**
  * How fast a drag's remembered velocity fades while the pointer is still down,
  * in ms. Short enough that a deliberate pause before releasing kills the fling,
  * long enough that the ordinary jitter between two move events does not.
@@ -534,6 +545,19 @@ export class Chart {
    * legend control), held until the release decides whether it was a tap.
    */
   private _tapId: string | null = null;
+  /** Pending long-press timer, while a finger is resting on the plot. */
+  private _crosshairPressTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The pointer currently steering the touch crosshair, if one is down. */
+  private _crosshairPointer: number | null = null;
+  /**
+   * A touch crosshair is on screen and outlives the gesture that summoned it.
+   *
+   * Sticky on purpose. The crosshair exists so the trader can read a level and
+   * then act on it, and anything he acts WITH (a price-axis button, a host's
+   * own control) has to still be there once the finger is off the glass. A
+   * crosshair that vanished on lift could be read and never used.
+   */
+  private _crosshairSticky = false;
   /** Where the drag was grabbed, in data space, so deltas start at the press. */
   private _dragFrom: { time: number; price: number } = { time: 0, price: 0 };
   private _paneResize: {
@@ -2923,7 +2947,8 @@ export class Chart {
     // aborted the rest of pointerdown — losing the divider grab, the axis-drag
     // arm, and the line-drag arm. Capture is an optimisation; never fatal.
     try { this._container.setPointerCapture?.(e.pointerId); } catch { /* not capturable */ }
-    if (this._pointers.size >= 2) { this._beginPinch(); return; } // second finger → pinch, skip single-drag
+    // A second finger is a pinch, and a pinch is not a long press.
+    if (this._pointers.size >= 2) { this._clearCrosshairPress(); this._beginPinch(); return; }
     this._downPane = p.pane;
     this._downX = p.x;
     this._downLocalY = p.localY;
@@ -3022,6 +3047,27 @@ export class Chart {
       return;
     }
 
+    // Touch has no hover, so the long press is the only gesture left that can
+    // mean "show me this point". A finger that rests here for a beat gets the
+    // crosshair; one that moves first is panning, and the timer is dropped.
+    if (e.pointerType !== 'mouse') {
+      this._clearCrosshairPress();
+      const pointerId = e.pointerId;
+      this._crosshairPressTimer = setTimeout(() => {
+        this._crosshairPressTimer = null;
+        if (!this._pointers.has(pointerId)) return;
+        this._crosshairPointer = pointerId;
+        this._crosshairSticky = true;
+        // The pan this press had armed is abandoned rather than finished: the
+        // gesture turned out to mean something else, and half a pan left
+        // behind would fling the chart on release.
+        this._dragging = false;
+        this._pointerMoved = true;
+        this._dragVelocity = 0;
+        this._updateCursor(p.pane, p.x, p.localY, p.y);
+      }, CROSSHAIR_PRESS_MS);
+    }
+
     this._dragging = true;
     this._pointerMoved = false;
     this._dragStartX = p.x;
@@ -3105,6 +3151,17 @@ export class Chart {
       this._pointerMoved = true;
       this._setHover(null);
     }
+    if (this._crosshairPressTimer !== null
+      && (Math.abs(p.x - this._downX) > CROSSHAIR_PRESS_SLOP || Math.abs(p.localY - this._downLocalY) > CROSSHAIR_PRESS_SLOP)) {
+      this._clearCrosshairPress();
+    }
+    // Steering the crosshair suspends the pan for the rest of the gesture,
+    // which is the whole reason no crosshair ever appeared on a phone: the
+    // move that would have moved it was being spent on scrolling the chart.
+    if (this._crosshairPointer === e.pointerId) {
+      this._updateCursor(p.pane, p.x, p.localY, p.y);
+      return;
+    }
     if (this._dragId !== null) {
       if (Math.abs(p.x - this._downX) > 3 || Math.abs(p.localY - this._downLocalY) > 3) this._dragMoved = true;
       const price = this._panes[this._downPane].yToPrice(p.localY);
@@ -3159,6 +3216,14 @@ export class Chart {
     // `subscribeClick` doubles: a legend's hide toggles twice and looks dead.
     if (this._endedPointers.has(e.pointerId)) { this._endedPointers.delete(e.pointerId); return; }
     this._pointers.delete(e.pointerId);
+    this._clearCrosshairPress();
+    if (this._crosshairPointer === e.pointerId) {
+      // The finger is off the glass but the crosshair stays: see
+      // `_crosshairSticky`. Nothing else about this gesture happens, or the
+      // release would also register as a click on whatever is under it.
+      this._crosshairPointer = null;
+      return;
+    }
     if (this._tapId !== null) {
       this._tapId = null;
       // A finger off the glass hovers nothing, so the pressed look has to be
@@ -3238,6 +3303,10 @@ export class Chart {
     // Always hit-test a clean click: the chart's own chrome (pane-legend
     // buttons) must work whether or not the host subscribed to clicks.
     if (!this._pointerMoved) {
+      // A tap on the plot dismisses a crosshair left there by a long press.
+      // Buttons never reach here (they return from the tap branch above), so
+      // whatever the crosshair put on screen stays tappable.
+      if (this._crosshairSticky) this.hideCrosshair();
       const isBottom = this._downPane === this._bottomPaneIndex();
       const hit = this._panes[this._downPane]?.hitTestPrimitives(this._downX - this._leftAxisWidth, this._downLocalY, this._renderContext(isBottom));
       // Pane-legend buttons are the chart's own chrome — handle them here so
@@ -3277,10 +3346,38 @@ export class Chart {
     this._onPointerUp(e);
   };
 
+  /** Drop a pending long press; the gesture turned out to be something else. */
+  private _clearCrosshairPress(): void {
+    if (this._crosshairPressTimer === null) return;
+    clearTimeout(this._crosshairPressTimer);
+    this._crosshairPressTimer = null;
+  }
+
+  /**
+   * Take the crosshair off the chart and say so, the way leaving the plot with
+   * a mouse does. Touch has no pointerleave, so a crosshair summoned by a long
+   * press has no way to end on its own: a host that acts on the crosshair (a
+   * price-axis button, an order ticket) needs to be able to put it away.
+   */
+  public hideCrosshair(): void {
+    this._clearCrosshairPress();
+    this._crosshairPointer = null;
+    this._crosshairSticky = false;
+    if (this._cursor === null) return;
+    this._cursor = null;
+    this._cursorPane = null;
+    this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Cursor));
+    for (const indicator of this._indicators) indicator.updateLegendValues();
+    const cleared = { time: null, index: null, price: null, bar: null, point: null, paneIndex: null };
+    this._crosshairCb?.(cleared);
+    this.emit('crosshair:move', cleared);
+  }
+
   private readonly _onPointerLeave = (): void => {
     this._pointerInside = false;
     this._feedTimeNav(null);
     if (this._dragId === null) this._setHover(null); // keep the active state while dragging
+    this._crosshairSticky = false;
     if (this._cursor !== null) {
       this._cursor = null;
       this._cursorPane = null;
@@ -3611,6 +3708,9 @@ export class Chart {
       this._remeasureHandle = null;
     }
     this._stopKinetic();
+    // A long press pending when the chart goes away would fire into a
+    // destroyed instance, which is the classic timer leak.
+    this._clearCrosshairPress();
     for (const indicator of this._indicators) indicator.remove();
     this._indicators.length = 0;
     this._resizeObserver?.disconnect();
