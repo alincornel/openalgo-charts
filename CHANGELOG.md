@@ -58,6 +58,16 @@ Footprint: a readable ladder instead of a hairline mesh.
   column floor. With `stackedImbalances` on it starts past the bracket lane.
   Unset, `volumeBarColor` gives each row its own direction.
 
+- **`deltaCell`**, styling the delta half of a `deltaVolume` row independently
+  of the volume half beside it. The two halves carry different quantities, one
+  directional and one not, and painted from the one plate the ladder reads as a
+  single block with the delta thrown away. `colorBy: 'delta'` takes the hue
+  from the delta's sign and the intensity from `|delta|` against the bar's
+  biggest `|row delta|`, and drops the sign-coloured number, since the plate is
+  now saying it. `baseColor`, `tintFloor`, `tintGain`, `tintCurve`, `textColor`
+  and `textColorHot` each fall back to the whole-cell option of the same name,
+  so the group is inert until one of them is set, and `bidAsk` rows ignore it.
+
 - **`cellTextColor`** and **`cellTextColorHot`**, the ink on a graded cell and
   on a saturated one. The automatic pair (white at 0.9, near-black once a cell
   saturates) is right over a dark pane and wrong over a light `cellBaseColor`

@@ -166,6 +166,45 @@ new Footprint({
 });
 ```
 
+### Colouring the delta half on its own
+
+The two halves of a `deltaVolume` row carry different quantities: one is directional, one is
+not. Painted from the same plate the ladder reads as a single block and the delta is thrown
+away, which is why the desktop terminals give the delta half a colour of its own.
+`deltaCell` does that, and every field in it is optional and falls back to the whole-cell
+option of the same name, so the group is inert until something in it is set.
+
+| Field | Default | What it does |
+|---|---|---|
+| `colorBy` | `'none'` | `'delta'` tints the plate by the row's own delta. `'none'` leaves it flat, which is what the mode has always drawn. |
+| `baseColor` | `cellBaseColor` | The plate the delta half ramps from. |
+| `tintFloor` / `tintGain` / `tintCurve` | the whole-cell values | The ramp off that plate. |
+| `textColor` / `textColorHot` | `cellTextColor` / `cellTextColorHot` | Ink on the plate, and ink once it saturates. |
+
+The **sign picks the hue** (buy when the delta is positive, sell when it is not) and the
+**intensity is `|delta|` against the bar's biggest `|row delta|`**, not against volume: a row
+that traded little but went one way still reads. The row carrying that biggest delta reaches
+the raw colour and counts as saturated, so it takes `textColorHot`.
+
+With `colorBy: 'delta'` the sign-coloured number is **dropped**: the plate says which way the
+row went, and sell ink on a sell plate cannot be read anyway. This is the same rule the
+ladder's own `colorBy: 'delta'` follows when it drops the saturated cell highlight. With
+`colorBy: 'none'` the number keeps the sign, since there is nowhere else for it to live.
+
+```ts
+new Footprint({
+  cells: 'deltaVolume',
+  cellBaseColor: '#a0a0a0',          // the volume half stays on the grey plate
+  deltaCell: {
+    colorBy: 'delta',
+    baseColor: '#12161c',            // a dark plate, so the hue is the signal
+    textColor: '#e8ecf2',
+  },
+});
+```
+
+`bidAsk` rows ignore `deltaCell` entirely: there is no delta half to paint.
+
 ### The ink on a cell
 
 Unset, the renderer picks the cell numbers' colour: white at 0.9 alpha on a graded cell,

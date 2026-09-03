@@ -32,6 +32,44 @@ export type FootprintCellMode = 'bidAsk' | 'deltaVolume';
 /** What sets a row's background colour. */
 export type FootprintColorMode = 'imbalance' | 'delta';
 
+/**
+ * Styling for the delta half of a `deltaVolume` row, independent of the volume
+ * half beside it.
+ *
+ * The two halves carry different quantities: one is directional and one is
+ * not. Painted from the one plate the ladder reads as a single block and the
+ * delta is thrown away, which is what every desktop terminal avoids by giving
+ * the delta half a colour of its own.
+ *
+ * Every field is optional and falls back to the whole-cell option of the same
+ * name, so the group is inert until something in it is set.
+ */
+export interface FootprintDeltaCell {
+  /** Plate the delta half ramps from. Falls back to `cellBaseColor`. */
+  baseColor?: string;
+  /**
+   * `'delta'` tints the plate by the row's own delta: the sign picks the buy
+   * or the sell colour, the intensity is |delta| against the bar's biggest
+   * |row delta|. `'none'` (the default) leaves the half flat, which is what
+   * the mode has always drawn.
+   */
+  colorBy?: 'delta' | 'none';
+  /** Ramp off `baseColor`, as `tintFloor` / `tintGain` / `tintCurve` are. */
+  tintFloor?: number;
+  tintGain?: number;
+  tintCurve?: 'linear' | 'sqrt';
+  /**
+   * Ink for the delta number. With `colorBy: 'delta'` the sign is already in
+   * the plate, so the sign-coloured number is dropped for this (or for
+   * `cellTextColor`, or white): sell ink on a sell plate cannot be read, and
+   * the ladder's own `colorBy: 'delta'` drops its duplicate signal the same
+   * way. With `colorBy: 'none'` the sign keeps the number.
+   */
+  textColor?: string;
+  /** Ink once the plate saturates, i.e. on the bar's biggest |row delta|. */
+  textColorHot?: string;
+}
+
 export interface FootprintOptions {
   /**
    * Full column width (both halves) in media px. Omit to derive it from the
@@ -201,6 +239,12 @@ export interface FootprintOptions {
   cellTextColor?: string;
   /** Ink for the numbers on a saturated (imbalanced) cell. */
   cellTextColorHot?: string;
+  /**
+   * Paint the delta half of a `deltaVolume` row on its own terms. Unset, both
+   * halves share one plate, which is what the mode has always drawn. Ignored
+   * unless `cells` is `deltaVolume`.
+   */
+  deltaCell?: FootprintDeltaCell;
   /** Cell corner radius in media px. */
   radius: number;
   /**
@@ -270,6 +314,13 @@ export function compactVol(v: number): string {
 }
 
 const signed = (v: number): string => (v >= 0 ? '+' : '') + compactVol(v);
+
+/** `floor + gain * curve(t)`, clamped: the shape every plate ramp has. */
+function ramp(t: number, floor: number, gain: number, curve: 'linear' | 'sqrt'): number {
+  const s = t > 0 ? t : 0;
+  const a = floor + gain * (curve === 'linear' ? s : Math.sqrt(s));
+  return a < 0 ? 0 : a > 1 ? 1 : a;
+}
 
 /** Blend two colours; `t` 0 → a, 1 → b. */
 function mix(a: string, b: string, t: number): string {
@@ -537,9 +588,11 @@ export class Footprint implements IPrimitive {
 
     let peak = 1;
     let volPeak = 1;
+    let deltaPeak = 1;
     for (const c of rows) {
       peak = Math.max(peak, c.bidVol, c.askVol);
       volPeak = Math.max(volPeak, c.bidVol + c.askVol);
+      deltaPeak = Math.max(deltaPeak, Math.abs(c.askVol - c.bidVol));
     }
 
     // Range line + body behind the cells: the bar is still a bar.
@@ -585,10 +638,12 @@ export class Footprint implements IPrimitive {
         this._cell(ctx, x0, top, colW - dpr, h, v, byDelta ? rowTint : Math.abs(v) / peak,
           color, base, false, textAlpha, dpr);
       } else if (o.cells === 'deltaVolume') {
-        // The delta column stays flat: the sign is in the number's colour, so
-        // the volume column is the only thing carrying intensity and the ladder
-        // reads as one gradient instead of two competing ones.
-        this._cell(ctx, x0, top, half - dpr, h, d, 0, base, base, false, textAlpha, dpr, d < 0 ? sell : undefined);
+        // Flat by default: the sign lives in the number's colour, so the volume
+        // column is the only thing carrying intensity and the ladder reads as
+        // one gradient instead of two competing ones. `deltaCell` is for the
+        // other reading, where the delta half is a heat map of its own.
+        const ds = this._deltaStyle(d, deltaPeak, base, buy, sell);
+        this._cell(ctx, x0, top, half - dpr, h, d, 0, base, base, ds.hot, textAlpha, dpr, ds.style);
         this._cell(ctx, x0 + half + dpr, top, half - dpr, h, total, rowTint,
           byDelta ? rowColor : mix(sell, buy, 0.5), base, flag !== undefined, textAlpha, dpr);
       } else {
@@ -702,12 +757,15 @@ export class Footprint implements IPrimitive {
   private _cell(
     ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number,
     value: number, tint: number, color: string, base: string,
-    hot: boolean, textAlpha: number, dpr: number, textColor?: string,
+    hot: boolean, textAlpha: number, dpr: number,
+    style?: { fill?: string; text?: string; textHot?: string },
   ): void {
     if (w <= 0) return;
     const o = this._opts;
-    // Saturated when imbalanced, otherwise a base→colour ramp.
-    ctx.fillStyle = hot ? color : mix(base, color, this._tint(tint));
+    // Saturated when imbalanced, otherwise a base→colour ramp. A caller that
+    // grades on something other than the cell's own share (the delta half)
+    // resolves its plate itself and hands it over.
+    ctx.fillStyle = style?.fill ?? (hot ? color : mix(base, color, this._tint(tint)));
     const r = Math.min(o.radius * dpr, h / 2, w / 2);
     ctx.beginPath();
     ctx.roundRect(x, y, w, h, r);
@@ -718,8 +776,8 @@ export class Footprint implements IPrimitive {
     // Zero-filled rows are context, not content: dimmer so the traded ladder
     // still reads at a glance.
     ctx.fillStyle = hot
-      ? withAlpha(o.cellTextColorHot ?? '#0d0f14', textAlpha)
-      : withAlpha(textColor ?? o.cellTextColor ?? '#ffffff', (value === 0 ? 0.45 : 0.9) * textAlpha);
+      ? withAlpha(style?.textHot ?? o.cellTextColorHot ?? '#0d0f14', textAlpha)
+      : withAlpha(style?.text ?? o.cellTextColor ?? '#ffffff', (value === 0 ? 0.45 : 0.9) * textAlpha);
     ctx.fillText(compactVol(value), x + w / 2, y + h / 2);
   }
 
@@ -735,10 +793,47 @@ export class Footprint implements IPrimitive {
    */
   private _tint(t: number): number {
     const o = this._opts;
-    const s = t > 0 ? t : 0;
-    if (o.cellBaseColor === undefined) return 0.08 + 0.62 * Math.sqrt(s);
-    const a = o.tintFloor + o.tintGain * (o.tintCurve === 'linear' ? s : Math.sqrt(s));
-    return a < 0 ? 0 : a > 1 ? 1 : a;
+    if (o.cellBaseColor === undefined) return 0.08 + 0.62 * Math.sqrt(t > 0 ? t : 0);
+    return ramp(t, o.tintFloor, o.tintGain, o.tintCurve);
+  }
+
+  /**
+   * The delta half's plate and ink, or the flat default when nothing asked for
+   * more. Graded on |delta| against the bar's biggest row delta rather than on
+   * volume, so a row that traded little but one-sided still reads.
+   */
+  private _deltaStyle(
+    d: number, deltaPeak: number, base: string, buy: string, sell: string,
+  ): { hot: boolean; style?: { fill?: string; text?: string; textHot?: string } } {
+    const o = this._opts;
+    const dc = o.deltaCell;
+    // A negative delta has always been written in the sell colour: with a flat
+    // plate the number is the only place the sign can live.
+    const sign = d < 0 ? sell : undefined;
+    if (dc === undefined) {
+      return { hot: false, style: sign === undefined ? undefined : { text: sign } };
+    }
+    if (dc.colorBy !== 'delta') {
+      return {
+        hot: false,
+        style: { fill: dc.baseColor, text: dc.textColor ?? sign, textHot: dc.textColorHot },
+      };
+    }
+    const amount = ramp(
+      Math.abs(d) / deltaPeak,
+      dc.tintFloor ?? o.tintFloor, dc.tintGain ?? o.tintGain, dc.tintCurve ?? o.tintCurve,
+    );
+    return {
+      // Saturated is the same idea it is for an imbalanced cell: the plate has
+      // reached the raw colour, and the ink has to change to stay readable.
+      hot: amount >= 1,
+      style: {
+        fill: mix(dc.baseColor ?? base, d >= 0 ? buy : sell, amount),
+        // The plate carries the sign now, so the number stops repeating it.
+        text: dc.textColor,
+        textHot: dc.textColorHot,
+      },
+    };
   }
 
   /** Price → imbalance side, using the diagonal (ask vs the bid one tick below). */

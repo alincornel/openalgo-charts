@@ -75,6 +75,7 @@ export {
   type FootprintDisplayMode,
   type FootprintCellMode,
   type FootprintColorMode,
+  type FootprintDeltaCell,
   type FootprintStatRow,
   type FootprintBarStats,
   type FootprintHover,

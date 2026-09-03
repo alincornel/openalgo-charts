@@ -6,7 +6,9 @@ import {
   computeFootprint, diagonalImbalances, cumulativeDelta, stackedImbalances, type ClassifiedTrade,
 } from '../src/profile/footprint';
 import { HorizontalProfile } from '../src/profile/profile-primitive';
-import { Footprint, compactVol, type FootprintOptions } from '../src/profile/footprint-primitive';
+import {
+  Footprint, compactVol, type FootprintOptions, type FootprintDeltaCell,
+} from '../src/profile/footprint-primitive';
 import { FootprintAggregator } from '../src/profile/footprint-aggregator';
 import { priceBuckets } from '../src/profile/profile-model';
 import type { Bar } from '../src/model/bar';
@@ -1037,5 +1039,87 @@ describe('profile primitives render', () => {
     expect(box.lineWidth).toBe(5);
     expect(box.args[3]).toBe(0);
     expect(box.args[2]).toBeGreaterThanOrEqual(0);
+  });
+  /**
+   * `deltaVolume` puts the row's delta beside its volume, and the two halves
+   * are different quantities: one is directional, one is not. Painting both
+   * from the same plate makes the ladder one block of grey and throws the
+   * delta away, so the delta half can be styled on its own.
+   */
+  const deltaBar = (): ReturnType<typeof computeFootprint> => computeFootprint(1, [
+    { price: 100.05, qty: 30, side: 'ask' },   // row delta +30, the bar's peak
+    { price: 100.00, qty: 15, side: 'bid' },   // row delta -15, half of it
+  ], 0.05);
+  const deltaStyle = { ...cellStyle, cells: 'deltaVolume' as const };
+  const paintDelta = (dc?: FootprintDeltaCell): RecordingContext => {
+    const fp = new Footprint(dc === undefined ? deltaStyle : { ...deltaStyle, deltaCell: dc });
+    fp.setBars([deltaBar()]);
+    const { ctx, rec } = makeCtx();
+    fp.draw(ctx, rc());
+    return rec;
+  };
+
+  it('Footprint leaves the deltaVolume halves as they were until deltaCell asks otherwise', () => {
+    const plain = paintDelta();
+    // An empty group is every sub-option unset, which has to mean today's
+    // ladder: one flat plate across both halves, sign in the number's colour.
+    const empty = paintDelta({});
+    expect(empty.ops).toEqual(plain.ops);
+    const f = cellFills(plain);
+    expect(f[0]).toBe(f[2]);            // both delta halves flat, and equal
+    const t = plain.ops.filter((o) => o.type === 'fillText');
+    expect(t.map((o) => o.text)).toEqual(['30', '30', '-15', '15']);
+    expect(t[2].fillStyle).toBe('rgba(255,0,0,0.9)');   // the sign is still ink
+  });
+
+  it('Footprint deltaCell colorBy delta tints the half by sign and magnitude', () => {
+    const rec = paintDelta({ colorBy: 'delta' });
+    const f = cellFills(rec);
+    // |delta| against the bar's biggest |row delta|, eased: +30 of 30 is the
+    // raw buy colour, -15 of 30 is sqrt(0.5) of the way to sell off the pane.
+    expect(f[0]).toBe('rgb(0,255,0)');
+    expect(f[2]).toBe('rgb(184,4,5)');
+    // The volume halves are untouched: they answer for volume, not direction.
+    const plain = cellFills(paintDelta());
+    expect([f[1], f[3]]).toEqual([plain[1], plain[3]]);
+  });
+
+  it('Footprint deltaCell takes its own plate and its own ramp', () => {
+    const rec = paintDelta({
+      colorBy: 'delta', baseColor: '#101418', tintFloor: 0.2, tintGain: 0.8, tintCurve: 'linear',
+    });
+    const f = cellFills(rec);
+    expect(f[0]).toBe('rgb(0,255,0)');      // 0.2 + 0.8 * 1, clamped to the colour
+    expect(f[2]).toBe('rgb(159,8,10)');     // 0.2 + 0.8 * 0.5 off #101418
+  });
+
+  it('Footprint deltaCell drops the sign ink once the plate carries the sign', () => {
+    const t = (dc: FootprintDeltaCell): (string | undefined)[] =>
+      paintDelta(dc).ops.filter((o) => o.type === 'fillText').map((o) => o.fillStyle);
+    // Flat plate: the number is the only place the sign can live, so it stays.
+    expect(t({ colorBy: 'none' })[2]).toBe('rgba(255,0,0,0.9)');
+    // Coloured plate: sell ink on a sell plate is unreadable, and the sign is
+    // already said once. Same rule the ladder's own `colorBy: 'delta'` follows.
+    expect(t({ colorBy: 'delta' })[2]).toBe('rgba(255,255,255,0.9)');
+    expect(t({ colorBy: 'delta', textColor: '#101010' })[2]).toBe('rgba(16,16,16,0.9)');
+    // The saturated row takes the hot ink, the way a saturated cell does.
+    expect(t({ colorBy: 'delta' })[0]).toBe('rgba(13,15,20,1)');
+    expect(t({ colorBy: 'delta', textColorHot: '#fefefe' })[0]).toBe('rgba(254,254,254,1)');
+  });
+
+  it('Footprint deltaCell leaves bidAsk rows alone', () => {
+    const r = rc();
+    const bars = [deltaBar()];
+    const plain = new Footprint(cellStyle);
+    plain.setBars(bars);
+    const a = makeCtx(); plain.draw(a.ctx, r);
+    const styled = new Footprint({
+      ...cellStyle, deltaCell: { colorBy: 'delta', baseColor: '#101418', textColor: '#101010' },
+    });
+    styled.setBars(bars);
+    const b = makeCtx(); styled.draw(b.ctx, r);
+    expect(b.rec.ops).toEqual(a.rec.ops);
+    expect(styled.stats()).toEqual(plain.stats());
+    expect(styled.autoscaleInfo()).toEqual(plain.autoscaleInfo());
   });
 });

@@ -79,14 +79,14 @@ Import only what you use. Each tier is a separate bundle that registers into the
 
 | Import | Contents | Brotli |
 |---|---|---|
-| `openalgo-charts` | Engine, 13 chart types, panes &amp; scales, primitives, registries, chart state, chart linking, bar cache, interval registry, trading overlay, OpenAlgo feeds | 61.9 KB |
+| `openalgo-charts` | Engine, 13 chart types, panes &amp; scales, primitives, registries, chart state, chart linking, bar cache, interval registry, trading overlay, OpenAlgo feeds | 62.2 KB |
 | `openalgo-charts/indicators` | 102 built-in indicators, the `registerIndicator` contract for your own, and the Tier-2 (external-data) contract | 27.3 KB |
 | `openalgo-charts/draw` | 43 drawing tools + a headless drawing controller and clipboard | 15.4 KB |
 | `openalgo-charts/transform` | Heikin Ashi, Renko, Range bars, Line Break, Point &amp; Figure, Kagi | 2.7 KB |
-| `openalgo-charts/profile` | Volume Profile, Market Profile (TPO), Footprint, order flow | 11.6 KB |
+| `openalgo-charts/profile` | Volume Profile, Market Profile (TPO), Footprint, order flow | 11.8 KB |
 | `openalgo-charts/trade` | Order / position / bracket tools + DOM ladder | 7.6 KB |
 
-Everything together is **126.53 KB Brotli**. Figures are the measured `size-limit` output. The trade tier is listed as its delta over the base, so loading base + trade costs 69.57 KB.
+Everything together is **126.90 KB Brotli**. Figures are the measured `size-limit` output. The trade tier is listed as its delta over the base, so loading base + trade costs 69.83 KB.
 
 ## What's built
 
@@ -227,13 +227,13 @@ Enforced in CI by [`size-limit`](./.size-limit.json). Nothing is excluded, becau
 
 | Bundle | Limit | Actual |
 |---|---|---|
-| Base engine | 62 KB | 61.94 KB |
-| Base + trade | 70 KB | 69.57 KB |
+| Base engine | 63 KB | 62.17 KB |
+| Base + trade | 70 KB | 69.83 KB |
 | Indicators tier | 30 KB | 27.27 KB |
 | Draw tier | 16 KB | 15.39 KB |
 | Transform tier | 5 KB | 2.66 KB |
-| Profile tier | 11.8 KB | 11.61 KB |
-| **Everything** | **127 KB** | **126.53 KB** |
+| Profile tier | 11.8 KB | 11.75 KB |
+| **Everything** | **127 KB** | **126.90 KB** |
 
 ## Documentation
 
