@@ -3037,7 +3037,7 @@ export class Chart {
     // finger never holds still, so the chart scrolled a few pixels under it,
     // `_pointerMoved` went true, and the release was discarded instead of
     // firing the click. Nothing moves until the release decides.
-    if (hit !== undefined && hit !== null && hit.cursor === 'pointer') {
+    if (hit?.cursor === 'pointer') {
       this._tapId = hit.externalId;
       // Touch has no hover, so this press is the only feedback a finger gets
       // that it landed on the button rather than beside it.
@@ -3366,7 +3366,9 @@ export class Chart {
     if (this._cursor === null) return;
     this._cursor = null;
     this._cursorPane = null;
+    // clear the crosshair from every pane (global vertical line)
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Cursor));
+    // No crosshair: legends fall back to the latest bar.
     for (const indicator of this._indicators) indicator.updateLegendValues();
     const cleared = { time: null, index: null, price: null, bar: null, point: null, paneIndex: null };
     this._crosshairCb?.(cleared);
@@ -3377,18 +3379,7 @@ export class Chart {
     this._pointerInside = false;
     this._feedTimeNav(null);
     if (this._dragId === null) this._setHover(null); // keep the active state while dragging
-    this._crosshairSticky = false;
-    if (this._cursor !== null) {
-      this._cursor = null;
-      this._cursorPane = null;
-      // clear the crosshair from every pane (global vertical line)
-      this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Cursor));
-      // Pointer left the plot: legends fall back to the latest bar.
-      for (const indicator of this._indicators) indicator.updateLegendValues();
-      const cleared = { time: null, index: null, price: null, bar: null, point: null, paneIndex: null };
-      this._crosshairCb?.(cleared);
-      this.emit('crosshair:move', cleared);
-    }
+    this.hideCrosshair();
   };
 
   private readonly _onWheel = (e: WheelEvent): void => {

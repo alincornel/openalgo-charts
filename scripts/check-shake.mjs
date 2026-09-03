@@ -30,7 +30,16 @@ const BUNDLE = new URL('../dist/openalgo-charts.mjs', import.meta.url).pathname.
 // editor plus the BarCache union/peek/prune work, and the pinned base 1639f1d
 // already measured 39.07 kB — over upstream's 39.00 before any of this landed.
 // Raised once. Do not raise it again without trimming something first.
-const LIMIT_BYTES = 39.5 * 1024;
+//
+// Raised to 39.7 kB on 2026-09-03, and the trim was done first: `hideCrosshair`
+// and `_onPointerLeave` had the same nine lines of crosshair teardown in both,
+// so the leave path now calls the public method, which is better code as well
+// as smaller. That recovered 0.03 kB of the 0.15 the pass added and the rest is
+// paid for. What it buys a host that only wanted a chart is a chart usable with
+// a thumb: a press on an on-chart button no longer pans the plot out from under
+// it, and a long press summons a crosshair, which a touch device had no way to
+// see at all. Neither is a trading feature; both are the chart's own input.
+const LIMIT_BYTES = 39.7 * 1024;
 
 // Absent from a chart-only build. Each is a string that appears in the adapter
 // source and nowhere in the rendering core.
