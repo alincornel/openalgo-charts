@@ -689,6 +689,16 @@ export class BarCache implements DataFeed {
       const endsInTime = Math.max(ask.endSec + 1, freshLast + spanAfter(freshLast)) >= prevFirst;
       union = startsInTime && endsInTime;
     }
+    // An older page the entry is not adjacent to must not TAKE ITS PLACE. This
+    // is the shape a deep scroll-back makes once `maxBars` has trimmed the
+    // entry: the painted anchor walks left past what the entry still holds, so
+    // the fetch stops being adjacent, and replacing there threw away the tail —
+    // the one part of an entry that must never go, since it is what a reload
+    // paints and what the live subscription continues. The page is answered
+    // from the network and simply not cached. Replacement survives for the
+    // other disjoint shape, a fetch NEWER than a stale entry after a long
+    // absence, where the tail is exactly what is being replaced.
+    if (prevBars.length > 0 && !union && freshLast < prevFirst) return undefined;
     let bars = fresh;
     if (union) {
       // The server is the truth for the range it ANSWERED, deletions included:
@@ -721,6 +731,12 @@ export class BarCache implements DataFeed {
       // then itself on the next write, so it is simply not cached.
       if (fresh.length > this._maxBars) return undefined;
       bars = bars.slice(bars.length - this._maxBars);
+      // The trim dropped everything this answer contributed, so the entry is
+      // already exactly what it would be written as. Writing it would move
+      // megabytes through IndexedDB to store what is there, and clear `short`
+      // on the way. An entry is a WINDOW on the newest `maxBars` bars; a page
+      // older than the window is not part of it.
+      if (freshLast < bars[0].time) return undefined;
       trimmed = true;
     }
     const last = bars[bars.length - 1];

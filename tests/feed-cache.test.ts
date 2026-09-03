@@ -527,13 +527,21 @@ describe('BarCache._put union', () => {
     expect(entry.bars[0].time).toBe(T0);
   });
 
-  it('still replaces when an older page leaves a bar-sized hole', async () => {
+  it('keeps the entry when an older page leaves a bar-sized hole', async () => {
+    // Not a union — the bar at T0+49m was never answered by anybody, and
+    // claiming it would make missing data look like a closure. Not a replace
+    // either: the page is older than everything the entry holds, and taking
+    // its place would throw the tail away. So the caller gets its page and the
+    // entry is left exactly as it was.
     const { store, cache } = unionSetup();
     await cache.getBars({ ...UNION_REQ, from: T0 + 50 * MIN, to: T0 + 99 * MIN, noCache: true });
-    await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 48 * MIN, noCache: true }); // T0+49m missing
+    const writes = store.sets.length;
+    const page = await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 48 * MIN, noCache: true });
+    expect(page.length).toBe(49);
     const entry = store.map.get(UNION_KEY)!;
     expect(entry.bars.length).toBe(49);
-    expect(entry.bars[0].time).toBe(T0);
+    expect(entry.bars[0].time).toBe(T0 + 50 * MIN);
+    expect(store.sets.length).toBe(writes);
   });
 
   it('replaces, not unions, when the two ranges leave a hole', async () => {
@@ -589,16 +597,17 @@ describe('BarCache._put union', () => {
     expect(store.map.get(UNION_KEY)!.storedAt).toBe(tailStoredAt);
   });
 
-  it('does not restart the freshness clock when a replace lands an older page', async () => {
+  it('does not restart the freshness clock for a disjoint older page', async () => {
     const { store, cache, setNow } = unionSetup();
     await cache.getBars({ ...UNION_REQ, from: T0 + 50 * MIN, to: T0 + 99 * MIN, noCache: true });
     const tailStoredAt = store.map.get(UNION_KEY)!.storedAt;
     setNow(UNION_NOW_MS + 60_000);
-    // A hole, so this replaces — but it is still an older page, and it
-    // revalidates nothing about any tail.
+    // A hole, so this is not a union — and being older than everything held,
+    // it is not a replacement either. It revalidates nothing about any tail.
     await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 40 * MIN, noCache: true });
     const entry = store.map.get(UNION_KEY)!;
-    expect(entry.bars.length).toBe(41);
+    expect(entry.bars.length).toBe(49);
+    expect(entry.bars[0].time).toBe(T0 + 50 * MIN);
     expect(entry.storedAt).toBe(tailStoredAt);
   });
 
@@ -1204,5 +1213,52 @@ describe('BarCache short is a belief with an age', () => {
     advanceMs(61_000);
     await cache.getBars(EXHAUSTED);
     expect(feed.count).toBe(3);
+  });
+});
+
+describe('BarCache maxBars is a window, not a shrink', () => {
+  async function filled() {
+    const setup = beliefSetup({ maxBars: 100, ttlMs: 10 * 60_000, bars: makeBars(T0, 300), nowSec: T0 + 300 * MIN });
+    await setup.cache.getBars({ ...UNION_REQ, endSec: T0 + 299 * MIN, count: 100 });
+    const entry = setup.store.map.get(UNION_KEY)!;
+    expect(entry.bars.length).toBe(100);
+    expect(entry.bars[0].time).toBe(T0 + 200 * MIN);
+    return setup;
+  }
+
+  it('leaves the entry alone for a page it has no room for', async () => {
+    const { store, cache } = await filled();
+    const writes = store.sets.length;
+    const page = await cache.getBars({ ...UNION_REQ, endSec: T0 + 200 * MIN - 1, count: 20 });
+    expect(page.length).toBe(20); // the caller still gets its page, from the network
+    const entry = store.map.get(UNION_KEY)!;
+    expect(entry.bars.length).toBe(100);
+    expect(entry.bars[0].time).toBe(T0 + 200 * MIN);
+    expect(store.sets.length).toBe(writes); // and nothing was written at all
+  });
+
+  it('never shrinks the entry to a page older than everything it holds', async () => {
+    // Page after page of a scroll-back: the painted anchor walks left past the
+    // trimmed window, so the fetch stops being adjacent to the entry. Replacing
+    // there took a full 100-bar entry down to the 20-bar page, throwing away
+    // the tail — the one part of an entry that must never go.
+    const { store, cache } = await filled();
+    await cache.getBars({ ...UNION_REQ, endSec: T0 + 200 * MIN - 1, count: 20 });
+    const page = await cache.getBars({ ...UNION_REQ, endSec: T0 + 180 * MIN - 1, count: 20 });
+    expect(page.length).toBe(20);
+    const entry = store.map.get(UNION_KEY)!;
+    expect(entry.bars.length).toBe(100);
+    expect(entry.bars[0].time).toBe(T0 + 200 * MIN);
+    expect(entry.bars[99].time).toBe(T0 + 299 * MIN);
+  });
+
+  it('still takes a fetch that lands NEWER than a stale entry', async () => {
+    // The other disjoint shape, and the one replacement exists for: a long
+    // absence, where the entry is a fortnight old and the fetch is today.
+    const { store, cache } = await filled();
+    const entry = store.map.get(UNION_KEY)!;
+    expect(entry.bars[0].time).toBe(T0 + 200 * MIN);
+    await cache.getBars({ ...UNION_REQ, endSec: T0 + 299 * MIN, count: 20, noCache: true });
+    expect(store.map.get(UNION_KEY)!.bars.length).toBe(100); // adjacent: still a union
   });
 });
