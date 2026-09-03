@@ -418,13 +418,18 @@ export class BarCache implements DataFeed {
    * needs to look before it leaps. `peek` never fetches, never drops, never
    * counts as a hit or a miss, and returns only bars this cache considers
    * closed — the forming bar was dropped on store and is not here to be served.
-   * Coverage is reported as-is so the caller can see a left-edge gap.
+   *
+   * It takes the same two request shapes `getBars` does: `{ endSec, count }`
+   * for "the last N bars you hold at or before this instant" — the seed a
+   * chart paints — or `{ from, to }` for a window. With neither, it hands back
+   * everything the entry holds. `short` comes back with the bars, and it is the
+   * answer to the question a peek cannot otherwise settle: fewer bars than you
+   * asked for means the server has no more, not that nobody has asked yet.
    *
    * Two empty answers, and they mean different things:
    *   - `undefined` — nothing is stored for this series. Load it cold.
-   *   - `{ bars: [], from, to, … }` — an entry EXISTS, but the requested window
-   *     falls outside what it holds. The coverage fields say where its bars
-   *     actually are, so a caller can widen the window instead of refetching.
+   *   - `{ bars: [], … }` — an entry EXISTS, but nothing it holds is inside the
+   *     window asked for. Peek again without one to see where its bars are.
    *
    * It does touch LRU recency, because an entry about to be extended must not
    * be the next victim. Nothing is written and nothing is evicted here, but the
@@ -433,22 +438,18 @@ export class BarCache implements DataFeed {
    * on it counts towards `max` and `maxBars`. So a peek can make a LATER put
    * evict on its behalf: it is free at the moment it runs, not free thereafter.
    */
-  public async peek(
-    req: Pick<BarsRequest, 'symbol' | 'exchange' | 'interval'> & { from?: UTCSeconds; to?: UTCSeconds },
-  ): Promise<CachedPeek | undefined> {
+  public async peek(req: BarsRequest): Promise<CachedPeek | undefined> {
     const key = barCacheKey(req);
     const entry = await this._backing.get(key);
     if (entry === undefined || entry.bars.length === 0) return undefined;
     // An entry about to be extended must not be the next LRU victim.
     this._index.set(key, { lastUsed: ++this._tick, bars: entry.bars.length });
-    const from = req.from ?? entry.bars[0].time;
-    const to = req.to ?? entry.bars[entry.bars.length - 1].time;
-    const bars: Bar[] = [];
-    for (const b of entry.bars) {
-      if (b.time < from) continue;
-      if (b.time > to) break;
-      bars.push({ ...b });
-    }
+    const bars = sliceBars(entry.bars, {
+      endSec: req.endSec ?? req.to ?? entry.bars[entry.bars.length - 1].time,
+      // A window is answered as a window: `count` narrows a peek that gave one.
+      count: req.count ?? entry.bars.length,
+      from: req.from,
+    });
     return { bars, storedAt: entry.storedAt, nextClose: entry.nextClose, short: entry.short === true };
   }
 

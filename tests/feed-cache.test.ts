@@ -1097,3 +1097,49 @@ describe('BarCache short answers', () => {
     expect(store.map.get(UNION_KEY)!.short).toBe(false);
   });
 });
+
+describe('BarCache request shapes', () => {
+  it('peeks the last N bars at or before an instant', async () => {
+    const { feed, cache } = gapSetup();
+    await cache.getBars({ ...GAP_REQ, endSec: GAP_NOW_SEC, count: 100 });
+    const seed = (await cache.peek({ ...GAP_REQ, endSec: GAP_NOW_SEC, count: 40 }))!;
+    expect(feed.count).toBe(1);
+    expect(seed.bars.length).toBe(40);
+    expect(seed.bars[seed.bars.length - 1].time).toBe(GAP_POST_OPEN + (GAP_POST - 1) * MIN);
+    // 40 bars ending now spans the weekend, so eight of them are Friday's.
+    expect(seed.bars[0].time).toBe(T0 + (GAP_PRE - 8) * MIN);
+    expect(seed.short).toBe(false);
+    // and a windowless peek still hands back everything the entry holds
+    expect((await cache.peek(GAP_REQ))!.bars.length).toBe(100);
+  });
+
+  it('reports the server having run out to a peek', async () => {
+    const { cache } = gapSetup();
+    await cache.getBars({ ...GAP_REQ, endSec: GAP_NOW_SEC, count: 2000 });
+    const held = (await cache.peek(GAP_REQ))!;
+    expect(held.short).toBe(true);
+    expect(held.bars.length).toBe(GAP_PRE + GAP_POST);
+  });
+
+  it('serves a range request from an entry a count request filled', async () => {
+    // The two shapes are one model, so a host that never learned the count
+    // shape is served from an entry the count shape wrote — and still gets its
+    // window, not the count that window implies.
+    const { feed, cache } = gapSetup();
+    await cache.getBars({ ...GAP_REQ, endSec: GAP_NOW_SEC, count: 100 });
+    const window = await cache.getBars({ ...GAP_REQ, from: GAP_POST_OPEN, to: GAP_NOW_SEC });
+    expect(feed.count).toBe(1);
+    expect(window.length).toBe(GAP_POST);
+    expect(window[0].time).toBe(GAP_POST_OPEN);
+  });
+
+  it('serves a count request from an entry a range request filled', async () => {
+    const { feed, cache } = unionSetup();
+    await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 99 * MIN });
+    const last10 = await cache.getBars({ ...UNION_REQ, endSec: T0 + 98 * MIN, count: 10 });
+    expect(feed.count).toBe(1);
+    expect(last10.length).toBe(10);
+    expect(last10[0].time).toBe(T0 + 89 * MIN);
+    expect(last10[9].time).toBe(T0 + 98 * MIN);
+  });
+});
