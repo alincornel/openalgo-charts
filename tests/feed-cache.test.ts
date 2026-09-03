@@ -953,3 +953,109 @@ describe('BarCache.prune', () => {
     expect(store.deletes).not.toContain(UNION_KEY);
   });
 });
+
+/**
+ * The model this cache is built on: a history request is a COUNT and an END,
+ * and the only thing that ever says "there is no more history" is the server
+ * answering short.
+ *
+ * The grid below is the shape a futures chart actually meets on a Monday: 600
+ * one-minute bars, a 49-hour weekend hole, then 32 bars of the new session. A
+ * clock window is wrong about it in both directions — 100 minutes ending "now"
+ * contains 32 bars, and no window narrow enough to be honest reaches Friday —
+ * while a bar count is not wrong about it at all.
+ */
+const GAP_PRE = 600;                                   // Friday's session, 1m bars
+const GAP_HOLE = 49 * 3600;                            // Fri 16:00 CT -> Sun 17:00 CT
+const GAP_POST_OPEN = T0 + GAP_PRE * MIN + GAP_HOLE;   // the new session's first bar
+const GAP_POST = 32;                                   // what has printed by "Monday 09:00"
+const GAP_NOW_SEC = GAP_POST_OPEN + GAP_POST * MIN + 30;
+const GAP_KEY = 'ES|CME|1m';
+const GAP_REQ = { symbol: 'ES', exchange: 'CME', interval: '1m' };
+
+/** The backend's own contract: "the last `count` closed bars at or before `endSec`". */
+class CountFeed implements DataFeed {
+  public calls: BarsRequest[] = [];
+  public bars: Bar[];
+
+  public constructor(bars: Bar[]) {
+    this.bars = bars;
+  }
+
+  public get count(): number {
+    return this.calls.length;
+  }
+
+  public async getBars(req: BarsRequest): Promise<Bar[]> {
+    this.calls.push({ ...req });
+    const end = req.endSec ?? req.to;
+    const upto = end === undefined ? this.bars : this.bars.filter((b) => b.time <= end);
+    const n = req.count;
+    const taken = n === undefined ? upto : upto.slice(Math.max(0, upto.length - n));
+    return taken.map((b) => ({ ...b }));
+  }
+}
+
+function gapSetup(nowSec = GAP_NOW_SEC) {
+  const store = new RecordingStore();
+  const feed = new CountFeed([...makeBars(T0, GAP_PRE), ...makeBars(GAP_POST_OPEN, GAP_POST)]);
+  const cache = withBarCache(feed, { storage: store, ttlMs: 60_000, now: () => nowSec * 1000 });
+  return { store, feed, cache };
+}
+
+describe('BarCache bar-count requests across a session gap', () => {
+  it('stores the bars it was given, not the ones inside a clock window', async () => {
+    const { store, feed, cache } = gapSetup();
+    const bars = await cache.getBars({ ...GAP_REQ, endSec: GAP_NOW_SEC, count: 100 });
+    expect(feed.count).toBe(1);
+    // 100 bars: the 32 that have printed since the open, and 68 from Friday. A
+    // 100-minute window ending now would have held the 32 alone.
+    expect(bars.length).toBe(100);
+    const entry = store.map.get(GAP_KEY)!;
+    expect(entry.bars.length).toBe(100);
+    expect(entry.bars[0].time).toBe(T0 + (GAP_PRE - 68) * MIN);
+    expect(entry.bars[entry.bars.length - 1].time).toBe(GAP_POST_OPEN + (GAP_POST - 1) * MIN);
+    // and asking for the same count again is a hit, sliced from those bars
+    const again = await cache.getBars({ ...GAP_REQ, endSec: GAP_NOW_SEC, count: 100 });
+    expect(feed.count).toBe(1);
+    expect(again.length).toBe(100);
+  });
+
+  it('pages older across the gap and keeps both runs', async () => {
+    const { store, feed, cache } = gapSetup();
+    await cache.getBars({ ...GAP_REQ, endSec: GAP_NOW_SEC, count: GAP_POST });
+    expect(store.map.get(GAP_KEY)!.bars.length).toBe(GAP_POST);
+
+    // The page the chart asks for when the user drags past the open: 20 more
+    // bars ending just before the oldest one it holds. The server walks back
+    // over the weekend by itself and answers with Friday's last 20.
+    const page = await cache.getBars({ ...GAP_REQ, endSec: GAP_POST_OPEN - 1, count: 20 });
+    expect(feed.count).toBe(2);
+    expect(page.length).toBe(20);
+    expect(page[0].time).toBe(T0 + (GAP_PRE - 20) * MIN);
+    expect(page[page.length - 1].time).toBe(T0 + (GAP_PRE - 1) * MIN);
+
+    // Both runs are held: the band between them was ANSWERED (the request
+    // reached the entry's left edge and the server put no bars in it), so this
+    // is a union, and coverage is the bars rather than a claim about a window.
+    const entry = store.map.get(GAP_KEY)!;
+    expect(entry.bars.length).toBe(20 + GAP_POST);
+    expect(entry.bars[0].time).toBe(T0 + (GAP_PRE - 20) * MIN);
+    // and the same page again is served from those bars
+    const repeat = await cache.getBars({ ...GAP_REQ, endSec: GAP_POST_OPEN - 1, count: 20 });
+    expect(feed.count).toBe(2);
+    expect(repeat.map((b) => b.time)).toEqual(page.map((b) => b.time));
+  });
+
+  it('records the server running out, and stops asking again', async () => {
+    const { store, feed, cache } = gapSetup();
+    const all = await cache.getBars({ ...GAP_REQ, endSec: GAP_NOW_SEC, count: 2000 });
+    expect(all.length).toBe(GAP_PRE + GAP_POST);
+    // The short answer is the ONLY evidence that no older bars exist. Without
+    // it the cache would refetch for ever, one identical empty page at a time.
+    expect(store.map.get(GAP_KEY)!.short).toBe(true);
+    const again = await cache.getBars({ ...GAP_REQ, endSec: GAP_NOW_SEC, count: 2000 });
+    expect(feed.count).toBe(1);
+    expect(again.length).toBe(GAP_PRE + GAP_POST);
+  });
+});
