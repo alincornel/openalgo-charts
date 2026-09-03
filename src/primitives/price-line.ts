@@ -44,6 +44,19 @@ export interface PriceLineOptions {
    * partial-width order line. The right-axis tag is always drawn.
    */
   extentFromRight?: number;
+  /**
+   * Where the pill group sits, as a fraction of the plot width measured from
+   * the right axis. Defaults to `extentFromRight`, so nothing that predates
+   * this option moves.
+   *
+   * It is a separate knob because the two answer different questions. How far
+   * the line reaches is about reading the level across the plot; where the
+   * pill sits is about where the buttons are. Tying them together means a line
+   * lengthened to full width drags its cancel button to the far left edge,
+   * over the oldest bars on screen and as far as it can get from the price the
+   * trader is actually watching.
+   */
+  pillInsetFromRight?: number;
   /** Draw a cancel (✕) segment at the end of the pill group; hit-tests as `${id}::close`. */
   closeButton?: boolean;
   /** Stable id returned by hit-test (for click/drag routing). */
@@ -59,6 +72,12 @@ export interface PriceLinePillSegment {
   fill?: string;
   textColor?: string;
   border?: string;
+}
+
+/** Clamp an optional 0..1 fraction, falling back when it was not given. */
+function fraction(value: number | undefined, fallback: number): number {
+  if (value === undefined) return fallback;
+  return Math.max(0, Math.min(1, value));
 }
 
 /** Pill/segment height in media px (shared by draw + hit-test). */
@@ -148,8 +167,10 @@ export class PriceLine implements IPrimitive {
     const dpr = rc.dpr;
     const lineWidth = this._opts.lineWidth ?? 1;
     const xEnd = Math.round(rc.plotWidth * dpr);
-    const extent = Math.max(0, Math.min(1, this._opts.extentFromRight ?? 1));
+    const extent = fraction(this._opts.extentFromRight, 1);
     const xStart = Math.round(rc.plotWidth * (1 - extent) * dpr);
+    const pillInset = fraction(this._opts.pillInsetFromRight, extent);
+    const xPill = Math.round(rc.plotWidth * (1 - pillInset) * dpr);
     const color = this._opts.color;
     // Hover/dragging visual states apply to interactive lines only (draggable
     // or cancellable); plain level lines stay static under the pointer.
@@ -260,7 +281,9 @@ export class PriceLine implements IPrimitive {
           border: closeHovered ? color : border,
         });
       }
-      this._group = drawPillGroup(ctx, xStart + (extent === 1 ? 6 * dpr : 0), y, segments, {
+      // A pill flush against the left edge gets a small margin; one that starts
+      // further in already has the plot to its left and needs none.
+      this._group = drawPillGroup(ctx, xPill + (pillInset === 1 ? 6 * dpr : 0), y, segments, {
         height: boxH,
         padX,
         radius: r,

@@ -192,6 +192,24 @@ describe('TradingController — T2 (brackets, markers, settings, clicks)', () =>
     expect(onOrd).toHaveBeenCalledWith({ order: expect.objectContaining({ id: 'o1' }) });
   });
 
+  it('draws short lines by default and full-width ones on request', () => {
+    const h = fakeHost();
+    const tc = new TradingController(h.host);
+    tc.setPositions([{ id: 'p1', side: 'long', entryPrice: 100, size: 1 }]);
+    tc.setOrders([{ id: 'o1', type: 'limit', side: 'buy', price: 90, size: 1 }]);
+    // The default is what this overlay has always drawn: an upgrade must not
+    // redraw an existing host's chart.
+    expect(h.lines().map((l) => l.options().extentFromRight)).toEqual([0.3, 0.3]);
+
+    tc.setPositions([{ id: 'p1', side: 'long', entryPrice: 100, size: 1, extentFromRight: 1 }]);
+    tc.setOrders([{ id: 'o1', type: 'limit', side: 'buy', price: 90, size: 1, extentFromRight: 1 }]);
+    const opts = h.lines().map((l) => l.options());
+    expect(opts.map((o) => o.extentFromRight)).toEqual([1, 1]);
+    // The pill stays where the short line used to end, so lengthening a line
+    // does not carry its buttons off to the far edge of the plot.
+    expect(opts.map((o) => o.pillInsetFromRight)).toEqual([0.3, 0.3]);
+  });
+
   it('adds a trade-marker primitive on setTrades', () => {
     const h = fakeHost();
     const tc = new TradingController(h.host);

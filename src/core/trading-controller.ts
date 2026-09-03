@@ -27,6 +27,13 @@ export interface TradingPosition {
   color?: string;
   readOnly?: boolean;
   variant?: TradingLineVariant;
+  /**
+   * How far the line reaches, as a fraction of the plot width measured from
+   * the price axis. Defaults to `DEFAULT_LINE_EXTENT`. Pass 1 for a line that
+   * runs the whole width, which is what a trader reading a level across the
+   * chart expects and what the line was already hit-testable across.
+   */
+  extentFromRight?: number;
 }
 
 export interface TradingOrder {
@@ -47,6 +54,8 @@ export interface TradingOrder {
   draft?: boolean;
   /** Label for the draft submit action. Default `CONFIRM`. */
   confirmLabel?: string;
+  /** See `TradingPosition.extentFromRight`. */
+  extentFromRight?: number;
 }
 
 export interface TradingTrade {
@@ -108,6 +117,17 @@ export const DEFAULT_TRADING_COLORS: TradingColors = {
 };
 
 const CLOSE_SUFFIX = '::close';
+
+/**
+ * How far an overlay line reaches when the caller says nothing, and where its
+ * pill sits in every case.
+ *
+ * Short by default because that is what this overlay has always drawn, and an
+ * upgrade must not silently redraw an existing host's chart. The pill anchor
+ * stays here whatever the line does: lengthening the line is about reading the
+ * level, not about moving the buttons away from the price axis.
+ */
+const DEFAULT_LINE_EXTENT = 0.3;
 
 /** Nearest bar index to a UTC-seconds time (binary search over the sorted times). */
 function snapToIndex(dl: { length: number; indexToTime(i: number): number | undefined }, timeSec: number): number | undefined {
@@ -364,7 +384,7 @@ export class TradingController {
   private _sig(o: PriceLineOptions): string {
     const segments = o.pillSegments?.map((segment) =>
       `${segment.id ?? ''}:${segment.text ?? ''}:${segment.close === true}:${segment.fill ?? ''}`).join('|') ?? '';
-    return `${o.color}|${o.dashed}|${o.closeButton === true}|${o.cursor ?? ''}|${o.leftLabel !== undefined}|${o.badge ?? ''}|${o.qty ?? ''}|${segments}`;
+    return `${o.color}|${o.dashed}|${o.closeButton === true}|${o.cursor ?? ''}|${o.leftLabel !== undefined}|${o.badge ?? ''}|${o.qty ?? ''}|${o.extentFromRight ?? ''}|${segments}`;
   }
 
   /** Info segment for a position: live P&L text (side/size live in badge/qty). */
@@ -385,7 +405,8 @@ export class TradingController {
       qty: lineOnly ? undefined : p.size,
       leftLabel: lineOnly ? undefined : this._positionPill(p),
       closeButton: !lineOnly && p.readOnly !== true,
-      extentFromRight: 0.3,
+      extentFromRight: p.extentFromRight ?? DEFAULT_LINE_EXTENT,
+      pillInsetFromRight: DEFAULT_LINE_EXTENT,
     };
   }
 
@@ -417,7 +438,8 @@ export class TradingController {
       leftLabel: lineOnly || o.bracketRole !== undefined || o.draft === true ? undefined : o.type.replace('_', ' ').toUpperCase(),
       pillSegments,
       closeButton: !lineOnly && o.draft !== true && o.readOnly !== true,
-      extentFromRight: 0.3,
+      extentFromRight: o.extentFromRight ?? DEFAULT_LINE_EXTENT,
+      pillInsetFromRight: DEFAULT_LINE_EXTENT,
       cursor: draggable ? 'ns-resize' : undefined,
     };
   }

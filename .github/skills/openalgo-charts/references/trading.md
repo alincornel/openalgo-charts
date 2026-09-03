@@ -94,8 +94,9 @@ The payload argument is typed `unknown` on both buses; destructure with a local 
 | `color` | `string` | no | Overrides the side colour |
 | `readOnly` | `boolean` | no | `true` hides the cancel button (`closeButton: false`) |
 | `variant` | `'standard' \| 'line-only'` | no | `line-only` drops badge, qty, info and the cancel button |
+| `extentFromRight` | `number` | no | Fraction of the plot width the line spans, from the price axis. Default `0.3`; pass `1` for a full-width line |
 
-Positions are drawn with a hard-coded `lineWidth: 2`, `dashed: false`, `extentFromRight: 0.3`. **Position lines are never draggable** — `_positionOpts` sets no `cursor`, so there is no `trading:position_modify` event.
+Positions are drawn with a hard-coded `lineWidth: 2`, `dashed: false`. **Position lines are never draggable**: `_positionOpts` sets no `cursor`, so there is no `trading:position_modify` event.
 
 ## `TradingOrder`
 
@@ -116,6 +117,7 @@ Positions are drawn with a hard-coded `lineWidth: 2`, `dashed: false`, `extentFr
 | `variant` | `'standard' \| 'line-only'` | no | Line + axis tag only |
 | `draft` | `boolean` | no | Renders side, quantity, type, confirm and cancel controls directly on the draggable line |
 | `confirmLabel` | `string` | no | Draft submit label, default `CONFIRM` |
+| `extentFromRight` | `number` | no | As on `TradingPosition`. Default `0.3` |
 
 **`lineStyle: 'dotted'` renders identically to `'dashed'`.** The controller collapses it to `dashed: (lineStyle ?? 'solid') !== 'solid'`; `PriceLine` has no dotted dash pattern.
 
@@ -179,7 +181,7 @@ Markers snap to the **nearest bar index**, not an exact time; sub-bar fill preci
 
 **`updatePositionPnl`'s second argument is discarded.** The source does `void unrealizedPnl`; only `pnlText` and `pnlPercent` reach the pill. Format the number yourself.
 
-Diffing: `_sync` recreates a line whenever `color | dashed | closeButton | cursor | hasLeftLabel | badge | qty` changes and otherwise patches `price` + `leftLabel` in place. Changing `size` therefore rebuilds the primitive; changing only `price` does not.
+Diffing: `_sync` recreates a line whenever `color | dashed | closeButton | cursor | hasLeftLabel | badge | qty | extentFromRight` changes and otherwise patches `price` + `leftLabel` in place. Changing `size` therefore rebuilds the primitive; changing only `price` does not.
 
 ## Event catalogue
 

@@ -63,3 +63,37 @@ describe('PriceLine line style', () => {
     expect(lineOps({ lineWidth: 0.2 }).width).toBe(1);
   });
 });
+
+/** Where the line starts, and where the pill group starts, in media px. */
+function geometry(opts: Partial<PriceLineOptions>): { lineX0: number; pillX0: number } {
+  const ctx = new RecordingContext();
+  new PriceLine({ price: 50, color: '#fff', id: 'x', badge: 'LONG', ...opts })
+    .draw(ctx as unknown as CanvasRenderingContext2D, makeRc(1));
+  const lineX0 = ctx.ops.filter((o) => o.type === 'moveTo').map((o) => o.args[0])[0] ?? -1;
+  // The pill group's backplate is the first roundRect drawn after the axis tag.
+  const pillX0 = ctx.ops.filter((o) => o.type === 'roundRect').map((o) => o.args[0])[0] ?? -1;
+  return { lineX0, pillX0 };
+}
+
+describe('PriceLine extent and pill anchor', () => {
+  it('spans the whole plot by default, pill at the left edge', () => {
+    // The 6px inset is the margin a pill flush against the edge gets.
+    expect(geometry({})).toEqual({ lineX0: 0, pillX0: 6 });
+  });
+
+  it('starts a partial line where its extent says, and anchors the pill there', () => {
+    expect(geometry({ extentFromRight: 0.3 })).toEqual({ lineX0: 420, pillX0: 420 });
+  });
+
+  it('lets the pill stay put while the line runs full width', () => {
+    // The combination the trading overlay uses: a level readable all the way
+    // across, with its buttons still near the price axis where the eye is.
+    expect(geometry({ extentFromRight: 1, pillInsetFromRight: 0.3 }))
+      .toEqual({ lineX0: 0, pillX0: 420 });
+  });
+
+  it('clamps both fractions into 0..1', () => {
+    expect(geometry({ extentFromRight: 5, pillInsetFromRight: -2 }))
+      .toEqual({ lineX0: 0, pillX0: 600 });
+  });
+});
