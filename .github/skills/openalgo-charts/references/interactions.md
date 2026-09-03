@@ -129,6 +129,8 @@ chart.shortcuts?.on((e) => track(e.command)); // { command, combo, isCustom }; r
 
 The constructor sets `touch-action: none` on the container, so the browser does not steal pan or pinch. One finger pans both axes; two fingers pinch-zoom and pan; a double-tap raises the synthetic `dblclick` and resets the scale; a tap under 3 px of travel is a click and hit-tests primitives.
 
+A press that lands on a primitive hit reporting `cursor: 'pointer'` (a pill segment, a cancel `x`, a legend or panel control) does NOT pan. It is held as a tap and resolved on release, with up to 12 px of travel allowed, because a thumb rolls several pixels between contact and lift; travel beyond that abandons the press rather than converting it into a pan. Without this a finger could not work any on-chart button: the chart scrolled under it and the release was discarded.
+
 **A scrollable ancestor can still swallow touch before the chart sees it.** Put `touch-action: none` on the scroll container too, or move the chart out of the native-scroll region.
 
 `window.devicePixelRatio` is read at startup and on every resize; override with `pixelRatio: () => 2` for fixed-density screenshots or headless environments.

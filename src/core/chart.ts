@@ -33,6 +33,13 @@ const DEFAULT_LEGEND_LEFT = 8;
 const LEGEND_TOP_EPS = 12;
 
 /**
+ * How far a press on an on-chart button may travel and still count as a tap,
+ * in media px. Sized for a thumb rather than a mouse: a finger rolls several
+ * pixels between contact and release without the person meaning to move.
+ */
+const TAP_SLOP = 12;
+
+/**
  * How fast a drag's remembered velocity fades while the pointer is still down,
  * in ms. Short enough that a deliberate pause before releasing kills the fling,
  * long enough that the ordinary jitter between two move events does not.
@@ -522,6 +529,11 @@ export class Chart {
   /** Active pane-divider drag: which boundary, and the weights/heights at grab time. */
   /** True once a primitive drag has actually moved — see the pointerup note. */
   private _dragMoved = false;
+  /**
+   * The button-like primitive a press landed on (a pill segment, a cancel x, a
+   * legend control), held until the release decides whether it was a tap.
+   */
+  private _tapId: string | null = null;
   /** Where the drag was grabbed, in data space, so deltas start at the press. */
   private _dragFrom: { time: number; price: number } = { time: 0, price: 0 };
   private _paneResize: {
@@ -2995,6 +3007,21 @@ export class Chart {
       return;
     }
 
+    // A press on a button painted on the chart is a tap, not the start of a
+    // pan. Letting it pan is what made those buttons unusable with a thumb: a
+    // finger never holds still, so the chart scrolled a few pixels under it,
+    // `_pointerMoved` went true, and the release was discarded instead of
+    // firing the click. Nothing moves until the release decides.
+    if (hit !== undefined && hit !== null && hit.cursor === 'pointer') {
+      this._tapId = hit.externalId;
+      // Touch has no hover, so this press is the only feedback a finger gets
+      // that it landed on the button rather than beside it.
+      this._setHover(hit);
+      this._dragging = false;
+      this._pointerMoved = false;
+      return;
+    }
+
     this._dragging = true;
     this._pointerMoved = false;
     this._dragStartX = p.x;
@@ -3069,6 +3096,15 @@ export class Chart {
       && (Math.abs(p.x - this._downX) > 3 || Math.abs(p.localY - this._downLocalY) > 3)) {
       this._pointerMoved = true;
     }
+    // A tap that wandered off its button is not a tap. The slop is wider than
+    // the 3 px a mouse drag uses because a thumb rolls on its way up; past it
+    // the press is abandoned rather than becoming a pan, which is what a button
+    // does everywhere else.
+    if (this._tapId !== null && (Math.abs(p.x - this._downX) > TAP_SLOP || Math.abs(p.localY - this._downLocalY) > TAP_SLOP)) {
+      this._tapId = null;
+      this._pointerMoved = true;
+      this._setHover(null);
+    }
     if (this._dragId !== null) {
       if (Math.abs(p.x - this._downX) > 3 || Math.abs(p.localY - this._downLocalY) > 3) this._dragMoved = true;
       const price = this._panes[this._downPane].yToPrice(p.localY);
@@ -3123,6 +3159,12 @@ export class Chart {
     // `subscribeClick` doubles: a legend's hide toggles twice and looks dead.
     if (this._endedPointers.has(e.pointerId)) { this._endedPointers.delete(e.pointerId); return; }
     this._pointers.delete(e.pointerId);
+    if (this._tapId !== null) {
+      this._tapId = null;
+      // A finger off the glass hovers nothing, so the pressed look has to be
+      // dropped by hand or the segment stays lit after the tap.
+      if (e.pointerType !== 'mouse') this._setHover(null);
+    }
     if (this._pinch !== null) {
       // a finger lifted mid-pinch: end the gesture; don't start a drag with the remnant
       if (this._pointers.size < 2) { this._pinch = null; this._dragging = false; }
