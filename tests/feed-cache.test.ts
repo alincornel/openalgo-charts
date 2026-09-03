@@ -491,7 +491,6 @@ describe('BarCache._put union', () => {
     await cache.getBars({ ...UNION_REQ, from: T0 + 90 * MIN, to: T0 + 99 * MIN, noCache: true });
     const entry = store.map.get(UNION_KEY)!;
     expect(entry.bars.length).toBe(99); // was 9 before this change: the tail replaced the page
-    expect(entry.from).toBe(T0);
     expect(entry.bars[0].time).toBe(T0);
     expect(entry.bars[entry.bars.length - 1].time).toBe(T0 + 98 * MIN);
   });
@@ -513,7 +512,6 @@ describe('BarCache._put union', () => {
     await cache.getBars({ ...UNION_REQ, from: T0 + 50 * MIN, to: T0 + 99 * MIN, noCache: true });
     await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 50 * MIN, noCache: true });
     const entry = store.map.get(UNION_KEY)!;
-    expect(entry.from).toBe(T0);
     expect(entry.bars.length).toBe(99);
     expect(entry.bars[0].time).toBe(T0);
   });
@@ -526,7 +524,6 @@ describe('BarCache._put union', () => {
     await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 49 * MIN, noCache: true });
     const entry = store.map.get(UNION_KEY)!;
     expect(entry.bars.length).toBe(99);
-    expect(entry.from).toBe(T0);
     expect(entry.bars[0].time).toBe(T0);
   });
 
@@ -536,7 +533,7 @@ describe('BarCache._put union', () => {
     await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 48 * MIN, noCache: true }); // T0+49m missing
     const entry = store.map.get(UNION_KEY)!;
     expect(entry.bars.length).toBe(49);
-    expect(entry.from).toBe(T0);
+    expect(entry.bars[0].time).toBe(T0);
   });
 
   it('replaces, not unions, when the two ranges leave a hole', async () => {
@@ -544,7 +541,6 @@ describe('BarCache._put union', () => {
     await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 9 * MIN, noCache: true });
     await cache.getBars({ ...UNION_REQ, from: T0 + 50 * MIN, to: T0 + 59 * MIN, noCache: true });
     const entry = store.map.get(UNION_KEY)!;
-    expect(entry.from).toBe(T0 + 50 * MIN);
     expect(entry.bars.length).toBe(10);
     expect(entry.bars[0].time).toBe(T0 + 50 * MIN);
   });
@@ -574,7 +570,7 @@ describe('BarCache._put union', () => {
     for (let i = 90; i < 95; i++) expect(entry.bars.some((b) => b.time === T0 + i * MIN)).toBe(true);
   });
 
-  it('keeps the newest bars and moves `from` up when the union exceeds maxBars', async () => {
+  it('keeps the newest bars and drops the left edge when the union exceeds maxBars', async () => {
     const { store, cache } = unionSetup({ maxBars: 50 });
     await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 39 * MIN, noCache: true });
     await cache.getBars({ ...UNION_REQ, from: T0 + 30 * MIN, to: T0 + 69 * MIN, noCache: true });
@@ -582,8 +578,6 @@ describe('BarCache._put union', () => {
     expect(entry.bars.length).toBe(50);
     expect(entry.bars[0].time).toBe(T0 + 20 * MIN);
     expect(entry.bars[49].time).toBe(T0 + 69 * MIN);
-    // `from` moves up with the trim, so a request reaching further back misses.
-    expect(entry.from).toBe(entry.bars[0].time);
   });
 
   it('does not restart the freshness clock on an older-page put', async () => {
@@ -616,8 +610,8 @@ describe('BarCache._put union', () => {
     await cache.getBars({ ...UNION_REQ, from: T0 + 50 * MIN, to: T0 + 59 * MIN, noCache: true });
     const entry = store.map.get(UNION_KEY)!;
     expect(entry.bars.length).toBe(99);
-    expect(entry.from).toBe(T0);
-    expect(entry.to).toBe(before.to);
+    expect(entry.bars[0].time).toBe(T0);
+    expect(entry.nextClose).toBe(before.nextClose);
     expect(entry.storedAt).toBe(before.storedAt); // an interior page proves nothing about the tail
   });
 
@@ -629,8 +623,8 @@ describe('BarCache._put union', () => {
     await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 99 * MIN, noCache: true });
     const entry = store.map.get(UNION_KEY)!;
     expect(entry.bars.length).toBe(99); // no duplication, no shrink
-    expect(entry.from).toBe(T0);
-    expect(entry.to).toBe(before.to);
+    expect(entry.bars[0].time).toBe(T0);
+    expect(entry.nextClose).toBe(before.nextClose);
     expect(entry.storedAt).toBe(UNION_NOW_MS + 10_000); // this one DID revalidate the tail
   });
 
@@ -650,7 +644,7 @@ describe('BarCache._put union', () => {
     await cache.getBars({ ...UNION_REQ, from: T0 + 30 * MIN, to: T0 + 99 * MIN, noCache: true }); // 69 bars
     const entry = store.map.get(UNION_KEY)!;
     expect(entry.bars.length).toBe(40);
-    expect(entry.from).toBe(T0);
+    expect(entry.bars[0].time).toBe(T0);
   });
 
   it('still drops the trailing unclosed bar after a union', async () => {
@@ -662,7 +656,6 @@ describe('BarCache._put union', () => {
     expect(entry.bars.length).toBe(60);
     expect(entry.bars[entry.bars.length - 1].time).toBe(T0 + 59 * MIN);
     expect(entry.bars.some((b) => b.time === T0 + 60 * MIN)).toBe(false);
-    expect(entry.to).toBe(T0 + 60 * MIN - 1);
   });
 });
 
@@ -726,7 +719,7 @@ describe('BarCache.peek', () => {
     expect(feed.count).toBe(0);
   });
 
-  it('returns the cached closed bars and the entry coverage, without fetching', async () => {
+  it('returns the cached closed bars and what it knows about them, without fetching', async () => {
     const { store, feed, cache } = unionSetup();
     await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 99 * MIN });
     const before = cache.stats();
@@ -736,8 +729,6 @@ describe('BarCache.peek', () => {
     expect(peeked.bars.length).toBe(99);
     // The forming bar was dropped on store, so it is not here to be served.
     expect(peeked.bars[peeked.bars.length - 1].time).toBe(T0 + 98 * MIN);
-    expect(peeked.from).toBe(entry.from);
-    expect(peeked.to).toBe(entry.to);
     expect(peeked.storedAt).toBe(entry.storedAt);
     expect(peeked.nextClose).toBe(entry.nextClose);
     // A peek is neither a hit nor a miss: it is a look, not a request.
@@ -750,20 +741,19 @@ describe('BarCache.peek', () => {
     const peeked = (await cache.peek({ ...UNION_REQ, from: T0 + 50 * MIN, to: T0 + 59 * MIN }))!;
     expect(peeked.bars.length).toBe(10);
     expect(peeked.bars[0].time).toBe(T0 + 50 * MIN);
-    // Coverage is still reported as-is, so the caller can see the left-edge gap.
-    expect(peeked.from).toBe(T0);
+    expect(peeked.bars[peeked.bars.length - 1].time).toBe(T0 + 59 * MIN);
   });
 
   it('reports an entry whose bars fall outside the window as empty, not missing', async () => {
     // The two empty answers mean different things: `undefined` is "nothing
-    // stored, load it cold", while an entry with no bars in the window still
-    // tells the caller where its bars actually are.
+    // stored, load it cold", while an entry with no bars in the window is an
+    // entry whose bars are somewhere else — a windowless peek says where.
     const { cache } = unionSetup();
     await cache.getBars({ ...UNION_REQ, from: T0 + 50 * MIN, to: T0 + 99 * MIN, noCache: true });
     const peeked = await cache.peek({ ...UNION_REQ, from: T0, to: T0 + 10 * MIN });
     expect(peeked).toBeDefined();
     expect(peeked!.bars).toEqual([]);
-    expect(peeked!.from).toBe(T0 + 50 * MIN);
+    expect((await cache.peek(UNION_REQ))!.bars[0].time).toBe(T0 + 50 * MIN);
   });
 
   it('returns an entry the TTL would have rejected', async () => {
@@ -855,7 +845,7 @@ describe('BarCache._put concurrency', () => {
     await cache.getBars({ ...UNION_REQ, ...PAGE, noCache: true });
     const entry = store.map.get(UNION_KEY)!;
     expect(entry.bars.length).toBe(99);
-    expect(entry.from).toBe(T0);
+    expect(entry.bars[0].time).toBe(T0);
   });
 
   it('re-reads the entry when a queued write has invalidated the hint', async () => {
@@ -869,7 +859,7 @@ describe('BarCache._put concurrency', () => {
     ]);
     const entry = store.map.get(UNION_KEY)!;
     expect(entry.bars.length).toBe(99);
-    expect(entry.from).toBe(T0);
+    expect(entry.bars[0].time).toBe(T0);
   });
 
   it('ends with the union when the two puts race', async () => {
@@ -882,7 +872,7 @@ describe('BarCache._put concurrency', () => {
     ]);
     const entry = store.map.get(UNION_KEY)!;
     expect(entry.bars.length).toBe(99);
-    expect(entry.from).toBe(T0);
+    expect(entry.bars[0].time).toBe(T0);
   });
 });
 

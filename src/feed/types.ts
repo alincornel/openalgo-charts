@@ -10,6 +10,15 @@ export interface BarsRequest {
   interval: string;
   from?: UTCSeconds;
   to?: UTCSeconds;
+  /**
+   * Newest instant wanted: the answer ends at the last bar at or before it.
+   * Pair with {@link BarsRequest.count} for a bar-count request — the shape a
+   * history endpoint can answer without knowing a venue's sessions, where
+   * `{ from, to }` asks a clock question that a closed market answers short.
+   */
+  endSec?: UTCSeconds;
+  /** How many bars, counting back from `endSec`. Pair with `endSec`. */
+  count?: number;
 }
 
 /**

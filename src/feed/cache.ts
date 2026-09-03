@@ -249,6 +249,34 @@ function cloneBars(bars: Bar[]): Bar[] {
   return out;
 }
 
+/**
+ * A request reduced to what this cache reasons about: how many bars, ending
+ * when. `from` is set only by a range request, and only so the answer can be
+ * sliced back to the window that host asked for.
+ */
+interface BarsAsk {
+  endSec: UTCSeconds;
+  count: number;
+  from?: UTCSeconds;
+}
+
+/**
+ * The answer to one ask, cloned: the bars at or before `endSec`, cut to the
+ * requested window for a range ask and to the newest `count` for a bar-count
+ * one. A range keeps everything inside its window even when that is more bars
+ * than the count it implies — the window is what the caller asked for.
+ */
+function sliceBars(bars: Bar[], ask: BarsAsk): Bar[] {
+  const out: Bar[] = [];
+  for (const b of bars) {
+    if (b.time > ask.endSec) break;
+    if (ask.from !== undefined && b.time < ask.from) continue;
+    out.push({ ...b });
+  }
+  if (ask.from === undefined && out.length > ask.count) out.splice(0, out.length - ask.count);
+  return out;
+}
+
 class MemoryStore implements BarCacheStore {
   private readonly _m = new Map<string, CachedBars>();
   public get(key: string): CachedBars | undefined { return this._m.get(key); }
@@ -324,7 +352,8 @@ export class BarCache implements DataFeed {
     // entry covers. An interval whose bars have no knowable close cannot be
     // cached at all, because nothing tells us which of them are complete. Both
     // pass straight through, uncached in either direction.
-    if (req.from === undefined || req.to === undefined) {
+    const ask = this._ask(req);
+    if (ask === undefined) {
       return this.source.getBars(req);
     }
     const key = barCacheKey(req);
@@ -336,7 +365,7 @@ export class BarCache implements DataFeed {
     if (req.noCache !== true) {
       const entry = await this._backing.get(key);
       hint = { entry, gen: this._gen.get(key) ?? 0 };
-      const hit = entry === undefined ? undefined : this._serve(key, entry, req.from, req.to);
+      const hit = entry === undefined ? undefined : this._serve(key, entry, req.interval, ask);
       if (hit !== undefined) {
         this._hits++;
         return hit;
@@ -345,9 +374,39 @@ export class BarCache implements DataFeed {
     }
     // Awaited, not caught: a rejected fetch must propagate untouched and must
     // leave the previous entry alone. Nothing is written unless bars arrive.
+    // The request goes to the source EXACTLY as it arrived: the adaptation
+    // below is this cache's own bookkeeping, and a feed that speaks ranges must
+    // keep being asked in ranges.
     const bars = await this.source.getBars(req);
-    await this._put(key, req.from, req.to, req.interval, bars, hint);
+    await this._put(key, ask, req.interval, bars, hint);
     return bars;
+  }
+
+  /**
+   * The request as a bar count and an end, whichever shape it arrived in, or
+   * `undefined` for one that cannot be reasoned about at all.
+   *
+   * `{ endSec, count }` is already the model and passes through untouched.
+   * `{ from, to }` is adapted — `count` is how many bars the window has room
+   * for, `endSec` is `to` — and keeps `from`, because a range request must
+   * still be ANSWERED as a range: the caller asked for a window and slicing to
+   * it is the only thing that leaves such a host's behaviour unchanged. The
+   * count it implies is used for the coverage question alone.
+   */
+  private _ask(req: BarsRequest): BarsAsk | undefined {
+    if (req.endSec !== undefined && req.count !== undefined) {
+      return { endSec: req.endSec, count: req.count };
+    }
+    if (req.from === undefined || req.to === undefined) return undefined;
+    const close = this._barCloses(req.interval, req.from);
+    // A span of 0 (an interval with no knowable close) leaves `count` at 0, so
+    // the left-edge gate cannot fire. Such a series is never stored anyway.
+    const span = close === null ? 0 : Math.max(1, close - req.from);
+    return {
+      endSec: req.to,
+      count: span === 0 ? 0 : Math.ceil((req.to - req.from) / span),
+      from: req.from,
+    };
   }
 
   /**
@@ -390,7 +449,7 @@ export class BarCache implements DataFeed {
       if (b.time > to) break;
       bars.push({ ...b });
     }
-    return { bars, from: entry.from, to: entry.to, storedAt: entry.storedAt, nextClose: entry.nextClose };
+    return { bars, storedAt: entry.storedAt, nextClose: entry.nextClose, short: entry.short === true };
   }
 
   /**
@@ -448,15 +507,16 @@ export class BarCache implements DataFeed {
   }
 
   /** The three checks and the slice, over an entry the caller has already read. */
-  private _serve(key: string, entry: CachedBars, from: UTCSeconds, to: UTCSeconds): Bar[] | undefined {
+  private _serve(key: string, entry: CachedBars, interval: string, ask: BarsAsk): Bar[] | undefined {
+    const last = entry.bars[entry.bars.length - 1] as Bar | undefined;
+    if (last === undefined) return undefined;
     const nowMs = this._now();
     const nowSec = Math.floor(nowMs / 1000);
-    // An UPPER BOUND on one bar's span at the tail, read off the entry rather
-    // than re-resolving the interval: `nextClose` is the close of the bar AFTER
-    // the last one held, and `to + 1` is at or before that last bar's close (a
-    // request that stopped short clips `to`). Erring high only widens the window
-    // in which the tail is rechecked, which is the safe direction.
-    const span = Math.max(1, entry.nextClose - (entry.to + 1));
+    // The entry is complete through `lastClose - 1`, and `span` is the length of
+    // the bar that follows. Both come off the bars themselves now that no
+    // requested window is recorded to read them from.
+    const lastClose = this._barCloses(interval, last.time) ?? entry.nextClose;
+    const span = Math.max(1, entry.nextClose - lastClose);
     // A closed bar is immutable, so age alone is no reason to throw an entry
     // away — that is what made a warm chart cold on every reload and out of
     // hours. Only the recent tail can still change under us: a late print, a
@@ -464,21 +524,33 @@ export class BarCache implements DataFeed {
     // else, and an expired entry is KEPT: its older bars are still the fastest
     // correct paint available, and a host that wants them gone calls
     // `invalidate()`.
-    if (to > nowSec - 2 * span && nowMs - entry.storedAt > this._ttlMs) return undefined;
-    // Older bars than we hold: a real gap at the left edge, so refetch rather
-    // than paint a chart that silently starts late.
-    if (from < entry.from) return undefined;
+    if (ask.endSec > nowSec - 2 * span && nowMs - entry.storedAt > this._ttlMs) return undefined;
+    // Reaching further back than we hold is a real gap at the left edge, so
+    // refetch rather than paint a chart that silently starts late. A bar-count
+    // ask measures that in bars; a range ask measures it at its own `from`,
+    // because the count a window implies is an over-count by exactly the bars
+    // that cannot be stored — the forming one above all — and gating on it
+    // would miss on every live request.
+    //
+    // Unless the entry is `short`: the server has already said it has no more,
+    // and asking again is an identical answer every time the user drags left.
+    if (entry.short !== true) {
+      if (ask.from !== undefined) {
+        if (ask.from < entry.bars[0].time) return undefined;
+      } else {
+        let available = 0;
+        for (const b of entry.bars) {
+          if (b.time > ask.endSec) break;
+          available++;
+        }
+        if (ask.count > available) return undefined;
+      }
+    }
     // Past our coverage: allowed only while the bar after our last closed one
     // is still forming, i.e. nothing new could have been fetched anyway.
-    if (to > entry.to && nowSec >= entry.nextClose) return undefined;
+    if (ask.endSec >= lastClose && nowSec >= entry.nextClose) return undefined;
     this._index.set(key, { lastUsed: ++this._tick, bars: entry.bars.length });
-    const out: Bar[] = [];
-    for (const b of entry.bars) {
-      if (b.time < from) continue;
-      if (b.time > to) break;
-      out.push({ ...b });
-    }
-    return out;
+    return sliceBars(entry.bars, ask);
   }
 
   /**
@@ -491,14 +563,13 @@ export class BarCache implements DataFeed {
    */
   private _put(
     key: string,
-    from: UTCSeconds,
-    to: UTCSeconds,
+    ask: BarsAsk,
     interval: string,
     bars: Bar[],
     hint?: EntryHint,
   ): Promise<void> {
     const queued = (this._writes.get(key) ?? Promise.resolve()).then(
-      () => this._commit(key, from, to, interval, bars, hint),
+      () => this._commit(key, ask, interval, bars, hint),
     );
     // The chain is joined on a SETTLED promise: one failed write must not
     // poison every later put for the key. The caller still sees the rejection.
@@ -512,8 +583,7 @@ export class BarCache implements DataFeed {
 
   private async _commit(
     key: string,
-    from: UTCSeconds,
-    to: UTCSeconds,
+    ask: BarsAsk,
     interval: string,
     bars: Bar[],
     hint?: EntryHint,
@@ -541,7 +611,7 @@ export class BarCache implements DataFeed {
     // base to union against, and reading the store is then the cheap option
     // next to silently dropping bars.
     const previous = hint !== undefined && hint.gen === gen ? hint.entry : await this._backing.get(key);
-    const entry = this._mergeEntry(previous, fresh, from, to, interval, nowMs);
+    const entry = this._mergeEntry(previous, fresh, ask, interval, nowMs);
     if (entry === undefined) return;
     await this._backing.set(key, entry);
     // Read-modify-write, not `gen + 1`: an `invalidate()` or an eviction may have
@@ -567,8 +637,7 @@ export class BarCache implements DataFeed {
   private _mergeEntry(
     previous: CachedBars | undefined,
     fresh: Bar[],
-    from: UTCSeconds,
-    to: UTCSeconds,
+    ask: BarsAsk,
     interval: string,
     nowMs: number,
   ): CachedBars | undefined {
@@ -578,19 +647,25 @@ export class BarCache implements DataFeed {
       const close = this._barCloses(interval, t);
       return close === null ? 1 : Math.max(1, close - t);
     };
+    const freshLast = fresh[fresh.length - 1].time;
+    const prevBars = previous === undefined ? [] : previous.bars;
+    const prevFirst = prevBars.length === 0 ? 0 : prevBars[0].time;
+    const prevLast = prevBars.length === 0 ? 0 : prevBars[prevBars.length - 1].time;
     let union = false;
-    if (previous !== undefined) {
-      const prevLast = previous.bars[previous.bars.length - 1].time;
-      const freshLast = fresh[fresh.length - 1].time;
+    if (prevBars.length > 0) {
       // Adjacency is a question about the BAR GRID, not about seconds. An older
       // page whose last bar sits immediately before the entry's first bar is
-      // contiguous, even though its requested `to` is a whole span short of the
-      // entry's `from`; comparing seconds there replaced a warm 2000-bar entry
-      // with the page that was meant to extend it. The coverage terms
-      // (`previous.to + 1`, `to + 1`) are floors that keep the old seconds-level
-      // answer when a span cannot be resolved and `spanAfter` falls back to 1.
-      const startsInTime = from <= Math.max(previous.to + 1, prevLast + spanAfter(prevLast));
-      const endsInTime = Math.max(to + 1, freshLast + spanAfter(freshLast)) >= previous.from;
+      // contiguous, even though a whole span separates them in seconds;
+      // comparing seconds there replaced a warm 2000-bar entry with the page
+      // that was meant to extend it.
+      //
+      // The end term is the ASK, not the answer: a request that reached the
+      // entry's left edge was told about everything down to its own last bar,
+      // so a weekend between the two is a band the server ANSWERED and put no
+      // bars in — a union, not a hole. Only a band nobody asked about is a hole,
+      // and that still replaces.
+      const startsInTime = (ask.from ?? fresh[0].time) <= prevLast + spanAfter(prevLast);
+      const endsInTime = Math.max(ask.endSec + 1, freshLast + spanAfter(freshLast)) >= prevFirst;
       union = startsInTime && endsInTime;
     }
     let bars = fresh;
@@ -616,16 +691,14 @@ export class BarCache implements DataFeed {
       bars = merged;
     }
     // A merged series past the budget keeps the NEWEST bars: the oldest are the
-    // ones a scroll-back can refetch cheaply. `from` moves up with them, so the
-    // next request reaching further back misses and refetches rather than being
-    // served a series that silently starts late.
-    let trimmed = false;
+    // ones a scroll-back can refetch cheaply. The entry then no longer holds the
+    // left edge it was told about, so a request reaching further back misses and
+    // refetches rather than being served a series that silently starts late.
     if (bars.length > this._maxBars) {
       // One series larger than the whole budget would evict everything else and
       // then itself on the next write, so it is simply not cached.
       if (fresh.length > this._maxBars) return undefined;
       bars = bars.slice(bars.length - this._maxBars);
-      trimmed = true;
     }
     const last = bars[bars.length - 1];
     // Non-null by construction: the caller only kept bars that had a close, and
@@ -633,22 +706,13 @@ export class BarCache implements DataFeed {
     // the instant a hit past coverage stops being safe.
     const lastClose = this._barCloses(interval, last.time) as UTCSeconds;
     const nextClose = this._barCloses(interval, lastClose) ?? lastClose;
-    const coveredFrom = union ? Math.min(previous!.from, from) : from;
-    const coveredTo = union ? Math.max(previous!.to, to) : to;
     return {
       bars,
-      // NOT `bars[0].time` in the untrimmed case: an instrument whose history
-      // starts later than the request must keep the requested `from` as
-      // coverage, or gate (2) turns every identical reload into a miss.
-      from: trimmed ? bars[0].time : coveredFrom,
-      // Complete through whichever ends first: what we asked for, or the close
-      // of the last bar we actually hold.
-      to: Math.min(coveredTo, lastClose - 1),
-      // `storedAt` answers "when was the TAIL last revalidated". A fetch that
-      // ends behind the entry's coverage proves nothing about it — and that is
-      // just as true when the range is disjoint enough to replace the entry as
-      // when it unions, so the clock is carried over either way.
-      storedAt: previous !== undefined && to < previous.to ? previous.storedAt : nowMs,
+      // `storedAt` answers "when was the TAIL last revalidated". An answer that
+      // ends behind the newest bar the entry already held proves nothing about
+      // it — and that is just as true when the fetch is disjoint enough to
+      // replace the entry as when it unions, so the clock is carried over.
+      storedAt: prevBars.length > 0 && freshLast < prevLast ? previous!.storedAt : nowMs,
       nextClose,
     };
   }
