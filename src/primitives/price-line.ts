@@ -59,6 +59,18 @@ export interface PriceLineOptions {
   pillInsetFromRight?: number;
   /** Draw a cancel (✕) segment at the end of the pill group; hit-tests as `${id}::close`. */
   closeButton?: boolean;
+  /**
+   * Whether the line widens the pane's autoscale range so it is always in
+   * view. Default true, which is what every existing caller got.
+   *
+   * An order line wants the opposite. Placing a limit far from the market
+   * would re-fit the whole price scale around it, so the act of placing an
+   * order flattens the bars the trader was reading and moves the chart under
+   * their hand. `PriceLevels` declines to autoscale for exactly this reason
+   * and says so at the top of that file: a level that scrolls off the top is
+   * the lesser harm. The axis tag still marks where the line is.
+   */
+  autoscale?: boolean;
   /** Stable id returned by hit-test (for click/drag routing). */
   id: string;
   /** Cursor hint when hovered (e.g. 'ns-resize' for draggable lines). */
@@ -157,6 +169,7 @@ export class PriceLine implements IPrimitive {
   }
 
   public autoscaleInfo(): { min: number; max: number } | null {
+    if (this._opts.autoscale === false) return null;
     return { min: this._opts.price, max: this._opts.price };
   }
 

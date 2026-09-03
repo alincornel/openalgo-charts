@@ -34,6 +34,11 @@ export interface TradingPosition {
    * chart expects and what the line was already hit-testable across.
    */
   extentFromRight?: number;
+  /**
+   * Let this line widen the pane's autoscale range. Off by default for every
+   * line the overlay draws: see `DEFAULT_LINE_AUTOSCALE`.
+   */
+  autoscale?: boolean;
 }
 
 export interface TradingOrder {
@@ -56,6 +61,8 @@ export interface TradingOrder {
   confirmLabel?: string;
   /** See `TradingPosition.extentFromRight`. */
   extentFromRight?: number;
+  /** See `TradingPosition.autoscale`. */
+  autoscale?: boolean;
 }
 
 export interface TradingTrade {
@@ -128,6 +135,21 @@ const CLOSE_SUFFIX = '::close';
  * level, not about moving the buttons away from the price axis.
  */
 const DEFAULT_LINE_EXTENT = 0.3;
+
+/**
+ * Whether an overlay line pulls the price scale open far enough to show
+ * itself. It does not, and that is a deliberate reversal of what this overlay
+ * used to do.
+ *
+ * Every line here is a `PriceLine`, and a `PriceLine` reported its price to
+ * autoscale, so placing a stop a hundred points away re-fitted the whole scale
+ * around it: the candles the trader was reading flattened into a band and the
+ * chart jumped, from the act of placing an order. No terminal behaves that way.
+ * The line keeps its axis tag, so an off-screen order is still marked at the
+ * edge, and a host that genuinely wants a line to drag the view into range can
+ * ask for it per entity.
+ */
+const DEFAULT_LINE_AUTOSCALE = false;
 
 /** Nearest bar index to a UTC-seconds time (binary search over the sorted times). */
 function snapToIndex(dl: { length: number; indexToTime(i: number): number | undefined }, timeSec: number): number | undefined {
@@ -384,7 +406,7 @@ export class TradingController {
   private _sig(o: PriceLineOptions): string {
     const segments = o.pillSegments?.map((segment) =>
       `${segment.id ?? ''}:${segment.text ?? ''}:${segment.close === true}:${segment.fill ?? ''}`).join('|') ?? '';
-    return `${o.color}|${o.dashed}|${o.closeButton === true}|${o.cursor ?? ''}|${o.leftLabel !== undefined}|${o.badge ?? ''}|${o.qty ?? ''}|${o.extentFromRight ?? ''}|${segments}`;
+    return `${o.color}|${o.dashed}|${o.closeButton === true}|${o.cursor ?? ''}|${o.leftLabel !== undefined}|${o.badge ?? ''}|${o.qty ?? ''}|${o.extentFromRight ?? ''}|${o.autoscale === true}|${segments}`;
   }
 
   /** Info segment for a position: live P&L text (side/size live in badge/qty). */
@@ -407,6 +429,7 @@ export class TradingController {
       closeButton: !lineOnly && p.readOnly !== true,
       extentFromRight: p.extentFromRight ?? DEFAULT_LINE_EXTENT,
       pillInsetFromRight: DEFAULT_LINE_EXTENT,
+      autoscale: p.autoscale ?? DEFAULT_LINE_AUTOSCALE,
     };
   }
 
@@ -440,6 +463,7 @@ export class TradingController {
       closeButton: !lineOnly && o.draft !== true && o.readOnly !== true,
       extentFromRight: o.extentFromRight ?? DEFAULT_LINE_EXTENT,
       pillInsetFromRight: DEFAULT_LINE_EXTENT,
+      autoscale: o.autoscale ?? DEFAULT_LINE_AUTOSCALE,
       cursor: draggable ? 'ns-resize' : undefined,
     };
   }

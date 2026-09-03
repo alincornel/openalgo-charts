@@ -75,6 +75,16 @@ function geometry(opts: Partial<PriceLineOptions>): { lineX0: number; pillX0: nu
   return { lineX0, pillX0 };
 }
 
+describe('PriceLine autoscale', () => {
+  it('reports its price by default, and nothing when asked not to', () => {
+    const line = (autoscale?: boolean): PriceLine =>
+      new PriceLine({ price: 50, color: '#fff', id: 'x', autoscale });
+    expect(line().autoscaleInfo()).toEqual({ min: 50, max: 50 });
+    expect(line(true).autoscaleInfo()).toEqual({ min: 50, max: 50 });
+    expect(line(false).autoscaleInfo()).toBeNull();
+  });
+});
+
 describe('PriceLine extent and pill anchor', () => {
   it('spans the whole plot by default, pill at the left edge', () => {
     // The 6px inset is the margin a pill flush against the edge gets.

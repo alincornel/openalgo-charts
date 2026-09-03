@@ -210,6 +210,19 @@ describe('TradingController — T2 (brackets, markers, settings, clicks)', () =>
     expect(opts.map((o) => o.pillInsetFromRight)).toEqual([0.3, 0.3]);
   });
 
+  it('keeps its lines out of the pane autoscale', () => {
+    const h = fakeHost();
+    const tc = new TradingController(h.host);
+    tc.setPositions([{ id: 'p1', side: 'long', entryPrice: 100, size: 1 }]);
+    // A stop a long way from the market must not re-fit the price scale around
+    // itself: placing an order would otherwise flatten the bars being read.
+    tc.setOrders([{ id: 'o1', type: 'stop', side: 'sell', price: 1, size: 1 }]);
+    expect(h.lines().map((l) => l.autoscaleInfo())).toEqual([null, null]);
+
+    tc.setOrders([{ id: 'o1', type: 'stop', side: 'sell', price: 1, size: 1, autoscale: true }]);
+    expect(h.lines()[1].autoscaleInfo()).toEqual({ min: 1, max: 1 });
+  });
+
   it('adds a trade-marker primitive on setTrades', () => {
     const h = fakeHost();
     const tc = new TradingController(h.host);
