@@ -611,7 +611,10 @@ export class BarCache implements DataFeed {
     // base to union against, and reading the store is then the cheap option
     // next to silently dropping bars.
     const previous = hint !== undefined && hint.gen === gen ? hint.entry : await this._backing.get(key);
-    const entry = this._mergeEntry(previous, fresh, ask, interval, nowMs);
+    // Measured on what the SOURCE answered, before the forming bar was dropped:
+    // "the server ran out" is a statement about the server, and an answer one
+    // bar short because its newest bar is still open is not one.
+    const entry = this._mergeEntry(previous, fresh, bars.length < ask.count, ask, interval, nowMs);
     if (entry === undefined) return;
     await this._backing.set(key, entry);
     // Read-modify-write, not `gen + 1`: an `invalidate()` or an eviction may have
@@ -637,6 +640,7 @@ export class BarCache implements DataFeed {
   private _mergeEntry(
     previous: CachedBars | undefined,
     fresh: Bar[],
+    answeredShort: boolean,
     ask: BarsAsk,
     interval: string,
     nowMs: number,
@@ -694,11 +698,13 @@ export class BarCache implements DataFeed {
     // ones a scroll-back can refetch cheaply. The entry then no longer holds the
     // left edge it was told about, so a request reaching further back misses and
     // refetches rather than being served a series that silently starts late.
+    let trimmed = false;
     if (bars.length > this._maxBars) {
       // One series larger than the whole budget would evict everything else and
       // then itself on the next write, so it is simply not cached.
       if (fresh.length > this._maxBars) return undefined;
       bars = bars.slice(bars.length - this._maxBars);
+      trimmed = true;
     }
     const last = bars[bars.length - 1];
     // Non-null by construction: the caller only kept bars that had a close, and
@@ -706,8 +712,17 @@ export class BarCache implements DataFeed {
     // the instant a hit past coverage stops being safe.
     const lastClose = this._barCloses(interval, last.time) as UTCSeconds;
     const nextClose = this._barCloses(interval, lastClose) ?? lastClose;
+    // `short` is a statement about the LEFT EDGE, so only an answer that
+    // established one may set it: a replace (the fresh bars are the whole entry
+    // now) or a union reaching at or past the oldest bar held. A tail fetch
+    // coming back short says nothing about history and must not end paging.
+    // A trim clears it, because the entry no longer holds the edge it spoke of.
+    let short = answeredShort;
+    if (union && fresh[0].time > prevFirst) short = previous!.short === true;
+    if (trimmed) short = false;
     return {
       bars,
+      short,
       // `storedAt` answers "when was the TAIL last revalidated". An answer that
       // ends behind the newest bar the entry already held proves nothing about
       // it — and that is just as true when the fetch is disjoint enough to

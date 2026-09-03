@@ -1049,3 +1049,51 @@ describe('BarCache bar-count requests across a session gap', () => {
     expect(again.length).toBe(GAP_PRE + GAP_POST);
   });
 });
+
+describe('BarCache short answers', () => {
+  it('clears short once the server answers in full', async () => {
+    const { store, feed, cache } = gapSetup();
+    await cache.getBars({ ...GAP_REQ, endSec: GAP_NOW_SEC, count: 2000 });
+    expect(store.map.get(GAP_KEY)!.short).toBe(true);
+    // The backend backfills the history it was missing. `short` must not be a
+    // one-way door: a transient shortfall would otherwise stop paging for the
+    // life of the entry.
+    feed.bars = [...makeBars(T0 - 500 * MIN, 500), ...feed.bars];
+    await cache.getBars({ ...GAP_REQ, endSec: GAP_NOW_SEC, count: 1000, noCache: true });
+    const entry = store.map.get(GAP_KEY)!;
+    expect(entry.short).toBe(false);
+    expect(entry.bars.length).toBe(1000);
+  });
+
+  it('clears short when a maxBars trim drops the left edge', async () => {
+    const store = new RecordingStore();
+    const feed = new CountFeed(makeBars(T0, 40));
+    let nowMs = (T0 + 40 * MIN) * 1000;
+    const cache = withBarCache(feed, { storage: store, maxBars: 80, ttlMs: 10 * 60_000, now: () => nowMs });
+    await cache.getBars({ ...UNION_REQ, endSec: T0 + 39 * MIN, count: 200 });
+    expect(store.map.get(UNION_KEY)!.short).toBe(true);
+
+    // The session runs on and the entry outgrows its budget. The bars it kept
+    // are the newest, so it is no longer holding the left edge it was told
+    // about and must not go on claiming the server has nothing older.
+    feed.bars = makeBars(T0, 100);
+    nowMs = UNION_NOW_MS;
+    await cache.getBars({ ...UNION_REQ, endSec: T0 + 99 * MIN, count: 60 });
+    const entry = store.map.get(UNION_KEY)!;
+    expect(entry.bars.length).toBe(80);
+    expect(entry.bars[0].time).toBe(T0 + 19 * MIN); // the oldest 19 went with the trim
+    expect(entry.short).toBe(false);
+  });
+
+  it('does not end paging on a tail answer that is merely sparse', async () => {
+    const { store, feed, cache } = unionSetup();
+    await cache.getBars({ ...UNION_REQ, from: T0, to: T0 + 99 * MIN, noCache: true });
+    // Five bars missing inside the tail window: a halt, a thin session, a hole
+    // in the server's own store. The answer is short of the window's capacity,
+    // but it establishes nothing about the left edge and must not be read as
+    // "there is no more history".
+    feed.bars = feed.bars.filter((b) => b.time < T0 + 90 * MIN || b.time >= T0 + 95 * MIN);
+    await cache.getBars({ ...UNION_REQ, from: T0 + 90 * MIN, to: T0 + 99 * MIN, noCache: true });
+    expect(store.map.get(UNION_KEY)!.short).toBe(false);
+  });
+});
