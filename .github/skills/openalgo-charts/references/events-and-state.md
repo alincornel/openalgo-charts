@@ -37,7 +37,7 @@ Every name emitted by the engine, verified against the `emit(` call sites in `sr
 | `drag` | `{ id, price, time, paneIndex, fromPrice, fromTime }` | A draggable primitive is being moved. `from*` is the grab origin, so deltas start at the press. |
 | `drag:end` | `{ id, price, time, paneIndex }` | The drag gesture released. |
 | `pan` | `{ from, to, logicalFrom, logicalTo }` | The user pans, **or** a programmatic move that changed the window without changing its span. |
-| `zoom` | `{ from, to, logicalFrom, logicalTo }` | Wheel or pinch zoom, **or** a programmatic move that changed the span. |
+| `zoom` | `{ from, to, logicalFrom, logicalTo }` | Wheel or pinch zoom, **dragging the time axis** to stretch or compress the bars, **or** a programmatic move that changed the span. |
 | `resize` | `{ width, height }` | Container size changed (CSS px); also emitted by an explicit `applySize` that actually changes size. |
 | `lazy-load` | `{ from, to, direction: 'backward' }` | The viewport neared the oldest bar and the history loader ran. |
 | `paneRemoved` | `{ paneIndex }` | A pane was removed. |
@@ -74,7 +74,7 @@ Notes:
 
 - `from` / `to` on `pan`, `zoom` and `lazy-load` are **UTC seconds**, or `null` when that edge falls outside loaded data. `logicalFrom` / `logicalTo` are raw fractional logical indices.
 - `pan` and `zoom` short-circuit entirely when nobody is subscribed, so leaving them unsubscribed costs nothing.
-- **`pan` and `zoom` are not gesture-only.** `setVisibleLogicalRange`, `fitContent`, `resetScale` and the keyboard pan/zoom commands emit them too, so a linked grid follows an arrow key or a restored zoom. They emit **nothing** when the window did not actually move (a clamped zoom, an already-fitted `fitContent`), and the choice between the two names is made by whether the span changed. `panUp` / `panDown` move a price scale rather than the time window and emit nothing.
+- **`pan` and `zoom` are not gesture-only.** `setVisibleLogicalRange`, `fitContent`, `resetScale`, `restoreState` (a saved `barSpacing` counts, viewport or no viewport, and a restore emits at most once) and the keyboard pan/zoom commands emit them too, so a linked grid follows an arrow key or a restored zoom. They emit **nothing** when the window did not actually move (a clamped zoom, an already-fitted `fitContent`), and the choice between the two names is made by whether the span changed. `panUp` / `panDown` move a price scale rather than the time window and emit nothing.
 - **`destroy` is for letting go, not for reading.** By the time it fires, `chart.isDestroyed` is true and the panes are gone. Use it to unsubscribe, drop the chart from a link group, or release a controller; `destroy()` itself is idempotent, so a second call re-emits nothing.
 - **`trading:*` names carry the prefix on both buses.** `chart.on('trading:order_modify', cb)` and `chart.trading.on('trading:order_modify', cb)` are equivalent; `chart.trading.on('order_modify', cb)` never fires.
 - **`crosshair:move`, `pan`, `zoom` and `drag` fire at pointer rate.** Do only light work in the handler; defer anything heavy to rAF or a debounce.

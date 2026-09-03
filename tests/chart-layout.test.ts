@@ -3,7 +3,7 @@
  * re-measure, the context menu's axis targets, and the per-axis calls a
  * price-axis menu acts through.
  */
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Chart, PRICE_SCALE_MODES } from '../src/core/chart';
 import type { ContextMenuEvent } from '../src/core/chart';
 import { fakeDocument, pointer, type FakeElement } from './helpers/fake-dom';
@@ -349,5 +349,98 @@ describe('acting on one price axis', () => {
     // axis on its placeholder with nothing left to measure it.
     expect(chart.setPriceAxisLockRatio(0, 'left', true)).toBe(false);
     expect(chart.priceAxisState(0, 'left')).toMatchObject({ lockRatio: false, scaled: false });
+  });
+});
+
+/**
+ * Dragging the time axis stretches the bars, which is a zoom by any other
+ * name: it changes the visible window. Every other route that moves that
+ * window says so (the plot drag, the wheel, a pinch, the keyboard commands and
+ * the programmatic setters), and this one did not, so a host sizing itself off
+ * `chart.on('zoom')` kept rendering for the window it last heard about.
+ */
+describe('dragging the time axis announces the new window', () => {
+  interface Seen { type: 'pan' | 'zoom'; logicalFrom: number; logicalTo: number }
+
+  // `_attachInput` bails when there is no `window`, so a pointer gesture on a
+  // chart mounted without one is dispatched into nothing and passes vacuously.
+  beforeEach(() => vi.stubGlobal('window', {}));
+  afterEach(() => vi.unstubAllGlobals());
+
+  /** Watch both viewport events in one list, so ordering and counts are visible. */
+  function watch(m: Mounted): Seen[] {
+    const seen: Seen[] = [];
+    const push = (type: 'pan' | 'zoom') => (r: unknown): void => {
+      const v = r as { logicalFrom: number; logicalTo: number };
+      seen.push({ type, logicalFrom: v.logicalFrom, logicalTo: v.logicalTo });
+    };
+    m.chart.on('pan', push('pan'));
+    m.chart.on('zoom', push('zoom'));
+    return seen;
+  }
+
+  /** A press on the time axis strip (y 595 of 600) and one move to `toX`. */
+  function dragAxis(m: Mounted, fromX: number, toX: number): void {
+    m.el.dispatch('pointerdown', pointer('down', fromX, 595));
+    m.el.dispatch('pointermove', pointer('move', toX, 595));
+    m.el.dispatch('pointerup', pointer('up', toX, 595));
+  }
+
+  it('emits exactly one zoom carrying the range the drag left behind', () => {
+    const m = mount();
+    const before = m.chart.getVisibleLogicalRange();
+    const seen = watch(m);
+    dragAxis(m, 400, 500);
+    const after = m.chart.getVisibleLogicalRange();
+    // The drag really did stretch the bars, or the assertion below is vacuous.
+    expect(after.to - after.from).not.toBeCloseTo(before.to - before.from, 6);
+    expect(seen).toHaveLength(1);
+    expect(seen[0].type).toBe('zoom');          // the span moved, so not a pan
+    expect(seen[0].logicalFrom).toBeCloseTo(after.from, 6);
+    expect(seen[0].logicalTo).toBeCloseTo(after.to, 6);
+  });
+
+  it('emits nothing for a drag that leaves the window where it was', () => {
+    const m = mount();
+    const seen = watch(m);
+    dragAxis(m, 400, 400);                      // no dx, so no change in spacing
+    expect(seen).toEqual([]);
+    expect(m.chart.getVisibleLogicalRange()).toEqual(m.chart.getVisibleLogicalRange());
+  });
+
+  it('announces a restored bar spacing once, viewport or no viewport', () => {
+    const m = mount();
+    const seen = watch(m);
+    const before = m.chart.getVisibleLogicalRange();
+    // A state with a spacing and no viewport: the window moves, and this was
+    // the programmatic route that moved it silently.
+    expect(m.chart.restoreState({ version: 1, barSpacing: 40 }).applied).toBe(true);
+    const after = m.chart.getVisibleLogicalRange();
+    expect(after.to - after.from).not.toBeCloseTo(before.to - before.from, 6);
+    expect(seen).toHaveLength(1);
+    expect(seen[0].type).toBe('zoom');
+    expect(seen[0].logicalTo).toBeCloseTo(after.to, 6);
+
+    // Spacing and viewport together are still one event, not one each.
+    seen.length = 0;
+    m.chart.restoreState({ version: 1, barSpacing: 12, viewport: { from: 2, to: 22 } });
+    expect(seen).toHaveLength(1);
+
+    // And a restore that lands on the window already showing says nothing.
+    seen.length = 0;
+    m.chart.restoreState({ version: 1, barSpacing: 12, viewport: { from: 2, to: 22 } });
+    expect(seen).toEqual([]);
+  });
+
+  it('emits once per move, the way the plot drag and the wheel do', () => {
+    const m = mount();
+    const seen = watch(m);
+    m.el.dispatch('pointerdown', pointer('down', 400, 595));
+    m.el.dispatch('pointermove', pointer('move', 440, 595));
+    m.el.dispatch('pointermove', pointer('move', 480, 595));
+    m.el.dispatch('pointerup', pointer('up', 480, 595));
+    expect(seen.map((s) => s.type)).toEqual(['zoom', 'zoom']);
+    expect(seen[1].logicalTo - seen[1].logicalFrom)
+      .toBeLessThan(seen[0].logicalTo - seen[0].logicalFrom);
   });
 });

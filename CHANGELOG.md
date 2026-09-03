@@ -6,6 +6,20 @@ All notable changes to OpenAlgo Charts.
 
 Footprint: a readable ladder instead of a hairline mesh.
 
+### Fixed
+
+- **Dragging the time axis now emits `zoom`.** Stretching or compressing the
+  bars from the axis strip changed the visible window without announcing it,
+  so a host sizing itself off `chart.on('zoom')` (a footprint choosing between
+  numbers and a heatmap, a linked chart) kept working from the window it last
+  heard about. It was the only gesture left that moved the window silently.
+
+- **`restoreState` announces a restored bar spacing.** A state carrying
+  `barSpacing` moved the window as much as one carrying a `viewport`, and only
+  the viewport half emitted. The two are now bracketed, so a restore emits at
+  most one `pan` or `zoom` whichever halves it carries, and nothing when it
+  lands on the window already showing.
+
 ### Added
 
 - **`zeroFill` / `maxZeroFillRows`** on `Footprint`. A footprint built from

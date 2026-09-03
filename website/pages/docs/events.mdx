@@ -202,11 +202,17 @@ restores it. See [Theming and chart options](/docs/themes#building-the-context-m
 whenever the container changes size (the built-in `ResizeObserver` drives it, and
 an explicit `chart.applySize(w, h)` also emits it).
 
-They are not gesture-only. `setVisibleLogicalRange`, `fitContent`, `resetScale` and the
+Every gesture that moves the window emits: the plot drag (and its kinetic glide), the
+wheel, a pinch, a double-click, and **dragging the time axis to stretch or compress the
+bars**, which reports a `zoom` because it changes the span.
+
+They are not gesture-only either. `setVisibleLogicalRange`, `fitContent`, `resetScale`,
+`restoreState` (a saved bar spacing counts, with or without a saved viewport) and the
 keyboard pan and zoom commands all announce themselves the same way, and only when the
 window **actually moved**: a clamped zoom, or a `fitContent` on an already-fitted chart,
 emits nothing. Which of the two you get is decided by whether the span changed, since a
-restored range can pan or zoom and the payload alone would not say.
+restored range can pan or zoom and the payload alone would not say. A `restoreState` that
+moves the window twice, through its spacing and then its viewport, still emits once.
 
 ```ts
 chart.on('pan',  ({ from, to }) => syncOtherChart(from, to));

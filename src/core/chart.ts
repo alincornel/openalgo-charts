@@ -2237,9 +2237,15 @@ export class Chart {
     }
 
     this._drawingState = s.drawings;
+    // A restore can move the window twice, through the saved bar spacing and
+    // then the saved viewport, so the pair is bracketed and announced once. A
+    // state carrying only a spacing moved it just as much as one carrying a
+    // range, and that case emitted nothing at all before.
+    const beforeView = this._timeScale.visibleRange();
     if (s.barSpacing !== undefined) this._timeScale.setBarSpacing(s.barSpacing);
-    if (s.viewport && this._dataLayer.length > 0) this.setVisibleLogicalRange(s.viewport);
+    if (s.viewport && this._dataLayer.length > 0) this._timeScale.setVisibleLogicalRange(s.viewport);
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
+    this._emitViewportIfMoved(beforeView);
     return { applied: true, series: s.series ?? [], indicators };
   }
 
@@ -3045,8 +3051,15 @@ export class Chart {
     if (this._axisDrag === 'time') {
       // drag right (dx>0) → expand (wider bars); drag left → compress
       const dx = p.x - this._axisStartCoord;
+      const before = this._timeScale.visibleRange();
       this._timeScale.setBarSpacing(this._axisStartSpacing * Math.exp(dx * 0.005));
       this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
+      // Stretching the bars is a zoom by any other name: it is the last route
+      // that moved the window without saying so, which left a host sizing
+      // itself off `on('zoom')` rendering for a window it no longer had. Not a
+      // bare `_emitViewport('zoom')`, because spacing clamped at its limit
+      // moves nothing and must stay silent like every other path.
+      this._emitViewportIfMoved(before);
       return;
     }
     // Placement mode suppresses the pan path, which is where `_pointerMoved`
