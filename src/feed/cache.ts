@@ -12,6 +12,16 @@
  * would miss on every pan and on every "same chart, one bar later" reload,
  * which is exactly the traffic warm-load is meant to remove.
  *
+ * **A request is a COUNT and an END, and coverage is the BARS.** `{ endSec,
+ * count }` — "the last `count` bars at or before this instant" — is the shape
+ * a history endpoint can answer without knowing anything about sessions, and
+ * the shape this cache judges itself by. The older `{ from, to }` shape still
+ * works and is adapted onto it. The difference is not cosmetic: a clock window
+ * assumes the market never closes, so a Monday-morning ask for 2000 one-minute
+ * bars spans a 49-hour weekend and a third of the answer is thrown away, and
+ * no window narrow enough to be honest can page back across that weekend at
+ * all. A count has nothing to be wrong about.
+ *
  * **Freshness.** Three independent checks, all of which must pass:
  *   1. `ttlMs` bounds the age of the TAIL, not of the entry. A closed bar is
  *      immutable, so age alone says nothing about it; only the last couple of
@@ -19,13 +29,15 @@
  *      rebuild). So the gate fires only for a request that reaches into the
  *      last two bar spans, and an entry past its TTL is kept rather than
  *      deleted — its older bars remain the fastest correct answer available.
- *   2. The request does not reach further back than the entry's own `from`:
- *      older bars than we hold are a real gap at the left edge, and painting a
- *      chart that silently starts late is worse than a refetch.
- *   3. Nothing new can have closed. An entry is complete through `to`; the next
- *      bar closes at `to + 1 + intervalSec`, measured on the feed's own bar
- *      grid rather than on UTC midnight, so a daily Indian bar opening at 03:45
- *      UTC is judged against its own session, not against the wrong boundary.
+ *   2. The entry holds at least `count` bars at or before `endSec` — or it is
+ *      `short`, the server's own word that nothing older exists. Fewer bars
+ *      than were asked for is a real gap at the left edge, and painting a chart
+ *      that silently starts late is worse than a refetch; but a market that was
+ *      shut is not a gap, and only the server can tell the two apart.
+ *   3. Nothing new can have closed. An entry is complete through the close of
+ *      its last bar; the next one closes at `nextClose`, measured on the feed's
+ *      own bar grid rather than on UTC midnight, so a daily Indian bar opening
+ *      at 03:45 UTC is judged against its own session, not the wrong boundary.
  * The effect is what you want from a warm cache: yesterday's closed session
  * stays usable for days, while the live tail is re-read once per TTL.
  *
@@ -64,33 +76,53 @@ import { nextBucketStart, tryResolveInterval } from './intervals';
 
 export type MaybePromise<T> = T | Promise<T>;
 
-/** One cached series. Plain JSON: safe to persist as-is. */
+/**
+ * One cached series. Plain JSON: safe to persist as-is.
+ *
+ * There is no `from`/`to` here, and their absence is the whole model: coverage
+ * IS `bars`. The left edge is `bars[0].time`, the right edge is the close of
+ * `bars[bars.length - 1]`, and nothing in between is claimed that is not held.
+ * Recording a requested window instead let an entry assert coverage over a band
+ * it had no bars for and had never been told about — a market closure and a
+ * range nobody ever fetched look identical from inside such a window, and the
+ * cache served `[]` for both.
+ */
 export interface CachedBars {
   /** Closed bars only, ascending by time. */
   bars: Bar[];
-  /** Coverage start: the `from` of the request that filled this entry. */
-  from: UTCSeconds;
-  /** Coverage end (inclusive): the last instant this entry is complete to. */
-  to: UTCSeconds;
   /** Wall clock (ms) when the TAIL was last revalidated, for the TTL gate. */
   storedAt: number;
   /**
-   * When the bar AFTER this entry's coverage closes, so freshness needs no
+   * When the bar AFTER the last one held closes, so freshness needs no
    * re-resolve. Null is impossible here: an entry whose bars have no knowable
    * close is never stored in the first place.
    */
   nextClose: UTCSeconds;
+  /**
+   * The server's own statement that nothing older exists: the fetch that
+   * established this entry's left edge asked for more bars than it got back.
+   * It is the ONLY evidence of that available — a client-side session table is
+   * a second source of truth that goes stale every year, differs per product
+   * and cannot know about an unplanned halt — so without it a chart pages back
+   * into a closed weekend for ever, one identical empty answer at a time.
+   *
+   * Absent means "not known to be short". It is cleared by any later answer
+   * that establishes the left edge in full, and by a `maxBars` trim, after
+   * which the entry no longer holds the left edge it was speaking about.
+   */
+  short?: boolean;
 }
 
 /**
  * What the store holds for one series, as reported by {@link BarCache.peek}.
  *
- * The coverage fields are the entry's own, so they carry exactly the meaning
- * {@link CachedBars} gives them; only `bars` differs, being the slice inside the
- * requested window rather than everything the entry holds.
+ * Everything except `bars` is the entry's own, carrying exactly the meaning
+ * {@link CachedBars} gives it — `short` included, so a caller can tell "the
+ * server has no more" from "I have not asked yet". `bars` is the slice the peek
+ * asked for rather than everything the entry holds.
  */
 export interface CachedPeek extends Omit<CachedBars, 'bars'> {
-  /** Closed bars inside the requested window, ascending. Clones. */
+  /** Closed bars the peek asked for, ascending. Clones. */
   bars: Bar[];
 }
 
