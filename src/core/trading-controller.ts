@@ -183,7 +183,13 @@ const DEFAULT_LINE_AUTOSCALE = false;
  * and a poor thumb one, and these buttons place real orders. The box grows;
  * the text stays where it is and centres inside it.
  */
-const TOUCH_SEGMENT_W = 56;
+// Minimum width of a tappable pill segment, in media px.
+//
+// 40 was a mouse's idea of a button; 56 was mine and the user's verdict on it
+// was that nothing had changed. 64 is close to the width of a thumb pad, which
+// is the actual constraint, and five segments at that width still fit inside
+// the 380 px viewport he is testing on.
+const TOUCH_SEGMENT_W = 64;
 
 /** Nearest bar index to a UTC-seconds time (binary search over the sorted times). */
 function snapToIndex(dl: { length: number; indexToTime(i: number): number | undefined }, timeSec: number): number | undefined {
