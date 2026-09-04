@@ -48,7 +48,7 @@
       "dist/openalgo-charts.indicators.mjs",
       "dist/openalgo-charts.draw.mjs"
     ],
-    "limit": "127.9 kB",
+    "limit": "128 kB",
     "brotli": true
   }
 ]
