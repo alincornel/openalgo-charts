@@ -22,6 +22,13 @@ export interface PrimitiveRenderContext {
   dpr: number;
   theme: ChartTheme;
   /**
+   * The host says the pointer is a finger, so controls painted on the canvas
+   * should be sized for one. The chart cannot decide this for itself — a
+   * touchscreen laptop is still driven by a mouse most of the time — so it is
+   * an option the application sets, typically from `(pointer: coarse)`.
+   */
+  touchTargets?: boolean;
+  /**
    * The pane's primary price series, for a primitive that needs what price
    * actually did rather than just the scales — a forecast scoring itself, say.
    * Lazy, so nothing pays for it unless asked. Absent on synthetic contexts.

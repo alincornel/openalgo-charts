@@ -12,7 +12,7 @@ import { PriceScale } from '../src/scale/price-scale';
 import { TimeScale } from '../src/scale/time-scale';
 import { RecordingContext } from './helpers/fake-ctx';
 
-function makeRc(dpr = 1): PrimitiveRenderContext {
+function makeRc(dpr = 1, touchTargets = false): PrimitiveRenderContext {
   const dl = new DataLayer();
   const id = dl.createSeries();
   dl.setSeriesData(id, [{ time: 100, open: 50, high: 52, low: 48, close: 50 }]);
@@ -22,7 +22,7 @@ function makeRc(dpr = 1): PrimitiveRenderContext {
   const timeScale = new TimeScale({ barSpacing: 20, rightOffset: 0 });
   timeScale.setWidth(600);
   timeScale.setBaseIndex(dl.baseIndex);
-  return { timeScale, priceScale, dataLayer: dl, plotWidth: 600, plotHeight: 400, priceAxisWidth: 56, dpr, theme: darkTheme };
+  return { timeScale, priceScale, dataLayer: dl, plotWidth: 600, plotHeight: 400, priceAxisWidth: 56, dpr, theme: darkTheme, touchTargets };
 }
 
 /** Dash pattern and stroke width in force for the line itself (the first stroke). */
@@ -118,5 +118,29 @@ describe('PriceLine extent and pill anchor', () => {
     const { pillX0 } = geometry({ extentFromRight: 1, pillInsetFromRight: 0 });
     expect(pillX0).toBeLessThan(600);
     expect(pillX0).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('PriceLine touch targets', () => {
+  /** Pill box height and left edge, in media px — the tap target's geometry. */
+  function pillBox(touch: boolean): { height: number; x0: number } {
+    const ctx = new RecordingContext();
+    new PriceLine({ price: 50, color: '#fff', id: 'x', badge: 'LONG', qty: '1', closeButton: true })
+      .draw(ctx as unknown as CanvasRenderingContext2D, makeRc(1, touch));
+    const rects = ctx.ops.filter((o) => o.type === 'roundRect');
+    return { height: rects[0]?.args[3] ?? 0, x0: rects[0]?.args[0] ?? -1 };
+  }
+
+  it('draws a taller pill when the host says the pointer is a finger', () => {
+    // 18 px of box is sized for a cursor a foot from the glass. A thumb is
+    // about 9 mm across and the phone is held at arm's length, so the same
+    // pill is both hard to hit and hard to read. Height is what a tap target
+    // is judged on, so it is what this asserts.
+    const mouse = pillBox(false);
+    const finger = pillBox(true);
+    expect(finger.height).toBeGreaterThan(mouse.height);
+    // and it still starts inside the plot, which is the constraint a bigger
+    // pill threatens first
+    expect(finger.x0).toBeGreaterThanOrEqual(0);
   });
 });

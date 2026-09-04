@@ -104,6 +104,16 @@ function fraction(value: number | undefined, fallback: number): number {
 /** Pill/segment height in media px (shared by draw + hit-test). */
 const TAG_H = 18;
 /**
+ * How much bigger the pill gets when the host says the pointer is a finger.
+ *
+ * 18 px of pill and an 11 px label are sized for a mouse, where the cursor is
+ * one pixel and the eye is a foot from the glass. A thumb is closer to 9 mm
+ * across and the phone is held at arm's length, so the same pill is both hard
+ * to hit and hard to read. The host decides — the chart cannot reliably know
+ * whether the pointer is coarse — and everything else here scales off it.
+ */
+const TOUCH_SCALE = 1.45;
+/**
  * How far above and below the drawn pill still counts as a press on it, media
  * px. Deliberately larger than half the pill: the pill is sized to look right
  * at a glance, and an 18 px band is a comfortable mouse target and a poor
@@ -251,12 +261,13 @@ export class PriceLine implements IPrimitive {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    ctx.font = `500 ${11 * dpr}px system-ui, sans-serif`;
+    const touch = rc.touchTargets === true ? TOUCH_SCALE : 1;
+    ctx.font = `500 ${Math.round(11 * touch) * dpr}px system-ui, sans-serif`;
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
-    const boxH = TAG_H * dpr;
-    const padX = 6 * dpr;
-    const r = 3 * dpr;
+    const boxH = Math.round(TAG_H * touch) * dpr;
+    const padX = Math.round(6 * touch) * dpr;
+    const r = Math.round(3 * touch) * dpr;
 
     // right-axis price tag (kept rectangular like the axis/crosshair tags)
     const axisFill = dragging || hovered ? shade(color, 0.12) : color;

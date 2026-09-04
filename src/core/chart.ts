@@ -176,6 +176,14 @@ export interface ChartOptions {
    */
   crosshairMode?: CrosshairMode;
   /**
+   * Size controls painted on the canvas — order pills, their buttons — for a
+   * finger rather than a mouse cursor. The chart cannot decide this itself: a
+   * touchscreen laptop is still driven by a mouse most of the time. Set it
+   * from something like `matchMedia('(pointer: coarse)')`, and re-apply when
+   * that changes.
+   */
+  touchTargets?: boolean;
+  /**
    * Optional chrome on the axis strips: the corner clock and the bar-close
    * countdown. Both are off unless asked for, so a chart that omits this block
    * draws the axes it always drew.
@@ -433,6 +441,8 @@ export class Chart {
 
   // interaction state
   private _crosshairMode: CrosshairMode;
+  /** Size canvas-painted controls for a finger; set by the host, see `ChartOptions`. */
+  private _touchTargets = false;
   private _shortcuts: ShortcutManager | null = null;
   private _trading: TradingController | null = null;
   private _pointerInside = false;
@@ -605,6 +615,7 @@ export class Chart {
     if (options.legendOffset?.left !== undefined) this._legendOffset.left = options.legendOffset.left;
     this._timeAxisHeight = options.timeAxisHeight ?? 22;
     this._crosshairMode = options.crosshairMode ?? 'normal';
+    this._touchTargets = options.touchTargets ?? false;
     // Assigned rather than pushed through `setAxisChromeOptions`: the setter
     // asks for a repaint, and the render loop does not exist yet.
     Object.assign(this._axisChrome, options.axisChrome);
@@ -2080,6 +2091,7 @@ export class Chart {
     timeFormatter?: ((utcSeconds: number, tickMark?: TickMarkType) => string) | undefined;
     timezone?: string;
     crosshairMode?: CrosshairMode;
+    touchTargets?: boolean;
   }): void {
     if (opts.theme) this.setTheme(opts.theme);
     if (opts.grid) this.setGridOptions(opts.grid);
@@ -2090,6 +2102,7 @@ export class Chart {
     if ('timeFormatter' in opts) this.setTimeFormatter(opts.timeFormatter);
     if (opts.timezone !== undefined) this.setTimezone(opts.timezone);
     if (opts.crosshairMode) this._crosshairMode = opts.crosshairMode;
+    if (opts.touchTargets !== undefined) this._touchTargets = opts.touchTargets;
   }
 
   public panes(): readonly Pane[] {
@@ -2664,6 +2677,7 @@ export class Chart {
       conflate: this._conflate,
       conflationFactor: this._conflationFactor,
       theme: this._theme,
+      touchTargets: this._touchTargets,
       showVertGrid: this._gridVert,
       showHorzGrid: this._gridHorz,
       canvasOptions: this._canvas,
