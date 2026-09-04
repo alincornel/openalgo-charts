@@ -184,6 +184,12 @@ export interface ChartOptions {
    */
   touchTargets?: boolean | number;
   /**
+   * Where the dashed last-price line begins. `full` (the default) stripes it
+   * across the whole plot; `fromLastBar` starts it at the newest bar, so it
+   * marks where price is now instead of drawing a rule over the history.
+   */
+  lastPriceLineExtent?: 'full' | 'fromLastBar';
+  /**
    * Optional chrome on the axis strips: the corner clock and the bar-close
    * countdown. Both are off unless asked for, so a chart that omits this block
    * draws the axes it always drew.
@@ -443,6 +449,7 @@ export class Chart {
   private _crosshairMode: CrosshairMode;
   /** Size canvas-painted controls for a finger; set by the host, see `ChartOptions`. */
   private _touchTargets: boolean | number = false;
+  private _lastPriceLineExtent: 'full' | 'fromLastBar' = 'full';
   private _shortcuts: ShortcutManager | null = null;
   private _trading: TradingController | null = null;
   private _pointerInside = false;
@@ -616,6 +623,7 @@ export class Chart {
     this._timeAxisHeight = options.timeAxisHeight ?? 22;
     this._crosshairMode = options.crosshairMode ?? 'normal';
     this._touchTargets = options.touchTargets ?? false;
+    this._lastPriceLineExtent = options.lastPriceLineExtent ?? 'full';
     // Assigned rather than pushed through `setAxisChromeOptions`: the setter
     // asks for a repaint, and the render loop does not exist yet.
     Object.assign(this._axisChrome, options.axisChrome);
@@ -2092,6 +2100,7 @@ export class Chart {
     timezone?: string;
     crosshairMode?: CrosshairMode;
     touchTargets?: boolean | number;
+    lastPriceLineExtent?: 'full' | 'fromLastBar';
   }): void {
     if (opts.theme) this.setTheme(opts.theme);
     if (opts.grid) this.setGridOptions(opts.grid);
@@ -2103,6 +2112,7 @@ export class Chart {
     if (opts.timezone !== undefined) this.setTimezone(opts.timezone);
     if (opts.crosshairMode) this._crosshairMode = opts.crosshairMode;
     if (opts.touchTargets !== undefined) this._touchTargets = opts.touchTargets;
+    if (opts.lastPriceLineExtent !== undefined) this._lastPriceLineExtent = opts.lastPriceLineExtent;
   }
 
   public panes(): readonly Pane[] {
@@ -2678,6 +2688,7 @@ export class Chart {
       conflationFactor: this._conflationFactor,
       theme: this._theme,
       touchTargets: this._touchTargets,
+      lastPriceLineExtent: this._lastPriceLineExtent,
       showVertGrid: this._gridVert,
       showHorzGrid: this._gridHorz,
       canvasOptions: this._canvas,

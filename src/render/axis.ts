@@ -672,6 +672,13 @@ export function drawLastPriceLabel(
   showLine = true,
   showTag = true,
   countdown?: BarCountdownOptions,
+  /**
+   * Where the dashed line begins, in device px. Defaults to the left edge,
+   * which is the classic full-width reading; a host that wants the line to
+   * start at the last bar passes that bar's x, so the line marks where price
+   * IS rather than striping the history behind it.
+   */
+  lineFromX = 0,
 ): void {
   if (!showLine && !showTag) return;
   const y = Math.round(priceScale.priceToY(price) * dpr);
@@ -686,7 +693,9 @@ export function drawLastPriceLabel(
     ctx.lineWidth = Math.max(1, Math.round(dpr));
     ctx.setLineDash([3 * dpr, 3 * dpr]);
     ctx.beginPath();
-    ctx.moveTo(0, y + 0.5);
+    // Clamped so a bar scrolled off the left cannot start the line off-canvas,
+    // and so an x past the plot cannot invert it into a backwards stroke.
+    ctx.moveTo(Math.max(0, Math.min(lineFromX, xStart)), y + 0.5);
     ctx.lineTo(xStart, y + 0.5);
     ctx.stroke();
     ctx.setLineDash([]);

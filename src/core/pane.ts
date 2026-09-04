@@ -24,6 +24,8 @@ import type { ChartTheme } from '../theme';
 import { DEFAULT_TIMEZONE, formatZonedCrosshairLabel } from '../feed/time';
 
 export interface PaneRenderContext {
+  /** Where the last-price line starts; see `ChartOptions.lastPriceLineExtent`. */
+  lastPriceLineExtent?: 'full' | 'fromLastBar';
   /** Size canvas-painted controls for a finger; see `ChartOptions.touchTargets`. */
   touchTargets?: boolean | number;
   timeScale: TimeScale;
@@ -707,7 +709,13 @@ export class Pane {
       // a tag drawn into a column that is not there does not.
       drawLastPriceLabel(g, readout, lastEntry.close, lastEntry.up, layout, dpr, axisStyle, {
         up: ctx.theme.lastPriceUp, down: ctx.theme.lastPriceDown, text: ctx.theme.lastPriceText,
-      }, lastEntry.showLine, showLastTag, ctx.barCountdown);
+      }, lastEntry.showLine, showLastTag, ctx.barCountdown,
+        // `fromLastBar` starts the line at the newest bar instead of striping
+        // it across the history behind it, which is what a trader watching the
+        // right-hand edge actually wants. The default stays full width.
+        ctx.lastPriceLineExtent === 'fromLastBar'
+          ? Math.round(ctx.timeScale.indexToX(ctx.dataLayer.baseIndex) * dpr)
+          : 0);
     }
 
     // normal-layer primitives (price lines, markers, events) draw over series
