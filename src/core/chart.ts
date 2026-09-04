@@ -549,6 +549,8 @@ export class Chart {
   private _crosshairPressTimer: ReturnType<typeof setTimeout> | null = null;
   /** The pointer currently steering the touch crosshair, if one is down. */
   private _crosshairPointer: number | null = null;
+  /** True when the steering finger ADOPTED a crosshair rather than summoning it. */
+  private _crosshairAdopted = false;
   /**
    * A touch crosshair is on screen and outlives the gesture that summoned it.
    *
@@ -3047,6 +3049,26 @@ export class Chart {
       return;
     }
 
+    // A crosshair already on screen is grabbed by the next finger that lands,
+    // with no second long press. Without this it stayed where the first
+    // gesture left it and the only thing that could move it was dragging the
+    // `+` itself — so the trader had a crosshair he could not aim, which is
+    // worse than not having one. The long press is how you SUMMON it; once it
+    // is up, touching the plot steers it.
+    if (e.pointerType !== 'mouse' && this._crosshairSticky) {
+      this._crosshairPointer = e.pointerId;
+      // Adopted, not summoned — which is what lets the release tell a steer
+      // from a dismiss: a finger that moved was aiming, a finger that did not
+      // was tapping the plot to put the crosshair away.
+      this._crosshairAdopted = true;
+      this._dragging = false;
+      this._pointerMoved = false;
+      this._dragVelocity = 0;
+      this._ensureScaled(p.pane);
+      this._updateCursor(p.pane, p.x, p.localY, p.y);
+      return;
+    }
+
     // Touch has no hover, so the long press is the only gesture left that can
     // mean "show me this point". A finger that rests here for a beat gets the
     // crosshair; one that moves first is panning, and the timer is dropped.
@@ -3058,6 +3080,7 @@ export class Chart {
         if (!this._pointers.has(pointerId)) return;
         this._crosshairPointer = pointerId;
         this._crosshairSticky = true;
+        this._crosshairAdopted = false;
         // The pan this press had armed is abandoned rather than finished: the
         // gesture turned out to mean something else, and half a pan left
         // behind would fling the chart on release.
@@ -3163,6 +3186,13 @@ export class Chart {
     // which is the whole reason no crosshair ever appeared on a phone: the
     // move that would have moved it was being spent on scrolling the chart.
     if (this._crosshairPointer === e.pointerId) {
+      // Steering counts as movement. Without this every steer looked like a
+      // plain tap on release and dismissed the crosshair the moment the finger
+      // came off — the exact opposite of aiming it. 3 px is the same slop the
+      // drag paths use, so a thumb resting still does not count.
+      if (Math.abs(p.x - this._downX) > 3 || Math.abs(p.localY - this._downLocalY) > 3) {
+        this._pointerMoved = true;
+      }
       this._updateCursor(p.pane, p.x, p.localY, p.y);
       return;
     }
@@ -3225,7 +3255,13 @@ export class Chart {
       // The finger is off the glass but the crosshair stays: see
       // `_crosshairSticky`. Nothing else about this gesture happens, or the
       // release would also register as a click on whatever is under it.
+      const adopted = this._crosshairAdopted;
       this._crosshairPointer = null;
+      this._crosshairAdopted = false;
+      // A finger that adopted the crosshair and never moved was not aiming —
+      // it was the plain tap that means "put it away". A finger that moved was
+      // steering, so the crosshair stays where it was left.
+      if (adopted && !this._pointerMoved) this.hideCrosshair();
       return;
     }
     if (this._tapId !== null) {
@@ -3368,6 +3404,7 @@ export class Chart {
   public hideCrosshair(): void {
     this._clearCrosshairPress();
     this._crosshairPointer = null;
+    this._crosshairAdopted = false;
     this._crosshairSticky = false;
     if (this._cursor === null) return;
     this._cursor = null;

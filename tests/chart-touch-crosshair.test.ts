@@ -193,4 +193,39 @@ describe('long press summons the crosshair', () => {
     chart.hideCrosshair();
     expect(last(moves)?.price).toBeNull();
   });
+
+  it('is grabbed by the next finger, so it can be aimed without a second long press', () => {
+    const { el, moves } = makeChart();
+    el.dispatch('pointerdown', touch('down', 300, 250));
+    vi.advanceTimersByTime(500);
+    el.dispatch('pointerup', touch('up', 300, 250));
+    el.dispatch('pointerleave', touch('up', 300, 250));
+    const first = last(moves)?.price as number;
+
+    // A fresh finger, no long press: it steers immediately. Before this the
+    // crosshair sat where the summoning gesture left it and the only handle on
+    // it was the `+` itself — a crosshair you cannot aim.
+    el.dispatch('pointerdown', touch('down', 300, 350));
+    el.dispatch('pointermove', touch('move', 300, 400));
+    el.dispatch('pointerup', touch('up', 300, 400));
+    const second = last(moves)?.price as number;
+    expect(second).not.toBe(first);
+    expect(second).toBeLessThan(first); // lower on the pane is a lower price
+  });
+
+  it('a tap that does not move still puts it away', () => {
+    const { el, moves } = makeChart();
+    el.dispatch('pointerdown', touch('down', 300, 250));
+    vi.advanceTimersByTime(500);
+    el.dispatch('pointerup', touch('up', 300, 250));
+    el.dispatch('pointerleave', touch('up', 300, 250));
+    expect(last(moves)?.price).not.toBeNull();
+
+    // Adopted and released without moving: that is the dismiss gesture, and it
+    // has to survive the grab-to-steer change above or the crosshair becomes
+    // impossible to get rid of.
+    el.dispatch('pointerdown', touch('down', 420, 300));
+    el.dispatch('pointerup', touch('up', 420, 300));
+    expect(last(moves)?.price).toBeNull();
+  });
 });
