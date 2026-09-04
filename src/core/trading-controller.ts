@@ -468,7 +468,12 @@ export class TradingController {
    * as it did.
    */
   private _positionSegments(p: TradingPosition, color: string): PriceLinePillSegment[] | undefined {
-    if (p.tpButton !== true && p.slButton !== true) return undefined;
+    // An ARMED close forces the segmented pill even when the host asked for no
+    // buttons. The classic pill draws its ✕ through `closeButton`, which has no
+    // armed state, so the first tap would arm in silence and the finger would
+    // get no sign that anything had happened — the worst possible confirmation.
+    // Once disarmed the pill returns to exactly what it was.
+    if (p.tpButton !== true && p.slButton !== true && !this._closeIsArmed(p.id)) return undefined;
     const id = `pos:${p.id}`;
     const segments: PriceLinePillSegment[] = [
       { text: p.side.toUpperCase(), fill: color },
@@ -482,13 +487,18 @@ export class TradingController {
       // Armed: the ✕ becomes a legible question rather than a symbol, because
       // a second ✕ would look identical to the first and give the finger no
       // sign that anything changed.
-      const armedAt = this._closeArmed.get(p.id);
-      const armed = armedAt !== undefined && Date.now() - armedAt < CLOSE_CONFIRM_MS;
+      const armed = this._closeIsArmed(p.id);
       segments.push(armed
         ? { id: `${id}${CLOSE_SUFFIX}`, text: 'SIGUR?', fill: this._colors.sl, minWidth: TOUCH_SEGMENT_W }
         : { id: `${id}${CLOSE_SUFFIX}`, close: true, minWidth: TOUCH_SEGMENT_W });
     }
     return segments;
+  }
+
+  /** Is this position's close waiting for its confirming second tap? */
+  private _closeIsArmed(id: string): boolean {
+    const armedAt = this._closeArmed.get(id);
+    return armedAt !== undefined && Date.now() - armedAt < CLOSE_CONFIRM_MS;
   }
 
   private _positionOpts(p: TradingPosition): PriceLineOptions {

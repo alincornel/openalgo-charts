@@ -203,4 +203,19 @@ describe('a pill segment is a target, not a glyph', () => {
     // Far enough away and it is the plain line again, not the button.
     expect(pressed(line, 20, 180)).toBeNull();
   });
+
+  it('keeps the ✕ when a full bracket has taken the TP and SL buttons away', () => {
+    // The host stops offering TP/SL once both exist. If that also removed the
+    // segments, a protected position would be the one you cannot flatten from
+    // the chart.
+    const h = fakeHost();
+    const tc = new TradingController(h.host);
+    const onClose = vi.fn();
+    tc.on('trading:position_close', onClose);
+    tc.setPositions([{ id: 'p1', side: 'long', entryPrice: 100, size: 1, tpButton: false, slButton: false }]);
+
+    h.click('pos:p1::close');
+    h.click('pos:p1::close');
+    expect(onClose).toHaveBeenCalledWith({ positionId: 'p1' });
+  });
 });
