@@ -389,13 +389,32 @@ export class TradingController {
     if (payload.trades !== undefined) this.setTrades(payload.trades);
   }
 
+  /**
+   * The money on a position pill, patched onto the live line.
+   *
+   * This is the path P&L is meant to take: it moves on every print, and a host
+   * that pushed it through `syncState` instead re-asserted every stored price
+   * at that rate — which fights a drag in progress. See `_sig`.
+   *
+   * A position draws its money in one of two places, so this writes to
+   * whichever one it is using: the left label on the classic pill, and a
+   * segment on the pill that carries TP/SL/✕ buttons. Patching only the label
+   * left the number frozen on exactly the pills a trader watches, since the
+   * host asks for those buttons whenever a leg is missing.
+   */
   public updatePositionPnl(id: string, unrealizedPnl: number, pnlText?: string, pnlPercent?: string): void {
     const cur = this._positions.get(id);
     if (cur === undefined) return;
     if (pnlText !== undefined) cur.entity.pnlText = pnlText;
     if (pnlPercent !== undefined) cur.entity.pnlPercent = pnlPercent;
     void unrealizedPnl;
-    cur.line.setLeftLabel(this._positionPill(cur.entity));
+    const opts = this._positionOpts(cur.entity);
+    // The pill's first money also changes the segment COUNT, and the signature
+    // counts segments: recorded here, the next sync patches the line instead
+    // of tearing it down over a change already applied.
+    cur.sig = this._sig(opts);
+    if (opts.pillSegments !== undefined) cur.line.setOptions({ pillSegments: opts.pillSegments });
+    else cur.line.setLeftLabel(this._positionPill(cur.entity));
   }
 
   public getPositions(): TradingPosition[] { return [...this._positions.values()].map((t) => t.entity); }

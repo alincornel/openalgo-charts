@@ -98,6 +98,42 @@ describe('position pill buttons', () => {
     expect(line.options().pillSegments?.[2].text).toBe('+$50.00');
   });
 
+  it('moves the money on a segmented pill, not only on the classic one', () => {
+    const h = fakeHost();
+    const tc = new TradingController(h.host);
+    // A position with a leg missing gets a button for it, and a pill with
+    // buttons draws its money in a SEGMENT rather than in the left label. This
+    // is the pill a live chart shows most of the time.
+    tc.setPositions([{ id: 'p1', side: 'long', entryPrice: 100, size: 1, pnlText: '+$25.00', tpButton: true }]);
+    const line = h.lines()[0];
+    expect(line.options().leftLabel).toBeUndefined();
+
+    // P&L takes the patch path between syncs, because pushing it through
+    // `syncState` re-asserts every stored price on every print.
+    tc.updatePositionPnl('p1', 50, '+$50.00');
+    expect(h.lines()[0]).toBe(line);
+    expect(line.options().pillSegments?.[2].text).toBe('+$50.00');
+
+    // And the sync that follows patches the same line rather than rebuilding
+    // it over money it already carries.
+    tc.setPositions([{ id: 'p1', side: 'long', entryPrice: 100, size: 1, pnlText: '+$50.00', tpButton: true }]);
+    expect(h.lines()[0]).toBe(line);
+  });
+
+  it('gives a pill its first money without tearing the line down', () => {
+    const h = fakeHost();
+    const tc = new TradingController(h.host);
+    // No last price yet: the pill omits the money rather than printing one
+    // computed against nothing, so the segment is not there at all.
+    tc.setPositions([{ id: 'p1', side: 'short', entryPrice: 100, size: 1, tpButton: true, slButton: true }]);
+    const line = h.lines()[0];
+    expect(line.options().pillSegments?.map((s) => s.text)).toEqual(['SHORT', '1', 'TP', 'SL', undefined]);
+
+    tc.updatePositionPnl('p1', -12.5, '−$12.50');
+    expect(h.lines()[0]).toBe(line);
+    expect(line.options().pillSegments?.map((s) => s.text)).toEqual(['SHORT', '1', '−$12.50', 'TP', 'SL', undefined]);
+  });
+
   it('carries a note segment on an order without recreating it per tick', () => {
     const h = fakeHost();
     const tc = new TradingController(h.host);
