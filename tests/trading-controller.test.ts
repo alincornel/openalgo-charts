@@ -54,10 +54,30 @@ describe('TradingController', () => {
     tc.setPositions([{ id: 'p1', side: 'short', entryPrice: 100, size: 1 }]);
     tc.setOrders([{ id: 'o1', type: 'stop', side: 'sell', price: 90, size: 1 }]);
 
-    h.click('pos:p1::close');
+    // Cancelling an ORDER is one tap: nothing is at risk, and a cancelled
+    // order can be placed again. Flattening a POSITION takes two, because it
+    // is irreversible and its ✕ sits a thumb's width from this one.
     h.click('ord:o1::close');
-    expect(onClose).toHaveBeenCalledWith({ positionId: 'p1' });
     expect(onCancel).toHaveBeenCalledWith({ orderId: 'o1' });
+
+    h.click('pos:p1::close');
+    expect(onClose).not.toHaveBeenCalled();
+    h.click('pos:p1::close');
+    expect(onClose).toHaveBeenCalledWith({ positionId: 'p1' });
+  });
+
+  it('arms a flatten before it fires, and says so', () => {
+    const h = fakeHost();
+    const tc = new TradingController(h.host);
+    const onArmed = vi.fn();
+    const onClose = vi.fn();
+    tc.on('trading:position_close_armed', onArmed);
+    tc.on('trading:position_close', onClose);
+    tc.setPositions([{ id: 'p1', side: 'long', entryPrice: 100, size: 2 }]);
+
+    h.click('pos:p1::close');
+    expect(onArmed).toHaveBeenCalledWith({ positionId: 'p1' });
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it('emits order_modify after a drag', () => {

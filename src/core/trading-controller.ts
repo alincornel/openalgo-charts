@@ -142,6 +142,14 @@ export const DEFAULT_TRADING_COLORS: TradingColors = {
 };
 
 const CLOSE_SUFFIX = '::close';
+/**
+ * How long a flatten stays armed after the first tap, in ms.
+ *
+ * Closing a position is irreversible and the ✕ sits a thumb's width from the
+ * one that merely cancels a stop. Long enough to mean it, short enough that an
+ * arming tap you walked away from cannot fire later.
+ */
+const CLOSE_CONFIRM_MS = 3_000;
 
 /**
  * How far an overlay line reaches when the caller says nothing, and where its
@@ -295,6 +303,8 @@ export class TradingController {
   private readonly _dragPrev = new Map<string, number>();
   private _colors: TradingColors = { ...DEFAULT_TRADING_COLORS };
   private _markers: TradeMarkersPrimitive | null = null;
+  /** Position id → when its close was armed, for the two-tap flatten. */
+  private readonly _closeArmed = new Map<string, number>();
 
   public constructor(host: TradingHost) {
     this._host = host;
@@ -468,7 +478,16 @@ export class TradingController {
     if (pnl !== '') segments.push({ text: pnl });
     if (p.tpButton === true) segments.push({ id: `${id}::tp`, text: 'TP', fill: this._colors.tp, minWidth: TOUCH_SEGMENT_W });
     if (p.slButton === true) segments.push({ id: `${id}::sl`, text: 'SL', fill: this._colors.sl, minWidth: TOUCH_SEGMENT_W });
-    if (p.readOnly !== true) segments.push({ id: `${id}${CLOSE_SUFFIX}`, close: true, minWidth: TOUCH_SEGMENT_W });
+    if (p.readOnly !== true) {
+      // Armed: the ✕ becomes a legible question rather than a symbol, because
+      // a second ✕ would look identical to the first and give the finger no
+      // sign that anything changed.
+      const armedAt = this._closeArmed.get(p.id);
+      const armed = armedAt !== undefined && Date.now() - armedAt < CLOSE_CONFIRM_MS;
+      segments.push(armed
+        ? { id: `${id}${CLOSE_SUFFIX}`, text: 'SIGUR?', fill: this._colors.sl, minWidth: TOUCH_SEGMENT_W }
+        : { id: `${id}${CLOSE_SUFFIX}`, close: true, minWidth: TOUCH_SEGMENT_W });
+    }
     return segments;
   }
 
@@ -538,7 +557,24 @@ export class TradingController {
         if (this._orders.has(id)) this._emit('trading:order_cancel', { orderId: id });
       } else if (base.startsWith('pos:')) {
         const id = base.slice(4);
-        if (this._positions.has(id)) this._emit('trading:position_close', { positionId: id });
+        if (!this._positions.has(id)) return;
+        // Two taps to flatten. The first arms and repaints the segment as a
+        // question; the second, inside the window, closes. A confirm dialog was
+        // the obvious alternative and is the wrong one on a phone: it covers
+        // the chart you are deciding from, and two quick taps are faster than
+        // reading and dismissing it.
+        const armedAt = this._closeArmed.get(id);
+        if (armedAt !== undefined && Date.now() - armedAt < CLOSE_CONFIRM_MS) {
+          this._closeArmed.delete(id);
+          this._emit('trading:position_close', { positionId: id });
+        } else {
+          this._closeArmed.set(id, Date.now());
+          this._emit('trading:position_close_armed', { positionId: id });
+        }
+        // Repaint so the segment shows its new state. The positions are
+        // already in hand, so this is a re-sync of what we hold, not a
+        // round trip to the host.
+        this._sync(this._positions, [...this._positions.values()].map((t) => t.entity), 'pos');
       }
       return;
     }

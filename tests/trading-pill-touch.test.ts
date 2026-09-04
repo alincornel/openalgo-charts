@@ -76,6 +76,9 @@ describe('position pill buttons', () => {
 
     h.click('pos:p1::tp');
     h.click('pos:p1::sl');
+    // Two taps on the ✕: attaching a bracket is one tap because it is
+    // reversible, flattening is two because it is not.
+    h.click('pos:p1::close');
     h.click('pos:p1::close');
     expect(onTp).toHaveBeenCalledWith({ positionId: 'p1' });
     expect(onSl).toHaveBeenCalledWith({ positionId: 'p1' });
