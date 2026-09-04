@@ -550,6 +550,8 @@ export class Chart {
   private _overlayFrozen = false; // native context menu open: keep the save-image snapshot
   private _dragCb: ((externalId: string, price: number, time: number) => void) | null = null;
   private _dragEndCb: ((externalId: string, price: number, time: number) => void) | null = null;
+  /** Called when a drag is TAKEN AWAY rather than released — see `_beginPinch`. */
+  private _dragCancelCb: ((externalId: string) => void) | null = null;
   // axis-drag rescale (price axis = vertical, time axis = horizontal)
   private _axisDrag: 'price' | 'time' | null = null;
   /** The scale a price-axis drag is rescaling: either side's, whichever strip was grabbed. */
@@ -1288,6 +1290,12 @@ export class Chart {
    * Subscribe to drags of draggable primitives (order / SL / TP lines, drawing
    * handles). Fires per move and on release.
    *
+   * `onDragCancel` is the third outcome, and a consumer that holds state for
+   * the duration of a drag needs it: a second finger landing turns the gesture
+   * into a pinch, the releases that follow belong to the pinch, and without
+   * this the drag would never be heard from again. It carries no price,
+   * because nothing was chosen — a zoom is not an edit.
+   *
    * `time` is the UTC seconds under the cursor, interpolated between bars and
    * extrapolated past the right edge — so a two-axis drag (a trendline endpoint,
    * a projection) has a usable time even where the gapless axis has no bar.
@@ -1296,9 +1304,11 @@ export class Chart {
   public subscribeDrag(
     onDrag: (externalId: string, price: number, time: number) => void,
     onDragEnd?: (externalId: string, price: number, time: number) => void,
+    onDragCancel?: (externalId: string) => void,
   ): void {
     this._dragCb = onDrag;
     this._dragEndCb = onDragEnd ?? null;
+    this._dragCancelCb = onDragCancel ?? null;
   }
 
   /**
@@ -1332,7 +1342,7 @@ export class Chart {
   // ── unified event bus ─────────────────────────────────────────────────────
   // One `on(name, cb)` surface for every chart event, complementing the typed
   // `subscribe*` helpers. Names emitted by the core: 'ready', 'crosshair:move',
-  // 'click', 'dblclick', 'hover', 'drag', 'drag:end', 'pan', 'zoom', 'resize',
+  // 'click', 'dblclick', 'hover', 'drag', 'drag:end', 'drag:cancel', 'pan', 'zoom', 'resize',
   // 'lazy-load', 'paneAdded', 'paneRemoved', 'paneMoved', 'paneMaximized', 'paneResized',
   // 'priceAxisMoved', 'indicatorRemoved', 'indicatorSettings', 'destroy'. The
   // trading layer routes its 'trading:*' events through here too, and the draw
@@ -3504,7 +3514,18 @@ export class Chart {
     this._pinch = pinchState(pts[0], pts[1]);
     this._pinchPane = pts[0].pane;
     // abort any single-pointer interaction so it doesn't fight the pinch
+    const dragged = this._dragId;
     this._dragging = false; this._axisDrag = null; this._axisDragScale = null; this._dragId = null; this._pointerMoved = true;
+    // A line drag has to be CANCELLED, not dropped. The consumer is holding
+    // that line at the finger's price for the duration of the gesture, and the
+    // pointerups that follow are swallowed by the pinch branch in
+    // `_onPointerUp`, so nothing else would ever tell it the drag was over: the
+    // line would keep the price the finger left it at for as long as it lives,
+    // lying about where the order actually sits.
+    if (dragged !== null) {
+      this._dragCancelCb?.(dragged);
+      this.emit('drag:cancel', { id: dragged });
+    }
   }
 
   private _updatePinch(): void {

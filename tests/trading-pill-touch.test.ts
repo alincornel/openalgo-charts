@@ -134,6 +134,54 @@ describe('position pill buttons', () => {
     expect(line.options().pillSegments?.map((s) => s.text)).toEqual(['SHORT', '1', '−$12.50', 'TP', 'SL', undefined]);
   });
 
+  it('does not rebuild the line when the money it was just given comes back in a sync', () => {
+    const h = fakeHost();
+    const tc = new TradingController(h.host);
+    const position = { id: 'p1', side: 'long' as const, entryPrice: 100, size: 1, tpButton: true };
+    // No last price yet, so no money segment at all.
+    tc.setPositions([position]);
+    const line = h.lines()[0];
+
+    // The first money CHANGES THE SEGMENT COUNT, and the signature counts
+    // segments. Applied here in place, it has to be recorded here too, or the
+    // very next sync tears the line down over a change already on screen.
+    tc.updatePositionPnl('p1', 25, '+$25.00');
+    expect(h.lines()[0]).toBe(line);
+    tc.setPositions([{ ...position, pnlText: '+$25.00' }]);
+    expect(h.lines()[0]).toBe(line);
+  });
+
+  it('takes the money off a pill when the host no longer has one', () => {
+    const h = fakeHost();
+    const tc = new TradingController(h.host);
+    tc.setPositions([{ id: 'p1', side: 'long', entryPrice: 100, size: 1, pnlText: '+$25.00' }]);
+    const line = h.lines()[0];
+    expect(line.options().leftLabel).toBe('+$25.00');
+
+    // No last trade, or a contract with no multiplier: there is no honest
+    // number to print. A pill that keeps the last one is read as live.
+    tc.updatePositionPnl('p1', null, null);
+    expect(line.options().leftLabel).toBe('');
+
+    // `undefined` still means "leave it alone", which is what a host that only
+    // wants to update the percentage relies on.
+    tc.updatePositionPnl('p1', 30, '+$30.00');
+    expect(line.options().leftLabel).toBe('+$30.00');
+    tc.updatePositionPnl('p1', null);
+    expect(line.options().leftLabel).toBe('+$30.00');
+  });
+
+  it('takes the money off a segmented pill too', () => {
+    const h = fakeHost();
+    const tc = new TradingController(h.host);
+    tc.setPositions([{ id: 'p1', side: 'short', entryPrice: 100, size: 1, pnlText: '−$12.50', slButton: true }]);
+    const line = h.lines()[0];
+    expect(line.options().pillSegments?.map((segment) => segment.text)).toEqual(['SHORT', '1', '−$12.50', 'SL', undefined]);
+
+    tc.updatePositionPnl('p1', null, null);
+    expect(line.options().pillSegments?.map((segment) => segment.text)).toEqual(['SHORT', '1', 'SL', undefined]);
+  });
+
   it('carries a note segment on an order without recreating it per tick', () => {
     const h = fakeHost();
     const tc = new TradingController(h.host);

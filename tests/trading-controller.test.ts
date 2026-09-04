@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { TradingController, TradeMarkersPrimitive } from '../src/core/trading-controller';
-import type { TradingHost } from '../src/core/trading-controller';
+import type { TradingHost, TradingOrder } from '../src/core/trading-controller';
 import { PriceLine } from '../src/primitives/price-line';
 import type { IPrimitive } from '../src/primitives/primitive';
 
@@ -91,6 +91,25 @@ describe('TradingController', () => {
     h.dragEnd('ord:o1', 106);
     expect(onModify).toHaveBeenCalledWith({ orderId: 'o1', newPrice: 106, previousPrice: 100 });
     expect(tc.getOrders()[0].price).toBe(106); // optimistic update
+  });
+
+  it('leaves the order the host handed it alone, so a refused modify can be reverted', () => {
+    const h = fakeHost();
+    const tc = new TradingController(h.host);
+    // The array a host keeps and re-sends: the broker's truth, not ours.
+    const brokerOrders: TradingOrder[] = [{ id: 'o1', type: 'limit', side: 'buy', price: 100, size: 1 }];
+    tc.setOrders(brokerOrders);
+
+    h.drag('ord:o1', 105);
+    h.dragEnd('ord:o1', 106);
+    expect(tc.getOrders()[0].price).toBe(106); // optimistic, on our own copy
+    expect(brokerOrders[0].price).toBe(100);
+
+    // The broker refused the modification, so the host pushes the same array
+    // back. Writing the dragged price into that array left nothing to revert
+    // to: the line stayed at 106, describing an order that does not exist.
+    tc.setOrders(brokerOrders);
+    expect(h.lines()[0].price).toBe(100);
   });
 
   it('replaces on setOrders and removes bracket children with the parent', () => {

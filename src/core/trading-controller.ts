@@ -126,7 +126,12 @@ export interface TradingHost {
   addPrimitive(p: IPrimitive): void;
   removePrimitive(p: IPrimitive): void;
   subscribeClick(cb: (externalId: string) => void): void;
-  subscribeDrag(onDrag: (externalId: string, price: number) => void, onDragEnd?: (externalId: string, price: number) => void): void;
+  subscribeDrag(
+    onDrag: (externalId: string, price: number) => void,
+    onDragEnd?: (externalId: string, price: number) => void,
+    /** The drag was taken away (a pinch began), not released. No price: nothing was chosen. */
+    onDragCancel?: (externalId: string) => void,
+  ): void;
   /** Optional: route trading events onto the chart's unified `chart.on(...)` bus. */
   emit?(event: string, payload: unknown): void;
 }
@@ -318,6 +323,7 @@ export class TradingController {
     host.subscribeDrag(
       (externalId, price) => this._onDrag(externalId, price),
       (externalId, price) => this._onDragEnd(externalId, price),
+      (externalId) => this._onDragCancel(externalId),
     );
   }
 
@@ -402,19 +408,33 @@ export class TradingController {
    * left the number frozen on exactly the pills a trader watches, since the
    * host asks for those buttons whenever a leg is missing.
    */
-  public updatePositionPnl(id: string, unrealizedPnl: number, pnlText?: string, pnlPercent?: string): void {
+  public updatePositionPnl(
+    id: string,
+    unrealizedPnl: number | null,
+    pnlText?: string | null,
+    pnlPercent?: string | null,
+  ): void {
     const cur = this._positions.get(id);
     if (cur === undefined) return;
-    if (pnlText !== undefined) cur.entity.pnlText = pnlText;
-    if (pnlPercent !== undefined) cur.entity.pnlPercent = pnlPercent;
+    // `undefined` means "leave it alone", `null` means "take it off". Without
+    // the second, a pill kept its last number forever once the host stopped
+    // being able to price one — no last trade, an unknown contract — and a
+    // stale P&L is read as a live one.
+    const entity = { ...cur.entity };
+    if (pnlText !== undefined) entity.pnlText = pnlText ?? undefined;
+    if (pnlPercent !== undefined) entity.pnlPercent = pnlPercent ?? undefined;
     void unrealizedPnl;
-    const opts = this._positionOpts(cur.entity);
+    // A copy, not a mutation: the entity is the host's own object, and a
+    // controller that writes into it makes the host's state disagree with the
+    // broker's without the host ever being told.
+    cur.entity = entity;
+    const opts = this._positionOpts(entity);
     // The pill's first money also changes the segment COUNT, and the signature
     // counts segments: recorded here, the next sync patches the line instead
     // of tearing it down over a change already applied.
     cur.sig = this._sig(opts);
     if (opts.pillSegments !== undefined) cur.line.setOptions({ pillSegments: opts.pillSegments });
-    else cur.line.setLeftLabel(this._positionPill(cur.entity));
+    else if (opts.leftLabel !== undefined) cur.line.setLeftLabel(opts.leftLabel);
   }
 
   public getPositions(): TradingPosition[] { return [...this._positions.values()].map((t) => t.entity); }
@@ -722,19 +742,48 @@ export class TradingController {
     const cur = this._orders.get(id);
     // Where the line stood when the finger landed, which a sync arriving
     // mid-drag cannot move: it replaces the tracked entity, not this.
-    const previousPrice = this._dragPrev.get(id) ?? cur?.entity.price ?? price;
+    const from = this._dragPrev.get(id);
     // The gesture is over whether or not the order survived it.
     this._dragPrev.delete(id);
     // Filled or cancelled mid-drag: there is no line left to move and nothing
     // at the broker to modify. End quietly rather than emit against a dead id.
     if (cur === undefined) return;
+    const previousPrice = from ?? cur.entity.price;
     cur.line.setDragGhost(null);
-    cur.entity.price = price;
+    // The optimistic price goes on a COPY. The entity is the host's own object
+    // — often an element of a memoised array it re-sends — and writing the
+    // dragged price into it meant a broker that REFUSED the modification had
+    // nothing to revert to: the host pushed the same array back and the line
+    // stayed where the finger left it, describing an order that does not exist.
+    cur.entity = { ...cur.entity, price };
     cur.line.setPrice(price);
     if (cur.entity.bracketRole !== undefined) {
       this._emit('trading:bracket_modify', { parentId: cur.entity.parentId, bracketRole: cur.entity.bracketRole, newPrice: price });
     } else {
       this._emit('trading:order_modify', { orderId: id, newPrice: price, previousPrice });
     }
+  }
+
+  /**
+   * The drag was taken away rather than finished: a second finger landed and
+   * the chart turned the gesture into a pinch.
+   *
+   * The line goes back to the price the broker has for it and NOTHING is
+   * emitted. A pinch is a zoom, and a zoom must never move an order. Without
+   * this the line stayed where the finger left it for the rest of its life —
+   * the releases that end a pinch never reach `_onDragEnd`, so the id would sit
+   * in `_dragPrev` forever and every sync would keep declining to correct it.
+   */
+  private _onDragCancel(externalId: string): void {
+    if (!externalId.startsWith('ord:')) return;
+    const id = externalId.slice(4);
+    if (!this._dragPrev.delete(id)) return; // not a drag this controller was holding
+    const cur = this._orders.get(id);
+    if (cur === undefined) return;
+    cur.line.setDragGhost(null);
+    // The entity's price rather than the one remembered at the press: they are
+    // the same number unless a sync arrived mid-drag, and in that case the
+    // broker's newer price is the one a cancelled gesture should leave behind.
+    cur.line.setPrice(cur.entity.price);
   }
 }

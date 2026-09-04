@@ -39,7 +39,15 @@ const BUNDLE = new URL('../dist/openalgo-charts.mjs', import.meta.url).pathname.
 // a thumb: a press on an on-chart button no longer pans the plot out from under
 // it, and a long press summons a crosshair, which a touch device had no way to
 // see at all. Neither is a trading feature; both are the chart's own input.
-const LIMIT_BYTES = 39.7 * 1024;
+//
+// Raised to 40.2 kB on 2026-09-04, honestly: this budget was ALREADY red at
+// 2e1461b (measured 39.97 kB against 39.70), so the number had stopped
+// describing the tree and stopped being a gate. It describes it again now.
+// What the pass that follows adds to a chart-only build is the drag-cancel
+// seam: a second finger landing mid-drag has to be told to whoever is holding
+// the line, or the line lies about where the order sits. That is the chart's
+// own input, not a trading feature. Trim before raising this again.
+const LIMIT_BYTES = 40.2 * 1024;
 
 // Absent from a chart-only build. Each is a string that appears in the adapter
 // source and nowhere in the rendering core.

@@ -139,6 +139,37 @@ describe('an order line being dragged', () => {
     expect(line('o1').price).toBeCloseTo(priceAt(240), 8);
   });
 
+  it('gives the line back when a second finger turns the drag into a pinch', () => {
+    const { chart, el, line, priceAt, paint } = makeChart();
+    const onModify = vi.fn();
+    chart.trading.on('trading:order_modify', onModify);
+
+    const stored = priceAt(300);
+    chart.trading.syncState({ orders: [order(stored)] });
+    paint();
+
+    el.dispatch('pointerdown', pointer('down', 400, 300));
+    el.dispatch('pointermove', pointer('move', 400, 240));
+    expect(line('o1').price).toBeCloseTo(priceAt(240), 8);
+
+    // A second finger lands: the chart takes the gesture away for a pinch, and
+    // the releases that end a pinch never reach the drag path. Without a cancel
+    // seam the controller would hold this line at the finger's price for the
+    // rest of its life — on a phone, a stop line lying about where the stop is.
+    el.dispatch('pointerdown', pointer('down', 300, 300, { pointerId: 2, pointerType: 'touch' }));
+    expect(line('o1').price).toBeCloseTo(stored, 8);
+
+    el.dispatch('pointerup', pointer('up', 300, 300, { pointerId: 2, pointerType: 'touch' }));
+    el.dispatch('pointerup', pointer('up', 400, 240));
+    // A zoom is not an edit.
+    expect(onModify).not.toHaveBeenCalled();
+
+    // And the line is not frozen: the broker moves it again as normal.
+    const next = priceAt(180);
+    chart.trading.syncState({ orders: [order(next)] });
+    expect(line('o1').price).toBeCloseTo(next, 8);
+  });
+
   it('ends quietly when the order is filled or cancelled mid-drag', () => {
     const { chart, el, priceAt, paint } = makeChart();
     const onModify = vi.fn();
