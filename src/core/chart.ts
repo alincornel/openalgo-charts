@@ -182,7 +182,7 @@ export interface ChartOptions {
    * from something like `matchMedia('(pointer: coarse)')`, and re-apply when
    * that changes.
    */
-  touchTargets?: boolean;
+  touchTargets?: boolean | number;
   /**
    * Optional chrome on the axis strips: the corner clock and the bar-close
    * countdown. Both are off unless asked for, so a chart that omits this block
@@ -442,7 +442,7 @@ export class Chart {
   // interaction state
   private _crosshairMode: CrosshairMode;
   /** Size canvas-painted controls for a finger; set by the host, see `ChartOptions`. */
-  private _touchTargets = false;
+  private _touchTargets: boolean | number = false;
   private _shortcuts: ShortcutManager | null = null;
   private _trading: TradingController | null = null;
   private _pointerInside = false;
@@ -2091,7 +2091,7 @@ export class Chart {
     timeFormatter?: ((utcSeconds: number, tickMark?: TickMarkType) => string) | undefined;
     timezone?: string;
     crosshairMode?: CrosshairMode;
-    touchTargets?: boolean;
+    touchTargets?: boolean | number;
   }): void {
     if (opts.theme) this.setTheme(opts.theme);
     if (opts.grid) this.setGridOptions(opts.grid);

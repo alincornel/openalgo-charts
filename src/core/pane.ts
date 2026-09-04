@@ -25,7 +25,7 @@ import { DEFAULT_TIMEZONE, formatZonedCrosshairLabel } from '../feed/time';
 
 export interface PaneRenderContext {
   /** Size canvas-painted controls for a finger; see `ChartOptions.touchTargets`. */
-  touchTargets?: boolean;
+  touchTargets?: boolean | number;
   timeScale: TimeScale;
   dataLayer: DataLayer;
   dpr: number;

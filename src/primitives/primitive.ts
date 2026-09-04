@@ -27,7 +27,7 @@ export interface PrimitiveRenderContext {
    * touchscreen laptop is still driven by a mouse most of the time — so it is
    * an option the application sets, typically from `(pointer: coarse)`.
    */
-  touchTargets?: boolean;
+  touchTargets?: boolean | number;
   /**
    * The pane's primary price series, for a primitive that needs what price
    * actually did rather than just the scales — a forecast scoring itself, say.

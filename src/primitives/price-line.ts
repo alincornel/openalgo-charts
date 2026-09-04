@@ -112,7 +112,7 @@ const TAG_H = 18;
  * to hit and hard to read. The host decides — the chart cannot reliably know
  * whether the pointer is coarse — and everything else here scales off it.
  */
-const TOUCH_SCALE = 1.45;
+const TOUCH_SCALE = 1.8;
 /**
  * How far above and below the drawn pill still counts as a press on it, media
  * px. Deliberately larger than half the pill: the pill is sized to look right
@@ -261,7 +261,8 @@ export class PriceLine implements IPrimitive {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    const touch = rc.touchTargets === true ? TOUCH_SCALE : 1;
+    const touch = typeof rc.touchTargets === 'number' ? rc.touchTargets
+      : rc.touchTargets === true ? TOUCH_SCALE : 1;
     ctx.font = `500 ${Math.round(11 * touch) * dpr}px system-ui, sans-serif`;
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';

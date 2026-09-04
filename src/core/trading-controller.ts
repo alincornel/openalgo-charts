@@ -149,7 +149,7 @@ const CLOSE_SUFFIX = '::close';
  * one that merely cancels a stop. Long enough to mean it, short enough that an
  * arming tap you walked away from cannot fire later.
  */
-const CLOSE_CONFIRM_MS = 3_000;
+const CLOSE_CONFIRM_MS = 5_000;
 
 /**
  * How far an overlay line reaches when the caller says nothing, and where its
@@ -183,7 +183,7 @@ const DEFAULT_LINE_AUTOSCALE = false;
  * and a poor thumb one, and these buttons place real orders. The box grows;
  * the text stays where it is and centres inside it.
  */
-const TOUCH_SEGMENT_W = 40;
+const TOUCH_SEGMENT_W = 56;
 
 /** Nearest bar index to a UTC-seconds time (binary search over the sorted times). */
 function snapToIndex(dl: { length: number; indexToTime(i: number): number | undefined }, timeSec: number): number | undefined {
@@ -495,6 +495,21 @@ export class TradingController {
     return segments;
   }
 
+  /**
+   * Put any armed flatten away.
+   *
+   * The controller sees taps that HIT something; a tap on empty chart is
+   * delivered to the host as a `click` with a null id, so the host calls this
+   * — which is also the natural place to call it from a symbol change or a
+   * panel closing. Safe to call when nothing is armed.
+   */
+  public disarmClose(positionId?: string): void {
+    if (this._closeArmed.size === 0) return;
+    if (positionId === undefined) this._closeArmed.clear();
+    else this._closeArmed.delete(positionId);
+    this._sync(this._positions, [...this._positions.values()].map((t) => t.entity), 'pos');
+  }
+
   /** Is this position's close waiting for its confirming second tap? */
   private _closeIsArmed(id: string): boolean {
     const armedAt = this._closeArmed.get(id);
@@ -560,6 +575,11 @@ export class TradingController {
 
   // ── interaction ─────────────────────────────────────────────────────────────
   private _onClick(externalId: string): void {
+    // Anything that is not the armed ✕ itself puts the confirmation away. An
+    // armed control the user has moved on from is a trap left on the chart:
+    // the next tap in that spot flattens a position he stopped thinking about
+    // several actions ago.
+    if (this._closeArmed.size > 0 && !externalId.endsWith(CLOSE_SUFFIX)) this.disarmClose();
     if (externalId.endsWith(CLOSE_SUFFIX)) {
       const base = externalId.slice(0, -CLOSE_SUFFIX.length);
       if (base.startsWith('ord:')) {
