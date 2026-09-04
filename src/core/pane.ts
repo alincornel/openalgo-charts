@@ -349,6 +349,14 @@ export class Pane {
       theme: ctx.theme,
       hoverId: ctx.hoverId ?? null,
       dragId: ctx.dragId ?? null,
+      // Carried through explicitly, like everything else here. This context is
+      // built field by field rather than spread, so a new option reaches the
+      // chart and the pane and then silently dies one line before the
+      // primitives that need it — which is exactly what happened: the option
+      // was set, the device was detected, the primitive scaled correctly in
+      // its own tests, and nothing changed on screen because the value never
+      // arrived.
+      touchTargets: ctx.touchTargets,
       bars: () => {
         for (const s of this._series) {
           if (getChartType(s.type).isPriceSeries) return ctx.dataLayer.seriesBars(s.dataId);
