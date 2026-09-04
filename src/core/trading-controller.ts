@@ -429,21 +429,48 @@ export class TradingController {
         : this._orderOpts(entity as unknown as TradingOrder);
       const sig = this._sig(opts);
       const cur = map.get(entity.id);
+      /**
+       * A line under the finger keeps the price under the finger.
+       *
+       * The broker's price is still taken onto the entity — it is what the
+       * next sync after the release draws — but writing it to the primitive
+       * mid-drag is the whole of the "dragging jumps" bug: a host re-syncs
+       * whenever anything in its payload moves (a position's P&L moves on
+       * every tick), the line snapped back to the stored price, and the next
+       * pointermove threw it forward again.
+       */
+      const held = kind === 'ord' && this._dragPrev.has(entity.id);
       if (cur !== undefined && cur.sig === sig) {
         cur.entity = entity;
-        cur.line.setPrice(opts.price);
+        if (!held) cur.line.setPrice(opts.price);
         // Everything the signature left out, patched in place: same primitive,
         // same drag, new numbers.
         cur.line.setOptions({ leftLabel: opts.leftLabel, note: opts.note, pillSegments: opts.pillSegments });
       } else {
         if (cur !== undefined) this._host.removePrimitive(cur.line);
-        const line = new PriceLine(opts);
+        // A rebuild while the line is held (its pill changed shape under the
+        // finger) is the one place the held price has to be carried across by
+        // hand: a fresh primitive would open at the broker's price and lose
+        // the ghost marking where the drag began.
+        const line = new PriceLine(held && cur !== undefined ? { ...opts, price: cur.line.price } : opts);
+        if (held) {
+          const from = this._dragPrev.get(entity.id);
+          if (from !== undefined) line.setDragGhost(from);
+        }
         this._host.addPrimitive(line);
         map.set(entity.id, { entity, line, sig });
       }
     }
     for (const [id, cur] of map) {
-      if (!seen.has(id)) { this._host.removePrimitive(cur.line); map.delete(id); }
+      if (!seen.has(id)) {
+        this._host.removePrimitive(cur.line);
+        map.delete(id);
+        // Filled or cancelled while the finger was still down: the drag goes
+        // with the line. Left behind, the entry would freeze the price of the
+        // next order to carry this id, and hand `_onDragEnd` a `previousPrice`
+        // from a gesture that ended on a different order.
+        if (kind === 'ord') this._dragPrev.delete(id);
+      }
     }
   }
 
@@ -674,9 +701,14 @@ export class TradingController {
     if (!externalId.startsWith('ord:')) return;
     const id = externalId.slice(4);
     const cur = this._orders.get(id);
-    if (cur === undefined) return;
-    const previousPrice = this._dragPrev.get(id) ?? cur.entity.price;
+    // Where the line stood when the finger landed, which a sync arriving
+    // mid-drag cannot move: it replaces the tracked entity, not this.
+    const previousPrice = this._dragPrev.get(id) ?? cur?.entity.price ?? price;
+    // The gesture is over whether or not the order survived it.
     this._dragPrev.delete(id);
+    // Filled or cancelled mid-drag: there is no line left to move and nothing
+    // at the broker to modify. End quietly rather than emit against a dead id.
+    if (cur === undefined) return;
     cur.line.setDragGhost(null);
     cur.entity.price = price;
     cur.line.setPrice(price);
