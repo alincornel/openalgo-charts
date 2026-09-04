@@ -84,6 +84,11 @@ describe('long press summons the crosshair', () => {
     el.dispatch('pointerdown', touch('down', 300, 250));
     vi.advanceTimersByTime(500);
     el.dispatch('pointerup', touch('up', 300, 250));
+    // A real touch release fires `pointerleave` as well, and that is what this
+    // test missed: it passed here while a phone cleared the crosshair the
+    // instant the finger came off, leaving nothing to tap. Dispatch both, in
+    // the order a browser does, or the test is not testing the gesture.
+    el.dispatch('pointerleave', touch('up', 300, 250));
     const price = last(moves)?.price as number;
     expect(price).toBeGreaterThan(90);
     expect(price).toBeLessThan(110);

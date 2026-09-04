@@ -3385,6 +3385,12 @@ export class Chart {
     this._pointerInside = false;
     this._feedTimeNav(null);
     if (this._dragId === null) this._setHover(null); // keep the active state while dragging
+    // A touch release fires `pointerleave` as well as `pointerup`, so this
+    // wiped the sticky crosshair a moment after `_onPointerUp` had deliberately
+    // kept it — and the price-axis `+` the crosshair exists to reach never
+    // survived the lift. A sticky crosshair is dismissed on purpose, never by
+    // the finger simply coming off the glass.
+    if (this._crosshairSticky) return;
     this.hideCrosshair();
   };
 
