@@ -324,7 +324,13 @@ export class PriceLine implements IPrimitive {
         radius: r,
         gap: GAP * dpr,
         backplate: transparentBg ? undefined : rc.theme.background,
-        maxX: this._opts.pillSegments === undefined ? undefined : xEnd - 4 * dpr,
+        // ALWAYS clamped to the plot. This used to apply only to custom
+        // segment groups, so the default working-order pill —
+        // [SIDE][qty][TYPE][×] — ran straight over the price axis on a narrow
+        // screen: the ✕ landed on the scale, where the axis owns the gesture,
+        // and the order could not be cancelled from the chart at all. A pill
+        // that cannot be reached is worse than one that is cramped.
+        maxX: xEnd - 4 * dpr,
         dpr,
       });
     }

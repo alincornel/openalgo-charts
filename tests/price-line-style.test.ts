@@ -103,7 +103,20 @@ describe('PriceLine extent and pill anchor', () => {
   });
 
   it('clamps both fractions into 0..1', () => {
+    // `pillX0` is 560 rather than the plot's 600 because the group is also kept
+    // INSIDE the plot: an inset of 0 asks for the far right edge, and honouring
+    // that literally would push the pill's width out over the price axis. It
+    // used to do exactly that, which is how an order's ✕ ended up on the scale,
+    // unreachable, and the order uncancellable from the chart.
     expect(geometry({ extentFromRight: 5, pillInsetFromRight: -2 }))
-      .toEqual({ lineX0: 0, pillX0: 600 });
+      .toEqual({ lineX0: 0, pillX0: 560 });
+  });
+
+  it('never lets a pill spill over the price axis', () => {
+    // The regression that prompted the clamp: a default order pill
+    // ([SIDE][qty][TYPE][×]) on a phone-width plot.
+    const { pillX0 } = geometry({ extentFromRight: 1, pillInsetFromRight: 0 });
+    expect(pillX0).toBeLessThan(600);
+    expect(pillX0).toBeGreaterThanOrEqual(0);
   });
 });
