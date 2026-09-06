@@ -46,5 +46,14 @@
 - [x] Add a visible interactive drawing toolbar to the examples page and drawing guide.
 - [x] Transform the marketing homepage, docs, examples and generated API reference with a shared premium visual design, an animated intro that respects reduced motion, and a functioning chart on the homepage.
 - [x] Replace the homepage's sample candles with real BTC/USD exchange data, selectable timeframes, 15-second refreshes and visible connection errors without a synthetic fallback.
-- [ ] Verify browser interactions, screenshot sizing and mobile layout, then merge the website follow-up PR and verify deployment.
-- [ ] Reply to issue #6 with the working demo and documentation links, and close it after the fix is live.
+- [x] Verify browser interactions, screenshot sizing and mobile layout, then merge the website follow-up PR and verify deployment.
+- [x] Reply to issue #6 with the working demo and documentation links, and close it after the fix is live.
+
+Publication record: [PR #7](https://github.com/marketcalls/openalgo-charts/pull/7)
+merged as `0e161dc`; [website deployment](https://github.com/marketcalls/openalgo-charts/actions/runs/34050524537)
+and CI passed. All five website browser checks passed against the public site,
+including genuine BTC/USD responses and connection recovery. The homepage shows
+Supertrend (10, 3) and MACD (12, 26, 9), with EMA removed.
+[Issue #6](https://github.com/marketcalls/openalgo-charts/issues/6#issuecomment-5561140499)
+was answered and closed after live verification. The local preview remains at
+`http://127.0.0.1:3000/openalgo-charts/`.
