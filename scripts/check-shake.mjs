@@ -16,7 +16,6 @@
  */
 import { rollup } from 'rollup';
 import { brotliCompressSync } from 'node:zlib';
-import { readFileSync } from 'node:fs';
 
 const BUNDLE = new URL('../dist/openalgo-charts.mjs', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
 // Raised from 38 to 39 kB in 1.8.6, for the per-series axis value tags: the
@@ -47,13 +46,49 @@ const BUNDLE = new URL('../dist/openalgo-charts.mjs', import.meta.url).pathname.
 // seam: a second finger landing mid-drag has to be told to whoever is holding
 // the line, or the line lies about where the order sits. That is the chart's
 // own input, not a trading feature. Trim before raising this again.
-const LIMIT_BYTES = 40.2 * 1024;
+//
+// The two notes that follow are upstream's, against upstream's own 39 kB base
+// rather than this fork's line; they are kept because they say what 2.0 costs a
+// chart-only build, which is most of the number below.
+//
+// Raised from 39 to 40 kB for 2.0. The wheel zoom glide (398e813) took the
+// chart-only import to 39.05 kB on its own, measured by building without the
+// 2.0 change; the three modifier flags the click payload now carries for
+// additive drawing selection land inside the same 39.05 kB reading. Both are
+// core input behaviour a host that only wanted a chart still gets.
+//
+// Raised from 40 to 44 kB for the vector export (2.0). chart.exportSVG runs
+// the ordinary paint into a serialising context (src/render/svg-export.ts),
+// and because the call is synchronous and returns a string, the serialiser
+// ships with the chart rather than behind a lazy import. Measured cost 3.75 kB
+// brotli: 39.34 kB before, 43.09 kB after, on the same build.
+//
+// Raised to 45.7 kB on merging upstream 2.0.2 into this fork. Upstream's own
+// 44 kB covers the wheel glide and the synchronous SVG export; this fork then
+// pays for its own chart-only input work on top of the same tree — the touch
+// crosshair, the tap-not-pan guard, the adopted-pointer steering and the
+// drag-cancel seam. Measured 45.53 kB here against upstream's own 43.84 kB on
+// the same build: 1.69 kB, up from the 1.17 kB the same features cost against
+// 1.9.2, because the crosshair paths now carry the 2.0 pointer payload
+// (modifiers, pressure, coalesced samples) that upstream added to
+// `_updateCursor`. Trim before raising this again.
+const LIMIT_BYTES = 45.7 * 1024;
 
 // Absent from a chart-only build. Each is a string that appears in the adapter
 // source and nowhere in the rendering core.
 const MUST_BE_SHAKEN = [
   ['WebSocket adapter', 'authenticate'],
   ['order decoder', 'placeorder'],
+  // The GPU backend lives in its own tier (src/render/webgl, shipped as
+  // openalgo-charts.webgl.mjs) and nothing in the base entry imports it. The
+  // string is the context-loss listener that only that backend installs.
+  ['WebGL2 backend', 'webglcontextlost'],
+  // The widget is the one tier that ships DOM (src/widget, shipped as
+  // openalgo-charts.widget.mjs). The ESLint ACL forbids the base from importing
+  // it; this is the check on the built output, so that a host which only
+  // wanted a chart can never receive a toolbar. The string is the CSS scope
+  // every widget rule is written under, and nothing in the engine paints HTML.
+  ['widget tier', 'oac-widget'],
 ];
 
 const virtual = {

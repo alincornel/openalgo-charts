@@ -239,6 +239,10 @@ and 0.45 MB. The 250,000 default suits the in-memory `Map` it ships with, not a 
 store; a persistent host should set `maxBars` to roughly what its charts actually paint.
 </Callout>
 
+These limits apply to warm-load data in the cache. They do not trim bars that a
+chart already holds. Set a separate retained-history policy for a long-running
+live chart, as described in [Performance & Operations](/docs/performance-and-operations).
+
 ## Options
 
 | Option | Type | Default | Description |
@@ -260,6 +264,23 @@ A code nothing recognises, and a tick or Renko series whose bars have no clock l
 resolve to `null` — nothing says which of their bars are complete, so they are passed straight
 through, uncached, rather than guessed at. Register a
 [custom interval](/docs/custom-intervals) and the cache learns it with everything else.
+
+Supply `barCloses` only when your feed has a non-registered interval whose close
+time you can state exactly:
+
+```ts
+import { barCloseSec, withBarCache } from 'openalgo-charts';
+
+const feed = withBarCache(source, {
+  barCloses: (code, start) => {
+    if (code === 'settlement') return start + 86400;
+    return barCloseSec(code, start, 'Asia/Kolkata');
+  },
+});
+```
+
+Return `null` for tick, Renko, range, and other bars whose close depends on
+trade flow. They are then passed straight through, uncached.
 </Callout>
 
 ## Opting out and invalidating
