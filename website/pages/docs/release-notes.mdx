@@ -8,6 +8,47 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 2.1.0
+
+2026-09-06
+
+This release adds compact market profiles, per-day display controls and a
+website gallery. [Try the demo and compare screenshots](/docs/market-profile-examples).
+
+**Added**
+
+- `blockDisplay: 'compact'` keeps distinct uppercase/lowercase TPO letters and
+  volume values visible in small rows. The pixel alphabet needs 5 physical pixels
+  vertically and 3 horizontally; below that, marks remain and hover gives the
+  exact letters. It works with Canvas 2D and SVG export.
+- `setSessionSplit(index, true | false | null)` and `isSessionSplit(index)`
+  control one session. A day's choice survives updated data and prepended
+  history. An explicit global `setOptions({ split })` resets all overrides.
+- `showSessionOpen` adds lowercase `o` to every session's opening-price row;
+  `showLastPrice` adds `#` only to the newest supplied session's latest close.
+  Both are opt-in library options and enabled in the demo.
+- Dark, Blue, Graphite, Emerald and Ivory demo palettes, with matching controls,
+  tooltips and markers. The theme presets belong to the standalone demo and use
+  the public chart/profile APIs.
+- A website profile demo, full-resolution screenshots for every theme,
+  packed/split close-ups and updated integration documentation.
+
+**Changed and fixed**
+
+- The standalone demo uses six synthetic sessions, separate controls for row
+  height and price aggregation, and a right-click split/unsplit menu. Its
+  single-print dashes are disabled without removing the underlying data.
+- Compact text stays pixel-aligned at fractional display scaling and is clipped
+  to the plot. Nominal 5-pixel rows tolerate floating-point rounding.
+- Open markers have reserved space. `#` remains visible on narrow or one-bar
+  newest sessions, stays inside the plot width and clears optional TPO counts.
+- Theme and display changes preserve individual split choices. Website builds
+  reuse the standalone demo and the current local bundles.
+
+Measured sizes: **66.51 KB** base, **11.95 KB** profile tier and **183.74 KB** full
+package, Brotli. Validation covers **4,026 unit tests**, 219 demo tests and browser
+checks for compact rendering, per-day controls and the website examples.
+
 ## 2.0.2
 
 **Added**

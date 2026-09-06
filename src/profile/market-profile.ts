@@ -350,6 +350,14 @@ function sessionKey(utcSeconds: number, mode: MarketProfileSession, zone: string
   return Math.floor((dayIndex + 3) / 7);
 }
 
+/** Internal identity shared by the renderer's per-session display overrides. */
+export function profileSessionIdentity(time: number, options: MarketProfileOptions): string {
+  const zone = windowZone(options.window, options.timezone ?? DEFAULT_TIMEZONE);
+  return [options.session, options.compositeSessions, zone,
+    options.window?.startMinute ?? '', options.window?.endMinute ?? '',
+    sessionKey(time, options.session, zone, options.window)].join('|');
+}
+
 interface LevelAcc {
   periods: Set<number>;
   volume: number;

@@ -2,6 +2,59 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 2.1.0
+
+2026-09-06
+
+### Added
+
+- **Compact TPO letters and volume values.** `MarketProfile` accepts
+  `blockDisplay: 'compact'`. An original pixel alphabet preserves distinct
+  uppercase and lowercase periods down to 5 physical pixels per row, with
+  integer pixel placement. Larger rows use regular canvas text. The renderer
+  supports Canvas 2D and SVG export without a WebGL2 dependency.
+- **Per-session split/unsplit.** `setSessionSplit(index, boolean | null)` and
+  `isSessionSplit(index)` control one session. Overrides follow calendar session
+  identity through data updates, row aggregation changes and prepended history.
+  An explicit global `setOptions({ split })` resets the overrides.
+- **Open and latest-price markers.** `showSessionOpen` draws lowercase `o` at
+  each session's opening-price row. `showLastPrice` draws `#` at the newest
+  supplied session's latest close, with configurable colours. Both default to
+  off in the library and are enabled in the profile demo.
+- **Five coordinated demo themes:** Dark, Blue, Graphite, Emerald and Ivory.
+  Presets cover the chart, profile, controls, tooltips and markers. These are
+  standalone demo presets, applied through existing public APIs.
+- **Website profile examples and screenshot gallery.** The website embeds the
+  standalone demo, provides links to each theme, and includes reproducible
+  screenshots of all five themes plus packed/split close-ups. The homepage,
+  profile guide, themes guide and examples page link to the new showcase.
+
+### Changed
+
+- The profile demo uses six deterministic synthetic sessions, 2-point rows,
+  independent row-height controls and a right-click menu to split or unsplit
+  one day. Single-print dashes are disabled in the demo; hover still reports
+  the underlying single-print classification.
+- Website builds copy the standalone demo and its local bundles, so the
+  embedded example runs the same implementation as the development demo.
+
+### Fixed
+
+- Compact glyphs and volume rows are clipped to the plot and remain aligned
+  at fractional display scaling. A small rounding tolerance keeps nominal
+  5-pixel rows from dropping their letters.
+- Open markers reserve space inside profiles. Latest-price markers remain
+  visible for narrow and one-bar newest sessions, stay inside the plot width,
+  and do not appear on older or horizontally offscreen sessions.
+- Changing theme, colour or other display controls preserves per-day split
+  choices. The latest-price marker does not overlap the optional TPO counts.
+
+### Validation and sizes
+
+Base engine **66.51 KB**, profile tier **11.95 KB**, full package **183.74 KB**
+Brotli. Validation covers **4,026 unit tests** across 172 files and 219 demo tests,
+plus browser checks for compact rendering, per-day controls and website examples.
+
 ## 2.0.2
 
 ### Added

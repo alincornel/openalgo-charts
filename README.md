@@ -4,12 +4,12 @@
 
 **A from-scratch, dependency-free HTML5-canvas charting engine for OpenAlgo.**
 
-Professional interactive charts, 102 built-in indicators plus your own custom ones, 51 drawing tools, order flow, market replay, linked chart grids, on-chart trading, vector SVG export and an optional WebGL2 backend. Eight lazy-loaded tiers, zero runtime dependencies, 66.45 KB Brotli for the base engine, and a one-call widget tier that adds the toolbar, drawing rail, dialogs and shortcuts.
+Professional interactive charts, 102 built-in indicators plus your own custom ones, 51 drawing tools, order flow, market replay, linked chart grids, on-chart trading, vector SVG export and an optional WebGL2 backend. Eight lazy-loaded tiers, zero runtime dependencies, 66.51 KB Brotli for the base engine, and a one-call widget tier that adds the toolbar, drawing rail, dialogs and shortcuts.
 
 [![npm version](https://img.shields.io/npm/v/openalgo-charts.svg?color=cb3837&label=npm)](https://www.npmjs.com/package/openalgo-charts)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
-[![bundle](https://img.shields.io/badge/brotli-66%20KB%20base%20%C2%B7%20182%20KB%20all%20tiers-brightgreen.svg)](#size-budget)
-[![tests](https://img.shields.io/badge/tests-3999%20passing-brightgreen.svg)](#develop)
+[![bundle](https://img.shields.io/badge/brotli-66%20KB%20base%20%C2%B7%20183%20KB%20all%20tiers-brightgreen.svg)](#size-budget)
+[![tests](https://img.shields.io/badge/tests-4026%20passing-brightgreen.svg)](#develop)
 [![dependencies](https://img.shields.io/badge/runtime%20deps-0-brightgreen.svg)](#principles)
 
 [**Documentation**](https://marketcalls.github.io/openalgo-charts/) &nbsp;·&nbsp; [**Live examples**](https://marketcalls.github.io/openalgo-charts/examples) &nbsp;·&nbsp; [**Getting started**](./docs/getting-started.md) &nbsp;·&nbsp; [**Migrating to 2.0**](./docs/migrating-to-2.md) &nbsp;·&nbsp; [**Architecture**](./ARCHITECTURE.md)
@@ -62,7 +62,7 @@ in front of npm rather than being places you upload to. A chart is one HTML file
 ```html
 <div id="chart" style="width:100vw;height:100vh"></div>
 <script type="module">
-  import { createChart } from 'https://unpkg.com/openalgo-charts@2.0.2/dist/openalgo-charts.mjs';
+  import { createChart } from 'https://unpkg.com/openalgo-charts@2.1.0/dist/openalgo-charts.mjs';
   const chart = createChart(document.getElementById('chart'), { timezone: 'Asia/Kolkata' });
   chart.addSeries('candlestick').setData(bars);
 </script>
@@ -101,16 +101,16 @@ Import only what you use. Each tier is a separate bundle that registers into the
 
 | Import | Contents | Brotli |
 |---|---|---|
-| `openalgo-charts` | Engine, 13 chart types, panes &amp; scales, primitives, registries, chart state, chart linking, bar cache, interval registry, trading overlay, SVG export, render backend port, OpenAlgo feeds | 66.45 KB |
+| `openalgo-charts` | Engine, 13 chart types, panes &amp; scales, primitives, registries, chart state, chart linking, bar cache, interval registry, trading overlay, SVG export, render backend port, OpenAlgo feeds | 66.51 KB |
 | `openalgo-charts/indicators` | 102 built-in indicators, the `registerIndicator` contract for your own, and the Tier-2 (external-data) contract | 27.27 KB |
 | `openalgo-charts/draw` | 51 drawing tools + a headless drawing controller, clipboard, settings schema, level palette, freehand geometry and SVG icons | 25.82 KB |
 | `openalgo-charts/transform` | Heikin Ashi, Renko, Range bars, Line Break, Point &amp; Figure, Kagi | 2.66 KB |
-| `openalgo-charts/profile` | Volume Profile, Market Profile (TPO), Footprint, order flow | 10.66 KB |
+| `openalgo-charts/profile` | Volume Profile, Market Profile (TPO) with compact pixel letters, Footprint, order flow | 11.95 KB |
 | `openalgo-charts/trade` | Order / position / bracket tools + DOM ladder | 7.61 KB |
 | `openalgo-charts/webgl` | WebGL2 series backend: batched, analytically anti-aliased GPU rendering of the standard chart types behind `renderer: 'auto'`, with a session-long fallback to the 2D path | 6.38 KB |
 | `openalgo-charts/widget` | The chart with its chrome in one call: `createWidget` adds a top bar, the drawing rail, a status line, the settings and indicator dialogs, drawing properties, a right-click menu, a keymap with a `?` panel and optional layout persistence. The only tier that ships DOM | 35.56 KB |
 
-Everything together is **182.39 KB Brotli**; a widget terminal (base + draw + indicators + widget, what one `createWidget` call loads) is 155.09 KB. Figures are the measured `size-limit` output. The trade tier is listed as its delta over the base, so loading base + trade costs 74.06 KB.
+Everything together is **183.74 KB Brotli**; a widget terminal (base + draw + indicators + widget, what one `createWidget` call loads) is 155.15 KB. Figures are the measured `size-limit` output. The trade tier is listed as its delta over the base, so loading base + trade costs 74.11 KB.
 
 ## What's built
 
@@ -248,6 +248,21 @@ Order, position, and bracket lines with live P&amp;L, one-click and drag-to-modi
 ### Profiles &amp; order flow
 Volume Profile, Market Profile (TPO), Footprint, and cumulative delta.
 
+For compressed TPO charts, `new MarketProfile(result, { blockDisplay: 'compact' })`
+keeps small letters and volume digits visible with an original pixel font. It needs
+5 physical pixels per row, preserves the configured price aggregation, and works
+on Canvas 2D. Compare it with automatic letter fading in
+[`examples/market-profile/index.html`](./examples/market-profile/index.html).
+The demo also provides per-day split/unsplit on right-click, day-open `o` and
+newest-session `#` price markers, and Dark, Blue, Graphite, Emerald and Ivory themes.
+
+The [website profile guide](./website/pages/docs/market-profile-examples.mdx) includes
+the interactive demo, all five theme screenshots and packed/split close-ups.
+See the [2.1.0 changelog](./CHANGELOG.md#210).
+
+<a href="website/public/screenshots/market-profile/blue.png"><img src="website/public/screenshots/market-profile/blue.png" alt="Blue compact TPO theme, with the newest session split" width="49%" /></a>
+<a href="website/public/screenshots/market-profile/ivory.png"><img src="website/public/screenshots/market-profile/ivory.png" alt="Ivory compact TPO theme using the same synthetic sessions" width="49%" /></a>
+
 ### Warm-load cache &amp; interval registry
 
 ```ts
@@ -294,16 +309,16 @@ Enforced in CI by [`size-limit`](./.size-limit.json). Nothing is excluded, becau
 
 | Bundle | Limit | Actual |
 |---|---|---|
-| Base engine | 67 KB | 66.45 KB |
-| Base + trade | 75 KB | 74.06 KB |
+| Base engine | 67 KB | 66.51 KB |
+| Base + trade | 75 KB | 74.11 KB |
 | Indicators tier | 30 KB | 27.27 KB |
 | Draw tier | 26 KB | 25.82 KB |
 | Transform tier | 5 KB | 2.66 KB |
-| Profile tier | 11 KB | 10.66 KB |
+| Profile tier | 12 KB | 11.95 KB |
 | WebGL2 tier | 7 KB | 6.38 KB |
 | Widget tier | 36 KB | 35.56 KB |
-| Widget terminal (base + draw + indicators + widget) | 156 KB | 155.09 KB |
-| **Everything** | **183 KB** | **182.39 KB** |
+| Widget terminal (base + draw + indicators + widget) | 156 KB | 155.15 KB |
+| **Everything** | **184 KB** | **183.74 KB** |
 
 ## Documentation
 
@@ -346,7 +361,7 @@ python server.py --fixture   # no yfinance, no network: deterministic synthetic 
 ```bash
 npm install        # install dev toolchain
 npm run typecheck  # strict TypeScript check
-npm test           # unit tests (vitest) - 3999 across 170 files
+npm test           # unit tests (vitest) - 4026 across 172 files
 npm run build      # Rollup -> dist/ (minified ESM per tier + types)
 npm run size       # size-limit (Brotli) against the budget
 npm run e2e        # Playwright Chromium smoke tests
@@ -363,7 +378,7 @@ npm run verify     # lint + typecheck + test + build + demo tests + dts + size +
 
 ## Status &amp; limitations
 
-Version **2.0.2**. All engine build phases are implemented with 3999 unit tests across 170 files. Upgrading a 1.9.x host: [Migrating to 2.0](./docs/migrating-to-2.md).
+Version **2.1.0**. All engine build phases are implemented with 4026 unit tests across 172 files. Upgrading a 1.9.x host: [Migrating to 2.0](./docs/migrating-to-2.md).
 
 Known gaps, stated plainly:
 

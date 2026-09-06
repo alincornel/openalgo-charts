@@ -9,6 +9,7 @@ next-env.d.ts
 
 # generated: vendored library bundles for live demos (synced from ../dist)
 lib/oac/
+public/demos/
 
 # generated: TypeDoc API reference (built in CI / via `npm run docs`)
 public/api/

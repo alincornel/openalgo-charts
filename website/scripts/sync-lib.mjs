@@ -2,7 +2,7 @@
 // live, in-page chart demos run against the real library. Runs automatically
 // before `next dev` / `next build` (see package.json predev/prebuild). If the
 // library has not been built yet, it prints a hint instead of failing the build.
-import { mkdirSync, copyFileSync, existsSync, readdirSync } from 'node:fs';
+import { mkdirSync, copyFileSync, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -34,3 +34,19 @@ for (const file of wanted) {
   copied += 1;
 }
 console.log(`[sync-lib] copied ${copied} bundle file(s) into website/lib/oac`);
+
+// Publish the same standalone profile demo used during development. Relative
+// module paths work under both a local preview and the website's base path.
+const demoSource = resolve(here, '..', '..', 'examples', 'market-profile');
+const demoOutput = resolve(here, '..', 'public', 'demos', 'market-profile');
+const demoBundles = resolve(demoOutput, '..', 'dist');
+mkdirSync(demoOutput, { recursive: true });
+mkdirSync(demoBundles, { recursive: true });
+const demoHtml = readFileSync(join(demoSource, 'index.html'), 'utf8').replaceAll("from '/dist/", "from '../dist/");
+writeFileSync(join(demoOutput, 'index.html'), demoHtml);
+copyFileSync(join(demoSource, 'themes.js'), join(demoOutput, 'themes.js'));
+for (const name of ['openalgo-charts.mjs', 'openalgo-charts.profile.mjs']) {
+  copyFileSync(join(distDir, name), join(demoBundles, name));
+  if (existsSync(join(distDir, name + '.map'))) copyFileSync(join(distDir, name + '.map'), join(demoBundles, name + '.map'));
+}
+console.log('[sync-lib] copied standalone profile demo and its bundles into website/public/demos');

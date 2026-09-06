@@ -93,7 +93,7 @@ function alphaRecorder() {
     canvas: {},
     globalAlpha: 1, fillStyle: '', strokeStyle: '', lineWidth: 1, font: '', textAlign: '', textBaseline: '',
     save() {}, restore() {},
-    beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}, setLineDash() {},
+    beginPath() {}, rect() {}, clip() {}, moveTo() {}, lineTo() {}, stroke() {}, setLineDash() {},
     fillRect() { rectAlphas.push(ctx.globalAlpha as number); },
     fillText() { letterAlphas.push(ctx.globalAlpha as number); },
   };
@@ -164,5 +164,256 @@ describe('MarketProfile hit-testing', () => {
     expect(hover?.price).toBe(110);
     expect(hover?.level.letters).toBe('AB');
     expect(mp.hitTest(-500, 50)).toBeNull();
+  });
+});
+
+describe('compact TPO text', () => {
+  const quiet = {
+    blockDisplay: 'compact',
+    showValueAreaLabels: false, showPocLabel: false, showSessionLabel: false,
+    showPoc: false, showValueArea: false, fillValueArea: false,
+    showInitialBalance: false, showSinglePrints: false, showTails: false,
+    opacity: 1,
+  } as const;
+
+  function pixels() {
+    const rects: { x: number; y: number; w: number; h: number; alpha: number }[] = [];
+    const { ctx, letterAlphas } = alphaRecorder();
+    ctx.fillRect = (x, y, w, h) => rects.push({ x, y, w, h, alpha: ctx.globalAlpha });
+    return { ctx, rects, letterAlphas };
+  }
+
+  it.each([1, 1.25, 2])('retains opaque, pixel-aligned glyphs in 5px rows at DPR %s', (dpr) => {
+    const { result, t0 } = makeResult();
+    const mp = new MarketProfile(result, quiet);
+    const rc = makeScaledRc(t0, t0 + 1800, 5);
+    Object.assign(rc, { dpr, priceScale: { priceToY: (p: number) => 60.3 + (110 - p) * 5 } });
+    const { ctx, rects, letterAlphas } = pixels();
+    mp.draw(ctx, rc);
+    expect(letterAlphas).toHaveLength(0); // Compact glyphs do not depend on browser font rasterization.
+    expect(rects.length).toBeGreaterThan(result.sessions[0].levels.reduce((n, l) => n + l.count, 0));
+    for (const r of rects) {
+      expect([r.x, r.y, r.w, r.h].every(Number.isInteger)).toBe(true);
+      expect(r.alpha).toBe(1); // Includes levels outside the value area.
+    }
+    expect(mp.hoverAt(150, rc.priceScale.priceToY(110))?.level.letters).toBe('AB');
+    expect(mp.autoscaleInfo()).toEqual({ min: 100, max: 110 });
+  });
+
+  it('keeps volume numbers below the legacy 7 CSS pixel cutoff', () => {
+    const { result, t0 } = makeResult();
+    const rc = makeScaledRc(t0, t0 + 1800, 5);
+    Object.assign(rc, { priceScale: { priceToY: (p: number) => 60 + (110 - p) * 5 } });
+    const mp = new MarketProfile(result, { ...quiet, showVolumeProfile: true });
+    const before = pixels();
+    mp.draw(before.ctx, rc);
+    mp.setOptions({ showVolumeValues: true });
+    const after = pixels();
+    mp.draw(after.ctx, rc);
+    expect(after.rects.length).toBeGreaterThan(before.rects.length);
+  });
+
+  it('preserves heat variation when the host explicitly selects count colouring', () => {
+    const { result, t0 } = makeResult();
+    const rc = makeScaledRc(t0, t0 + 1800, 5);
+    Object.assign(rc, { priceScale: { priceToY: (p: number) => 60 + (110 - p) * 5 } });
+    const mp = new MarketProfile(result, { ...quiet, colorMode: 'count' });
+    const { ctx, rects } = pixels();
+    mp.draw(ctx, rc);
+    expect(new Set(rects.map((r) => r.alpha)).size).toBeGreaterThan(1);
+  });
+
+  it('does not paint rows outside the viewport in compact mode', () => {
+    const { result, t0 } = makeResult();
+    const mp = new MarketProfile(result, quiet);
+    const rc = makeScaledRc(t0, t0 + 1800, 5);
+    Object.assign(rc, { priceScale: { priceToY: (p: number) => -100 + (110 - p) * 5 } });
+    const { ctx, rects } = pixels();
+    mp.draw(ctx, rc);
+    expect(rects).toHaveLength(0);
+  });
+});
+
+describe('per-session split overrides', () => {
+  function twoDays() {
+    const t0 = istStringToUtcSeconds('2024-01-15 09:15:00');
+    // Each session has a row visited only by B, making split vs packed visible.
+    const bars = [bar(t0, 100, 100), bar(t0 + 1800, 101, 101),
+      bar(t0 + 86400, 100, 100), bar(t0 + 88200, 101, 101)];
+    const options = { tickSize: 1, session: 'day', blockMinutes: 30 } as const;
+    return { t0, bars, options, result: computeMarketProfile(bars, options) };
+  }
+
+  it('splits and unsplits one day without moving the neighbouring profile', () => {
+    const { t0, result } = twoDays();
+    const original = JSON.stringify(result);
+    const mp = new MarketProfile(result, {
+      blockDisplay: 'letters', profileSpacing: 0, letterWidth: 8,
+      showValueAreaLabels: false, showPocLabel: false, showSessionLabel: false,
+    });
+    const rc = makeScaledRc(t0, t0 + 1800, 10);
+    Object.assign(rc, {
+      dpr: 1,
+      timeScale: { indexToX: (i: number) => 50 + i * 50 },
+      dataLayer: { timeToIndex: (t: number) => [t0, t0 + 1800, t0 + 86400, t0 + 88200].indexOf(t) },
+    });
+    const { ctx } = alphaRecorder();
+    let xs: number[] = [];
+    ctx.fillText = (text, x) => { if (text === 'B') xs.push(x); };
+    mp.draw(ctx, rc);
+    expect(xs).toEqual([54, 154]);
+    expect(mp.setSessionSplit(0, true)).toBe(true);
+    xs = [];
+    mp.draw(ctx, rc);
+    expect(xs).toEqual([62, 154]);
+    expect(mp.isSessionSplit(1)).toBe(false);
+    mp.setSessionSplit(0, false);
+    xs = [];
+    mp.draw(ctx, rc);
+    expect(xs).toEqual([54, 154]);
+    expect(JSON.stringify(result)).toBe(original);
+  });
+
+  it('keeps a day override when earlier history shifts its index and first bar', () => {
+    const { t0, bars, options, result } = twoDays();
+    const mp = new MarketProfile(result);
+    mp.setSessionSplit(0, true);
+    mp.setOptions({ colorMode: 'valueArea', blockDisplay: 'compact' });
+    mp.setData(computeMarketProfile([
+      bar(t0 - 86400, 100, 101), bar(t0 - 300, 99, 101), ...bars,
+    ], { ...options, rowTicks: 2 }));
+    expect([0, 1, 2].map((i) => mp.isSessionSplit(i))).toEqual([false, true, false]);
+  });
+
+  it('allows unsplitting one day under a split-all default and resetting it', () => {
+    const { result } = twoDays();
+    const mp = new MarketProfile(result, { split: true });
+    mp.setSessionSplit(1, false);
+    expect([0, 1].map((i) => mp.isSessionSplit(i))).toEqual([true, false]);
+    mp.setSessionSplit(1, null);
+    expect(mp.isSessionSplit(1)).toBe(true);
+    mp.setSessionSplit(1, false);
+    mp.setOptions({ split: true }); // Explicit global choice resets per-day overrides.
+    expect([0, 1].map((i) => mp.isSessionSplit(i))).toEqual([true, true]);
+  });
+
+  it('rejects missing sessions without changing the display', () => {
+    const { result } = twoDays();
+    const mp = new MarketProfile(result);
+    for (const index of [-1, 2, 0.5, NaN]) {
+      expect(mp.setSessionSplit(index, true)).toBe(false);
+      expect(mp.isSessionSplit(index)).toBe(false);
+    }
+    expect(mp.isSessionSplit(0)).toBe(false);
+  });
+});
+
+describe('session open marker', () => {
+  it.each([false, true])('keeps # in a narrow newest session (split=%s)', (split) => {
+    const { result, t0 } = makeResult();
+    const mp = new MarketProfile(result, {
+      blockDisplay: 'letters', showSessionOpen: true, showLastPrice: true, split, profileSpacing: 0,
+    });
+    const rc = makeScaledRc(t0, t0 + 1800, 20);
+    Object.assign(rc, {
+      timeScale: { indexToX: (i: number) => 100 + i * 20 },
+      dataLayer: { timeToIndex: (t: number) => t === t0 ? 0 : 1 },
+    });
+    const { ctx } = alphaRecorder();
+    const marks: { text: string; x: number }[] = [];
+    ctx.fillText = (text, x) => { if (text === 'o' || text === '#') marks.push({ text, x }); };
+    mp.draw(ctx, rc);
+    expect(marks.map((m) => m.text)).toEqual(['o', '#']);
+    expect(Math.abs(marks[1].x - marks[0].x)).toBeGreaterThanOrEqual(6 * rc.dpr);
+  });
+
+  it('keeps # inside the plot for a one-bar newest session at the right edge', () => {
+    const { bars, t0 } = makeResult();
+    const mp = new MarketProfile(computeMarketProfile(bars.slice(0, 1), { tickSize: 1 }), {
+      blockDisplay: 'letters', showLastPrice: true, profileSpacing: 0,
+    });
+    const rc = makeScaledRc(t0, t0, 20);
+    Object.assign(rc, { timeScale: { indexToX: () => rc.plotWidth - 2 } });
+    const { ctx } = alphaRecorder();
+    const xs: number[] = [];
+    ctx.fillText = (text, x) => { if (text === '#') xs.push(x); };
+    mp.draw(ctx, rc);
+    expect(xs).toHaveLength(1);
+    expect(xs[0]).toBeLessThanOrEqual((rc.plotWidth - 3) * rc.dpr);
+  });
+
+  it('reserves space for o inside the first profile at the left plot edge', () => {
+    const { result, t0 } = makeResult();
+    const mp = new MarketProfile(result, {
+      blockDisplay: 'letters', showSessionOpen: true, profileSpacing: 0,
+    });
+    const rc = makeScaledRc(t0, t0 + 1800, 20);
+    Object.assign(rc, { timeScale: { indexToX: (i: number) => i * 200 } });
+    const { ctx } = alphaRecorder();
+    const xs: number[] = [];
+    ctx.fillText = (text, x) => { if (text === 'o') xs.push(x); };
+    mp.draw(ctx, rc);
+    expect(xs).toHaveLength(1);
+    expect(xs[0]).toBeGreaterThanOrEqual(3 * rc.dpr);
+  });
+
+  it('keeps the LTP marker clear of the optional TPO count column', () => {
+    const { result, t0 } = makeResult();
+    const mp = new MarketProfile(result, {
+      blockDisplay: 'letters', showLastPrice: true, showTpoCounts: true,
+    });
+    const rc = makeScaledRc(t0, t0 + 1800, 20);
+    const { ctx } = alphaRecorder();
+    let markX = 0, countX = 0;
+    ctx.fillText = (text, x) => {
+      if (text === '#') markX = x;
+      if (text === '2') countX = x;
+    };
+    mp.draw(ctx, rc);
+    expect(markX).toBeGreaterThan(0);
+    expect(countX - markX).toBeGreaterThanOrEqual(4 * rc.dpr);
+  });
+
+  it('places lowercase o at the opening price row in packed and split views', () => {
+    const { t0, bars } = makeResult();
+    bars[0].open = 103.4;
+    const result = computeMarketProfile(bars, { tickSize: 1, rowTicks: 2 });
+    const mp = new MarketProfile(result, {
+      blockDisplay: 'letters', showSessionOpen: true, sessionOpenColor: '#ff0000',
+    });
+    const rc = makeScaledRc(t0, t0 + 1800, 20);
+    const { ctx } = alphaRecorder();
+    const marks: { x: number; y: number; color: string | CanvasGradient | CanvasPattern }[] = [];
+    ctx.fillText = (text, x, y) => { if (text === 'o') marks.push({ x, y, color: ctx.fillStyle }); };
+    mp.draw(ctx, rc);
+    expect(marks).toHaveLength(1);
+    expect(marks[0].y).toBe(rc.priceScale.priceToY(104) * rc.dpr); // The model buckets to the nearest row.
+    expect(marks[0].color).toBe('#ff0000');
+    mp.setSessionSplit(0, true);
+    mp.draw(ctx, rc);
+    expect(marks[1]).toEqual(marks[0]);
+    mp.setOptions({ showSessionOpen: false });
+    mp.draw(ctx, rc);
+    expect(marks).toHaveLength(2);
+  });
+
+  it('shows # on the newest session only and moves it when that session updates', () => {
+    const { t0, bars } = makeResult();
+    const allBars = [...bars, bar(t0 + 86400, 100, 110), bar(t0 + 88200, 105, 109)];
+    const mp = new MarketProfile(computeMarketProfile(allBars, { tickSize: 1 }), {
+      blockDisplay: 'letters', showLastPrice: true,
+    });
+    const rc = makeScaledRc(t0, t0 + 88200, 20);
+    Object.assign(rc, { dataLayer: { timeToIndex: (t: number) => allBars.findIndex((b) => b.time === t) } });
+    const { ctx } = alphaRecorder();
+    const marks: number[] = [];
+    ctx.fillText = (text, _x, y) => { if (text === '#') marks.push(y); };
+    mp.draw(ctx, rc);
+    expect(marks).toEqual([rc.priceScale.priceToY(109) * rc.dpr]);
+    allBars[3].close = 106;
+    mp.setData(computeMarketProfile(allBars, { tickSize: 1 }));
+    marks.length = 0;
+    mp.draw(ctx, rc);
+    expect(marks).toEqual([rc.priceScale.priceToY(106) * rc.dpr]);
   });
 });

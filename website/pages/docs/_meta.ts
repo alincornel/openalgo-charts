@@ -27,6 +27,7 @@ export default {
   'drawing-clipboard': 'Drawing Clipboard',
   'profiles-and-orderflow': 'Profiles & Order Flow',
   'market-profile': 'Market Profile (TPO)',
+  'market-profile-examples': 'Profile Demo & Themes',
   'volume-profile': 'Volume Profile',
   'market-replay': 'Market Replay',
   'crosshair-and-legend': 'Crosshair & Legend',
