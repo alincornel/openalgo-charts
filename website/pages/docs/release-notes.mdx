@@ -10,8 +10,8 @@ The full, authoritative changelog lives in
 
 ## Unreleased
 
-Upstream 2.0.2 merged into the fork, and a footprint that reads as a ladder instead of a
-hairline mesh.
+Upstream 2.0.2 and 2.1.0 merged into the fork, and a footprint that reads as a ladder
+instead of a hairline mesh.
 
 **Merged**
 
@@ -22,6 +22,10 @@ hairline mesh.
   rasterises only the series pass and blits it under the normal-layer primitives, so the
   price-line pills, the footprint ladder and the volume profile draw identically on
   `canvas2d` and `webgl2`.
+- **Upstream 2.1.0**: compact TPO letters, the per-session split and the open/latest
+  markers, all inside `src/profile/market-profile*`, which the fork has never touched —
+  merged with no conflicts in `src/` and nothing to re-apply. The profile tier grows
+  11.85 -> 13.12 kB for the compact alphabet.
 
 **Added**
 
@@ -44,6 +48,58 @@ hairline mesh.
   `candleWidthFactor` - a breaking option change. `showCandle: true` never drew a candle, it
   drew a delta-coloured range bar, which is now `'behind'` and stays the default. `'gutter'`
   draws a real OHLC candle in a strip beside the ladder, read from the pane's price series.
+## 2.1.0
+
+2026-09-06
+
+This release adds compact market profiles, per-day display controls and a
+website gallery. [Try the demo and compare screenshots](/docs/market-profile-examples).
+
+**Added**
+
+- `blockDisplay: 'compact'` keeps distinct uppercase/lowercase TPO letters and
+  volume values visible in small rows. The pixel alphabet needs 5 physical pixels
+  vertically and 3 horizontally; below that, marks remain and hover gives the
+  exact letters. It works with Canvas 2D and SVG export.
+- `setSessionSplit(index, true | false | null)` and `isSessionSplit(index)`
+  control one session. A day's choice survives updated data and prepended
+  history. An explicit global `setOptions({ split })` resets all overrides.
+- `showSessionOpen` adds lowercase `o` to every session's opening-price row;
+  `showLastPrice` adds `#` only to the newest supplied session's latest close.
+  Both are opt-in library options and enabled in the demo.
+- Dark, Blue, Graphite, Emerald and Ivory demo palettes, with matching controls,
+  tooltips and markers. The theme presets belong to the standalone demo and use
+  the public chart/profile APIs.
+- A website profile demo, full-resolution screenshots for every theme,
+  packed/split close-ups and updated integration documentation.
+
+**Changed and fixed**
+
+- The standalone demo uses six synthetic sessions, separate controls for row
+  height and price aggregation, and a right-click split/unsplit menu. Its
+  single-print dashes are disabled without removing the underlying data.
+- Compact text stays pixel-aligned at fractional display scaling and is clipped
+  to the plot. Nominal 5-pixel rows tolerate floating-point rounding.
+- Open markers have reserved space. `#` remains visible on narrow or one-bar
+  newest sessions, stays inside the plot width and clears optional TPO counts.
+- Theme and display changes preserve individual split choices. Website builds
+  reuse the standalone demo and the current local bundles.
+
+Measured sizes: **66.51 KB** base, **11.95 KB** profile tier and **183.74 KB** full
+package, Brotli. Validation covers **4,026 unit tests**, 219 demo tests and browser
+checks for compact rendering, per-day controls and the website examples.
+
+**Website follow-up**
+
+The website now includes a redesigned marketing homepage with an interactive
+BTC/USD chart, refined dark and light styling across the guides and API reference,
+and a reduced-motion-aware intro. The homepage uses real exchange candles refreshed
+every 15 seconds, with visible connection status and no simulated fallback.
+Profile theme images use readable close-ups.
+The [depth-of-market demo](/docs/depth-of-market) adds simulated live updates and
+price grouping, and the [drawing playground](/docs/drawing-tools) provides visible
+tools with selection, deletion and undo/redo. These examples use the existing
+2.1.0 library APIs. The API reference is regenerated with each website deployment.
 
 ## 2.0.2
 

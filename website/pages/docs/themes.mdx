@@ -14,7 +14,7 @@ subject of the second half of this page.
 
 ## Themes
 
-Pass a palette at creation - `darkTheme` (default), `lightTheme`, or your own:
+Pass a palette at creation - `lightTheme` (default), `darkTheme`, or your own:
 
 ```ts
 import { createChart, lightTheme } from 'openalgo-charts';
@@ -24,6 +24,19 @@ const chart = createChart(el, { theme: lightTheme });
 The theme drives the chrome (background, grid, axes, crosshair), series defaults (up/down,
 line, area gradient, last-price tag), and the trading layer (buy / sell / profit / loss).
 Per-series `style` always overrides the theme.
+
+### Profile demo palettes
+
+The [profile showcase](/docs/market-profile-examples#five-themes) provides **Dark**,
+**Blue**, **Graphite**, **Emerald** and **Ivory**, with full-resolution screenshots
+and an interactive demo for each palette. They are demo presets in
+`examples/market-profile/themes.js`, rather than new package exports.
+
+Apply the chart palette with `chart.setTheme(...)` and the matching profile
+colours with `profile.setOptions(...)`. A chart theme alone does not restyle the
+`MarketProfile` primitive. The demo also updates its control and tooltip colours,
+including dark text for Ivory. Switching palettes preserves profile data,
+per-day split choices and marker visibility.
 
 ### Light theme
 

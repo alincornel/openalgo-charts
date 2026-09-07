@@ -5,8 +5,11 @@ on:
     branches: [master, main]
     paths:
       - 'website/**'
+      - 'examples/market-profile/**'
       - 'src/**'
       - 'typedoc.json'
+      - 'docs/api-introduction.md'
+      - 'docs/architecture-diagram.svg'
       - '.github/workflows/deploy-docs.yml'
   workflow_dispatch:
 

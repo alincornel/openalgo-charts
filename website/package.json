@@ -9,7 +9,9 @@
     "prebuild": "npm run sync-lib",
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "preview": "node scripts/serve-preview.mjs",
+    "check:profile": "node ../scripts/check-profile-website.mjs"
   },
   "dependencies": {
     "next": "^15.5.23",

@@ -4,12 +4,12 @@
 
 **A from-scratch, dependency-free HTML5-canvas charting engine for OpenAlgo.**
 
-Professional interactive charts, 102 built-in indicators plus your own custom ones, 51 drawing tools, order flow, market replay, linked chart grids, on-chart trading, vector SVG export and an optional WebGL2 backend. Eight lazy-loaded tiers, zero runtime dependencies, 66.45 KB Brotli for the base engine, and a one-call widget tier that adds the toolbar, drawing rail, dialogs and shortcuts.
+Professional interactive charts, 102 built-in indicators plus your own custom ones, 51 drawing tools, order flow, market replay, linked chart grids, on-chart trading, vector SVG export and an optional WebGL2 backend. Eight lazy-loaded tiers, zero runtime dependencies, 66.51 KB Brotli for the base engine, and a one-call widget tier that adds the toolbar, drawing rail, dialogs and shortcuts.
 
 [![npm version](https://img.shields.io/npm/v/openalgo-charts.svg?color=cb3837&label=npm)](https://www.npmjs.com/package/openalgo-charts)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
-[![bundle](https://img.shields.io/badge/brotli-66%20KB%20base%20%C2%B7%20182%20KB%20all%20tiers-brightgreen.svg)](#size-budget)
-[![tests](https://img.shields.io/badge/tests-3999%20passing-brightgreen.svg)](#develop)
+[![bundle](https://img.shields.io/badge/brotli-66%20KB%20base%20%C2%B7%20183%20KB%20all%20tiers-brightgreen.svg)](#size-budget)
+[![tests](https://img.shields.io/badge/tests-4026%20passing-brightgreen.svg)](#develop)
 [![dependencies](https://img.shields.io/badge/runtime%20deps-0-brightgreen.svg)](#principles)
 
 [**Documentation**](https://marketcalls.github.io/openalgo-charts/) &nbsp;·&nbsp; [**Live examples**](https://marketcalls.github.io/openalgo-charts/examples) &nbsp;·&nbsp; [**Getting started**](./docs/getting-started.md) &nbsp;·&nbsp; [**Migrating to 2.0**](./docs/migrating-to-2.md) &nbsp;·&nbsp; [**Architecture**](./ARCHITECTURE.md)
@@ -62,7 +62,7 @@ in front of npm rather than being places you upload to. A chart is one HTML file
 ```html
 <div id="chart" style="width:100vw;height:100vh"></div>
 <script type="module">
-  import { createChart } from 'https://unpkg.com/openalgo-charts@2.0.2/dist/openalgo-charts.mjs';
+  import { createChart } from 'https://unpkg.com/openalgo-charts@2.1.0/dist/openalgo-charts.mjs';
   const chart = createChart(document.getElementById('chart'), { timezone: 'Asia/Kolkata' });
   chart.addSeries('candlestick').setData(bars);
 </script>
@@ -101,16 +101,16 @@ Import only what you use. Each tier is a separate bundle that registers into the
 
 | Import | Contents | Brotli |
 |---|---|---|
-| `openalgo-charts` | Engine, 13 chart types, panes &amp; scales, primitives, registries, chart state, chart linking, bar cache, interval registry, trading overlay, SVG export, render backend port, OpenAlgo feeds | 68.90 KB |
+| `openalgo-charts` | Engine, 13 chart types, panes &amp; scales, primitives, registries, chart state, chart linking, bar cache, interval registry, trading overlay, SVG export, render backend port, OpenAlgo feeds | 68.92 KB |
 | `openalgo-charts/indicators` | 102 built-in indicators, the `registerIndicator` contract for your own, and the Tier-2 (external-data) contract | 27.27 KB |
 | `openalgo-charts/draw` | 51 drawing tools + a headless drawing controller, clipboard, settings schema, level palette, freehand geometry and SVG icons | 25.82 KB |
 | `openalgo-charts/transform` | Heikin Ashi, Renko, Range bars, Line Break, Point &amp; Figure, Kagi | 2.66 KB |
-| `openalgo-charts/profile` | Volume Profile, Market Profile (TPO), Footprint, order flow | 11.85 KB |
+| `openalgo-charts/profile` | Volume Profile, Market Profile (TPO) with compact pixel letters, Footprint, order flow | 13.12 KB |
 | `openalgo-charts/trade` | Order / position / bracket tools + DOM ladder | 7.61 KB |
 | `openalgo-charts/webgl` | WebGL2 series backend: batched, analytically anti-aliased GPU rendering of the standard chart types behind `renderer: 'auto'`, with a session-long fallback to the 2D path | 6.38 KB |
 | `openalgo-charts/widget` | The chart with its chrome in one call: `createWidget` adds a top bar, the drawing rail, a status line, the settings and indicator dialogs, drawing properties, a right-click menu, a keymap with a `?` panel and optional layout persistence. The only tier that ships DOM | 35.56 KB |
 
-Everything together is **186.12 KB Brotli**; a widget terminal (base + draw + indicators + widget, what one `createWidget` call loads) is 157.54 KB. Figures are the measured `size-limit` output. The trade tier is listed as its delta over the base, so loading base + trade costs 76.59 KB.
+Everything together is **187.41 KB Brotli**; a widget terminal (base + draw + indicators + widget, what one `createWidget` call loads) is 157.56 KB. Figures are the measured `size-limit` output. The trade tier is listed as its delta over the base, so loading base + trade costs 76.61 KB.
 
 ## What's built
 
@@ -245,8 +245,89 @@ Headless like the rest, and the engine has no instrument concept, so symbol sync
 ### Trading
 Order, position, and bracket lines with live P&amp;L, one-click and drag-to-modify, OCO, validation, an order state machine, analyzer (sandbox) mode, and a depth-of-market ladder (5 to 200 levels).
 
+### Depth of market: simulated live example
+
+[Try the depth ladder](https://marketcalls.github.io/openalgo-charts/docs/depth-of-market/)
+with continuously simulated bids and asks, pause/resume, 5/20/200 depth levels,
+and configurable price grouping independent of the candlestick chart's scale.
+Try option candles with an option ladder, or spot candles with a separate ATM
+call ladder. The
+[drawing playground](https://marketcalls.github.io/openalgo-charts/docs/drawing-tools/)
+also lets you place, select, move, delete, undo and redo drawings.
+
+```html
+<div id="depth-chart" style="height: 440px"></div>
+<div style="max-height: 440px; overflow: auto">
+  <table>
+    <thead><tr><th>Bid qty</th><th>Price</th><th>Ask qty</th></tr></thead>
+    <tbody id="depth-rows"></tbody>
+  </table>
+</div>
+```
+
+```ts
+import { createChart, darkTheme, generateBars } from 'openalgo-charts';
+import { buildRows, FakeBroker } from 'openalgo-charts/trade';
+
+const chart = createChart(document.getElementById('depth-chart')!, { theme: darkTheme });
+const bars = generateBars(1700000000, 120, 60);
+chart.addSeries('candlestick').setData(bars);
+chart.timeScale.fitContent(bars.length);
+const mid = Math.round(bars.at(-1)!.close / 0.05) * 0.05;
+const bookRows = document.getElementById('depth-rows')!;
+let groupBy = 20; // Change this to regroup the ladder; the chart keeps its own scale.
+
+let step = 0;
+function updateDepth() {
+  const price = mid + Math.round(Math.sin(step++ / 8) * 4) * 0.05;
+  const depth = FakeBroker.makeDepth(price, 200, 0.05);
+  bookRows.replaceChildren(...buildRows(depth, 0.05, groupBy).map(row => {
+    const tr = document.createElement('tr');
+    for (const text of [String(row.bidQty), row.price.toFixed(2), String(row.askQty)]) {
+      const td = document.createElement('td');
+      td.textContent = text;
+      td.style.height = '28px';
+      tr.append(td);
+    }
+    return tr;
+  }));
+}
+updateDepth();
+const timer = setInterval(updateDepth, 750);
+
+// Call this when removing the demo from your application.
+function dispose() {
+  clearInterval(timer);
+  chart.destroy();
+}
+```
+
+`tickSize` is the instrument's minimum tick; `groupBy` is the number of ticks
+per display row. Here, 20 × 0.05 creates 1.00-point rows. Quantities are summed
+into the nearest price bucket, with bids and asks kept separate. Grouping changes
+the display; it does not change the instrument's valid order prices. With a real
+feed, pass each supplied order-book snapshot to `buildRows`. Chart candles and
+ladder depth can come from separate instrument subscriptions. `DomLadder` remains
+available for an attached ladder that aligns to the chart's own price scale;
+see the guide for both integration patterns.
+
 ### Profiles &amp; order flow
 Volume Profile, Market Profile (TPO), Footprint, and cumulative delta.
+
+For compressed TPO charts, `new MarketProfile(result, { blockDisplay: 'compact' })`
+keeps small letters and volume digits visible with an original pixel font. It needs
+5 physical pixels per row, preserves the configured price aggregation, and works
+on Canvas 2D. Compare it with automatic letter fading in
+[`examples/market-profile/index.html`](./examples/market-profile/index.html).
+The demo also provides per-day split/unsplit on right-click, day-open `o` and
+newest-session `#` price markers, and Dark, Blue, Graphite, Emerald and Ivory themes.
+
+The [website profile guide](./website/pages/docs/market-profile-examples.mdx) includes
+the interactive demo, all five theme screenshots and packed/split close-ups.
+See the [2.1.0 changelog](./CHANGELOG.md#210).
+
+<a href="website/public/screenshots/market-profile/blue.png"><img src="website/public/screenshots/market-profile/blue.png" alt="Blue TPO close-up with readable letters and the newest session split" width="400" /></a>
+<a href="website/public/screenshots/market-profile/ivory.png"><img src="website/public/screenshots/market-profile/ivory.png" alt="Ivory TPO close-up using the same synthetic session" width="400" /></a>
 
 ### Warm-load cache &amp; interval registry
 
@@ -294,16 +375,16 @@ Enforced in CI by [`size-limit`](./.size-limit.json). Nothing is excluded, becau
 
 | Bundle | Limit | Actual |
 |---|---|---|
-| Base engine | 69.3 KB | 68.90 KB |
-| Base + trade | 77 KB | 76.59 KB |
+| Base engine | 69.3 KB | 68.92 KB |
+| Base + trade | 77 KB | 76.61 KB |
 | Indicators tier | 30 KB | 27.27 KB |
 | Draw tier | 26 KB | 25.82 KB |
 | Transform tier | 5 KB | 2.66 KB |
-| Profile tier | 11.9 KB | 11.85 KB |
+| Profile tier | 13.2 KB | 13.12 KB |
 | WebGL2 tier | 7 KB | 6.38 KB |
 | Widget tier | 36 KB | 35.56 KB |
-| Widget terminal (base + draw + indicators + widget) | 158 KB | 157.54 KB |
-| **Everything** | **186.6 KB** | **186.12 KB** |
+| Widget terminal (base + draw + indicators + widget) | 158 KB | 157.56 KB |
+| **Everything** | **187.9 KB** | **187.41 KB** |
 
 ## Documentation
 
@@ -346,7 +427,7 @@ python server.py --fixture   # no yfinance, no network: deterministic synthetic 
 ```bash
 npm install        # install dev toolchain
 npm run typecheck  # strict TypeScript check
-npm test           # unit tests (vitest) - 3999 across 170 files
+npm test           # unit tests (vitest) - 4026 across 172 files
 npm run build      # Rollup -> dist/ (minified ESM per tier + types)
 npm run size       # size-limit (Brotli) against the budget
 npm run e2e        # Playwright Chromium smoke tests
@@ -363,7 +444,7 @@ npm run verify     # lint + typecheck + test + build + demo tests + dts + size +
 
 ## Status &amp; limitations
 
-Version **2.0.2**. All engine build phases are implemented with 3999 unit tests across 170 files. Upgrading a 1.9.x host: [Migrating to 2.0](./docs/migrating-to-2.md).
+Version **2.1.0**. All engine build phases are implemented with 4026 unit tests across 172 files. Upgrading a 1.9.x host: [Migrating to 2.0](./docs/migrating-to-2.md).
 
 Known gaps, stated plainly:
 

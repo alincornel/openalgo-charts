@@ -4,8 +4,8 @@ All notable changes to OpenAlgo Charts.
 
 ## Unreleased
 
-Upstream 2.0.2 merged into the fork, and a footprint that reads as a ladder
-instead of a hairline mesh.
+Upstream 2.0.2 and 2.1.0 merged into the fork, and a footprint that reads as a
+ladder instead of a hairline mesh.
 
 ### Merged
 
@@ -42,6 +42,17 @@ instead of a hairline mesh.
   Chart-only shake 45.53 kB against 45.7 — 1.69 kB over upstream's own 43.84 on
   the same build, up from 1.17 kB against 1.9.2 because the crosshair paths now
   carry that pointer payload. 4175 tests across 178 files, plus 219 demo tests.
+
+- **Upstream 2.1.0** merged on top, with nothing to re-apply: its whole source
+  delta is `src/profile/compact-text.ts`, `market-profile-primitive.ts`,
+  `market-profile.ts` and the version string — the compact TPO alphabet, the
+  per-session split and the open/latest markers — and the fork has never
+  touched any of them, so `src/` merged without a single conflict. Two budgets
+  moved and only the two 2.1.0 actually grew: the profile tier 11.85 -> 13.12 kB
+  (limit 13.2; upstream measured the same feature at 11.95 against 12 on a
+  profile tier that does not carry our footprint work) and everything
+  186.12 -> 187.41 kB (limit 187.9). Every other row moved by the 0.02 kB of a
+  version string or not at all.
 
 ### Fixed
 
@@ -185,6 +196,80 @@ instead of a hairline mesh.
 
 - Base engine budget 62 -> 63 kB, for the bar-indexed gates and the request
   adapter: 0.23 kB brotli measured against a 61.94 kB baseline.
+## 2.1.0
+
+2026-09-06
+
+### Added
+
+- **Compact TPO letters and volume values.** `MarketProfile` accepts
+  `blockDisplay: 'compact'`. An original pixel alphabet preserves distinct
+  uppercase and lowercase periods down to 5 physical pixels per row, with
+  integer pixel placement. Larger rows use regular canvas text. The renderer
+  supports Canvas 2D and SVG export without a WebGL2 dependency.
+- **Per-session split/unsplit.** `setSessionSplit(index, boolean | null)` and
+  `isSessionSplit(index)` control one session. Overrides follow calendar session
+  identity through data updates, row aggregation changes and prepended history.
+  An explicit global `setOptions({ split })` resets the overrides.
+- **Open and latest-price markers.** `showSessionOpen` draws lowercase `o` at
+  each session's opening-price row. `showLastPrice` draws `#` at the newest
+  supplied session's latest close, with configurable colours. Both default to
+  off in the library and are enabled in the profile demo.
+- **Five coordinated demo themes:** Dark, Blue, Graphite, Emerald and Ivory.
+  Presets cover the chart, profile, controls, tooltips and markers. These are
+  standalone demo presets, applied through existing public APIs.
+- **Website profile examples and screenshot gallery.** The website embeds the
+  standalone demo, provides links to each theme, and includes reproducible
+  screenshots of all five themes plus packed/split close-ups. The
+  profile guide, themes guide and examples page link to the new showcase.
+
+### Changed
+
+- The profile demo uses six deterministic synthetic sessions, 2-point rows,
+  independent row-height controls and a right-click menu to split or unsplit
+  one day. Single-print dashes are disabled in the demo; hover still reports
+  the underlying single-print classification.
+- Website builds copy the standalone demo and its local bundles, so the
+  embedded example runs the same implementation as the development demo.
+
+### Fixed
+
+- Compact glyphs and volume rows are clipped to the plot and remain aligned
+  at fractional display scaling. A small rounding tolerance keeps nominal
+  5-pixel rows from dropping their letters.
+- Open markers reserve space inside profiles. Latest-price markers remain
+  visible for narrow and one-bar newest sessions, stay inside the plot width,
+  and do not appear on older or horizontally offscreen sessions.
+- Changing theme, colour or other display controls preserves per-day split
+  choices. The latest-price marker does not overlap the optional TPO counts.
+
+### Validation and sizes
+
+Base engine **66.51 KB**, profile tier **11.95 KB**, full package **183.74 KB**
+Brotli. Validation covers **4,026 unit tests** across 172 files and 219 demo tests,
+plus browser checks for compact rendering, per-day controls and website examples.
+
+### Website follow-up
+
+- Redesigned the marketing homepage around an interactive chart, with a refined
+  dark/light visual system and an intro animation that respects reduced motion.
+  Documentation, examples and the generated API reference share the new design.
+- Connected the homepage chart to real BTC/USD exchange candles, refreshed every
+  15 seconds, with 15-minute, hourly, four-hour and daily views, a Supertrend
+  overlay and a separate MACD pane. Connection errors are visible; unavailable
+  prices are never replaced with simulated candles.
+- Replaced tiny profile overview thumbnails with readable single-day close-ups
+  in all five themes. Profile promotion stays on the dedicated guides and examples.
+- Added a simulated live depth-of-market demo, working display tick grouping,
+  pause/resume, book-depth controls and a README integration example for issue #6.
+  Fixed the original standalone depth example's group selector.
+- Added an interactive drawing playground with placement, selection, deletion,
+  undo/redo and keyboard controls. Example code is available below each chart.
+- Regenerated API pages from the current source, with visible package versions,
+  navigation back to the guides and demos, and refreshed stylesheet asset URLs.
+
+These website changes use the existing 2.1.0 library APIs.
+
 ## 2.0.2
 
 ### Added

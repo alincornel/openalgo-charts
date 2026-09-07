@@ -17,13 +17,15 @@
  */
 import type { IPrimitive, PrimitiveHit, PrimitiveHost, PrimitiveRenderContext, ZOrder } from 'openalgo-charts';
 import type { MarketProfileResult, MarketProfileSessionResult, MarketProfileLevel } from './market-profile';
-import { nakedLevels } from './market-profile';
+import { nakedLevels, profileSessionIdentity, rowOf } from './market-profile';
+import { drawCompactText } from './compact-text';
 
 /**
- * `auto` crossfades letters into bricks as rows get short (the default, and the
- * only mode that stays readable at every zoom). The rest pin the choice.
+ * `auto` crossfades letters into bricks as rows get short (the default).
+ * `compact` keeps high-contrast letters, using a pixel font in short rows.
+ * The remaining modes pin the choice.
  */
-export type MpBlockDisplay = 'auto' | 'blocks+letters' | 'letters' | 'blocks';
+export type MpBlockDisplay = 'auto' | 'compact' | 'blocks+letters' | 'letters' | 'blocks';
 
 /**
  * What drives a block's colour.
@@ -41,7 +43,7 @@ export const TPO_PERIOD_COLORS: readonly string[] = [
 ];
 
 export interface MarketProfilePrimitiveOptions {
-  /** How blocks render. `auto` crossfades letters to bricks — see the note above. */
+  /** `auto` fades letters to bricks; `compact` preserves small pixel glyphs. */
   blockDisplay: MpBlockDisplay;
   /** Row height (px) below which a letter no longer fits and bricks take over. */
   minLetterHeight: number;
@@ -62,6 +64,12 @@ export interface MarketProfilePrimitiveOptions {
   zOrder: ZOrder;
   /** Draw each period in its own column slot instead of packing rows left. */
   split: boolean;
+  /** Lowercase `o` beside each session's opening-price row. */
+  showSessionOpen: boolean;
+  sessionOpenColor: string;
+  /** `#` beside the latest close, on the newest supplied session only. */
+  showLastPrice: boolean;
+  lastPriceColor: string;
   /** Gap in px between session profiles. */
   profileSpacing: number;
   showPoc: boolean;
@@ -106,7 +114,7 @@ export interface MarketProfilePrimitiveOptions {
   volumeProfileWidth: number;
   volumeProfileSide: 'left' | 'right';
   volumeColor: string;
-  /** Print the volume number on each row (skipped when rows are tight). */
+  /** Print volume per row; compact mode uses pixel digits down to 5 physical px. */
   showVolumeValues: boolean;
 }
 
@@ -124,6 +132,10 @@ export const DEFAULT_MARKET_PROFILE_PRIMITIVE_OPTIONS: MarketProfilePrimitiveOpt
   outsideVaOpacity: 0.45,
   zOrder: 'top',
   split: false,
+  showSessionOpen: false,
+  sessionOpenColor: '#5ca8ff',
+  showLastPrice: false,
+  lastPriceColor: '#ff6b5e',
   profileSpacing: 4,
   showPoc: true,
   pocColor: '#f0a020',
@@ -197,6 +209,7 @@ export class MarketProfile implements IPrimitive {
   private _boxes: { index: number; x0: number; x1: number }[] = [];
   private _rowH = 0;
   private _rc: PrimitiveRenderContext | null = null;
+  private readonly _sessionSplits = new Map<string, boolean>();
 
   public constructor(result: MarketProfileResult | null = null, opts: Partial<MarketProfilePrimitiveOptions> = {}) {
     this._result = result;
@@ -222,12 +235,36 @@ export class MarketProfile implements IPrimitive {
 
   public setData(result: MarketProfileResult): void {
     this._result = result;
+    this._boxes = [];
     this._host?.requestUpdate();
   }
 
   public setOptions(patch: Partial<MarketProfilePrimitiveOptions>): void {
     this._opts = { ...this._opts, ...patch };
+    if (patch.split !== undefined) this._sessionSplits.clear();
     this._host?.requestUpdate();
+  }
+
+  /** Effective display for an index in the current result; false if missing. */
+  public isSessionSplit(sessionIndex: number): boolean {
+    const key = this._sessionKey(sessionIndex);
+    return key === null ? false : (this._sessionSplits.get(key) ?? this._opts.split);
+  }
+
+  /** Split/unsplit one session. Null restores its global default. */
+  public setSessionSplit(sessionIndex: number, split: boolean | null): boolean {
+    const key = this._sessionKey(sessionIndex);
+    if (key === null) return false;
+    if (split === null) this._sessionSplits.delete(key);
+    else this._sessionSplits.set(key, split);
+    this._host?.requestUpdate();
+    return true;
+  }
+
+  private _sessionKey(index: number): string | null {
+    if (!Number.isInteger(index) || index < 0 || this._result === null) return null;
+    const s = this._result.sessions[index];
+    return s === undefined ? null : profileSessionIdentity(s.startTime, this._result.options);
   }
 
   /** Report the session under the pointer so a host can show a tooltip. */
@@ -273,10 +310,20 @@ export class MarketProfile implements IPrimitive {
     if (this._result === null || this._result.sessions.length === 0) return;
     const o = this._result.options;
     const row = o.tickSize * Math.max(1, Math.floor(o.rowTicks));
+    const compact = this._opts.blockDisplay === 'compact';
+    if (compact) {
+      // Top primitives are not clipped by the host. Clip partial edge glyphs
+      // and volume bars as well as culling rows that are completely offscreen.
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, Math.floor(rc.plotWidth * rc.dpr), Math.floor(rc.plotHeight * rc.dpr));
+      ctx.clip();
+    }
     for (let i = 0; i < this._result.sessions.length; i++) {
       this._drawSession(ctx, rc, this._result.sessions[i], row, i);
     }
     if (this._opts.showNakedLevels) this._drawNaked(ctx, rc);
+    if (compact) ctx.restore();
   }
 
   /**
@@ -286,7 +333,7 @@ export class MarketProfile implements IPrimitive {
    */
   private _letterAlpha(rowHpx: number): number {
     const o = this._opts;
-    if (o.blockDisplay === 'letters' || o.blockDisplay === 'blocks+letters') return 1;
+    if (o.blockDisplay === 'compact' || o.blockDisplay === 'letters' || o.blockDisplay === 'blocks+letters') return 1;
     if (o.blockDisplay === 'blocks') return 0;
     const fade = Math.max(1, o.letterFade);
     return Math.max(0, Math.min(1, (rowHpx - o.minLetterHeight) / fade));
@@ -308,25 +355,35 @@ export class MarketProfile implements IPrimitive {
   ): void {
     const o = this._opts;
     const dpr = rc.dpr;
+    const compact = o.blockDisplay === 'compact';
+    const split = this.isSessionSplit(index);
     const i0 = rc.dataLayer.timeToIndex(s.startTime);
     const i1 = rc.dataLayer.timeToIndex(s.endTime);
     if (i0 === undefined || i1 === undefined) return;
     const spacing = o.profileSpacing * dpr;
-    const x0 = Math.round(rc.timeScale.indexToX(i0) * dpr) + spacing / 2;
+    let x0 = Math.round(rc.timeScale.indexToX(i0) * dpr) + spacing / 2;
     const x1 = Math.max(x0 + 1, Math.round(rc.timeScale.indexToX(i1) * dpr) - spacing / 2);
+    const visibleSession = x0 <= rc.plotWidth * dpr && x1 >= 0;
     this._boxes.push({ index, x0: x0 / dpr, x1: x1 / dpr });
 
     const yOf = (p: number): number => rc.priceScale.priceToY(p) * dpr;
     // Row height straight off the price scale — this decides letters vs bricks.
     const rowH = Math.max(1, Math.abs(rc.priceScale.priceToY(s.poc) - rc.priceScale.priceToY(s.poc + row)) * dpr);
     this._rowH = rowH / dpr;
-    const lw = o.letterWidth * dpr;
+    const smallText = compact && rowH < 12 * dpr;
+    const textHeight = Math.floor(Math.min(rowH, o.font * dpr) + 1e-7);
+    const lw = smallText
+      ? Math.max(1, Math.min(Math.round(o.letterWidth * dpr), 4 * Math.max(1, Math.floor(textHeight / 5))))
+      : o.letterWidth * dpr;
+    // Keep the open glyph inside the session, including at the left plot edge.
+    if (o.showSessionOpen) x0 += lw + 3 * dpr;
+    const lastPrice = o.showLastPrice && index === (this._result as MarketProfileResult).sessions.length - 1;
     const alpha = this._letterAlpha(rowH / dpr);
-    const drawBlock = o.blockDisplay !== 'letters' || alpha < 1;
+    const drawBlock = !compact && (o.blockDisplay !== 'letters' || alpha < 1);
 
     ctx.save();
 
-    if (o.fillValueArea) {
+    if (o.fillValueArea && x1 > x0) {
       const yTop = yOf(s.vah) - rowH / 2;
       const yBot = yOf(s.val) + rowH / 2;
       ctx.globalAlpha = o.valueAreaFillOpacity;
@@ -357,6 +414,7 @@ export class MarketProfile implements IPrimitive {
 
     for (const l of s.levels) {
       const y = yOf(l.price);
+      if (compact && (y + rowH / 2 < 0 || y - rowH / 2 > rc.plotHeight * dpr)) continue;
       const inVa = l.price <= s.vah && l.price >= s.val;
       const dim = inVa ? 1 : o.outsideVaOpacity;
       const heat = o.colorMode === 'count' ? l.count / maxCount
@@ -366,9 +424,10 @@ export class MarketProfile implements IPrimitive {
       for (let j = 0; j < l.periods.length; j++) {
         // `split` gives each period its own column slot, so a gap shows which
         // periods never traded that row; packed mode closes the gaps up.
-        const slot = o.split ? l.periods[j] : j;
+        const slot = split ? l.periods[j] : j;
         const bx = x0 + slot * lw;
         if (bx > x1) break;
+        if (compact && (bx + lw > x1 || bx + lw < 0 || bx > rc.plotWidth * dpr)) continue;
         const color = this._blockColor(l, l.periods[j], s);
         if (drawBlock) {
           ctx.globalAlpha = baseAlpha;
@@ -378,9 +437,19 @@ export class MarketProfile implements IPrimitive {
         if (alpha > 0) {
           // Letters ride on top: dark ink on a filled block, the period colour
           // when the letter is the only thing being drawn.
-          ctx.globalAlpha = alpha * (drawBlock ? 0.95 : baseAlpha);
+          ctx.globalAlpha = compact ? o.opacity * (heatMode ? 0.3 + 0.7 * heat : 1)
+            : alpha * (drawBlock ? 0.95 : baseAlpha);
           ctx.fillStyle = drawBlock ? '#12151c' : color;
-          ctx.fillText(l.letters[j] ?? '', bx + lw / 2, y);
+          if (smallText) {
+            if (!drawCompactText(ctx, l.letters[j] ?? '', bx + lw / 2, y, textHeight, lw - 1)) {
+              // Fewer than five physical pixels cannot hold this alphabet.
+              // Keep the price row visible; exact letters remain in hoverAt.
+              ctx.fillRect(Math.round(bx), Math.round(y), Math.max(1, Math.floor(lw - 1)), 1);
+            }
+          } else {
+            ctx.fillText(l.letters[j] ?? '', compact ? Math.round(bx + lw / 2) : bx + lw / 2,
+              compact ? Math.round(y) : y);
+          }
         }
       }
     }
@@ -391,8 +460,14 @@ export class MarketProfile implements IPrimitive {
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = o.countColor;
-      const cx = x0 + (o.split ? s.periods : maxCount) * lw + 3 * dpr;
-      for (const l of s.levels) ctx.fillText(String(l.count), cx, yOf(l.price));
+      const cx = x0 + ((split ? s.periods : maxCount) + (lastPrice ? 1 : 0)) * lw + 3 * dpr;
+      for (const l of s.levels) {
+        const y = yOf(l.price);
+        if (smallText) {
+          if (y + rowH / 2 < 0 || y - rowH / 2 > rc.plotHeight * dpr) continue;
+          drawCompactText(ctx, String(l.count), cx, y, textHeight, Math.max(0, x1 - cx), 'left');
+        } else ctx.fillText(String(l.count), cx, y);
+      }
     }
 
     if (o.showSinglePrints && s.singlePrints.length > 0) {
@@ -466,6 +541,25 @@ export class MarketProfile implements IPrimitive {
       this._drawDeveloping(ctx, rc, s, 'val', o.developingVaColor);
     }
 
+    // Markers remain above reference lines and other profile decorations.
+    const result = this._result as MarketProfileResult;
+    if (o.showSessionOpen) {
+      this._drawPriceMarker(ctx, rc, 'o', x0 - lw / 2 - 3 * dpr,
+        yOf(rowOf(s.open, result.options)), rowH, o.sessionOpenColor);
+    }
+    if (lastPrice && visibleSession) {
+      const price = rowOf(s.close, result.options);
+      const level = s.levels.find((l) => l.price === price);
+      if (level !== undefined) {
+        const columns = split ? (level.periods[level.periods.length - 1] ?? 0) + 1 : level.count;
+        // The newest session can use the empty space after its last bar.
+        // At the plot edge keep the entire marker in view, even for one bar.
+        const half = Math.max(2, lw / 2);
+        const x = Math.max(half, Math.min(x0 + (columns + 0.5) * lw, rc.plotWidth * dpr - half));
+        this._drawPriceMarker(ctx, rc, '#', x, yOf(price), rowH, o.lastPriceColor);
+      }
+    }
+
     // ── header labels ─────────────────────────────────────────────────────
     const bits: string[] = [];
     if (o.showSessionLabel && s.label !== undefined) bits.push(s.label);
@@ -482,6 +576,24 @@ export class MarketProfile implements IPrimitive {
     ctx.restore();
   }
 
+  private _drawPriceMarker(
+    ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext,
+    text: string, x: number, y: number, rowH: number, color: string,
+  ): void {
+    const height = Math.max(5, Math.min(rowH, this._opts.font * rc.dpr));
+    ctx.save();
+    ctx.globalAlpha = this._opts.opacity;
+    ctx.fillStyle = color;
+    if (rowH < 12 * rc.dpr) drawCompactText(ctx, text, x, y, height, Math.max(3, height));
+    else {
+      ctx.font = `${height}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, Math.round(x), y);
+    }
+    ctx.restore();
+  }
+
   private _drawVolume(
     ctx: CanvasRenderingContext2D,
     rc: PrimitiveRenderContext,
@@ -495,23 +607,31 @@ export class MarketProfile implements IPrimitive {
     const dpr = rc.dpr;
     const w = o.volumeProfileWidth * dpr;
     const right = o.volumeProfileSide === 'right';
+    const compact = o.blockDisplay === 'compact';
+    const visible = (y: number): boolean => !compact || (y + rowH / 2 >= 0 && y - rowH / 2 <= rc.plotHeight * dpr);
     ctx.globalAlpha = 0.55;
     ctx.fillStyle = o.volumeColor;
     for (const l of s.levels) {
+      if (!visible(rc.priceScale.priceToY(l.price) * dpr)) continue;
       const bw = w * (l.volume / maxVol);
       const y = rc.priceScale.priceToY(l.price) * dpr - rowH / 2;
       ctx.fillRect(right ? x1 - bw : x0, y, bw, Math.max(1, rowH - 1));
     }
     ctx.globalAlpha = 1;
     // Numbers only when the row can hold a line of text.
-    if (o.showVolumeValues && rowH >= 7 * dpr) {
+    if (o.showVolumeValues && rowH >= (compact ? 5 - 1e-7 : 7 * dpr)) {
       ctx.font = `${Math.min(9 * dpr, rowH * 0.9)}px ui-monospace, monospace`;
       ctx.textBaseline = 'middle';
       ctx.textAlign = right ? 'right' : 'left';
       ctx.fillStyle = o.countColor;
       for (const l of s.levels) {
-        ctx.fillText(Math.round(l.volume).toString(), right ? x1 - 2 * dpr : x0 + 2 * dpr,
-          rc.priceScale.priceToY(l.price) * dpr);
+        const y = rc.priceScale.priceToY(l.price) * dpr;
+        if (!visible(y)) continue;
+        const text = Math.round(l.volume).toString();
+        const x = right ? x1 - 2 * dpr : x0 + 2 * dpr;
+        if (compact && rowH < 12 * dpr) {
+          drawCompactText(ctx, text, x, y, Math.min(rowH, 9 * dpr), Math.max(0, w - 4 * dpr), right ? 'right' : 'left');
+        } else ctx.fillText(text, x, y);
       }
     }
   }

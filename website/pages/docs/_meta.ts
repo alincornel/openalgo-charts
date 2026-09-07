@@ -27,6 +27,7 @@ export default {
   'drawing-clipboard': 'Drawing Clipboard',
   'profiles-and-orderflow': 'Profiles & Order Flow',
   'market-profile': 'Market Profile (TPO)',
+  'market-profile-examples': 'Profile Demo & Themes',
   'volume-profile': 'Volume Profile',
   'market-replay': 'Market Replay',
   'crosshair-and-legend': 'Crosshair & Legend',
@@ -39,6 +40,7 @@ export default {
   '-- trading': { type: 'separator', title: 'Trading' },
   'trading-api': 'Trading API',
   trading: 'Order Engine & Ladder',
+  'depth-of-market': 'Depth of Market Demo',
 
   '-- data': { type: 'separator', title: 'Data & Feeds' },
   'data-loading': 'Data Loading',

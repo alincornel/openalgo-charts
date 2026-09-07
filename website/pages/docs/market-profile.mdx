@@ -17,6 +17,9 @@ rejection.
 It is two pieces: **`computeMarketProfile`** (pure analytics, in the `profile` tier) and the
 **`MarketProfile`** primitive that renders the result on the chart.
 
+The **2.1.0** adds compact pixel letters, individual split/unsplit controls
+and open/latest-price markers. [Open the interactive demo and theme screenshots](/docs/market-profile-examples).
+
 ```ts
 import { computeMarketProfile, MarketProfile } from 'openalgo-charts/profile';
 
@@ -166,7 +169,7 @@ Pass in the constructor (`new MarketProfile(result, options)`) or update live wi
 
 | Option | Default | Description |
 |---|---|---|
-| `blockDisplay` | `'auto'` | `auto` / `blocks+letters` / `letters` / `blocks` (see [Letters and bricks](#letters-and-bricks)) |
+| `blockDisplay` | `'auto'` | `auto` / `compact` / `blocks+letters` / `letters` / `blocks` (see [Letters and bricks](#letters-and-bricks)) |
 | `minLetterHeight` / `letterFade` | `7` / `4` | row height (px) where letters give way to bricks, and the fade band |
 | `letterWidth` | `8` | width of one TPO column, px |
 | `font` | `10` | letter font size, px (auto-shrinks to fit short rows) |
@@ -174,6 +177,8 @@ Pass in the constructor (`new MarketProfile(result, options)`) or update live wi
 | `periodColors` | 12 hues | palette for `colorMode: 'period'` |
 | `opacity` / `outsideVaOpacity` | `0.92` / `0.45` | block opacity, and dimming outside the value area |
 | `split` | `false` | give each period its own column slot instead of packing rows left |
+| `showSessionOpen` / `sessionOpenColor` | `false` / blue | lowercase `o` at each session's opening-price row |
+| `showLastPrice` / `lastPriceColor` | `false` / coral | `#` at the newest supplied session's latest close; no marker on older sessions |
 | `profileSpacing` | `4` | gap between session profiles, px |
 | `showPoc` / `pocColor` / `pocThickness` / `showPocLabel` | `true` / gold / `2` / `true` | Point of Control |
 | `showValueArea` / `vahColor` / `valColor` / `showValueAreaLabels` | `true` | VAH & VAL lines + labels |
@@ -199,6 +204,75 @@ jump, and the profile stays readable at every scale.
 
 Pin the behaviour when you want it fixed: `'letters'` for glyphs only, `'blocks'` for a pure
 brick profile, `'blocks+letters'` to force both regardless of room.
+
+For dense profiles, use **`blockDisplay: 'compact'`**. At short row heights it draws an
+original 3×5 pixel alphabet, including distinct uppercase/lowercase TPO periods and volume
+digits. Strokes align to physical screen pixels and scale by whole pixels, without automatic
+letter fading or outside-value-area dimming. `opacity` still applies to TPO letters; their
+colour still follows `colorMode`, including heat weighting when count or volume colouring
+is explicitly selected. Column spacing contracts with the glyphs, capped by
+`letterWidth`. At row heights of 12 CSS pixels and above, regular canvas text is used.
+
+```ts
+profile.setOptions({ blockDisplay: 'compact', opacity: 1, showVolumeValues: true });
+```
+
+The pixel alphabet needs at least **5 physical pixels vertically and 3 horizontally**.
+Below that size TPOs remain as thin coloured marks and `hoverAt` still returns the exact
+letters. Volume numbers are drawn only when the complete number fits. The mode changes
+rendering only: it never merges price rows or recalculates the profile. It works with
+Canvas 2D, screenshots and vector SVG export; enabling WebGL2 is not required.
+SVG export evaluates the pixel threshold at its output dimensions (DPR 1). Increase
+the export width and height to preserve the same small-row detail as a high-DPI screen.
+
+The standalone demo at `examples/market-profile/index.html` compares compact and automatic
+display modes while changing row height independently of price aggregation. Run
+`npm run build` and `node tests/e2e/serve.cjs`, then open
+`http://127.0.0.1:4173/examples/market-profile/index.html`.
+The same demo is [embedded on this website](/docs/market-profile-examples#try-the-demo),
+with a [full-resolution theme gallery](/docs/market-profile-examples#five-themes).
+Its theme selector includes **Dark**, **Blue** (navy, purple and cyan),
+**Graphite** (charcoal and muted cyan), **Emerald** (deep green and mint), and
+**Ivory** (a warm light background with dark ink). Palettes style the chart,
+profile, controls, tooltips and price markers together. Append `?theme=blue`,
+`?theme=graphite`, `?theme=emerald` or `?theme=ivory` to open a palette directly.
+Single-print dashes are disabled in this demo (`showSinglePrints: false`); the
+letters and hover information still identify those rows.
+
+### Split or unsplit one day
+
+Use the session index from `hoverAt` to change just that profile:
+
+```ts
+profile.setSessionSplit(hit.sessionIndex, true);  // split this session
+profile.setSessionSplit(hit.sessionIndex, false); // pack this session again
+profile.isSessionSplit(hit.sessionIndex);        // effective current display
+profile.setSessionSplit(hit.sessionIndex, null);  // restore the global default
+```
+
+`setSessionSplit` returns `false` for a missing session, otherwise `true`. Overrides
+follow the session's calendar identity when `setData` updates prices, rebuckets rows,
+or prepends earlier history. They are scoped to the grouping, timezone and session
+window. Other style changes preserve them. An explicit `setOptions({ split: true })`
+or `setOptions({ split: false })` clears all overrides and applies to every session.
+
+The demo provides a right-click menu with **Split this day** / **Unsplit this day**
+and a **Split all days** checkbox. A mixed checkbox means only some days are split.
+These display choices never alter the profile's letters, POC or value area.
+
+### Open and latest-price markers
+
+```ts
+profile.setOptions({ showSessionOpen: true, showLastPrice: true });
+```
+
+Lowercase `o` is drawn beside the opening-price row of every session. `#` follows
+the latest close on the **newest supplied session only**, including in split view.
+Both use the model's price-row rounding and stay visible as small pixel glyphs in
+compressed views. Refresh the computed profile with `setData` as new bars or ticks
+arrive to move `#`; enabling the marker does not subscribe to a market feed.
+The standalone demo uses synthetic historical sessions, so its newest session
+represents the current trading day for this demonstration.
 
 <Callout>
 The footprint renderer fades its cell numbers the same way, via `minTextHeight` / `textFade`.
