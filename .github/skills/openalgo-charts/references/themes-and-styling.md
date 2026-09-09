@@ -128,6 +128,7 @@ Returns a top-to-bottom `CanvasGradient` for a custom renderer or primitive. Cac
 | `lineStyle` | none (default `'solid'`) | `line`, `line-markers`, `step` |
 | `markers`, `markersOnly`, `markerRadius` | none (radius default `2`) | line family |
 | `visible`, `title`, `priceLineVisible`, `lastValueVisible` | none (all default on/true) | every type |
+| `lastValueLabelColor` | none (undefined: up/down colouring) | every type |
 
 `lastValueVisible` tags every series on the readout scale, each in its own plot colour, not just the instrument. A series currently plotting a non-number draws no tag, so a study that is `na` says nothing rather than repeating a stale reading. Tags resolve against the ladder and each other by priority: the last price wins, a series value beats a plain tick, and two series values a tag-height apart resolve by series order rather than flickering.
 
@@ -140,6 +141,8 @@ series.applyOptions({ visible: false });          // hides it and drops it from 
 ```
 
 **`histogram` is the one series colour the theme cannot reach.** Its `color` falls back to `#3a4666` regardless of palette, so a themed volume overlay must set `style.color` (or per-item `bar.color`) itself.
+
+`lastValueLabelColor` fixes a series' axis tag to one colour instead of the last bar's, and on the instrument it colours the dashed price line with it too, so neither flips green to red on a tick that crosses the open. Tag text is picked for contrast against the colour given, so a pale one stays as readable as a dark one. It changes only the colouring: `lastValueVisible` and `priceLineVisible` still decide what is drawn at all.
 
 **`priceLineVisible: false` and `lastValueVisible: false` only take effect on the first `isPriceSeries` series mapped to the pane's right scale**: that is the only series the last-price line and tag follow.
 

@@ -42,6 +42,20 @@ export interface SeriesStyle {
    */
   lastValueVisible?: boolean;
   /**
+   * Fixed colour for this series' last-value axis tag, and for the last-price
+   * line and tag when the series is the pane's instrument.
+   *
+   * The instrument's tag borrows the last bar's own colour, so on a live feed
+   * it flips green to red and back with every tick that crosses the open: a
+   * reader tracking where price IS has to re-find a label that keeps changing
+   * what it looks like. Set this and the tag holds one colour whichever way the
+   * bar closed. Tag text is picked for contrast against it, so a pale colour
+   * is as readable as a dark one.
+   *
+   * Undefined is the default and keeps the up/down colouring.
+   */
+  lastValueLabelColor?: string;
+  /**
    * Decimal places for every price the scale this series maps to formats: the
    * axis ticks, the last-value tag, the crosshair label and the drawing-tool
    * labels. It overrides the precision the price scale infers from the tick

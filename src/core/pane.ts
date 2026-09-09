@@ -37,6 +37,7 @@ import {
   type SessionClockOptions, type BarCountdownOptions,
 } from '../render/axis';
 import { drawCrosshair, drawCrosshairTag, resolveCrosshairStyle } from '../render/crosshair';
+import { contrastText } from '../render/pill';
 import { bestHit, type IPrimitive, type PrimitiveHit, type PrimitiveHost, type PrimitiveRenderContext } from '../primitives/primitive';
 import { backendDegradation, type IRenderBackend, type RendererFallbackReason } from '../render/backend';
 import { Canvas2dBackend } from '../render/canvas2d-backend';
@@ -114,6 +115,7 @@ export interface PaneRenderContext {
  * worth inventing one for.
  */
 function seriesTagColor(style: SeriesStyle, up: boolean): string | undefined {
+  if (typeof style.lastValueLabelColor === 'string') return style.lastValueLabelColor;
   if (typeof style.color === 'string') return style.color;
   const directional = up ? style.upColor : style.downColor;
   if (typeof directional === 'string') return directional;
@@ -679,7 +681,8 @@ export class Pane {
     // Last-price line/tag follows the pane's readout series (the main one),
     // whichever side its scale is drawn on.
     const readout = this._readoutScale();
-    let lastEntry: { close: number; up: boolean; showLine: boolean; showTag: boolean } | null = null;
+    let lastEntry:
+      { close: number; up: boolean; showLine: boolean; showTag: boolean; fixedColor?: string } | null = null;
     // Every other series on the readout scale that is currently plotting a
     // number: an indicator overlay, a comparison line, a study on its own pane.
     // The main series keeps its dedicated tag above; these are what tells a
@@ -723,6 +726,7 @@ export class Pane {
             up: last.bar.close >= last.bar.open,
             showLine: s.style.priceLineVisible !== false,
             showTag: s.style.lastValueVisible !== false,
+            fixedColor: s.style.lastValueLabelColor,
           };
         } else if (last !== null && s.style.lastValueVisible !== false) {
           // A plot that is currently `na` writes NaN rather than dropping the
@@ -811,8 +815,16 @@ export class Pane {
       // The tag belongs in the right-hand strip, which a scale that has moved
       // to the left no longer has: the line still means something without it,
       // a tag drawn into a column that is not there does not.
+      // A series that names a fixed colour gives it to both directions, which is
+      // the whole point: the tag and the line stop flipping with the bar. The
+      // text is then picked for contrast against it rather than left on the
+      // theme's, which is chosen for the up/down pair and can vanish on a
+      // colour it never expected.
+      const fixed = lastEntry.fixedColor;
       drawLastPriceLabel(g, readout, lastEntry.close, lastEntry.up, layout, dpr, axisStyle, {
-        up: ctx.theme.lastPriceUp, down: ctx.theme.lastPriceDown, text: ctx.theme.lastPriceText,
+        up: fixed ?? ctx.theme.lastPriceUp,
+        down: fixed ?? ctx.theme.lastPriceDown,
+        text: fixed !== undefined ? contrastText(fixed) : ctx.theme.lastPriceText,
       }, lastEntry.showLine, showLastTag, ctx.barCountdown,
         // `fromLastBar` starts the line at the newest bar instead of striping
         // it across the history behind it, which is what a trader watching the

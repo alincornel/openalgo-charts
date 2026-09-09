@@ -38,6 +38,13 @@ import {
 const num = (v: unknown, fallback: number): number =>
   (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
 
+/**
+ * Settings key that is not an indicator input: it styles every plot this
+ * instance owns rather than feeding `calc`. `chart.addIndicator('vwap', {
+ * lastValueVisible: false })` keeps the line and drops the axis tag.
+ */
+const LAST_VALUE_VISIBLE = 'lastValueVisible';
+
 /** Defaults for the generated per-plot appearance settings. */
 function styleDefaults(descriptor: IndicatorDescriptor): IndicatorSettings {
   const out: IndicatorSettings = {};
@@ -654,6 +661,13 @@ export class IndicatorInstance implements IndicatorApi {
     if (typeof width === 'number' && width > 0) style.lineWidth = width;
     const lineStyle = this._settings[k.lineStyle];
     if (typeof lineStyle === 'string') style.lineStyle = lineStyle;
+    // A reserved setting rather than a generated per-plot one: an axis crowded
+    // with study tags is a whole-instrument complaint, and a MACD's three plots
+    // would otherwise need three switches to answer it. It is read after the
+    // declared style so a caller can turn off a tag the descriptor asked for,
+    // and it reaches every plot, including the ones a settings change rebuilds.
+    const lastValue = this._settings[LAST_VALUE_VISIBLE];
+    if (typeof lastValue === 'boolean') style.lastValueVisible = lastValue;
     return style;
   }
 

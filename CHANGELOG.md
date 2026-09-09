@@ -70,6 +70,27 @@ ladder instead of a hairline mesh.
 
 ### Added
 
+- **`lastValueLabelColor`** on `SeriesStyle`. The instrument's last-value axis
+  tag and its dashed price line take the last bar's own colour, so on a live
+  feed they flip green to red and back with every tick that crosses the open,
+  and a reader watching the right-hand edge has to re-find a label that keeps
+  changing what it looks like. Set this and both hold one colour whichever way
+  the bar closed, with the tag's text picked for contrast against it rather
+  than left on the theme's, which is chosen for the up/down pair. Set on any
+  other series it fixes that series' own axis tag the same way. Undefined is
+  the default and keeps the up/down colouring; `lastValueVisible` and
+  `priceLineVisible` still decide what is drawn at all.
+
+- **`lastValueVisible` as an indicator setting.** `chart.addIndicator(id, {
+  lastValueVisible: false })` now keeps the plots and drops their axis tags. An
+  axis crowded with study tags is a whole-instrument complaint, so it is a
+  reserved settings key rather than a per-plot one: a three-plot MACD answers
+  to one switch, `setSettings` toggles it live, and it rides in `settings()` so
+  a saved layout restores it. It is read after the descriptor's declared plot
+  style, so it can turn off a tag the descriptor asked for. Silencing one plot
+  of several is still `instance.series(key)?.applyOptions(...)`. Before this
+  the key was accepted, stored, and read by nothing.
+
 - **`dock` / `dockInset`** on `VolumeProfile`. `side` measures from the
   session's own edge on the time axis, so the profile travels with its bars and
   a fixed-range one wanders off screen the moment the chart is panned.

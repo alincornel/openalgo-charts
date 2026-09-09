@@ -214,7 +214,7 @@ One consequence for a descriptor author: **`calc` must be a pure function of `(b
 
 ## The settings model
 
-Two families of keys live in one flat `IndicatorSettings` bag:
+Three families of keys live in one flat `IndicatorSettings` bag:
 
 1. **Declared inputs**, `descriptor.inputs`, keyed however the descriptor chose (`length`, `fastPeriod`, `anchor`, `color`).
 2. **Generated per-plot style keys**, produced by `plotStyleKeys(plot)` for every plot, with no per-descriptor boilerplate:
@@ -226,6 +226,8 @@ Two families of keys live in one flat `IndicatorSettings` bag:
 | `'<plotKey>:width'` | number 0.5..8 step 0.5 | `plot.style.lineWidth ?? 1.5` |
 | `'<plotKey>:lineStyle'` | select | `plot.style.lineStyle ?? 'solid'` (`INDICATOR_LINE_STYLES`: solid / dashed / dotted) |
 | `'<plotKey>:type'` | select | `plot.type` (line, line-markers, step, area, histogram, column) |
+
+3. **`lastValueVisible`**, a reserved key that is not fed to `calc`. `false` hides the last-value axis tag of **every** plot the instance owns while leaving the lines drawn: `chart.addIndicator('vwap', { lastValueVisible: false })`, or `instance.setSettings({ lastValueVisible: false })` to toggle it live. An axis crowded with study tags is a whole-instrument complaint, so a MACD's three plots answer to one switch. It is read after the descriptor's declared `plot.style`, so it can turn off a tag the descriptor asked for, and it rides in `settings()`, so a saved layout restores it. Style one plot alone through `instance.series(plotKey)?.applyOptions({ lastValueVisible: false })`.
 
 **A descriptor that declares `colorKey` owns the colour key.** `plotStyleKeys` returns `plot.colorKey` in the `color` slot rather than `<plotKey>:color`, so a generated key would shadow the declared one and setting the declared key would silently stop working. Always read the key from `plotStyleKeys(plot).color`, never hand-build `` `${plot.key}:color` ``.
 

@@ -191,10 +191,26 @@ return chart;`} />
 | `visible` | all | `false` hides the series and drops it from autoscale |
 | `priceLineVisible` | price series | `false` hides the dashed last-price line (default on) |
 | `lastValueVisible` | price series | `false` hides the last-value tag on the axis (default on) |
+| `lastValueLabelColor` | all | fixed colour for the last-value tag, and for the last-price line on the instrument (default: the last bar's colour) |
 | `title` | all | label carried with the series for host-drawn legends |
 | `areaTopColor` / `areaBottomColor` | area | vertical gradient stops |
 | `baseValue` | baseline | the reference level |
 | `priceLineVisible` | all price series | the dashed last-price line |
+
+### A last-price tag that holds still
+
+The instrument's axis tag and its dashed price line take the last bar's own colour, so on
+a live feed they flip green to red and back with every tick that crosses the open.
+`lastValueLabelColor` pins both to one colour whichever way the bar closed, and picks the
+tag's text for contrast against it, so a pale colour reads as well as a dark one:
+
+```ts
+chart.addSeries('candlestick', { style: { lastValueLabelColor: '#8892a6' } });
+```
+
+It only changes the colouring. `lastValueVisible` and `priceLineVisible` still decide
+whether the tag and the line are drawn at all. Set on any other series, it fixes that
+series' own axis tag the same way.
 
 ## Price options
 

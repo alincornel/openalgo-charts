@@ -621,6 +621,24 @@ absent filter means every day. Whitespace around the parts is ignored.
   than throwing, because the spec is usually something a user is halfway through typing.
   Call `parseSessionSpec` yourself when you need to tell a bad spec from an empty window.
 
+## Hiding an indicator's axis tag
+
+Every plot on the price pane writes its current value onto the price axis. On a chart
+carrying half a dozen overlays that strip fills up, and the tags displace the ticks that
+make the axis readable. `lastValueVisible` is a reserved setting that answers for the
+whole instance, so a three-plot MACD needs one switch and not three:
+
+```ts
+chart.addIndicator('vwap', { lastValueVisible: false });   // keeps the line, drops the tag
+
+const macd = chart.addIndicator('macd');
+macd.setSettings({ lastValueVisible: false });             // live, and back with true
+```
+
+It is not fed to the calculation, it rides in `settings()` so a saved layout restores it,
+and it leaves the plots themselves untouched. To silence one plot of several, style that
+plot's own series instead: `macd.series('signal')?.applyOptions({ lastValueVisible: false })`.
+
 ## The IndicatorApi handle
 
 `addIndicator` returns a handle:
