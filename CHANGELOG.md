@@ -70,6 +70,19 @@ ladder instead of a hairline mesh.
 
 ### Added
 
+- **`dock` / `dockInset`** on `VolumeProfile`. `side` measures from the
+  session's own edge on the time axis, so the profile travels with its bars and
+  a fixed-range one wanders off screen the moment the chart is panned.
+  `dock: 'left' | 'right'` measures from the PLOT instead: the band parks
+  against that edge, `dockInset` (4) media px clear of it, bars growing inward,
+  and holds still whatever the time scale does. The price axis begins at
+  `plotWidth`, so a right dock stays inside the drawable area rather than under
+  the axis. A dock outranks `side` and `anchorTo` for x placement and lives on
+  the primitive, so a docked session profile and a bar-anchored fixed-range
+  profile can share one pane. `labelSide` survives it, unlike a bare
+  `anchorTo: 'pane'`, and picks which edge of the band the POC and value-area
+  labels ride. Default `'none'`, which draws exactly what it drew before.
+
 - **`zeroFill` / `maxZeroFillRows`** on `Footprint`. A footprint built from
   trades only knows the prices that traded, so a column is a sparse ladder and
   whatever is painted behind it shows through the holes. `zeroFill` draws a

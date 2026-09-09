@@ -1,12 +1,12 @@
 /**
  * Volume Profile renderer (ARCHITECTURE.md §8, §6A). Draws the output of
  * `computeVolumeProfileSessions` as a horizontal volume histogram per session,
- * anchored at the session's left or right edge. Display modes: `total` (one bar),
- * `buySell` (buy vs sell split), and `delta` (net, colored by sign). POC and
- * Value Area are drawn as lines with labels, with an optional value-area fill and
- * dimming of rows outside the value area. A pane primitive that overlays the
- * price range (its `autoscaleInfo` reports its extent so a profile-only chart
- * still frames correctly).
+ * anchored at the session's left or right edge, or docked to a plot edge.
+ * Display modes: `total` (one bar), `buySell` (buy vs sell split), and `delta`
+ * (net, colored by sign). POC and Value Area are drawn as lines with labels,
+ * with an optional value-area fill and dimming of rows outside the value area.
+ * A pane primitive that overlays the price range (its `autoscaleInfo` reports
+ * its extent so a profile-only chart still frames correctly).
  */
 import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, ZOrder } from 'openalgo-charts';
 import type { VolumeProfileFamilyResult, VolumeProfileSessionResult } from './volume-profile-family';
@@ -26,6 +26,23 @@ export type VolumeProfileSide = 'left' | 'right';
  * to the last bar leaves a gap wherever the chart carries a right-hand offset.
  */
 export type VolumeProfileAnchor = 'session' | 'pane';
+/**
+ * Pin one profile to a plot edge instead of to time.
+ *
+ * `none` (the default) leaves placement to `side` and `anchorTo`, so nothing an
+ * existing caller draws moves.
+ *
+ * `left` / `right` park the band against that edge of the PLOT, `dockInset` px
+ * clear of it, with the bars growing inward: rightwards from a left dock,
+ * leftwards from a right dock. The time scale stops mattering, so the band
+ * holds still under a pan and keeps clear of the price axis, which begins at
+ * `plotWidth` and is outside the plot.
+ *
+ * The setting lives on the instance, not the chart, so a docked session profile
+ * and a bar-anchored fixed-range profile can share a pane. A dock outranks both
+ * `side` and `anchorTo` for x placement.
+ */
+export type VolumeProfileDock = 'none' | 'left' | 'right';
 
 export interface VolumeProfilePrimitiveOptions {
   displayMode: VolumeDisplayMode;
@@ -33,6 +50,10 @@ export interface VolumeProfilePrimitiveOptions {
   side: VolumeProfileSide;
   /** Measure `side` from the session's time span (default) or the pane. */
   anchorTo: VolumeProfileAnchor;
+  /** Pin the band to a plot edge, overriding `side` and the time scale. */
+  dock: VolumeProfileDock;
+  /** Gap in media px between a docked band and the plot edge it hangs off. */
+  dockInset: number;
   /** Maximum bar length in media px. */
   width: number;
   opacity: number;
@@ -60,6 +81,8 @@ export const DEFAULT_VOLUME_PROFILE_PRIMITIVE_OPTIONS: VolumeProfilePrimitiveOpt
   displayMode: 'total',
   side: 'right',
   anchorTo: 'session',
+  dock: 'none',
+  dockInset: 4,
   width: 90,
   opacity: 0.85,
   barColor: '#3b5168',
@@ -159,11 +182,19 @@ export class VolumeProfile implements IPrimitive {
     // the band ignores where the session's bars happen to fall and stays put
     // under a pan — the price axis starts at `plotWidth`, so that IS the right
     // edge of the drawable area and nothing is clipped by or drawn over it.
-    const right = o.side === 'right';
-    const pane = o.anchorTo === 'pane';
-    const base = pane ? (right ? rc.plotWidth * dpr : 0) : right ? x1 : x0;
+    //
+    // A `dock` is that same pane measurement with two differences: the dock
+    // names the edge itself, so `side` has nothing left to decide, and the
+    // baseline steps `dockInset` px inward so the band reads as parked against
+    // the edge rather than welded to it.
+    const docked = o.dock !== 'none';
+    const right = docked ? o.dock === 'right' : o.side === 'right';
+    const pane = docked || o.anchorTo === 'pane';
+    const inset = docked ? o.dockInset * dpr : 0;
+    const base = pane ? (right ? rc.plotWidth * dpr - inset : inset) : right ? x1 : x0;
     const tip = right ? base - widthDev : base + widthDev;
     const bandLeft = Math.min(base, tip);
+    const bandRight = bandLeft + widthDev;
 
     let maxMetric = 0;
     for (const l of s.levels) {
@@ -213,12 +244,19 @@ export class VolumeProfile implements IPrimitive {
     // pane anchor — one side of the band IS the price axis — so the label hangs
     // off the bars' tip, the only side with room. Session anchoring keeps
     // honouring the option, unchanged.
+    //
+    // A dock is a pane measurement too, so its lines stretch the same way. Its
+    // labels differ: the docked edge has open plot on the far side of the band,
+    // so `labelSide` DOES have something to choose there, namely which edge of
+    // the band the label rides. The text still runs inward from it, the only
+    // direction with room under a dock.
     const lineFrom = pane ? Math.min(x0, bandLeft) : x0;
-    const lineTo = pane ? Math.max(x1, bandLeft + widthDev) : x1;
+    const lineTo = pane ? Math.max(x1, bandRight) : x1;
+    const labelEdge = docked ? (o.labelSide === 'right' ? bandRight : bandLeft) : tip;
     const labelAlign = (pane ? right : o.labelSide !== 'right') ? 'right' : 'left';
     const pad = 3 * dpr;
     const labelX = pane
-      ? (right ? tip - pad : tip + pad)
+      ? (right ? labelEdge - pad : labelEdge + pad)
       : (o.labelSide === 'right' ? x1 + pad : x0 - pad);
     const hline = (price: number, color: string, label: string): void => {
       const y = Math.round(yOf(price)) + 0.5;

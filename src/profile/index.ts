@@ -22,6 +22,7 @@ export {
   type VolumeProfilePrimitiveOptions,
   type VolumeDisplayMode,
   type VolumeProfileAnchor,
+  type VolumeProfileDock,
   type VolumeProfileSide,
 } from './volume-profile-primitive';
 export { computeTpo } from './tpo';

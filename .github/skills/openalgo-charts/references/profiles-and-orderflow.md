@@ -73,6 +73,7 @@ Sessions group on the calendar of the `timezone` option, which **defaults to `As
 |---|---|---|
 | `displayMode` | `'total'` | `VolumeDisplayMode` = `'total' \| 'buySell' \| 'delta'`. |
 | `side` | `'right'` | `VolumeProfileSide`; anchors bars at the session's left or right edge. |
+| `dock` / `dockInset` | `'none'` / `4` | `VolumeProfileDock` = `'none' \| 'left' \| 'right'`; a dock parks the band `dockInset` media px off that edge of the PLOT, bars growing inward, so it ignores the time scale and holds still under a pan. It overrides `side` and `anchorTo` for x placement, and is set per primitive, so a docked profile and an anchored one can share a pane. |
 | `width` / `opacity` | `90` / `0.85` | Max bar length in media px. |
 | `barColor` / `buyColor` / `sellColor` | `#3b5168` / `#26a69a` / `#ef5350` | |
 | `showPoc` / `pocColor` / `showPocLabel` | `true` / `#f0a020` / `true` | |
@@ -82,6 +83,8 @@ Sessions group on the calendar of the `timezone` option, which **defaults to `As
 | `labelSide` / `zOrder` | `'right'` / `'bottom'` | Label edge; draw behind or over the series. |
 
 `'delta'` scales bars by `|delta|` and colours by sign; `'buySell'` splits each row into a buy then a sell segment. Both are empty when `deltaFromBarDirection` was off.
+
+`labelSide` survives a dock, unlike a bare `anchorTo: 'pane'`: it picks which edge of the docked band the POC / value-area label rides, and the text always runs inward from there. POC, VAH and VAL lines stretch to the union of the session's time span and the band, so a line never stops short of the row it marks.
 
 ## Market Profile (TPO)
 

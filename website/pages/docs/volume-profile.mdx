@@ -91,6 +91,26 @@ chart.addPrimitive(new lib.VolumeProfile(vp, { side: 'right', width: 70 }));
 chart.timeScale.fitContent(bars.length);
 return chart;`} caption="A separate volume profile per calendar day, on the default Asia/Kolkata, each with its own POC and value area." />
 
+## Docking to a pane edge
+
+`side` anchors the bars at the session's own time edge, so the profile travels with its
+bars: pan, and it moves. `dock: 'left' | 'right'` measures from the **plot** instead, so
+the band parks against that edge, `dockInset` px clear of it, and holds still whatever the
+time scale does. `side` no longer decides anything about x, and the bars grow inward.
+
+Docking is per primitive, not per chart: a docked session profile and a bar-anchored
+fixed-range profile can share one pane.
+
+<RunnableExample height={380} tiers={['profile']} code={`const chart = lib.createChart(el);
+const bars = lib.generateBars(1700000000, 120, 1800);
+chart.addSeries('candlestick').setData(bars);
+
+const vp = lib.computeVolumeProfileSessions(bars, { tickSize: 1, session: 'composite' });
+chart.addPrimitive(new lib.VolumeProfile(vp, { dock: 'left', labelSide: 'right' }));
+
+chart.timeScale.fitContent(bars.length);
+return chart;`} caption="dock: 'left' parks the profile against the plot's left edge, clear of the time scale." />
+
 ## `computeVolumeProfileSessions` options
 
 ```ts
@@ -113,6 +133,8 @@ Constructor `new VolumeProfile(result, options)` or live `profile.setOptions({ .
 |---|---|---|
 | `displayMode` | `total` | `total` / `buySell` / `delta` |
 | `side` | `right` | anchor bars at the session's `left` or `right` edge |
+| `dock` | `none` | `left` / `right` park the band at that edge of the plot instead, bars growing inward. Overrides `side` |
+| `dockInset` | `4` | gap in px between a docked band and its plot edge |
 | `width` | `90` | maximum bar length, px |
 | `barColor` | slate | bar color in `total` mode |
 | `buyColor` / `sellColor` | teal / red | `buySell` and `delta` colors |
@@ -145,7 +167,8 @@ interface VolumeProfileSessionResult {
 | Symptom | Cause | Fix |
 |---|---|---|
 | Nothing renders | No price series (time axis has no bars) | Add a series before the profile |
-| Bars cover the candles | Profile anchored over the price action | Lower `width`, set `side: 'left'`, or `zOrder: 'top'` with lower `opacity` |
+| Bars cover the candles | Profile anchored over the price action | Lower `width`, set `side: 'left'`, `dock: 'left'`, or `zOrder: 'top'` with lower `opacity` |
+| Docked profile drifts on pan | `dock` left at `none` | Set `dock: 'left'` or `'right'`; `side` alone still measures from the session |
 | buySell / delta look empty | `deltaFromBarDirection: false` | Enable it (default) so volume is split |
 | One profile for many days | `session: 'composite'` | Use `session: 'day'` (or `week` / `month`) |
 | Value area looks off | `valueAreaPercent` passed as a percent | Use a fraction (0.7), not 70 |
