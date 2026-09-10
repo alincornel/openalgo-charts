@@ -8,7 +8,15 @@ on:
       - 'examples/market-profile/**'
       - 'examples/orderflow/**'
       - 'src/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'rollup.config.js'
+      - 'tsconfig.json'
+      - 'tsconfig.build.json'
       - 'typedoc.json'
+      - 'scripts/check-btc-usd-feed.test.mjs'
+      - 'scripts/check-depth-demo.mjs'
+      - 'scripts/check-profile-website.mjs'
       - 'docs/api-introduction.md'
       - 'docs/architecture-diagram.svg'
       - '.github/workflows/deploy-docs.yml'
@@ -49,11 +57,31 @@ jobs:
       - name: Generate the API reference (TypeDoc) into the site
         run: npx typedoc --out website/public/api
 
+      - name: Verify homepage market data handling
+        run: node --test scripts/check-btc-usd-feed.test.mjs
+
       - name: Build the docs site (Nextra static export)
         working-directory: website
         run: |
-          npm install
+          npm ci
           npm run build
+
+      - name: Verify depth, profiles and orderflow before deployment
+        run: |
+          npx playwright install --with-deps chromium
+          node website/scripts/serve-preview.mjs 4174 &
+          website_preview_pid=$!
+          trap 'kill "$website_preview_pid"' EXIT
+          curl --retry 10 --retry-connrefused --retry-delay 1 --fail --silent http://127.0.0.1:4174/openalgo-charts/docs/depth-of-market/ > /dev/null
+          node scripts/check-depth-demo.mjs
+          node scripts/check-profile-website.mjs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        if: failure()
+        with:
+          name: website-check-artifacts
+          path: artifacts/
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Disable Jekyll (serve _next assets as-is)
         run: touch website/out/.nojekyll

@@ -21,6 +21,8 @@ feature is usable, not just present.
 
 ## Writing rules
 
+- Keep comparison brands out of source code, tests and comments. Describe behavior
+  with generic terms; keep comparative research outside this repository.
 - No emoji or icons anywhere: code, comments, log messages, commit messages, docs, tests,
   or terminal output. Plain text labels only.
 - No em dashes or en dashes anywhere. Use a comma, colon, parentheses or a full stop. A

@@ -27,8 +27,21 @@ series.setData(bars);
 ```
 
 `from` / `to` are **UTC seconds**; the adapter converts them to the IST date range OpenAlgo's
-`/api/v1/history` expects, and normalizes returned timestamps (epoch seconds, epoch ms, or
-IST strings) back to UTC seconds.
+`/api/v1/history` expects, and normalizes returned timestamps back to UTC seconds.
+Epoch seconds and milliseconds are accepted. Strings ending in `Z` or an explicit
+numeric offset use that offset; strings without an offset are interpreted as IST.
+
+The REST adapter translates these exact interval aliases at the request boundary:
+
+| Chart interval | OpenAlgo history interval |
+|---|---|
+| `1d`, `1D` | `D` |
+| `1w`, `1W` | `W` |
+| `1M`, `MN` | `M` |
+
+Other codes pass through unchanged, including `D`, `W`, `M` and the minute code `1m`.
+Non-OK HTTP responses reject the load. A JSON response with `status: 'error'` also
+rejects, using its `message` when present, even when the HTTP status is 200.
 
 ## Realtime (WebSocket)
 
@@ -70,6 +83,9 @@ open is still wrong until the bucket rolls over. Seeding is the actual fix.
 
 The WS adapter speaks the documented OpenAlgo protocol (authenticate → numeric-mode subscribe
 → `market_data`), with connection and control callbacks (`onState` / `onControl`).
+Market-data frames can carry `symbol` and `exchange` on the top-level envelope with
+prices inside `data`. Non-empty identity fields inside `data` take precedence, followed
+by the envelope fields and then the legacy `topic` fallback.
 
 ## Real-time order updates
 
@@ -136,6 +152,25 @@ function disposeChart() {
   chart.destroy();
 }
 ```
+
+The optional third argument implements the shared `BarSubscriptionOptions` contract:
+`seedFrom`, `cumDayVolumeSoFar`, and `onResync`. After a successful reconnect,
+`OpenAlgoLiveDataFeed` forwards the socket's `STREAM_RESYNC` notification to `onResync`.
+Subscription replay restores delivery; refresh history as well to repair any missed
+bars. A bare-chart host should buffer arriving live bars while fetching the current
+window with `noCache: true`, merge those observations before `series.setData`, and seed
+the next subscription from the merged last bar. Keep reconnect monitoring active during
+the fetch so a second interruption can supersede the pending repair.
+See [Custom Data Feeds](/docs/data-feeds#continuing-history-and-recovering-a-stream).
+
+With `createWidget(container, { feed: live, ... })`, the widget seeds every subscription
+and performs this history refresh automatically on `onResync`, preserving the visible
+logical range. It merges live bars received during the fetch into refreshed history.
+It keeps the previous chart visible with a stale-history error if the refresh fails or
+returns no bars, with display updates paused but buffering and reconnect monitoring
+still active. Call `widget.reload()` to retry; the request keeps `noCache: true`
+until a load succeeds. Manual reload retains its usual fit-to-data behavior. The widget
+owns its subscription; the host still owns `live.close()` during teardown.
 
 ## Long-running chart lifecycle
 

@@ -747,10 +747,11 @@ registerIndicator(createTier2Indicator({
 
 Lifecycle facts:
 
-- `attach` re-runs on **every** `setSettings`. The `store` survives, so `refetchOn` is what decides between a refetch and a pure re-alignment. Omitting `refetchOn` means the cache key is `''` and data is fetched once.
-- Live points arriving out of order are upserted into time order; a point with an existing time replaces it.
-- A rejected `fetch` leaves the previous points on screen rather than blanking the pane, and clears the cache key so the next settings change retries.
-- Teardown marks the state dead, so a late `fetch` resolution is ignored and the subscription is closed.
+- `attach` re-runs on **every** `setSettings`. `refetchOn` forms the data key; include all settings that identify the source dataset, such as symbol, exchange and resolution. A changed key immediately clears prior values and starts a new request. A pending or failed request must not display another key's observations.
+- A style-only change with the same key reuses loaded data or the pending history request. An empty successful result counts as loaded. Omitting `refetchOn` uses the single key `''` for the instance.
+- Live points arriving out of order are upserted into time order; a point with an existing time replaces it. Points received while history is pending are merged after history, so live observations win at matching timestamps.
+- A rejected `fetch` retains live observations for the current key. A later settings change can retry history; failure never restores points from an earlier key.
+- Teardown closes the subscription and invalidates the attachment. Late history completions and callbacks from previous attachments cannot publish after a settings change or removal.
 
 ## Standalone calculators in the base bundle
 

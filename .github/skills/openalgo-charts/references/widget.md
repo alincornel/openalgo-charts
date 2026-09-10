@@ -142,7 +142,7 @@ The sprite is injected once per document on the body (`id="oac-rail-sprite"`), s
 | `WIDGET_CSS` | const | The shell stylesheet text. |
 | `DIALOG_CSS` | const | The dialog rules, appended to the same sheet by `createWidget`. |
 | `WIDGET_STYLE_ID` | const `'oac-widget-css'` | Id of the injected `<style>`, one per document. |
-| `injectWidgetStyles(doc, extra?)` | function | Inject the sheet once per document; `extra` is appended on the first call. |
+| `injectWidgetStyles(doc, extra?, nonce?)` | function | Inject or fill an empty sheet once per document; `extra` is appended when filling it. Assigns the nonce before filling/insertion, preserves an existing nonce and leaves populated host CSS untouched. |
 | `StatuslineOptions`, `StatuslineHandle`, `Toaster`, `ToastHandle`, `ToastKind`, `ToastOptions`, `WidgetThemeName`, `WidgetTokens`, `Rgba` | types | |
 
 ### Dialogs and forms (`dialogs/`, `form.ts`)
@@ -192,6 +192,7 @@ Every mount takes the context and an optional anchor element (so it satisfies `D
 | `lookbackBars` | `number` | `DEFAULT_LOOKBACK_BARS` | Bars per load. |
 | `now` | `() => number` | `Date.now` | Clock for the load window and the capture filename. |
 | `onOrder` | `(order: OrderRequest) => void` | none | Order entry from the right-click menu. Without it the menu draws no trade rows. |
+| `styleNonce` | `string` | none | Response CSP nonce for the shared widget and dialog stylesheet. Style-attribute policy remains the host's responsibility. |
 
 Confirm defaults against `WidgetOptions` in the typings rather than assuming.
 
@@ -236,6 +237,14 @@ widget.isDestroyed;
 
 Chart events stay on `widget.chart`, drawing events on `widget.draw`. The bus also carries `keymap:conflict` for `widget.context.bus.on`.
 
+## Live history and reconnect recovery
+
+The widget passes `BarSubscriptionOptions` to `feed.subscribeBars`: `seedFrom` continues the last loaded bar, and `onResync` requests authoritative history after a stream interruption. On resync it pauses display updates while buffering live bars, loads the current window with `BarsRequest.noCache: true`, merges the buffered observations, replaces the series with `setData`, restores the visible logical range, and seeds the replacement subscription from the merged last bar. Monitoring stays active during the fetch; a repeated reconnect starts a newer request and supersedes the earlier one. `withBarCache` forwards subscription options and honors `noCache`; custom wrappers must preserve both. Never replay older gap-fill bars through the tail-only `series.update` path.
+
+For overlapping timestamps the merge preserves the history open, combines high/low extrema, uses the latest buffered close, and takes the maximum of the volume snapshots. Bars without buffered updates retain authoritative history. The overlap merge is conservative: a buffered whole candle may retain a seed extreme corrected by history, and does not establish exact snapshot/tick ordering or reconstruct unseen trades. The replacement seeded subscriber is installed before releasing the previous subscription.
+
+An automatic refresh that fails or returns no bars keeps the previous chart visible, reports stale history in the status line and emits a `data` error. Display updates remain paused while buffering and reconnect monitoring continue. `widget.reload()` is the manual retry; requests keep bypassing the cache until a current load succeeds. Manual reload retains the existing fit/saved-view behavior; only automatic recovery preserves the visible logical range. Stale results and callbacks are guarded after symbol/interval changes or destruction. The host owns closing the feed itself.
+
 ## `WidgetContext`
 
 What the shell hands every mounted piece, and what a host's own panel wants: `chart`, `draw`, `root`, `document`, `theme` (`'dark' | 'light'`), `chartTheme`, `keymap`, `bus`, `storage` (a `WidgetStorage`), `locale`, `toast(message, kind?)`, `openOverlay(el, opts?)` (returns the closer), `status(text, kind?)`, `tips`, `overlays`, `symbol()` (`{ symbol, exchange }`), `interval()`.
@@ -245,6 +254,14 @@ A dialog module of your own: build the panel with `createElement`, hand it to `c
 ## Tokens and styling
 
 One `<style>` element per document (`WIDGET_STYLE_ID`), every rule scoped under `.oac-widget`. Colours, spacing, radius and font are `--oac-` custom properties produced by `widgetTokens(theme)` and written inline on the widget root by `applyTokens`; the colours derive from the active `ChartTheme` (`background` stepped for panels, `axisLine` / `paneSeparator` for borders, `axisText` for text, `lineColor` for the accent, `upColor` / `downColor` for buy and sell), so the chrome and the canvas cannot disagree, and `setTheme` rewrites them. Names: `bg`, `panel`, `panel-2`, `elev`, `elev-2`, `elev-3`, `bd`, `bd-soft`, `bd-hover`, `tx`, `tx-strong`, `mut`, `faint`, `acc`, `acc-2`, `on-bg`, `on-bd`, `ring`, `ring-soft`, `buy`, `sell`, `amber`, `danger`, `scrim`, `shadow`, `sb-thumb`, `sb-thumb-hover`, `font`, `mono`, `fs`, `radius`, `rail-w`, `topbar-h`, `status-h`, `ctl-h`. Because the tokens are inline declarations, a host stylesheet override needs `!important` (`#terminal .oac-widget { --oac-font: ... !important; }`); override tokens, never internal class names. Icons come from the draw tier (`iconSprite`, `iconUse`, `chromeIconSvg`), so the rail, its flyouts and the armed cursor share one glyph source. The chrome meets the UI standard in [themes-and-styling](themes-and-styling.md#host-chrome-the-ui-standard) by construction.
+
+### Content Security Policy
+
+Pass the host's fresh response nonce as `createWidget(container, { styleNonce: requestNonce })`. The widget and dialogs use one sheet per document, with the `.nonce` IDL property assigned before CSS is filled or the element is inserted. The helper is `injectWidgetStyles(doc, extra?, nonce?)`; existing two-argument calls still work.
+
+An illustrative style policy is `style-src-elem 'nonce-RESPONSE_NONCE'; style-src-attr 'unsafe-inline'`, where `RESPONSE_NONCE` is the same unpredictable value generated for this response. The nonce authorizes the stylesheet; inline theme/layout styles need a separately considered attribute policy. This is not a complete policy for scripts or other resources.
+
+An empty or whitespace-only SSR `<style id="oac-widget-css" nonce="...">` is filled in place, retaining the existing nonce even if the option differs. Put its nonce in the original HTML to avoid a parser CSP violation before hydration. Populated host CSS and its nonce are preserved unchanged; if supplying that sheet yourself, include both `WIDGET_CSS` and `DIALOG_CSS`. Read a connected element's `.nonce`, since the browser can hide its content attribute.
 
 ## Custom rail tools
 

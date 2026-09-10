@@ -1,0 +1,88 @@
+---
+title: OpenAlgo Compatibility
+description: Charts 2.1.2 integration contracts and validation against the OpenAlgo trading application.
+---
+
+# OpenAlgo compatibility
+
+OpenAlgo Charts serves broker terminals, web platforms and standalone traders.
+Version 2.1.2 preserves the existing chart, trading-intent and two-argument feed
+APIs. The optional subscription context helps hosts continue history and recover
+after a stream interruption.
+
+## Adapter contracts
+
+| Boundary | Behavior in 2.1.2 |
+| --- | --- |
+| History interval | `1d`/`1D` maps to `D`, `1w`/`1W` to `W`, and `1M`/`MN` to `M`. Existing broker tokens and intraday tokens pass through. |
+| History time | Numeric seconds/milliseconds normalize to UTC seconds. Explicit `Z` or numeric offsets retain their instant; naive date-time strings use IST. |
+| History errors | An OpenAlgo `status: 'error'` response rejects instead of appearing as an empty successful series. |
+| WebSocket identity | Symbol/exchange in `data` take precedence, followed by the outer envelope and then a legacy topic. Canonical server frames need no topic. |
+| Historical seed | `subscribeBars(req, onBar, { seedFrom })` continues the last historical bucket. An optional cumulative day-volume baseline improves volume continuity. |
+| Reconnect | `onResync` signals a history refresh. Keep collecting live bars during the fetch, merge the observations and reseed. The widget handles this automatically, with newer reconnects superseding pending repairs; a custom terminal owns reconciliation and replay rules. |
+| Cache | `noCache: true` requests fresh history through `withBarCache`. Custom cache adapters should honor this flag. |
+| Trading | Intent shapes, quantity units, order types, product and exchange fields retain their existing contracts. Lot conversion belongs to the host. |
+
+See [live data](/docs/live-data), [custom feeds](/docs/data-feeds) and
+[the widget](/docs/widget) for implementation examples.
+
+The widget's recovery merges whole-bar snapshots conservatively: buffered seed
+extrema can survive history corrections, and overlapping volumes use their maximum.
+Bars without buffered updates retain authoritative history. Exact snapshot/tick
+reconciliation and replay of unseen trades remain host responsibilities.
+
+## Tested against the actual trading application
+
+The reference consumer was OpenAlgo commit `2f9f057de910a1410f9d6cc564001484d2b47d22`,
+whose frontend pins Charts 2.1.0. Its application source was held unchanged in an
+isolated checkout while substituting the candidate Charts package. The full
+TypeScript and Vite production build and **389 existing trading tests in 28
+files** passed. A browser harness exercises the actual `/trading` route with
+mocked HTTP and WebSocket traffic, without broker credentials or real orders.
+
+The 13 browser checks cover:
+
+- Historical candles, canonical live depth frames, seeded candle continuity and
+  historical volume reconciliation.
+- Disarmed order refusal, a two-lot derivative order of 130 units at 65 per lot,
+  and refusal when the confirmed server trading mode differs.
+- Server order updates, actual canvas stop-order dragging and cancellation, and
+  a short-position exit preserving quantity, product and exchange.
+- Replay order refusal and live-tick isolation, followed by return to live data.
+- Reload persistence for drawings, EMA, grid, symbol, interval, custom indicators,
+  TPO/SVP profiles and independent two-column chart layouts.
+- Broker daily token `D`, non-tradable index behavior, tick precision and browser
+  errors or unexpected network requests.
+
+The 2.1.0 baseline required a legacy-topic workaround to run the unaffected
+workflows. Version 2.1.2 accepts the server's canonical top-level identity directly.
+
+## Known host limitation
+
+OpenAlgo's existing periodic history reconciliation can replace replay's visible
+prefix with the full series while replay remains active. The same probe expanded
+11 visible bars to 184 in both the baseline and the candidate. This comes from
+the host's `runReconcile()` path calling `setPriceData()` without its live-tick
+replay guard. Hosts should retain full data separately and update only the replay
+prefix while replay is active. The Charts update does not fix that host code.
+
+These checks validate the inspected consumer and mocked protocol cases. They do
+not establish broker-specific data quality, exchange session alignment or exact
+trade volume when the upstream stream supplies only sampled prices.
+
+## Reproduce the browser check
+
+Use an isolated OpenAlgo git worktree with its own copied dependencies and the
+candidate package installed. From the Charts repository:
+
+```bash
+node scripts/check-openalgo-compat.mjs \
+  --frontend /path/to/isolated-openalgo/frontend \
+  --label candidate-2.1.2 \
+  --probe-host true \
+  --output /tmp/openalgo-compatibility.json
+```
+
+The report includes bundle SHA256 values and observed requests. The harness
+removes backend proxies and rejects unexpected network traffic. The optional
+host probe records the replay limitation separately from compatibility checks.

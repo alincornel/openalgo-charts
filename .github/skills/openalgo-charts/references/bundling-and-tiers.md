@@ -13,7 +13,7 @@ Source of truth: `package.json` (`exports`, `sideEffects`, `files`), `rollup.con
 | `openalgo-charts` | `dist/openalgo-charts.mjs` | engine, 13 chart types, indicator + chart-type registries, primitives, feeds, trading controller, shortcuts, TimeNavigator, `ReplayController`, comparison controller, settings schema, chart timezone | 67 KB | no |
 | `openalgo-charts/trade` | `dist/openalgo-charts.trade.mjs` | order/position/bracket primitives, DOM ladder, `OrderEngine`, `TradeController`, `FakeBroker` | no standalone row; 75 KB for base + trade | no |
 | `openalgo-charts/transform` | `dist/openalgo-charts.transform.mjs` | Renko, Range, Point & Figure, Kagi, Line Break, Heikin Ashi, `runTransform` | 5 KB | **yes**, registers the `point-figure` and `kagi` chart types |
-| `openalgo-charts/profile` | `dist/openalgo-charts.profile.mjs` | Volume Profile, TPO / Market Profile, Footprint, orderflow | 11 KB | no |
+| `openalgo-charts/profile` | `dist/openalgo-charts.profile.mjs` | Volume Profile, TPO / Market Profile, Footprint, orderflow | 15 KB | no |
 | `openalgo-charts/indicators` | `dist/openalgo-charts.indicators.mjs` | 102 Tier-1 built-ins plus the Tier-2 contract | 30 KB | **yes**, registers all 102 descriptors |
 | `openalgo-charts/draw` | `dist/openalgo-charts.draw.mjs` | 51 drawing tools, `DrawingController`, `DrawingLayer` | 26 KB | **yes**, registers every built-in tool |
 | `openalgo-charts/webgl` | `dist/openalgo-charts.webgl.mjs` | the WebGL2 series backend, `createWebGL2Backend`, `isWebGL2Supported`, `WebGL2Backend`, `GlDevice` | 7 KB | **yes**, registers the `webgl2` render backend |
@@ -137,22 +137,22 @@ Enforced by `npm run size` (`size-limit`, Brotli, `@size-limit/file`), from `.si
 
 | Budget row | Files measured | Limit | Measured |
 |---|---|---|---|
-| Base engine | `openalgo-charts.mjs` | 67 KB | 66.45 KB |
-| Base + trade layer | base + `trade.mjs` | 75 KB | 74.06 KB |
-| Indicator tier | `indicators.mjs` | 30 KB | 27.27 KB |
+| Base engine | `openalgo-charts.mjs` | 67 KB | 66.65 KB |
+| Base + trade layer | base + `trade.mjs` | 75 KB | 74.26 KB |
+| Indicator tier | `indicators.mjs` | 30 KB | 27.36 KB |
 | Draw tier | `draw.mjs` | 26 KB | 25.82 KB |
 | Transform tier | `transform.mjs` | 5 KB | 2.66 KB |
-| Profile tier | `profile.mjs` | 11 KB | 10.66 KB |
+| Profile tier | `profile.mjs` | 15 KB | 14.96 KB |
 | WebGL2 tier | `webgl.mjs` | 7 KB | 6.38 KB |
-| Widget tier | `widget.mjs` | 36 KB | 35.56 KB |
-| Widget terminal | base + `draw.mjs` + `indicators.mjs` + `widget.mjs` | 156 KB | 155.09 KB |
-| Everything | all eight bundles | 183 KB | 182.39 KB |
+| Widget tier | `widget.mjs` | 36 KB | 36.00 KB |
+| Widget terminal | base + `draw.mjs` + `indicators.mjs` + `widget.mjs` | 156 KB | 155.82 KB |
+| Everything | all eight bundles | 188 KB | 187.42 KB |
 
-The indicator tier and the `Everything` row were both raised in 1.8.3, from 27 KB and 120 KB, to carry that release's eleven new indicators. They move together by necessity: `Everything` contains the tier, so an aggregate below all-other-tiers plus the tier's ceiling would fail while the tier itself passed. The limits in `.size-limit.json` are the budget of record: measure, do not quote these figures from memory.
+Version 2.1.2 raises the full-package budget from 187 KB to 188 KB for the feed, indicator lifecycle and recovery fixes. Individual tier budgets remain unchanged. Aggregate rows constrain the total independently of individual tier ceilings. The limits in `.size-limit.json` are the budget of record.
 
 **Nothing is excluded from these numbers.** The package has zero runtime dependencies (`dependencies` is absent; everything in `devDependencies` is build tooling), so the measured file *is* the shipped payload. There is no CSS to import, no peer dependency, no web-component registration.
 
-`npm run verify` runs typecheck, tests, build, `check:dts` and `size` in that order, and is the `prepublishOnly` hook.
+`npm run verify` runs lint, typecheck, unit tests, build, demo tests, declaration checks, size budgets and tree shaking, and is the `prepublishOnly` hook.
 
 ## `src/all.ts` is not an entry point
 

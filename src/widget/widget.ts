@@ -90,6 +90,8 @@ export interface WidgetOptions extends Omit<ChartOptions, 'theme'> {
   now?: () => number;
   /** Order entry from the right-click menu. Without it the menu draws no trade rows. */
   onOrder?: (order: OrderRequest) => void;
+  /** Host CSP nonce for the widget and dialog stylesheet, assigned before insertion. */
+  styleNonce?: string;
 }
 
 export type WidgetChartState = ReturnType<Chart['getState']>;
@@ -151,7 +153,7 @@ const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
 /** The options the shell consumes; the rest of `WidgetOptions` is the chart's. */
 const WIDGET_ONLY_KEYS: ReadonlyArray<keyof WidgetOptions> = [
   'feed', 'symbol', 'exchange', 'interval', 'intervals', 'chartType', 'theme', 'rail', 'topbar', 'statusline',
-  'persist', 'storage', 'locale', 'indicators', 'symbolSearch', 'lookbackBars', 'now', 'onOrder',
+  'persist', 'storage', 'locale', 'indicators', 'symbolSearch', 'lookbackBars', 'now', 'onOrder', 'styleNonce',
 ];
 
 /**
@@ -243,6 +245,12 @@ class WidgetContextImpl implements WidgetContext {
   public get chartTheme(): ChartTheme { return this._source.chartThemeInUse(); }
 }
 
+interface WidgetBarStream {
+  request: BarsRequest;
+  unsubscribe: UnsubscribeFn | null;
+  buffered: Map<number, Bar> | null;
+}
+
 class WidgetImpl implements Widget {
   public readonly chart: Chart;
   public readonly draw: DrawingController;
@@ -272,7 +280,8 @@ class WidgetImpl implements Widget {
   private _pointerInside = false;
   private _pointerInChart = false;
   private _loadSeq = 0;
-  private _unsubBars: UnsubscribeFn | null = null;
+  private _needsFreshHistory = false;
+  private _barStream: WidgetBarStream | null = null;
   private _keepView = false;
   private _saveTimer: ReturnType<typeof setTimeout> | 0 = 0;
   private _destroyed = false;
@@ -282,7 +291,7 @@ class WidgetImpl implements Widget {
     this._opts = options;
     const doc = options.document ?? container.ownerDocument;
     this._doc = doc;
-    injectWidgetStyles(doc, DIALOG_CSS);
+    injectWidgetStyles(doc, DIALOG_CSS, options.styleNonce);
 
     // ── persisted facts, before anything is built from them ────────────
     const ns = typeof options.persist === 'string' ? options.persist : 'default';
@@ -514,40 +523,93 @@ class WidgetImpl implements Widget {
 
   // ── data ─────────────────────────────────────────────────────────────
   public async reload(): Promise<void> {
+    return this._loadBars(false);
+  }
+
+  private async _loadBars(recovering: boolean): Promise<void> {
     const feed = this._opts.feed;
     if (!feed || this._destroyed) return;
     const seq = ++this._loadSeq;
-    this._unsubBars?.();
-    this._unsubBars = null;
     const symbol = this._symbol;
     const interval = this._interval;
     const nowSec = Math.floor((this._opts.now ?? Date.now)() / 1000);
     const req: BarsRequest = { symbol, exchange: this._exchange, interval, ...loadWindow(interval, this._opts.lookbackBars ?? DEFAULT_LOOKBACK_BARS, nowSec) };
-    this.context.status(`Loading ${symbol} ${interval}`);
+    const previous = this._barStream;
+    if (previous && (previous.request.symbol !== symbol || previous.request.exchange !== req.exchange || previous.request.interval !== interval)) {
+      this._barStream = null;
+      previous.unsubscribe?.();
+      this._needsFreshHistory = false;
+    }
+    // Keep observing both live bars and further reconnects while history is
+    // pending. The old builder stays paused on screen until it can be reseeded.
+    if (this._barStream) this._barStream.buffered ??= new Map();
+    if (recovering) this._needsFreshHistory = true;
+    if (this._needsFreshHistory) req.noCache = true;
+    this.context.status(recovering ? `History is stale. Refreshing ${symbol} ${interval}` : `Loading ${symbol} ${interval}`);
     let bars: Bar[];
     try {
       bars = await feed.getBars(req);
+      if (this._needsFreshHistory && bars.length === 0) throw new Error('History refresh returned no bars');
     } catch (err) {
       if (seq !== this._loadSeq || this._destroyed) return;
       const message = err instanceof Error ? err.message : String(err);
-      this.context.status(`Could not load ${symbol} ${interval}`, 'error');
+      this.context.status(recovering ? `History is stale for ${symbol} ${interval}. Reload to retry.` : `Could not load ${symbol} ${interval}`, 'error');
       this._toasts.toast(`Could not load ${symbol} ${interval}: ${message}`, 'error');
       this._bus.emit('data', { symbol, interval, bars: 0, error: message });
       return;
     }
     // A faster answer for a later request has already landed; this one is stale.
     if (seq !== this._loadSeq || this._destroyed) return;
+    this._needsFreshHistory = false;
+    const buffered = this._barStream?.buffered;
+    if (buffered && buffered.size > 0) {
+      const merged = new Map(bars.map(bar => [bar.time, bar]));
+      for (const live of buffered.values()) {
+        const historical = merged.get(live.time);
+        // Whole-bar callbacks cannot reveal the overlap with the REST snapshot.
+        // Keep its open, retain live extrema/close, and never sum both volumes.
+        merged.set(live.time, historical ? {
+          ...historical,
+          high: Math.max(historical.high, live.high),
+          low: Math.min(historical.low, live.low),
+          close: live.close,
+          volume: historical.volume === undefined && live.volume === undefined ? undefined
+            : Math.max(historical.volume ?? 0, live.volume ?? 0),
+        } : live);
+      }
+      bars = Array.from(merged.values()).sort((a, b) => a.time - b.time);
+    }
+    const viewport = recovering ? this.chart.getVisibleLogicalRange() : undefined;
     this._series.setData(bars);
-    if (!this._keepView) this.chart.fitContent();
+    if (viewport) this.chart.setVisibleLogicalRange(viewport);
+    else if (!this._keepView) this.chart.fitContent();
     this._keepView = false;
     this._statusline?.refresh();
     this.context.status(bars.length === 0 ? `No bars for ${symbol} ${interval}` : `${bars.length} bars`);
     this._bus.emit('data', { symbol, interval, bars: bars.length });
+    if (seq !== this._loadSeq || this._destroyed) return;
     if (feed.subscribeBars) {
-      this._unsubBars = feed.subscribeBars(req, (bar) => {
-        if (seq !== this._loadSeq || this._destroyed) return;
-        this._series.update(bar);
-      });
+      const previousStream = this._barStream;
+      const stream: WidgetBarStream = { request: req, unsubscribe: null, buffered: null };
+      this._barStream = stream;
+      try {
+        const unsubscribe = feed.subscribeBars(req, (bar) => {
+          if (this._barStream !== stream || this._destroyed) return;
+          if (stream.buffered) stream.buffered.set(bar.time, { ...bar });
+          else this._series.update(bar);
+        }, {
+          seedFrom: bars[bars.length - 1],
+          onResync: () => {
+            if (this._barStream === stream && !this._destroyed) void this._loadBars(true);
+          },
+        });
+        if (this._barStream === stream && !this._destroyed) stream.unsubscribe = unsubscribe;
+        else unsubscribe();
+      } finally {
+        // Acquire the new builder's share first, so the composed feed need not
+        // unsubscribe the remote stream between history and its live handoff.
+        previousStream?.unsubscribe?.();
+      }
     }
   }
 
@@ -762,8 +824,8 @@ class WidgetImpl implements Widget {
     if (this._destroyed) return;
     this._saveNow();
     this._destroyed = true;
-    this._unsubBars?.();
-    this._unsubBars = null;
+    this._barStream?.unsubscribe?.();
+    this._barStream = null;
     if (this._saveTimer !== 0) { clearTimeout(this._saveTimer); this._saveTimer = 0; }
     for (const c of this._cleanups.splice(0)) c();
     this._topbar?.destroy();

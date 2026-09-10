@@ -213,7 +213,7 @@ export { conflationGroupSize, conflateBars, conflateItems, mergeBars } from './m
 export type { Bar, LinePoint, Whitespace, SeriesDataItem, UTCSeconds, OriginalTime } from './model/bar';
 export { isWhitespace, toBar } from './model/bar';
 
-export type { DataFeed, TradeFeed, BarsRequest, MarketDepth, DepthLevel, OrderSide, OrderType, PlaceOrder, UnsubscribeFn } from './feed/types';
+export type { DataFeed, TradeFeed, BarsRequest, BarSubscriptionOptions, MarketDepth, DepthLevel, OrderSide, OrderType, PlaceOrder, UnsubscribeFn } from './feed/types';
 export { OpenAlgoDataFeed, mapHistoryResponse, rowTimeToUtcSeconds } from './feed/openalgo-rest';
 export type { OpenAlgoConfig } from './feed/openalgo-rest';
 export { OpenAlgoWsFeed, parseMessage, formatSubscribe, formatUnsubscribe, parseTopic, classifyAuthAck, readSequence, backoffDelayMs } from './feed/openalgo-ws';

@@ -10,6 +10,22 @@ export interface BarsRequest {
   interval: string;
   from?: UTCSeconds;
   to?: UTCSeconds;
+  /** Fetch authoritative history instead of a cached snapshot, when supported. */
+  noCache?: boolean;
+}
+
+/** Optional context for continuing history and recovering an interrupted stream. */
+export interface BarSubscriptionOptions {
+  /** Last historical time-bucketed bar, used as the live builder's starting point. */
+  seedFrom?: Bar;
+  /** Cumulative day volume at the seed snapshot, if the host knows it. */
+  cumDayVolumeSoFar?: number;
+  /**
+   * The stream reconnected and may have missed data. Refresh authoritative
+   * history, then resubscribe with its last bar as the seed. Older bars must
+   * not be delivered through onBar, whose consumers commonly accept only tails.
+   */
+  onResync?: () => void;
 }
 
 /**
@@ -19,7 +35,7 @@ export interface BarsRequest {
  */
 export interface DataFeed {
   getBars(req: BarsRequest): Promise<Bar[]>;
-  subscribeBars?(req: BarsRequest, onBar: (bar: Bar) => void): UnsubscribeFn;
+  subscribeBars?(req: BarsRequest, onBar: (bar: Bar) => void, opts?: BarSubscriptionOptions): UnsubscribeFn;
   /**
    * `opts.depthLevel` requests a book depth (broker-dependent: 5/20/30/50).
    * Named on the interface so a caller holding a `DataFeed` can ask for one;

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1100" viewBox="0 0 1600 1100" font-family="Inter, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" role="img" aria-label="OpenAlgo Charts layered architecture">
-<title>OpenAlgo Charts 2.1.1 architecture</title>
-<desc>OpenAlgo Charts 2.1.1. Custom hosts or the widget use seven capability layers, with per-pane base and overlay canvases, optional WebGL2 series rendering, drawing model v2, compact TPO, per-session split, open/latest-close markers and grouped depth. Indicator and profile calculations run on the CPU. Eight bundle tiers: base 66.49 KB, widget 35.56 KB, indicators 27.27 KB, draw 25.82 KB, profile 14.96 KB, trade 7.61 KB, webgl 6.38 KB, transform 2.66 KB, everything 186.74 KB Brotli.</desc>
+<title>OpenAlgo Charts 2.1.2 architecture</title>
+<desc>OpenAlgo Charts 2.1.2. Custom hosts or the widget use seven capability layers, with per-pane base and overlay canvases, optional WebGL2 series rendering, drawing model v2, compact TPO, per-session split, open/latest-close markers and grouped depth. Indicator and profile calculations run on the CPU. Eight bundle tiers: base 66.65 KB, widget 36.00 KB, indicators 27.36 KB, draw 25.82 KB, profile 14.96 KB, trade 7.61 KB, webgl 6.38 KB, transform 2.66 KB, everything 187.42 KB Brotli.</desc>
 
 <defs>
 <linearGradient id="titleGrad" x1="0" y1="0" x2="1" y2="0">
@@ -13,8 +13,8 @@
 <rect x="0" y="0" width="1600" height="1100" fill="#08090C"/>
 
 <text x="800" y="58" fill="url(#titleGrad)" font-size="42" font-weight="700" text-anchor="middle">OpenAlgo Charts</text>
-<text x="800" y="94" fill="#B9C0CC" font-size="20" text-anchor="middle">2.1.1 · Dependency-free Canvas 2D engine · optional WebGL2</text>
-<text x="800" y="124" font-size="20" text-anchor="middle" fill="#8B93A3"><tspan fill="#2DD4BF" font-weight="600">66.49 KB</tspan><tspan fill="#B9C0CC"> base, </tspan><tspan fill="#A78BFA" font-weight="600">186.74 KB</tspan><tspan fill="#B9C0CC"> everything</tspan><tspan fill="#6B7280"> (Brotli)</tspan></text>
+<text x="800" y="94" fill="#B9C0CC" font-size="20" text-anchor="middle">2.1.2 · Dependency-free Canvas 2D engine · optional WebGL2</text>
+<text x="800" y="124" font-size="20" text-anchor="middle" fill="#8B93A3"><tspan fill="#2DD4BF" font-weight="600">66.65 KB</tspan><tspan fill="#B9C0CC"> base, </tspan><tspan fill="#A78BFA" font-weight="600">187.42 KB</tspan><tspan fill="#B9C0CC"> everything</tspan><tspan fill="#6B7280"> (Brotli)</tspan></text>
 
 <rect x="36" y="145" width="140" height="648" rx="14" fill="#0E1015" stroke="#2A2F3A" stroke-width="1.5"/>
 <text x="106" y="300" fill="#E8EBF0" font-size="21" font-weight="600" text-anchor="middle">Host</text>
@@ -165,17 +165,17 @@
 
 <rect x="248" y="855" width="136" height="110" rx="12" fill="#2DD4BF" fill-opacity="0.07" stroke="#2DD4BF" stroke-opacity="0.55" stroke-width="1.5"/>
 <text x="316" y="884" fill="#7FE8D8" font-size="15" text-anchor="middle" dominant-baseline="central">base</text>
-<text x="316" y="915" fill="#2DD4BF" font-size="22" font-weight="700" text-anchor="middle" dominant-baseline="central">66.49 KB</text>
+<text x="316" y="915" fill="#2DD4BF" font-size="22" font-weight="700" text-anchor="middle" dominant-baseline="central">66.65 KB</text>
 <text x="316" y="944" fill="#7C8492" font-size="11" text-anchor="middle" dominant-baseline="central">Charting engine core</text>
 
 <rect x="392" y="855" width="136" height="110" rx="12" fill="#EC4899" fill-opacity="0.07" stroke="#EC4899" stroke-opacity="0.55" stroke-width="1.5"/>
 <text x="460" y="884" fill="#F9A8D4" font-size="15" text-anchor="middle" dominant-baseline="central">/widget</text>
-<text x="460" y="915" fill="#EC4899" font-size="22" font-weight="700" text-anchor="middle" dominant-baseline="central">35.56 KB</text>
+<text x="460" y="915" fill="#EC4899" font-size="22" font-weight="700" text-anchor="middle" dominant-baseline="central">36.00 KB</text>
 <text x="460" y="944" fill="#7C8492" font-size="11" text-anchor="middle" dominant-baseline="central">Rail, top bar, dialogs, keys</text>
 
 <rect x="536" y="855" width="136" height="110" rx="12" fill="#A78BFA" fill-opacity="0.07" stroke="#A78BFA" stroke-opacity="0.55" stroke-width="1.5"/>
 <text x="604" y="884" fill="#C9B8FF" font-size="15" text-anchor="middle" dominant-baseline="central">/indicators</text>
-<text x="604" y="915" fill="#A78BFA" font-size="22" font-weight="700" text-anchor="middle" dominant-baseline="central">27.27 KB</text>
+<text x="604" y="915" fill="#A78BFA" font-size="22" font-weight="700" text-anchor="middle" dominant-baseline="central">27.36 KB</text>
 <text x="604" y="944" fill="#7C8492" font-size="11" text-anchor="middle" dominant-baseline="central">102 built-in indicators</text>
 
 <rect x="680" y="855" width="136" height="110" rx="12" fill="#8B5CF6" fill-opacity="0.07" stroke="#8B5CF6" stroke-opacity="0.55" stroke-width="1.5"/>
@@ -205,7 +205,7 @@
 
 <rect x="1400" y="855" width="168" height="110" rx="12" fill="#0E1015" stroke="#4A5160" stroke-width="1.5" stroke-dasharray="6 5"/>
 <text x="1484" y="884" fill="#B9C0CC" font-size="15" text-anchor="middle" dominant-baseline="central">Everything</text>
-<text x="1484" y="915" fill="#E8EBF0" font-size="22" font-weight="700" text-anchor="middle" dominant-baseline="central">186.74 KB</text>
+<text x="1484" y="915" fill="#E8EBF0" font-size="22" font-weight="700" text-anchor="middle" dominant-baseline="central">187.42 KB</text>
 <text x="1484" y="944" fill="#7C8492" font-size="11" text-anchor="middle" dominant-baseline="central">All tiers combined</text>
 
 <rect x="330" y="990" width="940" height="76" rx="12" fill="#0C0E13" stroke="#2A2F3A" stroke-width="1.5"/>

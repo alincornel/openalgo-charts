@@ -5,7 +5,7 @@
  * interval bars instead of being a no-op trap.
  */
 import type { Bar } from '../model/bar';
-import type { BarsRequest, DataFeed, MarketDepth, UnsubscribeFn } from './types';
+import type { BarsRequest, BarSubscriptionOptions, DataFeed, MarketDepth, UnsubscribeFn } from './types';
 import { OpenAlgoDataFeed, type OpenAlgoConfig } from './openalgo-rest';
 import { OpenAlgoWsFeed, type OpenAlgoWsConfig, type SocketFactory, type LtpEvent, type WsMode } from './openalgo-ws';
 import { CandleBuilder, type VolumeMode } from './candle-builder';
@@ -190,7 +190,7 @@ export class OpenAlgoLiveDataFeed implements DataFeed {
   public subscribeBars(
     req: BarsRequest,
     onBar: (bar: Bar) => void,
-    opts?: { seedFrom?: Bar; cumDayVolumeSoFar?: number },
+    opts?: BarSubscriptionOptions,
   ): UnsubscribeFn {
     // Resolve up front: a bad interval code fails here, at subscribe time, and
     // not silently on every tick for the life of the subscription.
@@ -205,8 +205,11 @@ export class OpenAlgoLiveDataFeed implements DataFeed {
       if (e.exchange && req.exchange && e.exchange !== req.exchange) return;
       onEvent(e);
     });
+    const offControl = opts?.onResync ? this._ws.onControl((message) => {
+      if (message.type === 'client_warning' && message.code === 'STREAM_RESYNC') opts.onResync?.();
+    }) : undefined;
     const release = this._acquire(this._tickMode, req.symbol, req.exchange);
-    return () => { off(); release(); };
+    return () => { off(); offControl?.(); release(); };
   }
 
   /** A broker may omit the tick timestamp; never bucket at the epoch, use now. */

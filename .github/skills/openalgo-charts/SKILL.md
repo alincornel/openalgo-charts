@@ -74,12 +74,12 @@ Import only what you use. Each tier is a separate entry point that registers int
 | `openalgo-charts/indicators` | 102 built-in indicators + the Tier-2 external-data contract | 30 KB |
 | `openalgo-charts/draw` | 51 drawing tools + a headless `DrawingController` with multi-select, z-order, a per-tool settings schema, the 1.9.x migration, the clipboard and the icon builders | 26 KB |
 | `openalgo-charts/transform` | Heikin Ashi, Renko, Range bars, Line Break, Point and Figure, Kagi | 5 KB |
-| `openalgo-charts/profile` | Volume Profile, Market Profile (TPO), Footprint, order flow | 11 KB |
+| `openalgo-charts/profile` | Volume Profile, Market Profile (TPO), Footprint, order flow | 15 KB |
 | `openalgo-charts/trade` | Order engine, state machine, order/position/bracket lines, DOM ladder | 75 KB with base |
 | `openalgo-charts/webgl` | The WebGL2 series backend behind `renderer: 'auto' \| 'webgl2'`; composites into the pane's canvas, falls back to 2D for the session on context loss | 7 KB |
 | `openalgo-charts/widget` | `createWidget`: the chart with a top bar, drawing rail, status line, settings and indicator dialogs, drawing properties, right-click menu, keymap and optional persistence. The only tier that ships DOM; imports the draw tier itself | 36 KB |
 
-Limits are the CI-enforced budgets in `.size-limit.json`. Measured on the 2.0.2 build: base engine 66.45 KB against 67 KB, draw tier 25.82 KB against 26 KB, indicator tier 27.27 KB against 30 KB, widget tier 35.56 KB against 36 KB, a widget terminal (base + draw + indicators + widget, what one `createWidget` call loads) 155.09 KB against 156 KB, and the whole package 182.39 KB against 183 KB. The aggregate budget always sits above the sum of the tier ceilings it contains, or it would fail while every tier it contains passes. Nothing is excluded from these figures because there are no runtime dependencies to exclude; the exact table is in [bundling-and-tiers](references/bundling-and-tiers.md).
+Limits are the CI-enforced budgets in `.size-limit.json`. Measured on the 2.1.2 build: base engine 66.65 KB, draw 25.82 KB, indicators 27.36 KB, widget 36.00 KB, a widget terminal (base + draw + indicators + widget) 155.82 KB, and all eight tiers 187.42 KB Brotli. The full-package budget is 188 KB; individual tier budgets are unchanged in this patch. Nothing is excluded because there are no runtime dependencies; see [bundling-and-tiers](references/bundling-and-tiers.md) for every row.
 
 The clipboard lives in the **draw** tier, not the base one, because it needs the drawing-tool registry. `DrawingClipboard` and friends come from `openalgo-charts/draw`.
 

@@ -294,16 +294,21 @@ export const WIDGET_CSS = `
 
 /**
  * Put the stylesheet into `doc` once. Safe to call per widget: the second
- * call finds the first sheet by id and does nothing. `extra` is appended to
- * the shell's rules on the first call; the dialog modules hand theirs in
- * here, so the page still carries one sheet.
+ * call leaves a populated sheet untouched. An empty server-rendered sheet
+ * is filled in place, preserving its nonce. `extra` is appended to the
+ * shell's rules when filling the sheet; the dialog modules hand theirs in
+ * here, so the page still carries one sheet. `nonce` authorizes the style
+ * element under CSP; the host controls its style-attribute policy separately.
  */
-export function injectWidgetStyles(doc: Document, extra = ''): HTMLStyleElement {
-  const existing = doc.getElementById(WIDGET_STYLE_ID);
-  if (existing !== null) return existing as HTMLStyleElement;
-  const style = doc.createElement('style');
+export function injectWidgetStyles(doc: Document, extra = '', nonce?: string): HTMLStyleElement {
+  const existing = doc.getElementById(WIDGET_STYLE_ID) as HTMLStyleElement | null;
+  if (existing?.textContent?.trim()) return existing;
+  const style = existing ?? doc.createElement('style');
   style.id = WIDGET_STYLE_ID;
+  // CSP checks connected sheets when their text changes. Read the IDL
+  // property because browsers hide a connected element's nonce attribute.
+  if (!style.nonce && nonce !== undefined) style.nonce = nonce;
   style.textContent = WIDGET_CSS + extra;
-  (doc.head ?? doc.body ?? doc.documentElement).appendChild(style);
+  if (existing === null) (doc.head ?? doc.body ?? doc.documentElement).appendChild(style);
   return style;
 }

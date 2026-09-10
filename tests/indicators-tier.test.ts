@@ -437,7 +437,7 @@ describe('Tier-2 contract', () => {
     if (typeof detach === 'function') detach();
   });
 
-  it('keeps the previous data on a failed fetch instead of blanking the pane', async () => {
+  it('does not show previous-symbol data when a new symbol fetch fails', async () => {
     const data = bars(3, () => 100);
     let attempt = 0;
     const descriptor = createTier2Indicator({
@@ -456,10 +456,10 @@ describe('Tier-2 contract', () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(descriptor.calc(data, {}, store).oi[0]).toBe(5);
 
-    // A second attach with a changed key fails; the earlier points survive.
+    // Failed history for B must not present A's data as B's values.
     descriptor.attach?.({ ...ctx, settings: () => ({ symbol: 'B' }) });
     await new Promise((r) => setTimeout(r, 0));
-    expect(descriptor.calc(data, {}, store).oi[0]).toBe(5);
+    expect(descriptor.calc(data, {}, store).oi).toEqual([null, null, null]);
   });
 
   it('merges live points in time order and unsubscribes on detach', async () => {

@@ -8,6 +8,50 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 2.1.2
+
+2026-09-10
+
+This maintenance release fixes external-study races and strengthens history/live
+continuity and OpenAlgo integration.
+
+- External indicators discard responses from old data settings, clear previous
+  symbol values immediately, share pending history across style changes and
+  preserve current live observations when history arrives.
+- The widget seeds its live candle from history and refreshes authoritative
+  history after reconnect, buffering live bars during the fetch and merging
+  them into the response. Recovery bypasses cached snapshots, preserves the
+  viewport and keeps monitoring through failures or further reconnects.
+  `reload()` retries a failed repair. Volume merging avoids double counting
+  snapshots. Whole-bar merging can retain seeded extrema corrected by history;
+  it does not replay unseen trades.
+- Seeded cumulative-volume builders retain known bar volume when no initial
+  day-volume baseline is available. The synthetic feed continues at the seed.
+- The OpenAlgo adapter reads the server's top-level symbol/exchange identity,
+  preserves explicit timestamp offsets, maps interval aliases to D/W/M and
+  surfaces backend history errors.
+- Optional `BarSubscriptionOptions` exposes seeding and `onResync` to custom
+  hosts. Existing two-argument feed implementations continue to work.
+- Optional `styleNonce` supports nonce-authorized widget stylesheets, including
+  empty SSR placeholders. See the [widget CSP guide](/docs/widget) for the
+  separate policy needed for style attributes.
+- CI and website deployment now run the existing profile, orderflow and depth
+  checks. Current profile captures retain their verified source/image hashes.
+
+The actual OpenAlgo `/trading` app is checked in an isolated checkout with
+mocked HTTP and WebSocket traffic. The [compatibility guide](/docs/openalgo-compatibility)
+records tested workflows and a pre-existing replay issue in the host's periodic
+history reconciliation. The library update does not modify OpenAlgo itself.
+
+Validation: **4,194 unit tests**, **219 demo tests**, **41 browser tests** and the
+full lint/type/build/declaration/size/tree-shaking gate pass. OpenAlgo's unchanged
+consumer passes its production build, **389 trading tests** and **13 browser
+workflow checks**.
+
+Measured Brotli: **66.65 KB** base, **27.36 KB** indicators, **36.00 KB** widget
+(35,998 bytes), **155.82 KB** widget terminal and **187.42 KB** all tiers.
+The full-package budget is now 188 KB; individual tier budgets are unchanged.
+
 ## 2.1.1
 
 2026-09-10

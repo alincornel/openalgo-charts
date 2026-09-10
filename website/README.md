@@ -54,7 +54,10 @@ screens scroll within a card instead of shrinking letters further. Screenshots a
 tracked in `public/screenshots/market-profile-v2.1.1/`; generated demo bundles are ignored.
 Pass a full demo URL as the script's first argument to capture another local host.
 
-The gallery and 2.1.1 release notes describe features present in the current source tree.
+The 2.1.2 deployment retains these captures because their renderer/demo source
+fingerprints are unchanged. The gallery shows the current profile implementation;
+the 2.1.1 release notes record when its themes and footprint controls shipped.
+CI and Pages both run the profile and depth checks before publishing the site.
 
 ## Interactive and API checks
 

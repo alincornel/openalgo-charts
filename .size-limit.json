@@ -73,7 +73,7 @@
       "dist/openalgo-charts.webgl.mjs",
       "dist/openalgo-charts.widget.mjs"
     ],
-    "limit": "187 kB",
+    "limit": "188 kB",
     "brotli": true
   }
 ]

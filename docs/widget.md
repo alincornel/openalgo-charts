@@ -254,3 +254,22 @@ quote: `npm run size` prints the figures for the build in front of you.
 Create the widget in a mount effect, hold it in a ref, and `destroy()` it on cleanup,
 the same lifecycle as a bare chart. The widget instance is never framework state: it
 owns DOM of its own and re-rendering around it is wasted work.
+
+## Live recovery and CSP in 2.1.2
+
+The widget passes the last historical bar as the live subscription seed and
+refreshes history on `onResync`. Recovery buffers live bars during the fetch,
+bypasses `withBarCache`, merges the observations and preserves the viewport.
+Overlapping volumes use the maximum snapshot. Whole-bar merging can retain seed
+extrema corrected by history; unseen trades are not replayed.
+A failed refresh retains visible history marked stale while live buffering and
+reconnect monitoring continue. Call `reload()` to retry with fresh history;
+manual reload keeps its usual fit/saved-view behavior. Custom hosts reconcile through
+the optional `BarSubscriptionOptions` contract. See the
+[live data guide](https://marketcalls.github.io/openalgo-charts/docs/live-data/).
+
+Pass `styleNonce` when the host CSP authorizes widget stylesheets with a nonce.
+The injector preserves existing populated host styles and can fill an empty
+SSR placeholder. This authorizes the style element only; the host must also
+permit the widget's style attributes. See the
+[widget CSP guide](https://marketcalls.github.io/openalgo-charts/docs/widget/).

@@ -1,5 +1,5 @@
 import type { Bar } from '../model/bar';
-import type { BarsRequest, DataFeed, UnsubscribeFn } from './types';
+import type { BarsRequest, BarSubscriptionOptions, DataFeed, UnsubscribeFn } from './types';
 
 /** Schedules a repeating callback and returns an unsubscribe. Inject in tests. */
 export type FeedScheduler = (cb: () => void, intervalMs: number) => UnsubscribeFn;
@@ -35,9 +35,9 @@ export class FakeDataFeed implements DataFeed {
    * (`if (feed.subscribeBars)`) is honest. Pass a manual scheduler to drive it
    * by hand in tests, and `opts.tickMs` to change the cadence.
    */
-  subscribeBars(req: BarsRequest, onBar: (bar: Bar) => void, opts?: { tickMs?: number }): UnsubscribeFn {
-    let t = req.from ?? 1_700_000_000;
-    let prev = 100;
+  subscribeBars(req: BarsRequest, onBar: (bar: Bar) => void, opts?: BarSubscriptionOptions & { tickMs?: number }): UnsubscribeFn {
+    let t = opts?.seedFrom?.time ?? req.from ?? 1_700_000_000;
+    let prev = opts?.seedFrom?.close ?? 100;
     let seed = 0x1234567 >>> 0;
     const next = (): number => {
       seed ^= seed << 13; seed >>>= 0;

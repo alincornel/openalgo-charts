@@ -64,12 +64,12 @@ export interface Tier2Descriptor {
 }
 
 interface Tier2State {
-  key: string;
+  key: string | null;
   points: Tier2Point[];
-  loading: boolean;
+  loaded: boolean;
+  request: { promise: Promise<readonly Tier2Point[]>; live: Tier2Point[] } | null;
   unsubscribe: (() => void) | null;
-  /** Set once the instance is torn down, so a late fetch is ignored. */
-  dead: boolean;
+  generation: number;
 }
 
 const STATE = '__tier2';
@@ -159,61 +159,72 @@ export function createTier2Indicator(d: Tier2Descriptor): IndicatorDescriptor {
       // The store survives a settings change (attach is re-run), so reuse any
       // existing state: the cache key then decides whether a refetch is needed.
       const state: Tier2State =
-        stateOf(ctx.store) ?? { key: '', points: [], loading: false, unsubscribe: null, dead: false };
-      state.dead = false;
-      ctx.store[STATE] = state;
-
-      const context = (): Tier2Context => {
-        const bars = ctx.bars();
-        return {
-          settings: ctx.settings(),
-          bars,
-          from: bars.length > 0 ? bars[0].time : 0,
-          to: bars.length > 0 ? bars[bars.length - 1].time : 0,
+        stateOf(ctx.store) ?? {
+          key: null, points: [], loaded: false, request: null, unsubscribe: null, generation: 0,
         };
-      };
+      const generation = ++state.generation;
+      ctx.store[STATE] = state;
+      state.unsubscribe?.();
+      state.unsubscribe = null;
 
-      const onPoint = (point: Tier2Point): void => {
-        if (state.dead) return;
-        upsert(state.points, point);
-        ctx.requestRecompute();
+      const bars = ctx.bars();
+      const context: Tier2Context = {
+        settings: ctx.settings(),
+        bars,
+        from: bars.length > 0 ? bars[0].time : 0,
+        to: bars.length > 0 ? bars[bars.length - 1].time : 0,
       };
-
-      const load = (): void => {
-        const c = context();
-        const key = cacheKey(d, c.settings);
-        // Same data-affecting settings and data already in hand: nothing to do.
-        if (state.loading || (key === state.key && state.points.length > 0)) {
-          if (state.unsubscribe === null && d.subscribe !== undefined) {
-            state.unsubscribe = d.subscribe(c, onPoint);
-          }
-          return;
-        }
-        state.loading = true;
+      const key = cacheKey(d, context.settings);
+      if (key !== state.key) {
         state.key = key;
-        void d.fetch(c).then(
+        state.loaded = false;
+        state.request = null;
+        if (state.points.length > 0) {
+          // A pending or failed load must not label another symbol's values
+          // with the new settings. Same-key style changes retain their data.
+          state.points = [];
+          ctx.requestRecompute();
+        }
+      }
+
+      if (!state.loaded && state.request === null) state.request = { promise: d.fetch(context), live: [] };
+      const request = state.request;
+      if (request !== null) {
+        // A style-only reattach shares the request but installs its own guarded
+        // completion, so only the current attachment can publish the result.
+        void request.promise.then(
           (points) => {
-            state.loading = false;
-            if (state.dead || state.key !== key) return; // settings moved on
-            state.points = points.slice().sort((a, b) => a.time - b.time);
+            if (state.generation !== generation || state.request !== request) return;
+            state.request = null;
+            state.loaded = true;
+            const merged: Tier2Point[] = [];
+            for (const point of points.slice().sort((a, b) => a.time - b.time)) upsert(merged, point);
+            // Live observations received during this request win overlaps.
+            for (const point of request.live) upsert(merged, point);
+            state.points = merged;
             ctx.requestRecompute();
           },
           () => {
-            state.loading = false;
-            // A failed fetch leaves the previous points on screen rather than
-            // blanking the pane; the next settings change retries.
-            state.key = '';
+            if (state.generation !== generation || state.request !== request) return;
+            state.request = null;
+            // Keep live points for this key on failure. A settings change can
+            // retry history without reviving another key's observations.
+            state.loaded = false;
           },
         );
+      }
 
-        state.unsubscribe?.();
-        state.unsubscribe = d.subscribe?.(c, onPoint) ?? null;
+      const onPoint = (point: Tier2Point): void => {
+        if (state.generation !== generation) return;
+        if (state.request !== null) upsert(state.request.live, point);
+        upsert(state.points, point);
+        ctx.requestRecompute();
       };
-
-      load();
+      state.unsubscribe = d.subscribe?.(context, onPoint) ?? null;
 
       return () => {
-        state.dead = true;
+        if (state.generation !== generation) return;
+        state.generation += 1;
         state.unsubscribe?.();
         state.unsubscribe = null;
       };

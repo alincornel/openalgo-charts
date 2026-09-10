@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to publish, e.g. v1.5.0. Must already exist and be pushed.'
+        description: 'Tag to publish, e.g. v2.1.2. Must already exist and be pushed.'
         required: true
         type: string
 
@@ -26,7 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
-          ref: ${{ inputs.tag }}
+          ref: refs/tags/${{ inputs.tag }}
           # Provenance records the commit that produced the artifact, so the
           # checkout has to be the real one rather than a shallow synthetic.
           fetch-depth: 0
@@ -46,23 +46,26 @@ jobs:
 
       # Publish only what passes the same gates as CI. A release is the worst
       # possible moment to discover a red suite.
-      - run: npm run typecheck
-      - run: npm test
-      - run: npm run build
-      - run: npm run size
+      - run: npm run verify
       - name: runtime dependency audit (must be clean)
         run: npm audit --omit=dev --audit-level=low
 
-      # The tag and package.json must agree. They drift when a release is cut by
-      # hand, and the mismatch is invisible until someone installs the wrong one.
-      - name: tag matches package version
+      # Check the source and built runtime too, so the npm version and the
+      # version reported by an installed chart cannot disagree.
+      - name: tag matches package, source and runtime versions
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
         run: |
-          PKG=$(node -p "require('./package.json').version")
-          TAG="${{ inputs.tag }}"
-          if [ "v$PKG" != "$TAG" ]; then
-            echo "package.json is $PKG but the tag is $TAG"
-            exit 1
-          fi
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          import { version } from './dist/openalgo-charts.mjs';
+          const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
+          const source = readFileSync('src/version.ts', 'utf8').match(/export const VERSION = ['"]([^'"]+)['"]/);
+          assert.equal(process.env.RELEASE_TAG, `v${pkg.version}`, 'Tag must match package.json');
+          assert.equal(source?.[1], pkg.version, 'Source version must match package.json');
+          assert.equal(version(), pkg.version, 'Built runtime must match package.json');
+          NODE
 
       - name: generate SBOM
         run: npm sbom --sbom-format cyclonedx --omit dev > sbom.cyclonedx.json
@@ -81,4 +84,6 @@ jobs:
       # be on there, or only `npm stage publish` is permitted and the direct
       # publish here is refused.
       - name: publish with provenance
-        run: npm publish --provenance --access public
+        # verify above already ran prepublishOnly's complete gate. Publish that
+        # checked build without rebuilding it inside the publish command.
+        run: npm publish --provenance --access public --ignore-scripts

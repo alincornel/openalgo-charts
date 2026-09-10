@@ -2,6 +2,74 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 2.1.2
+
+2026-09-10
+
+### Fixed
+
+- External indicators isolate history requests and live callbacks by data key
+  and attachment. Changing a symbol or other data setting immediately clears
+  previous values; obsolete responses and cleanup cannot update the new study.
+  Style changes reuse pending history. Live observations win overlapping
+  historical points. Empty history completes without unnecessary style refetches;
+  failed history retries on the next settings change.
+- The widget seeds live subscriptions from the last historical candle. Seeded
+  cumulative-volume candles preserve known bar volume when the first quote
+  arrives without a supplied day-volume baseline; reseeding clears an old baseline.
+  The synthetic feed also continues from the supplied last bar.
+- OpenAlgo WebSocket market data accepts symbol/exchange at the top level, as
+  emitted by the server, while retaining nested identity and legacy topics.
+- REST history preserves explicit timezone offsets, retains IST for naive
+  timestamps, maps daily/weekly/monthly aliases to broker tokens D/W/M, and
+  propagates backend error responses instead of presenting empty history.
+
+### Added
+
+- Optional `BarSubscriptionOptions` on `DataFeed.subscribeBars`: `seedFrom`,
+  `cumDayVolumeSoFar` and `onResync`. Existing two-argument feeds remain valid.
+  The OpenAlgo live feed reports reconnect recovery through `onResync`; custom
+  hosts can refresh history and reseed without sending old bars through `onBar`.
+- Widget reconnect recovery buffers live bars while refreshing its configured
+  history window, merges the observations and preserves the viewport. Repeated
+  reconnects supersede pending requests. Failed recovery keeps visible history
+  marked stale while monitoring continues; `reload()` retries. Overlapping
+  volumes use the maximum snapshot. Whole-bar merging is conservative: buffered
+  seed extrema can survive history corrections, and unseen trades are not replayed.
+  `BarsRequest.noCache` bypasses `withBarCache`, including retries after failure.
+- `WidgetOptions.styleNonce` authorizes the injected stylesheet under a matching
+  CSP. Empty SSR placeholders can be filled without duplicate sheets; populated
+  host styles and existing nonces are preserved. Style attributes remain subject
+  to the host's separate CSP policy.
+
+### Integration and validation
+
+- Added an isolated browser compatibility harness for the actual OpenAlgo
+  `/trading` application, covering canonical wire frames, lot quantities, order
+  modification/cancellation, replay controls, drawings, indicators, profiles
+  and layout persistence. No real broker orders are submitted.
+- CI runs the full package verification gate and shares the resulting build
+  with browser and documentation jobs. Profile screenshot fingerprints, compact
+  TPO, orderflow tables and depth behavior are checked before website deployment.
+- The release workflow verifies tag, package, source and built runtime versions
+  before publishing the checked build with npm provenance.
+- Updated integration guides and API documentation. The existing 2.1.1 profile
+  captures remain current: their rendered sources and image hashes are unchanged.
+
+See the [OpenAlgo compatibility guide](https://marketcalls.github.io/openalgo-charts/docs/openalgo-compatibility/)
+for validation scope and the existing host replay-reconciliation limitation.
+
+Validation: **4,194 unit tests** across 180 files, **219 demo tests** and
+**41 browser tests** pass, including pixel parity against 2.1.1. The full
+verification gate covers lint, types, builds, declarations, size budgets and
+tree shaking. OpenAlgo's unchanged consumer passes its production build,
+**389 trading tests** and **13 browser workflow checks**.
+
+Measured Brotli sizes: **66.65 KB** base, **27.36 KB** indicators,
+**36.00 KB** widget (35,998 bytes), **155.82 KB** widget terminal and
+**187.42 KB** all tiers. The full-package budget moves from 187 to 188 KB;
+individual tier budgets are unchanged.
+
 ## 2.1.1
 
 2026-09-10

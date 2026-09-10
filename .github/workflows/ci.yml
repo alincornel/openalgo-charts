@@ -21,10 +21,7 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - run: npm run typecheck
-      - run: npm test
-      - run: npm run build
-      - run: npm run size
+      - run: npm run verify
       - name: Indicator performance
         # The suite proves the numbers an indicator produces, never the cost of
         # producing them, so an algorithmic regression ships silently otherwise.
@@ -51,9 +48,17 @@ jobs:
             echo "Third-party product name found above. Describe the behaviour instead."
             exit 1
           fi
+      - name: Share the verified library build
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: verified-dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 1
 
   docs:
     name: docs site build
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
@@ -62,7 +67,10 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - run: npm run build
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: verified-dist
+          path: dist/
       - name: Verify homepage market data handling
         run: node --test scripts/check-btc-usd-feed.test.mjs
       - name: Generate current API reference
@@ -70,19 +78,28 @@ jobs:
       - name: Build the docs site (prebuild syncs the bundles)
         working-directory: website
         run: |
-          npm install
+          npm ci
           npm run build
-      - name: Verify independent depth demo in a browser
+      - name: Verify depth, profiles and orderflow in a browser
         run: |
           npx playwright install --with-deps chromium
           node website/scripts/serve-preview.mjs 4174 &
-          depth_preview_pid=$!
-          trap 'kill "$depth_preview_pid"' EXIT
+          website_preview_pid=$!
+          trap 'kill "$website_preview_pid"' EXIT
           curl --retry 10 --retry-connrefused --retry-delay 1 --fail --silent http://127.0.0.1:4174/openalgo-charts/docs/depth-of-market/ > /dev/null
           node scripts/check-depth-demo.mjs
+          node scripts/check-profile-website.mjs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        if: failure()
+        with:
+          name: website-check-artifacts
+          path: artifacts/
+          if-no-files-found: ignore
+          retention-days: 7
 
   e2e:
     name: playwright smoke (real browser)
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
@@ -91,7 +108,10 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - run: npm run build
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: verified-dist
+          path: dist/
       - run: npx playwright install --with-deps chromium
       - run: npm run e2e
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4

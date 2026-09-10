@@ -13,6 +13,10 @@ describe('rowTimeToUtcSeconds', () => {
   it('parses numeric strings', () => {
     expect(rowTimeToUtcSeconds('1700000000')).toBe(1_700_000_000);
   });
+  it('honors explicit offsets instead of treating UTC strings as IST wall clocks', () => {
+    expect(rowTimeToUtcSeconds('2024-01-15T03:45:00Z')).toBe(1_705_290_300);
+    expect(rowTimeToUtcSeconds('2024-01-15 09:15:00+05:30')).toBe(1_705_290_300);
+  });
 });
 
 describe('mapHistoryResponse', () => {
@@ -37,6 +41,28 @@ describe('mapHistoryResponse', () => {
 });
 
 describe('OpenAlgoDataFeed.getBars (offline, injected fetch)', () => {
+  it.each([
+    ['1d', 'D'], ['1D', 'D'], ['1w', 'W'], ['1W', 'W'], ['1M', 'M'], ['MN', 'M'],
+    ['D', 'D'], ['5m', '5m'], ['custom-session', 'custom-session'],
+  ])('uses the broker history token for %s while preserving custom tokens', async (interval, expected) => {
+    let received: Record<string, unknown> = {};
+    const feed = new OpenAlgoDataFeed({ baseUrl: 'https://feed.test', apiKey: 'fixture',
+      fetchImpl: (async (_url, init) => {
+        received = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return { ok: true, json: async () => ({ status: 'success', data: [] }) } as Response;
+      }) as typeof fetch,
+    });
+    await feed.getBars({ symbol: 'X', exchange: 'NSE', interval, from: 1_700_000_000, to: 1_700_500_000 });
+    expect(received.interval).toBe(expected);
+  });
+
+  it('surfaces a broker error response rather than presenting it as empty history', async () => {
+    const feed = new OpenAlgoDataFeed({ baseUrl: 'https://feed.test', apiKey: 'fixture',
+      fetchImpl: (async () => ({ ok: true, json: async () => ({ status: 'error', message: 'Interval unavailable' }) }) as Response) as typeof fetch,
+    });
+    await expect(feed.getBars({ symbol: 'X', exchange: 'NSE', interval: '1m', from: 1_700_000_000, to: 1_700_500_000 })).rejects.toThrow('Interval unavailable');
+  });
+
   it('posts to /api/v1/history and maps the response', async () => {
     let calledUrl = '';
     let calledBody: unknown;

@@ -30,6 +30,7 @@ interface HistoryRow {
 
 interface HistoryResponse {
   status?: string;
+  message?: string;
   data?: HistoryRow[];
 }
 
@@ -44,11 +45,16 @@ export function rowTimeToUtcSeconds(value: number | string): number {
   if (value.trim() !== '' && !Number.isNaN(asNum) && !/[-T :]/.test(value.trim())) {
     return asNum > 1e12 ? epochMsToUtcSeconds(asNum) : Math.floor(asNum);
   }
+  if (/(?:Z|[+-]\d{2}:?\d{2})$/i.test(value.trim())) {
+    const ms = Date.parse(value.trim().replace(' ', 'T'));
+    if (Number.isFinite(ms)) return epochMsToUtcSeconds(ms);
+  }
   return istStringToUtcSeconds(value);
 }
 
 /** Pure: map an OpenAlgo history response into sorted internal bars. */
 export function mapHistoryResponse(json: HistoryResponse): Bar[] {
+  if (json.status === 'error') throw new Error(json.message ?? 'OpenAlgo history request failed');
   const rows = json.data ?? [];
   const bars: Bar[] = [];
   for (const r of rows) {
@@ -92,7 +98,7 @@ export class OpenAlgoDataFeed implements DataFeed {
         apikey: this._config.apiKey,
         symbol: req.symbol,
         exchange: req.exchange,
-        interval: req.interval,
+        interval: ({ '1d': 'D', '1D': 'D', '1w': 'W', '1W': 'W', '1M': 'M', MN: 'M' } as Record<string, string>)[req.interval] ?? req.interval,
         start_date: utcSecondsToIstDateString(req.from),
         end_date: utcSecondsToIstDateString(req.to),
       }),
