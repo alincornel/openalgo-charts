@@ -33,6 +33,19 @@ export interface FootprintBar {
   cells: FootprintCell[]; // sorted high → low price
   /** Net delta = Σ(askVol − bidVol). */
   delta: number;
+  /** Lowest/highest running trade delta within this bar, including initial zero.
+   * Absent when only aggregated price rows are available. */
+  minDelta?: number;
+  maxDelta?: number;
+  /** Effective ladder step: instrument tick size multiplied by rowTicks. */
+  rowSize?: number;
+  /** Actual traded prices, before ladder rounding. Absent for empty/legacy bars. */
+  open?: number;
+  high?: number;
+  low?: number;
+  close?: number;
+  /** Number of classified trade records, not the number of occupied rows. */
+  tradeCount?: number;
 }
 
 /** Bucket a price to the tick grid. */

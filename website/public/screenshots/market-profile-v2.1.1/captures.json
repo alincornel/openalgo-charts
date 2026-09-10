@@ -1,0 +1,66 @@
+{
+  "sources": {
+    "examples/market-profile/index.html": "f0082d0307970310fa3d70e5f8f112a359def8021c8814a7de693209ca491937",
+    "examples/market-profile/themes.js": "2cbc8488168ee94bc836ea816b8edb499803fd0184fe9d4b2f534d6096462a98",
+    "src/profile/market-profile-primitive.ts": "976b093c83d43d0fe021cfd06d5207f32b7b09f016e70418c94589f1994a1afd",
+    "src/profile/market-profile.ts": "364ba7bbe1572d63a2de2489960e7dfd8e592a96a08fece06caa3331168b05d1",
+    "src/profile/compact-text.ts": "ee9fc47425287de46697c8e62b296bb664fcbcdf8c2fb3d54fa85f0e02819db6"
+  },
+  "settings": {
+    "deviceScaleFactor": 2,
+    "blockDisplay": "compact",
+    "overviewRowHeight": 5,
+    "closeupRowHeight": 18,
+    "closeupFont": 16
+  },
+  "captures": {
+    "compressed-overview": {
+      "file": "compressed-overview.png",
+      "sha256": "4eda8660c3b5a02796ab2cab31d1e052e9651e88d94dfa92639ce99ee8bc476b",
+      "width": 2880,
+      "height": 2000
+    },
+    "dark": {
+      "file": "dark.png",
+      "sha256": "94e6637a43fd403fb8e72f51c5be587a383246129c03edddc5dc0e79c496e435",
+      "width": 800,
+      "height": 1320
+    },
+    "blue": {
+      "file": "blue.png",
+      "sha256": "cf67a1d4e886b050983ea4ec758e5fd5c8735415655a638a0557fa1e4c5b9d5b",
+      "width": 800,
+      "height": 1320
+    },
+    "graphite": {
+      "file": "graphite.png",
+      "sha256": "4f99b691a5aa33263ada8636fc16d982c18760da4576e7fbddf8a0d00ac73381",
+      "width": 800,
+      "height": 1320
+    },
+    "emerald": {
+      "file": "emerald.png",
+      "sha256": "bea5fbddd71fcbba1dc33bc6be05e2b0b52e3bca96d0c0a9fd8fa18603569023",
+      "width": 800,
+      "height": 1320
+    },
+    "ivory": {
+      "file": "ivory.png",
+      "sha256": "12ef1916776587cead977142185aa5a0da7e13044e54e28a5cfa99fc115ca974",
+      "width": 800,
+      "height": 1320
+    },
+    "packed-detail": {
+      "file": "packed-detail.png",
+      "sha256": "d8ed6c35f407193cdf135cddeb4aaa755a88153233e2259e812db2eb26b1f40c",
+      "width": 800,
+      "height": 1320
+    },
+    "split-detail": {
+      "file": "split-detail.png",
+      "sha256": "4f99b691a5aa33263ada8636fc16d982c18760da4576e7fbddf8a0d00ac73381",
+      "width": 800,
+      "height": 1320
+    }
+  }
+}

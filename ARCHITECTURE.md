@@ -4,7 +4,7 @@
 > Target: **< 50 KB Brotli** for the full package (engine + trade overlay), no runtime dependencies. *(Brotli is the size metric we hold the budget against - see §11. Gzip runs ~10-15% larger.)*
 > Goal: professional-grade interactive financial-chart rendering + advanced on-chart trading & trade management.
 
-> **Status: shipped, currently 2.1.0.** The design below is implemented and published to npm. The pre-implementation size estimates in this document have been superseded by measured `size-limit` (Brotli) figures, which live in the README size budget and are re-measured on every release: on the 2.1.0 build the base engine is **66.51 KB**, base + trade **74.11 KB**, and everything (all eight tiers) **183.74 KB**. The original "under 50 KB" target below is kept as history; the budgets that are enforced are the per-tier rows in `.size-limit.json`. See the *Revision log* for the point-by-point mapping and §13a for the honest deferred list.
+> **Status: implemented in 2.1.1.** The design below includes the footprint styles, configurable statistics table and quantity/lot display. The pre-implementation size estimates in this document have been superseded by measured `size-limit` (Brotli) figures, which live in the README size budget and are re-measured on every release: on the 2.1.1 build the base engine is **66.49 KB**, base + trade **74.10 KB**, and everything (all eight tiers) **186.74 KB**. The original "under 50 KB" target below is kept as history; the budgets that are enforced are the per-tier rows in `.size-limit.json`. See the *Revision log* for the point-by-point mapping and §13a for the honest deferred list.
 
 <p align="center">
   <img src="docs/architecture-diagram.svg" alt="OpenAlgo Charts layered architecture" width="900" />

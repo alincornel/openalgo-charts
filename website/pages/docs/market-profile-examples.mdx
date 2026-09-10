@@ -3,7 +3,7 @@ title: Profile Demo & Themes
 description: Try compact TPO letters, split or unsplit one day, and compare five profile themes with real screenshots.
 ---
 
-import { ProfileDemo, ProfileThemeGallery, ProfileSplitScreenshots } from '../../components/ProfileShowcase'
+import { ProfileDemo, ProfileThemeGallery, ProfileSplitScreenshots, ProfileOverviewScreenshot } from '../../components/ProfileShowcase'
 import { Callout } from 'nextra/components'
 
 # Profile demo & themes
@@ -13,7 +13,7 @@ split/unsplit controls. The demo uses **synthetic data**, with 2-point price row
 and 30-minute periods. It does not connect to a live market feed.
 
 <Callout type="info">
-These features are available in **2.1.0**. The embedded demo runs the library
+These features have been available since **2.1.0**. The embedded demo runs the library
 built with this website. See the [release notes](/docs/release-notes#210)
 for the complete changes.
 </Callout>
@@ -41,10 +41,21 @@ Use **Open full-size demo** for more room to inspect the small letters.
 Single-print dashes are off in this demo. Hovering still identifies single prints
 and reports the exact letters, count and volume at a row.
 
+## Compressed appearance
+
+This browser screenshot captures the current local demo in **Blue**, with six
+packed sessions and the **Compressed (5 px)** control selected. The 2-point
+price rows and 30-minute periods are unchanged. Open the full-resolution image
+to inspect the compact pixel glyphs.
+
+<ProfileOverviewScreenshot />
+
 ## Five themes
 
 Each image focuses on the **same newest session**, with 18-pixel rows and
-16-pixel letters captured at double resolution. The gallery keeps these close-ups
+16-pixel letters captured at double resolution. These are zoomed close-ups;
+compact mode uses regular text at this height, while the compressed view above
+uses pixel glyphs. The gallery keeps these close-ups
 large enough to read; on very narrow screens, scroll an image sideways to see
 the full chart. Click an image for the original, or use **Try** to test its theme
 and compressed row heights in the interactive demo.

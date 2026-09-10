@@ -8,7 +8,7 @@ import { InvalidateMask, InvalidationLevel } from './invalidate-mask';
 import { RenderLoop, type RafScheduler, type RafCanceller } from './render-loop';
 import { Pane, type PaneRenderContext } from './pane';
 import { type ChartTheme, DEFAULT_THEME } from '../theme';
-import { TimeScale } from '../scale/time-scale';
+import { TimeScale, type TimeScaleOptions } from '../scale/time-scale';
 import type { LogicalRange } from '../scale/time-scale';
 import type { PriceScaleOptions, PriceScaleMode, PriceScale } from '../scale/price-scale';
 import { medianBarInterval, type TickMarkType, type SessionClockOptions, type BarCountdownOptions } from '../render/axis';
@@ -180,6 +180,8 @@ export interface ChartOptions {
   theme?: ChartTheme;
   priceAxisWidth?: number;
   timeAxisHeight?: number;
+  /** Initial horizontal scale configuration, including spacing limits for wide profiles. */
+  timeScale?: Partial<TimeScaleOptions>;
   /**
    * Where indicator legend rows start inside **one** pane, in media px. A host
    * that draws its own overlay in a pane's top-left corner — an OHLC readout, a
@@ -634,7 +636,7 @@ export class Chart {
   private readonly _raf: { schedule: RafScheduler; cancel: RafCanceller };
   private _remeasureHandle: number | null = null;
   private readonly _dataLayer = new DataLayer();
-  private readonly _timeScale = new TimeScale();
+  private readonly _timeScale: TimeScale;
   private readonly _priceAxisWidth: number;
   private readonly _timeAxisHeight: number;
   private _pending: InvalidateMask | null = null;
@@ -808,6 +810,7 @@ export class Chart {
   private _timeNavPane = -1;
 
   public constructor(container: HTMLElement, options: ChartOptions = {}) {
+    this._timeScale = new TimeScale(options.timeScale);
     this._container = container;
     this._doc = options.document ?? container.ownerDocument;
     this._pixelRatio = options.pixelRatio ?? defaultPixelRatio;

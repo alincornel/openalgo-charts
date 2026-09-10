@@ -21,7 +21,16 @@ appears in the page title.
 | A depth ladder | [Depth of market](/openalgo-charts/api/classes/trade.DomLadder.html) | [Simulated live demo](/openalgo-charts/docs/depth-of-market/) |
 | Daily TPO profiles | [Market profile](/openalgo-charts/api/classes/profile.MarketProfile.html) | [Profile demo and themes](/openalgo-charts/docs/market-profile-examples/) |
 
-### New in 2.1.0
+### New in 2.1.1
+
+The [Footprint API](/openalgo-charts/api/classes/profile.Footprint.html) adds
+profile, ladder and heatmap styles, independent text coloring, configurable
+`tableRows`, and `volumeDivisor` for quantity or lot display. Batch and live
+footprints preserve actual OHLC, trade counts and intrabar delta extremes.
+See the [orderflow guide](/openalgo-charts/docs/profiles-and-orderflow/) and
+[release notes](/openalgo-charts/docs/release-notes/#211).
+
+### Compact profiles since 2.1.0
 
 The profile reference includes `blockDisplay: 'compact'`, per-session
 `setSessionSplit` / `isSessionSplit`, and the `showSessionOpen` / `showLastPrice`

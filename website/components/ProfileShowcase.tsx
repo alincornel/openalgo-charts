@@ -1,15 +1,31 @@
 import React from 'react';
+import manifest from '../public/screenshots/market-profile-v2.1.1/captures.json';
 
 const ROOT = '/openalgo-charts';
-const IMAGE_ROOT = `${ROOT}/screenshots/market-profile`;
+const IMAGE_ROOT = `${ROOT}/screenshots/market-profile-v2.1.1`;
 const DEMO = `${ROOT}/demos/market-profile/index.html`;
+const screenshot = (name: keyof typeof manifest.captures) => {
+  const capture = manifest.captures[name];
+  return `${IMAGE_ROOT}/${capture.file}?v=${capture.sha256.slice(0, 12)}`;
+};
 const THEMES = [
   { id: 'dark', name: 'Dark', description: 'Multicolour periods on a dark background.' },
   { id: 'blue', name: 'Blue', description: 'Navy background, purple letters and cyan volume.' },
   { id: 'graphite', name: 'Graphite', description: 'Charcoal, pale letters and muted cyan volume.' },
   { id: 'emerald', name: 'Emerald', description: 'Deep green, mint letters and gold reference lines.' },
   { id: 'ivory', name: 'Ivory', description: 'Warm light background, dark letters and blue-grey volume.' },
-];
+] as const;
+
+export function ProfileOverviewScreenshot() {
+  return (
+    <figure className="oac-profile-overview" style={{ margin: '1.5rem 0' }}>
+      <a href={screenshot('compressed-overview')} target="_blank" rel="noreferrer" aria-label="View full-resolution compressed market profile demo screenshot">
+        <img src={screenshot('compressed-overview')} alt="Blue market profile demo with six packed synthetic sessions, compact pixel letters at 5 CSS pixels per row, volume bars and open/latest-price markers" width={2880} height={2000} loading="lazy" style={{ width: '100%', height: 'auto' }} />
+      </a>
+      <figcaption>Current demo in Blue · Compressed (5 px) · Synthetic data. Click to view at full resolution.</figcaption>
+    </figure>
+  );
+}
 
 export function ProfileDemo() {
   return (
@@ -28,8 +44,8 @@ export function ProfileThemeGallery() {
     <div className="oac-profile-gallery">
       {THEMES.map(theme => (
         <figure className="oac-profile-shot" key={theme.id}>
-          <a href={`${IMAGE_ROOT}/${theme.id}.png`} target="_blank" rel="noreferrer" aria-label={`View full-resolution ${theme.name} screenshot`}>
-            <img src={`${IMAGE_ROOT}/${theme.id}.png`} alt={`${theme.name} close-up of the newest daily TPO profile, with readable period letters, volume, open and latest-price markers; the session is split`} width={800} height={1320} loading="lazy" />
+          <a href={screenshot(theme.id)} target="_blank" rel="noreferrer" aria-label={`View full-resolution ${theme.name} screenshot`}>
+            <img src={screenshot(theme.id)} alt={`${theme.name} zoomed close-up of the newest daily TPO profile at 18-pixel rows, with period letters, volume, open and latest-price markers; the session is split`} width={800} height={1320} loading="lazy" />
           </a>
           <figcaption>
             <strong>{theme.name}</strong>
@@ -45,10 +61,10 @@ export function ProfileThemeGallery() {
 export function ProfileSplitScreenshots() {
   return (
     <div className="oac-profile-details">
-      {['packed', 'split'].map(mode => (
+      {(['packed', 'split'] as const).map(mode => (
         <figure className="oac-profile-shot" key={mode}>
-          <a href={`${IMAGE_ROOT}/${mode}-detail.png`} target="_blank" rel="noreferrer">
-            <img src={`${IMAGE_ROOT}/${mode}-detail.png`} alt={`${mode === 'packed' ? 'Packed' : 'Split'} view of the same daily TPO profile, with lowercase o at the open and # at the latest price`} width={800} height={1320} loading="lazy" />
+          <a href={screenshot(`${mode}-detail`)} target="_blank" rel="noreferrer">
+            <img src={screenshot(`${mode}-detail`)} alt={`${mode === 'packed' ? 'Packed' : 'Split'} Graphite close-up at 18-pixel rows of the same daily TPO profile, with lowercase o at the open and # at the latest price`} width={800} height={1320} loading="lazy" />
           </a>
           <figcaption><strong>{mode === 'packed' ? 'Packed: gaps closed' : 'Split: one column per period'}</strong></figcaption>
         </figure>

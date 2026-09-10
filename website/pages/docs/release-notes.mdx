@@ -8,6 +8,64 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 2.1.1
+
+2026-09-10
+
+This update adds three footprint styles, five demo themes and independent text
+coloring. [Try the orderflow demo](/docs/profiles-and-orderflow) and compare
+Profile, Cluster ladder and Heatmap with Midnight, Graphite, Classic neon,
+Ocean and Ivory. All examples use explicitly synthetic classified trades.
+
+**Added**
+
+- Volume-proportional bid/ask profiles, square cluster ladders, real OHLC side
+  candles, outlined POC rows, volume value-area lines and labeled per-bar cards.
+- Contrast, side, delta, same-price dominance, diagonal imbalance and
+  volume-strength text methods with independent foreground palettes.
+- Initial `ChartOptions.timeScale` configuration for wide footprint columns,
+  plus `cvdOffset` for session CVD across a rolling data window.
+- Optional OHLC, effective row size and actual trade-count metadata on
+  `FootprintBar`, populated by batch and live aggregation.
+- An optional table aligned with each footprint bar, disabled by default.
+  Select Delta, Min Delta, Max Delta, Cumulative Delta, Total Ask Volume,
+  Total Bid Volume and Total Volume independently through `tableRows`.
+  The NIFTY simulation starts around 23,800 with 2-point price rows and
+  includes a Table switch plus row checkboxes.
+- Intrabar Min/Max Delta follow the running trade sequence, including zero
+  at the bar's start. Legacy input without this metadata reports unknown.
+- Quantity/Lots display with an editable lot size, initially 65 in the demo.
+  `volumeDivisor` scales the displayed volumes and delta metrics while raw
+  data, percentages, trade counts and calculations remain unchanged.
+
+**Correctness fixes**
+
+- Detached live snapshots; adjacent-row and fractional-volume comparisons;
+  independent buy/sell stacked imbalances; actual trade counts; OHLC candle
+  direction; correct volume-mode normalization and fractional labels.
+- Plot clipping, rows and columns that fit their slots, half-row autoscale
+  padding and hover bounds that follow each visible row/card.
+- Invalid data and out-of-order live ticks reject before state mutation.
+  Tick/volume bars coalesce tied opening timestamps until time advances, so
+  their counts can exceed the target. Legacy bars without trade counts show
+  an em dash instead of an invented count.
+
+**Market-profile documentation**
+
+The [market-profile guide](/docs/market-profile) now includes the actual
+compressed six-session display and regenerated theme screenshots. Its opening
+examples explicitly use compact rendering. Enlarged comparisons are labeled
+separately, and fingerprinted image URLs refresh stale cached screenshots.
+The old screenshot directory is removed; all current captures use the
+`market-profile-v2.1.1` directory.
+
+Validation: **4,139 unit tests** and **219 demo tests** pass, along with lint,
+typecheck, builds, declaration checks, size budgets and tree shaking.
+
+Measured 2.1.1 sizes: **66.49 KB** base, **14.96 KB** profile tier and
+**186.74 KB** full package, Brotli. The added footprint styles and validation
+use a 15 KB profile budget and a 187 KB full-package budget.
+
 ## 2.1.0
 
 2026-09-06

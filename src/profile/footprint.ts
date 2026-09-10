@@ -33,17 +33,32 @@ export function computeFootprint(
   tickSize: number,
   rowTicks = 1,
 ): FootprintBar {
-  const row = tickSize * Math.max(1, Math.floor(rowTicks));
+  const row = footprintRowSize(tickSize, rowTicks);
+  if (!Number.isFinite(time)) throw new RangeError('Footprint time must be finite');
+  for (const trade of trades) validateClassifiedTrade(trade);
   const map = new Map<number, FootprintCell>();
+  let delta = 0, minDelta = 0, maxDelta = 0;
   for (const t of trades) {
     const price = bucketPrice(t.price, row);
     let cell = map.get(price);
     if (cell === undefined) { cell = { price, bidVol: 0, askVol: 0 }; map.set(price, cell); }
-    if (t.side === 'bid') cell.bidVol += t.qty; else cell.askVol += t.qty;
+    if (t.side === 'bid') { cell.bidVol += t.qty; delta -= t.qty; }
+    else { cell.askVol += t.qty; delta += t.qty; }
+    minDelta = Math.min(minDelta, delta);
+    maxDelta = Math.max(maxDelta, delta);
   }
   const cells = Array.from(map.values()).sort((a, b) => b.price - a.price);
-  const delta = cells.reduce((s, c) => s + (c.askVol - c.bidVol), 0);
-  return { time, cells, delta };
+  const bar: FootprintBar = { time, cells, delta, minDelta, maxDelta, rowSize: row, tradeCount: trades.length };
+  if (trades.length > 0) {
+    bar.open = trades[0].price;
+    bar.close = trades[trades.length - 1].price;
+    bar.high = bar.low = trades[0].price;
+    for (const trade of trades) {
+      bar.high = Math.max(bar.high, trade.price);
+      bar.low = Math.min(bar.low, trade.price);
+    }
+  }
+  return bar;
 }
 
 export interface Imbalance {
@@ -51,19 +66,58 @@ export interface Imbalance {
   side: 'buy' | 'sell';
 }
 
+/** Internal shared validation for batch and streaming footprints. */
+export function footprintRowSize(tickSize: number, rowTicks: number): number {
+  if (!Number.isFinite(tickSize) || tickSize <= 0) throw new RangeError('Footprint tickSize must be positive and finite');
+  if (!Number.isSafeInteger(rowTicks) || rowTicks < 1) throw new RangeError('Footprint rowTicks must be a positive integer');
+  const row = tickSize * rowTicks;
+  if (!Number.isFinite(row)) throw new RangeError('Footprint tickSize * rowTicks must be finite');
+  return row;
+}
+
+/** Internal shared validation; zero quantity is allowed and still counts as a record. */
+export function validateClassifiedTrade(trade: ClassifiedTrade): void {
+  if (!Number.isFinite(trade.price)) throw new RangeError('Footprint trade price must be finite');
+  if (!Number.isFinite(trade.qty) || trade.qty < 0) throw new RangeError('Footprint trade qty must be nonnegative and finite');
+  if (trade.side !== 'bid' && trade.side !== 'ask') throw new TypeError('Footprint trade side must be bid or ask');
+}
+
+function observedRowSize(cells: readonly FootprintCell[]): number {
+  let row = Infinity;
+  for (let i = 1; i < cells.length; i++) {
+    const gap = cells[i - 1].price - cells[i].price;
+    if (gap > 0) row = Math.min(row, gap);
+  }
+  return row;
+}
+
+function adjacent(upper: number, lower: number, row: number): boolean {
+  const tolerance = Math.max(row * 1e-7, Math.max(Math.abs(upper), Math.abs(lower)) * Number.EPSILON * 8);
+  return Number.isFinite(row) && upper > lower && Math.abs(upper - lower - row) <= tolerance;
+}
+
 /**
- * Diagonal imbalances: buy when ask volume at price P dominates bid volume at
- * P−1 tick by `ratio`; sell when bid at P dominates ask at P+1 tick.
+ * Diagonal imbalances compare ask at P with bid one row below, and bid at P
+ * with ask one row above. Missing rows are never bridged or synthesized.
+ * Supply rowSize for sparse ladders; legacy callers infer the minimum observed
+ * gap, which cannot distinguish uniformly missing rows from a coarser grid.
+ * Positive volume against a zero opposing volume is an imbalance; zero against
+ * zero is not. threshold is the minimum dominant-side quantity (inclusive).
  */
-export function diagonalImbalances(cells: readonly FootprintCell[], ratio = 3): Imbalance[] {
-  // cells sorted high → low; index+1 is one tick lower
+export function diagonalImbalances(cells: readonly FootprintCell[], ratio = 3, rowSize?: number, threshold = 0): Imbalance[] {
+  if (!Number.isFinite(ratio) || ratio <= 0) throw new RangeError('Imbalance ratio must be positive and finite');
+  if (rowSize !== undefined && (!Number.isFinite(rowSize) || rowSize <= 0)) throw new RangeError('Imbalance rowSize must be positive and finite');
+  if (!Number.isFinite(threshold) || threshold < 0) throw new RangeError('Imbalance threshold must be nonnegative and finite');
+  const sorted = [...cells].sort((a, b) => b.price - a.price);
+  const row = rowSize ?? observedRowSize(sorted);
+  const dominates = (volume: number, opposing: number): boolean => volume > 0 && volume >= threshold && volume >= ratio * opposing;
   const out: Imbalance[] = [];
-  for (let i = 0; i < cells.length; i++) {
-    const here = cells[i];
-    const below = cells[i + 1];
-    const above = cells[i - 1];
-    if (below && here.askVol >= ratio * Math.max(1, below.bidVol)) out.push({ price: here.price, side: 'buy' });
-    if (above && here.bidVol >= ratio * Math.max(1, above.askVol)) out.push({ price: here.price, side: 'sell' });
+  for (let i = 0; i < sorted.length; i++) {
+    const here = sorted[i];
+    const below = sorted[i + 1];
+    const above = sorted[i - 1];
+    if (below && adjacent(here.price, below.price, row) && dominates(here.askVol, below.bidVol)) out.push({ price: here.price, side: 'buy' });
+    if (above && adjacent(above.price, here.price, row) && dominates(here.bidVol, above.askVol)) out.push({ price: here.price, side: 'sell' });
   }
   return out;
 }
@@ -83,28 +137,27 @@ export interface StackedImbalance {
   count: number;
 }
 
-/** Runs of `minStack`+ consecutive same-side diagonal imbalances. */
-export function stackedImbalances(cells: readonly FootprintCell[], ratio = 3, minStack = 3): StackedImbalance[] {
-  const imb = diagonalImbalances(cells, ratio);
-  const bySide = new Map<number, 'buy' | 'sell'>();
-  for (const i of imb) bySide.set(i.price, i.side);
-  // cells are tick-ordered (high→low); find consecutive runs of same side
+/** Runs of minStack+ adjacent diagonal imbalances, tracked independently per side. */
+export function stackedImbalances(cells: readonly FootprintCell[], ratio = 3, minStack = 3, rowSize?: number, threshold = 0): StackedImbalance[] {
+  if (!Number.isSafeInteger(minStack) || minStack < 1) throw new RangeError('Imbalance minStack must be a positive integer');
+  const sorted = [...cells].sort((a, b) => b.price - a.price);
+  const imb = diagonalImbalances(sorted, ratio, rowSize, threshold);
+  const row = rowSize ?? observedRowSize(sorted);
   const out: StackedImbalance[] = [];
-  let run: { side: 'buy' | 'sell'; prices: number[] } | null = null;
-  for (const c of cells) {
-    const side = bySide.get(c.price);
-    if (side !== undefined && (run === null || run.side === side)) {
-      run = run ?? { side, prices: [] };
-      run.prices.push(c.price);
-    } else {
-      if (run && run.prices.length >= minStack) {
-        out.push({ startPrice: run.prices[0], endPrice: run.prices[run.prices.length - 1], side: run.side, count: run.prices.length });
-      }
-      run = side !== undefined ? { side, prices: [c.price] } : null;
+  for (const side of ['buy', 'sell'] as const) {
+    const prices = new Set(imb.filter((entry) => entry.side === side).map((entry) => entry.price));
+    let run: StackedImbalance | undefined;
+    const finish = (): void => {
+      if (run && run.count >= minStack) out.push(run);
+      run = undefined;
+    };
+    for (const cell of sorted) {
+      if (!prices.has(cell.price)) { finish(); continue; }
+      if (run && !adjacent(run.endPrice, cell.price, row)) finish();
+      if (run) { run.endPrice = cell.price; run.count++; }
+      else run = { startPrice: cell.price, endPrice: cell.price, side, count: 1 };
     }
+    finish();
   }
-  if (run && run.prices.length >= minStack) {
-    out.push({ startPrice: run.prices[0], endPrice: run.prices[run.prices.length - 1], side: run.side, count: run.prices.length });
-  }
-  return out;
+  return out.sort((a, b) => b.startPrice - a.startPrice);
 }

@@ -120,8 +120,10 @@ describe('profile primitives render', () => {
     dl.setSeriesData(id, [bar(1, 100, 101, 99, 100, 10), bar(2, 100, 101, 99, 100, 10)]);
     const priceScale = new PriceScale();
     priceScale.setHeight(400);
-    priceScale.setPriceRange({ min: 98, max: 103 });
-    const timeScale = new TimeScale();
+    // Readable footprint rows need enough real price/column space. The renderer
+    // no longer enlarges tiny rows or narrow columns into their neighbours.
+    priceScale.setPriceRange({ min: 99.8, max: 100.3 });
+    const timeScale = new TimeScale({ barSpacing: 80 });
     timeScale.setWidth(600);
     timeScale.setBaseIndex(dl.baseIndex);
     return { timeScale, priceScale, dataLayer: dl, plotWidth: 600, plotHeight: 400, priceAxisWidth: 56, dpr: 1, theme: darkTheme };
@@ -214,7 +216,8 @@ describe('profile primitives render', () => {
     four.setBars(bars);
     const b = makeCtx();
     four.draw(b.ctx, r);
-    expect(b.rec.count('fillText')).toBe(a.rec.count('fillText') + 4);
+    // Each configured row now has a fixed label as well as its bar value.
+    expect(b.rec.count('fillText')).toBe(a.rec.count('fillText') + 8);
   });
 
   it('Footprint is restylable at runtime instead of needing a rebuild', () => {
@@ -255,7 +258,7 @@ describe('profile primitives render', () => {
     fp.setBars([computeFootprint(1, [
       { price: 100, qty: 1, side: 'ask' }, { price: 101, qty: 1, side: 'bid' },
     ], 0.5)]);
-    expect(fp.autoscaleInfo()).toEqual({ min: 100, max: 101 });
+    expect(fp.autoscaleInfo()).toEqual({ min: 99.75, max: 101.25 });
   });
 
   it('Footprint hit-tests a column and reports its stats', () => {
@@ -265,7 +268,7 @@ describe('profile primitives render', () => {
     const { ctx } = makeCtx();
     fp.draw(ctx, r);                       // hit-testing needs the drawn geometry
     const x = r.timeScale.indexToX(0);
-    const hit = fp.hitTest(x, 50);
+    const hit = fp.hitTest(x, r.priceScale.priceToY(100));
     expect(hit?.externalId).toBe('footprint:1');
     const hover = fp.hoverAt(x, r.priceScale.priceToY(100), r);
     expect(hover?.stats.volume).toBe(7);

@@ -73,6 +73,8 @@ export {
   compactVol,
   type FootprintOptions,
   type FootprintDisplayMode,
+  type FootprintCellStyle,
+  type FootprintTextColorMode,
   type FootprintStatRow,
   type FootprintBarStats,
   type FootprintHover,

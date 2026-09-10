@@ -6,6 +6,7 @@ on:
     paths:
       - 'website/**'
       - 'examples/market-profile/**'
+      - 'examples/orderflow/**'
       - 'src/**'
       - 'typedoc.json'
       - 'docs/api-introduction.md'

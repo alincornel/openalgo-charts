@@ -61,7 +61,7 @@ try {
 
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`${base}/api/`);
-  await expect(page.getByRole('heading', { level: 1 })).toContainText('v2.1.0');
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('v2.1.1');
   const css = page.locator('link[rel="stylesheet"][href*="custom.css"]');
   assert.equal(await css.count(), 1);
   const cssHref = await css.evaluate(node => node.href);

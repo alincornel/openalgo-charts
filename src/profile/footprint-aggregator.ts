@@ -9,7 +9,7 @@
  */
 import type { FootprintBar, FootprintCell } from './profile-model';
 import { bucketPrice } from './profile-model';
-import type { ClassifiedTrade } from './footprint';
+import { footprintRowSize, validateClassifiedTrade, type ClassifiedTrade } from './footprint';
 import type { TickTimeframe } from '../feed/tick-aggregator';
 
 export interface FootprintTick extends ClassifiedTrade {
@@ -27,9 +27,16 @@ export class FootprintAggregator {
   private _time = 0;
   private _cells = new Map<number, FootprintCell>();
   private _delta = 0;
+  private _minDelta = 0;
+  private _maxDelta = 0;
   private _count = 0;
   private _volume = 0;
   private _open = false;
+  private _lastTickTime = -Infinity;
+  private _openPrice = 0;
+  private _high = 0;
+  private _low = 0;
+  private _close = 0;
 
   /**
    * `rowTicks` widens each brick to `tickSize * rowTicks` — the same multiplier
@@ -37,13 +44,24 @@ export class FootprintAggregator {
    * ladder stays readable. Nifty at 0.1 with 2-point bricks is `(tf, 0.1, 20)`.
    */
   public constructor(tf: TickTimeframe, tickSize: number, rowTicks = 1) {
-    this._tf = tf;
-    this._tickSize = tickSize * Math.max(1, Math.floor(rowTicks));
+    this._tickSize = footprintRowSize(tickSize, rowTicks);
+    if (tf.mode === 'interval') {
+      if (!Number.isFinite(tf.seconds) || tf.seconds <= 0) throw new RangeError('Footprint interval seconds must be positive and finite');
+      if (tf.anchorSec !== undefined && !Number.isFinite(tf.anchorSec)) throw new RangeError('Footprint anchorSec must be finite');
+    } else if (tf.mode === 'ticks') {
+      if (!Number.isSafeInteger(tf.count) || tf.count < 1) throw new RangeError('Footprint tick count must be a positive integer');
+    } else if (tf.mode === 'volume') {
+      if (!Number.isFinite(tf.perBar) || tf.perBar <= 0) throw new RangeError('Footprint volume perBar must be positive and finite');
+    } else throw new TypeError('Unknown footprint timeframe mode');
+    this._tf = { ...tf };
   }
 
   private _snapshot(): FootprintBar {
-    const cells = Array.from(this._cells.values()).sort((a, b) => b.price - a.price);
-    return { time: this._time, cells, delta: this._delta };
+    const cells = Array.from(this._cells.values(), (cell) => ({ ...cell })).sort((a, b) => b.price - a.price);
+    return {
+      time: this._time, cells, delta: this._delta, minDelta: this._minDelta, maxDelta: this._maxDelta, rowSize: this._tickSize,
+      open: this._openPrice, high: this._high, low: this._low, close: this._close, tradeCount: this._count,
+    };
   }
 
   public current(): FootprintBar | null {
@@ -56,20 +74,32 @@ export class FootprintAggregator {
     return a + Math.floor((time - a) / this._tf.seconds) * this._tf.seconds;
   }
 
+  /**
+   * Ticks must arrive in timestamp order (equal timestamps are accepted).
+   * Count/volume bars coalesce trades sharing their opening timestamp until
+   * time advances, so chart time keys remain unique. Such bars may exceed the
+   * requested count/volume; volume trades are never split between bars.
+   */
   public onTick(tick: FootprintTick): FootprintUpdate {
+    validateClassifiedTrade(tick);
+    if (!Number.isFinite(tick.time)) throw new RangeError('Footprint tick time must be finite');
+    if (tick.time < this._lastTickTime) throw new RangeError('Footprint tick timestamp is out of order');
     let startNew = !this._open;
     if (this._open) {
       if (this._tf.mode === 'interval') startNew = this._intervalKey(tick.time) !== this._time;
-      else if (this._tf.mode === 'ticks') startNew = this._count >= this._tf.count;
-      else startNew = this._volume >= this._tf.perBar;
+      else if (this._tf.mode === 'ticks') startNew = this._count >= this._tf.count && tick.time > this._time;
+      else startNew = this._volume >= this._tf.perBar && tick.time > this._time;
     }
 
     if (startNew) {
       this._cells = new Map();
       this._delta = 0;
+      this._minDelta = 0;
+      this._maxDelta = 0;
       this._count = 0;
       this._volume = 0;
       this._open = true;
+      this._openPrice = this._high = this._low = tick.price;
       this._time = this._tf.mode === 'interval' ? this._intervalKey(tick.time) : tick.time;
     }
 
@@ -78,8 +108,14 @@ export class FootprintAggregator {
     if (cell === undefined) { cell = { price, bidVol: 0, askVol: 0 }; this._cells.set(price, cell); }
     if (tick.side === 'bid') { cell.bidVol += tick.qty; this._delta -= tick.qty; }
     else { cell.askVol += tick.qty; this._delta += tick.qty; }
+    this._minDelta = Math.min(this._minDelta, this._delta);
+    this._maxDelta = Math.max(this._maxDelta, this._delta);
     this._count += 1;
     this._volume += tick.qty;
+    this._high = Math.max(this._high, tick.price);
+    this._low = Math.min(this._low, tick.price);
+    this._close = tick.price;
+    this._lastTickTime = tick.time;
 
     return { bar: this._snapshot(), isNew: startNew };
   }

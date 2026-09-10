@@ -2,6 +2,96 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 2.1.1
+
+2026-09-10
+
+### Added
+
+- **Three footprint styles.** `cellStyle` selects the existing heatmap, a
+  volume-proportional bid/ask profile, or a square cluster ladder. Profile
+  numbers stay aligned at the center while each side's width follows volume.
+- **Actual OHLC candles and per-bar statistics.** Footprint bars now carry
+  optional `open`, `high`, `low`, `close`, `tradeCount` and `rowSize` metadata.
+  `statsPosition: 'bar'` puts labeled statistics below each footprint;
+  `pocStyle: 'outline'` and `showValueArea` mark POC and the contiguous volume
+  value area. Legacy data without OHLC shows a neutral range line.
+- **Independent text coloring.** `textColorMode` supports automatic contrast,
+  bid/ask side, row delta, same-price dominance, diagonal imbalance and volume
+  strength. `textColor`, `buyTextColor` and `sellTextColor` are separate from
+  cell-fill colors; readable foregrounds adapt to dark, light and neon fills.
+- **Five orderflow demo themes:** Midnight, Graphite, Classic neon, Ocean and
+  Ivory. Theme, footprint style and text method switch independently without
+  resetting the tape or viewport. The deterministic demo includes price-row
+  grouping, pause/resume, POC/value-area controls and a row inspector.
+- `ChartOptions.timeScale` accepts initial public time-scale options, including
+  wider maximum bar spacing for readable footprint columns.
+- `cvdOffset` supplies cumulative delta preceding the displayed window, so a
+  host can discard old bars without resetting session CVD.
+- **Configurable orderflow table, disabled by default.** `tableRows` selects
+  and orders Delta, Min Delta, Max Delta, Cumulative Delta, Total Ask Volume,
+  Total Bid Volume and Total Volume. Labels stay fixed on the left; columns
+  align with their footprint bars during pan and zoom. Per-bar cards remain
+  independently configurable. Explicit `statsRows` restores the older footer.
+- `minDelta` and `maxDelta` track the running ask-minus-bid delta within each
+  bar, including its initial zero. Batch and live builders preserve the trade
+  path; legacy bars without these fields report `null` rather than row extrema.
+- **Quantity or lots.** `volumeDivisor` defaults to 1 for raw quantities.
+  A value of 65 displays quantities and delta metrics in lots of 65 across
+  cells, cards and tables. Raw data, analytics, percentages and trade counts
+  remain unchanged. The demo includes an editable lot-size control.
+
+### Fixed
+
+- Streaming snapshots copy their cells; later ticks and caller mutations no
+  longer alter previous snapshots or the live accumulator.
+- Diagonal imbalances use actual adjacent price rows and fractional quantities.
+  Gaps are not bridged. A positive quantity against zero opposing volume can
+  qualify; zero versus zero does not. Both sides can qualify at the same price,
+  and stacked runs track each side independently.
+- Footprint trade counts report classified records, rather than occupied price
+  levels. Missing legacy counts are `null` in stats and display as an em dash.
+- Candle direction follows the actual open/close rather than delta. Row bounds
+  contribute half a price step to autoscale, rendering is clipped to the plot,
+  and zooming out no longer forces overlapping minimum-size columns or rows.
+- Hover uses the drawn bounds of each row and statistics card; offscreen rows,
+  empty data and detached primitives no longer retain stale interactive areas.
+- Volume display uses combined row volume for its peak; fractional volume
+  labels retain significant digits and suffix rollover formats correctly.
+
+### Input handling
+
+- Batch and streaming footprints validate finite time/price, nonnegative
+  quantity, classified side, positive tick size and integer row grouping.
+  Live ticks older than the last accepted tick are rejected before mutation.
+- Tick-count and volume bars coalesce trades with tied opening timestamps
+  until time advances, preventing duplicate chart time keys. Such bars can
+  exceed their target count/volume; supply precise timestamps where available.
+- Supply explicit `rowSize` (or renderer `tickSize`) for legacy sparse ladders.
+  Without it, minimum observed spacing cannot identify uniformly missing rows.
+
+### Website and examples
+
+- The orderflow guide embeds the current standalone demo and documents the new
+  styles, text methods, metadata, validation and CVD-window handling.
+- The market-profile guide now opens with compact rendering and includes a
+  current six-session overview and five-theme gallery. Real browser captures
+  refresh all theme and packed/split images; captions distinguish compressed
+  pixel letters from enlarged regular text. Screenshot hashes invalidate stale
+  cached images and a capture manifest checks source and image consistency.
+- Removed the old market-profile screenshot directory. Current captures live
+  under `screenshots/market-profile-v2.1.1/`; no legacy orderflow images remain.
+- The orderflow simulation uses NIFTY around 23,800 with 2-point price rows.
+  A Table switch and row checklist control the seven requested metrics.
+
+Validation: `npm run verify` passes, including **4,139 unit tests** across
+176 files, **219 demo tests**, lint, typecheck, package builds, declarations,
+size budgets and tree shaking.
+
+Measured 2.1.1 sizes: **66.49 KB** base, **14.96 KB** profile tier and
+**186.74 KB** full package, Brotli. The added footprint styles and validation
+use a 15 KB profile budget and a 187 KB full-package budget.
+
 ## 2.1.0
 
 2026-09-06

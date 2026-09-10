@@ -51,10 +51,10 @@ same newest synthetic session with 18 CSS pixels per row and 16-pixel letters.
 It also captures packed/split views with the same framing and unchanged price
 aggregation. Gallery cards display images at 320–400 CSS pixels wide; narrow
 screens scroll within a card instead of shrinking letters further. Screenshots are
-tracked in `public/screenshots/market-profile/`; generated demo bundles are ignored.
+tracked in `public/screenshots/market-profile-v2.1.1/`; generated demo bundles are ignored.
 Pass a full demo URL as the script's first argument to capture another local host.
 
-The gallery and 2.1.0 release notes describe features present in the current source tree.
+The gallery and 2.1.1 release notes describe features present in the current source tree.
 
 ## Interactive and API checks
 
