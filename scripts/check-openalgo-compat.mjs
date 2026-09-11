@@ -2,6 +2,7 @@
  * Exercise the actual OpenAlgo /trading app with its installed Charts package.
  * Run only against an isolated OpenAlgo worktree with its own node_modules:
  * node scripts/check-openalgo-compat.mjs --frontend /tmp/openalgo/frontend
+ * Add --objects true only when the host includes the shared Objects integration.
  *
  * No backend is started. Vite proxies are removed and every API/WS is mocked.
  * The app source is unchanged; an entry wrapper records terminal instances so
@@ -368,6 +369,147 @@ try {
     assert.equal(panes.find((p) => p.key === 'oa-trading-p1').symbol, 'BHEL');
     assert.equal(panes.find((p) => p.key === 'oa-trading-p1').interval, '5m');
   });
+  if (args.objects === 'true') {
+    await check('Objects follows the pane last used anywhere inside its card', async () => {
+      await page.evaluate(() => {
+        const pane = window.__compatTerminals.find((t) => !t.destroyed && t.sk === 'oa-trading-p0');
+        pane.container.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      });
+      await page.getByRole('button', { name: 'Objects' }).click();
+      await page.getByRole('complementary', { name: 'Objects' }).getByText(/Pane 1/).waitFor();
+      await page.evaluate(() => {
+        const pane = window.__compatTerminals.find((t) => !t.destroyed && t.sk === 'oa-trading-p1');
+        pane.container.closest('section').querySelector('button').dispatchEvent(
+          new PointerEvent('pointerdown', { bubbles: true })
+        );
+      });
+      await page.getByRole('complementary', { name: 'Objects' }).getByText(/Pane 2/).waitFor();
+    });
+    await check('indicator visibility and actionable identity survive rebuild and reload', async () => {
+      const details = await page.evaluate(async () => {
+        const pane = window.__compatTerminals.find((t) => !t.destroyed && t.sk === 'oa-trading-p1');
+        await pane.addIndicatorById('ema');
+        const row = pane.objects.list().find((object) => object.kind === 'indicator');
+        return { id: row.id, name: row.name };
+      });
+      const panel = page.getByRole('complementary', { name: 'Objects' });
+      await panel.getByRole('button', { name: `Hide ${details.name}` }).click();
+      assert.equal(await page.evaluate(() => {
+        const pane = window.__compatTerminals.find((t) => !t.destroyed && t.sk === 'oa-trading-p1');
+        return pane.objects.list().find((object) => object.kind === 'indicator').visible;
+      }), false);
+      await page.evaluate(() => {
+        const pane = window.__compatTerminals.find((t) => !t.destroyed && t.sk === 'oa-trading-p1');
+        pane.setInterval('15m');
+      });
+      await page.waitForFunction((oldId) => {
+        const pane = window.__compatTerminals.find((t) => !t.destroyed && t.sk === 'oa-trading-p1');
+        const row = pane?.objects?.list().find((object) => object.kind === 'indicator');
+        return row && row.id !== oldId && row.visible === false;
+      }, details.id);
+      await panel.getByRole('button', { name: `Settings for ${details.name}` }).click();
+      await page.getByRole('heading', { name: details.name }).waitFor();
+      await page.keyboard.press('Escape');
+      await page.reload();
+      await page.waitForFunction(() => window.__compatTerminals.filter((t) => !t.destroyed && t.price?.getData().length > 0).length === 2);
+      await page.evaluate(() => {
+        const pane = window.__compatTerminals.find((t) => !t.destroyed && t.sk === 'oa-trading-p1');
+        pane.container.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      });
+      await page.waitForFunction(() => {
+        const pane = window.__compatTerminals.find((t) => !t.destroyed && t.sk === 'oa-trading-p1');
+        return pane?.objects?.list().some((object) => object.kind === 'indicator');
+      });
+      const hidden = await page.evaluate(() => {
+        const pane = window.__compatTerminals.find((t) => !t.destroyed && t.sk === 'oa-trading-p1');
+        const row = pane.objects.list().find((object) => object.kind === 'indicator');
+        return { model: row.visible, saved: pane.activeIndicators.find((item) => item.indicatorId === 'ema')?.visible };
+      });
+      assert.deepEqual(hidden, { model: false, saved: false });
+      await panel.getByRole('button', { name: `Show ${details.name}` }).click();
+      assert.equal(await page.evaluate(() => {
+        const pane = window.__compatTerminals.find((t) => !t.destroyed && t.sk === 'oa-trading-p1');
+        return pane.objects.list().find((object) => object.kind === 'indicator').visible;
+      }), true);
+    });
+    await check('drawing object actions reuse selection, editor, history and persistence', async () => {
+      await page.evaluate(async () => {
+        const pane = window.__compatTerminals.find((t) => !t.destroyed && t.sk === 'oa-trading-p1');
+        await pane.setDrawTool(null);
+        pane.draw.add({ id: 'ai:objects-text:0', tool: 'text', paneIndex: 0,
+          points: [{ time: pane.rawBars.at(-2).time, price: 100 }], style: { color: '#4f8cff' },
+          text: { value: 'Object note' } });
+      });
+      const panel = page.getByRole('complementary', { name: 'Objects' });
+      await panel.getByRole('button', { name: 'Select Text' }).click();
+      await page.getByRole('button', { name: 'Colour' }).waitFor();
+      await panel.getByRole('button', { name: 'Settings for Text' }).click();
+      await page.getByRole('heading', { name: 'Text' }).waitFor();
+      await page.keyboard.press('Escape');
+      await panel.getByRole('button', { name: 'Lock Text' }).click();
+      await panel.getByRole('button', { name: 'Hide Text' }).click();
+      await panel.getByRole('button', { name: 'Focus Text' }).click();
+      const changed = await page.evaluate(() => {
+        const pane = window.__compatTerminals.find((t) => !t.destroyed && t.sk === 'oa-trading-p1');
+        const drawing = pane.draw.get('ai:objects-text:0');
+        return { locked: drawing.locked, visible: drawing.visible, saved: pane.drawJson.drawings.some((d) => d.id === drawing.id && d.locked && d.visible === false) };
+      });
+      assert.deepEqual(changed, { locked: true, visible: false, saved: true });
+      await panel.getByRole('button', { name: 'Remove Text' }).click();
+      assert.equal(await page.evaluate(() => {
+        const pane = window.__compatTerminals.find((t) => !t.destroyed && t.sk === 'oa-trading-p1');
+        return pane.draw.get('ai:objects-text:0');
+      }), undefined);
+      await page.evaluate(() => {
+        const pane = window.__compatTerminals.find((t) => !t.destroyed && t.sk === 'oa-trading-p1');
+        pane.undoDraw();
+      });
+      assert.equal(await page.evaluate(() => {
+        const pane = window.__compatTerminals.find((t) => !t.destroyed && t.sk === 'oa-trading-p1');
+        return pane.draw.get('ai:objects-text:0')?.id;
+      }), 'ai:objects-text:0');
+      await panel.getByRole('button', { name: 'Show Text' }).click();
+      await panel.getByRole('button', { name: 'Unlock Text' }).click();
+      assert.deepEqual(await page.evaluate(() => {
+        const pane = window.__compatTerminals.find((t) => !t.destroyed && t.sk === 'oa-trading-p1');
+        const drawing = pane.draw.get('ai:objects-text:0');
+        return { visible: drawing.visible, locked: drawing.locked };
+      }), { visible: true, locked: false });
+    });
+    await check('profile object is settings-only and Objects sends no orders during replay', async () => {
+      const ordersBefore = report.requests.filter((request) => ['/api/v1/placeorder', '/api/v1/modifyorder', '/api/v1/cancelorder'].includes(request.path)).length;
+      await page.evaluate(async () => {
+        const pane = window.__compatTerminals.find((t) => !t.destroyed && t.sk === 'oa-trading-p1');
+        pane.setChartType('tpo');
+        await pane.profileLayer?.ready;
+      });
+      const panel = page.getByRole('complementary', { name: 'Objects' });
+      await panel.getByText('Time Price Opportunity').waitFor();
+      assert.equal(await panel.getByRole('button', { name: 'Hide Time Price Opportunity' }).count(), 0);
+      assert.equal(await panel.getByRole('button', { name: 'Remove Time Price Opportunity' }).count(), 0);
+      assert.equal(await panel.getByRole('button', { name: 'Lock Time Price Opportunity' }).count(), 0);
+      assert.equal(await panel.getByRole('button', { name: 'Focus Time Price Opportunity' }).count(), 0);
+      await page.evaluate(() => {
+        const pane = window.__compatTerminals.find((t) => !t.destroyed && t.sk === 'oa-trading-p1');
+        pane.startReplay(); pane.commitReplayPick();
+      });
+      await panel.getByRole('button', { name: 'Settings for Time Price Opportunity' }).click();
+      const chartSettings = page.getByRole('heading', { name: 'Chart settings' });
+      await chartSettings.waitFor();
+      await page.keyboard.press('Escape');
+      await chartSettings.waitFor({ state: 'detached' });
+      await panel.getByRole('button', { name: /Settings for/ }).first().click();
+      await chartSettings.waitFor();
+      await page.keyboard.press('Escape');
+      await chartSettings.waitFor({ state: 'detached' });
+      const ordersAfter = report.requests.filter((request) => ['/api/v1/placeorder', '/api/v1/modifyorder', '/api/v1/cancelorder'].includes(request.path)).length;
+      assert.equal(ordersAfter, ordersBefore);
+      await page.evaluate(() => {
+        const pane = window.__compatTerminals.find((t) => !t.destroyed && t.sk === 'oa-trading-p1');
+        pane.stopReplay();
+      });
+    });
+  }
   await check('no browser runtime errors or external HTTP', async () => {
     assert.deepEqual(report.pageErrors, []);
     assert.deepEqual(report.consoleErrors.filter((message) => !message.startsWith('Failed to load resource:') && !message.includes('refusing to place, caller expects live mode but the OpenAlgo server is in analyzer mode')), []);
