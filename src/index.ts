@@ -5,7 +5,7 @@ export { VERSION, version } from './version';
 
 export { createChart, Chart, compactVolume, PRICE_SCALE_MODES } from './core/chart';
 export type {
-  ChartOptions, AddSeriesOptions, CrosshairMoveEvent, ChartEventOptions,
+  ChartOptions, ChartNavigationOptions, AddSeriesOptions, CrosshairMoveEvent, ChartEventOptions,
   ContextMenuEvent, ContextMenuTarget, ContextMenuTargetKind, PriceAxisState,
   AxisChromeOptions, ZoomAnchor, DoubleClickAction, DoubleClickEvent, ExportSvgOptions,
   PointerModifiers, PointerKind, PointerSample, PointerInfo,

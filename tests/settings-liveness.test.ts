@@ -197,6 +197,7 @@ function flipsFor(input: ChartSettingsInput, current: ChartSettingsValues): { ke
  * inconvenient: a key here is a claim that the option is consumed elsewhere.
  */
 const OFF_FRAME: ReadonlyMap<string, string> = new Map([
+  ['navigation.mousePan', 'pointer behavior is exercised by navigation-settings.test.ts'],
   // The trade layer draws nothing until a position, order or execution exists,
   // and instantiating it is not what this file is measuring. chart-settings
   // covers the round-trip; trade-ui covers the colours reaching the marks.
@@ -290,7 +291,7 @@ describe('no settings control is dead', () => {
     // Guards the escape hatch: a key may only sit in OFF_FRAME with a reason,
     // and the list may not quietly grow to hide a genuinely dead control.
     for (const [, why] of OFF_FRAME) expect(why.length).toBeGreaterThan(10);
-    expect(OFF_FRAME.size).toBe(10);
+    expect(OFF_FRAME.size).toBe(11);
   });
 });
 

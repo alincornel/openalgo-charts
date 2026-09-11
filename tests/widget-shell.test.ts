@@ -235,6 +235,20 @@ describe('the feed', () => {
     expect(root.querySelector('.oac-statusline__msg')?.textContent).toBe('30 bars');
   });
 
+  it('keeps the preferred visible bar count across symbol and interval loads', async () => {
+    const feed = feedOf(() => Promise.resolve(bars(200)));
+    const { w } = make({ feed, symbol: 'INFY', navigation: { defaultVisibleBars: 50 } });
+    await flush();
+    expect(w.chart.getVisibleLogicalRange()).toEqual({ from: 149, to: 203 });
+    w.setSymbol('RELIANCE');
+    await flush();
+    expect(w.chart.getVisibleLogicalRange()).toEqual({ from: 149, to: 203 });
+    w.setInterval('5m');
+    await flush();
+    expect(w.chart.getVisibleLogicalRange()).toEqual({ from: 149, to: 203 });
+    expect(w.chart.primarySeries()?.getData()).toHaveLength(200);
+  });
+
   it('drops a slow answer that arrives after a faster one for the next symbol', async () => {
     let release: (() => void) | null = null;
     const feed = feedOf((req) => {

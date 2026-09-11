@@ -74,3 +74,50 @@ test('resetScale re-fits after a manual zoom', async ({ page }) => {
   const ok = await page.evaluate(() => Number.isFinite((window as any).__api.chart.priceToCoordinate(100)));
   expect(ok).toBe(true);
 });
+
+test('time-axis dragging expands left and compresses right in the rendered chart', async ({ page }) => {
+  await page.goto('/');
+  await page.waitForFunction(() => (window as any).__ready === true);
+  const box = (await page.locator('#c').boundingBox())!;
+  const start = await page.evaluate(() => (window as any).__api.chart.timeScale.barSpacing);
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height - 8;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x - 100, y, { steps: 8 });
+  expect(await page.evaluate(() => (window as any).__api.chart.timeScale.barSpacing)).toBeGreaterThan(start);
+  await page.mouse.move(x + 100, y, { steps: 16 });
+  expect(await page.evaluate(() => (window as any).__api.chart.timeScale.barSpacing)).toBeLessThan(start);
+  await page.mouse.up();
+});
+
+test('horizontal mouse pan preserves autoscale and the bottom reset restores the preferred view', async ({ page }) => {
+  await page.goto('/');
+  await page.waitForFunction(() => (window as any).__ready === true);
+  await page.evaluate(() => (window as any).__api.chart.setNavigationOptions({ defaultVisibleBars: 75 }));
+  const initial = await page.evaluate(() => (window as any).__api.chart.getVisibleLogicalRange());
+  await page.mouse.move(400, 100);
+  await page.mouse.down();
+  await page.mouse.move(520, 160, { steps: 10 });
+  expect(await page.evaluate(() => (window as any).__api.chart.panes()[0].priceScale.autoScale)).toBe(true);
+  await page.mouse.up();
+  await page.evaluate(() => {
+    const chart = (window as any).__api.chart;
+    chart.timeScale.setBarSpacing(20);
+    chart.panes()[0].priceScale.setPriceRange({ min: 80, max: 180 });
+    chart.panes()[0].priceScale.setAutoScale(false);
+  });
+  const button = await page.evaluate(() => {
+    const chart = (window as any).__api.chart;
+    const box = document.querySelector('#c')!.getBoundingClientRect();
+    return { x: box.left + chart.timeScale.width / 2, y: box.bottom - 22 - 10 - 13 };
+  });
+  await page.mouse.move(button.x, button.y);
+  await page.waitForFunction(() => {
+    const chart = (window as any).__api.chart;
+    return chart._timeNav.options().buttons.includes('resetScale') && !chart._timeNav.animating();
+  });
+  await page.mouse.click(button.x, button.y);
+  await expect.poll(() => page.evaluate(() => (window as any).__api.chart.getVisibleLogicalRange())).toEqual(initial);
+  expect(await page.evaluate(() => (window as any).__api.chart.panes()[0].priceScale.autoScale)).toBe(true);
+});

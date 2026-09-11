@@ -94,6 +94,7 @@ Notes:
 | `viewport` `{ from, to }` (logical range), `barSpacing` | yes, viewport only when the chart already has data |
 | `grid` `{ vertLines, horzLines }` plus the grid style keys | yes |
 | `canvas` (grid, crosshair, scales, margins), `statusLine`, `trading` colours, `events` filters | yes; `canvas` is applied **before** the panes, so a pane's own saved margins are the more specific answer and win |
+| `navigation` (`mousePan`, `defaultVisibleBars`) | yes; controls pointer panning and the initial/reset view. An explicitly restored viewport takes precedence until reset |
 | `crosshairMode` `'normal' \| 'magnet'` | yes |
 | `timezone` (IANA name) | yes, but a name this runtime does not recognise is **skipped**, not thrown, so one stale zone cannot cost the whole layout |
 | `panes[]`: `weight`, and per-pane `priceScale` `{ marginTop, marginBottom, minMove, mode, inverted, autoScale, range? }` | yes; panes are created as needed, `range` only present when `autoScale` is false |

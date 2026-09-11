@@ -4,7 +4,7 @@
 > Target: **< 50 KB Brotli** for the full package (engine + trade overlay), no runtime dependencies. *(Brotli is the size metric we hold the budget against - see §11. Gzip runs ~10-15% larger.)*
 > Goal: professional-grade interactive financial-chart rendering + advanced on-chart trading & trade management.
 
-> **Status: implemented in 2.1.2.** The design below includes the footprint styles, configurable statistics table and quantity/lot display. Version 2.1.2 isolates external-study data contexts, strengthens history/live recovery, accepts current OpenAlgo protocol frames and adds optional widget stylesheet nonces. The pre-implementation size estimates in this document have been superseded by measured `size-limit` (Brotli) figures, which live in the README size budget and are re-measured on every release: on the 2.1.2 build the base engine is **66.65 KB**, base + trade **74.26 KB**, and everything (all eight tiers) **187.42 KB**. The original "under 50 KB" target below is kept as history; the budgets that are enforced are the per-tier rows in `.size-limit.json`. See the *Revision log* for the point-by-point mapping and §13a for the honest deferred list.
+> **Status: implemented in 2.1.3.** The design below includes the footprint styles, configurable statistics table and quantity/lot display. Version 2.1.3 adds saved navigation preferences, horizontal mouse panning and a reset control. Version 2.1.2 isolates external-study data contexts, strengthens history/live recovery, accepts current OpenAlgo protocol frames and adds optional widget stylesheet nonces. The pre-implementation size estimates in this document have been superseded by measured `size-limit` (Brotli) figures, which live in the README size budget and are re-measured on every release: on the 2.1.3 build the base engine is **67.05 KB**, base + trade **74.66 KB**, and everything (all eight tiers) **187.84 KB**. The original "under 50 KB" target below is kept as history; the budgets that are enforced are the per-tier rows in `.size-limit.json`. See the *Revision log* for the point-by-point mapping and §13a for the honest deferred list.
 
 <p align="center">
   <img src="docs/architecture-diagram.svg" alt="OpenAlgo Charts layered architecture" width="900" />
@@ -553,10 +553,10 @@ Because every type is just a `ChartTypeDescriptor`, **custom styles are first-cl
 
 - **pointer.ts**: normalizes mouse + touch + pen into one stream (pointerdown/move/up, wheel, gesture). Tracks single vs multi-touch.
 - **pan-zoom.ts**:
-  - drag on chart to pan time scale; drag on price axis to rescale price (manual mode); drag on time axis to change bar spacing.
+  - mouse and pen drags pan time only by default; `navigation.mousePan: 'both'` also pans price. Touch keeps two-axis panning. Drag the price axis to rescale price (manual mode); drag the time axis left to expand spacing or right to compress it.
   - wheel to zoom around cursor (Shift = horizontal pan, Ctrl/Cmd = faster zoom).
   - two-finger pinch to zoom; flick to **kinetic** momentum (velocity decay each frame).
-  - double-click to reset to fit-content / real-time.
+  - double-click or the bottom Reset view control restores the preferred visible bar count and price autoscale. `navigation.defaultVisibleBars: 0` fits all loaded bars; positive counts show the latest requested bars without discarding history.
 - **hit-test.ts**: on move, ask each primitive "are you under (x,y)?" so order lines highlight and become draggable. Returns the topmost hit with a cursor hint (e.g. `ns-resize` over an order line).
 - **Pointer facts on every gesture payload.** `crosshair:move`, `click`, `drag` and `drag:end` carry `modifiers`, `pointerType` and `pressure`, built by one pair of module-level helpers so a field a browser omits degrades to the pointer events spec's stand-in (0.5 while a button is held, 0 otherwise) rather than to `undefined`. A pressed move also carries the coalesced `samples` since the last event, projected through one `getBoundingClientRect` and one pane layout per event rather than per sample. Click pressure is the press pressure, because a release always reads 0.
 

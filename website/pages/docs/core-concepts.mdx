@@ -41,6 +41,15 @@ empty space to draw. This is why panning and zooming feel continuous on intraday
 Because x is a logical index, all panes share one time scale and stay aligned bar-for-bar.
 </Callout>
 
+Dragging the time axis left expands bar spacing; dragging right compresses it. Mouse and
+pen drags inside the plot pan time horizontally by default; `navigation.mousePan: 'both'`
+adds vertical price panning. Touch pans both axes.
+
+`navigation.defaultVisibleBars` sets the initial and reset view. The default `0` fits all
+loaded bars; a positive count targets the newest N bars plus four right-padding slots,
+within the data and bar-spacing limits. This controls the viewport, not the history your
+feed loads or retains. See [Scales & Panes](/docs/scales-and-panes#default-visible-bars).
+
 ## Price scale
 
 Each pane has its own price scale: linear or logarithmic, auto-scaling to the visible range

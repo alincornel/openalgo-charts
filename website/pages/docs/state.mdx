@@ -25,6 +25,7 @@ The rule: **the chart serialises what the chart owns.**
 | Captured | Restored | Notes |
 |---|---|---|
 | Visible logical range, bar spacing | Yes | Applied only when the chart has data - see below. |
+| Navigation options | Yes | Optional `navigation` block: `mousePan` and `defaultVisibleBars`. The saved viewport takes precedence over the default view. |
 | Grid (visibility, colours, styles, width, spacing) | Yes | |
 | Canvas options (crosshair, scale text and lines, plot margins) | Yes | The Appearance tab's block. See [Theming and chart options](/docs/themes#canvas-options). |
 | Status-line switches | Yes | Applied to every pane legend. |
@@ -44,6 +45,12 @@ margins land first so a pane's own saved `marginTop` / `marginBottom` is the mor
 answer and wins. A layout saved by a host that built its dialog from the
 [settings schema](/docs/themes#the-settings-schema) therefore brings the dialog's settings
 back with it, with no second store.
+
+Navigation settings are restored before the saved viewport. A saved
+`navigation.defaultVisibleBars` therefore remains the default for future resets without
+replacing the exact range the user saved. Older snapshots may omit `navigation`; the
+chart keeps its current navigation options. The count controls the initial/reset view of
+loaded data, not the amount of history your feed requests or retains.
 
 <Callout type="warning">
 **`restoreState` never recreates series.** The chart has no way to know what data belongs in

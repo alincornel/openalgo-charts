@@ -225,6 +225,26 @@ yfinance (Python)  ->  server.py /api/history  ->  YFinanceDataFeed.getBars()  -
   feed in the engine's bar cache. Swapping data sources is a different
   `getBars()`.
 
+## Navigation
+
+Mouse and pen drags in the plot pan time horizontally by default. In Settings, open
+Axes, then Navigation, and choose **Time and price** to allow vertical price panning too.
+Touch continues to pan both axes. Drag the time axis left to expand bar spacing or right
+to compress it.
+
+The same Navigation group offers **Default visible bars (0 = all)**. `0` fits all loaded
+bars; a positive value targets the newest N loaded bars plus four empty slots on the
+right, within the available data and bar-spacing limits. Changing it applies the new
+default view immediately. The navigator's **Reset view** button, `Home` / `0`, and the
+default double-click action restore that view and price autoscale.
+
+This is a viewport setting, separate from the demo's history lookback. It does not change
+the `/api/history` request or remove loaded bars, so older data remains available by
+panning. Hosts can set it through `createChart(el, { navigation: { defaultVisibleBars: 120 } })`
+or `chart.setNavigationOptions(...)`; `chart.fitContent()` explicitly fits all loaded
+history. Navigation settings are included in the schema's read/apply helpers and chart
+state. A host that reapplies an explicit viewport after loading data controls that view.
+
 ## What each module proves
 
 The engine ships no DOM, so every control here is host code; each module

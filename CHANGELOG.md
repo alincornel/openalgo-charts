@@ -2,6 +2,45 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 2.1.3
+
+2026-09-11
+
+### Fixed
+
+- Dragging the time axis left expands candle spacing; dragging right compresses
+  it. The shared engine supplies the same behavior to custom hosts, widgets,
+  documentation charts, the gallery, and embedded profile and orderflow demos.
+- Mouse and pen plot drags preserve price autoscale by panning horizontally by
+  default. Select Time and price in Axes settings to enable vertical panning.
+  Direct price-axis drags and touch gestures retain their existing controls.
+- Time-axis drags emit zoom events so linked charts and saved layouts follow
+  the gesture. Initial fitting waits for a measurable container, including
+  charts loaded while their tab is hidden. Reset restores left and overlay
+  price scales as well as the right price scale.
+
+### Added
+
+- A Reset view button between the bottom zoom and pan controls restores the
+  preferred time window and price autoscale. Custom navigator labels remain
+  compatible and inherit the reset label when omitted.
+- `ChartOptions.navigation`, `chart.navigationOptions()` and
+  `chart.setNavigationOptions()` expose `mousePan` and `defaultVisibleBars`.
+  Axes settings and saved chart state retain both preferences. A positive count
+  shows the latest requested bars initially and on reset; 0 fits all loaded bars.
+  The widget honors this preference after symbol and interval changes.
+  `fitContent()` still explicitly fits all loaded data. This controls the view,
+  not the history request or retained data. These controls address issue #9.
+
+### Integration and documentation
+
+- Updated interaction guides, website examples and API references for the new
+  navigation behavior. Regression coverage drives real pointer gestures and
+  saves/reloads the settings through the widget.
+- The base, widget and widget-terminal size ceilings are 68 KB, 37 KB and
+  157 KB respectively to accommodate these controls. The full-package ceiling
+  remains 188 KB; no runtime dependencies were added.
+
 ## 2.1.2
 
 2026-09-10

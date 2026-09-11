@@ -42,7 +42,7 @@ rendered the schema rather than a list you wrote down.
 |---|---|---|
 | `price` | Price | The instrument's paint: body, border and wick colours, the previous-close verdict, precision, the last-price line and its axis tag. Generated from the primary series **type**. |
 | `readout` | Readout | What the pane's status line shows: logo, title and title mode, session state, OHLC, bar change, volume, change since previous close, indicator values, and the plate behind the row. |
-| `axes` | Axes | Scale mode, auto-fit, invert, and the chart timezone. |
+| `axes` | Axes | Scale mode, auto-fit, invert, chart timezone, mouse panning, and default visible bars. |
 | `appearance` | Appearance | Grid, crosshair, scale text and lines, plot margins. |
 | `trading` | Trading | Position, order, bracket and execution colours. |
 
@@ -325,9 +325,42 @@ function cancel() {
   build restore into an older one, and it is why a stale timezone in a saved workspace
   cannot throw away the rest of the apply.
 - **Values are flat and JSON-safe.** `Record<string, string | number | boolean>`, dotted
-  keys, no nesting. `chart.getState()` carries the canvas, status-line, trading-colour and
+  keys, no nesting. `chart.getState()` carries the canvas, navigation, status-line, trading-colour and
   event blocks so a saved layout brings the dialog's settings back with it. See
   [Chart State](/docs/state).
+
+### Navigation controls
+
+The Axes tab's **Navigation** group exposes two fields through the same schema and
+settings persistence as the other controls:
+
+| Key | Control | Default |
+|---|---|---|
+| `navigation.mousePan` | Select **Mouse drag**: **Horizontal only** (`'horizontal'`) or **Time and price** (`'both'`) | `'horizontal'` |
+| `navigation.defaultVisibleBars` | Number: **Default visible bars (0 = all)**, minimum `0`, maximum `100000`, step `1` | `0` |
+
+```ts
+applyChartSettings(chart, {
+  'navigation.mousePan': 'horizontal',
+  'navigation.defaultVisibleBars': 120,
+});
+readChartSettings(chart)['navigation.defaultVisibleBars'];  // 120
+```
+
+The pan choice applies to mouse and pen plot drags. Touch keeps both axes. Changing the
+bar count applies the new default view immediately, and initial data loads and
+`chart.resetScale()` use that count. A positive value targets the newest N loaded bars
+plus four empty slots on the right, within the data and bar-spacing limits; `0` fits all
+loaded bars. `chart.fitContent()` remains an explicit fit of all loaded history.
+
+This setting controls the viewport. Your feed's history lookback still determines what
+data is requested, and every loaded bar remains available for panning. Hosts that need an
+explicit viewport can set it after the data loads. The widget's ordinary load views honour
+the configured count.
+
+For a custom control, use `chart.setNavigationOptions(patch)` and
+`chart.navigationOptions()`. `chart.getState()` and `restoreState()` carry the optional
+`navigation` block alongside the saved viewport, whose explicit range wins on restore.
 
 ### The timezone is a control now
 

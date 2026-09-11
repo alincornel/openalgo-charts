@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { TimeNavigator } from '../src/primitives/time-navigator';
 import { Chart } from '../src/core/chart';
-import { fakeDocument, type FakeElement } from './helpers/fake-dom';
+import { fakeDocument, pointer, type FakeElement } from './helpers/fake-dom';
 import type { PrimitiveRenderContext } from '../src/primitives/primitive';
 
 /**
@@ -22,17 +22,17 @@ function rc(dpr = 1): PrimitiveRenderContext {
 
 /** A canvas stub that records what was painted and at what alpha. */
 function recorder() {
-  const ops: { type: string; alpha: number }[] = [];
+  const ops: { type: string; alpha: number; text?: string }[] = [];
   const ctx: Record<string, unknown> = {
     canvas: {}, globalAlpha: 1,
     fillStyle: '', strokeStyle: '', lineWidth: 1, lineCap: '', lineJoin: '',
     font: '', textAlign: '', textBaseline: '',
     save() {}, restore() {}, beginPath() {}, moveTo() {}, lineTo() {}, setLineDash() {},
-    roundRect() {},
+    roundRect() {}, arc() {},
     measureText: () => ({ width: 40 }),
     fill() { ops.push({ type: 'fill', alpha: ctx.globalAlpha as number }); },
     stroke() { ops.push({ type: 'stroke', alpha: ctx.globalAlpha as number }); },
-    fillText() { ops.push({ type: 'fillText', alpha: ctx.globalAlpha as number }); },
+    fillText(text: string) { ops.push({ type: 'fillText', alpha: ctx.globalAlpha as number, text }); },
   };
   return { ctx: ctx as unknown as CanvasRenderingContext2D, ops };
 }
@@ -101,9 +101,13 @@ describe('TimeNavigator', () => {
       const h = nav.hitTest(x, y);
       if (h && !found.includes(h.externalId)) found.push(h.externalId);
     }
-    expect(found.sort()).toEqual([
-      'timenav::panLeftBar', 'timenav::panRightBar', 'timenav::zoomIn', 'timenav::zoomOut',
+    expect(found).toEqual([
+      'timenav::zoomOut', 'timenav::zoomIn', 'timenav::resetScale',
+      'timenav::panLeftBar', 'timenav::panRightBar',
     ]);
+    expect(nav.hitTest(400, y)?.externalId).toBe('timenav::resetScale');
+    expect(nav.hitTest(379, y)).toBeNull();
+    expect(nav.hitTest(421, y)).toBeNull();
 
     // Hidden: the same probe must find nothing, so the chart body keeps its clicks.
     nav.setPointer(null);
@@ -123,6 +127,36 @@ describe('TimeNavigator', () => {
       if (h) { expect(h.cursor).toBe('pointer'); return; }
     }
     throw new Error('no button found');
+  });
+
+  it('shows the reset tooltip when a host supplies the original four labels', () => {
+    const nav = new TimeNavigator({
+      fadeSeconds: 0,
+      labels: {
+        zoomOut: 'Less detail', zoomIn: 'More detail',
+        panLeftBar: 'Earlier', panRightBar: 'Later',
+      },
+    });
+    nav.setPointer({ x: 400, y: 377 });
+    const reset = recorder();
+    nav.draw(reset.ctx, rc());
+    expect(reset.ops.filter((op) => op.type === 'fillText').map((op) => op.text)).toEqual(['Reset view']);
+
+    nav.setPointer({ x: 358, y: 377 });
+    const zoom = recorder();
+    nav.draw(zoom.ctx, rc());
+    expect(zoom.ops.filter((op) => op.type === 'fillText').map((op) => op.text)).toEqual(['More detail']);
+  });
+
+  it('preserves reset and other tooltips when one label is patched', () => {
+    const nav = new TimeNavigator({ fadeSeconds: 0, labels: { zoomIn: 'More detail' } });
+    nav.setOptions({ labels: { zoomOut: 'Less detail' } });
+    for (const [x, label] of [[328, 'Less detail'], [358, 'More detail'], [400, 'Reset view']] as const) {
+      nav.setPointer({ x, y: 377 });
+      const { ctx, ops } = recorder();
+      nav.draw(ctx, rc());
+      expect(ops.filter((op) => op.type === 'fillText').map((op) => op.text)).toEqual([label]);
+    }
   });
 });
 
@@ -201,6 +235,42 @@ describe('chart time navigator', () => {
       ._handleLegendAction('timenav::panLeftBar');
     expect(chart.timeScale.rightOffset).toBe(offset);
     vi.unstubAllGlobals();
+  });
+
+  it('clicking the reset button restores the time view and automatic price scaling', () => {
+    stubEnv();
+    const { chart, el } = mountChart({ timeNavigator: { fadeSeconds: 0 } });
+    try {
+      chart.applySize(800, 600);
+      const priceScale = chart.panes()[0].priceScale;
+      const fittedRange = { ...priceScale.priceRange() };
+      expect(fittedRange.min).toBeLessThan(8);
+      expect(fittedRange.max).toBeGreaterThan(14);
+
+      chart.timeScale.setVisibleLogicalRange({ from: -4, to: 50 });
+      priceScale.panByPixels(80);
+      expect(chart.timeScale.rightOffset).not.toBe(4);
+      expect(chart.timeScale.barSpacing).toBeLessThan(80);
+      expect(priceScale.autoScale).toBe(false);
+      expect(priceScale.priceRange()).not.toEqual(fittedRange);
+
+      const nav = chart.panes()[0].primitives().find((p) => p instanceof TimeNavigator) as TimeNavigator;
+      const x = chart.timeScale.width / 2;
+      const y = 555;
+      el.dispatch('pointermove', pointer('move', x, y, { buttons: 0 }));
+      chart.applySize(800, 600);
+      expect(nav.hitTest(x, y)?.externalId).toBe('timenav::resetScale');
+
+      el.dispatch('pointerdown', pointer('down', x, y));
+      el.dispatch('pointerup', pointer('up', x, y));
+      expect(chart.timeScale.rightOffset).toBe(4);
+      expect(chart.timeScale.barSpacing).toBe(80);
+      expect(priceScale.autoScale).toBe(true);
+      expect(priceScale.priceRange()).toEqual(fittedRange);
+    } finally {
+      chart.destroy();
+      vi.unstubAllGlobals();
+    }
   });
 
   it('keeps the navigator on the bottom pane when panes are added', () => {

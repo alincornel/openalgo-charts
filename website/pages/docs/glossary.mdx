@@ -201,8 +201,9 @@ See also: [Scales and Panes](/docs/scales-and-panes)
 
 ### Manual scale
 
-Price-scale mode entered when the user drags the price axis or drags the plot area
-vertically. The visible price range is fixed until auto scale is restored. Programmatically
+Price-scale mode entered when the user drags the price axis or pans price with
+touch or `navigation.mousePan: 'both'`. Mouse panning is horizontal by default
+and preserves auto scale. The visible price range is fixed until auto scale is restored. Programmatically
 toggle with `priceScale.setAutoScale(false)`.
 
 See also: [Scales and Panes](/docs/scales-and-panes)

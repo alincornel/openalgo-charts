@@ -89,6 +89,7 @@ jobs:
           curl --retry 10 --retry-connrefused --retry-delay 1 --fail --silent http://127.0.0.1:4174/openalgo-charts/docs/depth-of-market/ > /dev/null
           node scripts/check-depth-demo.mjs
           node scripts/check-profile-website.mjs
+          node scripts/check-navigation-website.mjs
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         if: failure()
         with:

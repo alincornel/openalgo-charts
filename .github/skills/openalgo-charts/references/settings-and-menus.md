@@ -28,7 +28,7 @@ Tabs, in display order: `price` (Price), `readout` (Readout), `axes` (Axes), `ap
 |---|---|---|
 | Price | The primary series' own paint: candle body / borders / wick, bar and column colours, line and fill colours, thickness and dash, colour from previous close, label precision, the last-price line and its axis tag | `symbol.*` |
 | Readout | What the pane legend says: logo, title and title mode, session state, O/H/L/C, bar change, volume, change since previous close, indicator values, and the plate behind the row | `statusLine.*` |
-| Axes | Price-scale mode, auto-fit, invert, and the chart timezone | `scales.*`, `time.timezone` |
+| Axes | Price-scale mode, auto-fit, invert, chart timezone, mouse panning, and default visible bars | `scales.*`, `time.timezone`, `navigation.*` |
 | Appearance | Grid, crosshair, scale text and lines, plot margins | `canvas.*` |
 | Trading | Long / short, order, take profit / stop loss, buy / sell colours | `trading.*` |
 
@@ -91,6 +91,35 @@ applyChartSettings(chart, { 'time.timezone': 'America/New_York' });   // calls c
 ```
 
 A name `isValidTimezone` rejects is **skipped**, not thrown, so one stale zone in a restored layout cannot throw away the rest of the apply. Do not bolt a second zone row beside the schema: that was the old advice and it needed its own Cancel bookkeeping. A host that wants a longer list than the shipped one renders its own control and calls `chart.setTimezone` directly. See [data-and-time](data-and-time.md).
+
+## Navigation controls
+
+The Axes tab's **Navigation** group is backed by `ChartNavigationOptions`:
+
+| Key | Input | Default |
+|---|---|---|
+| `navigation.mousePan` | `select`, label **Mouse drag**: **Horizontal only** (`'horizontal'`) or **Time and price** (`'both'`) | `'horizontal'` |
+| `navigation.defaultVisibleBars` | `number`, label **Default visible bars (0 = all)**, `min: 0`, `max: 100000`, `step: 1` | `0` |
+
+```ts
+applyChartSettings(chart, {
+  'navigation.mousePan': 'horizontal',
+  'navigation.defaultVisibleBars': 120,
+});
+readChartSettings(chart)['navigation.defaultVisibleBars'];  // 120
+```
+
+`mousePan` applies to mouse and pen plot drags; touch retains two-axis panning. Updating
+`defaultVisibleBars` applies the default view immediately. Initial data and `resetScale()`
+use this count: `0` fits all loaded bars, while positive N targets the newest N loaded bars
+plus four right-padding slots, subject to available-data and spacing limits.
+`fitContent()` remains an explicit fit of all loaded bars. This setting changes neither
+feed history requests nor retained data. The widget's ordinary load views honour the
+count; a host can explicitly apply its own viewport after loading data.
+
+Direct API: `chart.navigationOptions(): Readonly<ChartNavigationOptions>` and
+`chart.setNavigationOptions(patch: Partial<ChartNavigationOptions>): void`. The optional
+`navigation` state block restores before the saved viewport, so its explicit range wins.
 
 ## Canvas options
 
@@ -221,6 +250,7 @@ A menu that also offers reference levels (previous close, session high and low) 
 | Member | Notes |
 |---|---|
 | `setCanvasOptions(patch)` / `canvasOptions()` | The block above. |
+| `setNavigationOptions(patch)` / `navigationOptions()` | Mouse/pen pan direction and the initial/reset visible-bar count. |
 | `setGridOptions(patch)` / `gridOptions()` | Grid alone. |
 | `setStatusLineOptions(patch)` / `statusLineOptions()` | Applied to every legend. |
 | `setPriceScaleOptions(patch, allScales = false)` / `priceScaleOptions()` | Defaults to the right scale of every pane; `allScales` includes left and overlay. Reads pane 0. |
@@ -235,7 +265,7 @@ A menu that also offers reference levels (previous close, session high and low) 
 
 ## Persistence
 
-`chart.getState()` returns `ChartState & ChartSettingsState`: the settings slice (`canvas`, `statusLine`, `trading`, `events`) rides beside `grid`, and `restoreState` applies it. Canvas lands **before** the panes, so a pane's own saved margins stay the more specific answer and win. See [events-and-state](events-and-state.md).
+`chart.getState()` returns `ChartState & ChartSettingsState`: the settings slice (`canvas`, `navigation`, `statusLine`, `trading`, `events`) rides beside `grid`, and `restoreState` applies it. Canvas lands **before** the panes, so a pane's own saved margins stay the more specific answer and win. Navigation is optional for older snapshots and restores before the explicit saved viewport. See [events-and-state](events-and-state.md).
 
 ## Related
 

@@ -41,7 +41,8 @@ chart.fitContent();
 | `now` | `() => number` | `performance.now` | Time source for kinetic pan / navigator fade. |
 | `animZoom` | `boolean` | `true` | Ease a wheel zoom over a few frames (`ZoomGlide`, in log space) instead of landing the whole step on one. The first frame's step is applied on the event itself, so `barSpacing` has moved by the time anything reads it synchronously, and the glide lands on exactly the single-frame result. **On by default**, which a 1.9.x host sees as a change; `false` restores the single-frame step. Not re-appliable. |
 | `zoomAnchor` | `'cursor' \| 'right'` | `'cursor'` | What a wheel zoom holds still: the bar under the cursor, or the right edge (the latest bar), which a live chart usually wants. Not re-appliable. |
-| `doubleClick` | `'reset' \| 'maximize' \| 'none'` | `'reset'` | What a double-click on a pane does: fit every loaded bar (which also wakes a history loader), toggle that pane to the whole stack, or only emit `dblclick`. A listener that sets `handled` on the event suppresses the action for that press. |
+| `doubleClick` | `'reset' \| 'maximize' \| 'none'` | `'reset'` | Restore the configured default view and autoscale, toggle that pane to the whole stack, or only emit `dblclick`. A listener that sets `handled` on the event suppresses the action for that press. |
+| `navigation` | `Partial<ChartNavigationOptions>` | `{ mousePan: 'horizontal', defaultVisibleBars: 0 }` | Mouse/pen plot-pan direction and the initial/reset view. Touch retains two-axis panning. Use `setNavigationOptions` at runtime. |
 | `conflate` | `boolean` | `false` | OHLC-preserving downsampling when bars fall under ~0.5 device px. |
 | `conflationFactor` | `number` | `1` | Conflation aggressiveness. |
 | `renderer` | `'canvas2d' \| 'webgl2' \| 'auto'` | `'canvas2d'` | Which backend paints the series. `'webgl2'` throws until `openalgo-charts/webgl` has been imported, and on a device without WebGL2 falls back to `canvas2d` with one console warning; `'auto'` takes `webgl2` when it is registered and works on this device, else `canvas2d`, silently. Decided once, at construction; read the result from `chart.rendererKind`. See [Render backends](#render-backends). |
@@ -55,7 +56,7 @@ chart.fitContent();
 | `priceScale` | `Partial<PriceScaleOptions>` | `DEFAULT_PRICE_SCALE_OPTIONS` | Applied to each pane's **right** scale as the pane is created. See [scales-and-panes](scales-and-panes.md). |
 | `timeFormatter` | `(utcSeconds, tickMark?) => string` | built-in labels in `timezone` | Time axis and crosshair time tag. Outranks `timezone` for labels. |
 | `timezone` | `string` (IANA name) | `'Asia/Kolkata'` | Zone the axis, crosshair tag and calendar-anchored indicators resolve in. **Throws** on a name the runtime does not recognise. See [data-and-time](data-and-time.md). |
-| `timeNavigator` | `boolean \| Partial<TimeNavigatorOptions>` | `true` | Hover-revealed zoom/step controls above the time axis. |
+| `timeNavigator` | `boolean \| Partial<TimeNavigatorOptions>` | `true` | Hover-revealed zoom, reset and step controls above the time axis. |
 | `axisChrome` | `AxisChromeOptions` | `{}` (nothing drawn) | `sessionClock` (corner clock in the chart's zone), `barCountdown` (second row in the last-price tag), and `clock`, a **wall-clock UTC seconds** source defaulting to the system clock. Not re-appliable through `applyOptions`; use `setAxisChromeOptions`. See [scales-and-panes](scales-and-panes.md). |
 
 **`DEFAULT_THEME` is `lightTheme`, not `darkTheme`.** A dark shell must pass `{ theme: darkTheme }` explicitly even though the `theme` JSDoc says otherwise.
@@ -90,7 +91,7 @@ Returned by `addSeries`. Full surface (`src/model/series.ts`):
 
 | Method | Signature | Notes |
 |---|---|---|
-| `setData` | `(items: readonly SeriesDataItem[]) => void` | Replaces all data. The first non-empty `setData` on the chart auto-fits once. |
+| `setData` | `(items: readonly SeriesDataItem[]) => void` | Replaces all data. The first non-empty `setData` on the chart applies the configured default view once. |
 | `prependData` | `(items: readonly SeriesDataItem[]) => void` | History paging; viewport is preserved. |
 | `update` | `(item: SeriesDataItem) => void` | Updates the last item or appends. |
 | `getData` | `() => Bar[]` | Normalized OHLC, oldest first. |
@@ -116,10 +117,43 @@ chart.setVisibleLogicalRange(range);           // restore the user's zoom
 ```
 
 - `chart.fitContent()`: fit all bars; no-op on an empty chart.
-- `chart.resetScale()`: fit content **and** re-enable autoscale on every pane. This is what double-click runs.
+- `chart.resetScale()`: restore `navigation.defaultVisibleBars` **and** re-enable autoscale on every pane. This is what the navigator reset button, `Home` / `0`, and the default double-click action run.
 - `chart.timeScale`: the live `TimeScale`; mutating it repaints via an injected change handler.
 
 **A logical range is meaningless before data lands.** `setVisibleLogicalRange` indexes bars, so apply it after `setData`, not before.
+
+### ChartNavigationOptions
+
+Exported from `openalgo-charts`:
+
+```ts
+interface ChartNavigationOptions {
+  mousePan: 'horizontal' | 'both';
+  defaultVisibleBars: number;
+}
+
+const chart = createChart(el, {
+  navigation: { mousePan: 'horizontal', defaultVisibleBars: 120 },
+});
+chart.navigationOptions();  // Readonly<ChartNavigationOptions>
+chart.setNavigationOptions({ defaultVisibleBars: 80 });  // Partial<ChartNavigationOptions>, returns void
+```
+
+`mousePan` defaults to `'horizontal'`: mouse and pen plot drags move time while preserving
+the price scale's autoscale setting. `'both'` enables vertical price panning as well.
+Touch retains two-axis panning for either value.
+
+`defaultVisibleBars` defaults to `0`, fitting all loaded bars. A positive count targets
+the newest N loaded bars plus four empty slots on the right, bounded by available data
+and the time scale's spacing limits. Initial data loads and `resetScale()` honour this
+count; changing it applies the default view immediately. `fitContent()` still explicitly
+fits all loaded bars. The count does not change history requests or discard loaded data.
+Apply a host's custom viewport after loading data when it should take precedence. The
+widget's ordinary load views use the configured count.
+
+The Axes / Navigation settings fields are `navigation.mousePan` and
+`navigation.defaultVisibleBars`. They round-trip through `readChartSettings` /
+`applyChartSettings` and the optional `navigation` block in `getState` / `restoreState`.
 
 ## Coordinates
 
@@ -192,11 +226,11 @@ Fires when the visible range's `from` drops below logical index 10, and re-fires
 
 `chart.panes(): readonly Pane[]` exposes the live panes (each with `.priceScale`, `.weight`, `.series()`, `.primitives()`, `.base`, `.top`). Pane management lives in [scales-and-panes](scales-and-panes.md); `chart.addPrimitive(primitive, paneIndex = 0)` and `chart.removePrimitive(primitive)` in [primitives-and-plugins](primitives-and-plugins.md).
 
-`chart.getState()` / `chart.restoreState(state)` serialise viewport, grid, crosshair mode, timezone, pane weights and price scales, indicators, the settings block (canvas, status line, trading colours, event filters), and an opaque `drawings` slot. **Series data is never captured**: `restoreState` returns a `RestoreReport` listing series descriptors for the host to rebuild.
+`chart.getState()` / `chart.restoreState(state)` serialise viewport, grid, crosshair mode, timezone, pane weights and price scales, indicators, the settings block (canvas, navigation, status line, trading colours, event filters), and an opaque `drawings` slot. **Series data is never captured**: `restoreState` returns a `RestoreReport` listing series descriptors for the host to rebuild. Navigation options restore before the saved viewport, so its explicit range wins; an older state without `navigation` keeps the chart's current navigation options.
 
 ## Option accessors
 
-Beyond `applyOptions`, the chart reads and writes its own option blocks so a settings dialog has something to bind to: `setCanvasOptions` / `canvasOptions`, `setGridOptions` / `gridOptions`, `setStatusLineOptions` / `statusLineOptions`, `setPriceScaleOptions` / `priceScaleOptions`, `setAutoScale`, `setAxisChromeOptions` / `axisChromeOptions`, `setEvents` / `setEventOptions` / `eventOptions`, `tradingSettings` / `setTradingSettings`, `primarySeries` / `primarySeriesInfo`, `theme`, `crosshairMode`, `setTimezone` / `timezone`. One axis at a time there is `priceAxisState`, `setPriceAxisOptions`, `setPriceAxisAutoFit`, `setPriceAxisLockRatio` and `movePriceAxis`. The declarative schema over all of them is in [settings-and-menus](settings-and-menus.md).
+Beyond `applyOptions`, the chart reads and writes its own option blocks so a settings dialog has something to bind to: `setCanvasOptions` / `canvasOptions`, `setNavigationOptions` / `navigationOptions`, `setGridOptions` / `gridOptions`, `setStatusLineOptions` / `statusLineOptions`, `setPriceScaleOptions` / `priceScaleOptions`, `setAutoScale`, `setAxisChromeOptions` / `axisChromeOptions`, `setEvents` / `setEventOptions` / `eventOptions`, `tradingSettings` / `setTradingSettings`, `primarySeries` / `primarySeriesInfo`, `theme`, `crosshairMode`, `setTimezone` / `timezone`. One axis at a time there is `priceAxisState`, `setPriceAxisOptions`, `setPriceAxisAutoFit`, `setPriceAxisLockRatio` and `movePriceAxis`. The declarative schema over all of them is in [settings-and-menus](settings-and-menus.md).
 
 ## Render model
 

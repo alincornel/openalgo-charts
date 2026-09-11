@@ -582,7 +582,7 @@ class WidgetImpl implements Widget {
     const viewport = recovering ? this.chart.getVisibleLogicalRange() : undefined;
     this._series.setData(bars);
     if (viewport) this.chart.setVisibleLogicalRange(viewport);
-    else if (!this._keepView) this.chart.fitContent();
+    else if (!this._keepView) this.chart.resetScale();
     this._keepView = false;
     this._statusline?.refresh();
     this.context.status(bars.length === 0 ? `No bars for ${symbol} ${interval}` : `${bars.length} bars`);

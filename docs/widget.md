@@ -255,6 +255,15 @@ Create the widget in a mount effect, hold it in a ref, and `destroy()` it on cle
 the same lifecycle as a bare chart. The widget instance is never framework state: it
 owns DOM of its own and re-rendering around it is wasted work.
 
+## Navigation preferences
+
+Pass `navigation: { mousePan: 'horizontal', defaultVisibleBars: 100 }` to
+`createWidget` to open on the latest 100 bars. Axes settings expose both
+preferences and saved widget layouts retain them. The count controls the initial
+view, new symbol/interval loads and Reset view; it does not limit retained
+history. Use 0 to fit all loaded bars. Mouse and pen pans preserve price autoscale
+by default; choose `mousePan: 'both'` to pan price too. Touch gestures are unchanged.
+
 ## Live recovery and CSP in 2.1.2
 
 The widget passes the last historical bar as the live subscription seed and

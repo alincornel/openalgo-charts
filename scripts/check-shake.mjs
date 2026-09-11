@@ -36,7 +36,8 @@ const BUNDLE = new URL('../dist/openalgo-charts.mjs', import.meta.url).pathname.
 // and because the call is synchronous and returns a string, the serialiser
 // ships with the chart rather than behind a lazy import. Measured cost 3.75 kB
 // brotli: 39.34 kB before, 43.09 kB after, on the same build.
-const LIMIT_BYTES = 44 * 1024;
+// Navigation preferences and reset controls in 2.1.3 also belong to chart-only hosts.
+const LIMIT_BYTES = 45 * 1024;
 
 // Absent from a chart-only build. Each is a string that appears in the adapter
 // source and nowhere in the rendering core.

@@ -12,12 +12,12 @@ const SETTINGS = '.oac-topbar button[aria-label="Chart settings"]';
 const DIALOG = '.oac-dialog[role="dialog"]';
 const TREND = '.oac-rail .oac-rail__fav[data-tools="trend-line"]';
 
-async function mount(page: Page): Promise<string[]> {
+async function mount(page: Page, query = ''): Promise<string[]> {
   const errors: string[] = [];
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   page.on('pageerror', (e) => errors.push(String(e)));
   await page.setViewportSize({ width: 1100, height: 700 });
-  await page.goto('/tests/e2e/widget-fixture.html');
+  await page.goto('/tests/e2e/widget-fixture.html' + query);
   await page.waitForFunction(() => (window as any).__ready === true && (window as any).__loaded > 0);
   return errors;
 }
@@ -80,6 +80,25 @@ test('a rail button arms its tool and Escape disarms it', async ({ page }) => {
   await page.keyboard.press('Escape');
   expect(await page.evaluate(() => (window as any).__widget.draw.activeTool())).toBeNull();
   await expect(trend).toHaveAttribute('aria-pressed', 'false');
+  expect(errors).toEqual([]);
+});
+
+test('navigation settings change the visible bar count and persist across reloads', async ({ page }) => {
+  const errors = await mount(page, '?persist=1');
+  await page.locator(SETTINGS).click();
+  await page.locator(DIALOG).getByRole('tab', { name: 'Axes', exact: true }).click();
+  const count = page.getByLabel('Default visible bars (0 = all)', { exact: true });
+  await count.fill('75');
+  await count.blur();
+  await page.getByLabel('Mouse drag', { exact: true }).selectOption('both');
+  await expect.poll(() => page.evaluate(() => (window as any).__widget.chart.getVisibleLogicalRange())).toEqual({ from: 224, to: 303 });
+  await page.locator(DIALOG).getByRole('button', { name: 'OK', exact: true }).click();
+  await page.evaluate(() => (window as any).__widget.destroy());
+  await page.reload();
+  await page.waitForFunction(() => (window as any).__ready && (window as any).__loaded > 0);
+  expect(await page.evaluate(() => (window as any).__widget.chart.navigationOptions())).toEqual({ mousePan: 'both', defaultVisibleBars: 75 });
+  await page.evaluate(() => (window as any).__widget.setSymbol('NEXT'));
+  await expect.poll(() => page.evaluate(() => (window as any).__widget.chart.getVisibleLogicalRange())).toEqual({ from: 224, to: 303 });
   expect(errors).toEqual([]);
 });
 

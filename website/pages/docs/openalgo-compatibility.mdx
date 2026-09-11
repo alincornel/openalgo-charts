@@ -1,18 +1,18 @@
 ---
 title: OpenAlgo Compatibility
-description: Charts 2.1.2 integration contracts and validation against the OpenAlgo trading application.
+description: Charts 2.1.3 integration contracts and validation against the OpenAlgo trading application.
 ---
 
 # OpenAlgo compatibility
 
 OpenAlgo Charts serves broker terminals, web platforms and standalone traders.
-Version 2.1.2 preserves the existing chart, trading-intent and two-argument feed
+Version 2.1.3 preserves the existing chart, trading-intent and two-argument feed
 APIs. The optional subscription context helps hosts continue history and recover
 after a stream interruption.
 
 ## Adapter contracts
 
-| Boundary | Behavior in 2.1.2 |
+| Boundary | Behavior since 2.1.2 |
 | --- | --- |
 | History interval | `1d`/`1D` maps to `D`, `1w`/`1W` to `W`, and `1M`/`MN` to `M`. Existing broker tokens and intraday tokens pass through. |
 | History time | Numeric seconds/milliseconds normalize to UTC seconds. Explicit `Z` or numeric offsets retain their instant; naive date-time strings use IST. |
@@ -33,11 +33,12 @@ reconciliation and replay of unseen trades remain host responsibilities.
 
 ## Tested against the actual trading application
 
-The reference consumer was OpenAlgo commit `2f9f057de910a1410f9d6cc564001484d2b47d22`,
-whose frontend pins Charts 2.1.0. Its application source was held unchanged in an
-isolated checkout while substituting the candidate Charts package. The full
-TypeScript and Vite production build and **389 existing trading tests in 28
-files** passed. A browser harness exercises the actual `/trading` route with
+The 2.1.3 reference consumer starts from OpenAlgo commit
+`1f39c903e6d7e5159a8ba20b06b1487d5d6401e5`, whose frontend pins Charts 2.1.0,
+with the host replay and lifecycle corrections described below. An isolated
+checkout substitutes the packed Charts candidate for compatibility testing.
+The trading unit suite and full TypeScript and Vite production build pass.
+A browser harness exercises the actual `/trading` route with
 mocked HTTP and WebSocket traffic, without broker credentials or real orders.
 
 The 13 browser checks cover:
@@ -57,14 +58,26 @@ The 13 browser checks cover:
 The 2.1.0 baseline required a legacy-topic workaround to run the unaffected
 workflows. Version 2.1.2 accepts the server's canonical top-level identity directly.
 
-## Known host limitation
+## Host replay and lifecycle corrections
 
-OpenAlgo's existing periodic history reconciliation can replace replay's visible
+The inspected OpenAlgo version's periodic history reconciliation could replace replay's visible
 prefix with the full series while replay remains active. The same probe expanded
-11 visible bars to 184 in both the baseline and the candidate. This comes from
+11 visible bars to 184 with both Charts 2.1.0 and 2.1.2. This came from
 the host's `runReconcile()` path calling `setPriceData()` without its live-tick
-replay guard. Hosts should retain full data separately and update only the replay
-prefix while replay is active. The Charts update does not fix that host code.
+replay guard. The companion host fix retains full live data separately and lets
+the replay controller own both displayed series. Its probe keeps 11 visible bars
+while all 184 source bars remain available; exiting replay restores current data.
+
+The host corrections also reject stale or destroyed symbol-load continuations,
+prevent WebSocket/polling startup after a pane closes, and share pending custom
+indicator registration so concurrent restores wait for a ready registry.
+These are OpenAlgo application changes and must be integrated there separately;
+updating the chart package alone cannot replace a host's data-loading code.
+
+Mouse and pen panning in Charts 2.1.3 is horizontal by default. A host that needs
+the previous two-axis plot drag can set `navigation.mousePan: 'both'`. Order-line
+dragging still uses its own interaction path. The reset control and saved
+default visible-bar count are available through the shared settings schema.
 
 These checks validate the inspected consumer and mocked protocol cases. They do
 not establish broker-specific data quality, exchange session alignment or exact
@@ -78,11 +91,12 @@ candidate package installed. From the Charts repository:
 ```bash
 node scripts/check-openalgo-compat.mjs \
   --frontend /path/to/isolated-openalgo/frontend \
-  --label candidate-2.1.2 \
+  --label candidate-2.1.3 \
   --probe-host true \
   --output /tmp/openalgo-compatibility.json
 ```
 
 The report includes bundle SHA256 values and observed requests. The harness
 removes backend proxies and rejects unexpected network traffic. The optional
-host probe records the replay limitation separately from compatibility checks.
+host probe records replay isolation separately from compatibility checks. With
+the host fix applied, its `overwroteReplay` field must be `false`.

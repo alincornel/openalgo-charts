@@ -8,6 +8,31 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 2.1.3
+
+2026-09-11
+
+- Drag the time axis left to expand candle spacing, or right to compress it.
+  The website gallery, documentation charts, widget and embedded demos use the
+  same corrected engine.
+- Mouse and pen chart drags now pan horizontally by default and preserve price
+  autoscale. Axes settings can enable Time and price movement. Direct price-axis
+  drags and touch gestures retain their existing controls.
+- A Reset view button sits between the bottom zoom and pan controls.
+- Time-axis drags notify linked charts and saved layouts through zoom events.
+  Initial fitting waits for a measurable container, and Reset view restores
+  price autoscale on both axes and overlay scales.
+- Axes settings can save a default visible-bar count. Positive values show the
+  latest requested bars initially and on reset; 0 fits all loaded bars. This
+  changes zoom without discarding history or reducing the requested data.
+  The widget retains the preference across symbol and interval changes.
+- Custom hosts can configure `ChartOptions.navigation` and use
+  `navigationOptions()` / `setNavigationOptions()`. Explicit `fitContent()` still
+  fits all loaded bars. See [navigation settings](/docs/scales-and-panes).
+
+The panning, reset and default-view controls address
+[issue #9](https://github.com/marketcalls/openalgo-charts/issues/9).
+
 ## 2.1.2
 
 2026-09-10

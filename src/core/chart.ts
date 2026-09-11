@@ -172,6 +172,14 @@ export interface ExportSvgOptions {
   dpr?: 1;
 }
 
+/** Preferences for pointer panning and the view restored by reset. */
+export interface ChartNavigationOptions {
+  /** Mouse and pen plot drags. Touch gestures retain two-axis panning. Default: horizontal. */
+  mousePan: 'horizontal' | 'both';
+  /** Latest bars to show initially and on reset. 0 fits all loaded bars (default). */
+  defaultVisibleBars: number;
+}
+
 export interface ChartOptions {
   document?: Document;
   pixelRatio?: () => number;
@@ -182,6 +190,8 @@ export interface ChartOptions {
   timeAxisHeight?: number;
   /** Initial horizontal scale configuration, including spacing limits for wide profiles. */
   timeScale?: Partial<TimeScaleOptions>;
+  /** Saved navigation preferences, also exposed in the Axes settings tab. */
+  navigation?: Partial<ChartNavigationOptions>;
   /**
    * Where indicator legend rows start inside **one** pane, in media px. A host
    * that draws its own overlay in a pane's top-left corner — an OHLC readout, a
@@ -701,6 +711,7 @@ export class Chart {
   private _cursorPane: number | null = null;
   private _cursor: { x: number; y: number } | null = null;
   private _dragging = false;
+  private readonly _navigation: ChartNavigationOptions = { mousePan: 'horizontal', defaultVisibleBars: 0 };
   private _dragStartX = 0;
   private _dragStartY = 0;
   private _lastDragY = 0;
@@ -859,6 +870,7 @@ export class Chart {
     if (margins.marginTop !== undefined || margins.marginBottom !== undefined) {
       this._priceScaleOptions = { ...this._priceScaleOptions, ...margins };
     }
+    this._patchNavigation(options.navigation ?? {});
     const nav = options.timeNavigator ?? true;
     if (nav !== false) {
       this._timeNav = new TimeNavigator(
@@ -950,6 +962,40 @@ export class Chart {
     this._timeScale.fitContent(this._dataLayer.length);
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
     this._emitViewportIfMoved(before);
+  }
+
+  /** Current navigation preferences, safe to save as JSON. */
+  public navigationOptions(): Readonly<ChartNavigationOptions> {
+    return { ...this._navigation };
+  }
+
+  /** A new default bar count immediately restores that view without dropping history. */
+  public setNavigationOptions(patch: Partial<ChartNavigationOptions>): void {
+    const before = this._navigation.defaultVisibleBars;
+    this._patchNavigation(patch);
+    if (before !== this._navigation.defaultVisibleBars) this.resetScale();
+  }
+
+  private _patchNavigation(patch: Partial<ChartNavigationOptions>): void {
+    if (patch.mousePan === 'horizontal' || patch.mousePan === 'both') this._navigation.mousePan = patch.mousePan;
+    const count = patch.defaultVisibleBars;
+    // Saved layouts are untrusted input. Invalid values must not poison spacing.
+    if (typeof count === 'number' && Number.isFinite(count) && count >= 0) {
+      this._navigation.defaultVisibleBars = Math.min(100000, Math.floor(count));
+    }
+  }
+
+  private _fitDefaultView(): boolean {
+    const total = this._dataLayer.length;
+    if (total <= 0 || !(this._timeScale.width > 0)) return false;
+    // Fit the real dataset first: baseIndex must still identify its newest bar,
+    // not the last bar of the smaller requested window.
+    this._timeScale.fitContent(total);
+    if (this._navigation.defaultVisibleBars > 0) {
+      const count = Math.min(total, this._navigation.defaultVisibleBars);
+      this._timeScale.setBarSpacing(this._timeScale.width / (count + this._timeScale.rightOffset));
+    }
+    return true;
   }
 
   /** The keyboard shortcut manager (null when shortcuts are disabled). */
@@ -2258,8 +2304,7 @@ export class Chart {
     this._timeScale.setBaseIndex(this._dataLayer.baseIndex);
     if (!this._hasFitContent && this._dataLayer.length > 0) {
       this._timeScale.setWidth(Math.max(0, this._width - this._rightAxisWidth - this._leftAxisWidth));
-      this._timeScale.fitContent(this._dataLayer.length);
-      this._hasFitContent = true;
+      this._hasFitContent = this._fitDefaultView();
     }
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
     this._updateAccessibleSummary();
@@ -2493,6 +2538,7 @@ export class Chart {
       timezone: this._timezone,
       viewport: { ...this.getVisibleLogicalRange() },
       barSpacing: this._timeScale.barSpacing,
+      navigation: this.navigationOptions(),
       grid: this.gridOptions(),
       // The settings dialog's own slice. It lives beside `grid` rather than
       // inside it because these are chart-wide overrides, and it is declared by
@@ -2551,6 +2597,7 @@ export class Chart {
     if (s.statusLine) this.setStatusLineOptions(s.statusLine);
     if (s.trading) this.setTradingSettings(s.trading);
     if (s.axisChrome) this.setAxisChromeOptions(s.axisChrome);
+    if (s.navigation && typeof s.navigation === 'object') this._patchNavigation(s.navigation);
     if (s.events) this.setEventOptions(s.events);
     if (s.crosshairMode) this._crosshairMode = s.crosshairMode;
     // A saved zone is data of unknown provenance, so an unrecognised name is
@@ -2686,6 +2733,8 @@ export class Chart {
     this._width = width;
     this._height = height;
     this._relayout();
+    // Hidden tabs can receive history before they have any usable plot width.
+    if (!this._hasFitContent) this._hasFitContent = this._fitDefaultView();
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
     this.emit('resize', { width, height });
   }
@@ -2993,7 +3042,7 @@ export class Chart {
     if (this._shortcuts === null) return {};
     const out: Record<string, string> = {};
     for (const e of this._shortcuts.list()) {
-      if (e.command !== 'zoomIn' && e.command !== 'zoomOut') continue;
+      if (e.command !== 'zoomIn' && e.command !== 'zoomOut' && e.command !== 'resetScale') continue;
       const combo = e.combos[0];
       if (combo !== undefined) out[e.command] = prettyCombo(combo);
     }
@@ -3506,10 +3555,11 @@ export class Chart {
       return;
     }
     if (this._axisDrag === 'time') {
-      // drag right (dx>0) → expand (wider bars); drag left → compress
+      // Drag left to widen bars; drag right to show more bars in the same space.
       const dx = p.x - this._axisStartCoord;
-      this._timeScale.setBarSpacing(this._axisStartSpacing * Math.exp(dx * 0.005));
+      this._timeScale.setBarSpacing(this._axisStartSpacing * Math.exp(-dx * 0.005));
       this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
+      this._emitViewport('zoom');
       return;
     }
     // Placement mode suppresses the pan path, which is where `_pointerMoved`
@@ -3541,8 +3591,10 @@ export class Chart {
       if (Math.abs(dx) > 3 || Math.abs(p.y - this._dragStartY) > 3) this._pointerMoved = true;
       // horizontal: scroll time
       this._timeScale.setRightOffset(this._dragStartOffset - dx / this._timeScale.barSpacing);
-      // vertical: pan the dragged pane's price scale (incremental, switches to manual)
-      this._panes[this._downPane]?.priceScale.panByPixels(p.y - this._lastDragY);
+      // Small vertical mouse movement must not silently disable autoscale.
+      if (e.pointerType === 'touch' || this._navigation.mousePan === 'both') {
+        this._panes[this._downPane]?.priceScale.panByPixels(p.y - this._lastDragY);
+      }
       this._lastDragY = p.y;
       const t = this._now();
       const dt = t - this._lastDragT;
@@ -3795,18 +3847,18 @@ export class Chart {
   }
 
   /**
-   * Restore the default view: fit all bars on the time axis and re-enable
+   * Restore the preferred visible bar count and re-enable
    * auto-scaling on every price axis (undoing any pan/zoom or manual axis drag).
    * Same as double-clicking the chart.
    */
   public resetScale(): void {
     const before = this._timeScale.visibleRange();
-    if (this._dataLayer.length > 0) this._timeScale.fitContent(this._dataLayer.length);
+    this._hasFitContent = this._fitDefaultView();
     for (const pane of this._panes) {
       // "Back to the default view" includes the ratio locks: one would otherwise
       // sit in the map holding a scale that has just been told to auto-fit.
       pane.clearRatioLocks();
-      pane.priceScale.setAutoScale(true);
+      for (const scale of pane.scales()) scale.setAutoScale(true);
     }
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
     this._emitViewportIfMoved(before);

@@ -99,6 +99,8 @@ interface ChartOptions {
   zoomAnchor?: 'cursor' | 'right';
   /** What a double-click on a pane does. Default 'reset'; 'maximize' toggles that pane to the whole stack. */
   doubleClick?: 'reset' | 'maximize' | 'none';
+  /** Mouse/pen pan direction and the initial/reset view. */
+  navigation?: Partial<ChartNavigationOptions>;
   conflate?: boolean;
   conflationFactor?: number;
   /** Which backend paints the series. Default 'canvas2d'; 'webgl2' needs the webgl tier. */
@@ -115,7 +117,7 @@ interface ChartOptions {
    */
   timezone?: string;
   shortcuts?: ShortcutManager | Partial<ShortcutManagerOptions> | false;
-  /** Hover-revealed zoom / step controls above the time axis. Default true. */
+  /** Hover-revealed zoom, reset and step controls above the time axis. Default true. */
   timeNavigator?: boolean | Partial<TimeNavigatorOptions>;
   /**
    * Where indicator legend rows start in the pane at the chart's top, in media px.
@@ -163,6 +165,28 @@ legend, and its settings / close / move-pane buttons, pushed off it entirely.
 </Callout>
 
 Options passed to `createChart(container, options)`. All fields are optional; defaults are sensible for browser use.
+
+### `ChartNavigationOptions`
+
+```ts
+interface ChartNavigationOptions {
+  /** Mouse and pen plot drags. Touch always retains two-axis panning. */
+  mousePan: 'horizontal' | 'both';
+  /** Newest loaded bars in the initial/reset view. 0 fits all loaded bars. */
+  defaultVisibleBars: number;
+}
+```
+
+Exported from `openalgo-charts`. Defaults are `{ mousePan: 'horizontal', defaultVisibleBars: 0 }`.
+Pass a partial block as `ChartOptions.navigation`, read the resolved values with
+`chart.navigationOptions(): Readonly<ChartNavigationOptions>`, or update them with
+`chart.setNavigationOptions(patch: Partial<ChartNavigationOptions>): void`.
+
+A positive count targets the newest N loaded bars plus four empty slots on the right,
+bounded by the available data and bar-spacing limits. Updating the count applies the
+default view immediately; `resetScale()` restores it with price autoscale, while
+`fitContent()` explicitly fits all loaded bars. This setting does not limit history
+requests or discard data. See [Interactions](/docs/interactions).
 
 ### `AddSeriesOptions`
 
