@@ -24,7 +24,7 @@
  *   every listener.
  */
 import {
-  DataLoadingController, createChart, darkTheme, lightTheme, registeredIntervals, registeredChartTypes, tryResolveInterval, resolveInterval, isKnownInterval,
+  ChartObjects, DataLoadingController, createChart, darkTheme, lightTheme, registeredIntervals, registeredChartTypes, tryResolveInterval, resolveInterval, isKnownInterval,
   type Chart, type ChartOptions, type ChartTheme, type DataFeed, type Bar, type SeriesApi, type SeriesType,
   type RestoreReport, type BarsRequest, type DataLoadingOptions, type DataLoadingSnapshot,
 } from 'openalgo-charts';
@@ -41,7 +41,8 @@ import { mountToasts, type ToastHandle, type ToastKind, type Toaster } from './t
 import { applyTokens, themeMode, widgetTokens, type WidgetThemeName } from './tokens';
 import { injectWidgetStyles } from './styles';
 import { mountDataStatus, type DataStatusHandle } from './data-status';
-import { attachContextMenu, DIALOG_CSS, type OrderRequest } from './dialogs/index';
+import { attachContextMenu, DIALOG_CSS, mountIndicatorSettings, mountDrawingProperties, type OrderRequest, type PanelHandle } from './dialogs/index';
+import { mountObjectsPanel, OBJECTS_PANEL_CSS } from './objects-panel';
 
 /** The intervals offered when the host names none: the registry's codes are appended. */
 export const DEFAULT_INTERVALS: readonly string[] = ['1m', '5m', '15m', '1h', '1d', '1w'];
@@ -125,6 +126,8 @@ export interface Widget {
   readonly dataController: DataLoadingController | null;
   readonly chart: Chart;
   readonly draw: DrawingController;
+  /** Shared inventory and supported actions for drawings, indicators and registered profiles. */
+  readonly objects: ChartObjects;
   /** The `.oac-widget` element. */
   readonly root: HTMLElement;
   /** What every mounted piece was handed; a host mounting its own panel wants the same. */
@@ -143,6 +146,8 @@ export interface Widget {
   /** Open the settings dialog. False when the dialog tier has not registered one. */
   openSettings(): boolean;
   openIndicatorPicker(): boolean;
+  /** Open the searchable object inventory. False after destruction. */
+  openObjects(): boolean;
   getState(): WidgetState;
   restoreState(state: unknown): WidgetRestoreReport;
   /** Load (or reload) bars from the feed for the current symbol and interval. */
@@ -212,6 +217,7 @@ type ContextParts = Omit<WidgetContext, 'theme' | 'chartTheme'>;
 class WidgetContextImpl implements WidgetContext {
   public readonly chart: Chart;
   public readonly draw: DrawingController;
+  public readonly objects: ChartObjects | undefined;
   public readonly root: HTMLElement;
   public readonly document: Document;
   public readonly keymap: Keymap;
@@ -231,6 +237,7 @@ class WidgetContextImpl implements WidgetContext {
     this._source = source;
     this.chart = parts.chart;
     this.draw = parts.draw;
+    this.objects = parts.objects;
     this.root = parts.root;
     this.document = parts.document;
     this.keymap = parts.keymap;
@@ -254,6 +261,7 @@ class WidgetImpl implements Widget {
   public readonly dataController: DataLoadingController | null;
   public readonly chart: Chart;
   public readonly draw: DrawingController;
+  public readonly objects: ChartObjects;
   public readonly root: HTMLElement;
   public readonly context: WidgetContext;
   private _series: SeriesApi;
@@ -268,6 +276,7 @@ class WidgetImpl implements Widget {
   private _rail: RailHandle | null = null;
   private _topbar: TopbarHandle | null = null;
   private _statusline: StatuslineHandle | null = null;
+  private _objectsPanel: PanelHandle | null = null;
   private readonly _intervals: string[];
 
   private _symbol: string;
@@ -297,7 +306,7 @@ class WidgetImpl implements Widget {
     }) : null;
     const doc = options.document ?? container.ownerDocument;
     this._doc = doc;
-    injectWidgetStyles(doc, DIALOG_CSS, options.styleNonce);
+    injectWidgetStyles(doc, DIALOG_CSS + OBJECTS_PANEL_CSS, options.styleNonce);
 
     // ── persisted facts, before anything is built from them ────────────
     const ns = typeof options.persist === 'string' ? options.persist : 'default';
@@ -360,6 +369,14 @@ class WidgetImpl implements Widget {
     this._series = this.chart.addSeries(this._chartType as SeriesType);
     this.chart.setDataContext({ symbol: this._symbol, exchange: this._exchange, interval: this._interval });
     this.draw = new DrawingController(this.chart, {});
+    this.objects = new ChartObjects(this.chart, {
+      drawings: this.draw,
+      onSettings: object => {
+        if (object.kind === 'source') this.openSettings();
+        else if (object.kind === 'indicator') mountIndicatorSettings(this.context, undefined, { instanceId: object.sourceId });
+        else if (object.kind === 'drawing') mountDrawingProperties(this.context, undefined, { ids: [object.sourceId] });
+      },
+    });
 
     // ── shared furniture ───────────────────────────────────────────────
     const overlays = createOverlayStack(root, doc);
@@ -372,6 +389,7 @@ class WidgetImpl implements Widget {
     this.context = new WidgetContextImpl(this, {
       chart: this.chart,
       draw: this.draw,
+      objects: this.objects,
       root,
       document: doc,
       keymap: this._keymap,
@@ -416,6 +434,7 @@ class WidgetImpl implements Widget {
         onTheme: (next) => this.setTheme(next),
         onSettings: (anchor) => this._openDialog('settings', anchor),
         onIndicators: (anchor) => this._openDialog('indicatorPicker', anchor),
+        onObjects: (anchor) => this._openObjects(anchor),
         settingsAvailable: () => widgetDialog('settings') !== null,
         indicatorsAvailable: () => widgetDialog('indicatorPicker') !== null,
       });
@@ -542,6 +561,15 @@ class WidgetImpl implements Widget {
 
   public openSettings(): boolean { return this._openDialog('settings'); }
   public openIndicatorPicker(): boolean { return this._openDialog('indicatorPicker'); }
+
+  public openObjects(): boolean { return this._openObjects(); }
+
+  private _openObjects(anchor?: HTMLElement): boolean {
+    if (this._destroyed) return false;
+    if (this._objectsPanel?.isOpen()) { this._objectsPanel.el.focus(); return true; }
+    this._objectsPanel = mountObjectsPanel(this.context, anchor, { onClose: () => { this._objectsPanel = null; } });
+    return true;
+  }
 
   private _openDialog(name: WidgetDialogName, anchor?: HTMLElement): boolean {
     const mount = widgetDialog(name);
@@ -811,7 +839,7 @@ class WidgetImpl implements Widget {
 
   /** Every change that lands in `getState` schedules a save and a layout notice. */
   private _followChart(): void {
-    const chartEvents = ['paneAdded', 'paneResized', 'paneMoved', 'paneMaximized', 'paneRemoved', 'indicatorRemoved', 'indicatorSettings', 'priceAxisMoved'];
+    const chartEvents = ['paneAdded', 'paneResized', 'paneMoved', 'paneMaximized', 'paneRemoved', 'indicatorRemoved', 'indicatorSettings', 'priceAxisMoved', 'objects:change'];
     for (const ev of chartEvents) {
       this._cleanups.push(this.chart.on(ev, () => { this._bus.emit('layout', { reason: ev }); this._scheduleSave(); }));
     }
@@ -841,6 +869,7 @@ class WidgetImpl implements Widget {
     this._statusline?.destroy();
     this._toasts.destroy();
     this._keymap.destroy();
+    this.objects.destroy();
     this.draw.destroy();
     this.chart.destroy();
     this.root.remove();

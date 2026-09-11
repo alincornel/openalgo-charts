@@ -58,6 +58,24 @@ function make(opts: WidgetOptions = {}, doc: FakeDocument = fakeWidgetDocument()
 const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 
 describe('the frame', () => {
+  it('owns a live objects panel and routes edits to existing settings dialogs', () => {
+    const { w, root, doc } = make();
+    const drawing = w.draw.add({ tool: 'trend-line', paneIndex: 0, style: {}, points: [] });
+    expect(w.context.objects).toBe(w.objects);
+    const opener = root.querySelector('.oac-topbar__objects')!;
+    expect(opener).not.toBeNull();
+    fire(opener, 'click');
+    expect(root.querySelector('.oac-objects')).not.toBeNull();
+    expect(doc.head.children[0].textContent).toContain('.oac-objects__row');
+    expect(w.objects.openSettings('drawing:' + drawing.id)).toBe(true);
+    expect(root.querySelector('.oac-props')).not.toBeNull();
+    w.context.overlays.closeAll();
+    expect(w.openObjects()).toBe(true);
+    w.destroy();
+    expect(w.objects.list()).toEqual([]);
+    expect(w.openObjects()).toBe(false);
+  });
+
   it('builds a top bar, a stage with the rail and the chart, a status line and a toast host', () => {
     const { root, container } = make();
     expect(container.children[0]).toBe(root);

@@ -1126,8 +1126,10 @@ export class Chart {
         // "Default", which is the key present and undefined).
         if ('precision' in patch) this._applyPrecision(pane.scaleOf(record), patch.precision);
         this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
+        if (this._primary?.record === record) this.emit('objects:change', {});
       },
       remove: (): void => {
+        const primary = this._primary?.record === record;
         pane.removeSeries(record);
         this._dataLayer.removeSeries(dataId);
         if (this._firstDataId.value === dataId) this._firstDataId.value = null;
@@ -1135,6 +1137,7 @@ export class Chart {
         this._timeScale.setBaseIndex(this._dataLayer.baseIndex);
         this._recomputeAxisColumns();
         this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
+        if (primary) this.emit('objects:change', {});
       },
       priceScale: (): PriceScale => pane.scaleOf(record),
       createMarkers: (): SeriesMarkers => {
@@ -1145,7 +1148,10 @@ export class Chart {
         return m;
       },
     };
-    if (isPrimary) this._primary = { api, record };
+    if (isPrimary) {
+      this._primary = { api, record };
+      this.emit('objects:change', {});
+    }
     return api;
   }
 
@@ -1261,6 +1267,7 @@ export class Chart {
       options.paneIndex,
     );
     this._indicators.push(instance);
+    this.emit('objects:change', {});
     return instance;
   }
 
@@ -1305,10 +1312,16 @@ export class Chart {
 
   /** Remove one indicator instance by its handle id. Returns true if it existed. */
   public removeIndicator(instanceId: string): boolean {
+    const instance = this._indicators.find(x => x.id === instanceId);
+    if (instance === undefined) return false;
+    instance.remove();
+    return true;
+  }
+
+  private _forgetIndicator(instanceId: string): void {
     const i = this._indicators.findIndex((x) => x.id === instanceId);
-    if (i < 0) return false;
+    if (i < 0) return;
     const { indicatorId, paneIndex } = this._indicators[i];
-    this._indicators[i].remove();
     this._indicators.splice(i, 1);
     this.emit('indicatorRemoved', { instanceId, indicatorId, paneIndex });
     // An indicator pane that just emptied has nothing left to show. This lived
@@ -1317,7 +1330,6 @@ export class Chart {
     // `getState` then persisted the orphan, so every reload restored a blank
     // region. Doing it here means every caller behaves the same.
     if (paneIndex > 0 && this._panes[paneIndex]?.series().length === 0) this.removePane(paneIndex);
-    return true;
   }
 
   /** Optional instrument identity supplied by the host, never inferred from bars. */
@@ -1335,6 +1347,7 @@ export class Chart {
 
   private _indicatorHost(): IndicatorHost {
     return {
+      indicatorRemoved: (id): void => this._forgetIndicator(id),
       flushIndicators: (): void => this._flushIndicators(),
       // The scale that draws the ladder is the one that decides how a number on
       // that pane is written, floor, tick, custom formatter and all.
@@ -2582,6 +2595,7 @@ export class Chart {
         indicatorId: i.indicatorId,
         settings: i.settings(),
         paneIndex: i.paneIndex,
+        visible: i.visible(),
       })),
     };
     if (this._drawingState !== undefined) state.drawings = this._drawingState;
@@ -2642,8 +2656,7 @@ export class Chart {
     // recreated. Replace rather than append, so restore is idempotent.
     let indicators = 0;
     if (s.indicators) {
-      for (const instance of this._indicators) instance.remove();
-      this._indicators.length = 0;
+      for (const instance of this._indicators.splice(0)) instance.remove();
       // The band an oscillator declares for its own pane (RSI 0..100) is
       // declared by the instance that *claimed* that pane. A restored instance
       // is handed its pane index instead of claiming one, so it declares
@@ -2656,9 +2669,11 @@ export class Chart {
       for (const spec of s.indicators) {
         if (!hasIndicator(spec.indicatorId)) continue; // tier not loaded — skip, don't throw
         const descriptor = getIndicator(spec.indicatorId);
-        this._indicators.push(new IndicatorInstance(
+        const instance = new IndicatorInstance(
           this._indicatorHost(), descriptor, spec.settings, spec.paneIndex,
-        ));
+        );
+        this._indicators.push(instance);
+        if (spec.visible === false) instance.setVisible(false);
         indicators += 1;
         if (spec.paneIndex > 0 && !declared.has(spec.paneIndex)) {
           declared.add(spec.paneIndex);
@@ -2706,6 +2721,7 @@ export class Chart {
     if (s.barSpacing !== undefined) this._timeScale.setBarSpacing(s.barSpacing);
     if (s.viewport && this._dataLayer.length > 0) this.setVisibleLogicalRange(s.viewport);
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
+    this.emit('objects:change', {});
     return { applied: true, series: s.series ?? [], indicators };
   }
 
@@ -2719,6 +2735,7 @@ export class Chart {
 
   public setDrawingState(value: unknown): void {
     this._drawingState = value;
+    this.emit('objects:change', {});
   }
 
   public invalidate(build: (mask: InvalidateMask) => void): void {
@@ -2917,8 +2934,8 @@ export class Chart {
     // otherwise their series rows would outlive the pane holding them.
     for (let i = this._indicators.length - 1; i >= 0; i--) {
       if (this._indicators[i].paneIndex !== index) continue;
-      this._indicators[i].remove();
-      this._indicators.splice(i, 1);
+      const [instance] = this._indicators.splice(i, 1);
+      instance.remove();
     }
     const pane = this._panes[index];
     for (const record of [...pane.series()]) {
@@ -4186,8 +4203,7 @@ export class Chart {
     }
     this._stopKinetic();
     this._stopZoomGlide();
-    for (const indicator of this._indicators) indicator.remove();
-    this._indicators.length = 0;
+    for (const indicator of this._indicators.splice(0)) indicator.remove();
     this._resizeObserver?.disconnect();
     this._resizeObserver = null;
     if (typeof window !== 'undefined') {

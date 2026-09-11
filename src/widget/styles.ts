@@ -267,17 +267,17 @@ export const WIDGET_CSS = `
 @keyframes oac-toast-in { from { opacity: 0; transform: translateY(6px); } }
 
 /* Overlay layer: popovers anchored to a control, dialogs centred over a scrim. */
-.oac-widget .oac-layer { position: absolute; inset: 0; z-index: 60; pointer-events: none; }
+.oac-widget .oac-layer { container: oac-widget / inline-size; position: absolute; inset: 0; z-index: 60; pointer-events: none; }
 .oac-widget .oac-layer > * { pointer-events: auto; }
 .oac-widget .oac-scrim { position: absolute; inset: 0; background: ${v('scrim')}; }
 .oac-widget .oac-pop { position: absolute; left: 0; top: 0; }
 .oac-widget .oac-dialog { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-  min-width: 300px; max-width: calc(100% - 24px); max-height: calc(100% - 24px); display: flex; flex-direction: column;
+  min-width: 0; max-width: calc(100% - 24px); max-height: calc(100% - 24px); display: flex; flex-direction: column;
   background: ${v('panel')}; border: 1px solid ${v('bd')}; border-radius: 12px; box-shadow: ${v('shadow')}; outline: none; }
-.oac-widget .oac-dialog__head { display: flex; align-items: center; gap: 8px; padding: 12px 14px 8px; }
-.oac-widget .oac-dialog__title { flex: 1 1 auto; font-size: 14px; font-weight: 700; color: ${v('tx-strong')}; }
-.oac-widget .oac-dialog__body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 4px 14px 10px; }
-.oac-widget .oac-dialog__foot { display: flex; align-items: center; gap: 8px; padding: 10px 14px 12px;
+.oac-widget .oac-dialog__head { flex: none; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 12px 14px 8px; }
+.oac-widget .oac-dialog__title { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; font-size: 14px; font-weight: 700; color: ${v('tx-strong')}; }
+.oac-widget .oac-dialog__body { flex: 1 1 auto; min-height: 0; min-width: 0; overflow: auto; overscroll-behavior: contain; padding: 4px 14px 10px; }
+.oac-widget .oac-dialog__foot { flex: none; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 14px 12px;
   border-top: 1px solid ${v('bd-soft')}; }
 .oac-widget .oac-dialog__foot > .oac-spacer { flex: 1 1 auto; }
 
@@ -291,8 +291,10 @@ export const WIDGET_CSS = `
 .oac-widget .oac-keys__row.is-shadowed > span, .oac-widget .oac-keys__row.is-shadowed > kbd { color: ${v('faint')}; text-decoration: line-through; }
 .oac-widget .oac-keys__note { color: ${v('faint')}; font-size: 11px; padding: 4px 0 0; }
 
-@media (max-width: 720px) {
+@container oac-widget (max-width: 720px) {
   .oac-widget .oac-keys { columns: 1; min-width: 0; }
+}
+@media (max-width: 720px) {
   .oac-widget .oac-sym > input { width: 104px; }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -1,6 +1,6 @@
 ---
 title: OpenAlgo Compatibility
-description: Charts 2.1.6 integration contracts and validation against the OpenAlgo trading application.
+description: Charts integration contracts, object management and validation against the OpenAlgo trading application.
 ---
 
 # OpenAlgo compatibility
@@ -11,6 +11,17 @@ APIs. The optional shared controller coordinates history, paging, cache freshnes
 and stream recovery without changing order intent contracts.
 
 ## Adapter contracts
+
+The 2.1.7 Objects integration adds one `ChartObjects` model per chart generation.
+The `/trading` Objects panel follows the focused pane and uses existing drawing and
+indicator editors. Indicator visibility is saved alongside settings. Drawing actions
+use the current drawing controller and retain its undo history. Models and profile
+registrations are released before their chart is replaced.
+
+TPO and session-volume-profile layouts register their supported settings action.
+They do not advertise visibility, removal or locking until those operations exist
+in the host. Broker order lines, positions, watermarks and volume primitives remain
+outside the inventory. The Objects model has no broker execution API.
 
 | Boundary | Behavior since 2.1.2 |
 | --- | --- |

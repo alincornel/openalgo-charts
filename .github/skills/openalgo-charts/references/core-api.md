@@ -113,6 +113,94 @@ Items are `{ time, open, high, low, close, volume?, color? }`, `{ time, value, c
 - `chart.applySize(width, height)`: media px; no-ops when unchanged. A `ResizeObserver` on the container calls it automatically, so manual calls are only needed in hosts without `ResizeObserver`.
 - `chart.applyOptions(opts)` takes a runtime subset only: `theme`, `grid`, `canvas`, `statusLine`, `priceScale`, `priceFormatter`, `timeFormatter`, `timezone`, `crosshairMode`. Nothing else from `ChartOptions` is re-appliable.
 
+## Object inventory and management
+
+Use the base-tier `ChartObjects` for a custom host's Objects list. It creates no DOM
+and imports no optional tier. A widget already owns one at `widget.objects`; its
+`openObjects()` and reusable `mountObjectsPanel` are in the
+[widget tier](widget.md#objects-panel).
+
+```ts
+import { ChartObjects } from 'openalgo-charts';
+
+const objects = new ChartObjects(chart, {
+  drawings: draw, // optional structural DrawingController from openalgo-charts/draw
+  onSettings: row => openExistingEditor(row.kind, row.sourceId),
+});
+const off = objects.subscribe(rows => renderInventory(rows));
+const drawing = objects.list().find(row => row.kind === 'drawing');
+if (drawing?.capabilities.lock) objects.setLocked(drawing.id, true);
+
+off();
+objects.destroy(); // releases observers, not the chart or its objects
+```
+
+`ChartObjectsOptions` contains optional `drawings: ChartObjectDrawingSource` and
+`onSettings(object: ChartObjectSnapshot)`. `ChartObjectDrawingSource` describes
+`drawings`, `get`, `selection`, `select`, `update` and `remove`; the draw tier's
+`DrawingController` satisfies it. `ChartObjectDrawing` is the structural record
+with `id`, `tool`, `paneIndex`, `points: { time, price }[]`, optional `visible` and `locked`.
+
+`ChartObjectSnapshot` is immutable: `{ id, sourceId, kind, name, paneIndex, visible,
+selected, locked?, dataStatus?, capabilities }`. `ChartObjectKind` is
+`'source' | 'indicator' | 'drawing' | 'profile'`. `ChartObjectCapabilities` contains
+boolean `select`, `visibility`, `lock`, `remove`, `settings`, `focus`. `paneIndex` is
+zero-based; the widget displays pane numbers starting at 1. `dataStatus` uses
+`IndicatorDataStatus`, including loading, ready, empty, unsupported and error.
+
+| Method | Contract |
+|---|---|
+| `list()` / `get(id)` | Current immutable rows / one row or `undefined`; reads also refresh unsignalled host state. |
+| `subscribe(listener)` | Immediately supplies current rows, then inventory changes; returns an unsubscribe function. |
+| `select(id: string \| null, additive = false)` | Selects an object, or clears selection with `null`. Additive selection applies to drawings. |
+| `setVisible(id, on)` / `setLocked(id, on)` | Delegates to the owning subsystem when the capability exists. |
+| `remove(id)` / `openSettings(id)` / `focus(id)` | Delegates the supported action. |
+| `register(provider)` | Adds explicit host-owned state; returns idempotent registration cleanup. |
+| `refresh()` | Re-reads provider state without polling. |
+| `destroy()` | Releases chart/provider observations without deleting objects; idempotent. |
+
+All six action methods return `false` for missing, unsupported or failed actions.
+The primary price row, `source:primary`, is protected: it offers only settings when
+`onSettings` exists. Indicator rows use `indicator:<instanceId>`, drawings use
+`drawing:<drawingId>`. Pass the snapshot's `id` to inventory actions, and `sourceId`
+to existing editors. Drawing selection follows the canvas. Drawing visibility,
+lock and removal delegate to the controller, preserving its undo history; focus
+brings anchors, including future anchors, into view and sets the pane price range
+to manual. Indicator removal releases its data lifecycle and removes an empty pane.
+
+Profiles require explicit registration. Arbitrary primitives and trading overlays
+do not automatically become removable objects. `ChartObjectProvider` takes `id`,
+`get(): ChartObjectDefinition | null`, optional `subscribe(listener): () => void`,
+and optional synchronous `select`, `setVisible(on)`, `setLocked(on)`, `remove`,
+`openSettings`, `focus` callbacks. Only supplied callbacks enable capabilities.
+`ChartObjectDefinition` contains `kind`, `name`, and optional `paneIndex`, `visible`,
+`locked`, `selected`, `dataStatus`. Return `null` when the object does not exist.
+
+```ts
+let visible = true;
+let exists = true;
+const unregister = objects.register({
+  id: 'session-profile',
+  get: () => exists ? { kind: 'profile', name: 'Session profile', visible } : null,
+  setVisible(on) {
+    if (on === visible) return;
+    visible = on;
+    if (on) chart.addPrimitive(profile); else chart.removePrimitive(profile);
+  },
+  remove() { chart.removePrimitive(profile); exists = false; },
+});
+```
+
+This assumes `profile` is already attached. The provider offers visibility and
+removal, with no fabricated lock, focus or settings controls. Provider IDs become
+`custom:<id>`, so they cannot shadow built-ins; empty or duplicate IDs throw.
+Registration cleanup stops observation and removes the row, leaving primitive
+teardown to the host. Call `objects.refresh()` after host-side state changes, or
+notify through the provider's subscription. Provider definitions, callbacks and
+state are not serialized in chart layouts. See
+[events and state](events-and-state.md#object-inventory-lifecycle) for observation
+and indicator visibility persistence.
+
 ## Viewport
 
 ```ts

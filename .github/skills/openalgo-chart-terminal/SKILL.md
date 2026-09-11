@@ -17,6 +17,15 @@ For async startup, pagination, replay entry/exit and concurrent registration, re
 implements its documented reconnect recovery; a custom terminal must protect every data
 writer, including polling and older-history responses.
 
+For an Objects panel, use the base-tier `ChartObjects` inventory described in
+[core-api](../openalgo-charts/references/core-api.md). Own one model per live chart
+generation, route drawing actions through its existing controller, and destroy the
+model before replacing the chart. Register profile capabilities explicitly; order
+and position primitives are outside the inventory. Persist indicator `visible` with
+its settings, defaulting older layouts to true. A custom React panel should clear old
+rows immediately when its focused chart changes. Packaged hosts can use
+`widget.openObjects()` and the existing editors.
+
 ## Build order
 
 ### 1. Chart and data

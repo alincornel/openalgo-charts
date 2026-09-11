@@ -17,9 +17,17 @@ appears in the page title.
 | --- | --- | --- |
 | A chart with your own interface | [Chart API](/openalgo-charts/api/classes/index.Chart.html) | [Core concepts](/openalgo-charts/docs/core-concepts/) |
 | A complete chart with controls | [Widget](/openalgo-charts/api/modules/widget.html) | [Widget guide](/openalgo-charts/docs/widget/) |
+| A searchable object inventory | [ChartObjects](/openalgo-charts/api/classes/index.ChartObjects.html) | [Objects guide](/openalgo-charts/docs/objects/) |
 | Interactive drawing tools | [Drawing controller](/openalgo-charts/api/classes/draw.DrawingController.html) | [Drawing playground](/openalgo-charts/docs/drawing-tools/) |
 | A depth ladder | [Depth of market](/openalgo-charts/api/classes/trade.DomLadder.html) | [Simulated live demo](/openalgo-charts/docs/depth-of-market/) |
 | Daily TPO profiles | [Market profile](/openalgo-charts/api/classes/profile.MarketProfile.html) | [Profile demo and themes](/openalgo-charts/docs/market-profile-examples/) |
+
+### Object management in 2.1.7
+
+`ChartObjects` shares inventory, supported actions and lifecycle notifications
+between widget and custom hosts. `widget.openObjects()` opens the packaged panel.
+Indicator visibility is part of saved layouts, and dialogs fit the chart's actual
+container width and height. See the [Objects guide](/openalgo-charts/docs/objects/).
 
 ### New in 2.1.1
 

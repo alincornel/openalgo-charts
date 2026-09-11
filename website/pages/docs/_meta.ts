@@ -20,6 +20,7 @@ export default {
   'chart-linking': 'Chart Linking',
   themes: 'Theming & Chart Options',
   'settings-and-menus': 'Settings & Menus',
+  objects: 'Objects',
   indicators: 'Indicators',
   transforms: 'Transforms',
   'primitives-and-plugins': 'Primitives & Plugins',

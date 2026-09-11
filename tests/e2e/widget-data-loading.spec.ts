@@ -1,11 +1,12 @@
 import { test, expect, type Page } from '@playwright/test';
+import { VERSION } from '../../src/version';
 
 async function mount(page: Page, compact = false): Promise<string[]> {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.setViewportSize(compact ? { width: 320, height: 240 } : { width: 960, height: 640 });
   await page.goto(`/tests/e2e/widget-data-loading-fixture.html${compact ? '?compact' : ''}`);
-  await page.waitForFunction(() => (window as any).fixture?.version === '2.1.6');
+  await page.waitForFunction(version => (window as any).fixture?.version === version, VERSION);
   if (compact) expect((await page.locator('.oac-chart').boundingBox())!.height).toBeGreaterThan(180);
   return errors;
 }

@@ -9,10 +9,10 @@ import { Callout } from 'nextra/components'
 # The widget tier
 
 `openalgo-charts/widget` turns the engine into a working terminal in one call: a chart
-with a top bar (symbol, interval, chart type, theme, settings, indicators), a drawing rail
+with a top bar (symbol, interval, chart type, theme, settings, indicators, objects), a drawing rail
 down the left, a status line, the dialogs behind each of those buttons, keyboard shortcuts
 with a `?` panel that lists them, and optional persistence of the layout. It is the eighth
-loadable tier (**36.83 KB** Brotli), and it is the only one that builds DOM.
+loadable tier (**38.72 KB** Brotli), and it is the only one that builds DOM.
 
 <RunnableExample height={480} tiers={['widget']} caption="Pick a tool from the rail, open Indicators, change the chart type, right-click the chart, press ? for the shortcut list. No feed is wired here, so the bars go straight on widget.series." code={`const widget = lib.createWidget(el, {
   symbol: 'DEMO',
@@ -92,6 +92,7 @@ size before the call, the same rule `createChart` has. What comes back is a `Wid
 widget.dataController;        // DataLoadingController | null (null without a feed)
 widget.chart;                 // the Chart underneath, every base API available
 widget.draw;                  // the DrawingController the rail drives
+widget.objects;               // shared ChartObjects inventory and supported actions
 widget.series;                // the primary series; setChartType replaces it
 widget.root;                  // the .oac-widget element
 widget.context;               // what every dialog was handed, for a panel of your own
@@ -102,6 +103,7 @@ widget.setChartType('area');
 widget.setTheme('light');
 widget.openSettings();        // false when no settings dialog is registered
 widget.openIndicatorPicker();
+widget.openObjects();         // searchable inventory, false after destruction
 await widget.reload();        // fetch again for the current symbol and interval
 const saved = widget.getState();   // { version, symbol, exchange, interval, chartType, theme, chart, rail }
 widget.restoreState(saved);        // { applied, reason?, chart? }
@@ -115,6 +117,15 @@ and the view is dropped, because a range of bar indices means nothing on differe
 
 A `Widget` is a thin owner. Anything the chrome does not expose, do on `widget.chart` or
 `widget.draw` directly; the chrome observes the chart and stays in step.
+
+The [Objects panel](/docs/objects) follows drawing selection and indicator changes,
+offers only supported actions, and reuses the existing settings editors. The primary
+price source is protected from removal. Register host-owned profiles explicitly on
+`widget.objects`; arbitrary primitives and broker order lines are not inventory rows.
+
+Dialogs respond to the actual widget container. At narrow widths the tab rail becomes
+a horizontal tab list, fields fit the available width and actions remain reachable
+while the body scrolls. This also applies to a small chart inside a wide desktop page.
 
 ## Options
 
@@ -335,8 +346,8 @@ Budgets from `.size-limit.json`, Brotli, enforced by `npm run size`:
 
 | Row | Files | Budget | Measured |
 |---|---|--:|--:|
-| Widget tier | `openalgo-charts.widget.mjs` | 37 KB | 36.83 KB |
-| Widget terminal | base + draw + indicators + widget | 165 KB | 162.35 KB |
+| Widget tier | `openalgo-charts.widget.mjs` | 40 KB | 38.72 KB |
+| Widget terminal | base + draw + indicators + widget | 168 KB | 165.97 KB |
 
 The widget is a tier because of these rows. A host that never calls `createWidget`
 downloads none of it, and the base engine's own budget is unchanged.

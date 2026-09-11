@@ -1,7 +1,7 @@
 # The widget tier
 
 `openalgo-charts/widget` turns the engine into a working terminal in one call: a chart
-with a top bar (symbol, interval, chart type, theme, settings, indicators), a drawing
+with a top bar (symbol, interval, chart type, theme, settings, indicators, objects), a drawing
 rail down the left, a status line, the dialogs behind each of those buttons, keyboard
 shortcuts with a `?` panel that lists them, and optional persistence of the layout. It
 is the eighth loadable tier, and it is the only one that builds DOM.
@@ -64,6 +64,7 @@ call, the same rule `createChart` has. What comes back is a `Widget`:
 ```ts
 widget.chart;                 // the Chart underneath, every base API available
 widget.draw;                  // the DrawingController the rail drives
+widget.objects;               // live ChartObjects inventory and supported actions
 widget.series;                // the primary series; setChartType replaces it
 widget.root;                  // the .oac-widget element
 widget.context;               // what every dialog was handed, for a panel of your own
@@ -74,6 +75,7 @@ widget.setChartType('area');
 widget.setTheme('light');
 widget.openSettings();        // false when no settings dialog is registered
 widget.openIndicatorPicker();
+widget.openObjects();         // searchable object management
 await widget.reload();        // fetch again for the current symbol and interval
 const saved = widget.getState();   // { version, symbol, exchange, interval, chartType, theme, chart, rail }
 widget.restoreState(saved);        // { applied, reason?, chart? }
@@ -87,6 +89,23 @@ and the view is dropped, because a range of bar indices means nothing on differe
 
 A `Widget` is a thin owner. Anything the chrome does not expose, do on `widget.chart` or
 `widget.draw` directly; the chrome observes the chart and stays in step.
+
+## Objects and compact dialogs
+
+Since 2.1.7, the Objects control lists the protected primary source, indicator
+instances, drawings and explicitly registered profiles. Its actions use the existing
+drawing controller and settings editors. Indicator visibility survives saved layouts;
+older layouts without a `visible` field restore indicators as visible. Drawing
+visibility, locking and removal remain part of the drawing undo history.
+
+The shared `ChartObjects` model creates no DOM and can drive a custom broker UI.
+`mountObjectsPanel` reuses the widget panel with an existing `WidgetContext`. Register
+profile operations explicitly rather than enumerating arbitrary chart primitives.
+See the [Objects API and live example](https://marketcalls.github.io/openalgo-charts/docs/objects/).
+
+Dialogs fit the actual widget container, including a 350px pane on a wide page.
+Tabs adapt to a horizontal row, fields wrap and content scrolls inside the dialog
+while its actions remain reachable.
 
 ## Options
 
@@ -242,8 +261,8 @@ Budgets from `.size-limit.json`, Brotli, enforced by `npm run size`:
 
 | Row | Files | Budget |
 |---|---|---|
-| Widget tier | `openalgo-charts.widget.mjs` | 37 kB |
-| Widget terminal | base + draw + indicators + widget | 157 kB |
+| Widget tier | `openalgo-charts.widget.mjs` | 40 kB |
+| Widget terminal | base + draw + indicators + widget | 168 kB |
 
 The widget is a tier because of these rows. A host that never calls `createWidget`
 downloads none of it, and the base engine's own budget is unchanged. Measure, do not

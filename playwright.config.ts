@@ -66,7 +66,7 @@ export default defineConfig({
     { name: 'chromium', use: { ...devices['Desktop Chrome'] }, testIgnore: /(?:yfinance|widget-data-loading)\.spec\.ts/ },
     ...(['chromium', 'firefox', 'webkit'] as const).map(browserName => ({
       name: `widget-loading-${browserName}`,
-      testMatch: /(?:widget-data-loading|drawing-future)\.spec\.ts/,
+      testMatch: /(?:widget-data-loading|drawing-future|widget-objects)\.spec\.ts/,
       use: { browserName, baseURL: 'http://127.0.0.1:4176' },
     })),
     // The demo, against its own server. Kept in the list even with no

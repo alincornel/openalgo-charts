@@ -209,6 +209,8 @@ export interface TopbarOptions {
   /** Open the settings dialog from `anchor`. Return false when no dialog is registered. */
   onSettings(anchor: HTMLElement): boolean;
   onIndicators(anchor: HTMLElement): boolean;
+  /** A text control for the host's object inventory, omitted without a handler. */
+  onObjects?(anchor: HTMLElement): boolean;
   settingsAvailable(): boolean;
   indicatorsAvailable(): boolean;
 }
@@ -394,6 +396,14 @@ export function mountTopbar(ctx: WidgetContext, host: HTMLElement, opts: TopbarO
   }
 
   host.appendChild(h(doc, 'span', 'oac-topbar__spacer'));
+
+  if (opts.onObjects) {
+    const objects = btn('Objects', 'oac-topbar__objects');
+    objects.textContent = 'Objects';
+    objects.setAttribute('aria-haspopup', 'dialog');
+    objects.addEventListener('click', () => { opts.onObjects?.(objects); });
+    host.appendChild(objects);
+  }
 
   // ── capture ──────────────────────────────────────────────────────────
   const snapBtn = btn('Capture chart', 'oac-btn--icon');

@@ -16,6 +16,11 @@ export type {
 export { SvgContext, SvgLinearGradient } from './render/svg-export';
 export type { SvgContextOptions } from './render/svg-export';
 export { Pane } from './core/pane';
+export { ChartObjects } from './model/chart-objects';
+export type {
+  ChartObjectKind, ChartObjectCapabilities, ChartObjectSnapshot, ChartObjectDefinition,
+  ChartObjectProvider, ChartObjectDrawing, ChartObjectDrawingSource, ChartObjectsOptions,
+} from './model/chart-objects';
 export { darkTheme, lightTheme, DEFAULT_THEME } from './theme';
 export type { ChartTheme } from './theme';
 export { verticalGradient, withAlpha, fromGradient } from './render/gradient';

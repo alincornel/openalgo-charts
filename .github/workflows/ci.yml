@@ -93,6 +93,7 @@ jobs:
           node scripts/check-profile-website.mjs
           node scripts/check-navigation-website.mjs
           node scripts/check-data-loading-website.mjs
+          node scripts/check-objects-website.mjs
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         if: failure()
         with:
@@ -118,11 +119,16 @@ jobs:
           path: dist/
       - run: npx playwright install --with-deps chromium firefox webkit
       - run: npm run e2e
+      - name: Verify compact panels in every browser
+        run: node scripts/check-compact-panels.mjs artifacts/compact-panels
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         if: failure()
         with:
           name: playwright-report
-          path: playwright-report/
+          path: |
+            playwright-report/
+            test-results/
+            artifacts/compact-panels/
           retention-days: 7
 
   supply-chain:

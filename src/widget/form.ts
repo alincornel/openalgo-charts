@@ -397,6 +397,7 @@ export interface PanelHost {
 export function openPanel(host: PanelHost, panel: HTMLElement, opts: OverlayOptions, onDismiss: () => void): PanelHandle {
   let closed = false;
   let byShell = false;
+  let resize: ResizeObserver | undefined;
   const closer = host.openOverlay(panel, {
     ...opts,
     onClose: () => {
@@ -407,9 +408,25 @@ export function openPanel(host: PanelHost, panel: HTMLElement, opts: OverlayOpti
       finish();
     },
   });
+  // CSS follows the host container, so keyboard semantics must follow it too.
+  const root = panel.closest('.oac-widget');
+  const rails = panel.querySelectorAll('.oac-tabs--rail');
+  if (root !== null && rails.length > 0) {
+    const orient = (): void => {
+      const orientation = root.getBoundingClientRect().width <= 720 ? 'horizontal' : 'vertical';
+      rails.forEach(nav => nav.setAttribute('aria-orientation', orientation));
+    };
+    orient();
+    const Observer = panel.ownerDocument.defaultView?.ResizeObserver;
+    if (Observer !== undefined) {
+      resize = new Observer(orient);
+      resize.observe(root);
+    }
+  }
   function finish(): void {
     if (closed) return;
     closed = true;
+    resize?.disconnect();
     if (!byShell) closer();
     panel.remove();
   }
@@ -503,8 +520,9 @@ export function tabList(
     b.addEventListener('click', (e) => { e.stopPropagation(); pick(t.id); });
     b.addEventListener('keydown', (e) => {
       const k = (e as KeyboardEvent).key;
-      const fwd = layout === 'rail' ? 'ArrowDown' : 'ArrowRight';
-      const back = layout === 'rail' ? 'ArrowUp' : 'ArrowLeft';
+      const vertical = nav.getAttribute('aria-orientation') === 'vertical';
+      const fwd = vertical ? 'ArrowDown' : 'ArrowRight';
+      const back = vertical ? 'ArrowUp' : 'ArrowLeft';
       let next = -1;
       if (k === fwd) next = (i + 1) % tabs.length;
       else if (k === back) next = (i - 1 + tabs.length) % tabs.length;
@@ -513,6 +531,7 @@ export function tabList(
       if (next < 0) return;
       e.preventDefault();
       buttons[next].focus();
+      buttons[next].scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
       pick(tabs[next].id);
     });
     buttons.push(b);

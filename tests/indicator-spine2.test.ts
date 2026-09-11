@@ -539,7 +539,8 @@ describe('on a real chart', () => {
     expect(layers).toHaveLength(1);
     expect(chart.panes()[0].primitives().some((p) => p instanceof IndicatorBackground)).toBe(false);
     inst.remove();
-    expect(chart.panes()[inst.paneIndex].primitives().some((p) => p instanceof IndicatorBackground)).toBe(false);
+    expect(chart.panes()).toHaveLength(1);
+    expect(chart.panes().some(pane => pane.primitives().some(p => p instanceof IndicatorBackground))).toBe(false);
   });
 
   it('routes an alert onto the chart own event bus', () => {

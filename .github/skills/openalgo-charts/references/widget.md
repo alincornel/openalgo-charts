@@ -109,7 +109,7 @@ The sprite is injected once per document on the body (`id="oac-rail-sprite"`), s
 
 | Export | Kind | Purpose |
 |---|---|---|
-| `mountTopbar(ctx, host, opts)` | function | Symbol box with search, interval pills, chart type menu, Indicators, capture, settings, theme. Returns a `TopbarHandle` (`refresh`, `destroy`). |
+| `mountTopbar(ctx, host, opts)` | function | Symbol box with search, interval pills, chart type menu, Indicators, Objects, capture, settings, theme. Returns a `TopbarHandle` (`refresh`, `destroy`). |
 | `openMenu(ctx, anchor, rows, opts?)` | function | A popover menu under `anchor`, with an optional filter box; the chart type menu and the symbol results share it. Returns the closer. |
 | `chartTypeChoices()` | function | The registered chart types a user can pick for the instrument (the registry minus histogram-family internals). |
 | `chartTypeLabel(id)` | function | A label from `CHART_TYPE_LABELS`, else the id. |
@@ -141,6 +141,7 @@ The sprite is injected once per document on the body (`id="oac-rail-sprite"`), s
 | `RAIL_WIDTH`, `TOPBAR_HEIGHT`, `STATUSLINE_HEIGHT` | consts | `42`, `40`, `24` CSS pixels, shared by the stylesheet and the placement maths. |
 | `WIDGET_CSS` | const | The shell stylesheet text. |
 | `DIALOG_CSS` | const | The dialog rules, appended to the same sheet by `createWidget`. |
+| `OBJECTS_PANEL_CSS` | const | Object list rules, included in the widget stylesheet; custom hosts append it alongside `WIDGET_CSS` and `DIALOG_CSS`. |
 | `WIDGET_STYLE_ID` | const `'oac-widget-css'` | Id of the injected `<style>`, one per document. |
 | `injectWidgetStyles(doc, extra?, nonce?)` | function | Inject or fill an empty sheet once per document; `extra` is appended when filling it. Assigns the nonce before filling/insertion, preserves an existing nonce and leaves populated host CSS untouched. |
 | `StatuslineOptions`, `StatuslineHandle`, `Toaster`, `ToastHandle`, `ToastKind`, `ToastOptions`, `WidgetThemeName`, `WidgetTokens`, `Rgba` | types | |
@@ -203,6 +204,7 @@ widget.chart;                        // Chart
 widget.draw;                         // DrawingController
 widget.root;                         // the .oac-widget element
 widget.context;                      // the WidgetContext every mounted piece was handed
+widget.objects;                      // the owned base-tier ChartObjects inventory
 widget.series;                       // the primary SeriesApi, replaced by setChartType
 widget.symbol(); widget.exchange(); widget.interval(); widget.chartType(); widget.theme();
 widget.setSymbol(symbol, exchange?);
@@ -211,6 +213,7 @@ widget.setChartType(id);             // a registered chart type id; the series i
 widget.setTheme('dark' | 'light' | theme);
 widget.openSettings();               // false when no dialog is registered under 'settings'
 widget.openIndicatorPicker();
+widget.openObjects();                // false after destruction; focuses the existing panel when open
 widget.getState();                   // WidgetState, JSON-safe
 widget.restoreState(state);          // WidgetRestoreReport
 await widget.reload();               // fetch again for the current symbol and interval
@@ -221,6 +224,45 @@ widget.isDestroyed;
 ```
 
 `getState()` returns `{ version: 1, symbol, exchange, interval, chartType, theme, chart: chart.getState(), rail: RailPrefs | null }`. `restoreState` validates field by field and returns `{ applied, reason?, chart?: RestoreReport }`; a saved viewport is applied only when the state was captured on the same symbol and interval, otherwise `stripView` drops it and the indicators, drawings and panes still land. With `persist`, the state is written under `oac-widget:<namespace>:state` (debounced by `SAVE_DEBOUNCE_MS`, flushed on `pagehide` and on `destroy`) and the rail's preferences under `oac-widget:<namespace>:rail`.
+
+### Objects panel
+
+`mountObjectsPanel(ctx, anchor?, opts?: ObjectsPanelOptions)` returns `PanelHandle`
+(`el`, `close()`, `isOpen()`). `ObjectsPanelOptions` contains optional `objects:
+ChartObjects` and `onClose`. The explicit model overrides optional
+`WidgetContext.objects`; one must be provided, otherwise the mount throws a clear
+missing-model error. Closing the panel releases only its subscription, and calls
+`onClose` once. The host retains ownership of the model.
+
+```ts
+import { mountObjectsPanel } from 'openalgo-charts/widget';
+
+const panel = mountObjectsPanel(widget.context, openButton, {
+  objects: widget.objects,
+  onClose: () => updateToolbarState(false),
+});
+panel.close();
+```
+
+Search matches name, kind and pane labels (displayed starting at 1). Live updates
+preserve search and action-button focus. Rows show visibility, drawing lock and
+selection, and external-indicator data status. Only supported actions appear; an
+action returning `false` or throwing reports through the existing toast. No primary
+source removal control is offered. Settings reuse the widget's current chart,
+indicator and drawing editors. Drawing actions use existing undo history.
+
+The panel uses the shared overlay for pointer containment, focus trapping, Escape
+and focus restoration. Its scrollable list fits the actual container, including
+350 px and short hosts; search and footer remain reachable. All controls are text.
+`createWidget` already includes `OBJECTS_PANEL_CSS`; a custom stylesheet must include
+it along with the shared widget and dialog rules.
+
+`widget.objects` is a base-tier `ChartObjects`, detailed in
+[core-api](core-api.md#object-inventory-and-management). Custom profiles register
+explicit operations there. `widget.destroy()` disposes its inventory; custom
+hosts dispose their own. Indicator visibility persists in chart/widget layouts,
+with omitted legacy visibility defaulting to visible. Host provider state and
+callbacks require separate persistence and registration after replacement.
 
 ### Events
 
@@ -261,7 +303,7 @@ Pass the host's fresh response nonce as `createWidget(container, { styleNonce: r
 
 An illustrative style policy is `style-src-elem 'nonce-RESPONSE_NONCE'; style-src-attr 'unsafe-inline'`, where `RESPONSE_NONCE` is the same unpredictable value generated for this response. The nonce authorizes the stylesheet; inline theme/layout styles need a separately considered attribute policy. This is not a complete policy for scripts or other resources.
 
-An empty or whitespace-only SSR `<style id="oac-widget-css" nonce="...">` is filled in place, retaining the existing nonce even if the option differs. Put its nonce in the original HTML to avoid a parser CSP violation before hydration. Populated host CSS and its nonce are preserved unchanged; if supplying that sheet yourself, include both `WIDGET_CSS` and `DIALOG_CSS`. Read a connected element's `.nonce`, since the browser can hide its content attribute.
+An empty or whitespace-only SSR `<style id="oac-widget-css" nonce="...">` is filled in place, retaining the existing nonce even if the option differs. Put its nonce in the original HTML to avoid a parser CSP violation before hydration. Populated host CSS and its nonce are preserved unchanged; if supplying that sheet yourself, include `WIDGET_CSS`, `DIALOG_CSS` and `OBJECTS_PANEL_CSS`. Read a connected element's `.nonce`, since the browser can hide its content attribute.
 
 ## Custom rail tools
 

@@ -12,7 +12,7 @@
  * overlay stack, the tooltip, the storage wrapper and the dialog registry
  * through which the dialog tier makes its mount functions known.
  */
-import type { Chart, ChartTheme } from 'openalgo-charts';
+import type { Chart, ChartObjects, ChartTheme } from 'openalgo-charts';
 import type { DrawingController } from 'openalgo-charts/draw';
 import type { Keymap } from './keymap';
 import type { ToastHandle, ToastKind } from './toast';
@@ -623,6 +623,8 @@ export interface WidgetBusEvents {
 export interface WidgetContext {
   readonly chart: Chart;
   readonly draw: DrawingController;
+  /** Live inventory owned by the widget, optional for custom contexts. */
+  readonly objects?: ChartObjects;
   /** The `.oac-widget` element every piece of chrome lives in. */
   readonly root: HTMLElement;
   readonly document: Document;

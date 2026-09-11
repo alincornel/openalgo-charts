@@ -74,6 +74,8 @@ function formatValue(v: number, tick?: number): string {
 
 /** The slice of the chart the runtime needs. Keeps this module testable alone. */
 export interface IndicatorHost {
+  /** Forget a disposed instance, including disposal through its public handle. */
+  indicatorRemoved?(instanceId: string): void;
   /** Optional instrument identity and source-range notifications. */
   dataContext?(): Readonly<ChartDataContext> | undefined;
   subscribeDataChanges?(listener: (change: IndicatorDataChange) => void): () => void;
@@ -400,19 +402,21 @@ export class IndicatorInstance implements IndicatorApi {
 
   /** Show or hide every plot without removing the instance (the eye button). */
   public setVisible(on: boolean): void {
-    if (on === this._visible) return;
+    if (this._removed || on === this._visible) return;
     this._visible = on;
-    for (const series of this._series.values()) series.applyOptions({ visible: on });
+    for (const plot of this._d.plots) this._series.get(plot.key)?.applyOptions({ visible: on && plot.style?.visible !== false });
     for (const band of this._fills) band.setVisible(on);
     // Markers are a separate primitive, so hiding the plots does not hide them;
     // re-running the sync clears the layer (or repopulates it) explicitly.
     const bars = this._host.sourceBars();
+    this._applyLevels(bars, this._descriptorSettings());
     this._syncMarkers(bars);
     this._syncTable(bars);
     this._syncBarColors(bars);
     this._draws?.setVisible(on);
     this._background?.setVisible(on);
     this._legend?.setOptions({ hidden: !on });
+    this._host.emit?.('objects:change', {});
   }
 
   /** The chart calls this when panes are reordered or one is removed. */
@@ -661,7 +665,9 @@ export class IndicatorInstance implements IndicatorApi {
    */
   private _plotStyle(plot: IndicatorPlot): Record<string, unknown> {
     const k = plotStyleKeys(plot);
-    const style: Record<string, unknown> = { ...(plot.style ?? {}), title: plot.title };
+    const style: Record<string, unknown> = {
+      ...(plot.style ?? {}), title: plot.title, visible: this._visible && plot.style?.visible !== false,
+    };
     const color = this._plotColor(plot);
     const opacity = num(this._settings[k.opacity], 100);
     if (color !== undefined) style.color = opacity >= 100 ? color : withAlpha(color, opacity / 100);
@@ -797,6 +803,7 @@ export class IndicatorInstance implements IndicatorApi {
     this.recompute();
     this._detach?.();
     this._attach();
+    this._host.emit?.('objects:change', {});
   }
 
   /**
@@ -939,7 +946,7 @@ export class IndicatorInstance implements IndicatorApi {
     // against the original `levels(settings)` signature read what they always
     // did. See `IndicatorLevelContext`.
     const ctx: IndicatorLevelContext = { ...settings, settings, bars, values: this._values };
-    const levels = this._d.levels(ctx);
+    const levels = this._visible ? this._d.levels(ctx) : [];
     let sig = '';
     for (const l of levels) {
       sig += `${l.price}|${l.color ?? ''}|${l.title ?? ''}|${l.dashed ?? ''}|${l.lineWidth ?? ''}|${l.lineStyle ?? ''};`;
@@ -981,7 +988,7 @@ export class IndicatorInstance implements IndicatorApi {
     this._lifetime.abort();
     this._dataRetry = null;
     this._dataListeners.clear();
-    this._detach?.();
+    try { this._detach?.(); } catch { /* External cleanup cannot retain the indicator's chart resources. */ }
     this._detach = null;
     if (this._legend !== null) { this._host.removeIndicatorLegend(this._legend); this._legend = null; }
     for (const line of this._levels) this._host.removeIndicatorLevel(line);
@@ -997,6 +1004,7 @@ export class IndicatorInstance implements IndicatorApi {
     // Withdraw the candle colours before anything else forgets who owned them.
     if (this._d.barColors !== undefined) this._host.setBarColors?.(null, this.id);
     if (this._ownPane) this._host.setPaneRange(this.paneIndex, null);
+    this._host.indicatorRemoved?.(this.id);
   }
 }
 

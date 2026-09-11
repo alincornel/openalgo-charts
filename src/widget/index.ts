@@ -25,6 +25,8 @@ export const WIDGET_TIER = 'widget' as const;
 
 export { createWidget, stripView, resolveTheme, loadWindow, DEFAULT_INTERVALS, DEFAULT_LOOKBACK_BARS, SAVE_DEBOUNCE_MS, STATE_KEY, WIDGET_STATE_VERSION } from './widget';
 export type { Widget, WidgetOptions, WidgetState, WidgetChartState, WidgetRestoreReport, WidgetEventName } from './widget';
+export { mountObjectsPanel, OBJECTS_PANEL_CSS } from './objects-panel';
+export type { ObjectsPanelOptions } from './objects-panel';
 
 export {
   WidgetBus, WidgetStorage, STORAGE_PREFIX, defaultStorage,

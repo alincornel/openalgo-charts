@@ -35,10 +35,11 @@ The rule: **the chart serialises what the chart owns.**
 | [Timezone](/docs/timezones) | Yes | A saved zone the runtime no longer recognises is skipped, not thrown: one stale name must not cost the whole layout. |
 | Pane weights | Yes | Panes are created as needed. |
 | Price scales (margins, `minMove`, mode, inverted, auto-scale, pinned range) | Yes | Per pane. |
-| Indicator instances (id, settings, pane) | Yes | Fully derivable from the source data, so they can be rebuilt. |
+| Indicator instances (descriptor id, settings, pane, visibility) | Yes | Since 2.1.7, `visible: false` survives restoration. Older layouts default to visible. Runtime instance IDs are recreated. |
 | Drawings | Round-tripped | An opaque slot the drawing tier owns; the base engine only carries it. |
 | Series descriptors (type, style, pane, price scale) | **No** | Reported back to you - see below. |
-| Series **data** | **No** | Yours. The chart does not know your symbol, timeframe, or feed. |
+| Series **data** | **No** | The host supplies the bars; they are not embedded in the saved layout. |
+| Host-registered Objects providers | **No** | Register them again for a replacement chart and persist their state through the host. |
 
 The settings blocks are restored before the panes, deliberately: the chart-wide plot
 margins land first so a pane's own saved `marginTop` / `marginBottom` is the more specific

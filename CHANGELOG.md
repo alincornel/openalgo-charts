@@ -2,6 +2,54 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 2.1.7
+
+2026-09-11
+
+### Added
+
+- Headless `ChartObjects` inventory for the primary source, indicator instances,
+  drawings and explicitly registered profiles. Immutable snapshots and supported
+  actions are shared by the packaged widget and custom broker terminals.
+- Searchable Objects panel, `widget.objects`, `widget.openObjects()` and reusable
+  `mountObjectsPanel`. Drawings support selection, visibility, locking, settings,
+  focus and removal through the existing controller and undo history. The primary
+  price source is protected from removal.
+- Interactive Objects website example with a compact host, profile capabilities
+  and layout save/restore, plus public API and agent-skill guidance.
+
+### Fixed
+
+- Dialogs fit the actual chart container, including 350px panes on wide pages and
+  short chart hosts. Tabs adapt their orientation, fields avoid horizontal overflow,
+  and action footers remain reachable while content scrolls.
+- Hidden indicators stay hidden after JSON layout restoration and plot-type edits.
+  Reference levels follow indicator visibility, alongside plots and other visuals.
+- Direct indicator-handle removal releases its inventory entry and empty pane.
+  A throwing external cleanup cannot prevent owned chart resources being removed.
+- Inventory observers remain synchronized through drawing undo, primary-source
+  replacement, provider subscription failures and reentrant notifications.
+- Drawing focus supports anchors beyond the loaded bars and a primary price axis
+  moved to the left, without changing drawing coordinates.
+
+### Integration and documentation
+
+- The companion OpenAlgo integration provides a focused-pane Objects panel with
+  existing settings editors, generation-scoped ownership and persisted indicator
+  visibility. Profile actions reflect the operations the host actually supports.
+- Eight tiers and zero runtime dependencies are retained. Intentional object-model
+  and panel code raises the base, base-plus-trade, widget, widget-terminal and total
+  budgets to 74, 82, 40, 168 and 200 KB Brotli. The chart-only tree-shaking ceiling
+  remains 45 kB.
+
+Validation: **4,337 unit tests** across 193 files and **219 demo tests** pass,
+alongside lint, TypeScript, build, declaration and tree-shaking checks. All **846**
+skill coverage entries are present. All **106 browser tests** and nine additional
+compact-dialog combinations pass across Chromium, Firefox and WebKit. TypeDoc has
+no warnings; the 55-route website build and Objects, loading, navigation, depth and
+profile browser checks pass. Measured Brotli: **73.31 KB** base,
+**38.72 KB** widget, **165.97 KB** widget terminal and **197.58 KB** all tiers.
+
 ## 2.1.6
 
 2026-09-11

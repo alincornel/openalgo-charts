@@ -369,7 +369,8 @@ describe('on a real chart', () => {
     expect(layers).toHaveLength(1);
     expect(chart.panes()[0].primitives().some((p) => p instanceof IndicatorDrawings)).toBe(false);
     inst.remove();
-    expect(chart.panes()[inst.paneIndex].primitives().some((p) => p instanceof IndicatorDrawings)).toBe(false);
+    expect(chart.panes()).toHaveLength(1);
+    expect(chart.panes().some(pane => pane.primitives().some(p => p instanceof IndicatorDrawings))).toBe(false);
   });
 
   it('hands attach the chart own wall clock, not a fresh Date.now', () => {
