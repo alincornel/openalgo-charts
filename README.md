@@ -458,6 +458,8 @@ python server.py --fixture   # no yfinance, no network: deterministic synthetic 
 
 ## Develop
 
+See [Contributing](./CONTRIBUTING.md) for setup, targeted checks, documentation updates and the release workflow.
+
 ```bash
 npm install        # install dev toolchain
 npm run typecheck  # strict TypeScript check
