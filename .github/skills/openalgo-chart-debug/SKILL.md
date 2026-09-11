@@ -38,6 +38,12 @@ You need the version and the exact set of tier imports before you can reason abo
 | Custom primitive is blurry or offset | media px not multiplied by `dpr` | inspect the `draw` implementation |
 | Live ticks never appear | subscription filter, or the builder was never seeded | log inside the tick handler before the builder |
 | Live candle duplicates the last history bar | builder started unseeded | pass `seedFrom: lastHistoryBar` |
+| Hidden-tab chart opens at the wrong zoom | old initial-size handling or an explicit host fit | 2.1.3 defers its first fit; inspect `applySize`, `navigation.defaultVisibleBars` and later host writes |
+| Plot drags stop vertical movement | 2.1.3 mouse/pen horizontal default | `navigation.mousePan: 'both'` enables it; touch already retains both axes |
+| Time-axis drag behaves differently on one page | stale copied or bundled runtime | left expands, right compresses; compare deployed bundle hashes and run the website navigation check |
+| Replay suddenly reveals future bars | a host history/polling/reconnect writer bypasses replay | inspect every `setData`, `update` and `prependData`; see host integration |
+| Old symbol data or resources return after closing | stale async continuation | verify generation, chart identity and disposed state after every await |
+| Custom indicator intermittently missing on a split pane | registration marked ready before imports finish | await one shared pending registration promise |
 | Chart snaps to the right edge on every update | `setData` called per tick | use `series.update(bar)` |
 | Viewport jumps when older history loads | re-fitting after prepend | `prependData` preserves the window; do not `fitContent` |
 | A linked crosshair marks the wrong bar | a logical index was copied between charts | it lines up only while both charts hold identical bars; the sync must convert index to time and back |
@@ -53,7 +59,7 @@ You need the version and the exact set of tier imports before you can reason abo
 | Blank page in Next.js or SSR | chart created during server render | client-only component, create in an effect |
 | Bare specifier fails in the browser | no bundler resolution | standalone build or an import map |
 
-[pitfalls](../openalgo-charts/references/pitfalls.md) has the full verified list with the reason behind each.
+[pitfalls](../openalgo-charts/references/pitfalls.md) has the full verified list with the reason behind each. [Host integration](../openalgo-charts/references/host-integration.md) covers request ownership, replay and lifecycle checks.
 
 ## Step 3 - read the console
 

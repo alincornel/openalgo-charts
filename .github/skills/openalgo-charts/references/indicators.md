@@ -753,6 +753,12 @@ Lifecycle facts:
 - A rejected `fetch` retains live observations for the current key. A later settings change can retry history; failure never restores points from an earlier key.
 - Teardown closes the subscription and invalidates the attachment. Late history completions and callbacks from previous attachments cannot publish after a settings change or removal.
 
+Tier-2 points are aligned onto the source bars before plot data is written; an external
+observation between bars or beyond the newest bar does not add a timestamp to the chart.
+Do not bypass that alignment by adding a separate raw external series when timeline
+isolation matters. For concurrent module registration and host CSP boundaries, see
+[host-integration](host-integration.md#registration-and-csp).
+
 ## Standalone calculators in the base bundle
 
 `ema`, `rsi`, `atr`/`trueRange`, and `supertrend` ship in the **base** bundle: the tier imports them rather than reimplementing them. Use these when you want to compute a value and plot it yourself, and skip the managed runtime (no legend row, no auto-recompute, no settings dialog, no pane management).
@@ -772,7 +778,7 @@ import { ema, emaSeries, rsi, rsiSeries, atr, trueRange, supertrend, supertrendS
 | `supertrend` | `(bars, period = 10, multiplier = 3) => SupertrendPoint[]` | `{ value, direction }`; `value` is `NaN` during ATR warmup. `direction` `-1` = uptrend, `+1` = downtrend. |
 | `supertrendSeries` | `(bars, period, multiplier) => { up: Bar[]; down: Bar[] }` | inactive leg carries `NaN` so the line breaks at flips. |
 
-The tier additionally exports pure helpers used by the descriptors: `sma`, `wma`, `rma`, `stdev`, `highest`, `lowest`, `nulls` and `connorsStreak` from `openalgo-charts/indicators` (`src/indicators/calc.ts`). All return arrays the same length as their input with `NaN` in warmup slots; `nulls` converts `NaN` to `null` for a plot column. `sma` never lets a non-finite value poison its running sum, so chaining it onto another indicator's output works. `src/indicators/calc.ts` holds more (`rollingSum`, `correlation`, `pivotHigh`, `pivotLow`, `barsSince`, `valueWhen`, ...) but the tier index re-exports only the list above, so anything else is internal.
+The tier exports the pure helpers from `src/indicators/calc.ts`, including `sma`, `wma`, `rma`, `stdev`, `highest`, `lowest`, `nulls`, `connorsStreak`, `rollingSum`, `correlation`, `pivotHigh`, `pivotLow`, `barsSince` and `valueWhen`. Read each signature before composing it; these helpers do not all return the same shape. `nulls` converts `NaN` to `null` for a plot column, and `sma` keeps a non-finite input from poisoning its running sum.
 
 The tier also exports every descriptor by name in SCREAMING_SNAKE form (`RSI`, `MACD`, `HALFTREND`, ...), the per-family arrays (`OVERLAY_INDICATORS`, `OSCILLATOR_INDICATORS`, `VOLATILITY_INDICATORS`, `FLOW_INDICATORS`, `ADAPTIVE_INDICATORS`, `AVERAGE_INDICATORS`, `STRENGTH_INDICATORS`, `INDEX_INDICATORS`, `RANGE_INDICATORS`, `SIGNAL_INDICATORS`), and the flat `BUILTIN_INDICATORS`. Read `BUILTIN_INDICATORS` rather than hard-coding a list of ids.
 

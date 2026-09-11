@@ -188,11 +188,53 @@ Selected `MarketProfilePrimitiveOptions`; `DEFAULT_MARKET_PROFILE_PRIMITIVE_OPTI
 | `showPoorHighLow` / `showNakedLevels` / `showDevelopingPoc` / `showDevelopingVa` / `showTpoCounts` | all `false` | |
 | `showSessionLabel` / `showDayType` / `showOpenType` | `true` / `false` / `false` | The session label only appears when a `window` set `label`. |
 | `showVolumeProfile` / `volumeProfileWidth` / `volumeProfileSide` / `showVolumeValues` | `false` / `60` / `'right'` / `false` | |
+| `showSessionOpen` / `sessionOpenColor` | `false` / `#5ca8ff` | Lowercase `o` on each session's actual opening-price row. |
+| `showLastPrice` / `lastPriceColor` | `false` / `#ff6b5e` | `#` at the newest supplied session's last close, not the computer's current day. |
 | `zOrder` | `'top'` | |
 
 **`colorMode: 'count'` and `'volume'` change alpha, not hue.** Both fall through to `color`; the heat is `0.3 + 0.7 * share` applied to opacity.
 
 **`showNakedLevels: true` recomputes `nakedLevels(result)` on every frame.** It is O(sessions squared); precompute and draw your own lines if the session count is large.
+
+### Compact profiles and demo themes
+
+```ts
+const profile = new MarketProfile(result, {
+  blockDisplay: 'compact', showVolumeValues: true,
+  showSessionOpen: true, showLastPrice: true,
+});
+chart.addPrimitive(profile);
+profile.setSessionSplit(2, true);
+profile.isSessionSplit(2);       // true
+profile.setSessionSplit(2, null); // return this session to the global split setting
+```
+
+The 2.1.0 compact mode uses distinct pixel letters when rows have at least 5 physical
+pixels of height and 3 of width. Larger rows use ordinary canvas text; smaller rows use
+marks with exact values available through hover. Test at the actual device pixel ratio.
+Canvas 2D and SVG export support the compact letters without a WebGL2 dependency.
+
+Per-session split choices follow calendar session identity through `setData`, prepended
+history and row regrouping. Theme-only `setOptions` patches preserve them; explicitly
+setting the global `split` option clears the overrides. Open/latest markers stay within
+the visible plot and latest-price markers only belong to the newest supplied session.
+
+The palette names below belong to demos, not exported library presets:
+
+| Demo | Presets | Apply through |
+|---|---|---|
+| `examples/market-profile/` | Dark, Blue, Graphite, Emerald, Ivory | `themes.js` supplies chart/profile/control colours; `chart.setTheme` plus profile options |
+| `examples/orderflow/` | Midnight, Graphite, Classic neon, Ocean, Ivory | Presets in `index.html`; chart theme and `Footprint.setOptions` remain independent of style/text method |
+
+For an upstream website change, read `scripts/capture-profile-screenshots.mjs` and
+`scripts/check-profile-website.mjs`. The capture script uses the served standalone demo
+and records source hashes plus PNG hashes in
+`website/public/screenshots/market-profile-v2.1.1/captures.json`. That directory names the
+capture generation, not the installed package version. Regenerate when a fingerprinted
+render source changes, then build the site so its public demos and bundles are synced.
+The guide's compressed overview and enlarged single-session close-ups use different
+row heights; preserve that distinction in captions. See
+[host-integration](host-integration.md#browser-validation) for the browser checks.
 
 ## Footprint and order flow
 

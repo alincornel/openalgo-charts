@@ -47,6 +47,8 @@ Add tier imports only for what the user actually asked for. Each unused tier is 
 | Renko / Heikin Ashi / P&F / Kagi | `import 'openalgo-charts/transform'` |
 | volume or market profile, footprint | `import { ... } from 'openalgo-charts/profile'` |
 | placing orders | `import { OrderEngine } from 'openalgo-charts/trade'` |
+| packaged toolbar, rail and dialogs | `import { createWidget } from 'openalgo-charts/widget'` |
+| optional GPU series rendering | `import 'openalgo-charts/webgl'`, then `renderer: 'auto'` |
 
 ## Step 3 - write the chart
 
@@ -78,6 +80,12 @@ volume.setData(bars.map(b => ({ time: b.time, value: b.volume ?? 0 })));
 chart.setPaneWeight(1, 0.3);
 ```
 
+If the user wants a recent-bar default, pass
+`navigation: { defaultVisibleBars: 120 }` when creating the chart and omit the explicit
+`fitContent()` call above. Initial data uses the preference; later default resets use
+`resetScale()`. A hidden tab defers its initial fit until measurement. See
+[host-integration](../openalgo-charts/references/host-integration.md).
+
 ## Step 4 - connect data
 
 If the project already has a bar source, use it. If the user names OpenAlgo, wire the real feed rather than a fetch by hand - see [feeds-and-live](../openalgo-charts/references/feeds-and-live.md):
@@ -86,12 +94,20 @@ If the project already has a bar source, use it. If the user names OpenAlgo, wir
 import { OpenAlgoLiveDataFeed } from 'openalgo-charts';
 
 const feed = new OpenAlgoLiveDataFeed({ baseUrl, apiKey, wsUrl });
-const bars = await feed.getBars({ symbol, exchange, interval: '5m' });
+const to = Math.floor(Date.now() / 1000);
+const request = { symbol, exchange, interval: '5m', from: to - 7 * 86400, to };
+const bars = await feed.getBars(request);
 series.setData(bars);
-feed.subscribeBars({ symbol, exchange, interval: '5m' }, b => series.update(b), {
+const unsubscribe = feed.subscribeBars(request, b => series.update(b), {
   seedFrom: bars[bars.length - 1],
 });
+// On symbol replacement or unmount: unsubscribe(), then tear down owned resources.
 ```
+
+`from` and `to` are mandatory for OpenAlgo REST history. Save `unsubscribe` in the host's
+cleanup scope and check liveness after the history await before subscribing. For repeated
+symbol loads, replay or reconnect recovery, follow the request guards in
+[host-integration](../openalgo-charts/references/host-integration.md).
 
 Never read an API key from client-side source you commit. Take it from the project's existing env mechanism.
 

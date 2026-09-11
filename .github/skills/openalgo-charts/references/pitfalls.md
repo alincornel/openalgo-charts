@@ -37,13 +37,13 @@ See [data-and-time](./data-and-time.md), [feeds-and-live](./feeds-and-live.md).
 
 ## setData vs update vs prependData, and the viewport
 
-**`chart.fitContent()` runs automatically exactly once, on the first non-empty `setData`.** After that latch (`_hasFitContent`), later `setData` calls deliberately preserve the current zoom. If a symbol switch should re-frame the chart, call `chart.fitContent()` explicitly.
+**The initial view is fitted once from `navigation.defaultVisibleBars`, after non-empty data and a usable layout width.** Later `setData` calls deliberately preserve the current zoom. If a symbol switch should re-frame the chart, call `chart.resetScale()` for the preferred recent-bar window or `chart.fitContent()` to explicitly show all loaded history. A hidden first load can wait for measurement without fetching again.
 
 **`update()` returns `'append' | 'replace' | 'insert'`, and only a *global* right-edge append auto-scrolls.** A bar newer than this series' last bar but older than the newest time on the shared axis is an `'insert'`, the chart deliberately does not treat it as a new right-edge bar, so do not infer "new bar" from `update()` being called. An out-of-order `update()` is also O(n): it falls through to a linear `findIndex` plus a full rebuild of the shared axis, so batch late corrections rather than streaming them.
 
 **`prependData` shifts every logical index, so any logical index you cached is now wrong.** The viewport survives because `baseIndex` is re-read and `rightEdge − index` is invariant, a saved `{ from, to }` logical range is not automatically re-based. This is also why drawing anchors are `{ time, price }` and never pixels or indices.
 
-**`setVisibleLogicalRange` is a silent no-op before layout and for a non-positive span.** It returns early when `width <= 0` or `to <= from`, and bar spacing is clamped to `[1, 80]`, so an extreme span lands at the nearest legal zoom rather than erroring. Restore viewports *after* data lands.
+**`setVisibleLogicalRange` is a silent no-op before layout and for a non-positive span.** It returns early when `width <= 0` or `to <= from`, and bar spacing is clamped to configured limits (default `[1, 260]`), so an extreme span lands at the nearest legal zoom rather than erroring. Set custom limits through `ChartOptions.timeScale`. Restore viewports *after* data and usable layout.
 
 **`setHistoryLoader` fires once and then latches until you call `chart.historyLoadComplete()`.** Forget the completion call and lazy paging stops after the first page, with no error.
 

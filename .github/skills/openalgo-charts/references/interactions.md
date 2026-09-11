@@ -11,7 +11,7 @@ Everything is built on Pointer Events, so mouse, touch and pen share one code pa
 | Gesture | Effect | Detail |
 |---|---|---|
 | Drag the plot | mouse and pen pan time horizontally by default; touch pans time and price | `navigation.mousePan: 'both'` also lets mouse and pen pan price vertically on the pressed pane, switching it to manual scaling; horizontal-only panning preserves autoscale |
-| Wheel | zoom the time axis | factor `1.1` / `1/1.1`, anchored at the cursor x. Always calls `preventDefault()` |
+| Wheel | zoom the time axis | factor `1.1` / `1/1.1`, eased by default; `animZoom: false` applies instantly. `zoomAnchor` selects cursor x or right edge. Always calls `preventDefault()` |
 | Drag the price axis (right strip) | rescale price | `exp(dy * 0.005)` about the range centre, then `setAutoScale(false)` |
 | Drag the time axis (bottom strip of the last pane) | left expands bar spacing; right compresses it | `barSpacing * exp(-dx * 0.005)`, preserving the logical right edge |
 | Drag a pane divider | redistribute height between the two adjacent panes | grab tolerance 4 px, cursor `row-resize`, summed weight preserved, neither side below `min(24, total/4)` px; emits `paneResized` on release |

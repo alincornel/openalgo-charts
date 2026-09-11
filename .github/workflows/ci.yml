@@ -22,6 +22,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run verify
+      - name: Verify skill reference coverage
+        run: npm run skills:coverage
       - name: Indicator performance
         # The suite proves the numbers an indicator produces, never the cost of
         # producing them, so an algorithmic regression ships silently otherwise.

@@ -22,7 +22,11 @@ chart.fitContent();
 
 `createChart(container, options?)` returns a `Chart`; `new Chart(container, options?)` is equivalent and also exported.
 
-**The container must already have a non-zero size.** The constructor calls `applySize(container.clientWidth, container.clientHeight)`; a container with no height renders a zero-height chart until the `ResizeObserver` fires.
+**Rendering needs a measurable container.** A hidden chart may receive data before it has
+width or height. Since 2.1.3, its initial default fit remains pending until the first
+usable layout, including when `ResizeObserver` reveals the tab. Give the container a real
+height; without `ResizeObserver`, call `applySize(width, height)` after showing it. Data
+does not need to be loaded again.
 
 **The chart takes over the container's inline styles.** It sets `display:flex`, `flexDirection:column`, `touchAction:none`, `background` from the theme, `position:relative` when the computed position is `static`, plus `role="application"`, `aria-label` and `tabindex`. It appends one `<div>` per pane and a visually-hidden live region.
 
@@ -36,6 +40,7 @@ chart.fitContent();
 | `theme` | `ChartTheme` | `DEFAULT_THEME` | See [themes-and-styling](themes-and-styling.md). |
 | `priceAxisWidth` | `number` | `56` | Media px. Also the width reserved for a left axis when one exists. |
 | `timeAxisHeight` | `number` | `22` | Media px, bottom pane only. |
+| `timeScale` | `Partial<TimeScaleOptions>` | `DEFAULT_TIME_SCALE_OPTIONS` | Initial spacing, offset, and spacing limits. Added in 2.1.1; use live scale setters for spacing/offset changes. |
 | `legendOffset` | `{ top?, left? }` | `{ top: 6, left: 8 }` | Where indicator legend rows start in the top-most pane. |
 | `crosshairMode` | `'normal' \| 'magnet'` | `'normal'` | `magnet` snaps to O/H/L/C, price pane only. |
 | `now` | `() => number` | `performance.now` | Time source for kinetic pan / navigator fade. |
@@ -117,7 +122,7 @@ chart.setVisibleLogicalRange(range);           // restore the user's zoom
 ```
 
 - `chart.fitContent()`: fit all bars; no-op on an empty chart.
-- `chart.resetScale()`: restore `navigation.defaultVisibleBars` **and** re-enable autoscale on every pane. This is what the navigator reset button, `Home` / `0`, and the default double-click action run.
+- `chart.resetScale()`: restore `navigation.defaultVisibleBars` **and** re-enable autoscale and release ratio locks on every right, left and overlay price scale. This is what the navigator reset button, `Home` / `0`, and the default double-click action run.
 - `chart.timeScale`: the live `TimeScale`; mutating it repaints via an injected change handler.
 
 **A logical range is meaningless before data lands.** `setVisibleLogicalRange` indexes bars, so apply it after `setData`, not before.
@@ -220,7 +225,10 @@ chart.setHistoryLoader(async () => {
 });
 ```
 
-Fires when the visible range's `from` drops below logical index 10, and re-fires only after `historyLoadComplete()`. A `lazy-load` event with `{ from, to, direction: 'backward' }` is emitted alongside.
+Fires when the visible range's `from` drops below logical index 10, and re-fires only after
+`historyLoadComplete()`. A `lazy-load` event with `{ from, to, direction: 'backward' }` is
+emitted alongside. A custom async loader owns error handling, replay gating and stale
+request checks; see [host-integration](host-integration.md).
 
 ## Panes and primitives
 
