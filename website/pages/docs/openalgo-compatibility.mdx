@@ -37,7 +37,7 @@ The 2.1.3 reference consumer starts from OpenAlgo commit
 `1f39c903e6d7e5159a8ba20b06b1487d5d6401e5`, whose frontend pins Charts 2.1.0,
 with the host replay and lifecycle corrections described below. An isolated
 checkout substitutes the packed Charts candidate for compatibility testing.
-The trading unit suite and full TypeScript and Vite production build pass.
+All 408 trading tests and the full TypeScript and Vite production build pass.
 A browser harness exercises the actual `/trading` route with
 mocked HTTP and WebSocket traffic, without broker credentials or real orders.
 
@@ -68,7 +68,8 @@ replay guard. The companion host fix retains full live data separately and lets
 the replay controller own both displayed series. Its probe keeps 11 visible bars
 while all 184 source bars remain available; exiting replay restores current data.
 
-The host corrections also reject stale or destroyed symbol-load continuations,
+The host corrections also reject stale or destroyed symbol-load continuations
+and older history pages without releasing another request's loading state,
 prevent WebSocket/polling startup after a pane closes, and share pending custom
 indicator registration so concurrent restores wait for a ready registry.
 These are OpenAlgo application changes and must be integrated there separately;

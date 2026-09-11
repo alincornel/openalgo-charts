@@ -33,6 +33,21 @@ The full, authoritative changelog lives in
 The panning, reset and default-view controls address
 [issue #9](https://github.com/marketcalls/openalgo-charts/issues/9).
 
+Companion OpenAlgo `/trading` fixes preserve replay during live history refreshes,
+discard stale history responses and prevent work from restarting after a pane
+closes. Concurrent custom-indicator registration now completes before restoration.
+These require the OpenAlgo application update; the package alone does not change
+host data loading. See [OpenAlgo compatibility](/docs/openalgo-compatibility).
+
+Validation: **4,208 unit tests**, **219 demo tests**, **44 browser checks** and the
+full verification gate pass. The corrected OpenAlgo consumer passes its build,
+**408 trading tests** and **13 browser workflows** using synthetic broker traffic.
+Website navigation checks compare the shipped bundles and drive native axis drags
+on gallery, market-profile and orderflow charts.
+
+Measured Brotli: **67.05 KB** base, **36.01 KB** widget, **156.24 KB** widget terminal
+and **187.84 KB** all tiers.
+
 ## 2.1.2
 
 2026-09-10

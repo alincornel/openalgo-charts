@@ -37,9 +37,25 @@ All notable changes to OpenAlgo Charts.
 - Updated interaction guides, website examples and API references for the new
   navigation behavior. Regression coverage drives real pointer gestures and
   saves/reloads the settings through the widget.
+- Audited repository skills from 2.0.0 through 2.1.3 and filled missing guidance
+  for profiles, orderflow, navigation and OpenAlgo host integration.
 - The base, widget and widget-terminal size ceilings are 68 KB, 37 KB and
   157 KB respectively to accommodate these controls. The full-package ceiling
   remains 188 KB; no runtime dependencies were added.
+- Companion OpenAlgo `/trading` fixes isolate replay from live history refreshes,
+  reject obsolete symbol and pagination responses, prevent resource startup
+  after pane teardown, and await concurrent custom-indicator registration.
+  These application fixes require the OpenAlgo update as well as this package.
+
+Validation: **4,208 unit tests** across 181 files, **219 demo tests** and
+**44 browser checks**, including pixel parity against 2.1.2. The complete
+lint/type/build/declaration/size/tree-shaking gate passes. The corrected OpenAlgo
+consumer passes its production build, **408 trading tests** and **13 browser
+workflows** with synthetic broker traffic. Website checks verify matching chart
+bundles and native axis drags in the gallery and embedded profile/orderflow demos.
+
+Measured Brotli sizes: **67.05 KB** base, **36.01 KB** widget,
+**156.24 KB** widget terminal and **187.84 KB** all tiers.
 
 ## 2.1.2
 

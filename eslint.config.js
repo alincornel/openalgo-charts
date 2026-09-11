@@ -41,7 +41,7 @@ const crossTier = (tiers, why) => ({
 });
 
 export default tseslint.config(
-  { ignores: ['dist/**', 'dist-baseline/**', 'node_modules/**', 'website/**', 'examples/**', 'coverage/**'] },
+  { ignores: ['dist/**', 'dist-baseline/**', 'node_modules/**', 'website/**', 'examples/**', 'coverage/**', '.worktrees/**', 'artifacts/**'] },
 
   js.configs.recommended,
   ...tseslint.configs.recommended,
