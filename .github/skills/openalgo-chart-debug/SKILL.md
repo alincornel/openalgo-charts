@@ -39,6 +39,7 @@ You need the version and the exact set of tier imports before you can reason abo
 | Live ticks never appear | subscription filter, or the builder was never seeded | log inside the tick handler before the builder |
 | Live candle duplicates the last history bar | builder started unseeded | pass `seedFrom: lastHistoryBar` |
 | Hidden-tab chart opens at the wrong zoom | old initial-size handling or an explicit host fit | 2.1.3 defers its first fit; inspect `applySize`, `navigation.defaultVisibleBars` and later host writes |
+| Drawing preview disappears past the last candle, or a future freehand stroke is discarded | no hovered bar time in empty chart space | 2.1.5 maps the pointer through `coordinateToTime`; custom drawing hosts must provide it. Keep candle/tooltip time null where no bar exists |
 | Plot drags stop vertical movement | explicit or saved horizontal preference, including a 2.1.3 layout | 2.1.4 defaults to `'both'`; select Axes > Mouse drag > Time and price or set `navigation.mousePan: 'both'`, preserving other preferences |
 | Time-axis drag behaves differently on one page | stale copied or bundled runtime | left expands, right compresses; compare deployed bundle hashes and run the website navigation check |
 | Replay suddenly reveals future bars | a host history/polling/reconnect writer bypasses replay | inspect every `setData`, `update` and `prependData`; see host integration |

@@ -1,12 +1,12 @@
 ---
 title: OpenAlgo Compatibility
-description: Charts 2.1.4 integration contracts and validation against the OpenAlgo trading application.
+description: Charts 2.1.5 integration contracts and validation against the OpenAlgo trading application.
 ---
 
 # OpenAlgo compatibility
 
 OpenAlgo Charts serves broker terminals, web platforms and standalone traders.
-Version 2.1.4 preserves the existing chart, trading-intent and two-argument feed
+Version 2.1.5 preserves the existing chart, trading-intent and two-argument feed
 APIs. The optional subscription context helps hosts continue history and recover
 after a stream interruption.
 
@@ -81,6 +81,12 @@ remain intact; choose **Axes > Mouse drag > Time and price** to change one. Orde
 dragging still uses its own interaction path. The reset control and saved
 default visible-bar count are available through the shared settings schema.
 
+Charts 2.1.5 keeps drawing previews and freehand strokes active in empty chart
+space, including beyond the latest candle. The candidate passes the OpenAlgo
+production build, 408 trading tests and 13 browser workflows, plus a native
+future-drawing check on `/trading`. Crosshair candle time and OHLC remain null
+where no bar exists, so host tooltips keep their existing data contract.
+
 These checks validate the inspected consumer and mocked protocol cases. They do
 not establish broker-specific data quality, exchange session alignment or exact
 trade volume when the upstream stream supplies only sampled prices.
@@ -93,7 +99,7 @@ candidate package installed. From the Charts repository:
 ```bash
 node scripts/check-openalgo-compat.mjs \
   --frontend /path/to/isolated-openalgo/frontend \
-  --label candidate-2.1.4 \
+  --label candidate-2.1.5 \
   --probe-host true \
   --output /tmp/openalgo-compatibility.json
 ```

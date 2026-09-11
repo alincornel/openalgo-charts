@@ -2,6 +2,27 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 2.1.5
+
+2026-09-11
+
+### Fixed
+
+- Drawing previews stay visible when an endpoint moves beyond the latest candle
+  or before the first loaded bar. Trend lines, rectangles and other drawing tools
+  use the existing pixel-to-time conversion in empty chart space.
+- Freehand tools can start and continue in empty time-axis space instead of
+  silently discarding those samples.
+- Crosshair candle time and OHLC remain null where there is no bar. Magnet
+  snapping still requires an actual hovered candle; drawing state and feed APIs
+  retain their existing formats.
+
+Validation: **4,215 unit tests** across 182 files, **219 demo tests** and **47 browser
+checks**, including future-space preview, commit, handle dragging, save/restore,
+new-bar updates and freehand rendering. The complete verification gate passes.
+Measured Brotli: **67.08 KB** base, **25.84 KB** draw, **156.29 KB** widget terminal
+and **187.90 KB** all tiers. Existing budgets are unchanged.
+
 ## 2.1.4
 
 2026-09-11

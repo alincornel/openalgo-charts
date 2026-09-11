@@ -69,8 +69,9 @@ export interface DrawingChartHost {
   priceToCoordinate?(price: number, paneIndex?: number): number | null;
   coordinateToPrice?(y: number, paneIndex?: number): number | null;
   /**
-   * Optional, the time-axis half of the same conversion. Without them a
-   * horizontal nudge assumes the time scale's default bar spacing.
+   * Optional, the time-axis half of the same conversion. coordinateToTime also
+   * keeps previews and freehand strokes active in empty space beyond the bars.
+   * Without these methods a horizontal nudge assumes the default bar spacing.
    */
   timeToCoordinate?(time: number): number;
   coordinateToTime?(x: number): number;
@@ -882,13 +883,16 @@ export class DrawingController {
   // ── interaction ─────────────────────────────────────────────────────────
 
   private _onCrosshair(p: CrosshairPayload): void {
-    const time = p.time ?? null;
+    const barTime = p.time ?? null;
+    // No hovered bar does not mean the pointer left the plot. Empty time-axis
+    // space still has a drawable position, while legends retain their null bar.
+    const time = barTime ?? (p.point ? this._chart.coordinateToTime?.(p.point.x) ?? null : null);
     const price = p.price ?? null;
     const paneIndex = p.paneIndex ?? null;
-    this._lastCursor = time === null || price === null || paneIndex === null
+    this._lastCursor = time === null || !Number.isFinite(time) || price === null || paneIndex === null
       ? null : { time, price, paneIndex };
     const bar = p.bar ?? null;
-    this._lastBar = bar === null || time === null ? null : { time, ...bar };
+    this._lastBar = bar === null || barTime === null ? null : { time: barTime, ...bar };
     this._shift = shiftOf(p);
     this._notePointer(p);
     // The pointer left the plot: nothing is under it any more.

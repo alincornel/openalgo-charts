@@ -269,6 +269,15 @@ Events on the chart bus: `draw:tool`, `draw:add`, `draw:update`, `draw:remove`, 
 
 ### Placement lifecycle
 
+Since 2.1.5, when `crosshair:move.time` is null but the pointer is still over the
+plot, the controller uses `DrawingChartHost.coordinateToTime(point.x)` for the
+preview and freehand samples. The built-in Chart provides this mapping. Custom
+hosts need the same mapping to support empty-space placement. Keep the crosshair's
+bar time and OHLC null outside loaded data; do not invent bars or snap a future
+endpoint to the last candle. Pointer leave still clears the preview. Existing
+edge-spacing extrapolation and drawing-state formats are unchanged.
+
+
 1. `setTool(id)` arms the tool and puts the chart in placement mode, so a press places an anchor instead of panning.
 2. Each `click` appends an anchor. Between anchors, a translucent preview (alpha 0.7) follows the live cursor.
 3. When `pending.length >= tool.points`, `expand()` runs (if the tool has one) and the drawing is committed, selected, and (unless `stayInDrawingMode`) the tool disarms.

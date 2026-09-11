@@ -8,7 +8,7 @@ import DrawingToolsDemo from '../../components/DrawingToolsDemo'
 
 # Drawing Tools
 
-`openalgo-charts/draw` is a lazy tier (**25.82 KB** Brotli) with 51 tools and a headless
+`openalgo-charts/draw` is a lazy tier (**25.84 KB** Brotli) with 51 tools and a headless
 controller. It ships **no UI**: no toolbar, no dialogs. It owns the model and the
 interactions; your app supplies the buttons.
 
@@ -204,6 +204,10 @@ those for its own order lines without the two fighting over one channel.
 
 - **Place**: click once per anchor, or **press-drag-release** to lay down a two-point shape
   in one gesture. A live preview follows the cursor between clicks.
+- **Draw beyond the candles**: move into the blank space after the latest candle or
+  before the first loaded bar. Previews and freehand strokes remain active there.
+  Leave room by panning the chart or adjusting the visible logical range.
+  Drawing times use the existing edge-spacing projection; they do not add market data.
 - **Select**: click a drawing; click empty space to deselect.
 - **Move**: drag the body to translate every anchor, or drag a handle to move one.
 - **Magnet**: `{ magnet: 'strong' }` (or `true`) snaps new anchors to the nearest O/H/L/C

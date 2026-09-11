@@ -67,7 +67,7 @@ Import only what you use. Each tier is a separate entry point that registers int
 | `openalgo-charts/webgl` | The WebGL2 series backend behind `renderer: 'auto' \| 'webgl2'`; composites into the pane's canvas, falls back to 2D for the session on context loss | 7 KB |
 | `openalgo-charts/widget` | `createWidget`: the chart with a top bar, drawing rail, status line, settings and indicator dialogs, drawing properties, right-click menu, keymap and optional persistence. The only tier that ships DOM; imports the draw tier itself | 37 KB |
 
-Limits are the CI-enforced budgets in `.size-limit.json`. This reference targets 2.1.4.
+Limits are the CI-enforced budgets in `.size-limit.json`. This reference targets 2.1.5.
 In a source checkout, run `npm run size` before quoting byte counts. In a consumer app,
 check the installed version and measure its actual imports with the app's bundler.
 Reference measurements and every budget row live in [bundling-and-tiers](references/bundling-and-tiers.md).
