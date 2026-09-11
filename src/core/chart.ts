@@ -71,6 +71,7 @@ const INSTANCE_PALETTE: readonly string[] = [
   '#26c6da', '#8bc34a', '#ff7043', '#5c6bc0',
 ];
 import { IndicatorInstance, type IndicatorApi, type IndicatorHost } from '../model/indicator-instance';
+import type { ChartDataContext } from '../model/indicator-registry';
 import {
   CHART_STATE_VERSION,
   type ChartState,
@@ -740,6 +741,7 @@ export class Chart {
   /** Handle + record of the primary price series (see `primarySeries`). */
   private _primary: { api: SeriesApi; record: SeriesRecord } | null = null;
   private readonly _indicators: IndicatorInstance[] = [];
+  private _dataContext: Readonly<ChartDataContext> | undefined;
   /** Guards indicator recompute against re-entry via its own `series.setData`. */
   private _recomputing = false;
   private _indicatorsDirty = false;
@@ -1318,6 +1320,19 @@ export class Chart {
     return true;
   }
 
+  /** Optional instrument identity supplied by the host, never inferred from bars. */
+  public getDataContext(): Readonly<ChartDataContext> | undefined {
+    return this._dataContext;
+  }
+
+  /** Clear the previous source bars before changing context, then load the new source. */
+  public setDataContext(context: ChartDataContext | undefined): void {
+    if (this._dataContext?.symbol === context?.symbol && this._dataContext?.exchange === context?.exchange
+      && this._dataContext?.interval === context?.interval && !!this._dataContext === !!context) return;
+    this._dataContext = context ? Object.freeze({ ...context }) : undefined;
+    this.emit('data:context', this._dataContext);
+  }
+
   private _indicatorHost(): IndicatorHost {
     return {
       flushIndicators: (): void => this._flushIndicators(),
@@ -1381,10 +1396,16 @@ export class Chart {
       timezone: (): string => this._timezone,
       // The same clock the countdown row reads, so an indicator that decides
       // whether the last bar is still forming agrees with the axis about it.
-      // `symbol` and `interval` are deliberately absent: the core is handed
-      // bars and never an instrument, and a host that knows one implements its
-      // own IndicatorHost rather than having the engine invent a name.
+      // Instrument identity exists only when a host explicitly supplies it.
       now: (): number => this._wallClock(),
+      symbol: (): string | undefined => this._dataContext?.symbol,
+      interval: (): string | undefined => this._dataContext?.interval,
+      dataContext: () => this._dataContext,
+      subscribeDataChanges: listener => {
+        const context = this.on('data:context', () => listener('context'));
+        const range = this.on('data:range', () => listener('range'));
+        return () => { context(); range(); };
+      },
       // The tick size the price scale is already formatting and snapping to.
       // Unlike symbol and interval, the chart genuinely knows this one, so an
       // indicator sizing a range in ticks does not have to be told twice.
@@ -1493,6 +1514,7 @@ export class Chart {
    * value, which is the frame and the public `indicators()` accessor.
    */
   private _invalidateIndicators(): void {
+    this.emit('data:range', {});
     if (this._indicators.length === 0) return;
     this._indicatorsDirty = true;
     this._loop.requestFrame();

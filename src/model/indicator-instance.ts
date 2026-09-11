@@ -26,6 +26,9 @@ import {
   indicatorDefaults,
   indicatorStyleInputs,
   plotStyleKeys,
+  type ChartDataContext,
+  type IndicatorDataChange,
+  type IndicatorDataStatus,
   type IndicatorCalcContext,
   type IndicatorDescriptor,
   type IndicatorLevelContext,
@@ -71,6 +74,9 @@ function formatValue(v: number, tick?: number): string {
 
 /** The slice of the chart the runtime needs. Keeps this module testable alone. */
 export interface IndicatorHost {
+  /** Optional instrument identity and source-range notifications. */
+  dataContext?(): Readonly<ChartDataContext> | undefined;
+  subscribeDataChanges?(listener: (change: IndicatorDataChange) => void): () => void;
   /** Add the pane-legend row (name + inline up/down/hide/maximize/close). */
   addIndicatorLegend(opts: {
     id: string; title: string; params: string; color?: string; row: number; paneIndex: number;
@@ -147,9 +153,8 @@ export interface IndicatorHost {
   timezone?(): string;
   /**
    * The instrument and timeframe on screen, when the host knows them. The
-   * engine core does not: it is handed bars and never a symbol, so `Chart`
-   * leaves both out and a descriptor sees `undefined` rather than a guess. A
-   * terminal that owns the symbol picker implements them here.
+   * host can supply an explicit `dataContext` instead. Without either hook,
+   * a descriptor sees `undefined` rather than a guessed identity.
    */
   symbol?(): string | undefined;
   interval?(): string | undefined;
@@ -197,6 +202,12 @@ export interface IndicatorHost {
 
 /** Public handle returned by `chart.addIndicator(...)`. */
 export interface IndicatorApi {
+  /** External data state, or null for a study without a managed lifecycle. */
+  dataStatus(): Readonly<IndicatorDataStatus> | null;
+  /** Observe changes; immediately receives the current managed status, if any. */
+  subscribeDataStatus(listener: (status: Readonly<IndicatorDataStatus>) => void): () => void;
+  /** Retry external history when the descriptor supplies a retry action. */
+  retryData(): void;
   /** Unique instance id (several instances of one indicator can coexist). */
   readonly id: string;
   /** The descriptor id, e.g. `'macd'`. */
@@ -260,6 +271,10 @@ export class IndicatorInstance implements IndicatorApi {
   private _removed = false;
   private readonly _store: IndicatorStore = {};
   private _detach: (() => void) | null = null;
+  private readonly _lifetime = new AbortController();
+  private _dataStatus: Readonly<IndicatorDataStatus> | null = null;
+  private _dataRetry: (() => void) | null = null;
+  private readonly _dataListeners = new Set<(status: Readonly<IndicatorDataStatus>) => void>();
   private _legend: PaneLegend | null = null;
   private _markers: SeriesMarkers | null = null;
   private _table: ChartTable | null = null;
@@ -664,7 +679,23 @@ export class IndicatorInstance implements IndicatorApi {
    * there can no-op when nothing data-affecting actually changed.
    */
   private _attach(): void {
+    this._dataRetry = null;
     const detach = this._d.attach?.({
+      dataContext: () => this._host.dataContext?.(),
+      subscribeDataChanges: (listener) => this._host.subscribeDataChanges?.(listener) ?? (() => {}),
+      signal: this._lifetime.signal,
+      setDataStatus: (status) => {
+        if (this._removed) return;
+        const previous = this._dataStatus;
+        if (previous?.state === status.state &&
+          (status.state !== 'error' || (previous.state === 'error' && previous.error === status.error))) return;
+        this._dataStatus = Object.freeze({ ...status });
+        for (const listener of this._dataListeners) listener(this._dataStatus);
+        this._host.emit?.('indicator:data-status', {
+          id: this.id, indicatorId: this.indicatorId, status: this._dataStatus,
+        });
+      },
+      setDataRetry: (retry) => { if (!this._removed) this._dataRetry = retry; },
       settings: () => this._descriptorSettings(),
       bars: () => this._host.sourceBars(),
       requestRecompute: () => {
@@ -684,6 +715,17 @@ export class IndicatorInstance implements IndicatorApi {
     });
     this._detach = typeof detach === 'function' ? detach : null;
   }
+
+  public dataStatus(): Readonly<IndicatorDataStatus> | null { return this._dataStatus; }
+
+  public subscribeDataStatus(listener: (status: Readonly<IndicatorDataStatus>) => void): () => void {
+    if (this._removed) return () => {};
+    this._dataListeners.add(listener);
+    if (this._dataStatus !== null) listener(this._dataStatus);
+    return () => { this._dataListeners.delete(listener); };
+  }
+
+  public retryData(): void { if (!this._removed) this._dataRetry?.(); }
 
   public settings(): IndicatorSettings {
     return { ...this._settings };
@@ -936,6 +978,9 @@ export class IndicatorInstance implements IndicatorApi {
   public remove(): void {
     if (this._removed) return;
     this._removed = true;
+    this._lifetime.abort();
+    this._dataRetry = null;
+    this._dataListeners.clear();
     this._detach?.();
     this._detach = null;
     if (this._legend !== null) { this._host.removeIndicatorLegend(this._legend); this._legend = null; }

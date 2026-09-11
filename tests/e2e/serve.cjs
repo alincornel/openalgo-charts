@@ -4,6 +4,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
+const PORT = Number(process.env.OAC_E2E_PORT || 4173);
 const ROOT = path.resolve(__dirname, '..', '..');
 const MIME = {
   '.html': 'text/html', '.mjs': 'application/javascript', '.js': 'application/javascript',
@@ -19,4 +20,4 @@ http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': MIME[path.extname(fp)] || 'application/octet-stream' });
     res.end(data);
   });
-}).listen(4173, () => console.log('e2e static server → http://127.0.0.1:4173'));
+}).listen(PORT, () => console.log(`e2e static server: http://127.0.0.1:${PORT}`));

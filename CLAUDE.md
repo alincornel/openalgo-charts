@@ -143,6 +143,48 @@ drifted, and reports success: the README's base-engine row sat two releases stal
 exactly that way, through three "successful" release runs. Read `npm run size`,
 match on the row name, and fail loudly when a row cannot be found.
 
+### Release process for every new version
+
+Apply this process to patch, minor and major releases. A version number alone does
+not reduce the testing needed for changes to loading, drawing, replay or trading.
+
+1. Record the approved scope and source commit. Use an isolated checkout when the
+   shared workspace has unrelated work. Keep comparative audits and raw validation
+   artifacts outside the repository; keep reusable regression tests in it.
+2. Reproduce each defect before fixing it. Cover cancellation, context changes,
+   teardown and replay when changing feed ownership. A drawing beyond the latest
+   candle must remain visible inside the plot and clipped at every price axis.
+3. Test the built candidate in real Chromium, Firefox and WebKit for the affected
+   interactions. Inspect screenshots as well as assertions. Record browser or
+   device limitations explicitly; synthetic traffic is not a live-broker test.
+4. When a public contract affects OpenAlgo, install the packed candidate in an
+   isolated consumer checkout. Run its trading tests, typecheck, production build
+   and actual `/trading` browser harness. Preserve order authority, quantity units,
+   exchange timestamps, session bucketing, volume accounting and replay guards.
+   A dependency upgrade cannot substitute for a required consumer migration.
+5. Update package and lockfile versions, `src/version.ts`, changelog, website release
+   notes, current-version references, examples, API docs and skills. Follow the
+   measured-facts checklist above; preserve historical release facts. Run the full
+   package verification, skills coverage, API generation without warnings and the
+   website build before committing.
+6. Review the final diff and commit using Conventional Commits. Push and wait for
+   required CI. Publish only within the user's existing authorization; do not ask
+   again when the user has already authorized this release. Otherwise prepare the
+   tested candidate and release notes before seeking publication approval.
+7. Push the matching immutable version tag, then manually dispatch the existing
+   Release workflow with that tag for npm trusted publishing and provenance. A tag
+   push alone does not publish. Create the GitHub release with the matching changelog
+   after npm succeeds. Use the website deployment workflow for Pages. Do not move a published tag or reuse an npm
+   version; a correction after publication requires a new version.
+8. Wait for the release and Pages workflows to succeed. Download the registry
+   tarball and compare every packaged file to the tested candidate. Verify package,
+   source, runtime, tag and release versions agree, including npm integrity and
+   provenance. Open the deployed website under `/openalgo-charts`, check assets and
+   the changed interactive examples, and inspect actual browser pixels.
+9. If a companion OpenAlgo change is in scope, install the published package, update
+   its lockfile, rerun affected checks, then commit and push that consumer change.
+   Report release links, commit IDs, validation and any remaining limitations.
+
 ### The API reference
 
 `typedoc.json` `entryPoints` must list **every** tier. It listed four for a long time,

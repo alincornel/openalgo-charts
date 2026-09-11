@@ -748,9 +748,9 @@ registerIndicator(createTier2Indicator({
 Lifecycle facts:
 
 - `attach` re-runs on **every** `setSettings`. `refetchOn` forms the data key; include all settings that identify the source dataset, such as symbol, exchange and resolution. A changed key immediately clears prior values and starts a new request. A pending or failed request must not display another key's observations.
-- A style-only change with the same key reuses loaded data or the pending history request. An empty successful result counts as loaded. Omitting `refetchOn` uses the single key `''` for the instance.
+- A style-only change with the same key reuses loaded data or the pending history request. An empty successful result counts as loaded. Omitting `refetchOn` uses no settings-derived key; supplied chart context still identifies the dataset.
 - Live points arriving out of order are upserted into time order; a point with an existing time replaces it. Points received while history is pending are merged after history, so live observations win at matching timestamps.
-- A rejected `fetch` retains live observations for the current key. A later settings change can retry history; failure never restores points from an earlier key.
+- A rejected `fetch` retains live observations for the current key. `retryData()` or a context/settings change can retry history; failure never restores points from an earlier key.
 - Teardown closes the subscription and invalidates the attachment. Late history completions and callbacks from previous attachments cannot publish after a settings change or removal.
 
 Tier-2 points are aligned onto the source bars before plot data is written; an external
@@ -876,3 +876,23 @@ member. They are already included in the tier's own registration.
 | `STUDY_INDICATORS` | `cpr`, `alphatrend`, `range-analysis` |
 | `SEASONALITY_INDICATORS` | `seasonality` |
 | `WAVETREND_INDICATORS` | `wavetrend` |
+
+## Managed source status (2.1.6)
+
+Base exports `ChartDataContext`, `IndicatorDataChange` and `IndicatorDataStatus`.
+`ChartDataContext` has optional symbol/exchange/interval; `IndicatorDataChange`
+is context/range. `Tier2Context.dataContext` and `signal` are optional. A descriptor
+may implement `supports(ctx)` to decline unavailable data before fetching.
+
+Chart context and source-range changes cancel/refetch or extend Tier-2 history.
+Live studies use subscription updates, history-only studies refresh the tail,
+and replay alignment selects only points at or before a visible candle.
+Style-only updates retain fetched data. Removal aborts pending work.
+`IndicatorApi.dataStatus()` returns null for ordinary indicators or a status with
+loading/ready/empty/unsupported/error. Subscribe with `subscribeDataStatus`, release
+the returned cleanup, and use `retryData()` for explicit retry. The chart bus emits
+`indicator:data-status` with id, indicatorId and status. The widget displays it.
+
+Custom attach hooks can use optional `dataContext()`, `subscribeDataChanges()`,
+`setDataStatus()` and `setDataRetry()` from `IndicatorAttachContext`; the lifetime
+signal is aborted on removal. Keep these optional for older synthetic hosts.

@@ -8,7 +8,7 @@ import DrawingToolsDemo from '../../components/DrawingToolsDemo'
 
 # Drawing Tools
 
-`openalgo-charts/draw` is a lazy tier (**25.84 KB** Brotli) with 51 tools and a headless
+`openalgo-charts/draw` is a lazy tier (**25.90 KB** Brotli) with 51 tools and a headless
 controller. It ships **no UI**: no toolbar, no dialogs. It owns the model and the
 interactions; your app supplies the buttons.
 
@@ -458,3 +458,12 @@ window.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'z') e.shiftKey ? draw.redo() : draw.undo();
 });
 ```
+
+## Plot clipping and moved axes (2.1.6)
+
+Drawing bodies, previews, selection handles and snap rings are clipped to their
+pane's plot. Anchors remain valid beyond the newest candle; clipping does not
+truncate saved drawing coordinates. Moving the primary price scale to the left
+keeps drawing placement, rendering and hit testing on the same price scale.
+`PrimitiveRenderContext.readoutPriceScale` exposes that primary scale for custom
+primitives; `priceScale` retains the existing right-scale contract.

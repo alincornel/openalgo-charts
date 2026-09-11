@@ -360,7 +360,10 @@ export function parseMessage(raw: unknown): { kind: 'ltp'; event: LtpEvent } | {
     const bids = (d.depth.buy ?? []).map((b) => ({ price: b.price, qty: b.quantity }));
     const asks = (d.depth.sell ?? []).map((a) => ({ price: a.price, qty: a.quantity }));
     const ltp = d.ltp ?? d.last_price ?? (bids[0]?.price ?? 0);
-    return { kind: 'depth', symbol, exchange, depth: { bids, asks, ltp } };
+    const timeSec = toSec(d.timestamp);
+    return { kind: 'depth', symbol, exchange, depth: { bids, asks, ltp,
+      ...(Number.isFinite(timeSec) && timeSec > 0 ? { timeSec } : {}),
+    } };
   }
   const price = d.ltp ?? d.last_price;
   if (typeof price === 'number') {

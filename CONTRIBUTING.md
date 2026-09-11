@@ -79,6 +79,10 @@ node scripts/check-profile-website.mjs
 node scripts/check-navigation-website.mjs
 ```
 
+For loading or drawing changes, run the managed-loading Playwright projects in
+Chromium, Firefox and WebKit. Keep drawing previews visible past the newest candle
+and assert that saved drawings never paint inside either price-axis strip.
+
 These check depth grouping, profile/orderflow controls and screenshot fingerprints,
 and current bundles plus time-axis dragging, two-axis plot panning, optional horizontal
 panning and Reset view across website charts. They accept
@@ -98,8 +102,9 @@ capture directory identifies a capture generation, not the current package versi
 
 Keep the eight tier boundaries and zero runtime dependency model intact. Use registry
 extensions and public tier exports; avoid deep imports that create separate registries.
-Time is UTC seconds, while display zones are configurable. Host code owns its feeds,
-timers and async request lifetime, including pagination and replay display ownership.
+Time is UTC seconds, while display zones are configurable. `DataLoadingController`
+can own history, paging and recovery for a host; the host still owns display binding,
+shared-feed lifetime, replay controls and broker execution.
 See [ARCHITECTURE.md](ARCHITECTURE.md), [project conventions](CLAUDE.md), and
 [host lifecycle guidance](.github/skills/openalgo-charts/references/host-integration.md).
 
@@ -127,7 +132,8 @@ and follow the plain-text writing rules in [CLAUDE.md](CLAUDE.md).
 
 Maintainers use the authorized release workflow. Prepare the version, lockfile,
 `src/version.ts`, changelog, website release notes, measured size/count claims and skill
-updates before tagging; follow [the release checklist](CLAUDE.md#before-every-npm-publish).
+updates before tagging; follow [the release process](CLAUDE.md#release-process-for-every-new-version) and
+[the measured-facts checklist](CLAUDE.md#before-every-npm-publish).
 Verify that package, source and built `version()` agree with the intended `vX.Y.Z` tag.
 
 Push the verified tag, then manually dispatch [Release](.github/workflows/release.yml)

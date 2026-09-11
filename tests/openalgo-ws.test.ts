@@ -61,6 +61,7 @@ describe('OpenAlgo proxy market-data envelope', () => {
       kind: 'depth', symbol: 'RELIANCE', exchange: 'NSE',
       depth: {
         ltp: 1424,
+        timeSec: 1756376445,
         bids: [
           { price: 1423.9, qty: 50 }, { price: 1423.5, qty: 35 }, { price: 1423, qty: 42 },
           { price: 1422.5, qty: 28 }, { price: 1422, qty: 33 },
@@ -71,6 +72,13 @@ describe('OpenAlgo proxy market-data envelope', () => {
         ],
       },
     });
+  });
+
+  it('leaves a missing or invalid depth timestamp unspecified', () => {
+    for (const timestamp of [undefined, 'invalid', NaN]) {
+      const result = parseMessage({ ...depthFrame, data: { ...depthFrame.data, timestamp } });
+      expect(result?.kind === 'depth' && result.depth.timeSec).toBeUndefined();
+    }
   });
 
   it('retains nested identity precedence for existing broker payloads', () => {

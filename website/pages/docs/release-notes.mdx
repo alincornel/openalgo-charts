@@ -8,6 +8,57 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 2.1.6
+
+2026-09-11
+
+### Added
+
+- Shared headless `DataLoadingController` for history, live bars, refresh, older
+  pages, display suspension and typed loading state. Widgets use it automatically;
+  custom broker terminals can bind the same controller to their own UI.
+- `HistoryRequestPool` coalesces identical requests per feed, limits concurrency
+  and provides independent consumer cancellation, priority and deadlines. The
+  OpenAlgo REST adapter bounds fetch and JSON body decoding.
+- Optional `DataFeed.getBarsPage` and `getCachedBars` capabilities preserve existing
+  feed implementations. Pagination distinguishes empty windows, provider exhaustion
+  and local retention limits; cache snapshots paint closed history before refresh.
+- Explicit chart data context and external-study lifecycle status, automatic
+  context/range refresh, cancellation, unsupported data and retry. The widget shows
+  accessible chart, history and study status with compact Retry controls.
+
+### Fixed
+
+- Durable cache failures and invalid entries fall back to bounded memory without
+  preventing usable history. New entries are versioned; forming bars remain excluded.
+- Context switches, recovery retries and teardown reject obsolete results. Replay
+  can hold its displayed prefix while the controller maintains current live data.
+- Same-context widget reloads and older pages preserve the visible time anchor.
+  Hidden topbar/statusline combinations retain a usable chart and Retry control.
+- OpenAlgo depth frames retain their exchange event timestamp. Book quantities
+  remain distinct from traded volume.
+- Saved drawings, previews and handles are clipped to the pane plot, preventing
+  price-axis spill while retaining drawings beyond the latest candle. Drawing
+  rendering and hit testing also follow a primary price axis moved to the left.
+
+### Integration and documentation
+
+- Interactive failure, retry, empty-history and paging simulation in the website;
+  updated feed, cache, widget, indicator and host guidance and skill references.
+- Permanent release process in `CLAUDE.md` covers regression evidence, browser
+  validation, OpenAlgo compatibility, docs, publication and downloaded-artifact checks.
+- Base bundle budgets account for the shared controller and resilient cache. The
+  package retains eight tiers and zero runtime dependencies.
+
+Validation: **4,303 unit tests** across 190 files, **219 demo tests** and
+**82 browser checks** pass. Browser coverage includes Chromium, Firefox and WebKit,
+failed refresh/retry, replay isolation, saved/future drawings and axis clipping.
+TypeDoc reports no warnings; all 843 skill coverage entries are present. The
+OpenAlgo consumer passes 1,892 frontend tests and 13 browser workflows.
+Measured Brotli: **71.57 KB** base, **25.90 KB** draw, **36.83 KB** widget,
+**162.35 KB** widget terminal and **193.96 KB** all tiers. The chart-only
+import remains within its existing 45 kB tree-shaking budget.
+
 ## 2.1.5
 
 2026-09-11

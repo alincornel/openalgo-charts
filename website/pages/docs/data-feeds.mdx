@@ -13,6 +13,8 @@ source is a focused adapter - not a fork.
 ```ts
 interface DataFeed {
   getBars(req: BarsRequest): Promise<Bar[]>;
+  getBarsPage?(req: BarsPageRequest): Promise<BarsPage>;
+  getCachedBars?(req: BarsRequest): Promise<Bar[] | undefined>;
   // optional: live updates to the last bar, or a new last bar
   subscribeBars?(req: BarsRequest, onBar: (bar: Bar) => void, opts?: BarSubscriptionOptions): () => void;
 }
@@ -21,6 +23,9 @@ interface BarsRequest {
   symbol: string;
   exchange: string;
   interval: string;       // '5s' | '1m' | '1h' | 'D' | ...
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  countBack?: number;
   from?: number;          // UTC seconds
   to?: number;            // UTC seconds
   noCache?: boolean;      // bypass cached history for an authoritative refresh
@@ -158,3 +163,17 @@ import {
   formatIstTime, formatIstTimeSeconds, IST_OFFSET_SECONDS,
 } from 'openalgo-charts';
 ```
+
+## Managed history capabilities (2.1.6)
+
+`BarsPageRequest` extends `BarsRequest` with exclusive `before: UTCSeconds` and
+required `countBack: number`. Return `BarsPage { bars: Bar[]; hasMore?: boolean;
+nextBefore?: UTCSeconds }`. Omit `hasMore` when the provider cannot establish
+exhaustion; one empty date window is not enough evidence. The next cursor must
+move backward. Existing feeds need only `getBars` and continue to work.
+
+Forward `req.signal` to `fetch` and honor `noCache` for authoritative repairs.
+`HistoryRequestPool` shares identical pending requests without cancelling other
+consumers when one chart changes symbol. The pool and `DataLoadingController`
+are in the base tier. See [data loading](/docs/data-loading) for options,
+cache snapshots, deadlines, replay fences and widget integration.

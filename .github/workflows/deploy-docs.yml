@@ -18,6 +18,7 @@ on:
       - 'scripts/check-depth-demo.mjs'
       - 'scripts/check-profile-website.mjs'
       - 'scripts/check-navigation-website.mjs'
+      - 'scripts/check-data-loading-website.mjs'
       - 'docs/api-introduction.md'
       - 'docs/architecture-diagram.svg'
       - '.github/workflows/deploy-docs.yml'
@@ -77,6 +78,7 @@ jobs:
           node scripts/check-depth-demo.mjs
           node scripts/check-profile-website.mjs
           node scripts/check-navigation-website.mjs
+          node scripts/check-data-loading-website.mjs
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         if: failure()
         with:

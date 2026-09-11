@@ -213,7 +213,12 @@ export { conflationGroupSize, conflateBars, conflateItems, mergeBars } from './m
 export type { Bar, LinePoint, Whitespace, SeriesDataItem, UTCSeconds, OriginalTime } from './model/bar';
 export { isWhitespace, toBar } from './model/bar';
 
-export type { DataFeed, TradeFeed, BarsRequest, BarSubscriptionOptions, MarketDepth, DepthLevel, OrderSide, OrderType, PlaceOrder, UnsubscribeFn } from './feed/types';
+export type { DataFeed, TradeFeed, BarsRequest, BarsPageRequest, BarsPage, BarSubscriptionOptions, MarketDepth, DepthLevel, OrderSide, OrderType, PlaceOrder, UnsubscribeFn } from './feed/types';
+export { HistoryRequestPool, sharedHistoryRequests } from './feed/request-pool';
+export type { HistoryRequestPoolOptions } from './feed/request-pool';
+export { DataLoadingController } from './feed/data-controller';
+export type { DataLoadingOptions, DataLoadingSnapshot, DataLoadingStatus, HistoryLoadingStatus, DataUpdateReason } from './feed/data-controller';
+export type { ChartDataContext, IndicatorDataChange, IndicatorDataStatus } from './model/indicator-registry';
 export { OpenAlgoDataFeed, mapHistoryResponse, rowTimeToUtcSeconds } from './feed/openalgo-rest';
 export type { OpenAlgoConfig } from './feed/openalgo-rest';
 export { OpenAlgoWsFeed, parseMessage, formatSubscribe, formatUnsubscribe, parseTopic, classifyAuthAck, readSequence, backoffDelayMs } from './feed/openalgo-ws';
@@ -232,7 +237,7 @@ export type { TickTimeframe, AggTick, BarUpdate, TickBarOptions } from './feed/t
 
 // warm-load bar caching: a DataFeed -> DataFeed wrapper, so any custom feed
 // gets it, not just OpenAlgoDataFeed.
-export { withBarCache, BarCache, barCacheKey, barCloseSec } from './feed/cache';
+export { withBarCache, BarCache, barCacheKey, barCloseSec, BAR_CACHE_VERSION } from './feed/cache';
 export type {
   BarCacheOptions, BarCacheStore, BarCacheStats, CachedBars, CachedBarsRequest, MaybePromise,
 } from './feed/cache';

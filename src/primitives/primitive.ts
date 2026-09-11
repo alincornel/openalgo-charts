@@ -15,6 +15,8 @@ export type ZOrder = 'bottom' | 'normal' | 'top';
 export interface PrimitiveRenderContext {
   timeScale: TimeScale;
   priceScale: PriceScale;
+  /** The pane's primary visible price series scale, including a moved left axis. */
+  readoutPriceScale?: PriceScale;
   dataLayer: DataLayer;
   plotWidth: number;
   plotHeight: number;

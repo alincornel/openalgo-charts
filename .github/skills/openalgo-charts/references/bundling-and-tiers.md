@@ -137,18 +137,20 @@ Enforced by `npm run size` (`size-limit`, Brotli, `@size-limit/file`), from `.si
 
 | Budget row | Files measured | Limit | Measured |
 |---|---|---|---|
-| Base engine | `openalgo-charts.mjs` | 68 KB | 67.08 KB |
-| Base + trade layer | base + `trade.mjs` | 75 KB | 74.69 KB |
-| Indicator tier | `indicators.mjs` | 30 KB | 27.36 KB |
-| Draw tier | `draw.mjs` | 26 KB | 25.84 KB |
+| Base engine | `openalgo-charts.mjs` | 73 KB | 71.57 KB |
+| Base + trade layer | base + `trade.mjs` | 81 KB | 79.18 KB |
+| Indicator tier | `indicators.mjs` | 30 KB | 28.05 KB |
+| Draw tier | `draw.mjs` | 26 KB | 25.90 KB |
 | Transform tier | `transform.mjs` | 5 KB | 2.66 KB |
 | Profile tier | `profile.mjs` | 15 KB | 14.96 KB |
 | WebGL2 tier | `webgl.mjs` | 7 KB | 6.38 KB |
-| Widget tier | `widget.mjs` | 37 KB | 36.01 KB |
-| Widget terminal | base + `draw.mjs` + `indicators.mjs` + `widget.mjs` | 157 KB | 156.29 KB |
-| Everything | all eight bundles | 188 KB | 187.90 KB |
+| Widget tier | `widget.mjs` | 37 KB | 36.83 KB |
+| Widget terminal | base + `draw.mjs` + `indicators.mjs` + `widget.mjs` | 165 KB | 162.35 KB |
+| Everything | all eight bundles | 197 KB | 193.96 KB |
 
-Version 2.1.2 raises the full-package budget from 187 KB to 188 KB for the feed, indicator lifecycle and recovery fixes. Version 2.1.3 raises base, widget and widget-terminal ceilings to 68 KB, 37 KB and 157 KB for navigation controls, and the chart-only tree-shaking ceiling to 45 KiB. The full-package ceiling remains 188 KB. Aggregate rows constrain the total independently of individual tier ceilings. The limits in `.size-limit.json` are the budget of record.
+Version 2.1.2 raises the full-package budget from 187 KB to 188 KB for the feed, indicator lifecycle and recovery fixes. Version 2.1.3 raises base, widget and widget-terminal ceilings to 68 KB, 37 KB and 157 KB for navigation controls, and the chart-only tree-shaking ceiling to 45 KiB. Version 2.1.6 raises the base, base-plus-trade, widget-terminal and total ceilings
+to 73 KB, 81 KB, 165 KB and 197 KB for shared loading, resilient caching and
+managed study status. Aggregate rows constrain the total independently of individual tier ceilings. The limits in `.size-limit.json` are the budget of record.
 
 **Nothing is excluded from these numbers.** The package has zero runtime dependencies (`dependencies` is absent; everything in `devDependencies` is build tooling), so the measured file *is* the shipped payload. There is no CSS to import, no peer dependency, no web-component registration.
 

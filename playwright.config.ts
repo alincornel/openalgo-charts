@@ -44,6 +44,13 @@ export default defineConfig({
       reuseExistingServer: !process.env.CI,
       timeout: 30_000,
     },
+    {
+      command: 'node tests/e2e/serve.cjs',
+      env: { OAC_E2E_PORT: '4176' },
+      url: 'http://127.0.0.1:4176/dist/openalgo-charts.mjs',
+      reuseExistingServer: false,
+      timeout: 30_000,
+    },
     ...(python
       ? [{
           command: `${python} examples/yfinance/server.py --fixture --quiet --port ${DEMO_PORT}`,
@@ -56,7 +63,12 @@ export default defineConfig({
   projects: [
     // The engine suite, against the static server. The demo spec is not in
     // it: that page needs /api/history, which serve.cjs does not answer.
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] }, testIgnore: /yfinance\.spec\.ts/ },
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] }, testIgnore: /(?:yfinance|widget-data-loading)\.spec\.ts/ },
+    ...(['chromium', 'firefox', 'webkit'] as const).map(browserName => ({
+      name: `widget-loading-${browserName}`,
+      testMatch: /(?:widget-data-loading|drawing-future)\.spec\.ts/,
+      use: { browserName, baseURL: 'http://127.0.0.1:4176' },
+    })),
     // The demo, against its own server. Kept in the list even with no
     // Python, so the spec is found and can report itself skipped.
     { name: 'yfinance-demo', testMatch: /yfinance\.spec\.ts/, use: { ...devices['Desktop Chrome'], baseURL: DEMO_URL } },

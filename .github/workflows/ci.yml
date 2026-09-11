@@ -92,6 +92,7 @@ jobs:
           node scripts/check-depth-demo.mjs
           node scripts/check-profile-website.mjs
           node scripts/check-navigation-website.mjs
+          node scripts/check-data-loading-website.mjs
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         if: failure()
         with:
@@ -115,7 +116,7 @@ jobs:
         with:
           name: verified-dist
           path: dist/
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium firefox webkit
       - run: npm run e2e
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         if: failure()

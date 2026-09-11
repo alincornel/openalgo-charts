@@ -262,6 +262,46 @@ describe('Tier-2 history and live reconciliation', () => {
 });
 
 describe('Tier-2 chart lifecycle integration', () => {
+  it('publishes per-instance status and retries without changing settings', async () => {
+    const h = lifecycle();
+    registerIndicator(h.descriptor);
+    const doc = fakeDocument();
+    const chart = new Chart(doc.createElement('div'), {
+      document: doc, raf: { schedule: () => 0 }, pixelRatio: () => 1, shortcuts: false,
+    });
+    chart.applySize(800, 600);
+    chart.addSeries('candlestick').setData(data);
+    const indicator = chart.addIndicator(h.descriptor.id, { symbol: 'AAA' });
+    const states: string[] = [];
+    const events: unknown[] = [];
+    chart.on('indicator:data-status', (event) => { events.push(event); });
+    const unsubscribe = indicator.subscribeDataStatus((status) => { states.push(status.state); });
+    expect(indicator.dataStatus()).toEqual({ state: 'loading' });
+    const failure = new Error('unavailable');
+    h.requests[0].reject(failure);
+    await Promise.resolve();
+    expect(indicator.dataStatus()).toEqual({ state: 'error', error: failure });
+    indicator.retryData();
+    h.requests[1].resolve([]);
+    await Promise.resolve();
+    expect(states).toEqual(['loading', 'error', 'loading', 'empty']);
+    expect(events).toHaveLength(3);
+    unsubscribe();
+    indicator.retryData();
+    expect(h.requests).toHaveLength(3);
+    indicator.setSettings({ 'v:color': '#123456' });
+    expect(h.requests).toHaveLength(3);
+    expect(h.requests[2].context.signal?.aborted).toBe(false);
+    chart.removeIndicator(indicator.id);
+    expect(h.requests[2].context.signal?.aborted).toBe(true);
+    indicator.retryData();
+    h.requests[2].resolve([point(1, 999)]);
+    await Promise.resolve();
+    expect(states).toEqual(['loading', 'error', 'loading', 'empty']);
+    expect(h.requests).toHaveLength(3);
+    chart.destroy();
+  });
+
   it('switches pending settings through IndicatorApi and stops updates on removal', async () => {
     const h = lifecycle();
     registerIndicator(h.descriptor);

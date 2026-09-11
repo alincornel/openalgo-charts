@@ -412,6 +412,7 @@ export class Pane {
     return {
       timeScale: ctx.timeScale,
       priceScale: this.priceScale,
+      readoutPriceScale: this._readoutScale(),
       dataLayer: ctx.dataLayer,
       plotWidth: layout.plotWidth,
       plotHeight: layout.plotHeight,

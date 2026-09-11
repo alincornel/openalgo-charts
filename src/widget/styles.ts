@@ -121,7 +121,7 @@ export const WIDGET_CSS = `
 .oac-widget .oac-sep { width: 1px; height: 20px; background: ${v('bd-soft')}; margin: 0 2px; flex: none; }
 
 /* Top bar */
-.oac-widget .oac-topbar { display: flex; align-items: center; gap: 4px; min-height: ${v('topbar-h')};
+.oac-widget .oac-topbar { grid-row: 1; display: flex; align-items: center; gap: 4px; min-height: ${v('topbar-h')};
   padding: 5px 8px; background: ${v('panel')}; border-bottom: 1px solid ${v('bd-soft')}; flex-wrap: wrap; }
 .oac-widget .oac-topbar__spacer { flex: 1 1 auto; }
 .oac-widget .oac-sym { position: relative; display: inline-flex; align-items: center; }
@@ -158,10 +158,20 @@ export const WIDGET_CSS = `
 .oac-widget .oac-menu__empty { padding: 8px 10px; color: ${v('faint')}; }
 
 /* Stage: the rail on the left, the chart filling the rest. */
-.oac-widget .oac-stage { position: relative; min-height: 0; min-width: 0; display: flex; }
+.oac-widget .oac-stage { grid-row: 2; position: relative; min-height: 0; min-width: 0; display: flex; }
 .oac-widget .oac-chart { position: relative; flex: 1 1 auto; min-width: 0; min-height: 0;
   cursor: var(--oac-tool-cursor, crosshair); }
 .oac-widget .oac-chart:focus-visible { outline-offset: -2px; }
+
+/* Data state stays compact inside a chart, including narrow embedded widgets. */
+.oac-widget .oac-data-status { position: absolute; top: 8px; right: 8px; z-index: 30;
+  max-width: calc(100% - 16px); width: max-content; max-height: 45%; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 4px; pointer-events: none; font-size: 12px; }
+.oac-widget .oac-data-status__row { display: flex; align-items: center; gap: 8px;
+  max-width: 320px; padding: 4px 6px 4px 10px; background: ${v('panel')}; color: ${v('tx')};
+  border: 1px solid ${v('bd')}; border-radius: 6px; pointer-events: auto; }
+.oac-widget .oac-data-status__text { min-width: 0; overflow-wrap: anywhere; }
+.oac-widget .oac-data-status__row > button { flex: none; color: ${v('acc-2')}; }
 
 /* Rail */
 .oac-widget .oac-rail { flex: none; width: ${v('rail-w')}; display: flex; flex-direction: column; align-items: center;
@@ -226,7 +236,7 @@ export const WIDGET_CSS = `
 .oac-widget .oac-tip__sub { display: block; margin-top: 2px; color: ${v('faint')}; font-size: 11px; }
 
 /* Status line */
-.oac-widget .oac-statusline { display: flex; align-items: center; gap: 12px; height: ${v('status-h')}; padding: 0 10px;
+.oac-widget .oac-statusline { grid-row: 3; display: flex; align-items: center; gap: 12px; height: ${v('status-h')}; padding: 0 10px;
   background: ${v('panel')}; border-top: 1px solid ${v('bd-soft')}; color: ${v('mut')}; font-size: 11.5px;
   font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; }
 .oac-widget .oac-statusline__sym { color: ${v('tx-strong')}; font-weight: 600; letter-spacing: .3px; }

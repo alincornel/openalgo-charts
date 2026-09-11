@@ -12,7 +12,7 @@ const T = 1_700_000_040;
 const initial: Bar = { time: T, open: 10, high: 12, low: 9, close: 11, volume: 100 };
 const cleanup: (() => void)[] = [];
 afterEach(() => { for (const stop of cleanup.splice(0).reverse()) stop(); vi.useRealTimers(); });
-const flush = async (): Promise<void> => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
+const flush = async (): Promise<void> => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
 
 function pendingHistory() {
   let resolve!: (bars: Bar[]) => void;
@@ -213,20 +213,20 @@ describe('widget with the OpenAlgo live feed', () => {
     expect(status.some(text => /stale/i.test(text))).toBe(true);
   });
 
-  it('bypasses a warm history cache when recovering a corrected closed bar', async () => {
+  it('refreshes authoritative history on reload and recovery even with a warm closed cache', async () => {
     vi.useFakeTimers();
     let calls = 0;
     const corrected = { ...initial, high: 13, close: 12, volume: 140 };
     const { widget, sockets } = make(async () => ++calls === 1 ? [initial] : [corrected], true);
     await flush();
     await widget.reload();
-    expect(calls).toBe(1);
-    expect(widget.series.getData()).toEqual([initial]);
+    expect(calls).toBe(2);
+    expect(widget.series.getData()).toEqual([corrected]);
     sockets[0].onclose?.();
     await vi.advanceTimersByTimeAsync(1);
     sockets[1].onmessage?.({ data: JSON.stringify({ type: 'auth', status: 'success' }) });
     await flush();
-    expect(calls).toBe(2);
+    expect(calls).toBe(3);
     expect(widget.series.getData()).toEqual([corrected]);
   });
 

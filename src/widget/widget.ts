@@ -24,9 +24,9 @@
  *   every listener.
  */
 import {
-  createChart, darkTheme, lightTheme, registeredIntervals, registeredChartTypes, tryResolveInterval, resolveInterval, isKnownInterval,
+  DataLoadingController, createChart, darkTheme, lightTheme, registeredIntervals, registeredChartTypes, tryResolveInterval, resolveInterval, isKnownInterval,
   type Chart, type ChartOptions, type ChartTheme, type DataFeed, type Bar, type SeriesApi, type SeriesType,
-  type UnsubscribeFn, type RestoreReport, type BarsRequest,
+  type RestoreReport, type BarsRequest, type DataLoadingOptions, type DataLoadingSnapshot,
 } from 'openalgo-charts';
 import { DrawingController, drawingShortcuts, keyToDrawingAction, type DrawingKeyContext } from 'openalgo-charts/draw';
 import {
@@ -40,6 +40,7 @@ import { mountTopbar, type SymbolSearch, type TopbarHandle } from './topbar';
 import { mountToasts, type ToastHandle, type ToastKind, type Toaster } from './toast';
 import { applyTokens, themeMode, widgetTokens, type WidgetThemeName } from './tokens';
 import { injectWidgetStyles } from './styles';
+import { mountDataStatus, type DataStatusHandle } from './data-status';
 import { attachContextMenu, DIALOG_CSS, type OrderRequest } from './dialogs/index';
 
 /** The intervals offered when the host names none: the registry's codes are appended. */
@@ -55,6 +56,8 @@ export const WIDGET_STATE_VERSION = 1;
 export interface WidgetOptions extends Omit<ChartOptions, 'theme'> {
   /** Where bars come from. Without one the chart shows what the host sets on `widget.series` itself. */
   feed?: DataFeed;
+  /** Shared history, paging and recovery options. `now` here uses UTC seconds. */
+  loading?: DataLoadingOptions;
   symbol?: string;
   /** Exchange passed to the feed with the symbol. Default `''`. */
   exchange?: string;
@@ -118,6 +121,8 @@ export interface WidgetRestoreReport {
 export type WidgetEventName = 'symbol' | 'interval' | 'theme' | 'layout' | 'data' | 'status';
 
 export interface Widget {
+  /** Managed data owner, or null when the host supplies series data directly. */
+  readonly dataController: DataLoadingController | null;
   readonly chart: Chart;
   readonly draw: DrawingController;
   /** The `.oac-widget` element. */
@@ -153,7 +158,7 @@ const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
 /** The options the shell consumes; the rest of `WidgetOptions` is the chart's. */
 const WIDGET_ONLY_KEYS: ReadonlyArray<keyof WidgetOptions> = [
   'feed', 'symbol', 'exchange', 'interval', 'intervals', 'chartType', 'theme', 'rail', 'topbar', 'statusline',
-  'persist', 'storage', 'locale', 'indicators', 'symbolSearch', 'lookbackBars', 'now', 'onOrder', 'styleNonce',
+  'loading', 'persist', 'storage', 'locale', 'indicators', 'symbolSearch', 'lookbackBars', 'now', 'onOrder', 'styleNonce',
 ];
 
 /**
@@ -245,13 +250,8 @@ class WidgetContextImpl implements WidgetContext {
   public get chartTheme(): ChartTheme { return this._source.chartThemeInUse(); }
 }
 
-interface WidgetBarStream {
-  request: BarsRequest;
-  unsubscribe: UnsubscribeFn | null;
-  buffered: Map<number, Bar> | null;
-}
-
 class WidgetImpl implements Widget {
+  public readonly dataController: DataLoadingController | null;
   public readonly chart: Chart;
   public readonly draw: DrawingController;
   public readonly root: HTMLElement;
@@ -279,9 +279,11 @@ class WidgetImpl implements Widget {
 
   private _pointerInside = false;
   private _pointerInChart = false;
-  private _loadSeq = 0;
-  private _needsFreshHistory = false;
-  private _barStream: WidgetBarStream | null = null;
+  private readonly _dataStatus: DataStatusHandle;
+  private _displayedBars: readonly Bar[] | null = null;
+  private _dataState: DataLoadingSnapshot | null = null;
+  private _initialView = true;
+  private _pendingView: WidgetChartState['viewport'] | null = null;
   private _keepView = false;
   private _saveTimer: ReturnType<typeof setTimeout> | 0 = 0;
   private _destroyed = false;
@@ -289,6 +291,10 @@ class WidgetImpl implements Widget {
 
   public constructor(container: HTMLElement, options: WidgetOptions) {
     this._opts = options;
+    this.dataController = options.feed ? new DataLoadingController(options.feed, {
+      now: () => Math.floor((options.now ?? Date.now)() / 1000),
+      ...options.loading,
+    }) : null;
     const doc = options.document ?? container.ownerDocument;
     this._doc = doc;
     injectWidgetStyles(doc, DIALOG_CSS, options.styleNonce);
@@ -352,6 +358,7 @@ class WidgetImpl implements Widget {
     this.chart = createChart(chartEl, { ...(chartOpts as ChartOptions), theme: this._chartTheme, document: doc });
     chartEl.setAttribute('aria-label', options.ariaLabel ?? 'Price chart');
     this._series = this.chart.addSeries(this._chartType as SeriesType);
+    this.chart.setDataContext({ symbol: this._symbol, exchange: this._exchange, interval: this._interval });
     this.draw = new DrawingController(this.chart, {});
 
     // ── shared furniture ───────────────────────────────────────────────
@@ -383,6 +390,7 @@ class WidgetImpl implements Widget {
       interval: () => this._interval,
     });
     this._cleanups.push(() => { tips.destroy(); overlays.destroy(); });
+    this._dataStatus = mountDataStatus(this.context, stage, this.dataController, () => { void this.reload(); });
     // The right-click menu is the one dialog nothing in the chrome opens, so
     // the shell subscribes it to the chart itself.
     this._cleanups.push(attachContextMenu(this.context, { onOrder: options.onOrder }));
@@ -420,10 +428,11 @@ class WidgetImpl implements Widget {
 
     // ── the saved layout, onto the dataset it belongs to ───────────────
     if (saved?.chart !== undefined) {
-      const same = saved.symbol === this._symbol && saved.interval === this._interval;
+      const same = saved.symbol === this._symbol && saved.exchange === this._exchange && saved.interval === this._interval;
       const report = this.chart.restoreState(same ? saved.chart : stripView(saved.chart));
       if (report.applied) {
         this._keepView = same;
+        this._pendingView = same ? saved.chart.viewport ?? null : null;
         this.draw.fromJSON(saved.chart.drawings === undefined ? [] : saved.chart.drawings);
       } else {
         this._toasts.toast(`The saved layout could not be restored: ${report.reason ?? 'unknown reason'}`, 'error');
@@ -431,7 +440,17 @@ class WidgetImpl implements Widget {
     }
     if (saved?.rail && this._rail !== null) this._rail.restorePrefs(saved.rail);
 
-    if (options.feed && this._symbol !== '') void this.reload();
+    if (this.dataController !== null) {
+      this._cleanups.push(this.dataController.subscribe(state => this._applyData(state)));
+      this.chart.setHistoryLoader(() => {
+        void this.dataController!.loadMore().finally(() => { if (!this._destroyed) this.chart.historyLoadComplete(); });
+      });
+      const visibility = (): void => this.dataController!.setVisible(!doc.hidden);
+      doc.addEventListener('visibilitychange', visibility);
+      this._cleanups.push(() => doc.removeEventListener('visibilitychange', visibility));
+      if (doc.hidden) visibility();
+      if (this._symbol !== '') void this.reload();
+    }
   }
 
   // ── facts ────────────────────────────────────────────────────────────
@@ -461,6 +480,11 @@ class WidgetImpl implements Widget {
     this._symbol = s;
     this._exchange = ex;
     this._keepView = false;
+    this._pendingView = null;
+    if (this.dataController === null) {
+      this._series.setData([]);
+      this.chart.setDataContext({ symbol: this._symbol, exchange: this._exchange, interval: this._interval });
+    }
     this._statusline?.setSymbol(s, ex, this._interval);
     this._topbar?.refresh();
     this._scheduleSave();
@@ -478,6 +502,11 @@ class WidgetImpl implements Widget {
     if (c === this._interval) { this._topbar?.refresh(); return; }
     this._interval = c;
     this._keepView = false;
+    this._pendingView = null;
+    if (this.dataController === null) {
+      this._series.setData([]);
+      this.chart.setDataContext({ symbol: this._symbol, exchange: this._exchange, interval: this._interval });
+    }
     this._statusline?.setSymbol(this._symbol, this._exchange, c);
     this._topbar?.refresh();
     this._scheduleSave();
@@ -523,93 +552,66 @@ class WidgetImpl implements Widget {
 
   // ── data ─────────────────────────────────────────────────────────────
   public async reload(): Promise<void> {
-    return this._loadBars(false);
+    const controller = this.dataController;
+    if (controller === null || this._destroyed) return;
+    const current = controller.getState().request;
+    const same = current?.symbol === this._symbol && current.exchange === this._exchange && current.interval === this._interval;
+    if (same) { await controller.refresh(); return; }
+    const nowSec = this._opts.loading?.now?.() ?? Math.floor((this._opts.now ?? Date.now)() / 1000);
+    const request: BarsRequest = { symbol: this._symbol, exchange: this._exchange, interval: this._interval,
+      ...loadWindow(this._interval, this._opts.lookbackBars ?? DEFAULT_LOOKBACK_BARS, nowSec) };
+    this._initialView = true;
+    this._displayedBars = null;
+    this._series.setData([]);
+    this.chart.setDataContext({ symbol: this._symbol, exchange: this._exchange, interval: this._interval });
+    await controller.load(request);
   }
 
-  private async _loadBars(recovering: boolean): Promise<void> {
-    const feed = this._opts.feed;
-    if (!feed || this._destroyed) return;
-    const seq = ++this._loadSeq;
-    const symbol = this._symbol;
-    const interval = this._interval;
-    const nowSec = Math.floor((this._opts.now ?? Date.now)() / 1000);
-    const req: BarsRequest = { symbol, exchange: this._exchange, interval, ...loadWindow(interval, this._opts.lookbackBars ?? DEFAULT_LOOKBACK_BARS, nowSec) };
-    const previous = this._barStream;
-    if (previous && (previous.request.symbol !== symbol || previous.request.exchange !== req.exchange || previous.request.interval !== interval)) {
-      this._barStream = null;
-      previous.unsubscribe?.();
-      this._needsFreshHistory = false;
-    }
-    // Keep observing both live bars and further reconnects while history is
-    // pending. The old builder stays paused on screen until it can be reseeded.
-    if (this._barStream) this._barStream.buffered ??= new Map();
-    if (recovering) this._needsFreshHistory = true;
-    if (this._needsFreshHistory) req.noCache = true;
-    this.context.status(recovering ? `History is stale. Refreshing ${symbol} ${interval}` : `Loading ${symbol} ${interval}`);
-    let bars: Bar[];
-    try {
-      bars = await feed.getBars(req);
-      if (this._needsFreshHistory && bars.length === 0) throw new Error('History refresh returned no bars');
-    } catch (err) {
-      if (seq !== this._loadSeq || this._destroyed) return;
-      const message = err instanceof Error ? err.message : String(err);
-      this.context.status(recovering ? `History is stale for ${symbol} ${interval}. Reload to retry.` : `Could not load ${symbol} ${interval}`, 'error');
-      this._toasts.toast(`Could not load ${symbol} ${interval}: ${message}`, 'error');
-      this._bus.emit('data', { symbol, interval, bars: 0, error: message });
-      return;
-    }
-    // A faster answer for a later request has already landed; this one is stale.
-    if (seq !== this._loadSeq || this._destroyed) return;
-    this._needsFreshHistory = false;
-    const buffered = this._barStream?.buffered;
-    if (buffered && buffered.size > 0) {
-      const merged = new Map(bars.map(bar => [bar.time, bar]));
-      for (const live of buffered.values()) {
-        const historical = merged.get(live.time);
-        // Whole-bar callbacks cannot reveal the overlap with the REST snapshot.
-        // Keep its open, retain live extrema/close, and never sum both volumes.
-        merged.set(live.time, historical ? {
-          ...historical,
-          high: Math.max(historical.high, live.high),
-          low: Math.min(historical.low, live.low),
-          close: live.close,
-          volume: historical.volume === undefined && live.volume === undefined ? undefined
-            : Math.max(historical.volume ?? 0, live.volume ?? 0),
-        } : live);
+  private _applyData(state: DataLoadingSnapshot): void {
+    if (this._destroyed || state.request === null) return;
+    const previous = this._dataState;
+    this._dataState = state;
+    this._dataStatus.update(state);
+    const { symbol, interval } = state.request;
+    if (!state.paused && state.bars !== this._displayedBars) {
+      const before = this._series.getData();
+      const view = this.chart.getVisibleLogicalRange();
+      const anchor = before[Math.max(0, Math.min(before.length - 1, Math.round(view.from)))];
+      const anchorIndex = anchor === undefined ? -1 : before.findIndex(bar => bar.time === anchor.time);
+      const tail = state.bars[state.bars.length - 1];
+      if (state.reason === 'live' && tail !== undefined && before[0]?.time === state.bars[0]?.time &&
+        (before.length === state.bars.length || before.length + 1 === state.bars.length)) this._series.update(tail);
+      else {
+        this._series.setData(state.bars);
+        if (state.bars.length > 0) {
+          if (this._initialView) {
+            if (this._pendingView) this.chart.setVisibleLogicalRange(this._pendingView);
+            else if (!this._keepView) this.chart.resetScale();
+            this._pendingView = null;
+            this._initialView = false;
+            this._keepView = false;
+          } else {
+            const nextIndex = anchor === undefined ? -1 : state.bars.findIndex(bar => bar.time === anchor.time);
+            const shift = nextIndex < 0 || anchorIndex < 0 ? 0 : nextIndex - anchorIndex;
+            this.chart.setVisibleLogicalRange({ from: view.from + shift, to: view.to + shift });
+          }
+        }
       }
-      bars = Array.from(merged.values()).sort((a, b) => a.time - b.time);
+      this._displayedBars = state.bars;
+      this._statusline?.refresh();
     }
-    const viewport = recovering ? this.chart.getVisibleLogicalRange() : undefined;
-    this._series.setData(bars);
-    if (viewport) this.chart.setVisibleLogicalRange(viewport);
-    else if (!this._keepView) this.chart.resetScale();
-    this._keepView = false;
-    this._statusline?.refresh();
-    this.context.status(bars.length === 0 ? `No bars for ${symbol} ${interval}` : `${bars.length} bars`);
-    this._bus.emit('data', { symbol, interval, bars: bars.length });
-    if (seq !== this._loadSeq || this._destroyed) return;
-    if (feed.subscribeBars) {
-      const previousStream = this._barStream;
-      const stream: WidgetBarStream = { request: req, unsubscribe: null, buffered: null };
-      this._barStream = stream;
-      try {
-        const unsubscribe = feed.subscribeBars(req, (bar) => {
-          if (this._barStream !== stream || this._destroyed) return;
-          if (stream.buffered) stream.buffered.set(bar.time, { ...bar });
-          else this._series.update(bar);
-        }, {
-          seedFrom: bars[bars.length - 1],
-          onResync: () => {
-            if (this._barStream === stream && !this._destroyed) void this._loadBars(true);
-          },
-        });
-        if (this._barStream === stream && !this._destroyed) stream.unsubscribe = unsubscribe;
-        else unsubscribe();
-      } finally {
-        // Acquire the new builder's share first, so the composed feed need not
-        // unsubscribe the remote stream between history and its live handoff.
-        previousStream?.unsubscribe?.();
+    if (previous?.status === state.status && previous.error === state.error && !['load', 'refresh', 'prepend', 'resume'].includes(state.reason)) return;
+    if (state.status === 'loading') this.context.status(`Loading ${symbol} ${interval}`);
+    else if (state.status === 'refreshing') this.context.status(`History is stale. Refreshing ${symbol} ${interval}`);
+    else if (state.status === 'error' || state.status === 'stale') {
+      this.context.status(state.status === 'stale' ? `History is stale for ${symbol} ${interval}. Reload to retry.` : `Could not load ${symbol} ${interval}`, 'error');
+      if (state.error && state.error !== previous?.error) {
+        this._toasts.toast(`Could not load ${symbol} ${interval}: ${state.error.message}`, 'error');
+        this._bus.emit('data', { symbol, interval, bars: 0, error: state.error.message });
       }
+    } else if (state.status === 'ready' || state.status === 'empty') {
+      this.context.status(state.bars.length === 0 ? `No bars for ${symbol} ${interval}` : `${state.bars.length} bars`);
+      this._bus.emit('data', { symbol, interval, bars: state.bars.length });
     }
   }
 
@@ -646,6 +648,7 @@ class WidgetImpl implements Widget {
       if (!chart.applied) return { applied: false, reason: chart.reason, chart };
       this.draw.fromJSON(doc.drawings === undefined ? [] : doc.drawings);
       this._keepView = same;
+      this._pendingView = same ? doc.viewport ?? null : null;
     }
     if (!same) {
       if (interval !== this._interval) {
@@ -660,6 +663,10 @@ class WidgetImpl implements Widget {
       this._statusline?.setSymbol(this._symbol, this._exchange, this._interval);
       this._topbar?.refresh();
       if (this._opts.feed) void this.reload();
+      else {
+        this._series.setData([]);
+        this.chart.setDataContext({ symbol: this._symbol, exchange: this._exchange, interval: this._interval });
+      }
     }
     this._rail?.refresh();
     this._statusline?.refresh();
@@ -701,6 +708,7 @@ class WidgetImpl implements Widget {
     if (this.context.overlays.size() > 0) return ['overlay'];
     const out: KeyScope[] = [];
     const active = this._doc.activeElement;
+    if (active !== null && this._dataStatus.el.contains(active)) return [];
     if (this._rail !== null && active !== null && this._rail.el.contains(active)) out.push('rail');
     if (this._pointerInChart || (active !== null && this._chartEl.contains(active))) out.push('chart');
     if (this._pointerInside || (active !== null && this.root.contains(active))) out.push('widget');
@@ -824,8 +832,8 @@ class WidgetImpl implements Widget {
     if (this._destroyed) return;
     this._saveNow();
     this._destroyed = true;
-    this._barStream?.unsubscribe?.();
-    this._barStream = null;
+    this.dataController?.destroy();
+    this._dataStatus.destroy();
     if (this._saveTimer !== 0) { clearTimeout(this._saveTimer); this._saveTimer = 0; }
     for (const c of this._cleanups.splice(0)) c();
     this._topbar?.destroy();

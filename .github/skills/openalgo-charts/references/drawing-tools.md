@@ -547,3 +547,12 @@ copy or a `duplicate` makes. `DRAW_TIER` is the tier constant.
 | `DrawingPointerKind` | `'mouse' | 'touch' | 'pen'`, what `DrawingLayer.setPointerType` takes; a touch gets larger grab targets |
 | `DrawingPoint.pressure` | Optional 0..1 pen pressure on a freehand sample; kept by the clipboard and the migration |
 | `IconAttrs` / `IconSvgOptions` / `ToolCursorOptions` | The icon attribute bag, and the option bags of `iconSvg` and `toolCursor` |
+
+## Plot clipping and moved axes (2.1.6)
+
+Drawing bodies, previews, selection handles and snap rings are clipped to their
+pane's plot. Anchors remain valid beyond the newest candle; clipping does not
+truncate saved drawing coordinates. Moving the primary price scale to the left
+keeps drawing placement, rendering and hit testing on the same price scale.
+`PrimitiveRenderContext.readoutPriceScale` exposes that primary scale for custom
+primitives; `priceScale` retains the existing right-scale contract.

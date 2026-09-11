@@ -2,7 +2,29 @@
 
 Read this when a custom terminal coordinates symbol changes, pagination, replay,
 reconnect recovery, async registration, or charts initially hidden by a framework.
-These are host responsibilities around the public APIs, not new package methods.
+Use the shared controller for data ownership; hosts still own display binding,
+replay controls, broker execution and teardown.
+
+## Shared loading in 2.1.6
+
+Prefer `DataLoadingController` for history, stream repair, paging and state.
+`load(req)` changes source; `refresh()` repairs the current window. `loadMore()`
+uses optional `BarsPageRequest` / `BarsPage` or bounded backward date windows.
+`getState()` reports display bars; `bars()` is the live store. Methods resolve
+retained bars on managed errors, so check state before claiming freshness.
+`subscribe()` is changes-only and does not emit an initial snapshot.
+
+Keep replay's displayed prefix isolated with `setPaused(true)` even when replay
+playback is paused. Stop replay before `setPaused(false)`. `pushBar()` lets a
+host keep an existing live subscription; omit `feed.subscribeBars` in that case.
+`setVisible(false)` stops optional repair polling, not the stream. Destroy the
+controller on unmount and let the owner close any shared feed.
+
+Use `ChartDataContext`, `chart.getDataContext()` and `chart.setDataContext()` to
+identify external-study requests. Clear old primary bars before switching context.
+Preserve the visible time anchor across source replacement and release
+`historyLoadComplete()` in finally. The widget supplies these bindings automatically.
+For request/cache contracts and exact defaults read [feeds-and-live](feeds-and-live.md).
 
 ## Ownership across async work
 
@@ -14,7 +36,8 @@ Guard live callbacks too: a callback queued before unsubscribe can still run aft
 An older request's `finally` must not clear a newer request's loading flag or pagination
 latch. Store the request identity and release state only while that request still owns
 it. Aborting fetch is useful when the transport supports it, but does not replace these
-checks. `DataFeed.getBars` has no built-in cancellation argument.
+checks. `BarsRequest.signal` and `timeoutMs` are optional in 2.1.6; pass the signal to the transport.
+The shared controller supplies the generation fences for its own work.
 
 On teardown, invalidate generations first, stop replay timers, release subscriptions,
 cancel polling and remove host event listeners before destroying the chart. A shared

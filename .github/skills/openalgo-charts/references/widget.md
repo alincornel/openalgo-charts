@@ -243,7 +243,7 @@ The widget passes `BarSubscriptionOptions` to `feed.subscribeBars`: `seedFrom` c
 
 For overlapping timestamps the merge preserves the history open, combines high/low extrema, uses the latest buffered close, and takes the maximum of the volume snapshots. Bars without buffered updates retain authoritative history. The overlap merge is conservative: a buffered whole candle may retain a seed extreme corrected by history, and does not establish exact snapshot/tick ordering or reconstruct unseen trades. The replacement seeded subscriber is installed before releasing the previous subscription.
 
-An automatic refresh that fails or returns no bars keeps the previous chart visible, reports stale history in the status line and emits a `data` error. Display updates remain paused while buffering and reconnect monitoring continue. `widget.reload()` is the manual retry; requests keep bypassing the cache until a current load succeeds. Manual reload retains the existing fit/saved-view behavior; only automatic recovery preserves the visible logical range. Stale results and callbacks are guarded after symbol/interval changes or destruction. The host owns closing the feed itself.
+An automatic refresh that fails or returns no bars keeps the previous chart visible, reports stale history in the status line and emits a `data` error. Display updates remain paused while buffering and reconnect monitoring continue. `widget.reload()` is the manual retry; requests keep bypassing the cache until a current load succeeds. Same-context manual reload and automatic recovery preserve the visible time anchor. Stale results and callbacks are guarded after symbol/interval changes or destruction. The host owns closing the feed itself.
 
 ## `WidgetContext`
 
@@ -287,3 +287,13 @@ An empty or whitespace-only SSR `<style id="oac-widget-css" nonce="...">` is fil
 ## Related
 
 [core-api](core-api.md) · [drawing-tools](drawing-tools.md) · [settings-and-menus](settings-and-menus.md) · [indicators](indicators.md) · [themes-and-styling](themes-and-styling.md) · [bundling-and-tiers](bundling-and-tiers.md) · [react-integration](react-integration.md) · [pitfalls](pitfalls.md)
+
+## Shared loading in 2.1.6
+
+`WidgetOptions.loading?: DataLoadingOptions` configures the base controller.
+`Widget.dataController` is `DataLoadingController | null`, null without a feed.
+The widget binds history/paging/stream updates, observable chart and study statuses,
+Retry controls and context propagation. Same-context reload preserves the visible
+time anchor; only source changes reset to the preferred initial window.
+`dataController.setPaused(true)` fences display writes for a custom replay owner.
+See [host-integration](host-integration.md) for unmount and replay ordering.

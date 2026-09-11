@@ -9,6 +9,8 @@
 ```ts
 interface DataFeed {
   getBars(req: BarsRequest): Promise<Bar[]>;
+  getBarsPage?(req: BarsPageRequest): Promise<BarsPage>;
+  getCachedBars?(req: BarsRequest): Promise<Bar[] | undefined>;
   subscribeBars?(req: BarsRequest, onBar: (bar: Bar) => void, opts?: BarSubscriptionOptions): UnsubscribeFn;
   subscribeDepth?(req: BarsRequest, onDepth: (depth: MarketDepth) => void, opts?: { depthLevel?: number }): UnsubscribeFn;
 }
@@ -17,6 +19,9 @@ interface BarsRequest {
   symbol: string;
   exchange: string;
   interval: string;   // '1m' | '5m' | '1h' | 'D' | ...
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  countBack?: number;
   from?: UTCSeconds;
   to?: UTCSeconds;
   noCache?: boolean;  // request authoritative history, bypassing cached results
@@ -35,7 +40,7 @@ interface BarSubscriptionOptions {
 
 Install the newly seeded subscription before releasing the previous one, so a shared feed keeps its underlying stream active through the handoff.
 
-Supporting types: `MarketDepth { bids: DepthLevel[]; asks: DepthLevel[]; ltp: number; ltq?: number }`, `DepthLevel { price, qty, orders? }`, variable depth, whatever the broker streams. `UnsubscribeFn = () => void`.
+Supporting types: `MarketDepth { bids: DepthLevel[]; asks: DepthLevel[]; ltp: number; ltq?: number; timeSec?: UTCSeconds }`, `DepthLevel { price, qty, orders? }`, variable depth, whatever the broker streams. `UnsubscribeFn = () => void`.
 
 `TradeFeed` is the separate, higher-level broker abstraction (`placeOrder` / `modifyOrder` / `cancelOrder` / `subscribeOrders` / `subscribePositions`, taking `PlaceOrder`). The trade tier's `OrderEngine` does **not** use it, it uses the smaller `OrderFeed` (`place` / `modify` / `cancel`) from `openalgo-charts/trade`, which is what `OpenAlgoTradeFeed` implements. See [trading](trading.md).
 
@@ -155,7 +160,7 @@ const off = live.subscribeBars(req, (bar) => series.update(bar), {
 - A tick with no usable timestamp (`timeSec` absent or `<= 0`) is bucketed at `Date.now()`, never at the epoch.
 - `subscribeDepth` subscribes `Depth` and filters the same way.
 
-`createWidget` handles seeding and `onResync` automatically: it requests fresh history with `noCache: true`, merges buffered live bars, replaces the series while preserving the visible logical range, and resubscribes. At matching timestamps it preserves the history open, combines high/low extrema, uses the latest buffered close, and takes the maximum volume to avoid counting overlapping snapshots twice. It does not reconstruct unseen trades. An automatic refresh failure or empty response leaves the existing chart visible with stale-history status and a `data` error; display updates pause while buffering and reconnect monitoring continue. `widget.reload()` retries and keeps the cache bypass until a load succeeds; manual reload retains its normal fit/saved-view behavior. See [widget](widget.md#live-history-and-reconnect-recovery).
+`createWidget` handles seeding and `onResync` automatically: it requests fresh history with `noCache: true`, merges buffered live bars, replaces the series while preserving the visible logical range, and resubscribes. At matching timestamps it preserves the history open, combines high/low extrema, uses the latest buffered close, and takes the maximum volume to avoid counting overlapping snapshots twice. It does not reconstruct unseen trades. An automatic refresh failure or empty response leaves the existing chart visible with stale-history status and a `data` error; display updates pause while buffering and reconnect monitoring continue. `widget.reload()` retries and keeps the cache bypass until a load succeeds; same-context manual reload preserves the current time anchor and viewport. See [widget](widget.md#live-history-and-reconnect-recovery).
 
 Only buffered timestamps are merged; other bars retain authoritative history. Whole-bar buffers can carry seed extrema that history corrected, so overlapping bars use conservative reconciliation rather than exact snapshot/tick ordering.
 
@@ -360,3 +365,38 @@ const off = feed.subscribeBars({ symbol: 'X', exchange: 'NSE', interval: '1m' },
 - [events-and-state](events-and-state.md), `lazy-load` and the rest of the event bus.
 - [trading](trading.md) / [trade-tier](trade-tier.md), `OrderFeed`, `OrderEngine`, on-chart order lines.
 - [pitfalls](pitfalls.md).
+
+## Managed requests and cache snapshots (2.1.6)
+
+Base exports: `DataLoadingController`, `DataLoadingOptions`, `DataLoadingSnapshot`,
+`DataLoadingStatus`, `HistoryLoadingStatus`, `DataUpdateReason`,
+`HistoryRequestPool`, `HistoryRequestPoolOptions`, `sharedHistoryRequests`,
+`BarsPage`, `BarsPageRequest`, and `BAR_CACHE_VERSION`.
+
+`new DataLoadingController(feed, options)` uses a per-feed shared pool unless
+`requestPool` is supplied. Defaults: `pageSize: 500`, `maxEmptyPages: 4`,
+`maxBars: 100_000`, `pollIntervalMs: 0`; `timeoutMs` defaults to the pool's 15 s.
+`pageWindowSec` defaults to the initial range width; `now` returns UTC seconds.
+Primary states: idle/loading/ready/empty/refreshing/stale/error. History states:
+idle/loading/error/exhausted/limited. `hasMore: null` means unknown; never turn
+an empty weekend window into permanent exhaustion. `limited` is local retention.
+
+`HistoryRequestPool` defaults to 4 concurrent requests and 15 s per consumer,
+including queue time. `getBars(req, priority?)` and `getBarsPage(req, priority?)`
+share identical payloads within one feed object. Higher priority runs first.
+Cancellation/deadlines are independent; the final consumer aborts the transport.
+The REST adapter bounds fetch and JSON body reads. Feeds ignoring AbortSignal
+cannot publish obsolete results through the controller, but may continue network work.
+
+`BarsPageRequest` adds required exclusive `before` and `countBack`; `BarsPage`
+returns `{ bars, hasMore?, nextBefore? }`. Custom cursor values must move backward.
+`getCachedBars(req)` returns an optional closed-bar snapshot without fetching.
+The controller paints it as refreshing and fetches authoritative history; cache
+peek time is bounded to 500 ms. Never treat a warm snapshot as a live forming bar.
+
+The cache validates entries and writes `CachedBars.version = BAR_CACHE_VERSION`
+(currently 1), accepting valid unversioned legacy entries. Storage failures fall
+back to bounded memory. A failed durable delete is suppressed per instance and
+may remain visible to another process. Direct cache calls are not coalesced;
+use the pool/controller. `MarketDepth.timeSec` preserves valid exchange timestamps;
+Depth frames with only book quantities do not supply executed-trade volume.
