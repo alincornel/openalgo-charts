@@ -177,7 +177,7 @@ interface ChartNavigationOptions {
 }
 ```
 
-Exported from `openalgo-charts`. Defaults are `{ mousePan: 'horizontal', defaultVisibleBars: 0 }`.
+Exported from `openalgo-charts`. Defaults are `{ mousePan: 'both', defaultVisibleBars: 0 }`.
 Pass a partial block as `ChartOptions.navigation`, read the resolved values with
 `chart.navigationOptions(): Readonly<ChartNavigationOptions>`, or update them with
 `chart.setNavigationOptions(patch: Partial<ChartNavigationOptions>): void`.

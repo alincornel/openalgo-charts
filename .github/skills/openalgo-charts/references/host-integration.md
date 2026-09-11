@@ -58,7 +58,7 @@ available. Do not reload the feed just to obtain an initial fit.
 
 ```ts
 const chart = createChart(el, {
-  navigation: { mousePan: 'horizontal', defaultVisibleBars: 120 },
+  navigation: { mousePan: 'both', defaultVisibleBars: 120 },
 });
 const price = chart.addSeries('candlestick');
 price.setData(bars);
@@ -68,7 +68,7 @@ chart.resetScale(); // preferred time window; autoscale and unlock every price s
 Prefer the initial automatic fit for the first load; call `resetScale()` when a later symbol load should use the preferred
 window. An explicit restored viewport wins when applied after data. `fitContent()` fits
 all loaded bars and therefore overrides the recent-bar window. Mouse and pen pan time
-by default; touch still pans both axes. See [interactions](interactions.md).
+and price by default; `'horizontal'` is optional and touch still pans both axes. See [interactions](interactions.md).
 
 ## Registration and CSP
 

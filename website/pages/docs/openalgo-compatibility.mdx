@@ -1,12 +1,12 @@
 ---
 title: OpenAlgo Compatibility
-description: Charts 2.1.3 integration contracts and validation against the OpenAlgo trading application.
+description: Charts 2.1.4 integration contracts and validation against the OpenAlgo trading application.
 ---
 
 # OpenAlgo compatibility
 
 OpenAlgo Charts serves broker terminals, web platforms and standalone traders.
-Version 2.1.3 preserves the existing chart, trading-intent and two-argument feed
+Version 2.1.4 preserves the existing chart, trading-intent and two-argument feed
 APIs. The optional subscription context helps hosts continue history and recover
 after a stream interruption.
 
@@ -75,8 +75,9 @@ indicator registration so concurrent restores wait for a ready registry.
 These are OpenAlgo application changes and must be integrated there separately;
 updating the chart package alone cannot replace a host's data-loading code.
 
-Mouse and pen panning in Charts 2.1.3 is horizontal by default. A host that needs
-the previous two-axis plot drag can set `navigation.mousePan: 'both'`. Order-line
+Charts 2.1.4 restores time-and-price mouse and pen panning by default. Hosts can
+choose `navigation.mousePan: 'horizontal'` explicitly. Saved horizontal preferences
+remain intact; choose **Axes > Mouse drag > Time and price** to change one. Order-line
 dragging still uses its own interaction path. The reset control and saved
 default visible-bar count are available through the shared settings schema.
 
@@ -92,7 +93,7 @@ candidate package installed. From the Charts repository:
 ```bash
 node scripts/check-openalgo-compat.mjs \
   --frontend /path/to/isolated-openalgo/frontend \
-  --label candidate-2.1.3 \
+  --label candidate-2.1.4 \
   --probe-host true \
   --output /tmp/openalgo-compatibility.json
 ```

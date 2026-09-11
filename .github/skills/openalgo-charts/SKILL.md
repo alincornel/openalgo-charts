@@ -67,7 +67,7 @@ Import only what you use. Each tier is a separate entry point that registers int
 | `openalgo-charts/webgl` | The WebGL2 series backend behind `renderer: 'auto' \| 'webgl2'`; composites into the pane's canvas, falls back to 2D for the session on context loss | 7 KB |
 | `openalgo-charts/widget` | `createWidget`: the chart with a top bar, drawing rail, status line, settings and indicator dialogs, drawing properties, right-click menu, keymap and optional persistence. The only tier that ships DOM; imports the draw tier itself | 37 KB |
 
-Limits are the CI-enforced budgets in `.size-limit.json`. This reference targets 2.1.3.
+Limits are the CI-enforced budgets in `.size-limit.json`. This reference targets 2.1.4.
 In a source checkout, run `npm run size` before quoting byte counts. In a consumer app,
 check the installed version and measure its actual imports with the app's bundler.
 Reference measurements and every budget row live in [bundling-and-tiers](references/bundling-and-tiers.md).
@@ -135,7 +135,7 @@ Detailed reference for each topic is in `references/`. Read the one that matches
 | [react-integration](references/react-integration.md) | React and Next.js lifecycle, keeping orchestration out of React, SSR, resize |
 | [bundling-and-tiers](references/bundling-and-tiers.md) | Entry points, registry identity, tree-shaking, script/ESM/import-map loading, size budget |
 | [widget](references/widget.md) | `createWidget` and the widget tier: options, the handle, events, the context every dialog is handed, the keymap scopes, the tokens, every exported mount and helper, packaging |
-| [interactions](references/interactions.md) | Horizontal mouse/pen pan, two-axis touch, axis drag, navigator reset, default visible bars, keyboard and accessibility |
+| [interactions](references/interactions.md) | Two-axis panning, optional horizontal mouse/pen pan, axis drag, navigator reset, default visible bars, keyboard and accessibility |
 | [host-integration](references/host-integration.md) | Hidden-tab startup, paging/replay isolation, stale async work, registration readiness, and upstream browser validation |
 | [pitfalls](references/pitfalls.md) | The verified foot-gun list. Read this when something behaves unexpectedly |
 
@@ -195,7 +195,7 @@ chart.addPriceLine(opts, paneIndex);
 chart.addPrimitive(primitive, paneIndex);
 chart.fitContent();                       // explicitly fit all loaded history
 chart.resetScale();                       // preferred default view + all price scales
-chart.setNavigationOptions({ mousePan: 'horizontal', defaultVisibleBars: 120 });
+chart.setNavigationOptions({ mousePan: 'both', defaultVisibleBars: 120 });
 chart.navigationOptions();
 chart.applyOptions({ theme, grid, canvas, statusLine, priceScale, priceFormatter, timeFormatter, timezone, crosshairMode });
 chart.setTheme(theme);

@@ -80,7 +80,8 @@ node scripts/check-navigation-website.mjs
 ```
 
 These check depth grouping, profile/orderflow controls and screenshot fingerprints,
-and current bundles plus actual time-axis dragging across website charts. They accept
+and current bundles plus time-axis dragging, two-axis plot panning, optional horizontal
+panning and Reset view across website charts. They accept
 an alternative preview base URL as the first argument. Inspect browser artifacts when
 debugging failures. Other targeted checks are listed in [website/README.md](website/README.md).
 

@@ -42,8 +42,8 @@ Because x is a logical index, all panes share one time scale and stay aligned ba
 </Callout>
 
 Dragging the time axis left expands bar spacing; dragging right compresses it. Mouse and
-pen drags inside the plot pan time horizontally by default; `navigation.mousePan: 'both'`
-adds vertical price panning. Touch pans both axes.
+pen drags inside the plot pan time and price by default; `navigation.mousePan: 'horizontal'`
+limits movement to time. Touch pans both axes.
 
 `navigation.defaultVisibleBars` sets the initial and reset view. The default `0` fits all
 loaded bars; a positive count targets the newest N bars plus four right-padding slots,

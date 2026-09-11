@@ -98,12 +98,12 @@ The Axes tab's **Navigation** group is backed by `ChartNavigationOptions`:
 
 | Key | Input | Default |
 |---|---|---|
-| `navigation.mousePan` | `select`, label **Mouse drag**: **Horizontal only** (`'horizontal'`) or **Time and price** (`'both'`) | `'horizontal'` |
+| `navigation.mousePan` | `select`, label **Mouse drag**: **Horizontal only** (`'horizontal'`) or **Time and price** (`'both'`) | `'both'` |
 | `navigation.defaultVisibleBars` | `number`, label **Default visible bars (0 = all)**, `min: 0`, `max: 100000`, `step: 1` | `0` |
 
 ```ts
 applyChartSettings(chart, {
-  'navigation.mousePan': 'horizontal',
+  'navigation.mousePan': 'both',
   'navigation.defaultVisibleBars': 120,
 });
 readChartSettings(chart)['navigation.defaultVisibleBars'];  // 120

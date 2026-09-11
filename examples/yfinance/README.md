@@ -227,8 +227,10 @@ yfinance (Python)  ->  server.py /api/history  ->  YFinanceDataFeed.getBars()  -
 
 ## Navigation
 
-Mouse and pen drags in the plot pan time horizontally by default. In Settings, open
-Axes, then Navigation, and choose **Time and price** to allow vertical price panning too.
+Mouse and pen drags in the plot pan time and price by default. In Settings, open
+Axes, then Navigation, and choose **Horizontal only** for time-only movement.
+An existing saved horizontal preference stays intact after upgrading; select
+**Mouse drag > Time and price** to restore two-axis panning.
 Touch continues to pan both axes. Drag the time axis left to expand bar spacing or right
 to compress it.
 

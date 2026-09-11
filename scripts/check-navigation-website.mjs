@@ -1,4 +1,4 @@
-/** Check the built website's chart bundles and native time-axis drag gestures. */
+/** Check the built website's chart bundles, plot panning and time-axis drags. */
 import { strict as assert } from 'node:assert';
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir } from 'node:fs/promises';
@@ -58,7 +58,7 @@ try {
       }
       if (this.fillStyle === '#26a69a' || this.fillStyle === '#ef5350') {
         const rects = window.__navigationCanvasRects.get(this.canvas) ?? [];
-        if (rects.length < 4096) rects.push({ x, y, width, height });
+        if (rects.length < 4096) rects.push({ x, y, width, height, color: this.fillStyle });
         window.__navigationCanvasRects.set(this.canvas, rects);
       }
       return fillRect.call(this, x, y, width, height);
@@ -99,8 +99,46 @@ try {
       await page.mouse.up();
     }
   };
+  const dragPlot = async chart => {
+    await chart.scrollIntoViewIfNeeded();
+    const box = await chart.boundingBox();
+    assert.ok(box && box.width > 180 && box.height > 160, 'The chart must have a usable plot');
+    const x = box.x + box.width * 0.35;
+    const y = box.y + box.height * 0.35;
+    const dx = Math.min(84, box.width * 0.15);
+    const dy = Math.min(56, box.height * 0.18);
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    try {
+      await page.mouse.move(x + dx, y + dy, { steps: 16 });
+      // A stationary sample after the hold clears the last movement's velocity.
+      await page.waitForTimeout(300);
+      await page.mouse.move(x + dx, y + dy);
+    } finally {
+      await page.mouse.up();
+    }
+    return { dx, dy };
+  };
+  const clickReset = async (chart, axisWidth) => {
+    await chart.scrollIntoViewIfNeeded();
+    const box = await chart.boundingBox();
+    assert.ok(box, 'The reset button must have chart geometry');
+    const x = box.x + (box.width - axisWidth) / 2;
+    const y = box.y + box.height - 22 - 10 - 26 / 2;
+    await page.mouse.move(x, y);
+    await page.waitForTimeout(200);
+    await page.mouse.click(x, y);
+  };
+  const view = frame => frame.evaluate(() => {
+    const chart = window.__chart();
+    const scale = chart.panes()[0].priceScale;
+    return {
+      time: chart.getVisibleLogicalRange(), price: scale.priceRange(), autoScale: scale.autoScale,
+    };
+  });
 
   const results = [];
+  const panResults = [];
   for (const demo of [
     { name: 'market-profile', route: '/docs/market-profile-examples/', title: 'Interactive compact market profile demo' },
     { name: 'orderflow', route: '/docs/profiles-and-orderflow/', title: 'Interactive footprint chart with profile, cluster ladder and heatmap styles' },
@@ -116,8 +154,49 @@ try {
     const chart = frame.locator('#chart');
     await expect(chart.locator('canvas').first()).toBeVisible();
     if (demo.name === 'orderflow') await expect(frame.locator('#play')).toHaveText('Resume');
-    const original = await frame.evaluate(() => window.__chart().getVisibleLogicalRange());
+    await settle();
+    const original = await frame.evaluate(() => {
+      const chart = window.__chart();
+      return {
+        viewport: chart.getVisibleLogicalRange(), navigation: chart.navigationOptions(),
+        scales: chart.panes().map(pane => pane.scales().map(scale => ({
+          range: scale.priceRange(), autoScale: scale.autoScale,
+        }))),
+      };
+    });
     try {
+      assert.equal(original.navigation.mousePan, 'both', `${demo.name}: the untouched mouse pan default must be both`);
+      const panBefore = await view(frame);
+      const panBeforeHash = await capture(chart, `${demo.name}-pan-before`);
+      await dragPlot(chart);
+      const panAfterHash = await capture(chart, `${demo.name}-pan-both`);
+      const panAfter = await view(frame);
+      assert.notDeepEqual(panAfter.time, panBefore.time, `${demo.name}: a default plot drag must move time`);
+      assert.notDeepEqual(panAfter.price, panBefore.price, `${demo.name}: a default plot drag must move price`);
+      assert.equal(panAfter.autoScale, false, `${demo.name}: default panning must leave the price range manual`);
+      assert.notEqual(panAfterHash, panBeforeHash, `${demo.name}: default panning must change visible pixels`);
+
+      await frame.evaluate(() => window.__chart().setNavigationOptions({ mousePan: 'horizontal' }));
+      const horizontalBefore = await view(frame);
+      await dragPlot(chart);
+      const horizontalHash = await capture(chart, `${demo.name}-pan-horizontal`);
+      const horizontalAfter = await view(frame);
+      assert.notDeepEqual(horizontalAfter.time, horizontalBefore.time, `${demo.name}: horizontal mode must still move time`);
+      // The first drag made this range manual, so changing visible bars cannot
+      // legitimately remeasure it and hide an unwanted vertical pan.
+      assert.deepEqual(horizontalAfter.price, horizontalBefore.price, `${demo.name}: horizontal mode must preserve price`);
+      assert.equal(horizontalAfter.autoScale, horizontalBefore.autoScale, `${demo.name}: horizontal mode must preserve autoscale`);
+      assert.notEqual(horizontalHash, panAfterHash, `${demo.name}: horizontal panning must change visible pixels`);
+
+      await clickReset(chart, 74);
+      await expect.poll(async () => (await view(frame)).autoScale).toBe(true);
+      const resetHash = await capture(chart, `${demo.name}-pan-reset`);
+      const reset = await view(frame);
+      assert.notDeepEqual(reset.price, horizontalAfter.price, `${demo.name}: the reset button must restore the price view`);
+      assert.notEqual(resetHash, horizontalHash, `${demo.name}: reset must change visible pixels`);
+      panResults.push({ chart: demo.name, defaultMode: original.navigation.mousePan, before: panBefore,
+        both: panAfter, horizontal: horizontalAfter, reset });
+
       await frame.evaluate(() => {
         const chart = window.__chart();
         const spacing = chart.timeScale.barSpacing;
@@ -143,7 +222,16 @@ try {
       assert.notEqual(rightHash, leftHash, `${demo.name}: right drag must change visible pixels`);
       results.push({ chart: demo.name, spacing: { before, left, right } });
     } finally {
-      await frame.evaluate(range => window.__chart().setVisibleLogicalRange(range), original);
+      await frame.evaluate(state => {
+        const chart = window.__chart();
+        chart.setNavigationOptions(state.navigation);
+        chart.setVisibleLogicalRange(state.viewport);
+        chart.panes().forEach((pane, i) => pane.scales().forEach((scale, j) => {
+          scale.setPriceRange(state.scales[i][j].range);
+          scale.setAutoScale(state.scales[i][j].autoScale);
+        }));
+        chart.invalidate(mask => mask.invalidateGlobal(3));
+      }, original);
     }
   }
 
@@ -153,7 +241,7 @@ try {
   await card.getByRole('button', { name: 'Candles', exact: true }).click();
   const gallery = card.locator('.oac-card__chart');
   await expect(gallery.locator('canvas').first()).toBeVisible();
-  const candleWidth = async () => gallery.locator('canvas').first().evaluate(canvas => {
+  const candlePaint = async () => gallery.locator('canvas').first().evaluate(canvas => {
     const dpr = canvas.width / canvas.getBoundingClientRect().width;
     const plotRight = canvas.width - 56 * dpr;
     const plotBottom = canvas.height - 22 * dpr;
@@ -162,29 +250,48 @@ try {
       rect.y + rect.height < plotBottom && rect.width > 0 && rect.width < 80 * dpr);
     // Candle colours plus plot bounds exclude the background, grid and axis tags.
     // Wicks remain narrower than bodies, so the maximum is the painted body width.
-    return { count: rects.length, width: Math.max(0, ...rects.map(rect => rect.width)) };
+    return { count: rects.length, width: Math.max(0, ...rects.map(rect => rect.width)), rects, dpr };
   });
-  await expect.poll(async () => (await candleWidth()).count).toBeGreaterThan(20);
+  await expect.poll(async () => (await candlePaint()).count).toBeGreaterThan(20);
   const beforeHash = await capture(gallery, 'gallery-candles-before');
-  const before = await candleWidth();
+  const before = await candlePaint();
   await dragAxis(gallery, -1);
   const leftHash = await capture(gallery, 'gallery-candles-left');
-  const left = await candleWidth();
+  const left = await candlePaint();
   assert.notEqual(leftHash, beforeHash, 'Gallery candles must visibly change after a left drag');
   assert.ok(left.count > 20 && left.width > before.width,
     `Gallery left drag must paint wider candles (${before.width} to ${left.width} device px)`);
   await dragAxis(gallery, 1);
   const rightHash = await capture(gallery, 'gallery-candles-right');
-  const right = await candleWidth();
+  const right = await candlePaint();
   assert.notEqual(rightHash, leftHash, 'Gallery candles must visibly change after a right drag');
   assert.ok(right.count > 20 && right.width < left.width,
     `Gallery right drag must paint narrower candles (${left.width} to ${right.width} device px)`);
   results.push({ chart: 'gallery-candles', paintedWidth: { before: before.width, left: left.width, right: right.width } });
 
+  await capture(gallery, 'gallery-candles-pan-before');
+  const panBefore = await candlePaint();
+  const { dx, dy } = await dragPlot(gallery);
+  await capture(gallery, 'gallery-candles-pan-both');
+  const panAfter = await candlePaint();
+  const shifted = panBefore.rects.filter(beforeRect => panAfter.rects.some(afterRect =>
+    beforeRect.color === afterRect.color && beforeRect.width === afterRect.width &&
+    Math.abs(beforeRect.height - afterRect.height) <= 1 &&
+    Math.abs(afterRect.x - beforeRect.x - dx * panBefore.dpr) <= 2 &&
+    Math.abs(afterRect.y - beforeRect.y - dy * panBefore.dpr) <= 2));
+  assert.ok(shifted.length > 20,
+    `Gallery default panning must translate candles in both directions (${shifted.length} matched painted rectangles)`);
+  await clickReset(gallery, 56);
+  await capture(gallery, 'gallery-candles-pan-reset');
+  const reset = await candlePaint();
+  assert.equal(reset.width, before.width, 'Gallery reset must restore the original fitted candle width');
+  panResults.push({ chart: 'gallery-candles', matchedPaintedRectangles: shifted.length,
+    movement: { x: dx * panBefore.dpr, y: dy * panBefore.dpr } });
+
   assert.deepEqual(errors, [], 'The checked website pages must have no browser exceptions');
   console.log(JSON.stringify({
     checkedBundles: siteFiles.length, embeddedBundles: demoFiles.length,
-    nativeAxisDrags: results, blockedExternalOrigins: [...blocked],
+    nativeAxisDrags: results, nativePlotPans: panResults, blockedExternalOrigins: [...blocked],
     screenshots: fileURLToPath(artifacts),
   }, null, 2));
 } finally {

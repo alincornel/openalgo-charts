@@ -28,8 +28,21 @@ function mount(options: Partial<ChartOptions> = {}, load = true) {
 }
 
 describe('mouse panning preferences', () => {
-  it('pans time horizontally while keeping price autoscale enabled by default', () => {
+  it.each(['mouse', 'pen'])('pans time and price by default with a %s', (pointerType) => {
     const { chart, el } = mount();
+    const scale = chart.panes()[0].priceScale;
+    const before = { ...scale.priceRange() };
+    const offset = chart.timeScale.rightOffset;
+    el.dispatch('pointerdown', pointer('down', 400, 220, { pointerType }));
+    el.dispatch('pointermove', pointer('move', 450, 260, { pointerType }));
+    expect(chart.timeScale.rightOffset).toBeLessThan(offset);
+    expect(scale.autoScale).toBe(false);
+    expect(scale.priceRange()).not.toEqual(before);
+  });
+
+  it('preserves price autoscale when horizontal-only panning is selected in settings', () => {
+    const { chart, el } = mount();
+    applyChartSettings(chart, { 'navigation.mousePan': 'horizontal' });
     const scale = chart.panes()[0].priceScale;
     const before = { ...scale.priceRange() };
     const offset = chart.timeScale.rightOffset;
@@ -40,19 +53,8 @@ describe('mouse panning preferences', () => {
     expect(scale.priceRange()).toEqual(before);
   });
 
-  it('allows two-axis mouse panning when selected in settings', () => {
-    const { chart, el } = mount();
-    applyChartSettings(chart, { 'navigation.mousePan': 'both' });
-    const scale = chart.panes()[0].priceScale;
-    const before = { ...scale.priceRange() };
-    el.dispatch('pointerdown', pointer('down', 400, 220));
-    el.dispatch('pointermove', pointer('move', 450, 260));
-    expect(scale.autoScale).toBe(false);
-    expect(scale.priceRange()).not.toEqual(before);
-  });
-
   it('keeps direct price-axis adjustment available with horizontal mouse panning', () => {
-    const { chart, el } = mount();
+    const { chart, el } = mount({ navigation: { mousePan: 'horizontal' } });
     const scale = chart.panes()[0].priceScale;
     const before = scale.priceRange().max - scale.priceRange().min;
     el.dispatch('pointerdown', pointer('down', 780, 220));
@@ -99,14 +101,14 @@ describe('preferred visible bar count', () => {
 
   it('applies a settings edit immediately and restores the preference before new data arrives', () => {
     const { chart } = mount();
-    applyChartSettings(chart, { 'navigation.defaultVisibleBars': 75, 'navigation.mousePan': 'both' });
+    applyChartSettings(chart, { 'navigation.defaultVisibleBars': 75, 'navigation.mousePan': 'horizontal' });
     expect(chart.getVisibleLogicalRange()).toEqual({ from: 124, to: 203 });
     const saved = JSON.parse(JSON.stringify(chart.getState()));
     const next = mount({}, false);
     next.chart.restoreState(saved);
     next.series.setData(bars);
     expect(next.chart.getVisibleLogicalRange()).toEqual({ from: 124, to: 203 });
-    expect(readChartSettings(next.chart)['navigation.mousePan']).toBe('both');
+    expect(readChartSettings(next.chart)['navigation.mousePan']).toBe('horizontal');
     next.chart.setVisibleLogicalRange({ from: 20, to: 80 });
     next.chart.resetScale();
     expect(next.chart.getVisibleLogicalRange()).toEqual({ from: 124, to: 203 });
@@ -117,7 +119,7 @@ describe('preferred visible bar count', () => {
     expect(chart.getVisibleLogicalRange()).toEqual({ from: -1, to: 203 });
     chart.setNavigationOptions({ defaultVisibleBars: 50 });
     chart.restoreState({ version: 1, navigation: { defaultVisibleBars: 'wrong', mousePan: 'wrong' } });
-    expect(chart.navigationOptions()).toEqual({ defaultVisibleBars: 50, mousePan: 'horizontal' });
+    expect(chart.navigationOptions()).toEqual({ defaultVisibleBars: 50, mousePan: 'both' });
     chart.setNavigationOptions({ defaultVisibleBars: Number.NaN });
     expect(chart.getVisibleLogicalRange()).toEqual({ from: 149, to: 203 });
     applyChartSettings(chart, { 'navigation.defaultVisibleBars': 0 });

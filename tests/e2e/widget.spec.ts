@@ -90,15 +90,22 @@ test('navigation settings change the visible bar count and persist across reload
   const count = page.getByLabel('Default visible bars (0 = all)', { exact: true });
   await count.fill('75');
   await count.blur();
-  await page.getByLabel('Mouse drag', { exact: true }).selectOption('both');
+  await expect(page.getByLabel('Mouse drag', { exact: true })).toHaveValue('both');
+  await page.getByLabel('Mouse drag', { exact: true }).selectOption('horizontal');
   await expect.poll(() => page.evaluate(() => (window as any).__widget.chart.getVisibleLogicalRange())).toEqual({ from: 224, to: 303 });
   await page.locator(DIALOG).getByRole('button', { name: 'OK', exact: true }).click();
   await page.evaluate(() => (window as any).__widget.destroy());
   await page.reload();
   await page.waitForFunction(() => (window as any).__ready && (window as any).__loaded > 0);
-  expect(await page.evaluate(() => (window as any).__widget.chart.navigationOptions())).toEqual({ mousePan: 'both', defaultVisibleBars: 75 });
+  expect(await page.evaluate(() => (window as any).__widget.chart.navigationOptions())).toEqual({ mousePan: 'horizontal', defaultVisibleBars: 75 });
   await page.evaluate(() => (window as any).__widget.setSymbol('NEXT'));
   await expect.poll(() => page.evaluate(() => (window as any).__widget.chart.getVisibleLogicalRange())).toEqual({ from: 224, to: 303 });
+  await page.locator(SETTINGS).click();
+  await page.locator(DIALOG).getByRole('tab', { name: 'Axes', exact: true }).click();
+  await page.locator(DIALOG).getByRole('button', { name: 'Restore this tab', exact: true }).click();
+  await expect(page.getByLabel('Mouse drag', { exact: true })).toHaveValue('both');
+  expect(await page.evaluate(() => (window as any).__widget.chart.navigationOptions())).toEqual({ mousePan: 'both', defaultVisibleBars: 0 });
+  await page.locator(DIALOG).getByRole('button', { name: 'OK', exact: true }).click();
   expect(errors).toEqual([]);
 });
 

@@ -91,15 +91,18 @@ test('time-axis dragging expands left and compresses right in the rendered chart
   await page.mouse.up();
 });
 
-test('horizontal mouse pan preserves autoscale and the bottom reset restores the preferred view', async ({ page }) => {
+test('default plot dragging pans both axes and bottom reset restores the preferred view', async ({ page }) => {
   await page.goto('/');
   await page.waitForFunction(() => (window as any).__ready === true);
   await page.evaluate(() => (window as any).__api.chart.setNavigationOptions({ defaultVisibleBars: 75 }));
   const initial = await page.evaluate(() => (window as any).__api.chart.getVisibleLogicalRange());
+  const priceBefore = await page.evaluate(() => ({ ...(window as any).__api.chart.panes()[0].priceScale.priceRange() }));
   await page.mouse.move(400, 100);
   await page.mouse.down();
   await page.mouse.move(520, 160, { steps: 10 });
-  expect(await page.evaluate(() => (window as any).__api.chart.panes()[0].priceScale.autoScale)).toBe(true);
+  expect(await page.evaluate(() => (window as any).__api.chart.panes()[0].priceScale.autoScale)).toBe(false);
+  expect(await page.evaluate(() => (window as any).__api.chart.getVisibleLogicalRange())).not.toEqual(initial);
+  expect(await page.evaluate(() => (window as any).__api.chart.panes()[0].priceScale.priceRange())).not.toEqual(priceBefore);
   await page.mouse.up();
   await page.evaluate(() => {
     const chart = (window as any).__api.chart;

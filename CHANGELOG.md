@@ -2,6 +2,29 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 2.1.4
+
+2026-09-11
+
+### Fixed
+
+- Restore time-and-price mouse and pen panning by default. This restores vertical
+  plot movement for market-profile and orderflow charts as well as other chart
+  types. Set `navigation.mousePan: 'horizontal'` for optional time-only panning.
+- Preserve explicit navigation preferences in saved settings and chart state.
+  If a saved layout uses horizontal panning, select **Axes > Mouse drag > Time
+  and price** to change that preference. Upgrading does not reset user settings.
+
+Time-axis drags still expand spacing to the left and compress it to the right.
+Reset view, default visible bars and touch panning retain their existing behavior.
+Current guides and agent skills describe the restored default and saved-layout behavior.
+
+Validation: **4,209 unit tests** across 181 files and **219 demo tests** across
+14 files pass, together with the complete verification gate. TypeDoc reports no warnings.
+
+Measured Brotli: **67.10 KB** base, **36.01 KB** widget, **156.28 KB** widget terminal
+and **187.89 KB** all tiers. Bundle budgets are unchanged.
+
 ## 2.1.3
 
 2026-09-11

@@ -36,7 +36,7 @@ The hub skill loads on its own when the agent recognises an openalgo-charts task
 `core-api`, `chart-types`, `scales-and-panes`, `themes-and-styling`, `data-and-time`, `feeds-and-live`, `events-and-state`, `indicators`, `transforms`, `drawing-tools`, `primitives-and-plugins`, `replay-and-compare`, `chart-linking`, `settings-and-menus`, `trading`, `trade-tier`, `profiles-and-orderflow`, `react-integration`, `bundling-and-tiers`, `widget`, `interactions`, `pitfalls`, [host-integration](openalgo-charts/references/host-integration.md).
 
 The host reference covers async ownership, hidden startup, replay and history writers,
-registration, CSP boundaries and browser validation. The references target 2.1.3 and
+registration, CSP boundaries and browser validation. The references target 2.1.4 and
 include the 2.0 drawing migration; verify the installed version before using newer APIs.
 
 ## Maintaining these

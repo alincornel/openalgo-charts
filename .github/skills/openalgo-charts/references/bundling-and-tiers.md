@@ -137,16 +137,16 @@ Enforced by `npm run size` (`size-limit`, Brotli, `@size-limit/file`), from `.si
 
 | Budget row | Files measured | Limit | Measured |
 |---|---|---|---|
-| Base engine | `openalgo-charts.mjs` | 68 KB | 67.05 KB |
-| Base + trade layer | base + `trade.mjs` | 75 KB | 74.66 KB |
+| Base engine | `openalgo-charts.mjs` | 68 KB | 67.10 KB |
+| Base + trade layer | base + `trade.mjs` | 75 KB | 74.71 KB |
 | Indicator tier | `indicators.mjs` | 30 KB | 27.36 KB |
 | Draw tier | `draw.mjs` | 26 KB | 25.82 KB |
 | Transform tier | `transform.mjs` | 5 KB | 2.66 KB |
 | Profile tier | `profile.mjs` | 15 KB | 14.96 KB |
 | WebGL2 tier | `webgl.mjs` | 7 KB | 6.38 KB |
 | Widget tier | `widget.mjs` | 37 KB | 36.01 KB |
-| Widget terminal | base + `draw.mjs` + `indicators.mjs` + `widget.mjs` | 157 KB | 156.24 KB |
-| Everything | all eight bundles | 188 KB | 187.84 KB |
+| Widget terminal | base + `draw.mjs` + `indicators.mjs` + `widget.mjs` | 157 KB | 156.28 KB |
+| Everything | all eight bundles | 188 KB | 187.89 KB |
 
 Version 2.1.2 raises the full-package budget from 187 KB to 188 KB for the feed, indicator lifecycle and recovery fixes. Version 2.1.3 raises base, widget and widget-terminal ceilings to 68 KB, 37 KB and 157 KB for navigation controls, and the chart-only tree-shaking ceiling to 45 KiB. The full-package ceiling remains 188 KB. Aggregate rows constrain the total independently of individual tier ceilings. The limits in `.size-limit.json` are the budget of record.
 

@@ -47,7 +47,7 @@ does not need to be loaded again.
 | `animZoom` | `boolean` | `true` | Ease a wheel zoom over a few frames (`ZoomGlide`, in log space) instead of landing the whole step on one. The first frame's step is applied on the event itself, so `barSpacing` has moved by the time anything reads it synchronously, and the glide lands on exactly the single-frame result. **On by default**, which a 1.9.x host sees as a change; `false` restores the single-frame step. Not re-appliable. |
 | `zoomAnchor` | `'cursor' \| 'right'` | `'cursor'` | What a wheel zoom holds still: the bar under the cursor, or the right edge (the latest bar), which a live chart usually wants. Not re-appliable. |
 | `doubleClick` | `'reset' \| 'maximize' \| 'none'` | `'reset'` | Restore the configured default view and autoscale, toggle that pane to the whole stack, or only emit `dblclick`. A listener that sets `handled` on the event suppresses the action for that press. |
-| `navigation` | `Partial<ChartNavigationOptions>` | `{ mousePan: 'horizontal', defaultVisibleBars: 0 }` | Mouse/pen plot-pan direction and the initial/reset view. Touch retains two-axis panning. Use `setNavigationOptions` at runtime. |
+| `navigation` | `Partial<ChartNavigationOptions>` | `{ mousePan: 'both', defaultVisibleBars: 0 }` | Mouse/pen plot-pan direction and the initial/reset view. Touch retains two-axis panning. Use `setNavigationOptions` at runtime. |
 | `conflate` | `boolean` | `false` | OHLC-preserving downsampling when bars fall under ~0.5 device px. |
 | `conflationFactor` | `number` | `1` | Conflation aggressiveness. |
 | `renderer` | `'canvas2d' \| 'webgl2' \| 'auto'` | `'canvas2d'` | Which backend paints the series. `'webgl2'` throws until `openalgo-charts/webgl` has been imported, and on a device without WebGL2 falls back to `canvas2d` with one console warning; `'auto'` takes `webgl2` when it is registered and works on this device, else `canvas2d`, silently. Decided once, at construction; read the result from `chart.rendererKind`. See [Render backends](#render-backends). |
@@ -138,14 +138,14 @@ interface ChartNavigationOptions {
 }
 
 const chart = createChart(el, {
-  navigation: { mousePan: 'horizontal', defaultVisibleBars: 120 },
+  navigation: { mousePan: 'both', defaultVisibleBars: 120 },
 });
 chart.navigationOptions();  // Readonly<ChartNavigationOptions>
 chart.setNavigationOptions({ defaultVisibleBars: 80 });  // Partial<ChartNavigationOptions>, returns void
 ```
 
-`mousePan` defaults to `'horizontal'`: mouse and pen plot drags move time while preserving
-the price scale's autoscale setting. `'both'` enables vertical price panning as well.
+`mousePan` defaults to `'both'`: mouse and pen plot drags move time and price.
+Choose `'horizontal'` to move only time while preserving price autoscale.
 Touch retains two-axis panning for either value.
 
 `defaultVisibleBars` defaults to `0`, fitting all loaded bars. A positive count targets

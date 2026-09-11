@@ -242,8 +242,8 @@ Budgets from `.size-limit.json`, Brotli, enforced by `npm run size`:
 
 | Row | Files | Budget |
 |---|---|---|
-| Widget tier | `openalgo-charts.widget.mjs` | 36 kB |
-| Widget terminal | base + draw + indicators + widget | 156 kB |
+| Widget tier | `openalgo-charts.widget.mjs` | 37 kB |
+| Widget terminal | base + draw + indicators + widget | 157 kB |
 
 The widget is a tier because of these rows. A host that never calls `createWidget`
 downloads none of it, and the base engine's own budget is unchanged. Measure, do not
@@ -257,12 +257,13 @@ owns DOM of its own and re-rendering around it is wasted work.
 
 ## Navigation preferences
 
-Pass `navigation: { mousePan: 'horizontal', defaultVisibleBars: 100 }` to
+Pass `navigation: { mousePan: 'both', defaultVisibleBars: 100 }` to
 `createWidget` to open on the latest 100 bars. Axes settings expose both
 preferences and saved widget layouts retain them. The count controls the initial
 view, new symbol/interval loads and Reset view; it does not limit retained
-history. Use 0 to fit all loaded bars. Mouse and pen pans preserve price autoscale
-by default; choose `mousePan: 'both'` to pan price too. Touch gestures are unchanged.
+history. Use 0 to fit all loaded bars. Mouse and pen pan time and price by default;
+choose `mousePan: 'horizontal'` to preserve price autoscale while panning time.
+Saved explicit preferences are retained. Touch gestures are unchanged.
 
 ## Live recovery and CSP in 2.1.2
 

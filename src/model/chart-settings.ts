@@ -536,7 +536,7 @@ function hasLastPriceTag(chart: Chart): boolean {
 function axesControls(chart: Chart): Control[] {
   const controls: Control[] = [
     selectCtl(
-      'navigation.mousePan', 'Mouse drag', 'Navigation', 'horizontal',
+      'navigation.mousePan', 'Mouse drag', 'Navigation', 'both',
       [{ label: 'Horizontal only', value: 'horizontal' }, { label: 'Time and price', value: 'both' }],
       (c) => c.navigationOptions().mousePan,
       (c, v) => c.setNavigationOptions({ mousePan: v as ChartNavigationOptions['mousePan'] }),

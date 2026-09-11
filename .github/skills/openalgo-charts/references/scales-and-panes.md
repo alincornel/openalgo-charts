@@ -179,7 +179,7 @@ chart.timeScale.fitContent(bars.length);
 ### Default visible bars
 
 `ChartOptions.navigation` accepts `Partial<ChartNavigationOptions>`, whose defaults are
-`{ mousePan: 'horizontal', defaultVisibleBars: 0 }`. Read the resolved values through
+`{ mousePan: 'both', defaultVisibleBars: 0 }`. Read the resolved values through
 `chart.navigationOptions()` and merge a patch through `chart.setNavigationOptions(patch)`.
 
 ```ts
@@ -213,7 +213,7 @@ Details in [interactions](interactions.md); what matters here is which gesture l
 | Gesture | Effect | Leaves manual? |
 |---|---|---|
 | Wheel | `timeScale.zoomAtX(x, 1.1 or 1/1.1)`, eased by default; `zoomAnchor` selects cursor or right edge | no |
-| Drag inside the plot | mouse and pen: horizontal `setRightOffset` by default; touch or `navigation.mousePan: 'both'` also permits vertical `panByPixels` on the pressed pane | only when panning price; horizontal-only mouse/pen panning preserves autoscale |
+| Drag inside the plot | time `setRightOffset` and vertical `panByPixels` on the pressed pane by default; `navigation.mousePan: 'horizontal'` limits mouse and pen to time | only when panning price; horizontal-only mouse/pen panning preserves autoscale |
 | Drag either price axis strip (right, or the reserved left column) | `setPriceRange` around the centre by `exp(dy * 0.005)` on **that strip's** scale, then `setAutoScale(false)` | **yes** |
 | Drag the time axis strip (bottom pane, last `timeAxisHeight` px) | `setBarSpacing(start * exp(-dx * 0.005))`: left expands, right compresses; preserves the logical right edge | no |
 | Two-finger pinch | zoom time, pan time, `panByPixels` on the pinched pane | **yes** (price scale) |

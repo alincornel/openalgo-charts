@@ -7,7 +7,7 @@ import { Callout } from 'nextra/components'
 
 # Mobile & Touch
 
-All input handling is built on the [Pointer Events API](https://www.w3.org/TR/pointerevents/), so the same input system serves mouse, touch, and stylus input. Touch retains two-axis panning; mouse and pen pan horizontally by default, configurable through `navigation.mousePan`.
+All input handling is built on the [Pointer Events API](https://www.w3.org/TR/pointerevents/), so the same input system serves mouse, touch, and stylus input. Touch retains two-axis panning; mouse and pen also pan both axes by default, with optional time-only movement through `navigation.mousePan: 'horizontal'`.
 
 ## Built-in touch gestures
 

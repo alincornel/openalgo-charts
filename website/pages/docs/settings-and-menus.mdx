@@ -336,12 +336,12 @@ settings persistence as the other controls:
 
 | Key | Control | Default |
 |---|---|---|
-| `navigation.mousePan` | Select **Mouse drag**: **Horizontal only** (`'horizontal'`) or **Time and price** (`'both'`) | `'horizontal'` |
+| `navigation.mousePan` | Select **Mouse drag**: **Horizontal only** (`'horizontal'`) or **Time and price** (`'both'`) | `'both'` |
 | `navigation.defaultVisibleBars` | Number: **Default visible bars (0 = all)**, minimum `0`, maximum `100000`, step `1` | `0` |
 
 ```ts
 applyChartSettings(chart, {
-  'navigation.mousePan': 'horizontal',
+  'navigation.mousePan': 'both',
   'navigation.defaultVisibleBars': 120,
 });
 readChartSettings(chart)['navigation.defaultVisibleBars'];  // 120

@@ -13,8 +13,8 @@ Every live demo on this site is fully interactive. The points below apply to all
 
 - **Wheel**: zoom both axes around the cursor, eased over a few frames (`animZoom: false`
   for the single-frame step); `zoomAnchor: 'right'` holds the latest bar still instead.
-- **Drag the plot**: mouse and pen pan time horizontally by default. Set
-  `navigation.mousePan: 'both'` to also pan price vertically.
+- **Drag the plot**: mouse and pen pan time and price by default. Set
+  `navigation.mousePan: 'horizontal'` to limit movement to time.
 - **Drag the price axis**: rescale price; **drag the time axis** left to expand bar spacing,
   or right to compress it.
 - **Double-click**: by default, restore the default view and autoscale; `doubleClick: 'maximize'`
@@ -27,14 +27,16 @@ Every live demo on this site is fully interactive. The points below apply to all
   `pointer` cursor. Dragging shows a dimmed ghost at the pre-drag price (see
   [On-chart trading](/docs/trading#interaction-feedback-hover-drag-ghost)).
 
-Horizontal mouse and pen panning leaves the price scale's autoscale setting in place. The
+Choosing horizontal-only mouse and pen panning leaves the price scale's autoscale setting in place. The
 price range can still adjust to the bars now in view. Touch continues to pan both axes.
+Saved horizontal preferences are preserved when upgrading. To enable two-axis panning,
+choose **Axes > Mouse drag > Time and price** or set `mousePan: 'both'`.
 
 ```ts
 const chart = createChart(el, {
-  navigation: { mousePan: 'horizontal', defaultVisibleBars: 120 },
+  navigation: { mousePan: 'both', defaultVisibleBars: 120 },
 });
-chart.setNavigationOptions({ mousePan: 'both' });
+chart.setNavigationOptions({ mousePan: 'horizontal' }); // optional time-only panning
 chart.navigationOptions();  // Readonly<ChartNavigationOptions>
 ```
 

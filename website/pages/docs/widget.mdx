@@ -64,10 +64,11 @@ picker offers only what you registered yourself.
 ## One call
 
 The widget inherits the engine's navigation preferences. Set
-`navigation: { mousePan: 'horizontal', defaultVisibleBars: 100 }` to show the
+`navigation: { mousePan: 'both', defaultVisibleBars: 100 }` to show the
 latest 100 bars on load and reset. Axes settings save these choices in the
 widget layout. The count changes the visible window without discarding history;
-0 fits all loaded bars. Mouse and pen panning is horizontal by default.
+0 fits all loaded bars. Mouse and pen pan time and price by default.
+Choose `mousePan: 'horizontal'` for time-only panning. Saved preferences are retained.
 
 ```ts
 import { createWidget } from 'openalgo-charts/widget';
@@ -333,7 +334,7 @@ Budgets from `.size-limit.json`, Brotli, enforced by `npm run size`:
 | Row | Files | Budget | Measured |
 |---|---|--:|--:|
 | Widget tier | `openalgo-charts.widget.mjs` | 37 KB | 36.01 KB |
-| Widget terminal | base + draw + indicators + widget | 157 KB | 156.24 KB |
+| Widget terminal | base + draw + indicators + widget | 157 KB | 156.28 KB |
 
 The widget is a tier because of these rows. A host that never calls `createWidget`
 downloads none of it, and the base engine's own budget is unchanged.

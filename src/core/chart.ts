@@ -174,7 +174,7 @@ export interface ExportSvgOptions {
 
 /** Preferences for pointer panning and the view restored by reset. */
 export interface ChartNavigationOptions {
-  /** Mouse and pen plot drags. Touch gestures retain two-axis panning. Default: horizontal. */
+  /** Mouse and pen plot drags. Touch gestures retain two-axis panning. Default: both. */
   mousePan: 'horizontal' | 'both';
   /** Latest bars to show initially and on reset. 0 fits all loaded bars (default). */
   defaultVisibleBars: number;
@@ -711,7 +711,7 @@ export class Chart {
   private _cursorPane: number | null = null;
   private _cursor: { x: number; y: number } | null = null;
   private _dragging = false;
-  private readonly _navigation: ChartNavigationOptions = { mousePan: 'horizontal', defaultVisibleBars: 0 };
+  private readonly _navigation: ChartNavigationOptions = { mousePan: 'both', defaultVisibleBars: 0 };
   private _dragStartX = 0;
   private _dragStartY = 0;
   private _lastDragY = 0;
@@ -3591,7 +3591,7 @@ export class Chart {
       if (Math.abs(dx) > 3 || Math.abs(p.y - this._dragStartY) > 3) this._pointerMoved = true;
       // horizontal: scroll time
       this._timeScale.setRightOffset(this._dragStartOffset - dx / this._timeScale.barSpacing);
-      // Small vertical mouse movement must not silently disable autoscale.
+      // Horizontal-only mode preserves autoscale when the pointer moves vertically.
       if (e.pointerType === 'touch' || this._navigation.mousePan === 'both') {
         this._panes[this._downPane]?.priceScale.panByPixels(p.y - this._lastDragY);
       }

@@ -10,7 +10,7 @@ Everything is built on Pointer Events, so mouse, touch and pen share one code pa
 
 | Gesture | Effect | Detail |
 |---|---|---|
-| Drag the plot | mouse and pen pan time horizontally by default; touch pans time and price | `navigation.mousePan: 'both'` also lets mouse and pen pan price vertically on the pressed pane, switching it to manual scaling; horizontal-only panning preserves autoscale |
+| Drag the plot | mouse, pen and touch pan time and price by default | `navigation.mousePan: 'horizontal'` limits mouse and pen to time; panning price switches the pressed pane to manual scaling, while horizontal-only panning preserves autoscale |
 | Wheel | zoom the time axis | factor `1.1` / `1/1.1`, eased by default; `animZoom: false` applies instantly. `zoomAnchor` selects cursor x or right edge. Always calls `preventDefault()` |
 | Drag the price axis (right strip) | rescale price | `exp(dy * 0.005)` about the range centre, then `setAutoScale(false)` |
 | Drag the time axis (bottom strip of the last pane) | left expands bar spacing; right compresses it | `barSpacing * exp(-dx * 0.005)`, preserving the logical right edge |
@@ -34,13 +34,13 @@ Pinch: a second pointer aborts any single-pointer drag. Each frame compares two 
 ## Navigation options
 
 ```ts
-createChart(el, { navigation: { mousePan: 'horizontal', defaultVisibleBars: 120 } });
-chart.setNavigationOptions({ mousePan: 'both' });
+createChart(el, { navigation: { mousePan: 'both', defaultVisibleBars: 120 } });
+chart.setNavigationOptions({ mousePan: 'horizontal' }); // optional time-only panning
 chart.navigationOptions();  // Readonly<ChartNavigationOptions>
 ```
 
 `ChartNavigationOptions` is exported from the base entry. `mousePan` defaults to
-`'horizontal'` and applies to mouse and pen plot drags; touch retains two-axis panning.
+`'both'` and applies to mouse and pen plot drags; touch retains two-axis panning.
 Horizontal panning leaves autoscale enabled when it was enabled, so price can still
 follow the newly visible bars.
 
@@ -54,7 +54,9 @@ configured count.
 
 Both fields appear in the settings schema's Axes / Navigation group as
 `navigation.mousePan` and `navigation.defaultVisibleBars`. `readChartSettings` /
-`applyChartSettings` and `getState` / `restoreState` persist them.
+`applyChartSettings` and `getState` / `restoreState` persist them. Upgrading preserves
+explicit saved horizontal preferences. Select **Axes > Mouse drag > Time and price**
+or set `mousePan: 'both'` to change that preference; do not reset unrelated user settings.
 
 ## Crosshair
 
