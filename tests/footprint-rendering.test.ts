@@ -108,7 +108,10 @@ describe('footprint display geometry', () => {
     fp.setBars([sample()]);
     const { ctx, rec } = makeCtx();
     fp.draw(ctx, context(8));
-    const rows = rec.ops.filter(op => op.type === 'roundRect');
+    // A row below the text threshold is painted as a plain fill: a path and a
+    // corner per cell is the expensive way to draw something nobody can see a
+    // corner on. Geometry is unchanged, which is what this measures.
+    const rows = rec.ops.filter(op => op.type === 'roundRect' || op.type === 'fillRect');
     expect(rows.length).toBeGreaterThan(0);
     expect(rows.every(op => op.args[2] <= 4 && op.args[3] <= 1)).toBe(true);
     expect(rec.count('fillText')).toBe(0);

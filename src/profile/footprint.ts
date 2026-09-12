@@ -103,14 +103,25 @@ function adjacent(upper: number, lower: number, row: number): boolean {
  * gap, which cannot distinguish uniformly missing rows from a coarser grid.
  * Positive volume against a zero opposing volume is an imbalance; zero against
  * zero is not. threshold is the minimum dominant-side quantity (inclusive).
+ *
+ * minOpposing is the floor the opposing quantity is compared AT, and it exists
+ * because nothing times zero is zero: against an empty row the ratio drops out
+ * of the comparison entirely and any positive print qualifies, at 3 and at a
+ * billion alike. That is the honest reading for an analytics call on a sparse
+ * ladder, and it is the wrong one for a renderer that has just MANUFACTURED the
+ * empty rows (zero-fill), where it leaves the ratio with nothing to suppress.
+ * Pass 1 for the ladder's reading, `volume >= ratio * max(1, opposing)`; the
+ * default 0 leaves the comparison exactly as fractional quantities deserve.
  */
-export function diagonalImbalances(cells: readonly FootprintCell[], ratio = 3, rowSize?: number, threshold = 0): Imbalance[] {
+export function diagonalImbalances(cells: readonly FootprintCell[], ratio = 3, rowSize?: number, threshold = 0, minOpposing = 0): Imbalance[] {
   if (!Number.isFinite(ratio) || ratio <= 0) throw new RangeError('Imbalance ratio must be positive and finite');
   if (rowSize !== undefined && (!Number.isFinite(rowSize) || rowSize <= 0)) throw new RangeError('Imbalance rowSize must be positive and finite');
   if (!Number.isFinite(threshold) || threshold < 0) throw new RangeError('Imbalance threshold must be nonnegative and finite');
+  if (!Number.isFinite(minOpposing) || minOpposing < 0) throw new RangeError('Imbalance minOpposing must be nonnegative and finite');
   const sorted = [...cells].sort((a, b) => b.price - a.price);
   const row = rowSize ?? observedRowSize(sorted);
-  const dominates = (volume: number, opposing: number): boolean => volume > 0 && volume >= threshold && volume >= ratio * opposing;
+  const dominates = (volume: number, opposing: number): boolean =>
+    volume > 0 && volume >= threshold && volume >= ratio * Math.max(minOpposing, opposing);
   const out: Imbalance[] = [];
   for (let i = 0; i < sorted.length; i++) {
     const here = sorted[i];
@@ -138,10 +149,10 @@ export interface StackedImbalance {
 }
 
 /** Runs of minStack+ adjacent diagonal imbalances, tracked independently per side. */
-export function stackedImbalances(cells: readonly FootprintCell[], ratio = 3, minStack = 3, rowSize?: number, threshold = 0): StackedImbalance[] {
+export function stackedImbalances(cells: readonly FootprintCell[], ratio = 3, minStack = 3, rowSize?: number, threshold = 0, minOpposing = 0): StackedImbalance[] {
   if (!Number.isSafeInteger(minStack) || minStack < 1) throw new RangeError('Imbalance minStack must be a positive integer');
   const sorted = [...cells].sort((a, b) => b.price - a.price);
-  const imb = diagonalImbalances(sorted, ratio, rowSize, threshold);
+  const imb = diagonalImbalances(sorted, ratio, rowSize, threshold, minOpposing);
   const row = rowSize ?? observedRowSize(sorted);
   const out: StackedImbalance[] = [];
   for (const side of ['buy', 'sell'] as const) {

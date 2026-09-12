@@ -252,7 +252,10 @@ describe('profile primitives render', () => {
     cramped.draw(b.ctx, rc());
     expect(a.rec.count('fillText')).toBeGreaterThan(0);
     expect(b.rec.count('fillText')).toBe(0);   // heatmap only
-    expect(b.rec.count('roundRect')).toBeGreaterThan(0);
+    // Still every cell, just painted as plain fills: a row too short to carry a
+    // number is too short to show a rounded corner, and the path per cell is
+    // what makes a zero-filled ladder expensive when zoomed out.
+    expect(b.rec.count('fillRect')).toBeGreaterThanOrEqual(a.rec.count('roundRect'));
   });
 
   it('Footprint drives autoscale so the top and bottom rows are not clipped', () => {
@@ -837,7 +840,7 @@ describe('profile primitives render', () => {
       { price: 100.05, qty: 100, side: 'ask' }, { price: 100.0, qty: 25, side: 'ask' },
     ], 0.05)];
     const paint = (o: Partial<FootprintOptions>): string[] => {
-      const fp = new Footprint({ ...cellStyle, imbalanceRatio: 1e9, imbalanceThreshold: 1e9, cellBaseColor: '#a0a0a0', ...o });
+      const fp = new Footprint({ ...cellStyle, imbalanceRatio: 1e9, cellBaseColor: '#a0a0a0', ...o });
       fp.setBars(bars);
       const { ctx, rec } = makeCtx();
       fp.draw(ctx, r);

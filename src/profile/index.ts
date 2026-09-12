@@ -77,6 +77,7 @@ export {
   type FootprintDisplayMode,
   type FootprintCellMode,
   type FootprintColorMode,
+  type FootprintCandleMode,
   type FootprintDeltaCell,
   type FootprintCellStyle,
   type FootprintTextColorMode,
