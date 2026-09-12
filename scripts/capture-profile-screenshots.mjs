@@ -1,18 +1,25 @@
 /** Reproducible close-ups of the real synthetic-data profile demo. */
 import { strict as assert } from 'node:assert';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { chromium } from '@playwright/test';
 
 const demoUrl = process.argv[2] ?? 'http://127.0.0.1:4173/examples/market-profile/index.html';
-const output = fileURLToPath(new URL('../website/public/screenshots/market-profile/', import.meta.url));
+const output = fileURLToPath(new URL('../website/public/screenshots/market-profile-v2.1.1/', import.meta.url));
 await mkdir(output, { recursive: true });
+const captures = {};
+const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const browser = await chromium.launch();
 try {
-  const page = await browser.newPage({ viewport: { width: 400, height: 1100 }, deviceScaleFactor: 2 });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 2 });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   const paint = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const capture = async (name, options = {}) => {
+    const bytes = await page.screenshot({ path: `${output}/${name}.png`, ...options });
+    captures[name] = { file: `${name}.png`, sha256: digest(bytes), width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
+  };
   const setSplit = async (split) => {
     if (await page.evaluate(() => window.__mp().isSessionSplit(5)) === split) return;
     await paint();
@@ -30,6 +37,16 @@ try {
   url.searchParams.set('theme', 'dark');
   await page.goto(url.href);
   await page.waitForFunction(() => typeof window.__mp === 'function');
+  await page.locator('#theme').selectOption('blue');
+  await page.locator('#compressed').click();
+  await paint();
+  assert.equal(await page.evaluate(() => window.__mp().options().blockDisplay), 'compact');
+  assert.equal(await page.locator('#density').inputValue(), '5');
+  assert.deepEqual(await page.evaluate(() => window.__profileResult().sessions.map((_, i) => window.__mp().isSessionSplit(i))), Array(6).fill(false));
+  await page.mouse.move(0, 0);
+  await capture('compressed-overview');
+  await page.setViewportSize({ width: 400, height: 1100 });
+  await paint();
   // Fit a full day vertically and give every period room. Crop only the chart;
   // the surrounding gallery supplies theme names and links to the live controls.
   const chartTop = await page.locator('#chart').evaluate(node => node.getBoundingClientRect().top);
@@ -55,17 +72,33 @@ try {
   for (const theme of ['dark', 'blue', 'graphite', 'emerald', 'ivory']) {
     await page.locator('#theme').selectOption(theme);
     await paint();
-    await page.screenshot({ path: `${output}/${theme}.png`, clip });
+    assert.equal(await page.evaluate(() => window.__mp().isSessionSplit(5)), true, `${theme} must preserve the split session`);
+    const rowHeight = await page.evaluate(() => {
+      const scale = window.__chart().panes()[0].priceScale;
+      const poc = window.__profileResult().sessions[5].poc;
+      return Math.abs(scale.priceToY(poc + 2) - scale.priceToY(poc));
+    });
+    assert.ok(Math.abs(rowHeight - 18) < 0.01, `${theme} must match the documented 18px row height`);
+    await capture(theme, { clip });
     console.log(`Captured ${theme}: 800 x 1320, DPR 2, 18px rows, 16px letters, newest session split`);
   }
   await page.locator('#theme').selectOption('graphite');
   for (const split of [false, true]) {
     await setSplit(split);
     await paint();
-    await page.screenshot({ path: `${output}/${split ? 'split' : 'packed'}-detail.png`, clip });
+    await capture(`${split ? 'split' : 'packed'}-detail`, { clip });
   }
   assert.equal(await page.evaluate(() => JSON.stringify(window.__profileResult())), before, 'Close-up captures must preserve the original price rows and analytics');
   assert.deepEqual(errors, []);
+  const sources = {};
+  for (const path of ['examples/market-profile/index.html', 'examples/market-profile/themes.js', 'src/profile/market-profile-primitive.ts', 'src/profile/market-profile.ts', 'src/profile/compact-text.ts']) {
+    sources[path] = digest(await readFile(new URL(`../${path}`, import.meta.url)));
+  }
+  await writeFile(`${output}/captures.json`, JSON.stringify({
+    sources,
+    settings: { deviceScaleFactor: 2, blockDisplay: 'compact', overviewRowHeight: 5, closeupRowHeight: 18, closeupFont: 16 },
+    captures,
+  }, null, 2) + '\n');
 } finally {
   await browser.close();
 }

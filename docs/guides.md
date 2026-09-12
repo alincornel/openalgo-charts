@@ -158,8 +158,13 @@ chart.addSeries('area', { style: { areaTopColor: 'rgba(79,140,255,0.5)', areaBot
   the pointer to the whole stack, `'none'` leaves it to the host's `dblclick` listener.
 - **Drag the price (Y) axis** vertically: up expands, down compresses the price scale
   (switches that pane to manual scale).
-- **Drag the time (X) axis** horizontally: right expands (wider bars), left compresses.
-- **Double-click**: reset, fit content and re-enable price autoscale.
+- **Drag the time (X) axis** horizontally: left expands (wider bars), right compresses.
+- **Drag the chart**: mouse and pen movement pans time and price by default. Choose
+  `navigation.mousePan: 'horizontal'` to pan only time and preserve price autoscale.
+- **Reset view** in the bottom controls, or double-click with the default action:
+  restore `navigation.defaultVisibleBars` and price autoscale. The bar count is
+  saved in chart settings; `0` fits all loaded history. `chart.fitContent()` always
+  fits all loaded bars explicitly.
 
 ## Tick aggregation &amp; live orderflow
 

@@ -22,7 +22,11 @@ chart.fitContent();
 
 `createChart(container, options?)` returns a `Chart`; `new Chart(container, options?)` is equivalent and also exported.
 
-**The container must already have a non-zero size.** The constructor calls `applySize(container.clientWidth, container.clientHeight)`; a container with no height renders a zero-height chart until the `ResizeObserver` fires.
+**Rendering needs a measurable container.** A hidden chart may receive data before it has
+width or height. Since 2.1.3, its initial default fit remains pending until the first
+usable layout, including when `ResizeObserver` reveals the tab. Give the container a real
+height; without `ResizeObserver`, call `applySize(width, height)` after showing it. Data
+does not need to be loaded again.
 
 **The chart takes over the container's inline styles.** It sets `display:flex`, `flexDirection:column`, `touchAction:none`, `background` from the theme, `position:relative` when the computed position is `static`, plus `role="application"`, `aria-label` and `tabindex`. It appends one `<div>` per pane and a visually-hidden live region.
 
@@ -36,12 +40,14 @@ chart.fitContent();
 | `theme` | `ChartTheme` | `DEFAULT_THEME` | See [themes-and-styling](themes-and-styling.md). |
 | `priceAxisWidth` | `number` | `56` | Media px. Also the width reserved for a left axis when one exists. |
 | `timeAxisHeight` | `number` | `22` | Media px, bottom pane only. |
+| `timeScale` | `Partial<TimeScaleOptions>` | `DEFAULT_TIME_SCALE_OPTIONS` | Initial spacing, offset, and spacing limits. Added in 2.1.1; use live scale setters for spacing/offset changes. |
 | `legendOffset` | `{ top?, left? }` | `{ top: 6, left: 8 }` | Where indicator legend rows start in the top-most pane. |
 | `crosshairMode` | `'normal' \| 'magnet'` | `'normal'` | `magnet` snaps to O/H/L/C, price pane only. |
 | `now` | `() => number` | `performance.now` | Time source for kinetic pan / navigator fade. |
 | `animZoom` | `boolean` | `true` | Ease a wheel zoom over a few frames (`ZoomGlide`, in log space) instead of landing the whole step on one. The first frame's step is applied on the event itself, so `barSpacing` has moved by the time anything reads it synchronously, and the glide lands on exactly the single-frame result. **On by default**, which a 1.9.x host sees as a change; `false` restores the single-frame step. Not re-appliable. |
 | `zoomAnchor` | `'cursor' \| 'right'` | `'cursor'` | What a wheel zoom holds still: the bar under the cursor, or the right edge (the latest bar), which a live chart usually wants. Not re-appliable. |
-| `doubleClick` | `'reset' \| 'maximize' \| 'none'` | `'reset'` | What a double-click on a pane does: fit every loaded bar (which also wakes a history loader), toggle that pane to the whole stack, or only emit `dblclick`. A listener that sets `handled` on the event suppresses the action for that press. |
+| `doubleClick` | `'reset' \| 'maximize' \| 'none'` | `'reset'` | Restore the configured default view and autoscale, toggle that pane to the whole stack, or only emit `dblclick`. A listener that sets `handled` on the event suppresses the action for that press. |
+| `navigation` | `Partial<ChartNavigationOptions>` | `{ mousePan: 'both', defaultVisibleBars: 0 }` | Mouse/pen plot-pan direction and the initial/reset view. Touch retains two-axis panning. Use `setNavigationOptions` at runtime. |
 | `conflate` | `boolean` | `false` | OHLC-preserving downsampling when bars fall under ~0.5 device px. |
 | `conflationFactor` | `number` | `1` | Conflation aggressiveness. |
 | `renderer` | `'canvas2d' \| 'webgl2' \| 'auto'` | `'canvas2d'` | Which backend paints the series. `'webgl2'` throws until `openalgo-charts/webgl` has been imported, and on a device without WebGL2 falls back to `canvas2d` with one console warning; `'auto'` takes `webgl2` when it is registered and works on this device, else `canvas2d`, silently. Decided once, at construction; read the result from `chart.rendererKind`. See [Render backends](#render-backends). |
@@ -55,7 +61,7 @@ chart.fitContent();
 | `priceScale` | `Partial<PriceScaleOptions>` | `DEFAULT_PRICE_SCALE_OPTIONS` | Applied to each pane's **right** scale as the pane is created. See [scales-and-panes](scales-and-panes.md). |
 | `timeFormatter` | `(utcSeconds, tickMark?) => string` | built-in labels in `timezone` | Time axis and crosshair time tag. Outranks `timezone` for labels. |
 | `timezone` | `string` (IANA name) | `'Asia/Kolkata'` | Zone the axis, crosshair tag and calendar-anchored indicators resolve in. **Throws** on a name the runtime does not recognise. See [data-and-time](data-and-time.md). |
-| `timeNavigator` | `boolean \| Partial<TimeNavigatorOptions>` | `true` | Hover-revealed zoom/step controls above the time axis. |
+| `timeNavigator` | `boolean \| Partial<TimeNavigatorOptions>` | `true` | Hover-revealed zoom, reset and step controls above the time axis. |
 | `axisChrome` | `AxisChromeOptions` | `{}` (nothing drawn) | `sessionClock` (corner clock in the chart's zone), `barCountdown` (second row in the last-price tag), and `clock`, a **wall-clock UTC seconds** source defaulting to the system clock. Not re-appliable through `applyOptions`; use `setAxisChromeOptions`. See [scales-and-panes](scales-and-panes.md). |
 
 **`DEFAULT_THEME` is `lightTheme`, not `darkTheme`.** A dark shell must pass `{ theme: darkTheme }` explicitly even though the `theme` JSDoc says otherwise.
@@ -90,7 +96,7 @@ Returned by `addSeries`. Full surface (`src/model/series.ts`):
 
 | Method | Signature | Notes |
 |---|---|---|
-| `setData` | `(items: readonly SeriesDataItem[]) => void` | Replaces all data. The first non-empty `setData` on the chart auto-fits once. |
+| `setData` | `(items: readonly SeriesDataItem[]) => void` | Replaces all data. The first non-empty `setData` on the chart applies the configured default view once. |
 | `prependData` | `(items: readonly SeriesDataItem[]) => void` | History paging; viewport is preserved. |
 | `update` | `(item: SeriesDataItem) => void` | Updates the last item or appends. |
 | `getData` | `() => Bar[]` | Normalized OHLC, oldest first. |
@@ -107,6 +113,94 @@ Items are `{ time, open, high, low, close, volume?, color? }`, `{ time, value, c
 - `chart.applySize(width, height)`: media px; no-ops when unchanged. A `ResizeObserver` on the container calls it automatically, so manual calls are only needed in hosts without `ResizeObserver`.
 - `chart.applyOptions(opts)` takes a runtime subset only: `theme`, `grid`, `canvas`, `statusLine`, `priceScale`, `priceFormatter`, `timeFormatter`, `timezone`, `crosshairMode`. Nothing else from `ChartOptions` is re-appliable.
 
+## Object inventory and management
+
+Use the base-tier `ChartObjects` for a custom host's Objects list. It creates no DOM
+and imports no optional tier. A widget already owns one at `widget.objects`; its
+`openObjects()` and reusable `mountObjectsPanel` are in the
+[widget tier](widget.md#objects-panel).
+
+```ts
+import { ChartObjects } from 'openalgo-charts';
+
+const objects = new ChartObjects(chart, {
+  drawings: draw, // optional structural DrawingController from openalgo-charts/draw
+  onSettings: row => openExistingEditor(row.kind, row.sourceId),
+});
+const off = objects.subscribe(rows => renderInventory(rows));
+const drawing = objects.list().find(row => row.kind === 'drawing');
+if (drawing?.capabilities.lock) objects.setLocked(drawing.id, true);
+
+off();
+objects.destroy(); // releases observers, not the chart or its objects
+```
+
+`ChartObjectsOptions` contains optional `drawings: ChartObjectDrawingSource` and
+`onSettings(object: ChartObjectSnapshot)`. `ChartObjectDrawingSource` describes
+`drawings`, `get`, `selection`, `select`, `update` and `remove`; the draw tier's
+`DrawingController` satisfies it. `ChartObjectDrawing` is the structural record
+with `id`, `tool`, `paneIndex`, `points: { time, price }[]`, optional `visible` and `locked`.
+
+`ChartObjectSnapshot` is immutable: `{ id, sourceId, kind, name, paneIndex, visible,
+selected, locked?, dataStatus?, capabilities }`. `ChartObjectKind` is
+`'source' | 'indicator' | 'drawing' | 'profile'`. `ChartObjectCapabilities` contains
+boolean `select`, `visibility`, `lock`, `remove`, `settings`, `focus`. `paneIndex` is
+zero-based; the widget displays pane numbers starting at 1. `dataStatus` uses
+`IndicatorDataStatus`, including loading, ready, empty, unsupported and error.
+
+| Method | Contract |
+|---|---|
+| `list()` / `get(id)` | Current immutable rows / one row or `undefined`; reads also refresh unsignalled host state. |
+| `subscribe(listener)` | Immediately supplies current rows, then inventory changes; returns an unsubscribe function. |
+| `select(id: string \| null, additive = false)` | Selects an object, or clears selection with `null`. Additive selection applies to drawings. |
+| `setVisible(id, on)` / `setLocked(id, on)` | Delegates to the owning subsystem when the capability exists. |
+| `remove(id)` / `openSettings(id)` / `focus(id)` | Delegates the supported action. |
+| `register(provider)` | Adds explicit host-owned state; returns idempotent registration cleanup. |
+| `refresh()` | Re-reads provider state without polling. |
+| `destroy()` | Releases chart/provider observations without deleting objects; idempotent. |
+
+All six action methods return `false` for missing, unsupported or failed actions.
+The primary price row, `source:primary`, is protected: it offers only settings when
+`onSettings` exists. Indicator rows use `indicator:<instanceId>`, drawings use
+`drawing:<drawingId>`. Pass the snapshot's `id` to inventory actions, and `sourceId`
+to existing editors. Drawing selection follows the canvas. Drawing visibility,
+lock and removal delegate to the controller, preserving its undo history; focus
+brings anchors, including future anchors, into view and sets the pane price range
+to manual. Indicator removal releases its data lifecycle and removes an empty pane.
+
+Profiles require explicit registration. Arbitrary primitives and trading overlays
+do not automatically become removable objects. `ChartObjectProvider` takes `id`,
+`get(): ChartObjectDefinition | null`, optional `subscribe(listener): () => void`,
+and optional synchronous `select`, `setVisible(on)`, `setLocked(on)`, `remove`,
+`openSettings`, `focus` callbacks. Only supplied callbacks enable capabilities.
+`ChartObjectDefinition` contains `kind`, `name`, and optional `paneIndex`, `visible`,
+`locked`, `selected`, `dataStatus`. Return `null` when the object does not exist.
+
+```ts
+let visible = true;
+let exists = true;
+const unregister = objects.register({
+  id: 'session-profile',
+  get: () => exists ? { kind: 'profile', name: 'Session profile', visible } : null,
+  setVisible(on) {
+    if (on === visible) return;
+    visible = on;
+    if (on) chart.addPrimitive(profile); else chart.removePrimitive(profile);
+  },
+  remove() { chart.removePrimitive(profile); exists = false; },
+});
+```
+
+This assumes `profile` is already attached. The provider offers visibility and
+removal, with no fabricated lock, focus or settings controls. Provider IDs become
+`custom:<id>`, so they cannot shadow built-ins; empty or duplicate IDs throw.
+Registration cleanup stops observation and removes the row, leaving primitive
+teardown to the host. Call `objects.refresh()` after host-side state changes, or
+notify through the provider's subscription. Provider definitions, callbacks and
+state are not serialized in chart layouts. See
+[events and state](events-and-state.md#object-inventory-lifecycle) for observation
+and indicator visibility persistence.
+
 ## Viewport
 
 ```ts
@@ -116,10 +210,43 @@ chart.setVisibleLogicalRange(range);           // restore the user's zoom
 ```
 
 - `chart.fitContent()`: fit all bars; no-op on an empty chart.
-- `chart.resetScale()`: fit content **and** re-enable autoscale on every pane. This is what double-click runs.
+- `chart.resetScale()`: restore `navigation.defaultVisibleBars` **and** re-enable autoscale and release ratio locks on every right, left and overlay price scale. This is what the navigator reset button, `Home` / `0`, and the default double-click action run.
 - `chart.timeScale`: the live `TimeScale`; mutating it repaints via an injected change handler.
 
 **A logical range is meaningless before data lands.** `setVisibleLogicalRange` indexes bars, so apply it after `setData`, not before.
+
+### ChartNavigationOptions
+
+Exported from `openalgo-charts`:
+
+```ts
+interface ChartNavigationOptions {
+  mousePan: 'horizontal' | 'both';
+  defaultVisibleBars: number;
+}
+
+const chart = createChart(el, {
+  navigation: { mousePan: 'both', defaultVisibleBars: 120 },
+});
+chart.navigationOptions();  // Readonly<ChartNavigationOptions>
+chart.setNavigationOptions({ defaultVisibleBars: 80 });  // Partial<ChartNavigationOptions>, returns void
+```
+
+`mousePan` defaults to `'both'`: mouse and pen plot drags move time and price.
+Choose `'horizontal'` to move only time while preserving price autoscale.
+Touch retains two-axis panning for either value.
+
+`defaultVisibleBars` defaults to `0`, fitting all loaded bars. A positive count targets
+the newest N loaded bars plus four empty slots on the right, bounded by available data
+and the time scale's spacing limits. Initial data loads and `resetScale()` honour this
+count; changing it applies the default view immediately. `fitContent()` still explicitly
+fits all loaded bars. The count does not change history requests or discard loaded data.
+Apply a host's custom viewport after loading data when it should take precedence. The
+widget's ordinary load views use the configured count.
+
+The Axes / Navigation settings fields are `navigation.mousePan` and
+`navigation.defaultVisibleBars`. They round-trip through `readChartSettings` /
+`applyChartSettings` and the optional `navigation` block in `getState` / `restoreState`.
 
 ## Coordinates
 
@@ -188,17 +315,20 @@ chart.setHistoryLoader(async () => {
 });
 ```
 
-Fires when the visible range's `from` drops below logical index 10, and re-fires only after `historyLoadComplete()`. A `lazy-load` event with `{ from, to, direction: 'backward' }` is emitted alongside.
+Fires when the visible range's `from` drops below logical index 10, and re-fires only after
+`historyLoadComplete()`. A `lazy-load` event with `{ from, to, direction: 'backward' }` is
+emitted alongside. A custom async loader owns error handling, replay gating and stale
+request checks; see [host-integration](host-integration.md).
 
 ## Panes and primitives
 
 `chart.panes(): readonly Pane[]` exposes the live panes (each with `.priceScale`, `.weight`, `.series()`, `.primitives()`, `.base`, `.top`). Pane management lives in [scales-and-panes](scales-and-panes.md); `chart.addPrimitive(primitive, paneIndex = 0)` and `chart.removePrimitive(primitive)` in [primitives-and-plugins](primitives-and-plugins.md).
 
-`chart.getState()` / `chart.restoreState(state)` serialise viewport, grid, crosshair mode, timezone, pane weights and price scales, indicators, the settings block (canvas, status line, trading colours, event filters), and an opaque `drawings` slot. **Series data is never captured**: `restoreState` returns a `RestoreReport` listing series descriptors for the host to rebuild.
+`chart.getState()` / `chart.restoreState(state)` serialise viewport, grid, crosshair mode, timezone, pane weights and price scales, indicators, the settings block (canvas, navigation, status line, trading colours, event filters), and an opaque `drawings` slot. **Series data is never captured**: `restoreState` returns a `RestoreReport` listing series descriptors for the host to rebuild. Navigation options restore before the saved viewport, so its explicit range wins; an older state without `navigation` keeps the chart's current navigation options.
 
 ## Option accessors
 
-Beyond `applyOptions`, the chart reads and writes its own option blocks so a settings dialog has something to bind to: `setCanvasOptions` / `canvasOptions`, `setGridOptions` / `gridOptions`, `setStatusLineOptions` / `statusLineOptions`, `setPriceScaleOptions` / `priceScaleOptions`, `setAutoScale`, `setAxisChromeOptions` / `axisChromeOptions`, `setEvents` / `setEventOptions` / `eventOptions`, `tradingSettings` / `setTradingSettings`, `primarySeries` / `primarySeriesInfo`, `theme`, `crosshairMode`, `setTimezone` / `timezone`. One axis at a time there is `priceAxisState`, `setPriceAxisOptions`, `setPriceAxisAutoFit`, `setPriceAxisLockRatio` and `movePriceAxis`. The declarative schema over all of them is in [settings-and-menus](settings-and-menus.md).
+Beyond `applyOptions`, the chart reads and writes its own option blocks so a settings dialog has something to bind to: `setCanvasOptions` / `canvasOptions`, `setNavigationOptions` / `navigationOptions`, `setGridOptions` / `gridOptions`, `setStatusLineOptions` / `statusLineOptions`, `setPriceScaleOptions` / `priceScaleOptions`, `setAutoScale`, `setAxisChromeOptions` / `axisChromeOptions`, `setEvents` / `setEventOptions` / `eventOptions`, `tradingSettings` / `setTradingSettings`, `primarySeries` / `primarySeriesInfo`, `theme`, `crosshairMode`, `setTimezone` / `timezone`. One axis at a time there is `priceAxisState`, `setPriceAxisOptions`, `setPriceAxisAutoFit`, `setPriceAxisLockRatio` and `movePriceAxis`. The declarative schema over all of them is in [settings-and-menus](settings-and-menus.md).
 
 ## Render model
 

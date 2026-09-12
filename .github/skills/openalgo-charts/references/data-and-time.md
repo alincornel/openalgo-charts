@@ -47,12 +47,12 @@ series.setData([
 
 | Method | Data effect | Viewport effect |
 |---|---|---|
-| `setData(items)` | Full replace of this series. Sorted ascending, duplicate times collapsed **last-wins**. | Auto-fits **only on the first non-empty call** for the chart's lifetime (`_hasFitContent`). Later calls leave the logical range alone. |
+| `setData(items)` | Full replace of this series. Sorted ascending, duplicate times collapsed **last-wins**. | Fits the preferred initial view once after non-empty data and usable layout width (`_hasFitContent`). Later calls leave the logical range alone. |
 | `update(item)` | Upsert one item: newer time appends, equal time replaces the last bar, older time replaces or inserts. | Appends auto-scroll only when the viewport was already at the right edge; otherwise `rightOffset` is decremented so visible bars do not shift. |
 | `prependData(items)` | Upsert-merge by time (`DataLayer.addBars`), existing times replaced, new times inserted, result stays sorted. | Preserved. `baseIndex` shifts by the inserted count and `rightEdge - index` is invariant. |
 | `getData()` | Read back the normalized `Bar[]`, oldest to newest. | None. Allocates a fresh array each call. |
 
-**A second `setData` does not refit the chart.** The auto-fit latch fires once. After a timeframe or symbol switch, call `chart.fitContent()` (or `chart.timeScale.fitContent(n)`) yourself, or the old logical range is reapplied to a different bar count.
+**A second `setData` does not refit the chart.** The initial view uses `navigation.defaultVisibleBars` once layout has a usable width. After a timeframe or symbol switch, call `chart.resetScale()` to adopt that preferred window, or `chart.fitContent()` to explicitly fit all loaded history. Apply an explicit saved viewport after data instead when the host owns the view. Otherwise the old logical range is reapplied to a different bar count.
 
 ```ts
 const series = chart.addSeries('candlestick');
@@ -87,18 +87,23 @@ Consequences you must design around:
 let oldest = bars[0].time;
 
 chart.setHistoryLoader(async () => {
-  const older = await api.barsBefore(oldest, 500);
-  if (older.length > 0) {
-    series.prependData(older);
-    oldest = older[0].time;
+  try {
+    const older = await api.barsBefore(oldest, 500);
+    if (!chart.isDestroyed && older.length > 0) {
+      series.prependData(older);
+      oldest = older[0].time;
+    }
+  } catch (error) {
+    if (!chart.isDestroyed) showHistoryError(error); // host error UI
+  } finally {
+    if (!chart.isDestroyed) chart.historyLoadComplete();
   }
-  chart.historyLoadComplete();   // re-arms the trigger
 });
 ```
 
 The loader fires from `_maybeLoadHistory` whenever the visible logical range's `from` drops below 10, during a drag, a wheel zoom, or a kinetic glide. A latch (`_loadingHistory`) suppresses re-entry until you call `historyLoadComplete()`.
 
-**`historyLoadComplete()` is mandatory on every invocation, including the one that returns nothing.** Skipping it leaves the latch set and paging never fires again.
+**`historyLoadComplete()` is mandatory on every current invocation, including empty history and failure.** Put completion in `finally`; skipping it leaves the latch set and paging never fires again. The short example assumes one stable chart and symbol. In a terminal, guard stale responses, replay and request ownership before applying a page or releasing the latch, as described in [host-integration](host-integration.md#history-paging-and-replay).
 
 The same trigger also emits the observable `lazy-load` event (`{ from, to, direction: 'backward' }`), see [events-and-state](events-and-state.md). Only `'backward'` is ever emitted.
 

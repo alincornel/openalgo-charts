@@ -27,7 +27,7 @@ const widget = createWidget('#terminal', {
 });
 ```
 
-`container` is an `HTMLElement`, a CSS selector, or an element id. It needs a non-zero size before the call, as with `createChart`. The widget imports `openalgo-charts` and `openalgo-charts/draw` itself; the indicator tier is the host's import because not every terminal wants 102 indicators.
+`container` is an `HTMLElement`, a CSS selector, or an element id and must exist before the call. Give it a real height for rendering; since 2.1.3 an initially hidden chart can receive data and apply its pending initial view when layout reports a usable width. See [host-integration](host-integration.md#hidden-charts-and-preferred-views). The widget imports `openalgo-charts` and `openalgo-charts/draw` itself; the indicator tier is the host's import because not every terminal wants 102 indicators.
 
 Importing the module touches no DOM; only `createWidget` does (it injects the stylesheet and builds the root then). Import it anywhere, call it once the container exists. `npm run skills:coverage` imports the built tier under Node and fails on a module-scope `document` access.
 
@@ -109,7 +109,7 @@ The sprite is injected once per document on the body (`id="oac-rail-sprite"`), s
 
 | Export | Kind | Purpose |
 |---|---|---|
-| `mountTopbar(ctx, host, opts)` | function | Symbol box with search, interval pills, chart type menu, Indicators, capture, settings, theme. Returns a `TopbarHandle` (`refresh`, `destroy`). |
+| `mountTopbar(ctx, host, opts)` | function | Symbol box with search, interval pills, chart type menu, Indicators, Objects, capture, settings, theme. Returns a `TopbarHandle` (`refresh`, `destroy`). |
 | `openMenu(ctx, anchor, rows, opts?)` | function | A popover menu under `anchor`, with an optional filter box; the chart type menu and the symbol results share it. Returns the closer. |
 | `chartTypeChoices()` | function | The registered chart types a user can pick for the instrument (the registry minus histogram-family internals). |
 | `chartTypeLabel(id)` | function | A label from `CHART_TYPE_LABELS`, else the id. |
@@ -141,8 +141,9 @@ The sprite is injected once per document on the body (`id="oac-rail-sprite"`), s
 | `RAIL_WIDTH`, `TOPBAR_HEIGHT`, `STATUSLINE_HEIGHT` | consts | `42`, `40`, `24` CSS pixels, shared by the stylesheet and the placement maths. |
 | `WIDGET_CSS` | const | The shell stylesheet text. |
 | `DIALOG_CSS` | const | The dialog rules, appended to the same sheet by `createWidget`. |
+| `OBJECTS_PANEL_CSS` | const | Object list rules, included in the widget stylesheet; custom hosts append it alongside `WIDGET_CSS` and `DIALOG_CSS`. |
 | `WIDGET_STYLE_ID` | const `'oac-widget-css'` | Id of the injected `<style>`, one per document. |
-| `injectWidgetStyles(doc, extra?)` | function | Inject the sheet once per document; `extra` is appended on the first call. |
+| `injectWidgetStyles(doc, extra?, nonce?)` | function | Inject or fill an empty sheet once per document; `extra` is appended when filling it. Assigns the nonce before filling/insertion, preserves an existing nonce and leaves populated host CSS untouched. |
 | `StatuslineOptions`, `StatuslineHandle`, `Toaster`, `ToastHandle`, `ToastKind`, `ToastOptions`, `WidgetThemeName`, `WidgetTokens`, `Rgba` | types | |
 
 ### Dialogs and forms (`dialogs/`, `form.ts`)
@@ -192,6 +193,7 @@ Every mount takes the context and an optional anchor element (so it satisfies `D
 | `lookbackBars` | `number` | `DEFAULT_LOOKBACK_BARS` | Bars per load. |
 | `now` | `() => number` | `Date.now` | Clock for the load window and the capture filename. |
 | `onOrder` | `(order: OrderRequest) => void` | none | Order entry from the right-click menu. Without it the menu draws no trade rows. |
+| `styleNonce` | `string` | none | Response CSP nonce for the shared widget and dialog stylesheet. Style-attribute policy remains the host's responsibility. |
 
 Confirm defaults against `WidgetOptions` in the typings rather than assuming.
 
@@ -202,6 +204,7 @@ widget.chart;                        // Chart
 widget.draw;                         // DrawingController
 widget.root;                         // the .oac-widget element
 widget.context;                      // the WidgetContext every mounted piece was handed
+widget.objects;                      // the owned base-tier ChartObjects inventory
 widget.series;                       // the primary SeriesApi, replaced by setChartType
 widget.symbol(); widget.exchange(); widget.interval(); widget.chartType(); widget.theme();
 widget.setSymbol(symbol, exchange?);
@@ -210,6 +213,7 @@ widget.setChartType(id);             // a registered chart type id; the series i
 widget.setTheme('dark' | 'light' | theme);
 widget.openSettings();               // false when no dialog is registered under 'settings'
 widget.openIndicatorPicker();
+widget.openObjects();                // false after destruction; focuses the existing panel when open
 widget.getState();                   // WidgetState, JSON-safe
 widget.restoreState(state);          // WidgetRestoreReport
 await widget.reload();               // fetch again for the current symbol and interval
@@ -220,6 +224,45 @@ widget.isDestroyed;
 ```
 
 `getState()` returns `{ version: 1, symbol, exchange, interval, chartType, theme, chart: chart.getState(), rail: RailPrefs | null }`. `restoreState` validates field by field and returns `{ applied, reason?, chart?: RestoreReport }`; a saved viewport is applied only when the state was captured on the same symbol and interval, otherwise `stripView` drops it and the indicators, drawings and panes still land. With `persist`, the state is written under `oac-widget:<namespace>:state` (debounced by `SAVE_DEBOUNCE_MS`, flushed on `pagehide` and on `destroy`) and the rail's preferences under `oac-widget:<namespace>:rail`.
+
+### Objects panel
+
+`mountObjectsPanel(ctx, anchor?, opts?: ObjectsPanelOptions)` returns `PanelHandle`
+(`el`, `close()`, `isOpen()`). `ObjectsPanelOptions` contains optional `objects:
+ChartObjects` and `onClose`. The explicit model overrides optional
+`WidgetContext.objects`; one must be provided, otherwise the mount throws a clear
+missing-model error. Closing the panel releases only its subscription, and calls
+`onClose` once. The host retains ownership of the model.
+
+```ts
+import { mountObjectsPanel } from 'openalgo-charts/widget';
+
+const panel = mountObjectsPanel(widget.context, openButton, {
+  objects: widget.objects,
+  onClose: () => updateToolbarState(false),
+});
+panel.close();
+```
+
+Search matches name, kind and pane labels (displayed starting at 1). Live updates
+preserve search and action-button focus. Rows show visibility, drawing lock and
+selection, and external-indicator data status. Only supported actions appear; an
+action returning `false` or throwing reports through the existing toast. No primary
+source removal control is offered. Settings reuse the widget's current chart,
+indicator and drawing editors. Drawing actions use existing undo history.
+
+The panel uses the shared overlay for pointer containment, focus trapping, Escape
+and focus restoration. Its scrollable list fits the actual container, including
+350 px and short hosts; search and footer remain reachable. All controls are text.
+`createWidget` already includes `OBJECTS_PANEL_CSS`; a custom stylesheet must include
+it along with the shared widget and dialog rules.
+
+`widget.objects` is a base-tier `ChartObjects`, detailed in
+[core-api](core-api.md#object-inventory-and-management). Custom profiles register
+explicit operations there. `widget.destroy()` disposes its inventory; custom
+hosts dispose their own. Indicator visibility persists in chart/widget layouts,
+with omitted legacy visibility defaulting to visible. Host provider state and
+callbacks require separate persistence and registration after replacement.
 
 ### Events
 
@@ -236,6 +279,14 @@ widget.isDestroyed;
 
 Chart events stay on `widget.chart`, drawing events on `widget.draw`. The bus also carries `keymap:conflict` for `widget.context.bus.on`.
 
+## Live history and reconnect recovery
+
+The widget passes `BarSubscriptionOptions` to `feed.subscribeBars`: `seedFrom` continues the last loaded bar, and `onResync` requests authoritative history after a stream interruption. On resync it pauses display updates while buffering live bars, loads the current window with `BarsRequest.noCache: true`, merges the buffered observations, replaces the series with `setData`, restores the visible logical range, and seeds the replacement subscription from the merged last bar. Monitoring stays active during the fetch; a repeated reconnect starts a newer request and supersedes the earlier one. `withBarCache` forwards subscription options and honors `noCache`; custom wrappers must preserve both. Never replay older gap-fill bars through the tail-only `series.update` path.
+
+For overlapping timestamps the merge preserves the history open, combines high/low extrema, uses the latest buffered close, and takes the maximum of the volume snapshots. Bars without buffered updates retain authoritative history. The overlap merge is conservative: a buffered whole candle may retain a seed extreme corrected by history, and does not establish exact snapshot/tick ordering or reconstruct unseen trades. The replacement seeded subscriber is installed before releasing the previous subscription.
+
+An automatic refresh that fails or returns no bars keeps the previous chart visible, reports stale history in the status line and emits a `data` error. Display updates remain paused while buffering and reconnect monitoring continue. `widget.reload()` is the manual retry; requests keep bypassing the cache until a current load succeeds. Same-context manual reload and automatic recovery preserve the visible time anchor. Stale results and callbacks are guarded after symbol/interval changes or destruction. The host owns closing the feed itself.
+
 ## `WidgetContext`
 
 What the shell hands every mounted piece, and what a host's own panel wants: `chart`, `draw`, `root`, `document`, `theme` (`'dark' | 'light'`), `chartTheme`, `keymap`, `bus`, `storage` (a `WidgetStorage`), `locale`, `toast(message, kind?)`, `openOverlay(el, opts?)` (returns the closer), `status(text, kind?)`, `tips`, `overlays`, `symbol()` (`{ symbol, exchange }`), `interval()`.
@@ -246,6 +297,14 @@ A dialog module of your own: build the panel with `createElement`, hand it to `c
 
 One `<style>` element per document (`WIDGET_STYLE_ID`), every rule scoped under `.oac-widget`. Colours, spacing, radius and font are `--oac-` custom properties produced by `widgetTokens(theme)` and written inline on the widget root by `applyTokens`; the colours derive from the active `ChartTheme` (`background` stepped for panels, `axisLine` / `paneSeparator` for borders, `axisText` for text, `lineColor` for the accent, `upColor` / `downColor` for buy and sell), so the chrome and the canvas cannot disagree, and `setTheme` rewrites them. Names: `bg`, `panel`, `panel-2`, `elev`, `elev-2`, `elev-3`, `bd`, `bd-soft`, `bd-hover`, `tx`, `tx-strong`, `mut`, `faint`, `acc`, `acc-2`, `on-bg`, `on-bd`, `ring`, `ring-soft`, `buy`, `sell`, `amber`, `danger`, `scrim`, `shadow`, `sb-thumb`, `sb-thumb-hover`, `font`, `mono`, `fs`, `radius`, `rail-w`, `topbar-h`, `status-h`, `ctl-h`. Because the tokens are inline declarations, a host stylesheet override needs `!important` (`#terminal .oac-widget { --oac-font: ... !important; }`); override tokens, never internal class names. Icons come from the draw tier (`iconSprite`, `iconUse`, `chromeIconSvg`), so the rail, its flyouts and the armed cursor share one glyph source. The chrome meets the UI standard in [themes-and-styling](themes-and-styling.md#host-chrome-the-ui-standard) by construction.
 
+### Content Security Policy
+
+Pass the host's fresh response nonce as `createWidget(container, { styleNonce: requestNonce })`. The widget and dialogs use one sheet per document, with the `.nonce` IDL property assigned before CSS is filled or the element is inserted. The helper is `injectWidgetStyles(doc, extra?, nonce?)`; existing two-argument calls still work.
+
+An illustrative style policy is `style-src-elem 'nonce-RESPONSE_NONCE'; style-src-attr 'unsafe-inline'`, where `RESPONSE_NONCE` is the same unpredictable value generated for this response. The nonce authorizes the stylesheet; inline theme/layout styles need a separately considered attribute policy. This is not a complete policy for scripts or other resources.
+
+An empty or whitespace-only SSR `<style id="oac-widget-css" nonce="...">` is filled in place, retaining the existing nonce even if the option differs. Put its nonce in the original HTML to avoid a parser CSP violation before hydration. Populated host CSS and its nonce are preserved unchanged; if supplying that sheet yourself, include `WIDGET_CSS`, `DIALOG_CSS` and `OBJECTS_PANEL_CSS`. Read a connected element's `.nonce`, since the browser can hide its content attribute.
+
 ## Custom rail tools
 
 `registerDrawingTool` from `openalgo-charts/draw` **before** `createWidget`, then name the id in `rail.tools` (and `rail.favorites` to pin it). The rail reads the registry once when it builds: an id it cannot find is not shown, and an unknown favourite is dropped. A custom id appears in the rail only where `RAIL_GROUPS` places it, so a tool outside every group is reachable by pin, chord or `draw.setTool`. The rail labels the button with the tool's `name`; a glyph is drawn when `DRAWING_TOOL_ICONS` has the id. A tool's `shortcut` is bound through the widget keymap and listed in the `?` panel; a conflicting binding is reported, not silently overridden. Its `settings` schema decides what the properties dialog shows, so a control exists only for a field the tool's `draw` reads.
@@ -254,7 +313,7 @@ One `<style>` element per document (`WIDGET_STYLE_ID`), every rule scoped under 
 
 - `package.json` `exports['./widget']`: `types: ./dist/widget/index.d.ts`, `import: ./dist/openalgo-charts.widget.mjs`. Listed in `sideEffects` (importing registers the dialogs).
 - `rollup.config.js`: `openalgo-charts` and every `openalgo-charts/<tier>` are external for tier builds and emitted as sibling paths (`./openalgo-charts.mjs`, `./openalgo-charts.draw.mjs`), so `dist/` serves with no import map. The widget must never inline the base or the draw tier; `check-dts.mjs` fails a build whose `dist/widget/index.d.ts` declares `Chart` or `DrawingController`.
-- `.size-limit.json`: `Widget tier` row (the bundle alone, 36 kB budget) and `Widget terminal` row (base + draw + indicators + widget, 156 kB budget); `Everything` includes the widget. Measure with `npm run size`; never quote from memory.
+- `.size-limit.json`: `Widget tier` row (the bundle alone, 37 kB budget) and `Widget terminal` row (base + draw + indicators + widget, 157 kB budget); `Everything` includes the widget. Measure with `npm run size`; never quote from memory.
 - The standalone IIFE is base-only and cannot host the widget. Use native ESM from `dist/`.
 
 ## Pitfalls
@@ -270,3 +329,13 @@ One `<style>` element per document (`WIDGET_STYLE_ID`), every rule scoped under 
 ## Related
 
 [core-api](core-api.md) · [drawing-tools](drawing-tools.md) · [settings-and-menus](settings-and-menus.md) · [indicators](indicators.md) · [themes-and-styling](themes-and-styling.md) · [bundling-and-tiers](bundling-and-tiers.md) · [react-integration](react-integration.md) · [pitfalls](pitfalls.md)
+
+## Shared loading in 2.1.6
+
+`WidgetOptions.loading?: DataLoadingOptions` configures the base controller.
+`Widget.dataController` is `DataLoadingController | null`, null without a feed.
+The widget binds history/paging/stream updates, observable chart and study statuses,
+Retry controls and context propagation. Same-context reload preserves the visible
+time anchor; only source changes reset to the preferred initial window.
+`dataController.setPaused(true)` fences display writes for a custom replay owner.
+See [host-integration](host-integration.md) for unmount and replay ordering.

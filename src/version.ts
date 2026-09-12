@@ -1,5 +1,5 @@
-/** Library version string. Matches package.json (published npm release). */
-export const VERSION = '2.1.0';
+/** Library version string. Matches package.json (including locally prepared releases). */
+export const VERSION = '2.1.7';
 
 /** Returns the current library version. */
 export function version(): string {

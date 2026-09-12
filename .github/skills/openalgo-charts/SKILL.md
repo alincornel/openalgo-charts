@@ -1,26 +1,14 @@
 ---
 name: openalgo-charts
 description: >-
-  Use when working with openalgo-charts - creating canvas charts, adding series
-  (candlestick/bar/line/area/baseline/histogram and 13 more), configuring price
-  and time scales, panes, indicators, drawing tools, primitives and custom
-  renderers, volume/market profile and footprint, on-chart trading and order
-  lines, DOM ladder, OpenAlgo REST history and WebSocket live ticks, chart state
-  persistence, themes, keyboard shortcuts, or React/Next.js integration. Also
-  market replay, multi-symbol comparison, linked chart grids (synced crosshair,
-  viewport and symbol), copy/cut/paste of drawings, warm-load bar caching for
-  any feed, the interval registry for calendar/tick/volume timeframes, rebasing
-  price scales, the chart timezone, reference price levels (previous close,
-  session high/low, bid/ask), axis chrome (session clock, bar-close countdown),
-  the settings schema with its paired up/down colour control, and context menus
-  including one raised on a price axis. Covers the eight-tier bundle model, the one-call
-  widget tier, the UI standard for host chrome, and the time, scale, registry, indicator, drawing,
-  linking, caching, trading and bundling foot-guns.
+  Use when building, configuring, extending or debugging openalgo-charts in a
+  consumer app or the source repository, including chart navigation, drawing
+  tools, indicators, profiles, live feeds, replay, widgets and framework hosts.
 ---
 
 # OpenAlgo Charts skill
 
-`openalgo-charts` is a from-scratch, dependency-free HTML5-canvas charting engine: one canvas pipeline, no SVG, no DOM per bar, eight lazy-loaded bundle tiers, zero runtime dependencies.
+`openalgo-charts` is a from-scratch, dependency-free HTML5-canvas charting engine: a canvas rendering pipeline with vector export, no DOM per bar, eight lazy-loaded bundle tiers, zero runtime dependencies.
 
 Works the same whether the project is a downstream npm consumer app or an upstream `openalgo-charts` source checkout. Detect which one you are in and resolve every API name from whatever typings are locally available.
 
@@ -70,16 +58,19 @@ Import only what you use. Each tier is a separate entry point that registers int
 
 | Import | Contents | Brotli limit |
 |---|---|---|
-| `openalgo-charts` | Engine, 13 chart types, panes and scales, primitives, registries, chart state and settings schema, market replay, symbol comparison, chart linking, warm-load bar cache, interval registry, chart timezone, trading visualization, OpenAlgo feeds, EMA/RSI/ATR/Supertrend calculators, vector SVG export, the render backend port | 67 KB |
+| `openalgo-charts` | Engine, 13 chart types, panes and scales, primitives, registries, chart state and settings schema, market replay, symbol comparison, chart linking, shared loading controller, request pool, warm-load bar cache, interval registry, chart timezone, trading visualization, OpenAlgo feeds, EMA/RSI/ATR/Supertrend calculators, vector SVG export, the render backend port | 74 KB |
 | `openalgo-charts/indicators` | 102 built-in indicators + the Tier-2 external-data contract | 30 KB |
 | `openalgo-charts/draw` | 51 drawing tools + a headless `DrawingController` with multi-select, z-order, a per-tool settings schema, the 1.9.x migration, the clipboard and the icon builders | 26 KB |
 | `openalgo-charts/transform` | Heikin Ashi, Renko, Range bars, Line Break, Point and Figure, Kagi | 5 KB |
-| `openalgo-charts/profile` | Volume Profile, Market Profile (TPO), Footprint, order flow | 11 KB |
-| `openalgo-charts/trade` | Order engine, state machine, order/position/bracket lines, DOM ladder | 75 KB with base |
+| `openalgo-charts/profile` | Volume Profile, Market Profile (TPO), Footprint, order flow | 15 KB |
+| `openalgo-charts/trade` | Order engine, state machine, order/position/bracket lines, DOM ladder | 82 KB with base |
 | `openalgo-charts/webgl` | The WebGL2 series backend behind `renderer: 'auto' \| 'webgl2'`; composites into the pane's canvas, falls back to 2D for the session on context loss | 7 KB |
-| `openalgo-charts/widget` | `createWidget`: the chart with a top bar, drawing rail, status line, settings and indicator dialogs, drawing properties, right-click menu, keymap and optional persistence. The only tier that ships DOM; imports the draw tier itself | 36 KB |
+| `openalgo-charts/widget` | `createWidget`: the chart with a top bar, drawing rail, status line, settings and indicator dialogs, drawing properties, right-click menu, keymap and optional persistence. The only tier that ships DOM; imports the draw tier itself | 40 KB |
 
-Limits are the CI-enforced budgets in `.size-limit.json`. Measured on the 2.0.2 build: base engine 66.45 KB against 67 KB, draw tier 25.82 KB against 26 KB, indicator tier 27.27 KB against 30 KB, widget tier 35.56 KB against 36 KB, a widget terminal (base + draw + indicators + widget, what one `createWidget` call loads) 155.09 KB against 156 KB, and the whole package 182.39 KB against 183 KB. The aggregate budget always sits above the sum of the tier ceilings it contains, or it would fail while every tier it contains passes. Nothing is excluded from these figures because there are no runtime dependencies to exclude; the exact table is in [bundling-and-tiers](references/bundling-and-tiers.md).
+Limits are the CI-enforced budgets in `.size-limit.json`. This reference targets 2.1.7.
+In a source checkout, run `npm run size` before quoting byte counts. In a consumer app,
+check the installed version and measure its actual imports with the app's bundler.
+Reference measurements and every budget row live in [bundling-and-tiers](references/bundling-and-tiers.md).
 
 The clipboard lives in the **draw** tier, not the base one, because it needs the drawing-tool registry. `DrawingClipboard` and friends come from `openalgo-charts/draw`.
 
@@ -144,14 +135,19 @@ Detailed reference for each topic is in `references/`. Read the one that matches
 | [react-integration](references/react-integration.md) | React and Next.js lifecycle, keeping orchestration out of React, SSR, resize |
 | [bundling-and-tiers](references/bundling-and-tiers.md) | Entry points, registry identity, tree-shaking, script/ESM/import-map loading, size budget |
 | [widget](references/widget.md) | `createWidget` and the widget tier: options, the handle, events, the context every dialog is handed, the keymap scopes, the tokens, every exported mount and helper, packaging |
-| [interactions](references/interactions.md) | Pan/zoom/pinch, crosshair modes, the keyboard system, touch, accessibility |
+| [interactions](references/interactions.md) | Two-axis panning, optional horizontal mouse/pen pan, axis drag, navigator reset, default visible bars, keyboard and accessibility |
+| [host-integration](references/host-integration.md) | Hidden-tab startup, paging/replay isolation, stale async work, registration readiness, and upstream browser validation |
 | [pitfalls](references/pitfalls.md) | The verified foot-gun list. Read this when something behaves unexpectedly |
 
 ## Triage
 
 | User asks about | First check | Answer with | Avoid |
 |---|---|---|---|
-| First chart / blank chart | container size, `dist` present | `createChart` + `addSeries` + `setData` | assuming a CSS import or web component |
+| First chart / blank chart | container size, `dist` present | `createChart` + `addSeries` + `setData`; hidden charts fit on their first measurable layout | assuming data needs to be fetched again when a tab opens |
+| Upgrade a 1.9.x drawing host | [drawing model](references/drawing-tools.md#the-20-drawing-model) | `DrawingText`, `FibLevel[]`, versioned drawings, multi-selection and schema controls | writing text into `DrawingStyle` or treating `toJSON()` as an array |
+| Recent-bar default / chart drifts vertically | [navigation](references/interactions.md#navigation-options) | `navigation.defaultVisibleBars`, horizontal `mousePan`, `resetScale()` | trimming history or overriding the preference with `fitContent()` |
+| Compact TPO or demo palettes | [profiles](references/profiles-and-orderflow.md#compact-profiles-and-demo-themes) | per-session split, markers, explicit palette options | inventing a library theme preset |
+| Replay changes during recovery / late symbol response | [host integration](references/host-integration.md) | generation and request-owner guards around every writer | assuming replay owns the host feed or timers |
 | Bars in the wrong place | units of `time` | UTC seconds | `Date.now()` milliseconds |
 | Axis shows the wrong hours | `chart.timezone()` | `timezone: 'America/New_York'` on `createChart`, or `setTimezone` | shifting bar timestamps, or a `timeFormatter` that only relabels |
 | Gaps for weekends | the gapless-axis rule | it is intended; whitespace points if you want a gap | shifting timestamps |
@@ -197,7 +193,10 @@ chart.addSeries(type, { paneIndex, style, priceScaleId, priceFormat });
 chart.addIndicator(id, settings, { paneIndex });   // needs the indicators tier
 chart.addPriceLine(opts, paneIndex);
 chart.addPrimitive(primitive, paneIndex);
-chart.fitContent();
+chart.fitContent();                       // explicitly fit all loaded history
+chart.resetScale();                       // preferred default view + all price scales
+chart.setNavigationOptions({ mousePan: 'both', defaultVisibleBars: 120 });
+chart.navigationOptions();
 chart.applyOptions({ theme, grid, canvas, statusLine, priceScale, priceFormatter, timeFormatter, timezone, crosshairMode });
 chart.setTheme(theme);
 chart.setTimezone('America/New_York') / chart.timezone();   // IANA name, default 'Asia/Kolkata'
@@ -251,7 +250,7 @@ followerIndex(followerDataLayer, timeSec, 'nearest' | 'hide');   // number | nul
 followerRange(leaderDataLayer, followerDataLayer, range);        // LogicalRange | null
 
 // warm-load bar cache: wraps ANY DataFeed (base bundle)
-const feed = withBarCache(sourceFeed, { ttlMs, max, maxBars, storage, now, intervalSeconds });
+const feed = withBarCache(sourceFeed, { ttlMs, max, maxBars, storage, now, barCloses });
 feed.getBars({ symbol, exchange, interval, from, to, noCache: true });
 feed.invalidate({ symbol, exchange, interval }) / feed.clear() / feed.stats() / feed.source;
 

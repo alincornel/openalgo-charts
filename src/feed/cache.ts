@@ -55,13 +55,18 @@
  * measured without serialising. Byte counting would mean stringifying every
  * entry on every write, which costs more than the cache saves.
  *
- * **Storage.** In-memory by default, and `prune(maxAgeMs)` is how a persistent
- * store sheds keys this session never touched. A host may inject `storage` to
- * persist (localStorage, IndexedDB) but the engine will not reach for either:
- * choosing a persistence layer is the host's business, localStorage is
- * synchronous and small, and IndexedDB is asynchronous. Store methods may
- * therefore return a promise. `CachedBars` is plain JSON so it round-trips
- * through `JSON.stringify` unchanged.
+ * **Storage.** A bounded in-memory copy is always kept, and a host may inject
+ * `storage` on top of it to persist (localStorage, IndexedDB); the engine will
+ * not reach for either itself, because choosing a persistence layer is the
+ * host's business, localStorage is synchronous and small, and IndexedDB is
+ * asynchronous. Store methods may therefore return a promise. Durable reads,
+ * writes and deletes are best effort: storage denial or an exhausted quota
+ * degrades this to the memory copy rather than blocking market data.
+ * `prune(maxAgeMs)` is how a persistent store sheds keys this session never
+ * touched. `CachedBars` is plain JSON so it round-trips through
+ * `JSON.stringify` unchanged, and it carries a {@link BAR_CACHE_VERSION}: a
+ * durable entry that does not validate is deleted and refetched rather than
+ * painted.
  *
  * **Opt-out.** `getBars({ ..., noCache: true })` always hits the network (and
  * refreshes the entry); `invalidate()` and `clear()` drop entries by hand.
@@ -69,9 +74,11 @@
  * **Look before you leap.** `peek()` reports what is stored without fetching,
  * for a host that wants to paint closed bars immediately and then ask for the
  * tail itself. A miss inside `getBars` is a fetch, so it cannot express that.
+ * `getCachedBars()` is the same look in the `DataFeed` shape the shared
+ * `DataLoadingController` asks for: bars, or nothing.
  */
 import type { Bar, UTCSeconds } from '../model/bar';
-import type { BarsRequest, DataFeed, MarketDepth, UnsubscribeFn } from './types';
+import type { BarsPage, BarsPageRequest, BarsRequest, DataFeed, MarketDepth, UnsubscribeFn } from './types';
 import { nextBucketStart, tryResolveInterval } from './intervals';
 
 export type MaybePromise<T> = T | Promise<T>;
@@ -88,8 +95,26 @@ export type MaybePromise<T> = T | Promise<T>;
  * cache served `[]` for both.
  */
 export interface CachedBars {
+  /**
+   * Persisted schema version. Missing means an entry from before versioning,
+   * which is read on its own merits: the validator decides, not the number.
+   */
+  version?: number;
   /** Closed bars only, ascending by time. */
   bars: Bar[];
+  /**
+   * The oldest instant this entry speaks for: `bars[0].time`, DERIVED from the
+   * bars rather than recorded from a request. It exists so a durable entry
+   * describes itself well enough to be validated on the way back in — a stored
+   * blob that claims bars outside its own coverage is corrupt — and it is never
+   * consulted to answer a request. Coverage is still the bars: recording a
+   * requested window instead let an entry assert coverage over a band it had no
+   * bars for, and a market closure and a range nobody ever fetched then looked
+   * identical from inside such a window.
+   */
+  from: UTCSeconds;
+  /** The newest instant this entry speaks for: one second before its last bar closes. */
+  to: UTCSeconds;
   /** Wall clock (ms) when the TAIL was last revalidated, for the TTL gate. */
   storedAt: number;
   /**
@@ -139,8 +164,10 @@ export interface CachedPeek extends Omit<CachedBars, 'bars'> {
 }
 
 /**
- * Pluggable backing store. Sync or async: everything is awaited. Implement it
- * over localStorage, IndexedDB, or anything else; the default is a Map.
+ * Pluggable durable store, on top of the bounded memory copy the cache always
+ * keeps. Sync or async: everything is awaited, and every operation is isolated
+ * from the network result, so a store that throws costs speed and nothing else.
+ * Implement it over localStorage, IndexedDB, or anything else.
  */
 export interface BarCacheStore {
   get(key: string): MaybePromise<CachedBars | undefined>;
@@ -167,7 +194,7 @@ export interface BarCacheOptions {
   max?: number;
   /** Maximum total cached bars before LRU eviction. Default 250_000. */
   maxBars?: number;
-  /** Backing store. Default: in-memory Map. */
+  /** Optional durable store. Bounded in-memory retention is always enabled. */
   storage?: BarCacheStore;
   /** Injectable clock (ms), for tests and for hosts with a server clock. */
   now?: () => number;
@@ -203,6 +230,14 @@ export interface BarCacheStats {
 const DEFAULT_TTL_MS = 5 * 60_000;
 const DEFAULT_MAX = 24;
 const DEFAULT_MAX_BARS = 250_000;
+
+/**
+ * Current persisted entry schema. Legacy entries without this field are read on
+ * their structure alone, so an entry a previous version wrote survives if it
+ * still describes itself correctly. An entry stamped with a version this build
+ * does not know is dropped rather than guessed at.
+ */
+export const BAR_CACHE_VERSION = 1;
 
 /**
  * Interval token to seconds. Case matters where it disambiguates: lowercase
@@ -289,12 +324,8 @@ function sliceBars(bars: Bar[], ask: BarsAsk): Bar[] {
   return out;
 }
 
-class MemoryStore implements BarCacheStore {
-  private readonly _m = new Map<string, CachedBars>();
-  public get(key: string): CachedBars | undefined { return this._m.get(key); }
-  public set(key: string, value: CachedBars): void { this._m.set(key, value); }
-  public delete(key: string): void { this._m.delete(key); }
-  public keys(): string[] { return [...this._m.keys()]; }
+function throwIfAborted(signal?: AbortSignal): void {
+  signal?.throwIfAborted();
 }
 
 /** Recency and size bookkeeping, kept in memory even when the store is not. */
@@ -311,7 +342,15 @@ export class BarCache implements DataFeed {
   /** The wrapped feed, for callers that need something this wrapper does not forward. */
   public readonly source: DataFeed;
 
-  private readonly _backing: BarCacheStore;
+  private readonly _backing: BarCacheStore | undefined;
+  /**
+   * The copy that is always there. A durable store is an addition to it, never
+   * a replacement: a denied read, an exhausted quota or a refused delete then
+   * costs speed rather than the session's history.
+   */
+  private readonly _memory = new Map<string, CachedBars>();
+  /** Keys whose durable value may still exist after a failed write or delete. */
+  private readonly _tombstones = new Set<string>();
   private readonly _ttlMs: number;
   private readonly _max: number;
   private readonly _maxBars: number;
@@ -320,6 +359,15 @@ export class BarCache implements DataFeed {
   private readonly _index = new Map<string, IndexEntry>();
   /** One write chain per key, so concurrent puts cannot lose each other. */
   private readonly _writes = new Map<string, Promise<void>>();
+  /**
+   * The signal of the put currently at the end of a key's chain. An ABORTED put
+   * has nothing worth waiting for — its bars are already disowned — so the next
+   * put for that key skips the queue instead of blocking behind a write that
+   * may still be in flight inside the store.
+   */
+  private readonly _queuedSignals = new Map<string, AbortSignal | undefined>();
+  /** The newest put to have claimed a key, so a slow loser can stand down. */
+  private readonly _latestWrite = new Map<string, symbol>();
   /** Bumped on every commit and every drop, so a stale read is detectable. */
   private readonly _gen = new Map<string, number>();
   private _tick = 0;
@@ -329,7 +377,7 @@ export class BarCache implements DataFeed {
 
   public constructor(feed: DataFeed, options: BarCacheOptions = {}) {
     this.source = feed;
-    this._backing = options.storage ?? new MemoryStore();
+    this._backing = options.storage;
     this._ttlMs = options.ttlMs ?? DEFAULT_TTL_MS;
     this._max = options.max ?? DEFAULT_MAX;
     this._maxBars = options.maxBars ?? DEFAULT_MAX_BARS;
@@ -352,21 +400,31 @@ export class BarCache implements DataFeed {
       this.subscribeDepth = (req, onDepth, ...rest): UnsubscribeFn =>
         (feed.subscribeDepth as (...a: unknown[]) => UnsubscribeFn)(req, onDepth, ...rest);
     }
+    // Pagination is forwarded, not cached: a page is a provider answer about a
+    // window this cache has no entry shape for, and advertising the capability
+    // the source does not have would make a host ask for pages nobody can serve.
+    if (typeof feed.getBarsPage === 'function') {
+      this.getBarsPage = (req): Promise<BarsPage> => feed.getBarsPage!(req);
+    }
   }
 
   // `...rest` is part of the signature so a caller holding the concrete
   // `BarCache` can still pass a wrapped feed's extra options through.
   public subscribeBars?: (req: BarsRequest, onBar: (bar: Bar) => void, ...rest: unknown[]) => UnsubscribeFn;
   public subscribeDepth?: (req: BarsRequest, onDepth: (depth: MarketDepth) => void, ...rest: unknown[]) => UnsubscribeFn;
+  public getBarsPage?: (req: BarsPageRequest) => Promise<BarsPage>;
 
   public async getBars(req: CachedBarsRequest): Promise<Bar[]> {
+    throwIfAborted(req.signal);
     // An open-ended request cannot be reasoned about: we would not know what the
     // entry covers. An interval whose bars have no knowable close cannot be
     // cached at all, because nothing tells us which of them are complete. Both
     // pass straight through, uncached in either direction.
     const ask = this._ask(req);
     if (ask === undefined) {
-      return this.source.getBars(req);
+      const passthrough = await this.source.getBars(req);
+      throwIfAborted(req.signal);
+      return passthrough;
     }
     const key = barCacheKey(req);
     // The entry the lookup reads is handed to the put below, so a miss costs ONE
@@ -375,7 +433,8 @@ export class BarCache implements DataFeed {
     // which is a real cost on the hot path rather than a rounding error.
     let hint: EntryHint | undefined;
     if (req.noCache !== true) {
-      const entry = await this._backing.get(key);
+      const entry = await this._readEntry(key, req.interval);
+      throwIfAborted(req.signal);
       hint = { entry, gen: this._gen.get(key) ?? 0 };
       const hit = entry === undefined ? undefined : this._serve(key, entry, req.interval, ask);
       if (hit !== undefined) {
@@ -389,9 +448,43 @@ export class BarCache implements DataFeed {
     // The request goes to the source EXACTLY as it arrived: the adaptation
     // below is this cache's own bookkeeping, and a feed that speaks ranges must
     // keep being asked in ranges.
+    throwIfAborted(req.signal);
     const bars = await this.source.getBars(req);
-    await this._put(key, ask, req.interval, bars, hint);
+    // A cancelled request must neither publish nor cache: the caller has moved
+    // on to another symbol or another window, and an answer to the question it
+    // stopped asking is exactly the wrong thing to put in the entry.
+    throwIfAborted(req.signal);
+    await this._put(key, ask, req.interval, bars, hint, req.signal);
+    throwIfAborted(req.signal);
     return bars;
+  }
+
+  /**
+   * The closed bars this cache already holds inside a window, or nothing —
+   * never a fetch. It is {@link BarCache.peek} in the shape `DataFeed` declares,
+   * so the shared `DataLoadingController` can paint closed history the instant
+   * it mounts and then refresh, and it answers the plain question that shape
+   * asks: bars, or nothing.
+   *
+   * Unlike a `getBars` hit this does not judge the answer's left edge or its
+   * tail. A caller that asks for a snapshot has already decided to refresh, so
+   * withholding immutable closed bars from it would buy a blank chart and
+   * nothing else. An entry past its TTL is served here for the same reason it
+   * is kept in the store: age is not evidence about a bar that has closed.
+   */
+  public async getCachedBars(req: BarsRequest): Promise<Bar[] | undefined> {
+    throwIfAborted(req.signal);
+    if (req.noCache === true || req.from === undefined || req.to === undefined) return undefined;
+    const key = barCacheKey(req);
+    const entry = await this._readEntry(key, req.interval);
+    throwIfAborted(req.signal);
+    if (entry === undefined) return undefined;
+    const snapshot = sliceBars(entry.bars, { endSec: req.to, count: entry.bars.length, from: req.from });
+    if (snapshot.length === 0) return undefined;
+    this._remember(key, entry);
+    await this._evict();
+    throwIfAborted(req.signal);
+    return snapshot;
   }
 
   /**
@@ -452,17 +545,25 @@ export class BarCache implements DataFeed {
    */
   public async peek(req: BarsRequest): Promise<CachedPeek | undefined> {
     const key = barCacheKey(req);
-    const entry = await this._backing.get(key);
+    const entry = await this._readEntry(key, req.interval);
     if (entry === undefined || entry.bars.length === 0) return undefined;
     // An entry about to be extended must not be the next LRU victim.
-    this._index.set(key, { lastUsed: ++this._tick, bars: entry.bars.length });
+    this._remember(key, entry);
     const bars = sliceBars(entry.bars, {
       endSec: req.endSec ?? req.to ?? entry.bars[entry.bars.length - 1].time,
       // A window is answered as a window: `count` narrows a peek that gave one.
       count: req.count ?? entry.bars.length,
       from: req.from,
     });
-    return { bars, storedAt: entry.storedAt, nextClose: entry.nextClose, short: entry.short === true };
+    return {
+      bars,
+      version: entry.version,
+      from: entry.from,
+      to: entry.to,
+      storedAt: entry.storedAt,
+      nextClose: entry.nextClose,
+      short: entry.short === true,
+    };
   }
 
   /**
@@ -480,7 +581,11 @@ export class BarCache implements DataFeed {
   }
 
   public async clear(): Promise<void> {
-    for (const k of [...this._index.keys()]) await this._drop(k);
+    // Everything this instance can name: what it has indexed, what it is holding
+    // in memory, and every key whose durable copy a failed write or delete may
+    // have left behind.
+    const keys = new Set([...this._index.keys(), ...this._memory.keys(), ...this._tombstones]);
+    for (const k of keys) await this._drop(k);
   }
 
   /**
@@ -501,11 +606,33 @@ export class BarCache implements DataFeed {
    * 0 rather than pretending.
    */
   public async prune(maxAgeMs: number): Promise<number> {
-    if (this._backing.keys === undefined) return 0;
     const cutoff = this._now() - maxAgeMs;
     let dropped = 0;
-    for (const key of await this._backing.keys()) {
-      const entry = await this._backing.get(key);
+    // With no durable store the memory copy IS the store, and it can always be
+    // listed; with one, its keys are exactly the ones the in-memory index does
+    // not have, which is the whole reason this method exists.
+    if (this._backing === undefined) {
+      for (const [key, entry] of [...this._memory]) {
+        if (entry.storedAt >= cutoff) continue;
+        await this._drop(key);
+        dropped++;
+      }
+      return dropped;
+    }
+    if (this._backing.keys === undefined) return 0;
+    let keys: string[];
+    try {
+      keys = await this._backing.keys();
+    } catch {
+      return 0;
+    }
+    for (const key of keys) {
+      let entry: CachedBars | undefined;
+      try {
+        entry = await this._backing.get(key);
+      } catch {
+        continue;
+      }
       if (entry === undefined || entry.storedAt >= cutoff) continue;
       await this._drop(key);
       dropped++;
@@ -584,16 +711,28 @@ export class BarCache implements DataFeed {
     interval: string,
     bars: Bar[],
     hint?: EntryHint,
+    signal?: AbortSignal,
   ): Promise<void> {
-    const queued = (this._writes.get(key) ?? Promise.resolve()).then(
-      () => this._commit(key, ask, interval, bars, hint),
+    // An aborted put is not worth queueing behind: its bars are already
+    // disowned, and the store call it may still be sitting inside would hold up
+    // an answer somebody is waiting for. The loser sorts the store out itself,
+    // in `_commit`, by rewriting whatever the winner left in memory.
+    const ahead = this._queuedSignals.get(key)?.aborted === true
+      ? Promise.resolve()
+      : this._writes.get(key) ?? Promise.resolve();
+    const queued = ahead.then(
+      () => this._commit(key, ask, interval, bars, hint, signal),
     );
+    this._queuedSignals.set(key, signal);
     // The chain is joined on a SETTLED promise: one failed write must not
     // poison every later put for the key. The caller still sees the rejection.
     const settled = queued.then(() => undefined, () => undefined);
     this._writes.set(key, settled);
     void settled.then(() => {
-      if (this._writes.get(key) === settled) this._writes.delete(key);
+      if (this._writes.get(key) === settled) {
+        this._writes.delete(key);
+        this._queuedSignals.delete(key);
+      }
     });
     return queued;
   }
@@ -604,6 +743,7 @@ export class BarCache implements DataFeed {
     interval: string,
     bars: Bar[],
     hint?: EntryHint,
+    signal?: AbortSignal,
   ): Promise<void> {
     const nowMs = this._now();
     const nowSec = Math.floor(nowMs / 1000);
@@ -627,19 +767,42 @@ export class BarCache implements DataFeed {
     // read. A put queued ahead of this one, or an eviction, makes it a stale
     // base to union against, and reading the store is then the cheap option
     // next to silently dropping bars.
-    const previous = hint !== undefined && hint.gen === gen ? hint.entry : await this._backing.get(key);
+    const previous = hint !== undefined && hint.gen === gen ? hint.entry : await this._readEntry(key, interval);
     // Measured on what the SOURCE answered, before the forming bar was dropped:
     // "the server ran out" is a statement about the server, and an answer one
     // bar short because its newest bar is still open is not one.
     const entry = this._mergeEntry(previous, fresh, bars.length < ask.count, ask, interval, nowMs);
     if (entry === undefined) return;
-    await this._backing.set(key, entry);
+    // An entry this build would refuse to read back is an entry not worth
+    // writing: the next session would delete it and refetch anyway, and the
+    // store would have carried it in the meantime for nothing.
+    if (!this._validEntry(entry, interval, nowMs)) return;
+    throwIfAborted(signal);
+    const write = Symbol(key);
+    this._latestWrite.set(key, write);
+    // Memory first: a durable write that fails, or one a newer put overtakes,
+    // must still leave this session holding the bars it just fetched.
+    this._remember(key, entry);
     // Read-modify-write, not `gen + 1`: an `invalidate()` or an eviction may have
     // bumped the generation during the awaits above, and rewinding it would make
     // a hint taken before that drop look current again.
     this._gen.set(key, (this._gen.get(key) ?? 0) + 1);
-    this._index.set(key, { lastUsed: ++this._tick, bars: entry.bars.length });
+    await this._writeBacking(key, entry);
+    // A newer put claimed the key while this one was inside the store, so the
+    // store now holds the loser. Put the winner back rather than leaving the
+    // durable copy behind what memory already knows.
+    if (this._latestWrite.get(key) !== write) {
+      await this._restoreLatestBacking(key);
+      throwIfAborted(signal);
+      return;
+    }
+    if (signal?.aborted === true) {
+      await this._drop(key);
+      this._latestWrite.delete(key);
+      throwIfAborted(signal);
+    }
     await this._evict();
+    if (this._latestWrite.get(key) === write) this._latestWrite.delete(key);
   }
 
   /**
@@ -761,7 +924,13 @@ export class BarCache implements DataFeed {
     }
     if (trimmed) short = false;
     return {
+      version: BAR_CACHE_VERSION,
       bars,
+      // Derived, always: the entry describes the bars it holds, so a validator
+      // reading it back can tell a truncated or corrupted blob from a real one
+      // without being told what anybody once asked for.
+      from: bars[0].time,
+      to: (lastClose - 1) as UTCSeconds,
       short,
       shortAt,
       // `storedAt` answers "when was the TAIL last revalidated". An answer that
@@ -774,11 +943,12 @@ export class BarCache implements DataFeed {
   }
 
   private async _drop(key: string): Promise<void> {
+    this._memory.delete(key);
     this._index.delete(key);
     // A hint taken before this drop must not be unioned against afterwards: it
     // would resurrect an entry the cache has just decided to forget.
     this._gen.set(key, (this._gen.get(key) ?? 0) + 1);
-    await this._backing.delete(key);
+    await this._deleteBacking(key);
   }
 
   private async _evict(): Promise<void> {
@@ -795,6 +965,136 @@ export class BarCache implements DataFeed {
       this._evictions++;
       await this._drop(victim);
     }
+  }
+
+  /** Take the entry into memory and into this session's bounds, as one act. */
+  private _remember(key: string, entry: CachedBars): void {
+    const copy = this._cloneEntry(entry);
+    this._memory.set(key, copy);
+    this._index.set(key, { lastUsed: ++this._tick, bars: copy.bars.length });
+  }
+
+  /**
+   * The entry for a key, from the durable store when it has something newer to
+   * say and from memory otherwise.
+   *
+   * A durable read is best effort in both directions: a store that throws is
+   * treated as a store that holds nothing, and a stored value that does not
+   * describe itself correctly is deleted rather than painted — a half-written
+   * IndexedDB record, an entry from a schema this build does not know, or one
+   * whose newest bar has not closed yet all reach a chart as bars nobody can
+   * source.
+   *
+   * Validation is skipped when memory already holds something at least as
+   * recent, because that entry was validated on the way out and re-walking
+   * every bar of it on every hit is the one cost this cache exists to avoid.
+   */
+  private async _readEntry(key: string, interval: string): Promise<CachedBars | undefined> {
+    const memory = this._memory.get(key);
+    if (this._backing === undefined || this._tombstones.has(key)) return memory;
+    let stored: unknown;
+    try {
+      stored = await this._backing.get(key);
+    } catch {
+      return memory;
+    }
+    if (stored === undefined) return memory;
+    const storedAt = (stored as Partial<CachedBars>).storedAt;
+    if (memory !== undefined && typeof storedAt === 'number' && memory.storedAt >= storedAt) return memory;
+    if (!this._validEntry(stored, interval, this._now())) {
+      await this._deleteBacking(key);
+      return memory;
+    }
+    return this._cloneEntry(stored);
+  }
+
+  /**
+   * Whether a value is an entry this cache would stand behind: the right schema
+   * version, coverage that matches the bars it holds, bars that are bars and
+   * ascend, and a tail that has genuinely closed by now. Everything here is a
+   * statement the entry makes about ITSELF, so it can be checked without
+   * knowing what anybody asked for.
+   */
+  private _validEntry(value: unknown, interval: string, nowMs: number): value is CachedBars {
+    if (typeof value !== 'object' || value === null) return false;
+    const candidate = value as Partial<CachedBars>;
+    if (candidate.version !== undefined && candidate.version !== BAR_CACHE_VERSION) return false;
+    if (!Number.isInteger(candidate.from) || !Number.isInteger(candidate.to)) return false;
+    if (!Number.isFinite(candidate.storedAt) || candidate.storedAt! < 0 || candidate.storedAt! > nowMs) return false;
+    if (!Number.isInteger(candidate.nextClose)) return false;
+    if (candidate.from! > candidate.to! || candidate.nextClose! <= candidate.to!) return false;
+    if (!Array.isArray(candidate.bars) || candidate.bars.length === 0) return false;
+    if (candidate.bars.length > this._maxBars || this._max < 1) return false;
+    const nowSec = Math.floor(nowMs / 1000);
+    let previous = -Infinity;
+    let lastClose: number | null = null;
+    for (const bar of candidate.bars) {
+      if (!this._validBar(bar) || bar.time <= previous) return false;
+      if (bar.time < candidate.from! || bar.time > candidate.to!) return false;
+      lastClose = this._barCloses(interval, bar.time);
+      // A bar that has not closed is the one thing this cache must never serve:
+      // it keeps moving, and a chart painting it has no way to know.
+      if (lastClose === null || lastClose > nowSec) return false;
+      previous = bar.time;
+    }
+    const expectedNextClose = this._barCloses(interval, lastClose as UTCSeconds) ?? lastClose;
+    return candidate.nextClose === expectedNextClose;
+  }
+
+  private _validBar(value: unknown): value is Bar {
+    if (typeof value !== 'object' || value === null) return false;
+    const bar = value as Partial<Bar>;
+    if (!Number.isInteger(bar.time)) return false;
+    if (![bar.open, bar.high, bar.low, bar.close].every(Number.isFinite)) return false;
+    if (bar.volume !== undefined && !Number.isFinite(bar.volume)) return false;
+    return bar.color === undefined || typeof bar.color === 'string';
+  }
+
+  /** Bars are mutated in place by live builders, so nothing shares an array. */
+  private _cloneEntry(entry: CachedBars): CachedBars {
+    const copy: CachedBars = {
+      bars: cloneBars(entry.bars),
+      from: entry.from,
+      to: entry.to,
+      storedAt: entry.storedAt,
+      nextClose: entry.nextClose,
+    };
+    if (entry.version !== undefined) copy.version = entry.version;
+    // `short` and `shortAt` are the entry's belief about its own left edge, and
+    // a copy that dropped them would start a chart paging into a closed weekend
+    // again on the next reload.
+    if (entry.short !== undefined) copy.short = entry.short;
+    if (entry.shortAt !== undefined) copy.shortAt = entry.shortAt;
+    return copy;
+  }
+
+  private async _writeBacking(key: string, entry: CachedBars): Promise<void> {
+    if (this._backing === undefined) return;
+    try {
+      await this._backing.set(key, this._cloneEntry(entry));
+      this._tombstones.delete(key);
+    } catch {
+      // The durable copy is now unknown: it may hold a previous entry, or half
+      // of this one. Reading it again would be reading a guess, so this session
+      // answers from memory for this key until a write succeeds.
+      this._tombstones.add(key);
+    }
+  }
+
+  private async _deleteBacking(key: string): Promise<void> {
+    if (this._backing === undefined) return;
+    try {
+      await this._backing.delete(key);
+      this._tombstones.delete(key);
+    } catch {
+      this._tombstones.add(key);
+    }
+  }
+
+  private async _restoreLatestBacking(key: string): Promise<void> {
+    const latest = this._memory.get(key);
+    if (latest === undefined) await this._deleteBacking(key);
+    else await this._writeBacking(key, latest);
   }
 }
 

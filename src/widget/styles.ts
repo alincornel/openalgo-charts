@@ -121,7 +121,7 @@ export const WIDGET_CSS = `
 .oac-widget .oac-sep { width: 1px; height: 20px; background: ${v('bd-soft')}; margin: 0 2px; flex: none; }
 
 /* Top bar */
-.oac-widget .oac-topbar { display: flex; align-items: center; gap: 4px; min-height: ${v('topbar-h')};
+.oac-widget .oac-topbar { grid-row: 1; display: flex; align-items: center; gap: 4px; min-height: ${v('topbar-h')};
   padding: 5px 8px; background: ${v('panel')}; border-bottom: 1px solid ${v('bd-soft')}; flex-wrap: wrap; }
 .oac-widget .oac-topbar__spacer { flex: 1 1 auto; }
 .oac-widget .oac-sym { position: relative; display: inline-flex; align-items: center; }
@@ -158,10 +158,20 @@ export const WIDGET_CSS = `
 .oac-widget .oac-menu__empty { padding: 8px 10px; color: ${v('faint')}; }
 
 /* Stage: the rail on the left, the chart filling the rest. */
-.oac-widget .oac-stage { position: relative; min-height: 0; min-width: 0; display: flex; }
+.oac-widget .oac-stage { grid-row: 2; position: relative; min-height: 0; min-width: 0; display: flex; }
 .oac-widget .oac-chart { position: relative; flex: 1 1 auto; min-width: 0; min-height: 0;
   cursor: var(--oac-tool-cursor, crosshair); }
 .oac-widget .oac-chart:focus-visible { outline-offset: -2px; }
+
+/* Data state stays compact inside a chart, including narrow embedded widgets. */
+.oac-widget .oac-data-status { position: absolute; top: 8px; right: 8px; z-index: 30;
+  max-width: calc(100% - 16px); width: max-content; max-height: 45%; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 4px; pointer-events: none; font-size: 12px; }
+.oac-widget .oac-data-status__row { display: flex; align-items: center; gap: 8px;
+  max-width: 320px; padding: 4px 6px 4px 10px; background: ${v('panel')}; color: ${v('tx')};
+  border: 1px solid ${v('bd')}; border-radius: 6px; pointer-events: auto; }
+.oac-widget .oac-data-status__text { min-width: 0; overflow-wrap: anywhere; }
+.oac-widget .oac-data-status__row > button { flex: none; color: ${v('acc-2')}; }
 
 /* Rail */
 .oac-widget .oac-rail { flex: none; width: ${v('rail-w')}; display: flex; flex-direction: column; align-items: center;
@@ -226,7 +236,7 @@ export const WIDGET_CSS = `
 .oac-widget .oac-tip__sub { display: block; margin-top: 2px; color: ${v('faint')}; font-size: 11px; }
 
 /* Status line */
-.oac-widget .oac-statusline { display: flex; align-items: center; gap: 12px; height: ${v('status-h')}; padding: 0 10px;
+.oac-widget .oac-statusline { grid-row: 3; display: flex; align-items: center; gap: 12px; height: ${v('status-h')}; padding: 0 10px;
   background: ${v('panel')}; border-top: 1px solid ${v('bd-soft')}; color: ${v('mut')}; font-size: 11.5px;
   font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; }
 .oac-widget .oac-statusline__sym { color: ${v('tx-strong')}; font-weight: 600; letter-spacing: .3px; }
@@ -257,17 +267,17 @@ export const WIDGET_CSS = `
 @keyframes oac-toast-in { from { opacity: 0; transform: translateY(6px); } }
 
 /* Overlay layer: popovers anchored to a control, dialogs centred over a scrim. */
-.oac-widget .oac-layer { position: absolute; inset: 0; z-index: 60; pointer-events: none; }
+.oac-widget .oac-layer { container: oac-widget / inline-size; position: absolute; inset: 0; z-index: 60; pointer-events: none; }
 .oac-widget .oac-layer > * { pointer-events: auto; }
 .oac-widget .oac-scrim { position: absolute; inset: 0; background: ${v('scrim')}; }
 .oac-widget .oac-pop { position: absolute; left: 0; top: 0; }
 .oac-widget .oac-dialog { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-  min-width: 300px; max-width: calc(100% - 24px); max-height: calc(100% - 24px); display: flex; flex-direction: column;
+  min-width: 0; max-width: calc(100% - 24px); max-height: calc(100% - 24px); display: flex; flex-direction: column;
   background: ${v('panel')}; border: 1px solid ${v('bd')}; border-radius: 12px; box-shadow: ${v('shadow')}; outline: none; }
-.oac-widget .oac-dialog__head { display: flex; align-items: center; gap: 8px; padding: 12px 14px 8px; }
-.oac-widget .oac-dialog__title { flex: 1 1 auto; font-size: 14px; font-weight: 700; color: ${v('tx-strong')}; }
-.oac-widget .oac-dialog__body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 4px 14px 10px; }
-.oac-widget .oac-dialog__foot { display: flex; align-items: center; gap: 8px; padding: 10px 14px 12px;
+.oac-widget .oac-dialog__head { flex: none; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 12px 14px 8px; }
+.oac-widget .oac-dialog__title { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; font-size: 14px; font-weight: 700; color: ${v('tx-strong')}; }
+.oac-widget .oac-dialog__body { flex: 1 1 auto; min-height: 0; min-width: 0; overflow: auto; overscroll-behavior: contain; padding: 4px 14px 10px; }
+.oac-widget .oac-dialog__foot { flex: none; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 14px 12px;
   border-top: 1px solid ${v('bd-soft')}; }
 .oac-widget .oac-dialog__foot > .oac-spacer { flex: 1 1 auto; }
 
@@ -281,8 +291,10 @@ export const WIDGET_CSS = `
 .oac-widget .oac-keys__row.is-shadowed > span, .oac-widget .oac-keys__row.is-shadowed > kbd { color: ${v('faint')}; text-decoration: line-through; }
 .oac-widget .oac-keys__note { color: ${v('faint')}; font-size: 11px; padding: 4px 0 0; }
 
-@media (max-width: 720px) {
+@container oac-widget (max-width: 720px) {
   .oac-widget .oac-keys { columns: 1; min-width: 0; }
+}
+@media (max-width: 720px) {
   .oac-widget .oac-sym > input { width: 104px; }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -294,16 +306,21 @@ export const WIDGET_CSS = `
 
 /**
  * Put the stylesheet into `doc` once. Safe to call per widget: the second
- * call finds the first sheet by id and does nothing. `extra` is appended to
- * the shell's rules on the first call; the dialog modules hand theirs in
- * here, so the page still carries one sheet.
+ * call leaves a populated sheet untouched. An empty server-rendered sheet
+ * is filled in place, preserving its nonce. `extra` is appended to the
+ * shell's rules when filling the sheet; the dialog modules hand theirs in
+ * here, so the page still carries one sheet. `nonce` authorizes the style
+ * element under CSP; the host controls its style-attribute policy separately.
  */
-export function injectWidgetStyles(doc: Document, extra = ''): HTMLStyleElement {
-  const existing = doc.getElementById(WIDGET_STYLE_ID);
-  if (existing !== null) return existing as HTMLStyleElement;
-  const style = doc.createElement('style');
+export function injectWidgetStyles(doc: Document, extra = '', nonce?: string): HTMLStyleElement {
+  const existing = doc.getElementById(WIDGET_STYLE_ID) as HTMLStyleElement | null;
+  if (existing?.textContent?.trim()) return existing;
+  const style = existing ?? doc.createElement('style');
   style.id = WIDGET_STYLE_ID;
+  // CSP checks connected sheets when their text changes. Read the IDL
+  // property because browsers hide a connected element's nonce attribute.
+  if (!style.nonce && nonce !== undefined) style.nonce = nonce;
   style.textContent = WIDGET_CSS + extra;
-  (doc.head ?? doc.body ?? doc.documentElement).appendChild(style);
+  if (existing === null) (doc.head ?? doc.body ?? doc.documentElement).appendChild(style);
   return style;
 }

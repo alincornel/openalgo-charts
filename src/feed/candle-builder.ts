@@ -58,6 +58,7 @@ export class CandleBuilder {
   /** Seed with the last historical bar so the first live tick continues it. */
   public seed(lastBar: Bar, cumDayVolumeSoFar?: number): void {
     this._current = { ...lastBar };
+    this._hasCum = false;
     if (cumDayVolumeSoFar !== undefined) {
       this._lastCum = cumDayVolumeSoFar;
       this._cumAtBarStart = cumDayVolumeSoFar - (lastBar.volume ?? 0);
@@ -139,6 +140,12 @@ export class CandleBuilder {
   private _volumeForSameBar(bar: Bar, tick: Tick): number {
     if (this._opts.volumeMode === 'ltq-sum') return (bar.volume ?? 0) + (tick.ltq ?? 0);
     const cum = tick.cumDayVolume ?? 0;
+    if (!this._hasCum) {
+      // History carries this bar's volume, not the day's cumulative baseline.
+      // The first quote establishes that baseline without inventing old trades.
+      this._cumAtBarStart = cum - (bar.volume ?? 0);
+      this._hasCum = true;
+    }
     this._lastCum = cum;
     return Math.max(0, cum - this._cumAtBarStart);
   }

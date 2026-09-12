@@ -10,12 +10,12 @@ Everything is built on Pointer Events, so mouse, touch and pen share one code pa
 
 | Gesture | Effect | Detail |
 |---|---|---|
-| Drag the plot | pan time and price together | horizontal sets `timeScale.rightOffset`; vertical calls `priceScale.panByPixels` on the pressed pane and switches it to manual scaling |
-| Wheel | zoom the time axis | factor `1.1` / `1/1.1`, anchored at the cursor x. Always calls `preventDefault()` |
+| Drag the plot | mouse, pen and touch pan time and price by default | `navigation.mousePan: 'horizontal'` limits mouse and pen to time; panning price switches the pressed pane to manual scaling, while horizontal-only panning preserves autoscale |
+| Wheel | zoom the time axis | factor `1.1` / `1/1.1`, eased by default; `animZoom: false` applies instantly. `zoomAnchor` selects cursor x or right edge. Always calls `preventDefault()` |
 | Drag the price axis (right strip) | rescale price | `exp(dy * 0.005)` about the range centre, then `setAutoScale(false)` |
-| Drag the time axis (bottom strip of the last pane) | rescale bar spacing | `barSpacing * exp(dx * 0.005)` |
+| Drag the time axis (bottom strip of the last pane) | left expands bar spacing; right compresses it | `barSpacing * exp(-dx * 0.005)`, preserving the logical right edge |
 | Drag a pane divider | redistribute height between the two adjacent panes | grab tolerance 4 px, cursor `row-resize`, summed weight preserved, neither side below `min(24, total/4)` px; emits `paneResized` on release |
-| Double-click | `doubleClick` option: `'reset'` (default) is `resetScale()`, fit content plus autoscale on every pane; `'maximize'` toggles `maximizePane` for the pane under the pointer; `'none'` only emits | suppressed while placement mode is on, or when a `dblclick` listener set `handled` on the event; the event carries `paneIndex`, `x`, `y` |
+| Double-click | `doubleClick` option: `'reset'` (default) is `resetScale()`, the configured default view plus autoscale on every pane; `'maximize'` toggles `maximizePane` for the pane under the pointer; `'none'` only emits | suppressed while placement mode is on, or when a `dblclick` listener set `handled` on the event; the event carries `paneIndex`, `x`, `y` |
 | Press on a draggable primitive | drags the line instead of panning | arms when `hit.draggable` is true, or `hit.cursor === 'ns-resize'` and `subscribeDrag` is registered |
 | Flick and release | kinetic scroll | see below |
 | Two pointers | pinch | see below |
@@ -30,6 +30,33 @@ A press-and-release with under 3 px of movement is a click: `subscribeClick` fir
 Kinetic scrolling: a release faster than `triggerSpeed` decelerates as `velocity(t) = v0 · e^(−k·t)`. `DEFAULT_KINETIC_OPTIONS` is `friction: 0.0055` (1/ms, larger stops sooner), `minSpeed: 0.02` px/ms (animation ends), `triggerSpeed: 0.08` px/ms (slower flicks ignored). `KineticAnimation` uses no `Date` or `rAF` internally, so it is deterministic; the next `pointerdown` cancels it.
 
 Pinch: a second pointer aborts any single-pointer drag. Each frame compares two `pinchState` snapshots (`factor` (distance ratio) zooms time at the midpoint, `dx` pans time, `dy` pans the pinched pane's price scale) all in the same frame, so spreading while sliding zooms and pans at once.
+
+## Navigation options
+
+```ts
+createChart(el, { navigation: { mousePan: 'both', defaultVisibleBars: 120 } });
+chart.setNavigationOptions({ mousePan: 'horizontal' }); // optional time-only panning
+chart.navigationOptions();  // Readonly<ChartNavigationOptions>
+```
+
+`ChartNavigationOptions` is exported from the base entry. `mousePan` defaults to
+`'both'` and applies to mouse and pen plot drags; touch retains two-axis panning.
+Horizontal panning leaves autoscale enabled when it was enabled, so price can still
+follow the newly visible bars.
+
+`defaultVisibleBars` defaults to `0`, fitting all loaded bars. A positive count targets
+the newest N loaded bars plus four empty bar slots on the right, within available-data
+and bar-spacing limits. Initial data and `resetScale()` use this default, and changing
+the count applies the default view immediately. `fitContent()` continues to fit all
+loaded bars. The count changes no feed request and discards no history; an explicit host
+viewport applied after loading data wins. The widget's ordinary load views honour the
+configured count.
+
+Both fields appear in the settings schema's Axes / Navigation group as
+`navigation.mousePan` and `navigation.defaultVisibleBars`. `readChartSettings` /
+`applyChartSettings` and `getState` / `restoreState` persist them. Upgrading preserves
+explicit saved horizontal preferences. Select **Axes > Mouse drag > Time and price**
+or set `mousePan: 'both'` to change that preference; do not reset unrelated user settings.
 
 ## Crosshair
 
@@ -123,7 +150,7 @@ chart.shortcuts?.on((e) => track(e.command)); // { command, combo, isCustom }; r
 
 **Reserved combos passed through `overrides` are dropped silently.** Only `setBinding` reports failure, by returning `false`.
 
-**Disabling shortcuts does not disable the TimeNavigator buttons.** They call `_runShortcut` directly; with `shortcuts: false` they still zoom and step, they just lose their keyboard-hint tooltips.
+**Disabling shortcuts does not disable the TimeNavigator buttons.** They call `_runShortcut` directly; with `shortcuts: false` they still zoom, reset and step, they just lose their keyboard-hint tooltips.
 
 ## Touch and mobile
 
@@ -172,13 +199,17 @@ createChart(el, { timeNavigator: { size: 30, revealHeight: 90, fadeSeconds: 0.2,
 
 | Option | Default |
 |---|---|
-| `buttons` | `['zoomOut', 'zoomIn', null, 'panLeftBar', 'panRightBar']` (`null` inserts a group gap) |
+| `buttons` | `['zoomOut', 'zoomIn', null, 'resetScale', null, 'panLeftBar', 'panRightBar']` (`null` inserts a group gap) |
 | `size` / `gap` / `groupGap` | `26` / `4` / `16` |
 | `bottomMargin` / `revealHeight` | `10` / `64` |
 | `fadeSeconds` | `0.12` (`0` disables the fade) |
 | `showTooltip` / `id` | `true` / `'timenav'` |
 
 Buttons run the same command ids the keyboard does, through `_runShortcut`, so the two paths cannot drift. Tooltip hints are read from the live keymap at construction, so a rebind of `zoomIn` shows in the tooltip; the one-bar step buttons have no default binding and therefore no hint.
+
+`TimeNavigatorAction` includes `'resetScale'`. The centre button's default tooltip is
+**Reset view**, with the `Home` keyboard hint. It restores `navigation.defaultVisibleBars`
+and autoscale, through the same `resetScale()` action as the keyboard.
 
 Reveal is driven by an explicit `setPointer(plotLocalPoint | null)` from the chart, not by hover ids, a drawing or order line near the bottom edge would otherwise win the hit test and hide the strip. While hidden the buttons hit-test to nothing, so they never steal a click.
 

@@ -4,8 +4,8 @@ All notable changes to OpenAlgo Charts.
 
 ## Unreleased
 
-Upstream 2.0.2 and 2.1.0 merged into the fork, and a footprint that reads as a
-ladder instead of a hairline mesh.
+Upstream 2.0.2 through 2.1.7 merged into the fork, and a footprint that reads
+as a ladder instead of a hairline mesh.
 
 ### Merged
 
@@ -53,6 +53,45 @@ ladder instead of a hairline mesh.
   profile tier that does not carry our footprint work) and everything
   186.12 -> 187.41 kB (limit 187.9). Every other row moved by the 0.02 kB of a
   version string or not at all.
+
+- **Upstream 2.1.1 through 2.1.7** merged on top (12 commits, 186 files):
+  the footprint rewrite (`cellStyle`, OHLC/`tradeCount`/`rowSize` metadata,
+  `statsPosition: 'bar'`, `pocStyle`, `showValueArea`, `textColorMode`,
+  `tableRows`, `minDelta`/`maxDelta`, `volumeDivisor`, `cvdOffset`), the shared
+  `DataLoadingController` and `HistoryRequestPool`, versioned bar-cache entries
+  with a bounded-memory fallback, `ChartOptions.navigation` with the Reset view
+  control, drawings clipped to the plot, and the headless `ChartObjects`
+  inventory with its Objects panel. What had to be re-applied:
+
+  - **The bar cache keeps the fork's model and gains upstream's durability.**
+    Coverage is still the bars, the TTL still gates only the tail, `peek()`,
+    `prune()`, `short`-with-an-age, the serialised per-key put and the
+    count-and-end request shape are all unchanged, and `getCachedBars`,
+    `getBarsPage` forwarding, `signal` cancellation, entry validation and the
+    always-present memory copy are added around them. `CachedBars` regains
+    `from`/`to` — DERIVED from the bars rather than recorded from a request —
+    so a durable entry can be validated on the way back in; see below.
+  - **The footprint is upstream's renderer with the fork's ladder on it.**
+    `zeroFill`, `cells: 'deltaVolume'` with `deltaCell`, `colorBy: 'delta'`,
+    `candle: 'off' | 'behind' | 'gutter'`, `pocOutline`/`pocOutlineWidth`,
+    `showVolumeBar`, `cellBaseColor` with `tintFloor`/`tintGain`/`tintCurve`,
+    `cellTextColor`/`cellTextColorHot`, `layout()` and `onLayout` all survive,
+    re-implemented on upstream's column geometry, hover-on-drawn-bounds and
+    plot clipping. The cell ink is upstream's: `textColorMode` picks it and
+    `readableTextColor` corrects it against the plate, in place of the fork's
+    hardcoded white/near-black pair; a pinned `cellTextColor` is still used
+    exactly as given, and a zero-filled row is still dimmed.
+  - **The time-axis drag takes upstream's direction.** 2.1.3 reversed it —
+    dragging left widens the bars — and the fork's `_emitViewportIfMoved` stays
+    on top of it, so a drag that changes nothing (spacing clamped at its limit,
+    or a press that has not moved) is still silent.
+
+- Budgets re-measured on the merged tree: base engine 68.90 -> 75.80 kB (limit
+  69.3 -> 76.2), base + trade 76.59 -> 83.49 (77 -> 83.9), profile tier
+  13.12 -> 16.39 (13.2 -> 16.8), widget terminal 157.54 -> 168.46 (158 ->
+  168.9), everything 187.41 -> 201.57 (187.9 -> 202). Chart-only shake
+  45.53 -> 46.56 kB (45.7 -> 46.9). The indicator, draw, transform, WebGL2 and
+  widget tiers did not move past their existing budgets.
 
 ### Fixed
 
@@ -196,12 +235,17 @@ ladder instead of a hairline mesh.
   wide enough to page back over that weekend — the left edge is a silent dead
   end. A count has nothing to be wrong about.
 
-- **BREAKING (persisted shape): `CachedBars` is `{ bars, storedAt, nextClose,
-  short? }`.** `from` and `to` are gone: coverage IS the bars, so nothing can
-  claim a band it was never told about and then serve `[]` for it from disk.
-  `CachedPeek` drops them with it. Entries written by 1.9.2 still read (they
-  are simply "not known to be short"), but a host persisting to localStorage or
-  IndexedDB under a namespace should bump it and let the old keys be swept.
+- **BREAKING (persisted shape): `CachedBars` is `{ version, bars, from, to,
+  storedAt, nextClose, short? }`.** Coverage is the BARS, not a recorded
+  request: nothing can claim a band it was never told about and then serve `[]`
+  for it from disk. `from` and `to` are written all the same, derived from the
+  bars themselves (`bars[0].time`, and one second before the last bar closes),
+  because a durable entry has to describe itself well enough to be validated on
+  the way back in — upstream 2.1.6 deletes and refetches anything that does not.
+  `CachedPeek` carries them. An entry written by an earlier build of this fork
+  has neither, so it fails that validation and is dropped and refetched once;
+  an upstream `version: 1` entry reads fine, since the fork consults only the
+  bars, `storedAt`, `nextClose` and `short`.
 
 - **`short`, the only evidence that history has ended.** Set when the fetch that
   established an entry's left edge asked for more bars than it got back, and
@@ -230,6 +274,362 @@ ladder instead of a hairline mesh.
 
 - Base engine budget 62 -> 63 kB, for the bar-indexed gates and the request
   adapter: 0.23 kB brotli measured against a 61.94 kB baseline.
+## 2.1.7
+
+2026-09-11
+
+### Added
+
+- Headless `ChartObjects` inventory for the primary source, indicator instances,
+  drawings and explicitly registered profiles. Immutable snapshots and supported
+  actions are shared by the packaged widget and custom broker terminals.
+- Searchable Objects panel, `widget.objects`, `widget.openObjects()` and reusable
+  `mountObjectsPanel`. Drawings support selection, visibility, locking, settings,
+  focus and removal through the existing controller and undo history. The primary
+  price source is protected from removal.
+- Interactive Objects website example with a compact host, profile capabilities
+  and layout save/restore, plus public API and agent-skill guidance.
+
+### Fixed
+
+- Dialogs fit the actual chart container, including 350px panes on wide pages and
+  short chart hosts. Tabs adapt their orientation, fields avoid horizontal overflow,
+  and action footers remain reachable while content scrolls.
+- Hidden indicators stay hidden after JSON layout restoration and plot-type edits.
+  Reference levels follow indicator visibility, alongside plots and other visuals.
+- Direct indicator-handle removal releases its inventory entry and empty pane.
+  A throwing external cleanup cannot prevent owned chart resources being removed.
+- Inventory observers remain synchronized through drawing undo, primary-source
+  replacement, provider subscription failures and reentrant notifications.
+- Drawing focus supports anchors beyond the loaded bars and a primary price axis
+  moved to the left, without changing drawing coordinates.
+
+### Integration and documentation
+
+- The companion OpenAlgo integration provides a focused-pane Objects panel with
+  existing settings editors, generation-scoped ownership and persisted indicator
+  visibility. Profile actions reflect the operations the host actually supports.
+- Eight tiers and zero runtime dependencies are retained. Intentional object-model
+  and panel code raises the base, base-plus-trade, widget, widget-terminal and total
+  budgets to 74, 82, 40, 168 and 200 KB Brotli. The chart-only tree-shaking ceiling
+  remains 45 kB.
+
+Validation: **4,337 unit tests** across 193 files and **219 demo tests** pass,
+alongside lint, TypeScript, build, declaration and tree-shaking checks. All **846**
+skill coverage entries are present. All **106 browser tests** and nine additional
+compact-dialog combinations pass across Chromium, Firefox and WebKit. TypeDoc has
+no warnings; the 55-route website build and Objects, loading, navigation, depth and
+profile browser checks pass. Measured Brotli: **73.31 KB** base,
+**38.72 KB** widget, **165.97 KB** widget terminal and **197.58 KB** all tiers.
+
+## 2.1.6
+
+2026-09-11
+
+### Added
+
+- Shared headless `DataLoadingController` for history, live bars, refresh, older
+  pages, display suspension and typed loading state. Widgets use it automatically;
+  custom broker terminals can bind the same controller to their own UI.
+- `HistoryRequestPool` coalesces identical requests per feed, limits concurrency
+  and provides independent consumer cancellation, priority and deadlines. The
+  OpenAlgo REST adapter bounds fetch and JSON body decoding.
+- Optional `DataFeed.getBarsPage` and `getCachedBars` capabilities preserve existing
+  feed implementations. Pagination distinguishes empty windows, provider exhaustion
+  and local retention limits; cache snapshots paint closed history before refresh.
+- Explicit chart data context and external-study lifecycle status, automatic
+  context/range refresh, cancellation, unsupported data and retry. The widget shows
+  accessible chart, history and study status with compact Retry controls.
+
+### Fixed
+
+- Durable cache failures and invalid entries fall back to bounded memory without
+  preventing usable history. New entries are versioned; forming bars remain excluded.
+- Context switches, recovery retries and teardown reject obsolete results. Replay
+  can hold its displayed prefix while the controller maintains current live data.
+- Same-context widget reloads and older pages preserve the visible time anchor.
+  Hidden topbar/statusline combinations retain a usable chart and Retry control.
+- OpenAlgo depth frames retain their exchange event timestamp. Book quantities
+  remain distinct from traded volume.
+- Saved drawings, previews and handles are clipped to the pane plot, preventing
+  price-axis spill while retaining drawings beyond the latest candle. Drawing
+  rendering and hit testing also follow a primary price axis moved to the left.
+
+### Integration and documentation
+
+- Interactive failure, retry, empty-history and paging simulation in the website;
+  updated feed, cache, widget, indicator and host guidance and skill references.
+- Permanent release process in `CLAUDE.md` covers regression evidence, browser
+  validation, OpenAlgo compatibility, docs, publication and downloaded-artifact checks.
+- Base bundle budgets account for the shared controller and resilient cache. The
+  package retains eight tiers and zero runtime dependencies.
+
+Validation: **4,303 unit tests** across 190 files, **219 demo tests** and
+**82 browser checks** pass. Browser coverage includes Chromium, Firefox and WebKit,
+failed refresh/retry, replay isolation, saved/future drawings and axis clipping.
+TypeDoc reports no warnings; all 843 skill coverage entries are present. The
+OpenAlgo consumer passes 1,892 frontend tests and 13 browser workflows.
+Measured Brotli: **71.57 KB** base, **25.90 KB** draw, **36.83 KB** widget,
+**162.35 KB** widget terminal and **193.96 KB** all tiers. The chart-only
+import remains within its existing 45 kB tree-shaking budget.
+
+## 2.1.5
+
+2026-09-11
+
+### Fixed
+
+- Drawing previews stay visible when an endpoint moves beyond the latest candle
+  or before the first loaded bar. Trend lines, rectangles and other drawing tools
+  use the existing pixel-to-time conversion in empty chart space.
+- Freehand tools can start and continue in empty time-axis space instead of
+  silently discarding those samples.
+- Crosshair candle time and OHLC remain null where there is no bar. Magnet
+  snapping still requires an actual hovered candle; drawing state and feed APIs
+  retain their existing formats.
+
+Validation: **4,215 unit tests** across 182 files, **219 demo tests** and **47 browser
+checks**, including future-space preview, commit, handle dragging, save/restore,
+new-bar updates and freehand rendering. The complete verification gate passes.
+Measured Brotli: **67.08 KB** base, **25.84 KB** draw, **156.29 KB** widget terminal
+and **187.90 KB** all tiers. Existing budgets are unchanged.
+
+## 2.1.4
+
+2026-09-11
+
+### Fixed
+
+- Restore time-and-price mouse and pen panning by default. This restores vertical
+  plot movement for market-profile and orderflow charts as well as other chart
+  types. Set `navigation.mousePan: 'horizontal'` for optional time-only panning.
+- Preserve explicit navigation preferences in saved settings and chart state.
+  If a saved layout uses horizontal panning, select **Axes > Mouse drag > Time
+  and price** to change that preference. Upgrading does not reset user settings.
+
+Time-axis drags still expand spacing to the left and compress it to the right.
+Reset view, default visible bars and touch panning retain their existing behavior.
+Current guides and agent skills describe the restored default and saved-layout behavior.
+
+Validation: **4,209 unit tests** across 181 files and **219 demo tests** across
+14 files pass, together with the complete verification gate. TypeDoc reports no warnings.
+
+Measured Brotli: **67.10 KB** base, **36.01 KB** widget, **156.28 KB** widget terminal
+and **187.89 KB** all tiers. Bundle budgets are unchanged.
+
+## 2.1.3
+
+2026-09-11
+
+### Fixed
+
+- Dragging the time axis left expands candle spacing; dragging right compresses
+  it. The shared engine supplies the same behavior to custom hosts, widgets,
+  documentation charts, the gallery, and embedded profile and orderflow demos.
+- Mouse and pen plot drags preserve price autoscale by panning horizontally by
+  default. Select Time and price in Axes settings to enable vertical panning.
+  Direct price-axis drags and touch gestures retain their existing controls.
+- Time-axis drags emit zoom events so linked charts and saved layouts follow
+  the gesture. Initial fitting waits for a measurable container, including
+  charts loaded while their tab is hidden. Reset restores left and overlay
+  price scales as well as the right price scale.
+
+### Added
+
+- A Reset view button between the bottom zoom and pan controls restores the
+  preferred time window and price autoscale. Custom navigator labels remain
+  compatible and inherit the reset label when omitted.
+- `ChartOptions.navigation`, `chart.navigationOptions()` and
+  `chart.setNavigationOptions()` expose `mousePan` and `defaultVisibleBars`.
+  Axes settings and saved chart state retain both preferences. A positive count
+  shows the latest requested bars initially and on reset; 0 fits all loaded bars.
+  The widget honors this preference after symbol and interval changes.
+  `fitContent()` still explicitly fits all loaded data. This controls the view,
+  not the history request or retained data. These controls address issue #9.
+
+### Integration and documentation
+
+- Updated interaction guides, website examples and API references for the new
+  navigation behavior. Regression coverage drives real pointer gestures and
+  saves/reloads the settings through the widget.
+- Audited repository skills from 2.0.0 through 2.1.3 and filled missing guidance
+  for profiles, orderflow, navigation and OpenAlgo host integration.
+- The base, widget and widget-terminal size ceilings are 68 KB, 37 KB and
+  157 KB respectively to accommodate these controls. The full-package ceiling
+  remains 188 KB; no runtime dependencies were added.
+- Companion OpenAlgo `/trading` fixes isolate replay from live history refreshes,
+  reject obsolete symbol and pagination responses, prevent resource startup
+  after pane teardown, and await concurrent custom-indicator registration.
+  These application fixes require the OpenAlgo update as well as this package.
+
+Validation: **4,208 unit tests** across 181 files, **219 demo tests** and
+**44 browser checks**, including pixel parity against 2.1.2. The complete
+lint/type/build/declaration/size/tree-shaking gate passes. The corrected OpenAlgo
+consumer passes its production build, **408 trading tests** and **13 browser
+workflows** with synthetic broker traffic. Website checks verify matching chart
+bundles and native axis drags in the gallery and embedded profile/orderflow demos.
+
+Measured Brotli sizes: **67.05 KB** base, **36.01 KB** widget,
+**156.24 KB** widget terminal and **187.84 KB** all tiers.
+
+## 2.1.2
+
+2026-09-10
+
+### Fixed
+
+- External indicators isolate history requests and live callbacks by data key
+  and attachment. Changing a symbol or other data setting immediately clears
+  previous values; obsolete responses and cleanup cannot update the new study.
+  Style changes reuse pending history. Live observations win overlapping
+  historical points. Empty history completes without unnecessary style refetches;
+  failed history retries on the next settings change.
+- The widget seeds live subscriptions from the last historical candle. Seeded
+  cumulative-volume candles preserve known bar volume when the first quote
+  arrives without a supplied day-volume baseline; reseeding clears an old baseline.
+  The synthetic feed also continues from the supplied last bar.
+- OpenAlgo WebSocket market data accepts symbol/exchange at the top level, as
+  emitted by the server, while retaining nested identity and legacy topics.
+- REST history preserves explicit timezone offsets, retains IST for naive
+  timestamps, maps daily/weekly/monthly aliases to broker tokens D/W/M, and
+  propagates backend error responses instead of presenting empty history.
+
+### Added
+
+- Optional `BarSubscriptionOptions` on `DataFeed.subscribeBars`: `seedFrom`,
+  `cumDayVolumeSoFar` and `onResync`. Existing two-argument feeds remain valid.
+  The OpenAlgo live feed reports reconnect recovery through `onResync`; custom
+  hosts can refresh history and reseed without sending old bars through `onBar`.
+- Widget reconnect recovery buffers live bars while refreshing its configured
+  history window, merges the observations and preserves the viewport. Repeated
+  reconnects supersede pending requests. Failed recovery keeps visible history
+  marked stale while monitoring continues; `reload()` retries. Overlapping
+  volumes use the maximum snapshot. Whole-bar merging is conservative: buffered
+  seed extrema can survive history corrections, and unseen trades are not replayed.
+  `BarsRequest.noCache` bypasses `withBarCache`, including retries after failure.
+- `WidgetOptions.styleNonce` authorizes the injected stylesheet under a matching
+  CSP. Empty SSR placeholders can be filled without duplicate sheets; populated
+  host styles and existing nonces are preserved. Style attributes remain subject
+  to the host's separate CSP policy.
+
+### Integration and validation
+
+- Added an isolated browser compatibility harness for the actual OpenAlgo
+  `/trading` application, covering canonical wire frames, lot quantities, order
+  modification/cancellation, replay controls, drawings, indicators, profiles
+  and layout persistence. No real broker orders are submitted.
+- CI runs the full package verification gate and shares the resulting build
+  with browser and documentation jobs. Profile screenshot fingerprints, compact
+  TPO, orderflow tables and depth behavior are checked before website deployment.
+- The release workflow verifies tag, package, source and built runtime versions
+  before publishing the checked build with npm provenance.
+- Updated integration guides and API documentation. The existing 2.1.1 profile
+  captures remain current: their rendered sources and image hashes are unchanged.
+
+See the [OpenAlgo compatibility guide](https://marketcalls.github.io/openalgo-charts/docs/openalgo-compatibility/)
+for validation scope and the existing host replay-reconciliation limitation.
+
+Validation: **4,194 unit tests** across 180 files, **219 demo tests** and
+**41 browser tests** pass, including pixel parity against 2.1.1. The full
+verification gate covers lint, types, builds, declarations, size budgets and
+tree shaking. OpenAlgo's unchanged consumer passes its production build,
+**389 trading tests** and **13 browser workflow checks**.
+
+Measured Brotli sizes: **66.65 KB** base, **27.36 KB** indicators,
+**36.00 KB** widget (35,998 bytes), **155.82 KB** widget terminal and
+**187.42 KB** all tiers. The full-package budget moves from 187 to 188 KB;
+individual tier budgets are unchanged.
+
+## 2.1.1
+
+2026-09-10
+
+### Added
+
+- **Three footprint styles.** `cellStyle` selects the existing heatmap, a
+  volume-proportional bid/ask profile, or a square cluster ladder. Profile
+  numbers stay aligned at the center while each side's width follows volume.
+- **Actual OHLC candles and per-bar statistics.** Footprint bars now carry
+  optional `open`, `high`, `low`, `close`, `tradeCount` and `rowSize` metadata.
+  `statsPosition: 'bar'` puts labeled statistics below each footprint;
+  `pocStyle: 'outline'` and `showValueArea` mark POC and the contiguous volume
+  value area. Legacy data without OHLC shows a neutral range line.
+- **Independent text coloring.** `textColorMode` supports automatic contrast,
+  bid/ask side, row delta, same-price dominance, diagonal imbalance and volume
+  strength. `textColor`, `buyTextColor` and `sellTextColor` are separate from
+  cell-fill colors; readable foregrounds adapt to dark, light and neon fills.
+- **Five orderflow demo themes:** Midnight, Graphite, Classic neon, Ocean and
+  Ivory. Theme, footprint style and text method switch independently without
+  resetting the tape or viewport. The deterministic demo includes price-row
+  grouping, pause/resume, POC/value-area controls and a row inspector.
+- `ChartOptions.timeScale` accepts initial public time-scale options, including
+  wider maximum bar spacing for readable footprint columns.
+- `cvdOffset` supplies cumulative delta preceding the displayed window, so a
+  host can discard old bars without resetting session CVD.
+- **Configurable orderflow table, disabled by default.** `tableRows` selects
+  and orders Delta, Min Delta, Max Delta, Cumulative Delta, Total Ask Volume,
+  Total Bid Volume and Total Volume. Labels stay fixed on the left; columns
+  align with their footprint bars during pan and zoom. Per-bar cards remain
+  independently configurable. Explicit `statsRows` restores the older footer.
+- `minDelta` and `maxDelta` track the running ask-minus-bid delta within each
+  bar, including its initial zero. Batch and live builders preserve the trade
+  path; legacy bars without these fields report `null` rather than row extrema.
+- **Quantity or lots.** `volumeDivisor` defaults to 1 for raw quantities.
+  A value of 65 displays quantities and delta metrics in lots of 65 across
+  cells, cards and tables. Raw data, analytics, percentages and trade counts
+  remain unchanged. The demo includes an editable lot-size control.
+
+### Fixed
+
+- Streaming snapshots copy their cells; later ticks and caller mutations no
+  longer alter previous snapshots or the live accumulator.
+- Diagonal imbalances use actual adjacent price rows and fractional quantities.
+  Gaps are not bridged. A positive quantity against zero opposing volume can
+  qualify; zero versus zero does not. Both sides can qualify at the same price,
+  and stacked runs track each side independently.
+- Footprint trade counts report classified records, rather than occupied price
+  levels. Missing legacy counts are `null` in stats and display as an em dash.
+- Candle direction follows the actual open/close rather than delta. Row bounds
+  contribute half a price step to autoscale, rendering is clipped to the plot,
+  and zooming out no longer forces overlapping minimum-size columns or rows.
+- Hover uses the drawn bounds of each row and statistics card; offscreen rows,
+  empty data and detached primitives no longer retain stale interactive areas.
+- Volume display uses combined row volume for its peak; fractional volume
+  labels retain significant digits and suffix rollover formats correctly.
+
+### Input handling
+
+- Batch and streaming footprints validate finite time/price, nonnegative
+  quantity, classified side, positive tick size and integer row grouping.
+  Live ticks older than the last accepted tick are rejected before mutation.
+- Tick-count and volume bars coalesce trades with tied opening timestamps
+  until time advances, preventing duplicate chart time keys. Such bars can
+  exceed their target count/volume; supply precise timestamps where available.
+- Supply explicit `rowSize` (or renderer `tickSize`) for legacy sparse ladders.
+  Without it, minimum observed spacing cannot identify uniformly missing rows.
+
+### Website and examples
+
+- The orderflow guide embeds the current standalone demo and documents the new
+  styles, text methods, metadata, validation and CVD-window handling.
+- The market-profile guide now opens with compact rendering and includes a
+  current six-session overview and five-theme gallery. Real browser captures
+  refresh all theme and packed/split images; captions distinguish compressed
+  pixel letters from enlarged regular text. Screenshot hashes invalidate stale
+  cached images and a capture manifest checks source and image consistency.
+- Removed the old market-profile screenshot directory. Current captures live
+  under `screenshots/market-profile-v2.1.1/`; no legacy orderflow images remain.
+- The orderflow simulation uses NIFTY around 23,800 with 2-point price rows.
+  A Table switch and row checklist control the seven requested metrics.
+
+Validation: `npm run verify` passes, including **4,139 unit tests** across
+176 files, **219 demo tests**, lint, typecheck, package builds, declarations,
+size budgets and tree shaking.
+
+Measured 2.1.1 sizes: **66.49 KB** base, **14.96 KB** profile tier and
+**186.74 KB** full package, Brotli. The added footprint styles and validation
+use a 15 KB profile budget and a 187 KB full-package budget.
+
 ## 2.1.0
 
 2026-09-06

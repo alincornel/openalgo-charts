@@ -1,36 +1,31 @@
-/**
- * Footprint / order-flow renderer (ARCHITECTURE.md §6A, Family C).
- *
- * Each bar is a column of price rows; each row shows bid volume against ask
- * volume as two filled cells whose colour intensity tracks their share of the
- * bar's peak. Diagonal imbalances fill saturated rather than getting an outline
- * — at the sizes a footprint actually renders, a 1px box is invisible while a
- * colour step reads instantly. Runs of stacked imbalances get a bracket.
- *
- * Beneath the cells sits a stats table: one column per bar, one row per metric
- * (volume, delta, delta %, cumulative delta, trade count), each cell tinted by
- * sign and strength.
- *
- * Everything is theme-driven and reconfigurable at runtime via `setOptions` —
- * the previous version hardcoded twelve colours and could only be restyled by
- * rebuilding the chart.
- */
+/** Footprint columns, volume profiles and cluster ladders from classified trades. */
 import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, PrimitiveHit, ZOrder } from 'openalgo-charts';
 import type { Bar } from '../model/bar';
 import type { FootprintBar, FootprintCell } from './profile-model';
 import { bucketPrice, priceBuckets } from './profile-model';
+import { diagonalImbalances, stackedImbalances } from './footprint';
+import { footprintTextColor, readableTextColor, type FootprintTextColorMode } from './footprint-colors';
 import { parseColor, withAlpha } from '../render/pill';
 
-/** Which metric a stats row shows. */
-export type FootprintStatRow = 'volume' | 'delta' | 'deltaPct' | 'cvd' | 'trades';
-
+export type FootprintStatRow = 'volume' | 'bidVolume' | 'askVolume' | 'delta' | 'minDelta' | 'maxDelta' | 'deltaPct' | 'cvd' | 'trades';
 export type FootprintDisplayMode = 'bidask' | 'delta' | 'volume';
+export type FootprintCellStyle = 'heatmap' | 'profile' | 'ladder';
+export type { FootprintTextColorMode } from './footprint-colors';
 
 /** What the two halves of a `bidask` row carry. */
 export type FootprintCellMode = 'bidAsk' | 'deltaVolume';
 
 /** What sets a row's background colour. */
 export type FootprintColorMode = 'imbalance' | 'delta';
+
+/**
+ * Where the bar's candle goes. `'ohlc'` is the column gutter drawn from the
+ * footprint bar's own open/high/low/close. `'gutter'` reserves the same strip
+ * but reads the PANE's price series instead, for a host whose ladder and whose
+ * candles come from different places. `'behind'` is the older delta-coloured
+ * range line drawn against the column, and `'off'` draws neither.
+ */
+export type FootprintCandleMode = 'off' | 'behind' | 'gutter' | 'ohlc';
 
 /**
  * Styling for the delta half of a `deltaVolume` row, independent of the volume
@@ -60,10 +55,8 @@ export interface FootprintDeltaCell {
   tintCurve?: 'linear' | 'sqrt';
   /**
    * Ink for the delta number. With `colorBy: 'delta'` the sign is already in
-   * the plate, so the sign-coloured number is dropped for this (or for
-   * `cellTextColor`, or white): sell ink on a sell plate cannot be read, and
-   * the ladder's own `colorBy: 'delta'` drops its duplicate signal the same
-   * way. With `colorBy: 'none'` the sign keeps the number.
+   * the plate, so the sign-coloured number is dropped. With `colorBy: 'none'`
+   * the sign keeps the number.
    */
   textColor?: string;
   /** Ink once the plate saturates, i.e. on the bar's biggest |row delta|. */
@@ -71,31 +64,20 @@ export interface FootprintDeltaCell {
 }
 
 export interface FootprintOptions {
-  /**
-   * Full column width (both halves) in media px. Omit to derive it from the
-   * chart's bar spacing, so cells stop colliding when you zoom out.
-   */
+  /** Preferred full column width in media px, capped to the available bar slot. */
   cellWidth?: number;
-  /** Fraction of the bar slot a column may occupy when auto-sizing. Default 0.9. */
+  /** Fraction of the bar slot occupied by the column and candle. Default 0.9. */
   widthFactor: number;
-  /**
-   * Price step → row height. Inferred from the cell spacing when omitted.
-   *
-   * With `zeroFill` this is also the grid the rows are filled onto, and it is a
-   * precondition that it matches the step the cells were **aggregated** at. Set
-   * it coarser and several cells land on one row; they are summed rather than
-   * dropped, but the ladder then disagrees with `stats()` about where the
-   * volume sat.
-   */
+  /** Effective price step (tickSize * rowTicks). Overrides bar.rowSize. */
   tickSize?: number;
-  /** Cell text size in media px. Default 10. */
   font: number;
-  /** Below this row height, numbers are dropped and cells render as a heatmap. */
   minTextHeight: number;
-  /** Height (px) over which the cell numbers fade in around `minTextHeight`. */
   textFade: number;
-  /** `bidask` two columns; `delta` or `volume` a single column. */
   displayMode: FootprintDisplayMode;
+  /** Display quantities divided by this positive value; 1 shows raw units. Stats remain raw. */
+  volumeDivisor: number;
+  /** Intensity cells, volume-proportional bars, or square high-contrast cells. */
+  cellStyle: FootprintCellStyle;
   /**
    * Which numbers a two-column row shows. `bidAsk` is bid against ask.
    * `deltaVolume` is the row's own delta on the left (signed, in the sell
@@ -112,32 +94,40 @@ export interface FootprintOptions {
    * highlight: the ladder then reads as a heat map of who won each price.
    */
   colorBy: FootprintColorMode;
-  /** Diagonal-imbalance ratio. */
+  /** Text comparisons are independent of the cell background. */
+  textColorMode: FootprintTextColorMode;
+  textColor?: string;
+  buyTextColor?: string;
+  sellTextColor?: string;
   imbalanceRatio: number;
-  /** Ignore cells below this volume when flagging imbalances. */
   imbalanceThreshold: number;
-  /** Bracket runs of ≥ N consecutive same-side imbalances. 0 disables. */
+  /** Adjacent same-side imbalance run length. 0 disables brackets. */
   stackedImbalances: number;
-  /** Stats rows under the columns, in order. Empty hides the table. */
   statsRows: readonly FootprintStatRow[];
-  /** Row height of the stats table in media px. */
+  /** Ordered rows for a separate table below the footprints. Empty disables it (default). */
+  tableRows: readonly FootprintStatRow[];
+  /** Fixed table label column width in media px. Default 150. */
+  tableLabelWidth: number;
   statsRowHeight: number;
+  /** Fixed pane footer or labeled cards beneath each bar. */
+  statsPosition: 'bottom' | 'bar';
+  /** Cumulative delta preceding the supplied bars, for a rolling window. */
+  cvdOffset: number;
+  /** Draw real OHLC if supplied; legacy bars show a neutral range line. */
+  showCandle: boolean;
   /**
-   * Where the bar's candle goes. `'gutter'` reserves a strip on the left of the
-   * bar slot and draws a real OHLC candle there, read from the pane's price
-   * series, so the ladder is never painted over a body. `'behind'` is the older
-   * delta-coloured range line drawn against the column. `'off'` draws neither,
-   * for a host that leaves its own candlestick series visible.
+   * Which candle the column carries. Defaults to `'ohlc'`, the bar's own
+   * metadata in the gutter; `showCandle: false` still turns every mode off.
    */
-  candle: 'off' | 'behind' | 'gutter';
+  candle: FootprintCandleMode;
   /**
-   * Fraction of the bar slot the gutter candle takes, clamped to 3..14 media
-   * px. The body fills 60% of it, so a narrow slot still reads as a coloured
-   * direction strip once the wick is down to a hairline.
+   * Fraction of the bar slot the `'gutter'` candle takes, clamped to 3..14
+   * media px. The body fills 60% of it, so a narrow slot still reads as a
+   * coloured direction strip once the wick is down to a hairline.
    */
   candleWidthFactor: number;
-  /** Mark the highest-volume row of each bar. */
   showPoc: boolean;
+  pocStyle: 'marker' | 'outline';
   /**
    * Outline the bar's highest-volume row in this colour. Off when unset: the
    * `showPoc` tick is a mark in the margin, this rings the row itself, and a
@@ -159,7 +149,7 @@ export interface FootprintOptions {
    * Draw a row for every price between the bar's highest and lowest traded
    * level, including the ones nothing traded at (`0 x 0`). Off, the column is
    * a sparse ladder and whatever is painted behind it shows through the gaps.
-   * Needs `tickSize`: without a row step there is no grid to fill.
+   * Needs a row step: without one there is no grid to fill.
    */
   zeroFill: boolean;
   /**
@@ -168,10 +158,6 @@ export interface FootprintOptions {
    * otherwise ask for tens of thousands of rows on one frame.
    */
   maxZeroFillRows: number;
-  /** Colours. All default to the chart theme. */
-  buyColor?: string;
-  sellColor?: string;
-  pocColor: string;
   /**
    * Opaque plate a cell is tinted **from**, in place of the pane background.
    *
@@ -179,11 +165,7 @@ export interface FootprintOptions {
    * one-lot row is a hole the pane shows through. Given a plate (a light grey,
    * say) the same row is legible at zero intensity and the tint reads as
    * pressure rather than as presence. Unset, the pane background stays the
-   * base and the ramp below is the legacy eased one.
-   *
-   * Opaque colours only: the ramp blends channels and drops alpha, so an
-   * `rgba()` plate is painted at full opacity rather than letting the pane
-   * show through it.
+   * base and the ramp is the legacy eased one.
    */
   cellBaseColor?: string;
   /**
@@ -193,15 +175,13 @@ export interface FootprintOptions {
   tintFloor: number;
   /**
    * How much of the remaining distance to the colour a full-intensity cell
-   * travels. Clamped with the floor to 1, so `0.5 + 1` still lands on the
-   * colour rather than past it. Ignored while `cellBaseColor` is unset.
-   * Default 1.
+   * travels. Clamped with the floor to 1. Ignored while `cellBaseColor` is
+   * unset. Default 1.
    */
   tintGain: number;
   /**
    * Shape of the plate ramp. `sqrt` eases it, lifting the quiet rows; `linear`
-   * is proportional, which is how the desktop terminals grade a plate. Ignored
-   * while `cellBaseColor` is unset.
+   * is proportional. Ignored while `cellBaseColor` is unset.
    */
   tintCurve: 'linear' | 'sqrt';
   /**
@@ -210,10 +190,7 @@ export interface FootprintOptions {
    * already in the cell numbers and in the tint, but neither is comparable
    * down a column at a glance, and a length is. Off by default: it draws
    * outside the column, so a host wants `widthFactor` (or `cellWidth`) to
-   * leave it room first, and `widthFactor * (1 + volumeBarWidthFactor) <= 1`
-   * is the arithmetic that keeps a full-volume bar inside its own bar slot.
-   * A column is floored at 24 media px, so at that floor the slot has to be
-   * wide enough for the bar on top of it.
+   * leave it room first.
    *
    * With `stackedImbalances` on, the bar starts past the bracket lane rather
    * than over it.
@@ -224,95 +201,84 @@ export interface FootprintOptions {
    * colour when its delta is positive and the sell colour when it is not.
    */
   volumeBarColor?: string;
-  /**
-   * Length of a full-volume bar as a fraction of the column width. Default
-   * 0.5.
-   */
+  /** Length of a full-volume bar as a fraction of the column width. Default 0.5. */
   volumeBarWidthFactor: number;
   /**
-   * Ink for the cell numbers. Unset, the renderer picks: white for a graded
-   * cell, dimmed on a zero row, and near-black on a saturated one, which is
-   * the right pair over a dark pane and the wrong one over a light plate. A
-   * signed `deltaVolume` delta keeps its own colour ahead of this, since
-   * there the colour is the number's meaning rather than its theme.
+   * Ink for the cell numbers, used literally. Unset, `textColorMode` picks one
+   * and contrast-corrects it against the plate the number sits on.
    */
   cellTextColor?: string;
-  /** Ink for the numbers on a saturated (imbalanced) cell. */
+  /** Ink for the numbers on a saturated (imbalanced) cell, used literally. */
   cellTextColorHot?: string;
   /**
    * Paint the delta half of a `deltaVolume` row on its own terms. Unset, both
-   * halves share one plate, which is what the mode has always drawn. Ignored
-   * unless `cells` is `deltaVolume`.
+   * halves share one plate. Ignored unless `cells` is `deltaVolume`.
    */
   deltaCell?: FootprintDeltaCell;
-  /** Cell corner radius in media px. */
-  radius: number;
   /**
    * Called after a paint, and only when the values changed, with what
    * `layout()` would return. The push signal a host needs to re-derive its row
    * size when the pane resizes, which no data event announces.
    */
   onLayout?: (layout: { rowHeight: number; paneHeight: number; minTextHeight: number }) => void;
+  showValueArea: boolean;
+  /** Fraction of volume in the contiguous value area around the POC. */
+  valueAreaPercent: number;
+  valueAreaColor?: string;
+  buyColor?: string;
+  sellColor?: string;
+  pocColor: string;
+  radius: number;
 }
 
 export const DEFAULT_FOOTPRINT_OPTIONS: FootprintOptions = {
-  widthFactor: 0.9,
-  font: 10,
-  minTextHeight: 11,
-  textFade: 4,
-  displayMode: 'bidask',
-  cells: 'bidAsk',
-  colorBy: 'imbalance',
-  imbalanceRatio: 3,
-  imbalanceThreshold: 0,
-  stackedImbalances: 3,
-  statsRows: ['volume', 'delta', 'deltaPct', 'cvd'],
-  statsRowHeight: 15,
-  candle: 'behind',
-  candleWidthFactor: 0.22,
-  showPoc: true,
-  pocOutlineWidth: 1,
-  zeroFill: false,
-  maxZeroFillRows: 400,
-  pocColor: '#f0a020',
-  tintFloor: 0,
-  tintGain: 1,
-  tintCurve: 'sqrt',
-  showVolumeBar: false,
-  volumeBarWidthFactor: 0.5,
-  radius: 2,
+  widthFactor: 0.9, font: 10, minTextHeight: 11, textFade: 4,
+  displayMode: 'bidask', volumeDivisor: 1, cellStyle: 'heatmap', textColorMode: 'contrast',
+  cells: 'bidAsk', colorBy: 'imbalance',
+  imbalanceRatio: 3, imbalanceThreshold: 0, stackedImbalances: 3,
+  statsRows: [], tableRows: [], tableLabelWidth: 150, statsRowHeight: 15,
+  statsPosition: 'bottom', cvdOffset: 0, showCandle: true, candle: 'ohlc', candleWidthFactor: 0.22,
+  showPoc: true, pocStyle: 'marker', pocOutlineWidth: 1, pocColor: '#f0a020',
+  zeroFill: false, maxZeroFillRows: 400,
+  tintFloor: 0, tintGain: 1, tintCurve: 'sqrt',
+  showVolumeBar: false, volumeBarWidthFactor: 0.5,
+  showValueArea: false, valueAreaPercent: 0.7, radius: 2,
 };
 
-/** Per-bar aggregates the stats table and the tooltip both read. */
 export interface FootprintBarStats {
   time: number;
   volume: number;
+  bidVolume: number;
+  askVolume: number;
   delta: number;
+  /** Intrabar running delta extremes, including initial zero; null without trade-path metadata. */
+  minDelta: number | null;
+  maxDelta: number | null;
   deltaPct: number;
   cvd: number;
-  trades: number;
+  /** Null when a legacy input does not include an actual trade count. */
+  trades: number | null;
   poc: number;
+  vah: number;
+  val: number;
 }
 
-/** What the pointer is over, for a host-drawn tooltip. */
 export interface FootprintHover {
   time: number;
-  /** Null when the pointer is over the stats table rather than a cell. */
+  /** The exact bucket price; null over a statistics card/table. */
   price: number | null;
   cell: FootprintCell | null;
   stats: FootprintBarStats;
 }
 
-/** 3 significant figures with a K/M/B suffix — 4.53M, 47.1K, 128K, 3K. */
+/** Three significant figures, preserving fractional quantities and suffix rollover. */
 export function compactVol(v: number): string {
-  const a = Math.abs(v);
+  if (!Number.isFinite(v)) return '—';
+  const rounded = Number(v.toPrecision(3));
+  const a = Math.abs(rounded);
   const [suffix, div] = a >= 1e9 ? ['B', 1e9] : a >= 1e6 ? ['M', 1e6] : a >= 1e3 ? ['K', 1e3] : ['', 1];
-  const n = v / div;
-  const abs = Math.abs(n);
-  const s = abs >= 100 || div === 1 ? n.toFixed(0) : abs >= 10 ? n.toFixed(1) : n.toFixed(2);
-  return s.replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1') + suffix;
+  return String(Number((rounded / div).toPrecision(3))) + suffix;
 }
-
 const signed = (v: number): string => (v >= 0 ? '+' : '') + compactVol(v);
 
 /** `floor + gain * curve(t)`, clamped: the shape every plate ramp has. */
@@ -322,78 +288,60 @@ function ramp(t: number, floor: number, gain: number, curve: 'linear' | 'sqrt'):
   return a < 0 ? 0 : a > 1 ? 1 : a;
 }
 
-/** Blend two colours; `t` 0 → a, 1 → b. */
 function mix(a: string, b: string, t: number): string {
-  const ca = parseColor(a);
-  const cb = parseColor(b);
+  const ca = parseColor(a), cb = parseColor(b);
   if (ca === null || cb === null) return b;
-  const k = t < 0 ? 0 : t > 1 ? 1 : t;
+  const k = Math.max(0, Math.min(1, t));
   return `rgb(${Math.round(ca.r + (cb.r - ca.r) * k)},${Math.round(ca.g + (cb.g - ca.g) * k)},${Math.round(ca.b + (cb.b - ca.b) * k)})`;
 }
 
+interface RowHit { cell: FootprintCell; top: number; bottom: number }
+/** Per-cell overrides: a grading share the caller worked out, and a pinned plate/ink. */
+interface CellPaint {
+  tint?: number;
+  style?: { fill?: string; text?: string; textHot?: string };
+}
 interface Column {
   bar: FootprintBar;
-  x: number;
   stats: FootprintBarStats;
+  x: number;
+  x0: number;
+  width: number;
+  rowSize: number;
+  rows: RowHit[];
+  card?: { top: number; bottom: number };
+  table?: { left: number; right: number; top: number; bottom: number };
 }
+const STAT_LABEL: Record<FootprintStatRow, string> = {
+  volume: 'Volume', bidVolume: 'Bid Volume', askVolume: 'Ask Volume', delta: 'Delta',
+  minDelta: 'Min Delta', maxDelta: 'Max Delta', deltaPct: 'Delta %', cvd: 'CVD', trades: 'Trades',
+};
+const TABLE_LABEL = { ...STAT_LABEL, volume: 'Total Volume', bidVolume: 'Total Bid Volume', askVolume: 'Total Ask Volume', cvd: 'Cumulative Delta' };
+const unsignedRow = (row: FootprintStatRow): boolean => row === 'volume' || row === 'trades' || row === 'bidVolume' || row === 'askVolume';
 
 export class Footprint implements IPrimitive {
   private _bars: FootprintBar[] = [];
   private _opts: FootprintOptions;
   private _host: PrimitiveHost | null = null;
-  /** Per-bar aggregates, recomputed when the bars change (CVD needs order). */
   private _stats: FootprintBarStats[] = [];
-  /** Column geometry from the last draw, in media px, for hit-testing. */
-  private _cols: { time: number; x0: number; x1: number }[] = [];
-  private _rowH = 0;
-  /** Last context the primitive drew with; see `draw`. */
+  /** Only visible painted rows/cards are interactive, in media pixels. */
+  private _cols: Column[] = [];
   private _rc: PrimitiveRenderContext | null = null;
+  private _inferredStep = 0;
+  /** Drawn row height and pane height from the last paint, in media px. */
+  private _rowH = 0;
   private _plotH = 0;
   /** What `onLayout` last saw, so an unchanged frame does not push again. */
   private _layoutKey = '';
 
   public constructor(opts: Partial<FootprintOptions> = {}) {
-    this._opts = { ...DEFAULT_FOOTPRINT_OPTIONS, ...opts };
+    this._opts = { ...DEFAULT_FOOTPRINT_OPTIONS, ...opts,
+      statsRows: [...(opts.statsRows ?? DEFAULT_FOOTPRINT_OPTIONS.statsRows)], tableRows: [...(opts.tableRows ?? [])] };
+    this._validateOptions(this._opts);
   }
-
   public attached(host: PrimitiveHost): void { this._host = host; }
-  public detached(): void { this._host = null; }
+  public detached(): void { this._host = null; this._rc = null; this._cols = []; }
   public zOrder(): ZOrder { return 'normal'; }
-
-  /**
-   * Footprint rows span the bar's traded range, so unlike the profile overlays
-   * this one *does* drive autoscale — otherwise the top and bottom rows clip.
-   */
-  public autoscaleInfo(): { min: number; max: number } | null {
-    let min = Infinity;
-    let max = -Infinity;
-    for (const b of this._bars) {
-      if (b.cells.length === 0) continue;
-      max = Math.max(max, b.cells[0].price);
-      min = Math.min(min, b.cells[b.cells.length - 1].price);
-    }
-    return Number.isFinite(min) ? { min, max } : null;
-  }
-
-  public setBars(bars: FootprintBar[]): void {
-    this._bars = bars;
-    this._recomputeStats();
-    this._host?.requestUpdate();
-  }
-
-  public setOptions(patch: Partial<FootprintOptions>): void {
-    this._opts = { ...this._opts, ...patch };
-    this._host?.requestUpdate();
-  }
-
-  public options(): FootprintOptions {
-    return this._opts;
-  }
-
-  /** Per-bar aggregates, in bar order. */
-  public stats(): readonly FootprintBarStats[] {
-    return this._stats;
-  }
 
   /**
    * Row and pane geometry from the last paint, in media px, plus the threshold
@@ -406,14 +354,9 @@ export class Footprint implements IPrimitive {
    * `rowTicks` multiplier, say) can pick the finest one whose implied row
    * height still clears the threshold, instead of guessing a row count.
    *
-   * `rowHeight` is the **clamped draw height** of the last column painted, not
-   * the raw price step: `_rowHeight` floors it at 6 media px (and falls back to
-   * 16 when there is no tick size to work from), so a row reported as 6 may be
-   * a much finer grid drawn at the floor. Both numbers are 0 before the first
-   * paint and while there are no bars or nothing on screen to draw.
-   *
-   * `onLayout` is the push half of the same fact, for a pane resize, which no
-   * data event announces.
+   * Both numbers are 0 before the first paint and while there are no bars or
+   * nothing on screen to draw. `onLayout` is the push half of the same fact,
+   * for a pane resize, which no data event announces.
    */
   public layout(): { rowHeight: number; paneHeight: number; minTextHeight: number } {
     return { rowHeight: this._rowH, paneHeight: this._plotH, minTextHeight: this._opts.minTextHeight };
@@ -427,43 +370,64 @@ export class Footprint implements IPrimitive {
     this._opts.onLayout?.(this.layout());
   }
 
-  private _recomputeStats(): void {
-    let cvd = 0;
-    this._stats = this._bars.map((bar) => {
-      let volume = 0;
-      let trades = 0;
-      let pocVol = -1;
-      let poc = bar.cells.length > 0 ? bar.cells[0].price : 0;
-      for (const c of bar.cells) {
-        const total = c.bidVol + c.askVol;
-        volume += total;
-        trades += 1;
-        if (total > pocVol) { pocVol = total; poc = c.price; }
-      }
-      cvd += bar.delta;
-      return {
-        time: bar.time,
-        volume,
-        delta: bar.delta,
-        deltaPct: volume > 0 ? (bar.delta / volume) * 100 : 0,
-        cvd,
-        trades,
-        poc,
-      };
-    });
+  private _validateOptions(o: FootprintOptions): void {
+    for (const v of [o.widthFactor, o.font, o.statsRowHeight, o.tableLabelWidth, o.imbalanceRatio, o.volumeDivisor]) {
+      if (!Number.isFinite(v) || v <= 0) throw new RangeError('Footprint dimensions and ratio must be positive and finite');
+    }
+    for (const v of [o.radius, o.minTextHeight, o.textFade, o.imbalanceThreshold,
+      o.pocOutlineWidth, o.tintFloor, o.tintGain, o.volumeBarWidthFactor, o.candleWidthFactor, o.maxZeroFillRows]) {
+      if (!Number.isFinite(v) || v < 0) throw new RangeError('Footprint thresholds and radius must be nonnegative and finite');
+    }
+    for (const v of [o.cellWidth, o.tickSize]) {
+      if (v !== undefined && (!Number.isFinite(v) || v <= 0)) throw new RangeError('Footprint width and row step must be positive and finite');
+    }
+    if (!Number.isSafeInteger(o.stackedImbalances) || o.stackedImbalances < 0) throw new RangeError('Footprint stack length must be a nonnegative integer');
+    if (!Number.isFinite(o.cvdOffset)) throw new RangeError('Footprint CVD offset must be finite');
+    if (!Number.isFinite(o.valueAreaPercent) || o.valueAreaPercent <= 0 || o.valueAreaPercent > 1) throw new RangeError('Footprint value area must be in (0, 1]');
+    for (const rows of [o.statsRows, o.tableRows]) {
+      if (rows.some(row => !Object.prototype.hasOwnProperty.call(STAT_LABEL, row)) || new Set(rows).size !== rows.length) throw new RangeError('Footprint statistics rows must be known and unique');
+    }
   }
 
+  public setBars(bars: readonly FootprintBar[]): void {
+    this._bars = bars.map(bar => ({ ...bar, cells: bar.cells.map(cell => ({ ...cell })).sort((a, b) => b.price - a.price) }));
+    let step = Infinity;
+    for (const bar of this._bars) {
+      if (bar.rowSize !== undefined && bar.rowSize > 0) step = Math.min(step, bar.rowSize);
+      for (let i = 1; i < bar.cells.length; i++) {
+        const gap = bar.cells[i - 1].price - bar.cells[i].price;
+        if (gap > 0) step = Math.min(step, gap);
+      }
+    }
+    this._inferredStep = Number.isFinite(step) ? step : 0;
+    this._cols = [];
+    this._recomputeStats();
+    this._host?.requestUpdate();
+  }
+
+  public setOptions(patch: Partial<FootprintOptions>): void {
+    const next = { ...this._opts, ...patch };
+    this._validateOptions(next);
+    this._opts = { ...next, statsRows: [...next.statsRows], tableRows: [...next.tableRows] };
+    this._cols = [];
+    if (patch.cvdOffset !== undefined || patch.valueAreaPercent !== undefined) this._recomputeStats();
+    this._host?.requestUpdate();
+  }
+  public options(): FootprintOptions { return { ...this._opts, statsRows: [...this._opts.statsRows], tableRows: [...this._opts.tableRows] }; }
+  public stats(): readonly FootprintBarStats[] { return this._stats; }
+  private _step(bar: FootprintBar): number { return this._opts.tickSize ?? bar.rowSize ?? this._inferredStep; }
+
   /**
-   * The rows a column actually draws. Plain `zeroFill` off: the traded cells,
+   * The rows a column actually draws. With `zeroFill` off: the traded cells,
    * holes and all. On: every price on the grid between the bar's high and low,
    * with `0 x 0` cells materialised for the ones nothing traded at, so the
    * ladder is opaque and the diagonal is judged against the adjacent price
    * rather than the next price that happened to trade. Falls back to the cells
-   * when there is no grid (`step <= 0`), nothing to bridge, or the span would
-   * need more rows than the cap.
+   * when there is no grid, nothing to bridge, or the span would need more rows
+   * than the cap.
    */
   private _rows(cells: readonly FootprintCell[], step: number): readonly FootprintCell[] {
-    if (!this._opts.zeroFill || step <= 0 || cells.length < 2) return cells;
+    if (!this._opts.zeroFill || !(step > 0) || cells.length < 2) return cells;
     // The extremes are scanned rather than read off the ends: `cells` is
     // documented high to low and nothing enforces it, and an ascending array
     // would otherwise ask for an empty grid.
@@ -491,216 +455,6 @@ export class Footprint implements IPrimitive {
     return out.length > 0 ? out : cells;
   }
 
-  /** Row height in device px from the tick size (option, else the min cell gap). */
-  private _rowHeight(cells: readonly FootprintCell[], rc: PrimitiveRenderContext): number {
-    let tick = this._opts.tickSize ?? 0;
-    if (tick <= 0) {
-      let min = Infinity;
-      for (let i = 1; i < cells.length; i++) {
-        const g = Math.abs(cells[i - 1].price - cells[i].price);
-        if (g > 0) min = Math.min(min, g);
-      }
-      tick = Number.isFinite(min) ? min : 0;
-    }
-    const p0 = cells[0].price;
-    const rh = tick > 0
-      ? Math.abs(rc.priceScale.priceToY(p0) - rc.priceScale.priceToY(p0 + tick)) * rc.dpr
-      : 0;
-    return Math.max(rh > 1 ? rh : 16 * rc.dpr, 6 * rc.dpr);
-  }
-
-  /** Column width in device px — explicit, else derived from the bar spacing. */
-  private _columnWidth(rc: PrimitiveRenderContext): number {
-    const o = this._opts;
-    if (o.cellWidth !== undefined && o.cellWidth > 0) return o.cellWidth * rc.dpr;
-    return Math.max(24 * rc.dpr, rc.timeScale.barSpacing * o.widthFactor * rc.dpr);
-  }
-
-  public draw(ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext): void {
-    // Kept so `hoverAt` can map a pointer back to a cell without the host having
-    // to fabricate a render context out of internals it should not need.
-    this._rc = rc;
-    // Reset up front: a stale row height or hit window outlives the bars it was
-    // measured from otherwise, and `layout()` promises zeroes when nothing drew.
-    this._rowH = 0;
-    this._plotH = 0;
-    this._cols = [];
-    if (this._bars.length === 0) { this._pushLayout(); return; }
-    const o = this._opts;
-    const dpr = rc.dpr;
-    const buy = o.buyColor ?? rc.theme.upColor;
-    const sell = o.sellColor ?? rc.theme.downColor;
-    const bg = rc.theme.background;
-    const plate = o.cellBaseColor ?? bg;
-    const range = rc.timeScale.visibleRange();
-    const width = this._columnWidth(rc);
-    const plotH = rc.plotHeight * dpr;
-    const statsH = o.statsRows.length * o.statsRowHeight * dpr;
-    this._plotH = rc.plotHeight;
-
-    const cols: Column[] = [];
-    for (let i = 0; i < this._bars.length; i++) {
-      const bar = this._bars[i];
-      if (bar.cells.length === 0) continue;
-      const index = rc.dataLayer.timeToIndex(bar.time);
-      if (index === undefined || index < range.from - 1 || index > range.to + 1) continue;
-      cols.push({ bar, x: Math.round(rc.timeScale.indexToX(index) * dpr), stats: this._stats[i] });
-    }
-    if (cols.length === 0) { this._pushLayout(); return; }
-
-    // The pane's own OHLC, only when a gutter candle is going to ask for it.
-    // `bars()` is the series' own array in time order, never the shared logical
-    // index, so columns are matched by time.
-    const ohlc = o.candle === 'gutter' ? rc.bars?.() ?? [] : [];
-
-    ctx.save();
-    ctx.textBaseline = 'middle';
-    // The cells stop above the stats table so the two never overlap.
-    const cellBottom = plotH - statsH;
-    for (const col of cols) {
-      this._drawColumn(ctx, rc, col, width, buy, sell, plate, cellBottom, this._ohlcAt(ohlc, col.bar.time));
-    }
-    if (o.statsRows.length > 0) this._drawStats(ctx, rc, cols, width, buy, sell, bg, plotH, statsH);
-    ctx.restore();
-    this._pushLayout();
-  }
-
-  private _drawColumn(
-    ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext, col: Column,
-    width: number, buy: string, sell: string, base: string, cellBottom: number,
-    ohlc: Bar | undefined,
-  ): void {
-    const o = this._opts;
-    const dpr = rc.dpr;
-    const { bar, stats } = col;
-    const rows = this._rows(bar.cells, o.tickSize ?? 0);
-    const rowH = this._rowHeight(rows, rc);
-    this._rowH = rowH / dpr;
-    // A gutter candle takes its strip out of the slot and the ladder shifts
-    // right by it, so the column is never drawn over a candle body.
-    const gutter = o.candle === 'gutter'
-      ? Math.max(3 * dpr, Math.min(14 * dpr, width * o.candleWidthFactor))
-      : 0;
-    const colW = Math.max(width - gutter, 12 * dpr);
-    const half = colW / 2;
-    const x0 = col.x - half + gutter / 2;
-    this._cols.push({ time: bar.time, x0: x0 / dpr, x1: (x0 + colW) / dpr });
-
-    let peak = 1;
-    let volPeak = 1;
-    let deltaPeak = 1;
-    for (const c of rows) {
-      peak = Math.max(peak, c.bidVol, c.askVol);
-      volPeak = Math.max(volPeak, c.bidVol + c.askVol);
-      deltaPeak = Math.max(deltaPeak, Math.abs(c.askVol - c.bidVol));
-    }
-
-    // Range line + body behind the cells: the bar is still a bar.
-    if (o.candle === 'behind') {
-      const yHi = rc.priceScale.priceToY(rows[0].price) * dpr - rowH / 2;
-      const yLo = rc.priceScale.priceToY(rows[rows.length - 1].price) * dpr + rowH / 2;
-      const up = stats.delta >= 0;
-      ctx.fillStyle = withAlpha(up ? buy : sell, 0.5);
-      ctx.fillRect(x0 - 5 * dpr, yHi, 3 * dpr, yLo - yHi);
-    } else if (o.candle === 'gutter') {
-      this._gutterCandle(ctx, rc, ohlc, rows, x0 - gutter / 2, gutter, buy, sell);
-    }
-
-    const byDelta = o.colorBy === 'delta';
-    const imbalanced = this._imbalances(rows);
-    // 0 below the threshold, 1 a few px above it, linear between.
-    const textAlpha = Math.max(0, Math.min(1,
-      (rowH / dpr - o.minTextHeight) / Math.max(1, o.textFade) + 1));
-    const showText = textAlpha > 0;
-    if (showText) {
-      ctx.font = `${o.font * dpr}px ui-monospace, SFMono-Regular, Menlo, monospace`;
-      ctx.textAlign = 'center';
-    }
-
-    for (let i = 0; i < rows.length; i++) {
-      const c = rows[i];
-      const y = rc.priceScale.priceToY(c.price) * dpr;
-      const top = Math.round(y - rowH / 2);
-      const h = Math.max(1, Math.round(rowH) - 1);
-      if (top + h < 0 || top > cellBottom) continue; // cull off-pane rows
-
-      const flag = byDelta ? undefined : imbalanced.get(c.price);
-      const d = c.askVol - c.bidVol;
-      const total = c.bidVol + c.askVol;
-      // In `delta` mode the row is one colour at one intensity; in `imbalance`
-      // each half answers for its own side.
-      const rowColor = d >= 0 ? buy : sell;
-      const rowTint = total / volPeak;
-      if (o.displayMode !== 'bidask') {
-        const v = o.displayMode === 'delta' ? d : total;
-        const color = byDelta ? rowColor
-          : o.displayMode === 'delta' ? (v >= 0 ? buy : sell) : mix(sell, buy, 0.5);
-        this._cell(ctx, x0, top, colW - dpr, h, v, byDelta ? rowTint : Math.abs(v) / peak,
-          color, base, false, textAlpha, dpr);
-      } else if (o.cells === 'deltaVolume') {
-        // Flat by default: the sign lives in the number's colour, so the volume
-        // column is the only thing carrying intensity and the ladder reads as
-        // one gradient instead of two competing ones. `deltaCell` is for the
-        // other reading, where the delta half is a heat map of its own.
-        const ds = this._deltaStyle(d, deltaPeak, base, buy, sell);
-        this._cell(ctx, x0, top, half - dpr, h, d, 0, base, base, ds.hot, textAlpha, dpr, ds.style);
-        this._cell(ctx, x0 + half + dpr, top, half - dpr, h, total, rowTint,
-          byDelta ? rowColor : mix(sell, buy, 0.5), base, flag !== undefined, textAlpha, dpr);
-      } else {
-        this._cell(ctx, x0, top, half - dpr, h, c.bidVol, byDelta ? rowTint : c.bidVol / peak,
-          byDelta ? rowColor : sell, base, flag === 'sell', textAlpha, dpr);
-        this._cell(ctx, x0 + half + dpr, top, half - dpr, h, c.askVol, byDelta ? rowTint : c.askVol / peak,
-          byDelta ? rowColor : buy, base, flag === 'buy', textAlpha, dpr);
-      }
-
-      // A histogram beside the ladder: the row's volume against the bar's
-      // busiest row. Drawn after the cells, and clear of them, so it is
-      // neither painted over nor sitting under the numbers. The buy bracket
-      // claims x0 + colW + 2..5 dpr, so with runs enabled the bar starts past
-      // that lane rather than burying the run marks under itself.
-      if (o.showVolumeBar && total > 0) {
-        const len = colW * o.volumeBarWidthFactor * (total / volPeak);
-        if (len >= 1) {
-          ctx.fillStyle = o.volumeBarColor ?? (d >= 0 ? buy : sell);
-          ctx.fillRect(x0 + colW + (o.stackedImbalances > 0 ? 6 : 1) * dpr, top, len, h);
-        }
-      }
-
-      if (c.price === stats.poc) {
-        if (o.showPoc) {
-          ctx.fillStyle = o.pocColor;
-          ctx.fillRect(x0 - 2 * dpr, top, 2 * dpr, h);
-        }
-        if (o.pocOutline !== undefined) {
-          // A stroke straddles its path, so inset by half a line width or the
-          // outline bleeds into the rows above and below. Capped by the row it
-          // is ringing: a ring wider than a 6 px row would otherwise ask for a
-          // rect of negative size and invert itself.
-          const lw = Math.min(Math.max(1, Math.round(o.pocOutlineWidth * dpr)), h, colW);
-          ctx.strokeStyle = o.pocOutline;
-          ctx.lineWidth = lw;
-          ctx.strokeRect(x0 + lw / 2, top + lw / 2, colW - lw, h - lw);
-        }
-      }
-    }
-
-    // Stacked-imbalance brackets: the run is the signal, not the single cell.
-    if (o.stackedImbalances > 0) {
-      for (const run of this._runs(rows, imbalanced, o.stackedImbalances)) {
-        const yTop = rc.priceScale.priceToY(run.from) * dpr - rowH / 2;
-        const yBot = rc.priceScale.priceToY(run.to) * dpr + rowH / 2;
-        const bx = run.side === 'buy' ? x0 + colW + 2 * dpr : x0 - 8 * dpr;
-        ctx.strokeStyle = run.side === 'buy' ? buy : sell;
-        ctx.lineWidth = Math.max(1, Math.round(1.5 * dpr));
-        ctx.beginPath();
-        ctx.moveTo(bx, yTop); ctx.lineTo(bx, yBot);
-        ctx.moveTo(bx, yTop); ctx.lineTo(bx + (run.side === 'buy' ? 3 : -3) * dpr, yTop);
-        ctx.moveTo(bx, yBot); ctx.lineTo(bx + (run.side === 'buy' ? 3 : -3) * dpr, yBot);
-        ctx.stroke();
-      }
-    }
-  }
-
   /** The pane's OHLC row for `time`, by binary search over the series' array. */
   private _ohlcAt(bars: readonly Bar[], time: number): Bar | undefined {
     let lo = 0;
@@ -714,18 +468,259 @@ export class Footprint implements IPrimitive {
     return undefined;
   }
 
+  /** Which candle a column carries, with `showCandle: false` overriding the mode. */
+  private _candleMode(): FootprintCandleMode {
+    return this._opts.showCandle ? this._opts.candle : 'off';
+  }
+
+  public autoscaleInfo(): { min: number; max: number } | null {
+    let min = Infinity, max = -Infinity;
+    for (const bar of this._bars) {
+      const half = this._step(bar) / 2;
+      for (const cell of bar.cells) { min = Math.min(min, cell.price - half); max = Math.max(max, cell.price + half); }
+      if (this._opts.showCandle) {
+        if (bar.low !== undefined) min = Math.min(min, bar.low);
+        if (bar.high !== undefined) max = Math.max(max, bar.high);
+      }
+    }
+    return Number.isFinite(min) ? { min, max } : null;
+  }
+
+  private _recomputeStats(): void {
+    let cvd = this._opts.cvdOffset;
+    this._stats = this._bars.map(bar => {
+      const totals = bar.cells.map(cell => cell.bidVol + cell.askVol);
+      const volume = totals.reduce((sum, v) => sum + v, 0);
+      const bidVolume = bar.cells.reduce((sum, cell) => sum + cell.bidVol, 0);
+      const askVolume = bar.cells.reduce((sum, cell) => sum + cell.askVol, 0);
+      let pocIndex = 0;
+      for (let i = 1; i < totals.length; i++) if (totals[i] > totals[pocIndex]) pocIndex = i;
+      let hi = pocIndex, lo = pocIndex, sum = totals[pocIndex] ?? 0;
+      while (sum < volume * this._opts.valueAreaPercent && (hi > 0 || lo < totals.length - 1)) {
+        if ((hi > 0 ? totals[hi - 1] : -1) >= (lo < totals.length - 1 ? totals[lo + 1] : -1)) sum += totals[--hi];
+        else sum += totals[++lo];
+      }
+      cvd += bar.delta;
+      return { time: bar.time, volume, bidVolume, askVolume, delta: bar.delta,
+        minDelta: bar.minDelta ?? null, maxDelta: bar.maxDelta ?? null, deltaPct: volume > 0 ? bar.delta / volume * 100 : 0,
+        cvd, trades: bar.tradeCount ?? null, poc: bar.cells[pocIndex]?.price ?? 0,
+        vah: bar.cells[hi]?.price ?? 0, val: bar.cells[lo]?.price ?? 0 };
+    });
+  }
+
+  /** Price boundaries, not a minimum pixel size: tiny rows must never overlap. */
+  private _bounds(price: number, step: number, rc: PrimitiveRenderContext): { top: number; bottom: number } {
+    const y = rc.priceScale.priceToY(price);
+    if (!(step > 0)) return { top: y - 8, bottom: y + 8 };
+    const a = rc.priceScale.priceToY(price - step / 2), b = rc.priceScale.priceToY(price + step / 2);
+    return { top: Math.min(a, b), bottom: Math.max(a, b) };
+  }
+
+  public draw(ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext): void {
+    this._rc = rc;
+    this._cols = [];
+    // Reset up front: a stale row height outlives the bars it was measured
+    // from otherwise, and `layout()` promises zeroes when nothing drew.
+    this._rowH = 0;
+    this._plotH = 0;
+    if (this._bars.length === 0 || rc.plotHeight <= 0 || rc.plotWidth <= 0) { this._pushLayout(); return; }
+    const o = this._opts, dpr = rc.dpr;
+    const buy = o.buyColor ?? rc.theme.upColor, sell = o.sellColor ?? rc.theme.downColor;
+    const bg = rc.theme.background;
+    const slot = rc.timeScale.barSpacing;
+    const outerWidth = Math.max(0.1, Math.min(o.cellWidth ?? slot * o.widthFactor, slot * 0.96));
+    const candle = this._candleMode();
+    // A gutter candle takes its strip out of the slot and the ladder shifts
+    // right by it, so the column is never drawn over a candle body. `'ohlc'`
+    // only reserves one once the column is wide enough to spare it.
+    const gutter = candle === 'ohlc' ? (outerWidth >= 20 ? Math.min(9, outerWidth * 0.15) : 0)
+      : candle === 'gutter' ? Math.max(3, Math.min(14, outerWidth * o.candleWidthFactor))
+      : 0;
+    const width = Math.max(0.1, outerWidth - gutter);
+    const tableRows = o.tableRows.length ? o.tableRows : o.statsPosition === 'bottom' ? o.statsRows : [];
+    const statsH = Math.min(rc.plotHeight, tableRows.length * o.statsRowHeight);
+    const cellBottom = rc.plotHeight - statsH;
+    const range = rc.timeScale.visibleRange();
+    for (let i = 0; i < this._bars.length; i++) {
+      const bar = this._bars[i];
+      if (!bar.cells.length) continue;
+      const index = rc.dataLayer.timeToIndex(bar.time);
+      if (index === undefined || index < range.from - 1 || index > range.to + 1) continue;
+      const x0 = rc.timeScale.indexToX(index) - outerWidth / 2 + gutter;
+      if (x0 + width < 0 || x0 > rc.plotWidth) continue;
+      this._cols.push({ bar, stats: this._stats[i], x: x0 + width / 2, x0, width, rowSize: this._step(bar), rows: [] });
+    }
+    if (this._cols.length === 0) { this._pushLayout(); return; }
+    this._plotH = rc.plotHeight;
+    // The pane's own OHLC, only when a `'gutter'` candle is going to ask for
+    // it. `bars()` is the series' own array in time order, never the shared
+    // logical index, so columns are matched by time.
+    const ohlc = candle === 'gutter' ? rc.bars?.() ?? [] : [];
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0, 0, rc.plotWidth * dpr, rc.plotHeight * dpr); ctx.clip();
+    ctx.textBaseline = 'middle';
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0, 0, rc.plotWidth * dpr, cellBottom * dpr); ctx.clip();
+    for (const col of this._cols) {
+      this._drawColumn(ctx, rc, col, gutter, buy, sell, bg, cellBottom, this._ohlcAt(ohlc, col.bar.time));
+    }
+    ctx.restore();
+    if (o.statsRows.length && o.statsPosition === 'bar') {
+      for (const col of this._cols) this._drawCard(ctx, rc, col, buy, sell, bg, cellBottom);
+    }
+    if (tableRows.length) this._drawFooter(ctx, rc, buy, sell, bg, statsH, tableRows);
+    ctx.restore();
+    this._pushLayout();
+  }
+
+  private _drawColumn(ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext, col: Column,
+    gutter: number, buy: string, sell: string, bg: string, cellBottom: number, ohlc: Bar | undefined): void {
+    const o = this._opts, dpr = rc.dpr;
+    const { bar, stats } = col;
+    const width = col.width * dpr, half = width / 2, x0 = col.x0 * dpr, center = col.x * dpr;
+    // Zero-filled rows are real rows: the diagonal, the hover and the histogram
+    // all read them, which is the whole point of materialising them.
+    const rows = this._rows(bar.cells, col.rowSize);
+    const byDelta = o.colorBy === 'delta';
+    const flags = byDelta ? [] : diagonalImbalances(rows, o.imbalanceRatio, col.rowSize || undefined, o.imbalanceThreshold);
+    const buys = new Set(flags.filter(flag => flag.side === 'buy').map(flag => flag.price));
+    const sells = new Set(flags.filter(flag => flag.side === 'sell').map(flag => flag.price));
+    let peak = 0, textPeak = 0, volPeak = 0, deltaPeak = 0;
+    for (const cell of rows) {
+      peak = Math.max(peak, o.displayMode === 'volume' ? cell.bidVol + cell.askVol
+        : o.displayMode === 'delta' ? Math.abs(cell.askVol - cell.bidVol) : Math.max(cell.bidVol, cell.askVol));
+      textPeak = Math.max(textPeak, o.displayMode === 'bidask' ? Math.max(cell.bidVol, cell.askVol) : cell.bidVol + cell.askVol);
+      volPeak = Math.max(volPeak, cell.bidVol + cell.askVol);
+      deltaPeak = Math.max(deltaPeak, Math.abs(cell.askVol - cell.bidVol));
+    }
+    volPeak = volPeak || 1;
+    deltaPeak = deltaPeak || 1;
+    const candle = this._candleMode();
+    if (candle === 'ohlc' && gutter > 0) this._drawCandle(ctx, rc, col, gutter, buy, sell);
+    else if (candle === 'gutter') this._gutterCandle(ctx, rc, ohlc, rows, (col.x0 - gutter / 2) * dpr, gutter * dpr, buy, sell);
+    else if (candle === 'behind') this._behindBar(ctx, rc, col, rows, x0, buy, sell);
+    const deltaCells = o.displayMode === 'bidask' && o.cells === 'deltaVolume';
+    for (const cell of rows) {
+      const bounds = this._bounds(cell.price, col.rowSize, rc);
+      if (bounds.bottom <= 0 || bounds.top >= cellBottom) continue;
+      col.rows.push({ cell, top: Math.max(0, bounds.top), bottom: Math.min(cellBottom, bounds.bottom) });
+      const top = bounds.top * dpr, rowH = (bounds.bottom - bounds.top) * dpr;
+      this._rowH = bounds.bottom - bounds.top;
+      const h = Math.max(0, rowH - Math.min(dpr, rowH * 0.1));
+      const textAlpha = Math.max(0, Math.min(1, ((bounds.bottom - bounds.top) - o.minTextHeight) / Math.max(1, o.textFade) + 1));
+      ctx.font = `${o.font * dpr}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+      const delta = cell.askVol - cell.bidVol;
+      const total = cell.bidVol + cell.askVol;
+      // In `delta` mode the row is one colour at one intensity; in `imbalance`
+      // each half answers for its own side.
+      const rowColor = delta >= 0 ? buy : sell;
+      const rowTint = total / volPeak;
+      if (deltaCells) {
+        const gap = Math.min(dpr, half * 0.08), w = half - gap;
+        // Flat by default: the sign lives in the number's colour, so the volume
+        // column is the only thing carrying intensity and the ladder reads as
+        // one gradient instead of two competing ones.
+        const ds = this._deltaStyle(delta, deltaPeak, bg, buy, sell);
+        this._cell(ctx, rc, cell, x0, top, w, h, delta, peak, textPeak, bg, buy, sell, bg, ds.hot, textAlpha, 'bid',
+          { tint: 0, style: ds.style });
+        this._cell(ctx, rc, cell, center + gap, top, w, h, total, peak, textPeak,
+          byDelta ? rowColor : mix(sell, buy, 0.5), buy, sell, bg, !byDelta && buys.has(cell.price), textAlpha, 'ask',
+          { tint: rowTint });
+      } else if (o.displayMode === 'bidask') {
+        const gap = Math.min(dpr, half * 0.08), w = half - gap;
+        this._cell(ctx, rc, cell, x0, top, w, h, cell.bidVol, peak, textPeak, byDelta ? rowColor : sell, buy, sell, bg,
+          sells.has(cell.price), textAlpha, 'bid', byDelta ? { tint: rowTint } : undefined);
+        this._cell(ctx, rc, cell, center + gap, top, w, h, cell.askVol, peak, textPeak, byDelta ? rowColor : buy, buy, sell, bg,
+          buys.has(cell.price), textAlpha, 'ask', byDelta ? { tint: rowTint } : undefined);
+      } else {
+        const value = o.displayMode === 'delta' ? delta : total;
+        const direction = delta;
+        const color = byDelta ? rowColor
+          : direction > 0 ? buy : direction < 0 ? sell : mix(buy, sell, 0.5);
+        this._cell(ctx, rc, cell, x0, top, width, h, value, peak, textPeak, color, buy, sell, bg,
+          !byDelta && (direction > 0 ? buys.has(cell.price) : direction < 0 && sells.has(cell.price)), textAlpha, 'single',
+          byDelta ? { tint: rowTint } : undefined);
+      }
+      // A histogram beside the ladder: the row's volume against the bar's
+      // busiest row. Drawn after the cells, and clear of them, so it is
+      // neither painted over nor sitting under the numbers. The buy bracket
+      // claims the lane just right of the ladder, so with runs enabled the bar
+      // starts past that lane rather than burying the run marks under itself.
+      if (o.showVolumeBar && total > 0) {
+        const len = width * o.volumeBarWidthFactor * (total / volPeak);
+        if (len >= 1) {
+          ctx.fillStyle = o.volumeBarColor ?? (delta >= 0 ? buy : sell);
+          ctx.fillRect(x0 + width + (o.stackedImbalances > 0 ? 6 : 1) * dpr, top, len, h);
+        }
+      }
+      if (cell.price === stats.poc) {
+        if (o.showPoc) {
+          if (o.pocStyle === 'outline') {
+            ctx.strokeStyle = o.pocColor; ctx.lineWidth = Math.max(1, dpr);
+            ctx.strokeRect(x0, top + dpr / 2, width, Math.max(0, h - dpr));
+          } else { ctx.fillStyle = o.pocColor; ctx.fillRect(x0 - 2 * dpr, top, 2 * dpr, h); }
+        }
+        if (o.pocOutline !== undefined) {
+          // A stroke straddles its path, so inset by half a line width or the
+          // ring bleeds into the rows above and below. Capped by the row it is
+          // ringing: a ring taller than the row would otherwise ask for a rect
+          // of negative size and invert itself.
+          const lw = Math.min(Math.max(1, Math.round(o.pocOutlineWidth * dpr)), h, width);
+          ctx.strokeStyle = o.pocOutline;
+          ctx.lineWidth = lw;
+          ctx.strokeRect(x0 + lw / 2, top + lw / 2, width - lw, h - lw);
+        }
+      }
+    }
+    if (o.showValueArea && stats.volume > 0) {
+      const hi = this._bounds(stats.vah, col.rowSize, rc), lo = this._bounds(stats.val, col.rowSize, rc);
+      ctx.strokeStyle = o.valueAreaColor ?? rc.theme.axisText; ctx.lineWidth = dpr;
+      ctx.beginPath();
+      for (const y of [Math.min(hi.top, lo.top), Math.max(hi.bottom, lo.bottom)]) {
+        ctx.moveTo(x0, y * dpr); ctx.lineTo(x0 + width, y * dpr);
+      }
+      ctx.stroke();
+    }
+    if (o.stackedImbalances > 0 && col.width >= 16) {
+      const runs = stackedImbalances(rows, o.imbalanceRatio, o.stackedImbalances, col.rowSize || undefined, o.imbalanceThreshold);
+      for (const run of runs) {
+        const a = this._bounds(run.startPrice, col.rowSize, rc), b = this._bounds(run.endPrice, col.rowSize, rc);
+        const top = Math.min(a.top, b.top) * dpr, bottom = Math.max(a.bottom, b.bottom) * dpr;
+        const bx = (run.side === 'buy' ? col.x0 + col.width - 1 : col.x0 + 1) * dpr;
+        const dx = (run.side === 'buy' ? -3 : 3) * dpr;
+        ctx.strokeStyle = run.side === 'buy' ? buy : sell; ctx.lineWidth = dpr;
+        ctx.beginPath(); ctx.moveTo(bx + dx, top); ctx.lineTo(bx, top); ctx.lineTo(bx, bottom); ctx.lineTo(bx + dx, bottom); ctx.stroke();
+      }
+    }
+  }
+
   /**
-   * A real OHLC candle in the reserved strip: a hairline wick high to low and a
-   * body open to close, coloured by direction. The body is what carries the
-   * colour, so once the slot narrows the whole thing degrades to a readable
-   * direction strip rather than to nothing. The forming bar the price series
-   * has not published yet gets a neutral wick over the cells' own extremes:
-   * the ladder knows its range, it does not yet know its open and close.
+   * The older delta-coloured range line drawn against the column, for a host
+   * that leaves its own candlestick series visible and wants only the bar's
+   * extent restated beside the ladder.
    */
-  private _gutterCandle(
-    ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext, ohlc: Bar | undefined,
-    rows: readonly FootprintCell[], cx: number, gutter: number, buy: string, sell: string,
-  ): void {
+  private _behindBar(ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext, col: Column,
+    rows: readonly FootprintCell[], x0: number, buy: string, sell: string): void {
+    if (rows.length === 0) return;
+    const dpr = rc.dpr;
+    const top = this._bounds(rows[0].price, col.rowSize, rc).top * dpr;
+    const bottom = this._bounds(rows[rows.length - 1].price, col.rowSize, rc).bottom * dpr;
+    ctx.fillStyle = withAlpha(col.stats.delta >= 0 ? buy : sell, 0.5);
+    ctx.fillRect(x0 - 5 * dpr, top, 3 * dpr, bottom - top);
+  }
+
+  /**
+   * A real OHLC candle in the reserved strip, read from the PANE's price
+   * series: a hairline wick high to low and a body open to close, coloured by
+   * direction. The body is what carries the colour, so once the slot narrows
+   * the whole thing degrades to a readable direction strip rather than to
+   * nothing. The forming bar the price series has not published yet gets a
+   * neutral wick over the cells' own extremes: the ladder knows its range, it
+   * does not yet know its open and close.
+   */
+  private _gutterCandle(ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext, ohlc: Bar | undefined,
+    rows: readonly FootprintCell[], cx: number, gutter: number, buy: string, sell: string): void {
+    if (rows.length === 0) return;
     const dpr = rc.dpr;
     const y = (p: number): number => rc.priceScale.priceToY(p) * dpr;
     const wickW = Math.max(1, Math.round(dpr));
@@ -750,63 +745,15 @@ export class Footprint implements IPrimitive {
   }
 
   /**
-   * One filled, intensity-graded cell with its number. `tint` is the 0..1 share
-   * of whatever the caller is grading against, kept out of here because a row
-   * can be graded by its own side, by its total volume, or not at all.
-   */
-  private _cell(
-    ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number,
-    value: number, tint: number, color: string, base: string,
-    hot: boolean, textAlpha: number, dpr: number,
-    style?: { fill?: string; text?: string; textHot?: string },
-  ): void {
-    if (w <= 0) return;
-    const o = this._opts;
-    // Saturated when imbalanced, otherwise a base→colour ramp. A caller that
-    // grades on something other than the cell's own share (the delta half)
-    // resolves its plate itself and hands it over.
-    ctx.fillStyle = style?.fill ?? (hot ? color : mix(base, color, this._tint(tint)));
-    const r = Math.min(o.radius * dpr, h / 2, w / 2);
-    ctx.beginPath();
-    ctx.roundRect(x, y, w, h, r);
-    ctx.fill();
-    if (textAlpha <= 0) return;
-    // Fade rather than switch: zooming through the threshold reads as one
-    // continuous change instead of numbers blinking on and off.
-    // Zero-filled rows are context, not content: dimmer so the traded ladder
-    // still reads at a glance.
-    ctx.fillStyle = hot
-      ? withAlpha(style?.textHot ?? o.cellTextColorHot ?? '#0d0f14', textAlpha)
-      : withAlpha(style?.text ?? o.cellTextColor ?? '#ffffff', (value === 0 ? 0.45 : 0.9) * textAlpha);
-    ctx.fillText(compactVol(value), x + w / 2, y + h / 2);
-  }
-
-  /**
-   * How far a cell's ramp has travelled from its base towards its colour.
-   *
-   * Off the pane background the ramp is the eased legacy one: it starts at
-   * 0.08 so a one-lot row is still visible against a dark pane, and stops
-   * short of the raw colour so the saturated imbalance fill stays a step
-   * above everything else. Neither constraint holds off a `cellBaseColor`
-   * plate, which is opaque at zero and usually light, so there the ramp is
-   * the caller's: `tintFloor` to `tintFloor + tintGain`, eased or linear.
-   */
-  private _tint(t: number): number {
-    const o = this._opts;
-    if (o.cellBaseColor === undefined) return 0.08 + 0.62 * Math.sqrt(t > 0 ? t : 0);
-    return ramp(t, o.tintFloor, o.tintGain, o.tintCurve);
-  }
-
-  /**
    * The delta half's plate and ink, or the flat default when nothing asked for
    * more. Graded on |delta| against the bar's biggest row delta rather than on
    * volume, so a row that traded little but one-sided still reads.
    */
-  private _deltaStyle(
-    d: number, deltaPeak: number, base: string, buy: string, sell: string,
+  private _deltaStyle(d: number, deltaPeak: number, base: string, buy: string, sell: string,
   ): { hot: boolean; style?: { fill?: string; text?: string; textHot?: string } } {
     const o = this._opts;
     const dc = o.deltaCell;
+    const plate = o.cellBaseColor ?? base;
     // A negative delta has always been written in the sell colour: with a flat
     // plate the number is the only place the sign can live.
     const sign = d < 0 ? sell : undefined;
@@ -814,10 +761,7 @@ export class Footprint implements IPrimitive {
       return { hot: false, style: sign === undefined ? undefined : { text: sign } };
     }
     if (dc.colorBy !== 'delta') {
-      return {
-        hot: false,
-        style: { fill: dc.baseColor, text: dc.textColor ?? sign, textHot: dc.textColorHot },
-      };
+      return { hot: false, style: { fill: dc.baseColor, text: dc.textColor ?? sign, textHot: dc.textColorHot } };
     }
     const amount = ramp(
       Math.abs(d) / deltaPeak,
@@ -827,156 +771,196 @@ export class Footprint implements IPrimitive {
       // Saturated is the same idea it is for an imbalanced cell: the plate has
       // reached the raw colour, and the ink has to change to stay readable.
       hot: amount >= 1,
-      style: {
-        fill: mix(dc.baseColor ?? base, d >= 0 ? buy : sell, amount),
-        // The plate carries the sign now, so the number stops repeating it.
-        text: dc.textColor,
-        textHot: dc.textColorHot,
-      },
+      // The plate carries the sign now, so the number stops repeating it.
+      style: { fill: mix(dc.baseColor ?? plate, d >= 0 ? buy : sell, amount), text: dc.textColor, textHot: dc.textColorHot },
     };
   }
 
-  /** Price → imbalance side, using the diagonal (ask vs the bid one tick below). */
-  private _imbalances(cells: readonly FootprintCell[]): Map<number, 'buy' | 'sell'> {
+  /**
+   * How far a cell's ramp has travelled from its base towards its colour.
+   *
+   * Off the pane background the ramp is the eased legacy one: it starts above
+   * zero so a one-lot row is still visible against a dark pane, and stops
+   * short of the raw colour so the saturated imbalance fill stays a step above
+   * everything else. Neither constraint holds off a `cellBaseColor` plate,
+   * which is opaque at zero and usually light, so there the ramp is the
+   * caller's: `tintFloor` to `tintFloor + tintGain`, eased or linear.
+   */
+  private _ramp(strength: number): number {
     const o = this._opts;
-    const out = new Map<number, 'buy' | 'sell'>();
-    for (let i = 0; i < cells.length; i++) {
-      const here = cells[i];
-      const below = cells[i + 1];
-      const above = cells[i - 1];
-      if (below && here.askVol >= o.imbalanceThreshold
-        && here.askVol >= o.imbalanceRatio * Math.max(1, below.bidVol)) out.set(here.price, 'buy');
-      if (above && here.bidVol >= o.imbalanceThreshold
-        && here.bidVol >= o.imbalanceRatio * Math.max(1, above.askVol)) out.set(here.price, 'sell');
+    if (o.cellBaseColor === undefined) {
+      return o.cellStyle === 'ladder' ? 0.18 + 0.82 * Math.sqrt(strength) : 0.08 + 0.62 * Math.sqrt(strength);
     }
-    return out;
+    return ramp(strength, o.tintFloor, o.tintGain, o.tintCurve);
   }
 
-  /** Consecutive same-side imbalance runs of at least `min` rows. */
-  private _runs(
-    cells: readonly FootprintCell[], flags: Map<number, 'buy' | 'sell'>, min: number,
-  ): { from: number; to: number; side: 'buy' | 'sell' }[] {
-    const out: { from: number; to: number; side: 'buy' | 'sell' }[] = [];
-    let run: { side: 'buy' | 'sell'; prices: number[] } | null = null;
-    const flush = (): void => {
-      if (run && run.prices.length >= min) {
-        out.push({ from: run.prices[0], to: run.prices[run.prices.length - 1], side: run.side });
-      }
-    };
-    for (const c of cells) {
-      const side = flags.get(c.price);
-      if (side !== undefined && (run === null || run.side === side)) {
-        run = run ?? { side, prices: [] };
-        run.prices.push(c.price);
-      } else {
-        flush();
-        run = side !== undefined ? { side, prices: [c.price] } : null;
-      }
+  private _drawCandle(ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext, col: Column, gutter: number, buy: string, sell: string): void {
+    const b = col.bar, dpr = rc.dpr;
+    const x = (col.x0 - gutter / 2) * dpr;
+    const bodyWidth = Math.min(4, gutter * 0.45) * dpr;
+    const high = b.high ?? b.cells[0].price, low = b.low ?? b.cells[b.cells.length - 1].price;
+    const y1 = rc.priceScale.priceToY(high) * dpr, y2 = rc.priceScale.priceToY(low) * dpr;
+    const hasBody = b.open !== undefined && b.close !== undefined;
+    const color = hasBody ? ((b.close as number) >= (b.open as number) ? buy : sell) : rc.theme.axisText;
+    ctx.fillStyle = color;
+    ctx.fillRect(x, Math.min(y1, y2), dpr, Math.max(dpr, Math.abs(y2 - y1)));
+    if (hasBody) {
+      const open = rc.priceScale.priceToY(b.open as number) * dpr, close = rc.priceScale.priceToY(b.close as number) * dpr;
+      ctx.fillRect(x - bodyWidth / 2, Math.min(open, close), bodyWidth, Math.max(dpr, Math.abs(close - open)));
     }
-    flush();
-    return out;
   }
 
-  /** The stats table: one column per bar, one row per metric. */
-  private _drawStats(
-    ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext, cols: readonly Column[],
-    width: number, buy: string, sell: string, bg: string, plotH: number, statsH: number,
-  ): void {
-    const o = this._opts;
-    const dpr = rc.dpr;
-    const rowH = o.statsRowHeight * dpr;
-    const top = plotH - statsH;
-
-    // Per-metric extremes, so a cell can be tinted by strength relative to what
-    // is actually on screen rather than an arbitrary constant.
-    const peak = new Map<FootprintStatRow, number>();
-    for (const row of o.statsRows) {
-      let m = 0;
-      for (const c of cols) m = Math.max(m, Math.abs(this._metric(c.stats, row)));
-      peak.set(row, m || 1);
+  private _cell(ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext, cell: FootprintCell,
+    x: number, y: number, w: number, h: number, value: number, peak: number, textPeak: number, color: string,
+    buy: string, sell: string, bg: string, hot: boolean, alpha: number, side: 'bid' | 'ask' | 'single',
+    paint?: CellPaint): void {
+    if (w <= 0 || h <= 0) return;
+    const o = this._opts, dpr = rc.dpr, profile = o.cellStyle === 'profile';
+    // A caller grading on something other than the cell's own share — a row
+    // coloured by its delta, or the flat half of a `deltaVolume` pair — hands
+    // the share over rather than having it inferred from the number shown.
+    const strength = Math.max(0, Math.min(1, paint?.tint ?? (peak > 0 ? Math.abs(value) / peak : 0)));
+    // An opaque plate replaces the pane background as the colour a cell ramps
+    // from, so a one-lot row is legible instead of being a hole in the ladder.
+    const base = o.cellBaseColor ?? bg;
+    const fill = paint?.style?.fill ?? (hot ? color : mix(base, color, this._ramp(strength)));
+    const fillW = profile ? w * strength : w;
+    const fillX = profile && side === 'bid' ? x + w - fillW : x;
+    if (fillW > 0) {
+      ctx.fillStyle = fill; ctx.beginPath();
+      ctx.roundRect(fillX, y, fillW, h, o.cellStyle === 'ladder' || profile ? 0 : Math.min(o.radius * dpr, h / 2, fillW / 2)); ctx.fill();
     }
+    if (alpha <= 0 || h < o.font * dpr * 0.6) return;
+    const label = compactVol(value / o.volumeDivisor), textW = ctx.measureText(label).width;
+    if (textW + 4 * dpr > w) return;
+    ctx.textAlign = profile && side !== 'single' ? (side === 'bid' ? 'right' : 'left') : 'center';
+    const tx = profile && side !== 'single' ? (side === 'bid' ? x + w - 2 * dpr : x + 2 * dpr) : x + w / 2;
+    const left = ctx.textAlign === 'right' ? tx - textW : ctx.textAlign === 'left' ? tx : tx - textW / 2;
+    const right = left + textW;
+    let background = fill;
+    if (profile) {
+      if (fillW === 0 || right <= fillX || left >= fillX + fillW) background = bg;
+      else if (left < fillX || right > fillX + fillW) {
+        // A number crossing a bright profile edge cannot contrast with both
+        // surfaces. Give the glyphs one opaque backplate on that row.
+        background = bg; ctx.fillStyle = bg;
+        ctx.fillRect(left - dpr, y, textW + 2 * dpr, h);
+      }
+    }
+    const neutral = o.textColor ?? readableTextColor(rc.theme.axisText, bg);
+    // A pinned ink is used as given: a host that chose an exact colour for its
+    // ladder means it, and a contrast correction would quietly move it. The
+    // signed half of a `deltaVolume` row pins its own, so the sign survives
+    // whatever the theme says.
+    const pinned = hot ? paint?.style?.textHot ?? o.cellTextColorHot : paint?.style?.text ?? o.cellTextColor;
+    const text = pinned ?? footprintTextColor({ mode: o.textColorMode, side, bidVol: cell.bidVol, askVol: cell.askVol,
+      peak: textPeak, hot, neutral, buy: o.buyTextColor ?? buy, sell: o.sellTextColor ?? sell, background });
+    // Zero-filled rows are context, not content: dimmer so the traded ladder
+    // still reads at a glance.
+    ctx.fillStyle = withAlpha(text, value === 0 ? alpha * 0.45 : alpha);
+    ctx.fillText(label, tx, y + h / 2);
+  }
 
-    ctx.save();
-    ctx.fillStyle = withAlpha(bg, 0.92);
-    ctx.fillRect(0, top, rc.plotWidth * dpr, statsH);
-    ctx.font = `${(o.font - 0.5) * dpr}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+  private _drawCard(ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext, col: Column, buy: string, sell: string, bg: string, cellBottom: number): void {
+    const o = this._opts, dpr = rc.dpr;
+    if (col.width < 68 || col.rows.length === 0) return;
+    let bottom = -Infinity;
+    for (const cell of col.bar.cells) bottom = Math.max(bottom, this._bounds(cell.price, col.rowSize, rc).bottom);
+    if (o.showCandle) for (const price of [col.bar.high, col.bar.low]) if (price !== undefined) bottom = Math.max(bottom, rc.priceScale.priceToY(price));
+    const top = bottom + 8, height = o.statsRows.length * o.statsRowHeight + 8;
+    if (top < 0 || top + height > cellBottom) return;
+    col.card = { top, bottom: top + height };
+    const fill = mix(bg, rc.theme.axisText, 0.13);
+    ctx.fillStyle = fill; ctx.beginPath(); ctx.roundRect(col.x0 * dpr, top * dpr, col.width * dpr, height * dpr, 2 * dpr); ctx.fill();
+    ctx.font = `${Math.max(8, o.font - 1) * dpr}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+    o.statsRows.forEach((row, i) => {
+      const value = this._metric(col.stats, row), text = this._statText(value, row);
+      const y = (top + 4 + (i + 0.5) * o.statsRowHeight) * dpr;
+      const label = STAT_LABEL[row];
+      if (ctx.measureText(label).width + ctx.measureText(text).width + 12 * dpr > col.width * dpr) return;
+      ctx.textAlign = 'left'; ctx.fillStyle = readableTextColor(o.textColor ?? rc.theme.axisText, fill);
+      ctx.fillText(label, (col.x0 + 4) * dpr, y);
+      ctx.textAlign = 'right';
+      ctx.fillStyle = readableTextColor(this._statColor(row, value, o.textColor ?? rc.theme.axisText, o.buyTextColor ?? buy, o.sellTextColor ?? sell), fill);
+      ctx.fillText(text, (col.x0 + col.width - 4) * dpr, y);
+    });
+  }
+
+  private _drawFooter(ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext, buy: string, sell: string, bg: string, height: number, rows: readonly FootprintStatRow[]): void {
+    const o = this._opts, dpr = rc.dpr, top = rc.plotHeight - height;
+    const labelWidth = Math.min(o.tableLabelWidth, rc.plotWidth);
+    ctx.fillStyle = bg; ctx.fillRect(0, top * dpr, rc.plotWidth * dpr, height * dpr);
+    ctx.font = `${Math.max(8, o.font - 0.5) * dpr}px ui-monospace, SFMono-Regular, Menlo, monospace`;
     ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
-    o.statsRows.forEach((row, r) => {
-      const y = top + r * rowH;
-      for (const col of cols) {
-        const v = this._metric(col.stats, row);
-        const strength = Math.abs(v) / (peak.get(row) as number);
-        const x = col.x - width / 2;
-        const w = width - dpr;
-        // Volume has no sign, so it reads neutral; the rest tint by direction.
-        const tint = row === 'volume' || row === 'trades'
-          ? mix(bg, rc.theme.axisText, 0.10 + 0.16 * strength)
-          : row === 'cvd'
-            ? mix(bg, '#4f8cff', 0.10 + 0.5 * strength)
-            : mix(bg, v >= 0 ? buy : sell, 0.10 + 0.55 * strength);
-        ctx.fillStyle = tint;
-        ctx.beginPath();
-        ctx.roundRect(x, y + dpr, w, rowH - 2 * dpr, 2 * dpr);
-        ctx.fill();
-        ctx.fillStyle = withAlpha('#ffffff', 0.92);
-        ctx.fillText(this._statText(v, row), col.x, y + rowH / 2);
+    const slot = rc.timeScale.barSpacing;
+    for (const col of this._cols) {
+      const x = rc.timeScale.indexToX(rc.dataLayer.timeToIndex(col.bar.time)!);
+      const left = Math.max(labelWidth, x - slot / 2), right = Math.min(rc.plotWidth, x + slot / 2);
+      if (left < right) col.table = { left, right, top, bottom: rc.plotHeight };
+    }
+    ctx.save();
+    ctx.beginPath(); ctx.rect(labelWidth * dpr, top * dpr, (rc.plotWidth - labelWidth) * dpr, height * dpr); ctx.clip();
+    rows.forEach((row, i) => {
+      let peak = 1;
+      for (const col of this._cols) if (col.table) peak = Math.max(peak, Math.abs(this._metric(col.stats, row) ?? 0));
+      for (const col of this._cols) {
+        if (!col.table) continue;
+        const value = this._metric(col.stats, row), v = value ?? 0;
+        const fill = mix(bg, this._statColor(row, value, rc.theme.axisText, buy, sell), 0.1 + 0.4 * Math.abs(v) / peak);
+        const x = rc.timeScale.indexToX(rc.dataLayer.timeToIndex(col.bar.time)!);
+        const y = (top + i * o.statsRowHeight) * dpr;
+        ctx.fillStyle = fill;
+        ctx.fillRect((x - slot / 2) * dpr, y + dpr, Math.max(0, slot * dpr - dpr), Math.max(0, o.statsRowHeight * dpr - dpr));
+        const text = this._statText(value, row);
+        const halfText = ctx.measureText(text).width / (2 * dpr) + 2;
+        if (x - halfText < col.table.left || x + halfText > col.table.right) continue;
+        ctx.fillStyle = readableTextColor(o.textColor ?? rc.theme.axisText, fill);
+        ctx.fillText(text, x * dpr, y + o.statsRowHeight * dpr / 2);
       }
     });
     ctx.restore();
-  }
-
-  private _metric(s: FootprintBarStats, row: FootprintStatRow): number {
-    switch (row) {
-      case 'volume': return s.volume;
-      case 'delta': return s.delta;
-      case 'deltaPct': return s.deltaPct;
-      case 'cvd': return s.cvd;
-      default: return s.trades;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0, top * dpr, labelWidth * dpr, height * dpr); ctx.clip();
+    const labelFill = mix(bg, rc.theme.axisText, 0.09);
+    ctx.fillStyle = labelFill; ctx.fillRect(0, top * dpr, labelWidth * dpr, height * dpr);
+    ctx.fillStyle = readableTextColor(o.textColor ?? rc.theme.axisText, labelFill); ctx.textAlign = 'left';
+    rows.forEach((row, i) => ctx.fillText(TABLE_LABEL[row], 6 * dpr, (top + (i + 0.5) * o.statsRowHeight) * dpr));
+    ctx.restore();
+    ctx.strokeStyle = mix(bg, rc.theme.axisText, 0.25); ctx.lineWidth = dpr; ctx.beginPath();
+    for (let i = 0; i <= rows.length; i++) {
+      const y = (top + i * o.statsRowHeight) * dpr;
+      ctx.moveTo(0, y); ctx.lineTo(rc.plotWidth * dpr, y);
     }
+    ctx.moveTo(labelWidth * dpr, top * dpr); ctx.lineTo(labelWidth * dpr, rc.plotHeight * dpr); ctx.stroke();
+  }
+  private _statColor(row: FootprintStatRow, value: number | null, neutral: string, buy: string, sell: string): string {
+    if (value === null || value === 0 || row === 'volume' || row === 'trades') return neutral;
+    if (row === 'askVolume') return buy;
+    if (row === 'bidVolume') return sell;
+    return value > 0 ? buy : sell;
+  }
+  private _metric(s: FootprintBarStats, row: FootprintStatRow): number | null { return row === 'deltaPct' ? s.deltaPct : s[row]; }
+  private _statText(value: number | null, row: FootprintStatRow): string {
+    if (value === null) return '—';
+    if (row === 'deltaPct') return `${value >= 0 ? '+' : ''}${value.toFixed(1)}%`;
+    const displayed = row === 'trades' ? value : value / this._opts.volumeDivisor;
+    return unsignedRow(row) ? compactVol(displayed) : signed(displayed);
   }
 
-  private _statText(v: number, row: FootprintStatRow): string {
-    if (row === 'deltaPct') return `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
-    if (row === 'volume' || row === 'trades') return compactVol(v);
-    return signed(v);
-  }
-
-  /**
-   * Report the column (and row) under the pointer so a host can show a tooltip.
-   * Returns a hit id of `footprint:<time>` — the payload is on `hoverAt`.
-   */
   public hitTest(x: number, y: number): PrimitiveHit | null {
-    const col = this._cols.find((c) => x >= c.x0 && x <= c.x1);
-    if (col === undefined) return null;
-    if (y < 0 || y > this._plotH) return null;
-    return { externalId: `footprint:${col.time}`, zOrder: 'normal', distance: 0, cursor: 'crosshair' };
+    const hover = this.hoverAt(x, y);
+    return hover ? { externalId: `footprint:${hover.time}`, zOrder: 'normal', distance: 0, cursor: 'crosshair' } : null;
   }
-
-  /**
-   * Full hover payload for `(x, y)` in media px, for a host-drawn tooltip.
-   * `rc` defaults to the context of the last paint, so a crosshair handler can
-   * just call `hoverAt(p.x, p.y)`.
-   */
   public hoverAt(x: number, y: number, rc?: PrimitiveRenderContext): FootprintHover | null {
-    const ctx = rc ?? this._rc;
-    if (ctx === null) return null;
-    const col = this._cols.find((c) => x >= c.x0 && x <= c.x1);
-    if (col === undefined) return null;
-    const i = this._bars.findIndex((b) => b.time === col.time);
-    if (i < 0) return null;
-    const bar = this._bars[i];
-    const price = ctx.priceScale.yToPrice(y);
-    let cell: FootprintCell | null = null;
-    let best = Infinity;
-    // The rows the painter drew, not the traded cells: with `zeroFill` the
-    // pointer is over a `0 x 0` row as often as not, and snapping it to the
-    // nearest print reports a row the user is not looking at.
-    for (const c of this._rows(bar.cells, this._opts.tickSize ?? 0)) {
-      const d = Math.abs(ctx.priceScale.priceToY(c.price) - y);
-      if (d < best && d <= Math.max(4, this._rowH)) { best = d; cell = c; }
-    }
-    return { time: bar.time, price: cell === null ? null : price, cell, stats: this._stats[i] };
+    const context = rc ?? this._rc;
+    if (!context || x < 0 || x > context.plotWidth || y < 0 || y > context.plotHeight) return null;
+    const table = this._cols.find(c => c.table && x >= c.table.left && x < c.table.right && y >= c.table.top && y <= c.table.bottom);
+    if (table) return { time: table.bar.time, price: null, cell: null, stats: table.stats };
+    const col = this._cols.find(c => x >= c.x0 && x <= c.x0 + c.width);
+    if (!col) return null;
+    const row = col.rows.find(r => y >= r.top && y < r.bottom);
+    if (row) return { time: col.bar.time, price: row.cell.price, cell: row.cell, stats: col.stats };
+    if (col.card && y >= col.card.top && y <= col.card.bottom) return { time: col.bar.time, price: null, cell: null, stats: col.stats };
+    return null;
   }
 }

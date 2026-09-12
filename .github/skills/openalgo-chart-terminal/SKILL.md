@@ -9,15 +9,29 @@ Build or extend a terminal. This is the largest thing you can build with this li
 
 Two working references exist. Read the one closer to the user's stack before writing code:
 
-- `examples/yfinance/index.html` in the openalgo-charts repo - a complete single-file terminal shell, no framework.
+- `examples/yfinance/index.html` in the openalgo-charts repo - a native-ESM terminal shell with modules under `src/`, no framework.
 - `frontend/src/components/trading/ChartPane.tsx` and `frontend/src/lib/trading/terminal.ts` in the OpenAlgo application repo - a production React terminal. Its central lesson: **keep chart orchestration in a plain TypeScript module and let React own only the DOM shell.**
+
+For async startup, pagination, replay entry/exit and concurrent registration, read
+[host-integration](../openalgo-charts/references/host-integration.md). The widget already
+implements its documented reconnect recovery; a custom terminal must protect every data
+writer, including polling and older-history responses.
+
+For an Objects panel, use the base-tier `ChartObjects` inventory described in
+[core-api](../openalgo-charts/references/core-api.md). Own one model per live chart
+generation, route drawing actions through its existing controller, and destroy the
+model before replacing the chart. Register profile capabilities explicitly; order
+and position primitives are outside the inventory. Persist indicator `visible` with
+its settings, defaulting older layouts to true. A custom React panel should clear old
+rows immediately when its focused chart changes. Packaged hosts can use
+`widget.openObjects()` and the existing editors.
 
 ## Build order
 
 ### 1. Chart and data
 
 ```ts
-import { createChart, OpenAlgoLiveDataFeed } from 'openalgo-charts';
+import { createChart, darkTheme, OpenAlgoLiveDataFeed } from 'openalgo-charts';
 
 const chart = createChart(el, { theme: darkTheme, crosshairMode: 'magnet' });
 const price = chart.addSeries('candlestick');
@@ -49,6 +63,11 @@ registerInterval({ code: '1MO', bucketing: { mode: 'calendar', unit: 'month', co
 ### 3. History paging
 
 `chart.setHistoryLoader(fn)` fires when the user pans past the left edge. Fetch older bars, `series.prependData(older)`, then `chart.historyLoadComplete()`. Prepending shifts logical indices but the visible window is preserved - do not re-fit.
+
+For a recent-bar default, use `navigation.defaultVisibleBars` and `resetScale()` after a
+symbol load that should adopt it. This is independent of the REST lookback. An explicit
+saved viewport still applies after data. Keep paging behind a request-owner guard so an
+old response or `finally` cannot alter a replacement chart or a newer request.
 
 ### 4. Chart type and transforms
 

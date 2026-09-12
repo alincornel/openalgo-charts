@@ -8,7 +8,7 @@ import { InvalidateMask, InvalidationLevel } from './invalidate-mask';
 import { RenderLoop, type RafScheduler, type RafCanceller } from './render-loop';
 import { Pane, type PaneRenderContext } from './pane';
 import { type ChartTheme, DEFAULT_THEME } from '../theme';
-import { TimeScale } from '../scale/time-scale';
+import { TimeScale, type TimeScaleOptions } from '../scale/time-scale';
 import type { LogicalRange } from '../scale/time-scale';
 import type { PriceScaleOptions, PriceScaleMode, PriceScale } from '../scale/price-scale';
 import { medianBarInterval, type TickMarkType, type SessionClockOptions, type BarCountdownOptions } from '../render/axis';
@@ -89,6 +89,7 @@ const INSTANCE_PALETTE: readonly string[] = [
   '#26c6da', '#8bc34a', '#ff7043', '#5c6bc0',
 ];
 import { IndicatorInstance, type IndicatorApi, type IndicatorHost } from '../model/indicator-instance';
+import type { ChartDataContext } from '../model/indicator-registry';
 import {
   CHART_STATE_VERSION,
   type ChartState,
@@ -190,6 +191,14 @@ export interface ExportSvgOptions {
   dpr?: 1;
 }
 
+/** Preferences for pointer panning and the view restored by reset. */
+export interface ChartNavigationOptions {
+  /** Mouse and pen plot drags. Touch gestures retain two-axis panning. Default: both. */
+  mousePan: 'horizontal' | 'both';
+  /** Latest bars to show initially and on reset. 0 fits all loaded bars (default). */
+  defaultVisibleBars: number;
+}
+
 export interface ChartOptions {
   document?: Document;
   pixelRatio?: () => number;
@@ -204,6 +213,10 @@ export interface ChartOptions {
    */
   priceTickCount?: number;
   timeAxisHeight?: number;
+  /** Initial horizontal scale configuration, including spacing limits for wide profiles. */
+  timeScale?: Partial<TimeScaleOptions>;
+  /** Saved navigation preferences, also exposed in the Axes settings tab. */
+  navigation?: Partial<ChartNavigationOptions>;
   /**
    * Where indicator legend rows start inside **one** pane, in media px. A host
    * that draws its own overlay in a pane's top-left corner — an OHLC readout, a
@@ -679,7 +692,7 @@ export class Chart {
   private readonly _raf: { schedule: RafScheduler; cancel: RafCanceller };
   private _remeasureHandle: number | null = null;
   private readonly _dataLayer = new DataLayer();
-  private readonly _timeScale = new TimeScale();
+  private readonly _timeScale: TimeScale;
   private readonly _priceAxisWidth: number;
   private readonly _priceTickCount: number | undefined;
   private readonly _timeAxisHeight: number;
@@ -749,6 +762,7 @@ export class Chart {
   private _cursorPane: number | null = null;
   private _cursor: { x: number; y: number } | null = null;
   private _dragging = false;
+  private readonly _navigation: ChartNavigationOptions = { mousePan: 'both', defaultVisibleBars: 0 };
   private _dragStartX = 0;
   private _dragStartY = 0;
   private _lastDragY = 0;
@@ -777,6 +791,7 @@ export class Chart {
   /** Handle + record of the primary price series (see `primarySeries`). */
   private _primary: { api: SeriesApi; record: SeriesRecord } | null = null;
   private readonly _indicators: IndicatorInstance[] = [];
+  private _dataContext: Readonly<ChartDataContext> | undefined;
   /** Guards indicator recompute against re-entry via its own `series.setData`. */
   private _recomputing = false;
   private _indicatorsDirty = false;
@@ -880,6 +895,7 @@ export class Chart {
   private _timeNavPane = -1;
 
   public constructor(container: HTMLElement, options: ChartOptions = {}) {
+    this._timeScale = new TimeScale(options.timeScale);
     this._container = container;
     this._doc = options.document ?? container.ownerDocument;
     this._pixelRatio = options.pixelRatio ?? defaultPixelRatio;
@@ -936,6 +952,7 @@ export class Chart {
     if (margins.marginTop !== undefined || margins.marginBottom !== undefined) {
       this._priceScaleOptions = { ...this._priceScaleOptions, ...margins };
     }
+    this._patchNavigation(options.navigation ?? {});
     const nav = options.timeNavigator ?? true;
     if (nav !== false) {
       this._timeNav = new TimeNavigator(
@@ -1027,6 +1044,40 @@ export class Chart {
     this._timeScale.fitContent(this._dataLayer.length);
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
     this._emitViewportIfMoved(before);
+  }
+
+  /** Current navigation preferences, safe to save as JSON. */
+  public navigationOptions(): Readonly<ChartNavigationOptions> {
+    return { ...this._navigation };
+  }
+
+  /** A new default bar count immediately restores that view without dropping history. */
+  public setNavigationOptions(patch: Partial<ChartNavigationOptions>): void {
+    const before = this._navigation.defaultVisibleBars;
+    this._patchNavigation(patch);
+    if (before !== this._navigation.defaultVisibleBars) this.resetScale();
+  }
+
+  private _patchNavigation(patch: Partial<ChartNavigationOptions>): void {
+    if (patch.mousePan === 'horizontal' || patch.mousePan === 'both') this._navigation.mousePan = patch.mousePan;
+    const count = patch.defaultVisibleBars;
+    // Saved layouts are untrusted input. Invalid values must not poison spacing.
+    if (typeof count === 'number' && Number.isFinite(count) && count >= 0) {
+      this._navigation.defaultVisibleBars = Math.min(100000, Math.floor(count));
+    }
+  }
+
+  private _fitDefaultView(): boolean {
+    const total = this._dataLayer.length;
+    if (total <= 0 || !(this._timeScale.width > 0)) return false;
+    // Fit the real dataset first: baseIndex must still identify its newest bar,
+    // not the last bar of the smaller requested window.
+    this._timeScale.fitContent(total);
+    if (this._navigation.defaultVisibleBars > 0) {
+      const count = Math.min(total, this._navigation.defaultVisibleBars);
+      this._timeScale.setBarSpacing(this._timeScale.width / (count + this._timeScale.rightOffset));
+    }
+    return true;
   }
 
   /** The keyboard shortcut manager (null when shortcuts are disabled). */
@@ -1155,8 +1206,10 @@ export class Chart {
         // "Default", which is the key present and undefined).
         if ('precision' in patch) this._applyPrecision(pane.scaleOf(record), patch.precision);
         this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
+        if (this._primary?.record === record) this.emit('objects:change', {});
       },
       remove: (): void => {
+        const primary = this._primary?.record === record;
         pane.removeSeries(record);
         this._dataLayer.removeSeries(dataId);
         if (this._firstDataId.value === dataId) this._firstDataId.value = null;
@@ -1164,6 +1217,7 @@ export class Chart {
         this._timeScale.setBaseIndex(this._dataLayer.baseIndex);
         this._recomputeAxisColumns();
         this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
+        if (primary) this.emit('objects:change', {});
       },
       priceScale: (): PriceScale => pane.scaleOf(record),
       createMarkers: (): SeriesMarkers => {
@@ -1174,7 +1228,10 @@ export class Chart {
         return m;
       },
     };
-    if (isPrimary) this._primary = { api, record };
+    if (isPrimary) {
+      this._primary = { api, record };
+      this.emit('objects:change', {});
+    }
     return api;
   }
 
@@ -1290,6 +1347,7 @@ export class Chart {
       options.paneIndex,
     );
     this._indicators.push(instance);
+    this.emit('objects:change', {});
     return instance;
   }
 
@@ -1334,10 +1392,16 @@ export class Chart {
 
   /** Remove one indicator instance by its handle id. Returns true if it existed. */
   public removeIndicator(instanceId: string): boolean {
+    const instance = this._indicators.find(x => x.id === instanceId);
+    if (instance === undefined) return false;
+    instance.remove();
+    return true;
+  }
+
+  private _forgetIndicator(instanceId: string): void {
     const i = this._indicators.findIndex((x) => x.id === instanceId);
-    if (i < 0) return false;
+    if (i < 0) return;
     const { indicatorId, paneIndex } = this._indicators[i];
-    this._indicators[i].remove();
     this._indicators.splice(i, 1);
     this.emit('indicatorRemoved', { instanceId, indicatorId, paneIndex });
     // An indicator pane that just emptied has nothing left to show. This lived
@@ -1346,11 +1410,24 @@ export class Chart {
     // `getState` then persisted the orphan, so every reload restored a blank
     // region. Doing it here means every caller behaves the same.
     if (paneIndex > 0 && this._panes[paneIndex]?.series().length === 0) this.removePane(paneIndex);
-    return true;
+  }
+
+  /** Optional instrument identity supplied by the host, never inferred from bars. */
+  public getDataContext(): Readonly<ChartDataContext> | undefined {
+    return this._dataContext;
+  }
+
+  /** Clear the previous source bars before changing context, then load the new source. */
+  public setDataContext(context: ChartDataContext | undefined): void {
+    if (this._dataContext?.symbol === context?.symbol && this._dataContext?.exchange === context?.exchange
+      && this._dataContext?.interval === context?.interval && !!this._dataContext === !!context) return;
+    this._dataContext = context ? Object.freeze({ ...context }) : undefined;
+    this.emit('data:context', this._dataContext);
   }
 
   private _indicatorHost(): IndicatorHost {
     return {
+      indicatorRemoved: (id): void => this._forgetIndicator(id),
       flushIndicators: (): void => this._flushIndicators(),
       // The scale that draws the ladder is the one that decides how a number on
       // that pane is written, floor, tick, custom formatter and all.
@@ -1412,10 +1489,16 @@ export class Chart {
       timezone: (): string => this._timezone,
       // The same clock the countdown row reads, so an indicator that decides
       // whether the last bar is still forming agrees with the axis about it.
-      // `symbol` and `interval` are deliberately absent: the core is handed
-      // bars and never an instrument, and a host that knows one implements its
-      // own IndicatorHost rather than having the engine invent a name.
+      // Instrument identity exists only when a host explicitly supplies it.
       now: (): number => this._wallClock(),
+      symbol: (): string | undefined => this._dataContext?.symbol,
+      interval: (): string | undefined => this._dataContext?.interval,
+      dataContext: () => this._dataContext,
+      subscribeDataChanges: listener => {
+        const context = this.on('data:context', () => listener('context'));
+        const range = this.on('data:range', () => listener('range'));
+        return () => { context(); range(); };
+      },
       // The tick size the price scale is already formatting and snapping to.
       // Unlike symbol and interval, the chart genuinely knows this one, so an
       // indicator sizing a range in ticks does not have to be told twice.
@@ -1524,6 +1607,7 @@ export class Chart {
    * value, which is the frame and the public `indicators()` accessor.
    */
   private _invalidateIndicators(): void {
+    this.emit('data:range', {});
     if (this._indicators.length === 0) return;
     this._indicatorsDirty = true;
     this._loop.requestFrame();
@@ -2343,8 +2427,7 @@ export class Chart {
     this._timeScale.setBaseIndex(this._dataLayer.baseIndex);
     if (!this._hasFitContent && this._dataLayer.length > 0) {
       this._timeScale.setWidth(Math.max(0, this._width - this._rightAxisWidth - this._leftAxisWidth));
-      this._timeScale.fitContent(this._dataLayer.length);
-      this._hasFitContent = true;
+      this._hasFitContent = this._fitDefaultView();
     }
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
     this._updateAccessibleSummary();
@@ -2582,6 +2665,7 @@ export class Chart {
       timezone: this._timezone,
       viewport: { ...this.getVisibleLogicalRange() },
       barSpacing: this._timeScale.barSpacing,
+      navigation: this.navigationOptions(),
       grid: this.gridOptions(),
       // The settings dialog's own slice. It lives beside `grid` rather than
       // inside it because these are chart-wide overrides, and it is declared by
@@ -2603,6 +2687,7 @@ export class Chart {
         indicatorId: i.indicatorId,
         settings: i.settings(),
         paneIndex: i.paneIndex,
+        visible: i.visible(),
       })),
     };
     if (this._drawingState !== undefined) state.drawings = this._drawingState;
@@ -2640,6 +2725,7 @@ export class Chart {
     if (s.statusLine) this.setStatusLineOptions(s.statusLine);
     if (s.trading) this.setTradingSettings(s.trading);
     if (s.axisChrome) this.setAxisChromeOptions(s.axisChrome);
+    if (s.navigation && typeof s.navigation === 'object') this._patchNavigation(s.navigation);
     if (s.events) this.setEventOptions(s.events);
     if (s.crosshairMode) this._crosshairMode = s.crosshairMode;
     // A saved zone is data of unknown provenance, so an unrecognised name is
@@ -2662,8 +2748,7 @@ export class Chart {
     // recreated. Replace rather than append, so restore is idempotent.
     let indicators = 0;
     if (s.indicators) {
-      for (const instance of this._indicators) instance.remove();
-      this._indicators.length = 0;
+      for (const instance of this._indicators.splice(0)) instance.remove();
       // The band an oscillator declares for its own pane (RSI 0..100) is
       // declared by the instance that *claimed* that pane. A restored instance
       // is handed its pane index instead of claiming one, so it declares
@@ -2676,9 +2761,11 @@ export class Chart {
       for (const spec of s.indicators) {
         if (!hasIndicator(spec.indicatorId)) continue; // tier not loaded — skip, don't throw
         const descriptor = getIndicator(spec.indicatorId);
-        this._indicators.push(new IndicatorInstance(
+        const instance = new IndicatorInstance(
           this._indicatorHost(), descriptor, spec.settings, spec.paneIndex,
-        ));
+        );
+        this._indicators.push(instance);
+        if (spec.visible === false) instance.setVisible(false);
         indicators += 1;
         if (spec.paneIndex > 0 && !declared.has(spec.paneIndex)) {
           declared.add(spec.paneIndex);
@@ -2732,6 +2819,7 @@ export class Chart {
     if (s.viewport && this._dataLayer.length > 0) this._timeScale.setVisibleLogicalRange(s.viewport);
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
     this._emitViewportIfMoved(beforeView);
+    this.emit('objects:change', {});
     return { applied: true, series: s.series ?? [], indicators };
   }
 
@@ -2745,6 +2833,7 @@ export class Chart {
 
   public setDrawingState(value: unknown): void {
     this._drawingState = value;
+    this.emit('objects:change', {});
   }
 
   public invalidate(build: (mask: InvalidateMask) => void): void {
@@ -2781,6 +2870,8 @@ export class Chart {
     this._width = width;
     this._height = height;
     this._relayout();
+    // Hidden tabs can receive history before they have any usable plot width.
+    if (!this._hasFitContent) this._hasFitContent = this._fitDefaultView();
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
     this.emit('resize', { width, height });
   }
@@ -2941,8 +3032,8 @@ export class Chart {
     // otherwise their series rows would outlive the pane holding them.
     for (let i = this._indicators.length - 1; i >= 0; i--) {
       if (this._indicators[i].paneIndex !== index) continue;
-      this._indicators[i].remove();
-      this._indicators.splice(i, 1);
+      const [instance] = this._indicators.splice(i, 1);
+      instance.remove();
     }
     const pane = this._panes[index];
     for (const record of [...pane.series()]) {
@@ -3088,7 +3179,7 @@ export class Chart {
     if (this._shortcuts === null) return {};
     const out: Record<string, string> = {};
     for (const e of this._shortcuts.list()) {
-      if (e.command !== 'zoomIn' && e.command !== 'zoomOut') continue;
+      if (e.command !== 'zoomIn' && e.command !== 'zoomOut' && e.command !== 'resetScale') continue;
       const combo = e.combos[0];
       if (combo !== undefined) out[e.command] = prettyCombo(combo);
     }
@@ -3666,16 +3757,17 @@ export class Chart {
       return;
     }
     if (this._axisDrag === 'time') {
-      // drag right (dx>0) → expand (wider bars); drag left → compress
+      // Drag left to widen bars; drag right to show more bars in the same space.
       const dx = p.x - this._axisStartCoord;
       const before = this._timeScale.visibleRange();
-      this._timeScale.setBarSpacing(this._axisStartSpacing * Math.exp(dx * 0.005));
+      this._timeScale.setBarSpacing(this._axisStartSpacing * Math.exp(-dx * 0.005));
       this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
       // Stretching the bars is a zoom by any other name: it is the last route
       // that moved the window without saying so, which left a host sizing
       // itself off `on('zoom')` rendering for a window it no longer had. Not a
-      // bare `_emitViewport('zoom')`, because spacing clamped at its limit
-      // moves nothing and must stay silent like every other path.
+      // bare `_emitViewport('zoom')`, because spacing clamped at its limit —
+      // and a drag that has not moved yet — changes nothing and must stay
+      // silent like every other path.
       this._emitViewportIfMoved(before);
       return;
     }
@@ -3735,8 +3827,10 @@ export class Chart {
       if (Math.abs(dx) > 3 || Math.abs(p.y - this._dragStartY) > 3) this._pointerMoved = true;
       // horizontal: scroll time
       this._timeScale.setRightOffset(this._dragStartOffset - dx / this._timeScale.barSpacing);
-      // vertical: pan the dragged pane's price scale (incremental, switches to manual)
-      this._panes[this._downPane]?.priceScale.panByPixels(p.y - this._lastDragY);
+      // Horizontal-only mode preserves autoscale when the pointer moves vertically.
+      if (e.pointerType === 'touch' || this._navigation.mousePan === 'both') {
+        this._panes[this._downPane]?.priceScale.panByPixels(p.y - this._lastDragY);
+      }
       this._lastDragY = p.y;
       const t = this._now();
       const dt = t - this._lastDragT;
@@ -4046,18 +4140,18 @@ export class Chart {
   }
 
   /**
-   * Restore the default view: fit all bars on the time axis and re-enable
+   * Restore the preferred visible bar count and re-enable
    * auto-scaling on every price axis (undoing any pan/zoom or manual axis drag).
    * Same as double-clicking the chart.
    */
   public resetScale(): void {
     const before = this._timeScale.visibleRange();
-    if (this._dataLayer.length > 0) this._timeScale.fitContent(this._dataLayer.length);
+    this._hasFitContent = this._fitDefaultView();
     for (const pane of this._panes) {
       // "Back to the default view" includes the ratio locks: one would otherwise
       // sit in the map holding a scale that has just been told to auto-fit.
       pane.clearRatioLocks();
-      pane.priceScale.setAutoScale(true);
+      for (const scale of pane.scales()) scale.setAutoScale(true);
     }
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
     this._emitViewportIfMoved(before);
@@ -4377,8 +4471,7 @@ export class Chart {
     // destroyed instance, which is the classic timer leak.
     this._clearCrosshairPress();
     this._stopZoomGlide();
-    for (const indicator of this._indicators) indicator.remove();
-    this._indicators.length = 0;
+    for (const indicator of this._indicators.splice(0)) indicator.remove();
     this._resizeObserver?.disconnect();
     this._resizeObserver = null;
     if (typeof window !== 'undefined') {

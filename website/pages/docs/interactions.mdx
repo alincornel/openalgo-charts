@@ -16,9 +16,12 @@ Every live demo on this site is fully interactive. The points below apply to all
   `wheelZoomSensitivity` scales the step and defaults to `1`; lower values tame
   high-frequency trackpad bursts and `0` disables wheel zoom without changing
   pinch or keyboard zoom.
-- **Drag the plot**: pan left/right (time) and up/down (price).
-- **Drag the price axis**: rescale price; **drag the time axis**: rescale bar spacing.
-- **Double-click**: by default, reset scale (fit content + autoscale); `doubleClick: 'maximize'`
+- **Drag the plot**: mouse and pen pan time and price by default. Set
+  `navigation.mousePan: 'horizontal'` to limit movement to time.
+- **Drag the price axis**: rescale price; **drag the time axis** left to expand bar spacing,
+  or right to compress it. The drag emits `zoom` as it goes, and says nothing on
+  a gesture that leaves the window where it was.
+- **Double-click**: by default, restore the default view and autoscale; `doubleClick: 'maximize'`
   toggles the pane under the pointer to the whole stack instead, and `'none'` only emits the
   `dblclick` event, which carries `paneIndex` and a `handled` flag a listener can set. While a drawing tool is
   armed it finishes the shape instead, so a variable-anchor tool (`path`, `polyline`)
@@ -28,15 +31,35 @@ Every live demo on this site is fully interactive. The points below apply to all
   `pointer` cursor. Dragging shows a dimmed ghost at the pre-drag price (see
   [On-chart trading](/docs/trading#interaction-feedback-hover-drag-ghost)).
 
+Choosing horizontal-only mouse and pen panning leaves the price scale's autoscale setting in place. The
+price range can still adjust to the bars now in view. Touch continues to pan both axes.
+Saved horizontal preferences are preserved when upgrading. To enable two-axis panning,
+choose **Axes > Mouse drag > Time and price** or set `mousePan: 'both'`.
+
+```ts
+const chart = createChart(el, {
+  navigation: { mousePan: 'both', defaultVisibleBars: 120 },
+});
+chart.setNavigationOptions({ mousePan: 'horizontal' }); // optional time-only panning
+chart.navigationOptions();  // Readonly<ChartNavigationOptions>
+```
+
+`defaultVisibleBars` controls the initial view and reset view: `0` (the default) fits all
+loaded bars, and a positive value targets the newest N loaded bars plus four empty bar
+slots on the right, within the available data and bar-spacing limits. Updating this count
+applies that default view immediately. It does not change how much history your feed loads
+or discard any bars. `chart.fitContent()` always fits all loaded bars.
+
 ## Time navigator (hover-revealed zoom controls)
 
 Move the pointer near the bottom of the chart and a small control strip fades in just above
-the time axis: `-` `+` to zoom, `‹` `›` to step one bar at a time. It stays invisible
-otherwise, so a clean chart stays clean.
+the time axis: zoom out and in, reset the view, then step left or right one bar at a time.
+It stays invisible otherwise, so a clean chart stays clean.
 
 The buttons run the *same* commands as the keyboard shortcuts, so the two can never drift
 apart, and each tooltip shows the combo currently bound to that command. Rebind `zoomIn` and
-the tooltip follows.
+the tooltip follows. The reset button runs `resetScale`, with a **Reset view** tooltip and
+the default `Home` hint. It restores the configured default view and price autoscale.
 
 ```ts
 createChart(el);                              // on by default
@@ -48,7 +71,7 @@ createChart(el, {                             // or restyle
 
 | Option | Default | Description |
 |---|---|---|
-| `buttons` | `['zoomOut','zoomIn',null,'panLeftBar','panRightBar']` | order; `null` inserts a group gap |
+| `buttons` | `['zoomOut','zoomIn',null,'resetScale',null,'panLeftBar','panRightBar']` | order; `null` inserts a group gap |
 | `size` / `gap` / `groupGap` | `26` / `4` / `16` | button box and spacing, px |
 | `bottomMargin` | `10` | gap above the time axis, px |
 | `revealHeight` | `64` | height of the band that reveals the controls, px |
@@ -103,7 +126,7 @@ the pick was cancelled, and fires before the callback when it was not.
 
 Touch works out of the box (`touch-action: none` on the container):
 
-- single-finger drag pans,
+- single-finger drag pans both axes, regardless of `navigation.mousePan`,
 - **two-finger pinch** zooms,
 - two-finger drag pans both axes.
 

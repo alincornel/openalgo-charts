@@ -58,6 +58,24 @@ function make(opts: WidgetOptions = {}, doc: FakeDocument = fakeWidgetDocument()
 const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 
 describe('the frame', () => {
+  it('owns a live objects panel and routes edits to existing settings dialogs', () => {
+    const { w, root, doc } = make();
+    const drawing = w.draw.add({ tool: 'trend-line', paneIndex: 0, style: {}, points: [] });
+    expect(w.context.objects).toBe(w.objects);
+    const opener = root.querySelector('.oac-topbar__objects')!;
+    expect(opener).not.toBeNull();
+    fire(opener, 'click');
+    expect(root.querySelector('.oac-objects')).not.toBeNull();
+    expect(doc.head.children[0].textContent).toContain('.oac-objects__row');
+    expect(w.objects.openSettings('drawing:' + drawing.id)).toBe(true);
+    expect(root.querySelector('.oac-props')).not.toBeNull();
+    w.context.overlays.closeAll();
+    expect(w.openObjects()).toBe(true);
+    w.destroy();
+    expect(w.objects.list()).toEqual([]);
+    expect(w.openObjects()).toBe(false);
+  });
+
   it('builds a top bar, a stage with the rail and the chart, a status line and a toast host', () => {
     const { root, container } = make();
     expect(container.children[0]).toBe(root);
@@ -233,6 +251,20 @@ describe('the feed', () => {
     expect(w.chart.primarySeries()?.getData()).toHaveLength(30);
     expect(data).toHaveBeenCalledWith({ symbol: 'INFY', interval: '1d', bars: 30 });
     expect(root.querySelector('.oac-statusline__msg')?.textContent).toBe('30 bars');
+  });
+
+  it('keeps the preferred visible bar count across symbol and interval loads', async () => {
+    const feed = feedOf(() => Promise.resolve(bars(200)));
+    const { w } = make({ feed, symbol: 'INFY', navigation: { defaultVisibleBars: 50 } });
+    await flush();
+    expect(w.chart.getVisibleLogicalRange()).toEqual({ from: 149, to: 203 });
+    w.setSymbol('RELIANCE');
+    await flush();
+    expect(w.chart.getVisibleLogicalRange()).toEqual({ from: 149, to: 203 });
+    w.setInterval('5m');
+    await flush();
+    expect(w.chart.getVisibleLogicalRange()).toEqual({ from: 149, to: 203 });
+    expect(w.chart.primarySeries()?.getData()).toHaveLength(200);
   });
 
   it('drops a slow answer that arrives after a faster one for the next symbol', async () => {

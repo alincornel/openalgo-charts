@@ -19,6 +19,42 @@ export interface BarsRequest {
   endSec?: UTCSeconds;
   /** How many bars, counting back from `endSec`. Pair with `endSec`. */
   count?: number;
+  /** Fetch authoritative history instead of a cached snapshot, when supported. */
+  noCache?: boolean;
+  /** Cancel this consumer's request. Existing feeds may ignore cancellation. */
+  signal?: AbortSignal;
+  /** Deadline in milliseconds, including response-body reading. */
+  timeoutMs?: number;
+  /** Preferred number of bars; a date-range feed may return a different count. */
+  countBack?: number;
+}
+
+/** An optional provider page before an exclusive UTC-second anchor. */
+export interface BarsPageRequest extends BarsRequest {
+  before: UTCSeconds;
+  countBack: number;
+}
+
+/** Providers can distinguish an empty date window from exhausted history. */
+export interface BarsPage {
+  bars: Bar[];
+  hasMore?: boolean;
+  /** Exclusive anchor for the next page, including pages without observations. */
+  nextBefore?: UTCSeconds;
+}
+
+/** Optional context for continuing history and recovering an interrupted stream. */
+export interface BarSubscriptionOptions {
+  /** Last historical time-bucketed bar, used as the live builder's starting point. */
+  seedFrom?: Bar;
+  /** Cumulative day volume at the seed snapshot, if the host knows it. */
+  cumDayVolumeSoFar?: number;
+  /**
+   * The stream reconnected and may have missed data. Refresh authoritative
+   * history, then resubscribe with its last bar as the seed. Older bars must
+   * not be delivered through onBar, whose consumers commonly accept only tails.
+   */
+  onResync?: () => void;
 }
 
 /**
@@ -28,7 +64,10 @@ export interface BarsRequest {
  */
 export interface DataFeed {
   getBars(req: BarsRequest): Promise<Bar[]>;
-  subscribeBars?(req: BarsRequest, onBar: (bar: Bar) => void): UnsubscribeFn;
+  getBarsPage?(req: BarsPageRequest): Promise<BarsPage>;
+  /** Read a closed-bar snapshot without initiating a network request. */
+  getCachedBars?(req: BarsRequest): Promise<Bar[] | undefined>;
+  subscribeBars?(req: BarsRequest, onBar: (bar: Bar) => void, opts?: BarSubscriptionOptions): UnsubscribeFn;
   /**
    * `opts.depthLevel` requests a book depth (broker-dependent: 5/20/30/50).
    * Named on the interface so a caller holding a `DataFeed` can ask for one;
@@ -45,6 +84,8 @@ export interface DepthLevel {
 
 /** Variable-depth book; `bids`/`asks` length = whatever the broker streams (5..200). */
 export interface MarketDepth {
+  /** Exchange event timestamp in UTC seconds, when supplied by the feed. */
+  timeSec?: UTCSeconds;
   bids: DepthLevel[];
   asks: DepthLevel[];
   ltp: number;

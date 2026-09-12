@@ -225,6 +225,22 @@ export class DrawingLayer implements IPrimitive {
   }
 
   public draw(ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext): void {
+    // Top primitives share a canvas with axis labels and cannot rely on the
+    // series clip. Keep drawing bodies, previews and handles inside this pane.
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, Math.round(rc.plotWidth * rc.dpr), Math.round(rc.plotHeight * rc.dpr));
+    ctx.clip();
+    try { this._drawContent(ctx, this._drawingContext(rc)); } finally { ctx.restore(); }
+  }
+
+  private _drawingContext(rc: PrimitiveRenderContext): PrimitiveRenderContext {
+    // Drawing input uses the chart's primary price readout. Rendering and hit
+    // testing must use that same scale after a host moves it to the left axis.
+    return rc.readoutPriceScale ? { ...rc, priceScale: rc.readoutPriceScale } : rc;
+  }
+
+  private _drawContent(ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext): void {
     const selected = new Set(this._selected);
     const all = this._preview === null ? this._drawings : [...this._drawings, this._preview];
     for (const d of all) {
@@ -307,6 +323,7 @@ export class DrawingLayer implements IPrimitive {
   }
 
   public hitTest(x: number, y: number, rc: PrimitiveRenderContext): PrimitiveHit | null {
+    rc = this._drawingContext(rc);
     // The layer above answers for this one, so two answers never compete.
     if (this._above !== null) return null;
 

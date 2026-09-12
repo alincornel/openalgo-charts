@@ -9,22 +9,38 @@
 ```ts
 interface DataFeed {
   getBars(req: BarsRequest): Promise<Bar[]>;
-  subscribeBars?(req: BarsRequest, onBar: (bar: Bar) => void): UnsubscribeFn;
-  subscribeDepth?(req: BarsRequest, onDepth: (depth: MarketDepth) => void): UnsubscribeFn;
+  getBarsPage?(req: BarsPageRequest): Promise<BarsPage>;
+  getCachedBars?(req: BarsRequest): Promise<Bar[] | undefined>;
+  subscribeBars?(req: BarsRequest, onBar: (bar: Bar) => void, opts?: BarSubscriptionOptions): UnsubscribeFn;
+  subscribeDepth?(req: BarsRequest, onDepth: (depth: MarketDepth) => void, opts?: { depthLevel?: number }): UnsubscribeFn;
 }
 
 interface BarsRequest {
   symbol: string;
   exchange: string;
   interval: string;   // '1m' | '5m' | '1h' | 'D' | ...
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  countBack?: number;
   from?: UTCSeconds;
   to?: UTCSeconds;
+  noCache?: boolean;  // request authoritative history, bypassing cached results
+}
+
+interface BarSubscriptionOptions {
+  seedFrom?: Bar;
+  cumDayVolumeSoFar?: number;
+  onResync?: () => void;
 }
 ```
 
 **`subscribeBars` and `subscribeDepth` are optional.** A history-only feed omits them so callers can feature-detect (`if (feed.subscribeBars)`). `OpenAlgoDataFeed` deliberately does not implement `subscribeBars`; `OpenAlgoLiveDataFeed` implements both.
 
-Supporting types: `MarketDepth { bids: DepthLevel[]; asks: DepthLevel[]; ltp: number; ltq?: number }`, `DepthLevel { price, qty, orders? }`, variable depth, whatever the broker streams. `UnsubscribeFn = () => void`.
+`BarSubscriptionOptions` is exported from the base package. Its optional third argument keeps existing two-argument feed implementations compatible. `seedFrom` continues the last time-bucketed history bar; `cumDayVolumeSoFar` is the cumulative day total at that snapshot for day-delta volume accounting. A feed calls `onResync` when a recovered stream may have missed data. A host should pause display updates, buffer incoming bars while loading the current window with `noCache: true`, merge the observations before `setData`, then seed the replacement subscription from the merged last bar. Keep resync monitoring active so a repeated reconnect can supersede the pending request. Preserve the viewport, guard against stale requests, and keep a visible error plus retry path if recovery fails. Older gap-fill bars do not belong in the tail-only `onBar` / `series.update` path.
+
+Install the newly seeded subscription before releasing the previous one, so a shared feed keeps its underlying stream active through the handoff.
+
+Supporting types: `MarketDepth { bids: DepthLevel[]; asks: DepthLevel[]; ltp: number; ltq?: number; timeSec?: UTCSeconds }`, `DepthLevel { price, qty, orders? }`, variable depth, whatever the broker streams. `UnsubscribeFn = () => void`.
 
 `TradeFeed` is the separate, higher-level broker abstraction (`placeOrder` / `modifyOrder` / `cancelOrder` / `subscribeOrders` / `subscribePositions`, taking `PlaceOrder`). The trade tier's `OrderEngine` does **not** use it, it uses the smaller `OrderFeed` (`place` / `modify` / `cancel`) from `openalgo-charts/trade`, which is what `OpenAlgoTradeFeed` implements. See [trading](trading.md).
 
@@ -48,8 +64,9 @@ const bars = await feed.getBars({
 ```
 
 - `POST ${baseUrl}/api/v1/history` with `{ apikey, symbol, exchange, interval, start_date, end_date }`.
+- Exact interval translations: `1d` / `1D` to `D`, `1w` / `1W` to `W`, and `1M` / `MN` to `M`. Other codes pass through, including `D`, `W`, `M` and minute code `1m`.
 - **`from` and `to` are mandatory.** `getBars` throws without them: OpenAlgo history requires a date range. They are UTC seconds; the adapter converts to IST `YYYY-MM-DD` via `utcSecondsToIstDateString`. That is the OpenAlgo server's own convention, not the chart's display zone: `chart.setTimezone(...)` does not change what date this adapter asks for, so widen the range by a day rather than assuming the two agree.
-- A non-OK response throws `history request failed (<status>)`.
+- A non-OK HTTP response throws `history request failed (<status>)`. JSON `status: 'error'` also throws, using its `message` or `OpenAlgo history request failed`, even for HTTP 200.
 - `fetchImpl` is injectable so the adapter is unit-testable offline. The default binds global `fetch` to `globalThis` (an unbound `window.fetch` throws "Illegal invocation").
 
 Two pure helpers are exported for reuse and testing:
@@ -62,6 +79,7 @@ Two pure helpers are exported for reuse and testing:
 | `number > 1e12` | treated as epoch **ms** |
 | other `number` | `Math.floor(value)` (epoch seconds) |
 | numeric-looking string with no `-`, `T`, `:` or space | same numeric rules |
+| parseable string ending in `Z`, `+HH:MM`, `-HH:MM`, `+HHMM` or `-HHMM` | UTC seconds using the explicit offset |
 | anything else | `istStringToUtcSeconds(value)`, IST wall-clock parse |
 
 ## OpenAlgoWsFeed: realtime
@@ -92,9 +110,11 @@ Wire format (pure formatters, exported where noted):
 | unsubscribe (`formatUnsubscribe`) | `{ action: 'unsubscribe', symbol, exchange, mode }` |
 | order stream | `{ action: 'subscribe_orders' }` / `{ action: 'unsubscribe_orders' }` |
 | heartbeat | inbound `'ping'` or `{ type: 'ping' }` -> replies `{ action: 'pong' }` |
-| inbound data | `{ type: 'market_data', mode, topic, data: { ... } }` |
+| inbound data | `{ type: 'market_data', symbol, exchange, mode, data: { ... } }`; legacy `topic` is also accepted |
 
 `parseMessage(raw)` (exported) normalizes inbound frames. It reads payload fields from `data` but tolerates a flat shape, accepts `ltp` or `last_price`, `ltq` or `last_trade_quantity`, maps `depth.buy`/`depth.sell` (`{ price, quantity, orders? }`) into `MarketDepth.bids`/`asks`, and coerces `timestamp` from epoch s, epoch ms, or ISO-8601. Anything it cannot classify returns `null` and is surfaced to `onControl` instead.
+
+Symbol and exchange resolve independently from non-empty `data` fields, then top-level envelope fields, then the legacy `topic`. Empty nested identity fields do not hide usable top-level identity. This applies to LTP, Quote and Depth frames.
 
 Callbacks, each returning its own unsubscribe: `onLtp`, `onDepth((symbol, exchange, depth) => {})`, `onState((s: WsState) => {})` with `'connecting' | 'open' | 'closed' | 'error' | 'reconnecting'`, `onControl` for auth/subscribe acks and server errors, `onOrderUpdate` for the account-level order stream.
 
@@ -136,8 +156,13 @@ const off = live.subscribeBars(req, (bar) => series.update(bar), {
 - `subscribeBars` resolves the interval code **once, up front** through `resolveInterval`, then creates a **per-subscription** aggregator: a `CandleBuilder` for a fixed-length interval, a `TickBarAggregator` for a calendar, tick-count or volume one. It filters WS ticks by symbol **and** exchange and forwards the bar to `onBar`. Unsubscribing detaches the callback and sends the WS unsubscribe.
 - Resolving up front is deliberate: a bad interval code throws at subscribe time, where the mistake is, instead of silently on every tick for the life of the subscription.
 - `opts.seedFrom` seeds the aggregator with the last history bar so the first tick continues that bucket. It applies to **time-bucketed intervals only**: a count-driven bar cannot resume one whose trades were never counted here. `opts.cumDayVolumeSoFar` gives a `day-delta` builder the right baseline.
+- `opts.onResync` is called without arguments when the socket emits `client_warning` with code `STREAM_RESYNC` after reconnect. Replayed subscriptions resume delivery but do not repair missed history. Handle this callback with the history replacement sequence above; unsubscribing also removes this control listener.
 - A tick with no usable timestamp (`timeSec` absent or `<= 0`) is bucketed at `Date.now()`, never at the epoch.
 - `subscribeDepth` subscribes `Depth` and filters the same way.
+
+`createWidget` handles seeding and `onResync` automatically: it requests fresh history with `noCache: true`, merges buffered live bars, replaces the series while preserving the visible logical range, and resubscribes. At matching timestamps it preserves the history open, combines high/low extrema, uses the latest buffered close, and takes the maximum volume to avoid counting overlapping snapshots twice. It does not reconstruct unseen trades. An automatic refresh failure or empty response leaves the existing chart visible with stale-history status and a `data` error; display updates pause while buffering and reconnect monitoring continue. `widget.reload()` retries and keeps the cache bypass until a load succeeds; same-context manual reload preserves the current time anchor and viewport. See [widget](widget.md#live-history-and-reconnect-recovery).
+
+Only buffered timestamps are merged; other bars retain authoritative history. Whole-bar buffers can carry seed extrema that history corrected, so overlapping bars use conservative reconciliation rather than exact snapshot/tick ordering.
 
 `intervalToSeconds(interval)` returns the seconds per bar for a **fixed-length** code: `D` and `1D` give `86400`, `W`/`1W` give `604800`, `1s`->1, `5m`->300, `4h`->14400.
 
@@ -266,7 +291,9 @@ Other behaviour worth knowing:
 
 - `getBars` passes straight through, uncached, when the request is neither `{ endSec, count }` nor `{ from, to }` (an open-ended ask cannot be reasoned about), or when the interval has no knowable bar close (a tick or Renko series, an unregistered code).
 - A union is judged on the bar grid AND on the ask: a page that *asked* up to the entry's left edge and came back with Friday's bars because the market was shut in between still unions, because that band was answered and answered empty. Only a band nobody asked about breaks the union — and then the fresh page replaces the entry solely when it lands NEWER than it; an older page is answered and not cached, so the entry keeps its tail.
-- `peek({ symbol, exchange, interval, endSec?, count? })` — or `{ from, to }`, or neither — returns `{ bars, storedAt, nextClose, short, shortAt }` and never fetches.
+- `peek({ symbol, exchange, interval, endSec?, count? })` — or `{ from, to }`, or neither — returns `{ bars, version, from, to, storedAt, nextClose, short, shortAt }` and never fetches. `getCachedBars(req)` is the same look in the `DataFeed` shape the shared `DataLoadingController` asks for: the closed bars inside `{ from, to }`, or `undefined`.
+- `BarsRequest.noCache: true` bypasses the cached result and refreshes the entry from the source. Honor or forward it in custom wrappers so reconnect recovery cannot reuse history from before the interruption. `CachedBarsRequest` remains available for existing callers.
+- A durable store is optional and best effort: the cache always keeps a bounded in-memory copy, a store that throws costs speed and nothing else, and an entry that fails validation (`BAR_CACHE_VERSION`, coverage that does not match its bars, a tail that has not closed) is deleted and refetched rather than painted. `BarsRequest.signal` cancels: an aborted request neither publishes nor caches.
 - A rejected fetch propagates untouched and leaves the previous entry alone. Nothing is written unless bars arrive.
 - Bars are cloned in and out, because live builders mutate bar objects in place.
 - `subscribeBars` and `subscribeDepth` are forwarded **only when the wrapped feed has them**, with every argument, so feature detection still tells a history-only feed from a live one and `OpenAlgoLiveDataFeed`'s third `opts` argument survives the hop. `cache.source` is the wrapped feed.
@@ -355,3 +382,38 @@ const off = feed.subscribeBars({ symbol: 'X', exchange: 'NSE', interval: '1m' },
 - [events-and-state](events-and-state.md), `lazy-load` and the rest of the event bus.
 - [trading](trading.md) / [trade-tier](trade-tier.md), `OrderFeed`, `OrderEngine`, on-chart order lines.
 - [pitfalls](pitfalls.md).
+
+## Managed requests and cache snapshots (2.1.6)
+
+Base exports: `DataLoadingController`, `DataLoadingOptions`, `DataLoadingSnapshot`,
+`DataLoadingStatus`, `HistoryLoadingStatus`, `DataUpdateReason`,
+`HistoryRequestPool`, `HistoryRequestPoolOptions`, `sharedHistoryRequests`,
+`BarsPage`, `BarsPageRequest`, and `BAR_CACHE_VERSION`.
+
+`new DataLoadingController(feed, options)` uses a per-feed shared pool unless
+`requestPool` is supplied. Defaults: `pageSize: 500`, `maxEmptyPages: 4`,
+`maxBars: 100_000`, `pollIntervalMs: 0`; `timeoutMs` defaults to the pool's 15 s.
+`pageWindowSec` defaults to the initial range width; `now` returns UTC seconds.
+Primary states: idle/loading/ready/empty/refreshing/stale/error. History states:
+idle/loading/error/exhausted/limited. `hasMore: null` means unknown; never turn
+an empty weekend window into permanent exhaustion. `limited` is local retention.
+
+`HistoryRequestPool` defaults to 4 concurrent requests and 15 s per consumer,
+including queue time. `getBars(req, priority?)` and `getBarsPage(req, priority?)`
+share identical payloads within one feed object. Higher priority runs first.
+Cancellation/deadlines are independent; the final consumer aborts the transport.
+The REST adapter bounds fetch and JSON body reads. Feeds ignoring AbortSignal
+cannot publish obsolete results through the controller, but may continue network work.
+
+`BarsPageRequest` adds required exclusive `before` and `countBack`; `BarsPage`
+returns `{ bars, hasMore?, nextBefore? }`. Custom cursor values must move backward.
+`getCachedBars(req)` returns an optional closed-bar snapshot without fetching.
+The controller paints it as refreshing and fetches authoritative history; cache
+peek time is bounded to 500 ms. Never treat a warm snapshot as a live forming bar.
+
+The cache validates entries and writes `CachedBars.version = BAR_CACHE_VERSION`
+(currently 1), accepting valid unversioned legacy entries. Storage failures fall
+back to bounded memory. A failed durable delete is suppressed per instance and
+may remain visible to another process. Direct cache calls are not coalesced;
+use the pool/controller. `MarketDepth.timeSec` preserves valid exchange timestamps;
+Depth frames with only book quantities do not supply executed-trade volume.

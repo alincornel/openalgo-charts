@@ -6,7 +6,7 @@
  *      server answers { type:'auth', status:'success' } (or a refusal)
  *   2. subscribe   : { action:'subscribe', symbol, exchange, mode }   mode 1=LTP 2=Quote 3=Depth
  *                    (Depth adds depth_level, e.g. 5/20/30/50)
- *   3. server pushes { type:'market_data', mode, topic:'SYM.EXCH', data:{...} }
+ *   3. server pushes { type:'market_data', symbol, exchange, mode, data:{...} }
  *   4. heartbeat   : OpenAlgo's proxy pings at the protocol level, which a
  *      browser answers without telling JavaScript, so the client keeps its own
  *      watchdog and asks { action:'ping' } when the stream goes quiet. An
@@ -345,23 +345,25 @@ export function backoffDelayMs(
  * Payload fields live under `data` per the protocol, but the parser also
  * tolerates a flat shape for resilience across broker adapters.
  *
- * Identity falls back to the `topic`, which is where several broker adapters
- * put it: reading only `data.symbol` dropped those ticks into an unnamed
- * instrument no subscriber matched.
+ * The proxy puts identity on the envelope. Existing nested broker identity
+ * takes precedence, with `topic` retained as the final fallback.
  */
 export function parseMessage(raw: unknown): { kind: 'ltp'; event: LtpEvent } | { kind: 'depth'; symbol: string; exchange: string; depth: MarketDepth } | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const m = raw as RawMsg & RawData;
   const d: RawData = m.data ?? m;
   const t = parseTopic(m.topic);
-  // An empty string is missing identity, not identity: fall through to the topic.
-  const symbol = d.symbol !== undefined && d.symbol !== '' ? d.symbol : t?.symbol ?? '';
-  const exchange = d.exchange !== undefined && d.exchange !== '' ? d.exchange : t?.exchange ?? '';
+  // Empty identity fields must not hide the envelope or legacy topic identity.
+  const symbol = d.symbol || m.symbol || t?.symbol || '';
+  const exchange = d.exchange || m.exchange || t?.exchange || '';
   if (d.depth && (d.depth.buy || d.depth.sell)) {
     const bids = (d.depth.buy ?? []).map((b) => ({ price: b.price, qty: b.quantity }));
     const asks = (d.depth.sell ?? []).map((a) => ({ price: a.price, qty: a.quantity }));
     const ltp = d.ltp ?? d.last_price ?? (bids[0]?.price ?? 0);
-    return { kind: 'depth', symbol, exchange, depth: { bids, asks, ltp } };
+    const timeSec = toSec(d.timestamp);
+    return { kind: 'depth', symbol, exchange, depth: { bids, asks, ltp,
+      ...(Number.isFinite(timeSec) && timeSec > 0 ? { timeSec } : {}),
+    } };
   }
   const price = d.ltp ?? d.last_price;
   if (typeof price === 'number') {

@@ -122,8 +122,10 @@ describe('profile primitives render', () => {
     dl.setSeriesData(id, [bar(1, 100, 101, 99, 100, 10), bar(2, 100, 101, 99, 100, 10)]);
     const priceScale = new PriceScale();
     priceScale.setHeight(400);
-    priceScale.setPriceRange({ min: 98, max: 103 });
-    const timeScale = new TimeScale();
+    // Readable footprint rows need enough real price/column space. The renderer
+    // no longer enlarges tiny rows or narrow columns into their neighbours.
+    priceScale.setPriceRange({ min: 99.8, max: 100.3 });
+    const timeScale = new TimeScale({ barSpacing: 80 });
     timeScale.setWidth(600);
     timeScale.setBaseIndex(dl.baseIndex);
     return { timeScale, priceScale, dataLayer: dl, plotWidth: 600, plotHeight: 400, priceAxisWidth: 56, dpr: 1, theme: darkTheme };
@@ -216,7 +218,8 @@ describe('profile primitives render', () => {
     four.setBars(bars);
     const b = makeCtx();
     four.draw(b.ctx, r);
-    expect(b.rec.count('fillText')).toBe(a.rec.count('fillText') + 4);
+    // Each configured row now has a fixed label as well as its bar value.
+    expect(b.rec.count('fillText')).toBe(a.rec.count('fillText') + 8);
   });
 
   it('Footprint is restylable at runtime instead of needing a rebuild', () => {
@@ -257,7 +260,7 @@ describe('profile primitives render', () => {
     fp.setBars([computeFootprint(1, [
       { price: 100, qty: 1, side: 'ask' }, { price: 101, qty: 1, side: 'bid' },
     ], 0.5)]);
-    expect(fp.autoscaleInfo()).toEqual({ min: 100, max: 101 });
+    expect(fp.autoscaleInfo()).toEqual({ min: 99.75, max: 101.25 });
   });
 
   it('Footprint hit-tests a column and reports its stats', () => {
@@ -267,7 +270,7 @@ describe('profile primitives render', () => {
     const { ctx } = makeCtx();
     fp.draw(ctx, r);                       // hit-testing needs the drawn geometry
     const x = r.timeScale.indexToX(0);
-    const hit = fp.hitTest(x, 50);
+    const hit = fp.hitTest(x, r.priceScale.priceToY(100));
     expect(hit?.externalId).toBe('footprint:1');
     const hover = fp.hoverAt(x, r.priceScale.priceToY(100), r);
     expect(hover?.stats.volume).toBe(7);
@@ -499,11 +502,12 @@ describe('profile primitives render', () => {
     off.draw(a.ctx, r);
     // The left edge of the unguttered ladder, taken from what it actually drew.
     const leftEdge = Math.min(...a.rec.ops.filter((o) => o.type === 'roundRect').map((o) => o.args[0])) + 1;
-    expect(off.hitTest(leftEdge, 50)).not.toBeNull();
+    const onRow = r.priceScale.priceToY(100.2);
+    expect(off.hitTest(leftEdge, onRow)).not.toBeNull();
     const on = new Footprint({ ...candleStyle, candle: 'gutter' });
     on.setBars([askBar()]);
     on.draw(makeCtx().ctx, r);
-    expect(on.hitTest(leftEdge, 50)).toBeNull();     // that x is gutter now
+    expect(on.hitTest(leftEdge, onRow)).toBeNull();  // that x is gutter now
   });
 
   it("Footprint 'gutter' falls back to the cell range when the pane has no OHLC", () => {
@@ -553,9 +557,10 @@ describe('profile primitives render', () => {
     const { ctx, rec } = makeCtx();
     fp.draw(ctx, rc());
     const delta = rec.ops.filter((o) => o.type === 'fillText').find((o) => o.text === '-7');
-    expect(delta?.fillStyle).toBe('rgba(255,0,0,0.9)');
+    expect(delta?.fillStyle).toBe('rgba(255,0,0,1)');
     const vol = rec.ops.filter((o) => o.type === 'fillText').find((o) => o.text === '11');
-    expect(vol?.fillStyle).toBe('rgba(255,255,255,0.9)');
+    // The volume half takes the contrast-corrected theme ink, not the sign's.
+    expect(vol?.fillStyle).toBe('rgba(207,210,219,1)');
   });
 
   it("Footprint 'deltaVolume' reads 0 | 0 on a zero-filled row", () => {
@@ -645,14 +650,17 @@ describe('profile primitives render', () => {
     fine.setBars([twoRows(30, 2)]);
     expect(fine.layout()).toEqual({ rowHeight: 0, paneHeight: 0, minTextHeight: 12 });  // nothing drawn yet
     fine.draw(makeCtx().ctx, rc());
-    // 0.05 over a 5-point pane 400 px tall: 4 px a row, floored at 6, unreadable.
-    expect(fine.layout()).toEqual({ rowHeight: 6, paneHeight: 400, minTextHeight: 12 });
+    // 0.05 over a half-point pane 400 px tall: 40 px a row, the height the
+    // renderer actually drew rather than a floored stand-in for it.
+    expect(fine.layout().paneHeight).toBe(400);
+    expect(fine.layout().minTextHeight).toBe(12);
+    expect(fine.layout().rowHeight).toBeCloseTo(40, 6);
 
     const coarse = new Footprint({ ...cellStyle, tickSize: 0.25, minTextHeight: 12 });
     coarse.setBars([twoRows(30, 2)]);
     coarse.draw(makeCtx().ctx, rc());
     const l = coarse.layout();
-    expect(l.rowHeight).toBeCloseTo(20, 6);              // 0.25 over the same pane
+    expect(l.rowHeight).toBeCloseTo(200, 6);             // 0.25 over the same pane
     expect(l.rowHeight).toBeGreaterThanOrEqual(l.minTextHeight);
   });
 
@@ -752,7 +760,10 @@ describe('profile primitives render', () => {
     fp.setBars([twoRows(30, 2)]);
     const r = rc();
     fp.draw(makeCtx().ctx, r);
-    expect(seen).toEqual([{ rowHeight: 6, paneHeight: 400, minTextHeight: 1 }]);
+    expect(seen).toHaveLength(1);
+    expect(seen[0].paneHeight).toBe(400);
+    expect(seen[0].minTextHeight).toBe(1);
+    expect(seen[0].rowHeight).toBeCloseTo(40, 6);
     fp.draw(makeCtx().ctx, r);
     expect(seen).toHaveLength(1);                    // same geometry, no second push
     fp.draw(makeCtx().ctx, { ...r, plotHeight: 300 });
@@ -826,7 +837,7 @@ describe('profile primitives render', () => {
       { price: 100.05, qty: 100, side: 'ask' }, { price: 100.0, qty: 25, side: 'ask' },
     ], 0.05)];
     const paint = (o: Partial<FootprintOptions>): string[] => {
-      const fp = new Footprint({ ...cellStyle, imbalanceRatio: 1e9, cellBaseColor: '#a0a0a0', ...o });
+      const fp = new Footprint({ ...cellStyle, imbalanceRatio: 1e9, imbalanceThreshold: 1e9, cellBaseColor: '#a0a0a0', ...o });
       fp.setBars(bars);
       const { ctx, rec } = makeCtx();
       fp.draw(ctx, r);
@@ -870,8 +881,8 @@ describe('profile primitives render', () => {
     const cells = rec.ops.filter((o) => o.type === 'roundRect');
     const vols = rec.ops.filter((o) => o.type === 'fillRect');
     expect(vols).toHaveLength(cells.length / 2);        // one a row, not one a cell
-    const colW = 24;                                   // the auto-sized column
     const right = cells[1].args[0] + cells[1].args[2];  // the ladder's right edge
+    const colW = right - cells[0].args[0];              // the auto-sized column
     // The busiest row runs the full length and the half-volume row half of it,
     // both clear of the ask cells rather than under their numbers.
     expect(vols[0].args[0]).toBeCloseTo(right + 1);
@@ -929,12 +940,13 @@ describe('profile primitives render', () => {
     const { ctx, rec } = makeCtx();
     fp.draw(ctx, r);
     // The automatic choice, which an unset pair has to leave exactly as it is:
-    // white at 0.9, dimmed to 0.45 on a zero row, near-black on a hot plate.
+    // the theme's axis ink corrected for contrast against the plate under it,
+    // darker on a saturated cell, and dimmed to 0.45 on a zero row.
     expect(rec.ops.filter((o) => o.type === 'fillText').map((o) => [o.text, o.fillStyle])).toEqual([
-      ['0', 'rgba(255,255,255,0.45)'],
-      ['30', 'rgba(13,15,20,1)'],
-      ['2', 'rgba(255,255,255,0.9)'],
-      ['0', 'rgba(255,255,255,0.45)'],
+      ['0', 'rgba(139,145,167,0.45)'],
+      ['30', 'rgba(92,96,111,1)'],
+      ['2', 'rgba(139,145,167,1)'],
+      ['0', 'rgba(139,145,167,0.45)'],
     ]);
   });
 
@@ -949,7 +961,7 @@ describe('profile primitives render', () => {
     const b = makeCtx(); themed.draw(b.ctx, r);
     const text = (rec: RecordingContext): Op[] => rec.ops.filter((o) => o.type === 'fillText');
     expect(text(b.rec).map((o) => o.fillStyle)).toEqual([
-      'rgba(16,16,16,0.45)', 'rgba(254,254,254,1)', 'rgba(16,16,16,0.9)', 'rgba(16,16,16,0.45)',
+      'rgba(16,16,16,0.45)', 'rgba(254,254,254,1)', 'rgba(16,16,16,1)', 'rgba(16,16,16,0.45)',
     ]);
     // Only the ink changed: same numbers in the same places on the same plates.
     expect(text(b.rec).map((o) => [o.text, ...o.args])).toEqual(text(a.rec).map((o) => [o.text, ...o.args]));
@@ -966,8 +978,8 @@ describe('profile primitives render', () => {
     const t = rec.ops.filter((o) => o.type === 'fillText');
     // A negative row delta says which way it went in the sell colour. That is
     // the number's meaning, not its theme, so the ink colour does not take it.
-    expect(t.find((o) => o.text === '-7')?.fillStyle).toBe('rgba(255,0,0,0.9)');
-    expect(t.find((o) => o.text === '11')?.fillStyle).toBe('rgba(16,16,16,0.9)');
+    expect(t.find((o) => o.text === '-7')?.fillStyle).toBe('rgba(255,0,0,1)');
+    expect(t.find((o) => o.text === '11')?.fillStyle).toBe('rgba(16,16,16,1)');
   });
   it('Footprint pocOutlineWidth thickens the ring, in media px', () => {
     const r = rc();
@@ -1029,14 +1041,14 @@ describe('profile primitives render', () => {
 
   it('Footprint clamps the POC ring to the row it is ringing', () => {
     const r = rc();
-    const fp = new Footprint({ ...cellStyle, pocOutline: '#f0a020', pocOutlineWidth: 8 });
+    const fp = new Footprint({ ...cellStyle, pocOutline: '#f0a020', pocOutlineWidth: 60 });
     fp.setBars([twoRows(30, 2)]);
     const { ctx, rec } = makeCtx();
     fp.draw(ctx, r);
     const box = rec.ops.filter((o) => o.type === 'strokeRect')[0];
-    // The row is 5 px tall here, so 8 px of ring cannot straddle it: clamped,
-    // the rect degrades to a filled row rather than inverting its height.
-    expect(box.lineWidth).toBe(5);
+    // The cell is 39 px tall here, so 60 px of ring cannot straddle it:
+    // clamped, the rect degrades to a filled row rather than inverting.
+    expect(box.lineWidth).toBeCloseTo(39, 6);
     expect(box.args[3]).toBe(0);
     expect(box.args[2]).toBeGreaterThanOrEqual(0);
   });
@@ -1069,7 +1081,7 @@ describe('profile primitives render', () => {
     expect(f[0]).toBe(f[2]);            // both delta halves flat, and equal
     const t = plain.ops.filter((o) => o.type === 'fillText');
     expect(t.map((o) => o.text)).toEqual(['30', '30', '-15', '15']);
-    expect(t[2].fillStyle).toBe('rgba(255,0,0,0.9)');   // the sign is still ink
+    expect(t[2].fillStyle).toBe('rgba(255,0,0,1)');     // the sign is still ink
   });
 
   it('Footprint deltaCell colorBy delta tints the half by sign and magnitude', () => {
@@ -1097,13 +1109,13 @@ describe('profile primitives render', () => {
     const t = (dc: FootprintDeltaCell): (string | undefined)[] =>
       paintDelta(dc).ops.filter((o) => o.type === 'fillText').map((o) => o.fillStyle);
     // Flat plate: the number is the only place the sign can live, so it stays.
-    expect(t({ colorBy: 'none' })[2]).toBe('rgba(255,0,0,0.9)');
+    expect(t({ colorBy: 'none' })[2]).toBe('rgba(255,0,0,1)');
     // Coloured plate: sell ink on a sell plate is unreadable, and the sign is
     // already said once. Same rule the ladder's own `colorBy: 'delta'` follows.
-    expect(t({ colorBy: 'delta' })[2]).toBe('rgba(255,255,255,0.9)');
-    expect(t({ colorBy: 'delta', textColor: '#101010' })[2]).toBe('rgba(16,16,16,0.9)');
+    expect(t({ colorBy: 'delta' })[2]).toBe('rgba(207,209,218,1)');
+    expect(t({ colorBy: 'delta', textColor: '#101010' })[2]).toBe('rgba(16,16,16,1)');
     // The saturated row takes the hot ink, the way a saturated cell does.
-    expect(t({ colorBy: 'delta' })[0]).toBe('rgba(13,15,20,1)');
+    expect(t({ colorBy: 'delta' })[0]).toBe('rgba(92,96,111,1)');
     expect(t({ colorBy: 'delta', textColorHot: '#fefefe' })[0]).toBe('rgba(254,254,254,1)');
   });
 

@@ -51,10 +51,13 @@ same newest synthetic session with 18 CSS pixels per row and 16-pixel letters.
 It also captures packed/split views with the same framing and unchanged price
 aggregation. Gallery cards display images at 320–400 CSS pixels wide; narrow
 screens scroll within a card instead of shrinking letters further. Screenshots are
-tracked in `public/screenshots/market-profile/`; generated demo bundles are ignored.
+tracked in `public/screenshots/market-profile-v2.1.1/`; generated demo bundles are ignored.
 Pass a full demo URL as the script's first argument to capture another local host.
 
-The gallery and 2.1.0 release notes describe features present in the current source tree.
+The 2.1.6 build retains these captures because their renderer/demo source
+fingerprints are unchanged. The gallery shows the current profile implementation;
+the 2.1.1 release notes record when its themes and footprint controls shipped.
+CI and Pages both run the profile and depth checks before publishing the site.
 
 ## Interactive and API checks
 
@@ -62,6 +65,7 @@ After building and starting the static preview, run these from the repository ro
 
 ```bash
 node scripts/check-profile-website.mjs
+node scripts/check-navigation-website.mjs
 node scripts/check-depth-demo.mjs
 node scripts/check-drawing-demo.mjs
 node scripts/check-site-design.mjs
@@ -135,3 +139,9 @@ public/api/            TypeDoc API reference (generated; served at /openalgo-cha
 ```
 
 Deployment is automated by `.github/workflows/deploy-docs.yml`.
+
+The managed-loading example is validated with
+`node scripts/check-data-loading-website.mjs <preview-base-url>` from the repository
+root. It covers older pages, failed refresh and Retry, reconnect, empty/restore and
+mobile layout against the built public widget. Its screenshots are written under
+`artifacts/`. This check also runs before website deployment.

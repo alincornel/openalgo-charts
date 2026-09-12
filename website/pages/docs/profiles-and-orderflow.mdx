@@ -64,16 +64,13 @@ the `HorizontalProfile` primitive rather than letters. See
 
 ## Footprint & cumulative delta
 
-Footprint shows per-price bid vs ask volume with diagonal-imbalance highlighting. Build each
-bar with `computeFootprint(time, classifiedTrades, tickSize)` and render with the `Footprint`
-primitive.
+A footprint shows executed **bid volume on the left** and **ask volume on the right** at
+each price. Delta is ask volume minus bid volume. The slim candle beside a column shows
+its actual open, high, low and close; a pale outline identifies the highest-volume row
+(the point of control, or POC). Optional lines bound that bar's 70% value area.
 
-Cells are filled proportionally to volume rather than outlined, so a column reads as a heat
-ladder at a glance; imbalanced cells fill **saturated** instead of gaining a border, and runs
-of consecutive same-side imbalances get a bracket down the edge. Column width is derived from
-the chart's bar spacing unless you pin `cellWidth`, and when rows get shorter than
-`minTextHeight` the numbers drop out and the column degrades to a pure heatmap, so zooming
-out never turns into unreadable overlap.
+Profile and cluster ladder styles, per-candle stats, and the text-color methods below are
+available in **2.1.1**. See the [release notes](/docs/release-notes#211).
 
 ### Rows, holes and zero-fill
 
@@ -88,9 +85,11 @@ otherwise ask for tens of thousands of rows on one frame; a bar over the cap fal
 traded rows.
 
 Zero-fill also changes what the diagonal imbalance rule compares against: the neighbour of a
-row becomes the **adjacent price** rather than the next price that happened to trade. With the
-`max(1, ...)` rule that makes an untouched row a real zero, so an isolated ask print flags a
-buy imbalance more readily. Raise `imbalanceRatio` or `imbalanceThreshold` if that is noisy.
+row becomes the **adjacent price** rather than the next price that happened to trade. A
+positive quantity against zero opposing volume qualifies at any ratio, so an isolated ask
+print flags a buy imbalance more readily. `imbalanceRatio` cannot damp that case — nothing
+times zero is still zero — so **`imbalanceThreshold` is the knob** for it: it sets the
+quantity a side has to reach before it counts at all.
 
 ### What a row says, and what colours it
 
@@ -109,7 +108,9 @@ of it, rather than a set of corner marks: the row is what the eye is being point
 bracket reads as the edges of a range instead. `pocOutlineWidth` (1) is its weight in media
 px, so it holds on a retina pane, and the rectangle is inset by half of it so a fat ring
 stays inside its own row. It is capped by that row's own height and width, so asking for 8 px
-of ring on a 5 px row gives a filled row rather than a rectangle inside out.
+of ring on a 5 px row gives a filled row rather than a rectangle inside out. `pocStyle:
+'outline'` is upstream's spelling of the same idea, stroking the row in `pocColor` at a
+hairline; the two can be set together but rarely want to be.
 
 ### Tinting from a plate
 
@@ -153,9 +154,9 @@ direction, the buy colour when its delta is positive and the sell colour when it
 
 **The room arithmetic is `widthFactor * (1 + volumeBarWidthFactor) <= 1`**: the column takes
 `widthFactor` of the bar slot and a full-volume bar takes `volumeBarWidthFactor` of the column
-on top of that, so anything more and the longest bars run into the next column. A column is
-also floored at **24 media px** whatever the factor says, so on a zoomed-out chart the bars
-overlap regardless: that floor is the point at which to pin `cellWidth` or turn the bar off.
+on top of that, so anything more and the longest bars run into the next column. The column
+follows the bar slot all the way down with no floor under it, so on a zoomed-out chart the
+bars shrink with the ladder instead of overlapping their neighbours.
 
 With `stackedImbalances` on, the bar starts past the bracket lane rather than over it, so the
 run marks down the edge of the ladder stay readable.
@@ -210,12 +211,13 @@ new Footprint({
 
 ### The ink on a cell
 
-Unset, the renderer picks the cell numbers' colour: white at 0.9 alpha on a graded cell,
-dimmed to 0.45 on a zero row, and near-black on a saturated (imbalanced) one. That is the
-right pair over a dark pane and the wrong one over a light `cellBaseColor` plate, so
-`cellTextColor` and `cellTextColorHot` take it over. A signed `deltaVolume` delta keeps its
-own sell colour ahead of `cellTextColor`: there the colour is the number's meaning, not its
-theme.
+Unset, `textColorMode` picks the cell numbers' colour and it is then corrected for contrast
+against the plate the number actually sits on, so the default reads on a dark pane and on a
+light one. `cellTextColor` and `cellTextColorHot` take it over and are used **literally**: a
+host that chose an exact ink for its ladder means it, and a contrast correction would quietly
+move it. A zero-filled row is still drawn at 0.45 alpha, since it is context rather than
+content, and a signed `deltaVolume` delta keeps its own sell colour ahead of `cellTextColor`:
+there the colour is the number's meaning, not its theme.
 
 ```ts
 new Footprint({
@@ -231,9 +233,12 @@ new Footprint({
 
 | Value | What it draws |
 |---|---|
-| `'behind'` *(default)* | A 3 px delta-coloured range bar against the column. Not an OHLC candle: no open, no close. |
-| `'gutter'` | A real OHLC candle in a strip reserved out of the bar slot, to the left of the ladder. |
+| `'ohlc'` *(default)* | The bar's own `open`/`high`/`low`/`close` metadata in a gutter, once the column is wide enough to spare one. A legacy bar without OHLC shows a neutral range line. |
+| `'behind'` | A 3 px delta-coloured range bar against the column. Not an OHLC candle: no open, no close. |
+| `'gutter'` | A real OHLC candle in a strip reserved out of the bar slot, read from the **pane's** price series rather than from the bar. |
 | `'off'` | Nothing, for a host that leaves its own candlestick series visible. |
+
+`showCandle: false` turns every mode off, whatever `candle` says.
 
 `'gutter'` reserves `candleWidthFactor` of the slot (clamped to 3..14 media px), shifts the
 ladder right by it, and reads open/high/low/close from the pane's own price series through
@@ -256,9 +261,9 @@ function of pane height, not of how many rows a bar has: a tall pane reads one-t
 *before* fetching (a `rowTicks` multiplier on a server-side ladder, say) can pick the finest
 one whose implied row height still clears the threshold instead of guessing a row count.
 
-`rowHeight` is the **clamped draw height** of the last painted column, floored at 6 media px,
-so a row reported as 6 may be a much finer grid drawn at the floor; both numbers are 0 before
-the first paint and while nothing is on screen. A pane resize changes the answer and no data
+`rowHeight` is the draw height of the last painted column's rows, in media px, with no floor
+under it: a grid too fine to read reports the small number it actually drew. Both numbers are
+0 before the first paint and while nothing is on screen. A pane resize changes the answer and no data
 event announces it, so pass `onLayout` and get the same object pushed to you after any paint
 that moved it:
 
@@ -367,58 +372,284 @@ ask. A plain OHLCV or LTP stream cannot produce them - the demo above fakes the
 classification for illustration.
 </Callout>
 
-### Display modes
+### Try the order-flow demo
 
-`displayMode` switches what a column shows without touching the underlying bars:
+Seven readable, one-minute bars replay a **deterministic NIFTY simulation around 23,800**.
+Executions use a one-point simulation grid and are grouped into **2-point price rows** by
+default. Each simulated execution represents 1–16 lots of 65 quantity units. These are demo settings,
+rather than a statement of current exchange contract specifications. This is an illustration,
+not a live market feed. The demo opens paused so you can inspect the numbers before resuming.
 
-| Mode | Columns | Reads as |
-| --- | --- | --- |
-| `bidask` (default) | two: bid on the left, ask on the right | classic footprint; diagonal imbalances are visible |
-| `delta` | one, signed | net aggression per price; green above zero, red below |
-| `volume` | one, unsigned | where trade actually happened, side ignored |
+<a href="/openalgo-charts/demos/orderflow/index.html?paused=1" target="_blank" rel="noreferrer">Open full-size order-flow demo ↗</a>
 
-### Stats table
+<iframe
+  src="/openalgo-charts/demos/orderflow/index.html?paused=1"
+  title="Interactive footprint chart with profile, cluster ladder and heatmap styles"
+  loading="lazy"
+  style={{ width: '100%', height: 660, border: '1px solid #343b46', borderRadius: 8, marginTop: 12 }}
+/>
 
-`statsRows` renders a per-bar table under the columns, one row per metric, in the order given.
-Each cell is tinted by its own strength, so a run of heavy positive delta reads as a green
-block. Pass `[]` to hide the table.
+| Control | What changes |
+| --- | --- |
+| Style | Variable-width **Profile**, rectangular **Cluster ladder**, or intensity-based **Heatmap** |
+| Values | Bid × Ask, signed Delta, or total Volume at each price |
+| Quantity / Lot size | Displays raw quantity or divides the displayed quantities by an editable lot size, initially 65 |
+| Text | Auto contrast, bid/ask side, row delta, dominant side, diagonal imbalance, or volume strength |
+| Row | Reaggregates the retained tape into 2, 4 or 8-point price rows |
+| POC / Value area / Cards | Toggles the row outline, value-area lines, and per-candle metric cards |
+| Table | Shows the optional bottom table, with metric names fixed at the left and values aligned to each candle; off by default |
+| Table rows | Adds or removes Delta, Min delta, Max delta, Cumulative delta, Ask volume, Bid volume, and Volume independently |
+| Theme | Midnight, Graphite, Classic neon, Ocean, or Ivory; also updates controls and tooltip |
+| Pause / Resume | Stops or resumes the synthetic replay |
+| Reset | Restarts the same deterministic session with the selected style, theme and grouping |
+
+These are footprint price rows; time-at-price TPO profiles are covered in
+[Market Profile](/docs/market-profile).
+
+The table starts hidden. Its seven metrics are initially selected; changes to that selection
+are remembered while it is hidden. Selecting no metrics leaves the table empty. Cards and
+the table can be shown independently. On narrow screens, the demo shows fewer recent candles so every card remains readable;
+drag to inspect earlier columns. Enabling the table also leaves room for its fixed metric names.
+
+Style and theme are independent and preserve the current data and viewport. Try the
+[Classic neon ladder](/demos/orderflow/index.html?theme=classic&style=ladder&paused=1)
+for bright red and green blocks on black, or the
+[Ivory profile](/demos/orderflow/index.html?theme=ivory&paused=1)
+for a light presentation. Hover a price row or a stats card to inspect exact values.
+
+### Build a footprint
+
+`computeFootprint(time, classifiedTrades, tickSize, rowTicks?)` builds one bar.
+`FootprintAggregator` incrementally builds bars from a stream. Both populate `open`, `high`,
+`low`, `close`, `tradeCount`, and `rowSize` alongside the price cells and delta.
+OHLC metadata uses actual execution prices, even when several ticks share a grouped row.
+
+```ts
+import { createChart, darkTheme } from 'openalgo-charts';
+import { computeFootprint, Footprint } from 'openalgo-charts/profile';
+
+const chart = createChart(container, {
+  theme: darkTheme,
+  timeScale: { maxBarSpacing: 260 }, // allow readable, wide footprint columns
+  priceScale: { marginTop: 0.1, marginBottom: 0.25 },
+});
+const footprint = new Footprint({
+  cellStyle: 'profile',
+  displayMode: 'bidask',
+  statsPosition: 'bar',
+  statsRows: ['volume', 'delta', 'deltaPct'],
+  showCandle: true,
+  pocStyle: 'outline',
+  showValueArea: true,
+  valueAreaPercent: 0.7,
+  buyColor: '#159d87',
+  sellColor: '#cc374b',
+  pocColor: '#ccd5e1',
+});
+chart.addPrimitive(footprint);
+
+const bar = computeFootprint(1788960600, [
+  { price: 6000.00, qty: 12, side: 'bid' },
+  { price: 6000.25, qty: 19, side: 'ask' },
+  { price: 6000.00, qty: 7, side: 'ask' },
+], 0.25);
+footprint.setBars([bar]);
+
+// A transparent supporting series supplies the time axis and OHLC autoscale.
+const clear = 'rgba(0,0,0,0)';
+const price = chart.addSeries('candlestick', { style: {
+  upColor: clear, downColor: clear, wickUpColor: clear, wickDownColor: clear,
+  borderUpColor: clear, borderDownColor: clear,
+} });
+price.setData([{
+  time: bar.time, open: bar.open!, high: bar.high!, low: bar.low!, close: bar.close!,
+}]);
+chart.timeScale.fitContent(1);
+```
+
+<Callout type="warning">
+Order flow requires classified executions: `side: 'bid'` means an aggressive seller hit
+the bid; `side: 'ask'` means an aggressive buyer lifted the ask. OHLCV bars or an LTP stream
+cannot recover this information. Use a feed's aggressor classification, or a documented
+trade classifier; do not label every trade that is not known to be a sell as a buy.
+</Callout>
+
+### Styles and display modes
+
+`cellStyle` controls the shape without changing analytics. **Profile** draws variable-width
+horizontal bars around the central bid/ask divider. **Ladder** draws a pair of solid
+rectangular cells with a narrow central gap. **Heatmap**, the backwards-compatible default,
+uses volume intensity. The bid and ask values stay aligned in their respective columns.
+When rows or columns become too small, text is suppressed to avoid overlap.
+
+| Option | Values / default |
+| --- | --- |
+| `cellStyle` | `'heatmap'` (default), `'profile'`, `'ladder'` |
+| `displayMode` | `'bidask'` (default), `'delta'`, `'volume'` |
+| `tableRows` | Metric rows in an independent bottom table; `[]` (default) disables it |
+| `tableLabelWidth` | Width of the fixed metric-name column; `150` pixels by default |
+| `statsRows` | Card or legacy-footer metrics; `[]` by default |
+| `statsPosition` | `'bottom'` (default) for the legacy footer; `'bar'` for cards below each candle |
+| `pocStyle` | `'marker'` (default) or `'outline'` |
+| `showValueArea` | `false` by default |
+| `valueAreaPercent` | `0.7` by default |
+| `buyColor`, `sellColor`, `textColor` | Optional palette overrides |
+| `pocColor`, `valueAreaColor` | Reference-line colors |
+| `cvdOffset` | Starting cumulative delta in raw quantity, default `0` |
+| `volumeDivisor` | Divides displayed quantity values only; `1` (raw quantity) by default |
+
+Column width follows the chart's bar spacing, capped by the available slot so adjacent bars
+remain separate. `cellWidth` requests a fixed width within that slot. `widthFactor` controls
+its relative width. `tickSize`, when supplied, overrides the effective price step used for row height. Otherwise
+computed bars supply `rowSize`, which is especially useful for grouping and sparse rows.
+`imbalanceRatio`, `imbalanceThreshold`, and `stackedImbalances` control diagonal imbalance
+highlights and brackets; pass `stackedImbalances: 0` to hide the brackets.
+
+### Raw quantity and lots
+
+Use **Quantity → Lots** to divide the displayed numbers by **Lot size**, initially `65` in
+this NIFTY simulation. Edit that positive whole-number setting to compare other divisors,
+or select **Raw** to see the underlying quantities. Try the
+[NIFTY table in lots](/demos/orderflow/index.html?paused=1&table=1&units=lots&lot=65).
+The default is raw quantity; the lot size is a configurable demo setting.
+
+```ts
+footprint.setOptions({ volumeDivisor: 65 }); // display raw quantities as lots
+footprint.setOptions({ volumeDivisor: 1 });  // return to raw quantity
+```
+
+The divisor applies consistently to bid/ask cells, volume, delta, min/max delta, cumulative
+delta, cards, and the bottom table. Delta percentages, execution counts, prices, bar widths,
+and color comparisons remain unchanged. Fractional lots retain significant digits.
+`stats()`, hover data, and supplied bars remain in **raw quantity** so changing the display
+cannot change analytics. Host-owned readouts and tooltips should divide the raw values by
+the same divisor; the demo does this and labels the selected units.
+
+### Text coloring
+
+Text coloring is independent of the cell background. `textColorMode` supports these methods:
+
+| Method | Meaning |
+| --- | --- |
+| `'contrast'` (default) | Readable text against the painted background |
+| `'side'` | Bid text uses the sell shade; ask text uses the buy shade |
+| `'delta'` | Both values follow that price row's ask-minus-bid delta |
+| `'dominant'` | Highlights the larger side at the same price |
+| `'imbalance'` | Highlights diagonal bid/ask imbalances using the configured ratio and threshold |
+| `'volume'` | In bid/ask view, side volume relative to the peak side; in single-value views, total row volume relative to peak total volume |
+
+`buyTextColor` and `sellTextColor` let a palette use different foreground shades from its
+`buyColor` and `sellColor` backgrounds. `textColor` supplies the neutral text shade. Contrast
+adjustment keeps small numbers readable. The demo exposes each method while preserving
+its tape, statistics, style and theme. These are the supported methods in this renderer;
+this does not imply complete parity with other platforms' Numbers Bars studies.
+
+### Per-bar statistics
+
+`tableRows` chooses the metrics and their order in the bottom table. It is **disabled by
+default** (`[]`). The metric names remain fixed at the left while the value columns follow
+the chart's bar centers during pan and zoom. `statsRows` independently configures the existing
+per-candle cards when `statsPosition: 'bar'`; it also defaults to `[]`. The demo explicitly
+enables three cards while leaving the table off.
+
+```ts
+footprint.setOptions({
+  tableRows: ['delta', 'minDelta', 'maxDelta', 'cvd', 'askVolume', 'bidVolume', 'volume'],
+  tableLabelWidth: 150,
+  statsPosition: 'bar',
+  statsRows: ['volume', 'delta', 'deltaPct'],
+});
+// Choose fewer table metrics, or pass [] to hide the table.
+footprint.setOptions({ tableRows: ['delta', 'cvd', 'volume'] });
+```
+
+Reserve a bottom price-scale margin for the table's pixel height
+(`tableRows.length * statsRowHeight`) plus any cards. When fitting a viewport, leave room at
+the left for `tableLabelWidth` so its fixed labels do not cover the first data column.
+The demo adjusts this space when the table is enabled or its rows are changed.
+
+Existing `statsPosition: 'bottom'` with `statsRows` continues to work as the legacy footer.
+Use the independent `tableRows` option when you want cards and a table together.
 
 | Row | Value |
 | --- | --- |
-| `volume` | total bar volume |
-| `delta` | `askVol - bidVol` summed over the bar |
-| `deltaPct` | that delta as a percentage of bar volume |
-| `cvd` | cumulative delta, a running total across all loaded bars |
-| `trades` | number of prints in the bar |
+| `volume` | Sum of bid and ask volume |
+| `delta` | Ask volume minus bid volume |
+| `minDelta` | Lowest running intrabar delta, starting from zero at the bar open |
+| `maxDelta` | Highest running intrabar delta, starting from zero at the bar open |
+| `askVolume` | Executed volume at the ask |
+| `bidVolume` | Executed volume at the bid |
+| `deltaPct` | Delta as a percentage of bar volume |
+| `cvd` | `cvdOffset` plus cumulative delta across the loaded bars |
+| `trades` | Actual execution count from `tradeCount`; unavailable legacy counts display `—` |
+
+`footprint.stats()` exposes the same calculations. Its `trades` value is `null` when an older
+manually assembled bar has no count metadata; occupied price levels are not a trade count.
+`minDelta` and `maxDelta` also return `null` and display `—` when legacy bars lack intrabar
+extrema. They describe the running execution-by-execution delta path, not the largest or
+smallest price-row delta; aggregated cells alone cannot recover them. Replaying the same
+retained executions with a different price grouping preserves both extrema.
+Legacy bars without OHLC remain renderable, but an actual candle requires OHLC metadata.
+
+### Streaming and grouping
+
+Retain classified ticks if you want to change price grouping later: changing a renderer's
+options cannot recreate the original executions from aggregated cells. Rebuild the
+aggregator with the new `rowTicks` and replay those retained ticks. The demo follows this path.
+
+```ts
+import { FootprintAggregator } from 'openalgo-charts/profile';
+
+const aggregator = new FootprintAggregator(
+  { mode: 'interval', seconds: 60 },
+  0.25, // instrument tick size
+  2,    // two ticks per row: 0.50 price units
+);
+const bars = [];
+let cvdOffset = 0;
+
+function onClassifiedTrade(tick) {
+  const update = aggregator.onTick(tick);
+  if (update.isNew) {
+    bars.push(update.bar);
+    if (bars.length > 100) cvdOffset += bars.shift().delta;
+  } else {
+    bars[bars.length - 1] = update.bar;
+  }
+  footprint.setOptions({ cvdOffset });
+  footprint.setBars(bars.slice());
+  // Also update the supporting price series from each bar's OHLC metadata.
+}
+```
+
+Preserve dropped bars' delta in `cvdOffset` to keep session CVD continuous when trimming a
+rolling window. Reset both the window and offset to start a new session. Feed executions
+in nondecreasing timestamp order: late ticks are rejected before mutating the current bar.
+Timestamp ties remain together when a tick-count or volume threshold would otherwise create
+a second bar with the same timestamp.
 
 ### Runtime restyling and hit-testing
 
-`setOptions(partial)` merges and repaints, so a toolbar can drive the primitive live:
+`setOptions(partial)` merges and repaints without replacing the bars:
 
 ```ts
-fp.setOptions({ displayMode: 'delta', imbalanceRatio: 5, statsRows: ['volume', 'cvd'] });
+footprint.setOptions({ cellStyle: 'ladder', displayMode: 'delta' });
+footprint.setOptions({ buyColor: '#32e600', sellColor: '#ff2424', textColor: '#ffffff' });
 ```
 
-`hitTest(x, y)` and `hoverAt(x, y)` map a pointer position back to the bar and price row under
-the cursor, enough to build a hover inspector without the library owning any DOM. `hoverAt`
-returns `{ time, price, cell, stats }`, where `cell` is `null` when the pointer is over the
-stats table rather than a price row:
+`hitTest(x, y)` and `hoverAt(x, y)` use pane-local chart coordinates. `hoverAt` returns
+`{ time, price, cell, stats }`; `price` and `cell` are `null` over a stats card or table.
+Use it to build a host-owned tooltip:
 
 ```ts
-chart.on('crosshair:move', (e) => {
-  const hit = e.point ? fp.hoverAt(e.point.x, e.point.y) : null;
+chart.on('crosshair:move', (event) => {
+  const hit = event.point ? footprint.hoverAt(event.point.x, event.point.y) : null;
   tooltip.hidden = hit === null;
   if (hit === null) return;
-  const cell = hit.cell ? `bid ${hit.cell.bidVol} x ask ${hit.cell.askVol}` : '';
-  tooltip.textContent = `${cell}  vol ${hit.stats.volume}  Δ ${hit.stats.delta}`;
+  const cell = hit.cell ? `bid ${hit.cell.bidVol} × ask ${hit.cell.askVol}` : '';
+  tooltip.textContent = `${cell}  volume ${hit.stats.volume}  delta ${hit.stats.delta}`;
 });
 ```
-
-<Callout>
-`examples/orderflow/index.html` in the repo wires all of this to a live synthetic tape: the
-forming bar updates in place as ticks arrive, which is the same path a real WebSocket trade
-feed takes.
-</Callout>
 
 ## Footprint analytics
 
@@ -436,16 +667,20 @@ import {
 
 ### diagonalImbalances
 
-`diagonalImbalances(cells, ratio = 3)` scans the `FootprintCell[]` of one bar (sorted high
+`diagonalImbalances(cells, ratio = 3, rowSize?, threshold = 0)` scans the `FootprintCell[]` of one bar (sorted high
 to low, as returned by `computeFootprint`) and returns `Imbalance[]`. A buy imbalance fires
-when ask volume at price P is at least `ratio` times the bid volume at the cell one tick
+when ask volume at price P is at least `ratio` times the bid volume at the cell one row
 below; a sell imbalance fires when bid volume at P is at least `ratio` times the ask volume
-at the cell one tick above.
+at the cell one row above. `rowSize` is the effective grouped price step. Missing rows
+are not bridged. Without an explicit step, the minimum observed spacing is inferred;
+this cannot distinguish uniformly missing rows from a coarser grid. `threshold` is the
+minimum qualifying side volume. Positive volume against zero can qualify, while zero
+against zero does not. Both sides can be imbalanced at the same price.
 
 ```ts
 const bar = computeFootprint(time, trades, tickSize);
-const imb = diagonalImbalances(bar.cells);      // ratio defaults to 3
-const imb4 = diagonalImbalances(bar.cells, 4);  // stricter threshold
+const imb = diagonalImbalances(bar.cells, 3, bar.rowSize);
+const imb4 = diagonalImbalances(bar.cells, 4, bar.rowSize, 10); // ratio 4, minimum volume 10
 // imb: Array<{ price: number; side: 'buy' | 'sell' }>
 ```
 
@@ -462,12 +697,13 @@ const cd = cumulativeDelta(footprintBars);
 
 ### stackedImbalances
 
-`stackedImbalances(cells, ratio = 3, minStack = 3)` builds on `diagonalImbalances` and
+`stackedImbalances(cells, ratio = 3, minStack = 3, rowSize?, threshold = 0)` builds on `diagonalImbalances` and
 finds runs of `minStack` or more consecutive same-side imbalances within one bar's cell
-stack. Returns `StackedImbalance[]`, each with `{ startPrice, endPrice, side, count }`.
+stack. Buy and sell runs are tracked independently, and neither crosses a missing row.
+Returns `StackedImbalance[]`, each with `{ startPrice, endPrice, side, count }`.
 
 ```ts
-const stacked = stackedImbalances(bar.cells, 3, 3);
+const stacked = stackedImbalances(bar.cells, 3, 3, bar.rowSize);
 // Array<{ startPrice: number; endPrice: number; side: 'buy' | 'sell'; count: number }>
 ```
 

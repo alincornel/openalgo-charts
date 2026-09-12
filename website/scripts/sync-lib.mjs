@@ -50,3 +50,11 @@ for (const name of ['openalgo-charts.mjs', 'openalgo-charts.profile.mjs']) {
   if (existsSync(join(distDir, name + '.map'))) copyFileSync(join(distDir, name + '.map'), join(demoBundles, name + '.map'));
 }
 console.log('[sync-lib] copied standalone profile demo and its bundles into website/public/demos');
+
+// Keep the order-flow docs embed identical to the standalone replay demo.
+const orderflowOutput = resolve(here, '..', 'public', 'demos', 'orderflow');
+mkdirSync(orderflowOutput, { recursive: true });
+const orderflowHtml = readFileSync(resolve(here, '..', '..', 'examples', 'orderflow', 'index.html'), 'utf8')
+  .replaceAll("from '/dist/", "from '../dist/");
+writeFileSync(join(orderflowOutput, 'index.html'), orderflowHtml);
+console.log('[sync-lib] copied standalone order-flow demo into website/public/demos');

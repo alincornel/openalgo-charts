@@ -1231,8 +1231,20 @@ registerIndicator(createTier2Indicator({
 
 **Alignment rule.** External points carry their own timestamps, which rarely match bar
 times. Each bar takes the most recent point **at or before** it, last-known-value, never
-interpolated and never forward-looking. Bars before the first point are `null`. A failed
-fetch leaves the previous points on screen rather than blanking the pane.
+interpolated and never forward-looking. Bars before the first point are `null`.
+
+`refetchOn` names the settings that identify the external dataset. Changing one clears
+the previous dataset immediately and starts a new fetch, so old values cannot appear
+under a new symbol while its history loads or after that load fails. Include every
+data-affecting setting, such as symbol, exchange or resolution, in this list.
+
+A style change that leaves the data key unchanged reuses loaded data or the pending
+request. Live points received while history is loading are merged into the result and
+win at matching timestamps. A failed fetch keeps only live points belonging to the
+current key; `retryData()` or a context/settings change can retry the history request. Late results and
+callbacks from an earlier attachment are ignored after a settings change or removal.
+An empty successful history result is still loaded data and does not trigger another
+fetch on a style change. Omitting `refetchOn` uses no settings-derived key; chart context still identifies the dataset.
 
 ### The attach context
 
@@ -1378,3 +1390,23 @@ const atrVals = atr(highs, lows, closes, 14);     // NaN for bars 0-12, then Wil
 `atr` is consumed internally by `supertrend`. Call it directly when you need a volatility
 measure for position sizing or stop distances, without computing the full band.
 </Callout>
+
+## Managed external data (2.1.6)
+
+`createTier2Indicator` now receives `ctx.dataContext` (optional symbol, exchange,
+interval) and `ctx.signal`. Forward the signal to your fetch. Set identity through
+`chart.setDataContext(...)`; the widget does this for its own feed. Clear the old
+primary series before changing context, then install the new source bars.
+
+`supports(ctx)` may return false when classified trades, open interest or another
+required dataset is unavailable. Do not synthesize those values from OHLCV.
+Context changes cancel obsolete work and refetch. Prepended source history extends
+the requested range; history-only studies refresh a growing tail, while live
+studies keep their subscription. Replay alignment never selects a future point.
+
+`indicator.dataStatus()` returns `IndicatorDataStatus | null`. The states are
+`loading`, `ready`, `empty`, `unsupported` and `error`, with optional `error` detail.
+Use `subscribeDataStatus(listener)` and release its returned unsubscribe function.
+`retryData()` retries the current source. The widget renders these states and
+Retry automatically. `indicator:data-status` emits `{ id, indicatorId, status }`
+on the chart event bus. Existing synchronous indicators return null status.

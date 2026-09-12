@@ -92,7 +92,7 @@ Every transition funnels through one private `_apply(index)` that hands the driv
 ### Gotchas
 
 - **Pass every series that shares the timeline** (volume histogram, a comparison line) in `options.series`. The DataLayer merges all series onto one axis, so one left at full length drags future timestamps back onto it. The extras are cut by **time**, not by count.
-- **Replay drives series, not the feed.** A live feed still calling `series.update()` fights the playhead. Detach it for the duration.
+- **Replay drives series, not the feed.** Live ticks, periodic reconciliation, reconnect refreshes and older-history responses must all stop writing displayed series while replay is active, even while paused. Detach those writers or retain live data in a separate host buffer. On exit, `stop()` restores its captured snapshot; the host must then reconcile current live data and reseed. See [host-integration](host-integration.md).
 - **Speed is derived from the clock, not the tick count**, so a throttled timer still plays at the requested rate. One tick consumes at most 10 bars, so a backgrounded tab does not fast-forward the session when it wakes.
 - `stop()` restores `barSpacing` and `rightOffset` together with the data. Those two plus the restored `baseIndex` *are* the visible logical range, which is why the view returns to the pixel.
 

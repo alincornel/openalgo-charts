@@ -1,6 +1,6 @@
 /**
- * Time navigator (ARCHITECTURE.md §8) — the hover-revealed zoom / step controls
- * that sit just above the time axis: `−` `+` to zoom, `‹` `›` to step one bar.
+ * Time navigator (ARCHITECTURE.md section 8): hover-revealed zoom, reset and
+ * one-bar step controls just above the time axis.
  *
  * Invisible until the pointer nears the bottom of the chart, so a clean chart
  * stays clean. It fades in and out rather than snapping, which is what keeps it
@@ -15,7 +15,7 @@
 import type { IPrimitive, PrimitiveHit, PrimitiveHost, PrimitiveRenderContext, ZOrder } from './primitive';
 
 /** Command each button runs. These are `Chart` shortcut command ids. */
-export type TimeNavigatorAction = 'zoomOut' | 'zoomIn' | 'panLeftBar' | 'panRightBar';
+export type TimeNavigatorAction = 'zoomOut' | 'zoomIn' | 'resetScale' | 'panLeftBar' | 'panRightBar';
 
 export interface TimeNavigatorOptions {
   /** Prefix for hit ids. Lets a host run more than one. */
@@ -36,8 +36,8 @@ export interface TimeNavigatorOptions {
   revealHeight: number;
   /** Seconds the fade takes. 0 disables the animation. */
   fadeSeconds: number;
-  /** Tooltip label per action. */
-  labels: Record<TimeNavigatorAction, string>;
+  /** Tooltip label overrides per action. */
+  labels: Partial<Record<TimeNavigatorAction, string>>;
   /** Optional keyboard hint shown next to the label, e.g. `"Ctrl + −"`. */
   hints: Partial<Record<TimeNavigatorAction, string>>;
   /** Show the tooltip above the hovered button. */
@@ -47,21 +47,24 @@ export interface TimeNavigatorOptions {
   zOrder: ZOrder;
 }
 
+const DEFAULT_LABELS: Record<TimeNavigatorAction, string> = {
+  zoomOut: 'Zoom out',
+  zoomIn: 'Zoom in',
+  resetScale: 'Reset view',
+  panLeftBar: 'Move left',
+  panRightBar: 'Move right',
+};
+
 export const DEFAULT_TIME_NAVIGATOR_OPTIONS: TimeNavigatorOptions = {
   id: 'timenav',
-  buttons: ['zoomOut', 'zoomIn', null, 'panLeftBar', 'panRightBar'],
+  buttons: ['zoomOut', 'zoomIn', null, 'resetScale', null, 'panLeftBar', 'panRightBar'],
   size: 26,
   gap: 4,
   groupGap: 16,
   bottomMargin: 10,
   revealHeight: 64,
   fadeSeconds: 0.12,
-  labels: {
-    zoomOut: 'Zoom out',
-    zoomIn: 'Zoom in',
-    panLeftBar: 'Move left',
-    panRightBar: 'Move right',
-  },
+  labels: DEFAULT_LABELS,
   hints: {},
   showTooltip: true,
   font: 11,
@@ -90,7 +93,10 @@ export class TimeNavigator implements IPrimitive {
   private _now: () => number;
 
   public constructor(opts: Partial<TimeNavigatorOptions> = {}, now?: () => number) {
-    this._opts = { ...DEFAULT_TIME_NAVIGATOR_OPTIONS, ...opts };
+    this._opts = {
+      ...DEFAULT_TIME_NAVIGATOR_OPTIONS, ...opts,
+      labels: { ...DEFAULT_TIME_NAVIGATOR_OPTIONS.labels, ...opts.labels },
+    };
     // Injectable so tests can step the fade deterministically.
     this._now = now ?? ((): number => (typeof performance !== 'undefined' ? performance.now() : 0));
   }
@@ -101,7 +107,10 @@ export class TimeNavigator implements IPrimitive {
   public options(): TimeNavigatorOptions { return this._opts; }
 
   public setOptions(patch: Partial<TimeNavigatorOptions>): void {
-    this._opts = { ...this._opts, ...patch };
+    this._opts = {
+      ...this._opts, ...patch,
+      labels: { ...this._opts.labels, ...patch.labels },
+    };
     this._host?.requestUpdate();
   }
 
@@ -239,6 +248,14 @@ export class TimeNavigator implements IPrimitive {
         ctx.moveTo(cx - g, cy); ctx.lineTo(cx + g, cy);
         ctx.moveTo(cx, cy - g); ctx.lineTo(cx, cy + g);
         break;
+      case 'resetScale': {
+        const tip = g * Math.SQRT1_2;
+        ctx.arc(cx, cy, g, -Math.PI * 0.75, Math.PI * 0.75);
+        ctx.moveTo(cx - tip, cy - tip * 2);
+        ctx.lineTo(cx - tip, cy - tip);
+        ctx.lineTo(cx, cy - tip);
+        break;
+      }
       case 'panLeftBar':
         ctx.moveTo(cx + g * 0.55, cy - g); ctx.lineTo(cx - g * 0.5, cy); ctx.lineTo(cx + g * 0.55, cy + g);
         break;
@@ -258,7 +275,7 @@ export class TimeNavigator implements IPrimitive {
     const o = this._opts;
     const box = this._boxes.find((b) => b.action === action);
     if (box === undefined) return;
-    const label = o.labels[action];
+    const label = o.labels[action] ?? DEFAULT_LABELS[action];
     const hint = o.hints[action];
 
     ctx.font = `${o.font * dpr}px ui-sans-serif, system-ui, sans-serif`;

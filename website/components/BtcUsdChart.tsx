@@ -59,7 +59,7 @@ export default function BtcUsdChart() {
           onBars: (bars, interval) => {
             if (cancelled || !widget) return;
             widget.series.setData(bars);
-            if (lastInterval !== interval) widget.chart.fitContent();
+            if (lastInterval !== interval) widget.chart.resetScale();
             lastInterval = interval;
           },
           onStatus: (status: MarketStatus) => { if (!cancelled) setMarket(status); },

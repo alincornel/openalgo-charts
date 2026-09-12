@@ -47,6 +47,8 @@ export interface IndicatorState {
   indicatorId: string;
   settings: IndicatorSettings;
   paneIndex: number;
+  /** Omitted by older layouts, which restore the indicator as visible. */
+  visible?: boolean;
 }
 
 export interface ChartState {

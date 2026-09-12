@@ -80,6 +80,34 @@ function mount(): Mounted {
 const span = (r: { min: number; max: number }): number => r.max - r.min;
 const mid = (r: { min: number; max: number }): number => (r.min + r.max) / 2;
 
+describe('time-axis drag direction', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('expands spacing to the left and compresses to the right without panning', () => {
+    vi.stubGlobal('window', {});
+    const { chart, el } = mount();
+    const spacing = chart.timeScale.barSpacing;
+    const zoom = vi.fn();
+    chart.on('zoom', zoom);
+    const offset = chart.timeScale.rightOffset;
+    el.dispatch('pointerdown', pointer('down', 400, 590));
+    el.dispatch('pointermove', pointer('move', 300, 590));
+    expect(chart.timeScale.barSpacing).toBeGreaterThan(spacing);
+    expect(chart.timeScale.rightOffset).toBe(offset);
+    expect(zoom).toHaveBeenCalled();
+    el.dispatch('pointermove', pointer('move', 400, 590));
+    expect(chart.timeScale.barSpacing).toBeCloseTo(spacing);
+    el.dispatch('pointermove', pointer('move', 500, 590));
+    expect(chart.timeScale.barSpacing).toBeLessThan(spacing);
+    expect(chart.timeScale.rightOffset).toBe(offset);
+    el.dispatch('pointerup', pointer('up', 500, 590));
+    const released = chart.timeScale.barSpacing;
+    el.dispatch('pointermove', pointer('move', 600, 590, { buttons: 0 }));
+    expect(chart.timeScale.barSpacing).toBe(released);
+    chart.destroy();
+  });
+});
+
 describe('measuring the container', () => {
   it('lays the panes into the size the container settles at, not the one it first reported', () => {
     // A flex/grid container whose height the browser has not resolved yet when
@@ -440,7 +468,10 @@ describe('dragging the time axis announces the new window', () => {
     m.el.dispatch('pointermove', pointer('move', 480, 595));
     m.el.dispatch('pointerup', pointer('up', 480, 595));
     expect(seen.map((s) => s.type)).toEqual(['zoom', 'zoom']);
+    // Each move carries the window the drag has reached by then, not a repeat
+    // of the first one. Rightwards compresses the bars since 2.1.3 reversed
+    // this gesture, so the window keeps widening as the finger travels.
     expect(seen[1].logicalTo - seen[1].logicalFrom)
-      .toBeLessThan(seen[0].logicalTo - seen[0].logicalFrom);
+      .toBeGreaterThan(seen[0].logicalTo - seen[0].logicalFrom);
   });
 });

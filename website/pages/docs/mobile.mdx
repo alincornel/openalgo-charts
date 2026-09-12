@@ -7,13 +7,13 @@ import { Callout } from 'nextra/components'
 
 # Mobile & Touch
 
-All input handling is built on the [Pointer Events API](https://www.w3.org/TR/pointerevents/), so the same code path serves mouse, touch, and stylus input. There is no separate touch code path; every gesture below works on any pointer type.
+All input handling is built on the [Pointer Events API](https://www.w3.org/TR/pointerevents/), so the same input system serves mouse, touch, and stylus input. Touch retains two-axis panning; mouse and pen also pan both axes by default, with optional time-only movement through `navigation.mousePan: 'horizontal'`.
 
 ## Built-in touch gestures
 
 ### One-finger drag
 
-Dragging with a single finger pans both axes at once: horizontal movement scrolls the time axis left or right, and vertical movement shifts the price scale of the touched pane up or down. Releasing after a fast swipe launches a kinetic animation that decelerates the scroll naturally.
+Dragging with a single finger pans both axes at once: horizontal movement scrolls the time axis left or right, and vertical movement shifts the price scale of the touched pane up or down. This is unchanged by `navigation.mousePan: 'horizontal'`. Releasing after a fast swipe launches a kinetic animation that decelerates the scroll naturally.
 
 ### Two-finger pinch and pan
 
@@ -28,11 +28,14 @@ All four effects are computed in a single frame, so spreading fingers while slid
 
 ### Double-tap to reset
 
-A double-tap fires the browser's synthetic `dblclick` event, which calls `resetScale()` internally: all bars are fitted to the visible width and every price axis returns to auto-scaling. You can trigger the same action programmatically:
+A double-tap fires the browser's synthetic `dblclick` event. With the default `doubleClick: 'reset'`, it calls `resetScale()`: the configured default view is restored and every price axis returns to auto-scaling. `navigation.defaultVisibleBars: 0` fits all loaded bars; a positive count targets the newest N loaded bars plus four empty bar slots on the right, subject to data and bar-spacing limits. You can trigger the same action programmatically:
 
 ```ts
 chart.resetScale();
 ```
+
+Use `chart.fitContent()` to explicitly fit all loaded history. The visible-bar setting
+changes the viewport only; it does not limit history requests or remove loaded bars.
 
 ## Tapping to interact
 

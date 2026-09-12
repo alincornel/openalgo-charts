@@ -178,7 +178,7 @@ Selected `MarketProfilePrimitiveOptions`; `DEFAULT_MARKET_PROFILE_PRIMITIVE_OPTI
 
 | Key | Default | Notes |
 |---|---|---|
-| `blockDisplay` | `'auto'` | `MpBlockDisplay` = `'auto' \| 'blocks+letters' \| 'letters' \| 'blocks'`. |
+| `blockDisplay` | `'auto'` | `MpBlockDisplay` = `'auto' \| 'compact' \| 'blocks+letters' \| 'letters' \| 'blocks'`. Compact uses a pixel font for small rows. |
 | `minLetterHeight` / `letterFade` | `7` / `4` | In `'auto'`, letters fade in over `letterFade` px above `minLetterHeight`; the block always draws. |
 | `letterWidth` / `font` | `8` / `10` | Font auto-shrinks to `rowHeight * 0.95`. |
 | `colorMode` / `periodColors` | `'period'` / `TPO_PERIOD_COLORS` | `MpColorMode` = `'period' \| 'valueArea' \| 'count' \| 'volume' \| 'uniform'`; 12 hues indexed `periodIndex % length`. |
@@ -191,11 +191,53 @@ Selected `MarketProfilePrimitiveOptions`; `DEFAULT_MARKET_PROFILE_PRIMITIVE_OPTI
 | `showPoorHighLow` / `showNakedLevels` / `showDevelopingPoc` / `showDevelopingVa` / `showTpoCounts` | all `false` | |
 | `showSessionLabel` / `showDayType` / `showOpenType` | `true` / `false` / `false` | The session label only appears when a `window` set `label`. |
 | `showVolumeProfile` / `volumeProfileWidth` / `volumeProfileSide` / `showVolumeValues` | `false` / `60` / `'right'` / `false` | |
+| `showSessionOpen` / `sessionOpenColor` | `false` / `#5ca8ff` | Lowercase `o` on each session's actual opening-price row. |
+| `showLastPrice` / `lastPriceColor` | `false` / `#ff6b5e` | `#` at the newest supplied session's last close, not the computer's current day. |
 | `zOrder` | `'top'` | |
 
 **`colorMode: 'count'` and `'volume'` change alpha, not hue.** Both fall through to `color`; the heat is `0.3 + 0.7 * share` applied to opacity.
 
 **`showNakedLevels: true` recomputes `nakedLevels(result)` on every frame.** It is O(sessions squared); precompute and draw your own lines if the session count is large.
+
+### Compact profiles and demo themes
+
+```ts
+const profile = new MarketProfile(result, {
+  blockDisplay: 'compact', showVolumeValues: true,
+  showSessionOpen: true, showLastPrice: true,
+});
+chart.addPrimitive(profile);
+profile.setSessionSplit(2, true);
+profile.isSessionSplit(2);       // true
+profile.setSessionSplit(2, null); // return this session to the global split setting
+```
+
+The 2.1.0 compact mode uses distinct pixel letters when rows have at least 5 physical
+pixels of height and 3 of width. Larger rows use ordinary canvas text; smaller rows use
+marks with exact values available through hover. Test at the actual device pixel ratio.
+Canvas 2D and SVG export support the compact letters without a WebGL2 dependency.
+
+Per-session split choices follow calendar session identity through `setData`, prepended
+history and row regrouping. Theme-only `setOptions` patches preserve them; explicitly
+setting the global `split` option clears the overrides. Open/latest markers stay within
+the visible plot and latest-price markers only belong to the newest supplied session.
+
+The palette names below belong to demos, not exported library presets:
+
+| Demo | Presets | Apply through |
+|---|---|---|
+| `examples/market-profile/` | Dark, Blue, Graphite, Emerald, Ivory | `themes.js` supplies chart/profile/control colours; `chart.setTheme` plus profile options |
+| `examples/orderflow/` | Midnight, Graphite, Classic neon, Ocean, Ivory | Presets in `index.html`; chart theme and `Footprint.setOptions` remain independent of style/text method |
+
+For an upstream website change, read `scripts/capture-profile-screenshots.mjs` and
+`scripts/check-profile-website.mjs`. The capture script uses the served standalone demo
+and records source hashes plus PNG hashes in
+`website/public/screenshots/market-profile-v2.1.1/captures.json`. That directory names the
+capture generation, not the installed package version. Regenerate when a fingerprinted
+render source changes, then build the site so its public demos and bundles are synced.
+The guide's compressed overview and enlarged single-session close-ups use different
+row heights; preserve that distinction in captions. See
+[host-integration](host-integration.md#browser-validation) for the browser checks.
 
 ## Footprint and order flow
 
@@ -203,65 +245,110 @@ Selected `MarketProfilePrimitiveOptions`; `DEFAULT_MARKET_PROFILE_PRIMITIVE_OPTI
 
 Nothing else in this file has that dependency, Volume Profile and Market Profile derive from plain OHLCV.
 
-`computeFootprint(time, trades, tickSize, rowTicks = 1)` returns a `FootprintBar`. `ClassifiedTrade` is `{ price, qty, side: 'bid' | 'ask' }`; `FootprintCell` is `{ price, bidVol, askVol }`; `FootprintBar` is `{ time, cells, delta }`, cells high to low, `delta = sum(askVol - bidVol)`.
+`computeFootprint(time, trades, tickSize, rowTicks = 1)` returns a `FootprintBar`. `ClassifiedTrade` is `{ price, qty, side: 'bid' | 'ask' }`; `FootprintCell` is `{ price, bidVol, askVol }`. `FootprintBar` requires `{ time, cells, delta }`, with cells high to low and `delta = sum(askVol - bidVol)`. Its optional metadata fields are `rowSize`, `open`, `high`, `low`, `close`, `tradeCount`, `minDelta` and `maxDelta`.
+
+Both the batch computation and `FootprintAggregator` populate `rowSize = tickSize * rowTicks`, actual traded OHLC prices before row rounding, the number of classified records, and the minimum/maximum running intrabar delta including initial zero. These extrema follow trade order before price grouping: bid 5, ask 12, bid 10 produces final delta -3, minimum -5 and maximum 7. Extrema reset on each new bar and cannot be recovered from aggregated rows. Empty batch input returns empty cells, zero delta, zero extrema and zero trade count, without invented OHLC. Legacy manually supplied bars may omit metadata.
+
+`tickSize` must be positive and finite, and `rowTicks` must be a positive safe integer. Prices and timestamps must be finite, quantities must be finite and nonnegative, and sides must be `'bid'` or `'ask'`. Zero-quantity records are accepted and still count as records. Invalid inputs throw rather than silently changing the row multiplier or poisoning live state.
 
 | Function | Contract |
 |---|---|
-| `diagonalImbalances(cells, ratio = 3)` | `Imbalance[]` of `{ price, side }`. Buy when `askVol[P] >= ratio * max(1, bidVol[P - 1 row])`; sell when `bidVol[P] >= ratio * max(1, askVol[P + 1 row])`. |
-| `cumulativeDelta(bars)` | `number[]`, running total of `bar.delta`, same length as input. |
-| `stackedImbalances(cells, ratio = 3, minStack = 3)` | `StackedImbalance[]` of `{ startPrice, endPrice, side, count }`, runs of `minStack`+ consecutive same-side diagonal imbalances. |
+| `diagonalImbalances(cells, ratio = 3, rowSize?, threshold = 0)` | `Imbalance[]` of `{ price, side }`. Buy when positive `askVol[P] >= ratio * bidVol[P - rowSize]`; sell when positive `bidVol[P] >= ratio * askVol[P + rowSize]`. The dominant quantity must also meet the inclusive threshold. |
+| `cumulativeDelta(bars)` | `number[]`, running total of `bar.delta`, same length and order as input. |
+| `stackedImbalances(cells, ratio = 3, minStack = 3, rowSize?, threshold = 0)` | `StackedImbalance[]` of `{ startPrice, endPrice, side, count }`. Tracks runs of `minStack` or more adjacent same-side diagonal flags independently, preserving both flags when a row qualifies on both sides. |
 
-**The `max(1, ...)` in the imbalance test means an empty neighbour counts as volume 1.** A single ask print of 3 against an untouched row below is already a buy imbalance at the default ratio. Raise `ratio`, or filter with the primitive's `imbalanceThreshold`. **`zeroFill` sharpens this**: with it on, "the row below" is the adjacent price rather than the next price that traded, so isolated prints flag more readily.
+**Positive volume against a present zero-volume opposing row qualifies at any ratio**, subject to `imbalanceThreshold`; zero against zero does not. Nothing times zero is still zero, so a ratio cannot damp that case and the threshold is the knob for it. Fractional quantities are compared directly. Missing rows are never synthesized or bridged, and stacks stop at gaps. Supply the bar's `rowSize` for sparse ladders. Legacy calls infer the minimum observed price gap, which cannot distinguish uniformly missing rows from a coarser grid. Ratio and an explicit row size must be positive and finite, threshold nonnegative and finite, and minimum stack length a positive safe integer. **`zeroFill` sharpens all of this**: with it on, "the row below" is the adjacent price rather than the next price that traded, so isolated prints flag more readily.
 
 ### `Footprint` primitive
 
-`new Footprint(opts?: Partial<FootprintOptions>)`, then `setBars(FootprintBar[])`. Also `setOptions(patch)`, `options()`, `stats()`, `layout()`, `autoscaleInfo()`, `hitTest(x, y)` returning `footprint:<time>`, `hoverAt(x, y, rc?)` returning `FootprintHover` = `{ time, price, cell, stats }` with `cell === null` when the pointer is over the stats table.
+`new Footprint(opts?: Partial<FootprintOptions>)`, then `setBars(readonly FootprintBar[])`. Also `setOptions(patch)`, `options()`, `stats()`, `layout()`, `autoscaleInfo()`, `hitTest(x, y)` returning `footprint:<time>`, and `hoverAt(x, y, rc?)` returning `FootprintHover` = `{ time, price, cell, stats }`. Over a statistics card or footer, both `price` and `cell` are `null`. Hover requires a prior draw, uses the painted column's own row geometry in media pixels, and excludes clipped rows and off-plot points. Replacing bars or options clears stale hit geometry. Constructor and `setOptions` validate: non-finite or out-of-range dimensions, ratios, divisors and stat-row lists throw `RangeError` and leave the previous options in place.
 
 `layout()` returns `{ rowHeight, paneHeight, minTextHeight }` in media px from the **last paint**. It is the hook for a host that sizes rows by legibility rather than by a row count: `paneHeight / rowsPerBar` is the height a row would get, and anything under `minTextHeight` renders as a heatmap however few rows there are.
 
-**`rowHeight` is the clamped DRAW height, not the price step.** `_rowHeight` floors it at `6 * dpr` and falls back to `16 * dpr` when there is no tick size to infer from, so a row reported as 6 may be a much finer grid drawn at the floor. Both numbers are `0` before the first paint, while `_bars` is empty, and while no column is on screen. The `onLayout` option is the push half of the same fact, for a pane resize.
+`rowHeight` is the DRAWN row height, with no floor under it: a grid too fine to read reports the small number it actually drew. Both numbers are `0` before the first paint, while there are no bars, and while no column is on screen. The `onLayout` option is the push half of the same fact, for a pane resize.
 
-`autoscaleInfo()` reports the cell price extent so top and bottom rows are not clipped, same as `VolumeProfile` and `MarketProfile`. Only `HorizontalProfile` returns `null` and never participates in autoscale. `DEFAULT_FOOTPRINT_OPTIONS`:
+The chart's data layer must contain matching bar timestamps for the footprint to align to its time scale. `setBars` clones input bars and cells and sorts each ladder high to low. `autoscaleInfo()` includes half a row above and below each occupied bucket, plus real candle high/low when enabled. Only `HorizontalProfile` returns `null` and never participates in autoscale. `DEFAULT_FOOTPRINT_OPTIONS`:
 
 | Key | Default | Notes |
 |---|---|---|
-| `cellWidth` | *(unset)* | Media px. Omitted means `max(24, barSpacing * widthFactor)`. |
-| `widthFactor` | `0.9` | Fraction of the bar slot when auto-sizing. |
-| `tickSize` | *(unset)* | Row height source. Omitted means the smallest gap between adjacent cells. **With `zeroFill` it is also the fill grid and must match the step the cells were aggregated at** - set it coarser and several cells share a row (they are summed, not dropped, but the ladder then disagrees with `stats()` about where the volume sat). |
-| `font` | `10` | |
-| `minTextHeight` / `textFade` | `11` / `4` | Below the threshold numbers fade out and the column becomes a heatmap. |
+| `cellWidth` | *(unset)* | Preferred full column width in media px. Otherwise `barSpacing * widthFactor`; either is capped to the bar slot. |
+| `widthFactor` | `0.9` | Fraction of the bar slot used for the column and candle gutter. |
+| `tickSize` | *(unset)* | Effective row step override, already including any row multiplier. Otherwise uses each bar's `rowSize`, then the inferred minimum gap. **With `zeroFill` it is also the fill grid and must match the step the cells were aggregated at** - set it coarser and several cells share a row (they are summed, not dropped, but the ladder then disagrees with `stats()` about where the volume sat). |
+| `font` | `10` | Media px. Text is hidden when the number cannot fit its cell. |
+| `minTextHeight` / `textFade` | `11` / `4` | Fade numbers as rows shrink, without enlarging or overlapping the price rows. |
 | `displayMode` | `'bidask'` | `FootprintDisplayMode` = `'bidask' \| 'delta' \| 'volume'`. |
+| `volumeDivisor` | `1` | Positive finite display divisor. Set to the configured lot size (for example `65`) to display lots. Scales cells and volume/delta statistics, but not percentages or trade counts. |
+| `cellStyle` | `'heatmap'` | `FootprintCellStyle` = `'heatmap' \| 'profile' \| 'ladder'`: intensity cells, volume-proportional rows, or square cluster cells. |
 | `cells` | `'bidAsk'` | `FootprintCellMode` = `'bidAsk' \| 'deltaVolume'`. `deltaVolume` draws the row's delta (signed, sell-coloured when negative) left, its total volume right. Ignored unless `displayMode` is `'bidask'`. |
 | `colorBy` | `'imbalance'` | `FootprintColorMode` = `'imbalance' \| 'delta'`. `delta` paints the whole row by the sign of its own delta, alpha scaled by its share of the bar's busiest row, and drops the **per-cell** saturated imbalance highlight. The **stacked-imbalance brackets still draw** in `delta` mode; `stackedImbalances: 0` is the only way off. |
-| `zeroFill` / `maxZeroFillRows` | `false` / `400` | Draw a `0 x 0` row for every untraded price between the bar's high and low. Needs `tickSize`. Over the cap the bar falls back to its traded rows. Draw-only: stats, POC and `autoscaleInfo()` are unaffected. |
-| `imbalanceRatio` / `imbalanceThreshold` | `3` / `0` | Threshold ignores cells below that volume when flagging. |
-| `stackedImbalances` | `3` | Bracket runs of N+ same-side imbalances. 0 disables. |
-| `statsRows` | `['volume','delta','deltaPct','cvd']` | `FootprintStatRow[]`; `'trades'` also available. `[]` hides the table. |
+| `zeroFill` / `maxZeroFillRows` | `false` / `400` | Draw a `0 x 0` row for every untraded price between the bar's high and low. Needs a row step. Over the cap the bar falls back to its traded rows. Draw-only: stats, POC and `autoscaleInfo()` are unaffected. |
+| `textColorMode` | `'contrast'` | `FootprintTextColorMode` = `'contrast' \| 'side' \| 'delta' \| 'dominant' \| 'imbalance' \| 'volume'`. Independent of background display/style. |
+| `textColor` | *(unset)* | Neutral text palette; otherwise derives readable ink from `theme.axisText`. |
+| `buyTextColor` / `sellTextColor` | *(unset)* | Directional text palettes; otherwise use the corresponding buy/sell colors. |
+| `imbalanceRatio` / `imbalanceThreshold` | `3` / `0` | Same comparison and dominant-quantity threshold as the exported analytics. |
+| `stackedImbalances` | `3` | Bracket runs of N or more adjacent same-side imbalances. 0 disables. |
+| `statsRows` | `[]` | Ordered `FootprintStatRow[]` for per-bar cards or the explicit legacy footer. Empty disables these stats by default. |
+| `tableRows` | `[]` | Ordered `FootprintStatRow[]` for the separate bottom table. Empty disables it by default. |
+| `tableLabelWidth` | `150` | Fixed table label-column width in media px, clipped to the pane width. |
 | `statsRowHeight` | `15` | Media px. |
-| `candle` / `candleWidthFactor` | `'behind'` / `0.22` | `'off' \| 'behind' \| 'gutter'`. `behind` is the legacy 3 px delta-coloured range bar (**not** an OHLC candle). `gutter` reserves a strip out of the bar slot, shifts the ladder right by it, and draws a real OHLC candle read from `rc.bars()` matched by time. Factor is clamped to 3..14 media px. |
-| `showPoc` / `pocColor` / `pocOutline` / `pocOutlineWidth` | `true` / `#f0a020` / *(unset)* / `1` | `showPoc` is a 2 px tick in the left margin; `pocOutline` takes a colour and rings the POC row itself with **one closed rectangle around the whole row**, not corner marks. `pocOutlineWidth` is media px, the ring is inset by half of it, and it is capped by the row's own height and width so a fat ring on a short row degrades to a filled row instead of inverting. |
-| `buyColor` / `sellColor` | *(unset)* | Fall back to `theme.upColor` / `theme.downColor`. |
+| `statsPosition` | `'bottom'` | Places `statsRows` in the footer or in `'bar'` cards. Cards can coexist with `tableRows` when enough space remains above the table. |
+| `cvdOffset` | `0` | Cumulative delta before the first supplied bar. Maintain it when trimming a rolling window. |
+| `showCandle` | `true` | Master switch: `false` draws no candle whatever `candle` says. |
+| `candle` / `candleWidthFactor` | `'ohlc'` / `0.22` | `'off' \| 'behind' \| 'gutter' \| 'ohlc'`. `'ohlc'` is the bar's own OHLC metadata in a gutter (a neutral range line on a legacy bar). `'behind'` is the legacy 3 px delta-coloured range bar (**not** an OHLC candle). `'gutter'` reserves a strip out of the bar slot, shifts the ladder right by it, and draws a real OHLC candle read from `rc.bars()` matched by time. Factor is clamped to 3..14 media px. |
+| `showPoc` / `pocStyle` / `pocColor` | `true` / `'marker'` / `#f0a020` | `'marker'` is a 2 px tick in the left margin; `'outline'` strokes the row in `pocColor` at a hairline. |
+| `pocOutline` / `pocOutlineWidth` | *(unset)* / `1` | The fork's ring: a colour that rings the POC row with **one closed rectangle around the whole row**, not corner marks. `pocOutlineWidth` is media px, the ring is inset by half of it, and it is capped by the row's own height and width so a fat ring on a short row degrades to a filled row instead of inverting. Independent of `pocStyle`. |
+| `showValueArea` / `valueAreaPercent` | `false` / `0.7` | Contiguous volume area around the POC, shown with boundary lines. |
+| `valueAreaColor` | *(unset)* | Falls back to `theme.axisText`. |
+| `buyColor` / `sellColor` | *(unset)* | Background/candle palettes; fall back to `theme.upColor` / `theme.downColor`. |
 | `cellBaseColor` | *(unset)* | Opaque plate a cell is tinted **from**, in place of the pane background: off a dark pane the quiet end of the ladder is near black and a one-lot row is a hole. Also backs the flat delta column of `cells: 'deltaVolume'`. **Alpha is dropped** (the ramp blends channels), so an `rgba()` plate paints opaque. |
-| `tintFloor` / `tintGain` / `tintCurve` | `0` / `1` / `'sqrt'` | The plate ramp: where a zero-volume cell starts, how far a full-intensity one travels (clamped together to the raw colour), and whether the response is eased or `'linear'`. **Ignored while `cellBaseColor` is unset**, where the legacy `0.08 + 0.62 * sqrt(t)` background ramp applies. |
-| `showVolumeBar` / `volumeBarColor` / `volumeBarWidthFactor` | `false` / *(unset)* / `0.5` | A horizontal histogram bar a row in the strip **beside** the ladder, its length the row's share of the bar's busiest row, drawn after the cells and clear of them. It draws outside the column, so make room first: **`widthFactor * (1 + volumeBarWidthFactor) <= 1`**, against a 24 media px column floor that wins whatever the factor says. With `stackedImbalances > 0` the bar starts past the bracket lane instead of over it. Unset, the colour is the row's own direction. |
+| `tintFloor` / `tintGain` / `tintCurve` | `0` / `1` / `'sqrt'` | The plate ramp: where a zero-volume cell starts, how far a full-intensity one travels (clamped together to the raw colour), and whether the response is eased or `'linear'`. **Ignored while `cellBaseColor` is unset**, where the legacy `0.08 + 0.62 * sqrt(t)` background ramp (or `0.18 + 0.82 * sqrt(t)` for `cellStyle: 'ladder'`) applies. |
+| `showVolumeBar` / `volumeBarColor` / `volumeBarWidthFactor` | `false` / *(unset)* / `0.5` | A horizontal histogram bar a row in the strip **beside** the ladder, its length the row's share of the bar's busiest row, drawn after the cells and clear of them. It draws outside the column, so make room first: **`widthFactor * (1 + volumeBarWidthFactor) <= 1`**. With `stackedImbalances > 0` the bar starts past the bracket lane instead of over it. Unset, the colour is the row's own direction. |
 | `deltaCell` | *(unset)* | `FootprintDeltaCell`, styling the delta half of a `deltaVolume` row on its own: `{ colorBy: 'delta' \| 'none', baseColor, tintFloor, tintGain, tintCurve, textColor, textColorHot }`. Every field falls back to the whole-cell option of the same name, so the group is inert until one is set. `colorBy: 'delta'` picks the hue from the delta's **sign** and the intensity from `|delta|` against the bar's **biggest |row delta|** (not volume), makes the biggest-delta row saturated (so it takes `textColorHot`), and **drops the sign-coloured number** the way the ladder's own `colorBy: 'delta'` drops the saturated cell highlight. Ignored in `bidAsk` mode. |
-| `cellTextColor` / `cellTextColorHot` | *(unset)* | Ink on a graded cell and on a saturated one. Unset, the renderer picks: white at 0.9 alpha (0.45 on a zero row) and near-black once a cell saturates. A signed `deltaVolume` delta keeps its own sell colour ahead of `cellTextColor`. |
-| `radius` | `2` | Cell corner radius, media px. |
+| `cellTextColor` / `cellTextColorHot` | *(unset)* | Ink on a graded cell and on a saturated one, used **literally** (no contrast correction). Unset, `textColorMode` picks one and it is corrected against the plate under it. A zero-filled row is drawn at 0.45 alpha either way, and a signed `deltaVolume` delta keeps its own sell colour ahead of `cellTextColor`. |
+| `radius` | `2` | Heatmap cell corner radius, media px; profile and ladder cells are square. |
 | `onLayout` | *(unset)* | `(l: { rowHeight, paneHeight, minTextHeight }) => void`, called after a paint and only when the values changed. |
 
-`FootprintBarStats` is `{ time, volume, delta, deltaPct, cvd, trades, poc }`, recomputed on `setBars` because `cvd` needs bar order. `compactVol(v)` formats to three significant figures with a `K`/`M`/`B` suffix (`compactVol(4_530_000) === '4.53M'`).
+Text modes select neutral ink, each displayed side, row-delta direction, only the larger same-row side, only a side with a diagonal flag, or a continuous quantity/peak blend. Single-number volume labels use total quantity and row delta for direction. Color contrast is corrected against the actual fill or plot background; labels crossing a profile edge receive an opaque backplate. Small rows additionally fade their text. The renderer uses the exported diagonal and stacked analytics, including the same explicit row size and threshold.
 
-**`FootprintBarStats.trades` counts price rows, not prints.** `_recomputeStats` increments once per cell. Treat the `'trades'` stats row as "rows touched" until that is fixed in `src/profile/footprint-primitive.ts`.
+`FootprintBarStats` is `{ time, volume, bidVolume, askVolume, delta, minDelta, maxDelta, deltaPct, cvd, trades, poc, vah, val }`. Side volumes sum actual cell quantities. `minDelta` and `maxDelta` use supplied trade-path metadata and remain `null` when it is absent; they are never inferred from final row deltas. `trades` is the supplied actual `tradeCount`, or `null` for legacy bars. Null metrics display as missing values rather than fabricated zeros. Stats recompute when bars, `cvdOffset` or `valueAreaPercent` change. `cvd` starts at the offset and accumulates in supplied bar order. `compactVol(v)` preserves fractional quantities and formats to three significant figures with `K`/`M`/`B` suffixes (`compactVol(4_530_000) === '4.53M'`, `compactVol(0.125) === '0.125'`).
 
-**The stats table eats the bottom of the pane.** Cells are clipped above `plotHeight - statsRows.length * statsRowHeight`; a tall `statsRows` list on a short pane leaves no room for the ladder.
+### Optional bottom statistics table
+
+Both `statsRows` and `tableRows` default to `[]`, so a new footprint has no statistics table until the host opts in. `FootprintStatRow` supports `'delta' | 'minDelta' | 'maxDelta' | 'cvd' | 'askVolume' | 'bidVolume' | 'volume' | 'deltaPct' | 'trades'`. Rows must be known metric keys without duplicates; invalid selections throw before changing options. The caller controls row order and can disable the table at runtime.
+
+`volumeDivisor` changes labels only: `stats()`, `hoverAt().stats`, input bars, POC/value area, imbalance thresholds and geometry keep raw units. A host should divide its own readouts by the same divisor. `setOptions({ volumeDivisor: 65 })` enables lots of 65; `setOptions({ volumeDivisor: 1 })` restores raw quantities. Fractional lots retain three significant figures. Invalid nonpositive or nonfinite divisors reject without changing the current options.
+
+```ts
+footprint.setOptions({
+  tableRows: ['delta', 'minDelta', 'maxDelta', 'cvd', 'askVolume', 'bidVolume', 'volume'],
+  tableLabelWidth: 150,
+});
+footprint.setOptions({ tableRows: [] }); // Disable the separate table.
+```
+
+| Table row key | Fixed label | Value |
+|---|---|---|
+| `delta` | Delta | Final bar ask volume minus bid volume. |
+| `minDelta` | Min Delta | Lowest running trade delta within the bar, including initial zero; null without metadata. |
+| `maxDelta` | Max Delta | Highest running trade delta within the bar, including initial zero; null without metadata. |
+| `cvd` | Cumulative Delta | Running sum in supplied bar order, starting at `cvdOffset`. |
+| `askVolume` | Total Ask Volume | Sum of `cell.askVol`. |
+| `bidVolume` | Total Bid Volume | Sum of `cell.bidVol`. |
+| `volume` | Total Volume | Total ask plus bid volume. |
+
+The left label column stays fixed. Values follow the chart's actual bar centers and spacing, including panning, zooming and fractional display scaling. Volume totals have no leading plus sign; delta metrics are signed. Table hover returns the aligned bar's statistics with `price` and `cell` null. Labels are not interactive, and values that cannot fit their visible slot are omitted.
+
+Restore the previous footer metrics explicitly with `statsRows: ['volume', 'delta', 'deltaPct', 'cvd']` and `statsPosition: 'bottom'`. When `tableRows` is nonempty it selects the footer rows instead. For cards plus a table, set `statsPosition: 'bar'`, populate `statsRows`, and configure `tableRows` independently.
+
+The bottom table reserves pane space and clips cells above it. Cards appear only when they fit entirely above the table. A tall statistics list on a short pane can leave no room for the ladder; select fewer rows, use cards without a table, or enlarge the pane. All drawing is clipped to the plot, and changing row selections clears stale table/card hit geometry.
 
 ### `FootprintAggregator` (the live path)
 
-`new FootprintAggregator(tf: TickTimeframe, tickSize: number, rowTicks = 1)`. `TickTimeframe` (from `src/feed/tick-aggregator.ts`) is `{ mode: 'interval'; seconds; anchorSec? } | { mode: 'ticks'; count } | { mode: 'volume'; perBar }`. `onTick(tick: FootprintTick)` returns `FootprintUpdate` = `{ bar, isNew }`, push when `isNew`, otherwise replace the last element. `FootprintTick` is `ClassifiedTrade & { time: number }`; `current()` returns the forming bar or `null`.
+`new FootprintAggregator(tf: TickTimeframe, tickSize: number, rowTicks = 1)`. `TickTimeframe` (from `src/feed/tick-aggregator.ts`) is `{ mode: 'interval'; seconds; anchorSec? } | { mode: 'ticks'; count } | { mode: 'volume'; perBar }`. `onTick(tick: FootprintTick)` returns `FootprintUpdate` = `{ bar, isNew }`: push when `isNew`, otherwise replace the last element. `FootprintTick` is `ClassifiedTrade & { time: number }`; `current()` returns the forming bar or `null` before the first tick.
 
-**The boundary is evaluated before the incoming tick is applied.** For `'ticks'` and `'volume'` modes the bar rolls on the tick *after* the limit is reached, so a 100-tick bar holds 101 prints. Nothing closes a bar on a timer either, with no ticks, the last bar stays open indefinitely.
+**The boundary is evaluated before the incoming tick is applied.** With increasing timestamps, a count limit of 100 retains exactly 100 records in the old bar; record 101 starts the next one. Volume bars keep each trade whole, so the last trade can overshoot the target. Count and volume bars coalesce ticks sharing their opening timestamp until time advances, even when that exceeds the target, avoiding duplicate chart time keys. Intervals use the anchored time bucket. No timer closes a bar or synthesizes an empty interval without a tick.
 
-**Snapshots of the forming bar alias live cell objects.** `onTick` returns a fresh array but the same `FootprintCell` instances until the bar rolls, so keep only the latest snapshot for the current bar. Cells of already-closed bars are safe, a roll allocates a new map.
+**Live timestamps must be nondecreasing.** Older ticks throw before changing the forming bar, including older ticks inside the same interval. Invalid configuration and trade records also throw before mutation. The aggregator copies its timeframe configuration. Every `onTick` and `current()` snapshot clones all cells, so a later tick cannot alter earlier returned snapshots and caller edits cannot corrupt the live accumulator.
 
 ## `HorizontalProfile` (generic)
 
@@ -278,19 +365,18 @@ Use it for a price-keyed distribution the built-ins do not model, delivery volum
 
 ## Known gaps (verified against current source)
 
-The README's "Known gaps" list is written against 1.0.8; the package is at 1.0.28 and **all four footprint-renderer claims are now stale**:
+The README's "Known gaps" list is written against 1.0.8; the package is far past it and **all four footprint-renderer claims are now stale**:
 
 | README claim | Status | Reality |
 |---|---|---|
-| "hardcoded colours (not theme-aware)" | Stale, with a caveat | `Footprint.draw` reads `rc.theme.upColor`, `downColor`, `background`, `axisText`; `buyColor` / `sellColor` are optional overrides. Cell and stats **text** ink is still hardcoded `#ffffff` / `#0d0f14`, and `pocColor` defaults to a fixed `#f0a020`. |
-| "a single display mode" | Stale | `FootprintDisplayMode` is `'bidask' \| 'delta' \| 'volume'`, crossed with `cells` (`'bidAsk' \| 'deltaVolume'`) and `colorBy` (`'imbalance' \| 'delta'`). |
+| "hardcoded colours (not theme-aware)" | Stale | `Footprint.draw` reads `rc.theme.upColor`, `downColor`, `background`, `axisText`; `buyColor` / `sellColor` / `textColor` / `buyTextColor` / `sellTextColor` / `cellTextColor` are optional overrides, and the default ink is `textColorMode` corrected against the plate it sits on. `pocColor` still defaults to a fixed `#f0a020`. |
+| "a single display mode" | Stale | `FootprintDisplayMode` is `'bidask' \| 'delta' \| 'volume'`, crossed with `cellStyle` (`'heatmap' \| 'profile' \| 'ladder'`), `cells` (`'bidAsk' \| 'deltaVolume'`) and `colorBy` (`'imbalance' \| 'delta'`). |
 | "no `setOptions`" | Stale | `setOptions(patch)` plus an `options()` getter, covered by `tests/profiles.test.ts`. |
 | "`stackedImbalances` computed but not drawn" | Stale | Runs of `>= options.stackedImbalances` draw an edge bracket (default 3). |
 
 Gaps that are real today:
 
 - **The profile overlays are the ones that ignore the theme.** `VolumeProfile`, `MarketProfile` and `HorizontalProfile` never touch `rc.theme`; their defaults are fixed hexes tuned for a dark background and look wrong on `lightTheme` until you pass explicit colours. Only `Footprint` adapts.
-- The renderer's imbalance detection is a private reimplementation (`_imbalances` / `_runs`) that honours `imbalanceThreshold`; the exported `diagonalImbalances` / `stackedImbalances` do not. They agree only at `imbalanceThreshold: 0`.
 - `VolumeProfile` has no `hitTest`, `hoverAt` or `options()`, `MarketProfile` and `Footprint` have all three.
 - `HorizontalProfile` has no `setOptions` and hardcodes its POC (`#f0a020`) and VA line (`#5a6b8c`) colours.
 - Only `FootprintAggregator` is incremental. Volume and market profiles are full recomputes; on live bars call the compute again and hand the result to `setData`.
@@ -353,13 +439,18 @@ chart.addPrimitive(footprint);
 
 const agg = new FootprintAggregator({ mode: 'interval', seconds: 60, anchorSec: 0 }, TICK);
 const bars: FootprintBar[] = [];
+let cvdOffset = 0;
 
 ws.onTrade((t) => {
   // `atBid` must come from the feed's own classification, never a price guess.
   const { bar, isNew } = agg.onTick({ time: t.timeSec, price: t.price, qty: t.qty, side: t.atBid ? 'bid' : 'ask' });
   if (isNew) bars.push(bar); else bars[bars.length - 1] = bar;
-  if (bars.length > 40) bars.shift();
-  footprint.setBars(bars.slice());
+  if (bars.length > 40) {
+    cvdOffset += bars.shift()!.delta;
+    footprint.setOptions({ cvdOffset });
+  }
+  // Update the chart series with the same bar timestamp and actual OHLC too.
+  footprint.setBars(bars);
 });
 ```
 

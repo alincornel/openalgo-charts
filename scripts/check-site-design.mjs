@@ -1,9 +1,10 @@
 /** Verify the marketing chart, responsive theme and regenerated API reference. */
 import { strict as assert } from 'node:assert';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { chromium, expect } from '@playwright/test';
 
 const base = (process.argv[2] ?? 'http://127.0.0.1:4174/openalgo-charts').replace(/\/$/, '');
+const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
 await mkdir('artifacts', { recursive: true });
 const browser = await chromium.launch();
 try {
@@ -61,7 +62,7 @@ try {
 
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`${base}/api/`);
-  await expect(page.getByRole('heading', { level: 1 })).toContainText('v2.1.0');
+  await expect(page.getByRole('heading', { level: 1 })).toContainText(`v${version}`);
   const css = page.locator('link[rel="stylesheet"][href*="custom.css"]');
   assert.equal(await css.count(), 1);
   const cssHref = await css.evaluate(node => node.href);

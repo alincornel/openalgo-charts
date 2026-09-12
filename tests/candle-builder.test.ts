@@ -53,6 +53,22 @@ describe('CandleBuilder volume modes', () => {
 });
 
 describe('CandleBuilder late ticks & seam', () => {
+  it('keeps seeded volume when the first cumulative quote has no historical baseline', () => {
+    const cb = new CandleBuilder({ intervalSec: 60, volumeMode: 'day-delta' });
+    cb.seed({ time: 600, open: 10, high: 12, low: 9, close: 11, volume: 100 });
+    expect(cb.onTick({ time: 630, price: 11.5, cumDayVolume: 10_000 })!.bar.volume).toBe(100);
+    expect(cb.onTick({ time: 640, price: 12, cumDayVolume: 10_015 })!.bar.volume).toBe(115);
+    expect(cb.onTick({ time: 660, price: 12, cumDayVolume: 10_040 })!.bar.volume).toBe(25);
+  });
+
+  it('forgets the prior cumulative baseline when reseeded without one', () => {
+    const cb = new CandleBuilder({ intervalSec: 60, volumeMode: 'day-delta' });
+    cb.onTick({ time: 600, price: 10, cumDayVolume: 1000 });
+    cb.seed({ time: 720, open: 10, high: 12, low: 9, close: 11, volume: 50 });
+    expect(cb.onTick({ time: 730, price: 11, cumDayVolume: 5000 })!.bar.volume).toBe(50);
+    expect(cb.onTick({ time: 740, price: 11, cumDayVolume: 5010 })!.bar.volume).toBe(60);
+  });
+
   it('drops ticks older than the current bar when policy is dropOlderThanPrevBar', () => {
     const cb = new CandleBuilder({ intervalSec: 60, lateTickPolicy: 'dropOlderThanPrevBar' });
     cb.onTick({ time: 600, price: 10, ltq: 1 }); // bucket 600

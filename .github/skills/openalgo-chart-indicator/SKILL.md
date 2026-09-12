@@ -24,6 +24,11 @@ Without it `chart.addIndicator` throws. Add this import once, at the app entry, 
 rg -n "openalgo-charts/indicators" src app
 ```
 
+If loading custom indicator modules asynchronously, await registration before adding ids
+or restoring layouts. Concurrent panes and pickers must share the pending promise, not a
+premature ready flag. The package does not load arbitrary user scripts; see
+[host-integration](../openalgo-charts/references/host-integration.md#registration-and-csp).
+
 ## Path A - add a built-in
 
 ```ts

@@ -368,8 +368,32 @@ export interface IndicatorAlertPayload {
   index: number;
 }
 
+/** Optional instrument identity supplied by the host. */
+export interface ChartDataContext {
+  symbol?: string;
+  exchange?: string;
+  interval?: string;
+}
+
+/** Source identity changed, or the available source-bar range changed. */
+export type IndicatorDataChange = 'context' | 'range';
+
+/** Observable state of an indicator's external data lifecycle. */
+export type IndicatorDataStatus =
+  | { state: 'loading' | 'ready' | 'empty' | 'unsupported' }
+  | { state: 'error'; error: unknown };
+
 /** What an indicator's `attach` lifecycle can reach. */
 export interface IndicatorAttachContext {
+  /** Optional host identity, independent of the indicator's own settings. */
+  dataContext?(): Readonly<ChartDataContext> | undefined;
+  /** Read bars and identity again when the host publishes a change. */
+  subscribeDataChanges?(listener: (change: IndicatorDataChange) => void): () => void;
+  /** Publish status and an explicit retry action for this instance. */
+  setDataStatus?(status: IndicatorDataStatus): void;
+  setDataRetry?(retry: (() => void) | null): void;
+  /** Instance lifetime. Aborted on removal, preserved across style changes. */
+  signal?: AbortSignal;
   /** Current settings (live — read at call time, not captured). */
   settings(): Readonly<IndicatorSettings>;
   /** The chart's current source bars. */
@@ -381,11 +405,9 @@ export interface IndicatorAttachContext {
   /**
    * The instrument the chart is showing, when the host knows it.
    *
-   * The engine core has no instrument concept: it is handed bars, never a
-   * symbol, so `chart.addIndicator` leaves this undefined rather than inventing
-   * a name. A host that wraps the chart (a terminal that owns the symbol
-   * picker) supplies it through its own `IndicatorHost`, which is how a Tier-2
-   * indicator fetches the series matching what is on screen.
+   * Hosts can supply this through `IndicatorHost` or Chart's explicit data
+   * context. Without a configured identity it stays undefined. External
+   * studies read `dataContext` to include the exchange as well.
    */
   symbol?(): string | undefined;
   /** The chart's timeframe (`'5m'`, `'1d'`), on the same terms as `symbol`. */

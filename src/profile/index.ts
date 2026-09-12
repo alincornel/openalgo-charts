@@ -78,6 +78,8 @@ export {
   type FootprintCellMode,
   type FootprintColorMode,
   type FootprintDeltaCell,
+  type FootprintCellStyle,
+  type FootprintTextColorMode,
   type FootprintStatRow,
   type FootprintBarStats,
   type FootprintHover,

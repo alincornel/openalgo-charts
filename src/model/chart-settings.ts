@@ -28,7 +28,7 @@
  * a host may have written down, so they stay put when the grouping above them
  * changes: a key names the option it writes, not the tab it is shown on.
  */
-import type { AxisChromeOptions, Chart, ChartEventOptions } from '../core/chart';
+import type { AxisChromeOptions, Chart, ChartEventOptions, ChartNavigationOptions } from '../core/chart';
 import type { IndicatorInput } from './indicator-registry';
 import { getChartType } from './chart-type-registry';
 import type { SeriesStyle } from '../render/series-style';
@@ -98,6 +98,7 @@ export type ChartSettingsValues = Record<string, ChartSettingsValue>;
  * host's saved layout away.
  */
 export interface ChartSettingsState {
+  navigation?: Partial<ChartNavigationOptions>;
   canvas?: CanvasOptions;
   statusLine?: LegendStatusLineOptions;
   trading?: TradingSettings;
@@ -534,6 +535,18 @@ function hasLastPriceTag(chart: Chart): boolean {
 
 function axesControls(chart: Chart): Control[] {
   const controls: Control[] = [
+    selectCtl(
+      'navigation.mousePan', 'Mouse drag', 'Navigation', 'both',
+      [{ label: 'Horizontal only', value: 'horizontal' }, { label: 'Time and price', value: 'both' }],
+      (c) => c.navigationOptions().mousePan,
+      (c, v) => c.setNavigationOptions({ mousePan: v as ChartNavigationOptions['mousePan'] }),
+    ),
+    numCtl(
+      'navigation.defaultVisibleBars', 'Default visible bars (0 = all)', 'Navigation', 0,
+      { min: 0, max: 100000, step: 1 },
+      (c) => c.navigationOptions().defaultVisibleBars,
+      (c, v) => c.setNavigationOptions({ defaultVisibleBars: v }),
+    ),
     selectCtl(
       'scales.mode', 'Scale', 'Price scale', 'linear', SCALE_MODES,
       (c) => c.priceScaleOptions().mode,

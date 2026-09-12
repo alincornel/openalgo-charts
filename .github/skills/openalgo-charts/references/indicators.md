@@ -749,10 +749,17 @@ registerIndicator(createTier2Indicator({
 
 Lifecycle facts:
 
-- `attach` re-runs on **every** `setSettings`. The `store` survives, so `refetchOn` is what decides between a refetch and a pure re-alignment. Omitting `refetchOn` means the cache key is `''` and data is fetched once.
-- Live points arriving out of order are upserted into time order; a point with an existing time replaces it.
-- A rejected `fetch` leaves the previous points on screen rather than blanking the pane, and clears the cache key so the next settings change retries.
-- Teardown marks the state dead, so a late `fetch` resolution is ignored and the subscription is closed.
+- `attach` re-runs on **every** `setSettings`. `refetchOn` forms the data key; include all settings that identify the source dataset, such as symbol, exchange and resolution. A changed key immediately clears prior values and starts a new request. A pending or failed request must not display another key's observations.
+- A style-only change with the same key reuses loaded data or the pending history request. An empty successful result counts as loaded. Omitting `refetchOn` uses no settings-derived key; supplied chart context still identifies the dataset.
+- Live points arriving out of order are upserted into time order; a point with an existing time replaces it. Points received while history is pending are merged after history, so live observations win at matching timestamps.
+- A rejected `fetch` retains live observations for the current key. `retryData()` or a context/settings change can retry history; failure never restores points from an earlier key.
+- Teardown closes the subscription and invalidates the attachment. Late history completions and callbacks from previous attachments cannot publish after a settings change or removal.
+
+Tier-2 points are aligned onto the source bars before plot data is written; an external
+observation between bars or beyond the newest bar does not add a timestamp to the chart.
+Do not bypass that alignment by adding a separate raw external series when timeline
+isolation matters. For concurrent module registration and host CSP boundaries, see
+[host-integration](host-integration.md#registration-and-csp).
 
 ## Standalone calculators in the base bundle
 
@@ -773,7 +780,7 @@ import { ema, emaSeries, rsi, rsiSeries, atr, trueRange, supertrend, supertrendS
 | `supertrend` | `(bars, period = 10, multiplier = 3) => SupertrendPoint[]` | `{ value, direction }`; `value` is `NaN` during ATR warmup. `direction` `-1` = uptrend, `+1` = downtrend. |
 | `supertrendSeries` | `(bars, period, multiplier) => { up: Bar[]; down: Bar[] }` | inactive leg carries `NaN` so the line breaks at flips. |
 
-The tier additionally exports pure helpers used by the descriptors: `sma`, `wma`, `rma`, `stdev`, `highest`, `lowest`, `nulls` and `connorsStreak` from `openalgo-charts/indicators` (`src/indicators/calc.ts`). All return arrays the same length as their input with `NaN` in warmup slots; `nulls` converts `NaN` to `null` for a plot column. `sma` never lets a non-finite value poison its running sum, so chaining it onto another indicator's output works. `src/indicators/calc.ts` holds more (`rollingSum`, `correlation`, `pivotHigh`, `pivotLow`, `barsSince`, `valueWhen`, ...) but the tier index re-exports only the list above, so anything else is internal.
+The tier exports the pure helpers from `src/indicators/calc.ts`, including `sma`, `wma`, `rma`, `stdev`, `highest`, `lowest`, `nulls`, `connorsStreak`, `rollingSum`, `correlation`, `pivotHigh`, `pivotLow`, `barsSince` and `valueWhen`. Read each signature before composing it; these helpers do not all return the same shape. `nulls` converts `NaN` to `null` for a plot column, and `sma` keeps a non-finite input from poisoning its running sum.
 
 The tier also exports every descriptor by name in SCREAMING_SNAKE form (`RSI`, `MACD`, `HALFTREND`, ...), the per-family arrays (`OVERLAY_INDICATORS`, `OSCILLATOR_INDICATORS`, `VOLATILITY_INDICATORS`, `FLOW_INDICATORS`, `ADAPTIVE_INDICATORS`, `AVERAGE_INDICATORS`, `STRENGTH_INDICATORS`, `INDEX_INDICATORS`, `RANGE_INDICATORS`, `SIGNAL_INDICATORS`), and the flat `BUILTIN_INDICATORS`. Read `BUILTIN_INDICATORS` rather than hard-coding a list of ids.
 
@@ -871,3 +878,23 @@ member. They are already included in the tier's own registration.
 | `STUDY_INDICATORS` | `cpr`, `alphatrend`, `range-analysis` |
 | `SEASONALITY_INDICATORS` | `seasonality` |
 | `WAVETREND_INDICATORS` | `wavetrend` |
+
+## Managed source status (2.1.6)
+
+Base exports `ChartDataContext`, `IndicatorDataChange` and `IndicatorDataStatus`.
+`ChartDataContext` has optional symbol/exchange/interval; `IndicatorDataChange`
+is context/range. `Tier2Context.dataContext` and `signal` are optional. A descriptor
+may implement `supports(ctx)` to decline unavailable data before fetching.
+
+Chart context and source-range changes cancel/refetch or extend Tier-2 history.
+Live studies use subscription updates, history-only studies refresh the tail,
+and replay alignment selects only points at or before a visible candle.
+Style-only updates retain fetched data. Removal aborts pending work.
+`IndicatorApi.dataStatus()` returns null for ordinary indicators or a status with
+loading/ready/empty/unsupported/error. Subscribe with `subscribeDataStatus`, release
+the returned cleanup, and use `retryData()` for explicit retry. The chart bus emits
+`indicator:data-status` with id, indicatorId and status. The widget displays it.
+
+Custom attach hooks can use optional `dataContext()`, `subscribeDataChanges()`,
+`setDataStatus()` and `setDataRetry()` from `IndicatorAttachContext`; the lifetime
+signal is aborted on removal. Keep these optional for older synthetic hosts.

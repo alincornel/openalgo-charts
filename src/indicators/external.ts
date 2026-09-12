@@ -16,6 +16,8 @@
  */
 import type {
   Bar,
+  ChartDataContext,
+  IndicatorDataStatus,
   IndicatorDescriptor,
   IndicatorPlot,
   IndicatorInput,
@@ -32,6 +34,10 @@ export interface Tier2Point {
 }
 
 export interface Tier2Context {
+  /** Host identity when supplied. Indicator settings remain independent. */
+  dataContext?: Readonly<ChartDataContext>;
+  /** Cancelled when this request is obsolete or the instance is removed. */
+  signal?: AbortSignal;
   settings: Readonly<IndicatorSettings>;
   /** The chart's current source bars — use for the requested time window. */
   bars: readonly Bar[];
@@ -47,6 +53,8 @@ export interface Tier2Descriptor {
   placement: 'onchart' | 'pane';
   inputs: readonly IndicatorInput[];
   plots: readonly IndicatorPlot[];
+  /** A host/provider can explicitly decline data it cannot supply. */
+  supports?(ctx: Tier2Context): boolean;
   /** Load the series for the current window. */
   fetch(ctx: Tier2Context): Promise<readonly Tier2Point[]>;
   /**
@@ -63,13 +71,25 @@ export interface Tier2Descriptor {
   range?(settings: Readonly<IndicatorSettings>): { min: number; max: number } | null;
 }
 
+interface Tier2Request {
+  promise: Promise<readonly Tier2Point[]>;
+  controller: AbortController;
+  from: number;
+  to: number;
+  extend: boolean;
+}
+
 interface Tier2State {
-  key: string;
+  key: string | null;
   points: Tier2Point[];
-  loading: boolean;
+  live: Tier2Point[];
+  loaded: boolean;
+  from: number;
+  to: number;
+  status: IndicatorDataStatus;
+  request: Tier2Request | null;
   unsubscribe: (() => void) | null;
-  /** Set once the instance is torn down, so a late fetch is ignored. */
-  dead: boolean;
+  generation: number;
 }
 
 const STATE = '__tier2';
@@ -156,67 +176,162 @@ export function createTier2Indicator(d: Tier2Descriptor): IndicatorDescriptor {
     },
 
     attach: (ctx) => {
-      // The store survives a settings change (attach is re-run), so reuse any
-      // existing state: the cache key then decides whether a refetch is needed.
-      const state: Tier2State =
-        stateOf(ctx.store) ?? { key: '', points: [], loading: false, unsubscribe: null, dead: false };
-      state.dead = false;
+      // A synchronous style reattach inherits pending history and its signal.
+      const state: Tier2State = stateOf(ctx.store) ?? {
+        key: null, points: [], live: [], loaded: false, from: 0, to: 0,
+        status: { state: 'empty' }, request: null, unsubscribe: null, generation: 0,
+      };
       ctx.store[STATE] = state;
+      let generation = ++state.generation;
+      let active = true;
+      let observed: Tier2Request | null = null;
+      let unsubscribeChanges: () => void = () => {};
+      state.unsubscribe?.();
+      state.unsubscribe = null;
 
+      const current = (): boolean => active && state.generation === generation && !ctx.signal?.aborted;
+      const publish = (status: IndicatorDataStatus): void => {
+        state.status = status;
+        if (current()) ctx.setDataStatus?.(status);
+      };
       const context = (): Tier2Context => {
         const bars = ctx.bars();
+        const market = ctx.dataContext?.() ?? {
+          symbol: ctx.symbol?.(), interval: ctx.interval?.(),
+        };
         return {
-          settings: ctx.settings(),
-          bars,
-          from: bars.length > 0 ? bars[0].time : 0,
-          to: bars.length > 0 ? bars[bars.length - 1].time : 0,
+          settings: ctx.settings(), bars,
+          dataContext: { ...market },
+          from: bars[0]?.time ?? 0, to: bars[bars.length - 1]?.time ?? 0,
         };
       };
-
-      const onPoint = (point: Tier2Point): void => {
-        if (state.dead) return;
-        upsert(state.points, point);
-        ctx.requestRecompute();
+      const cancel = (): void => {
+        state.request?.controller.abort();
+        state.request = null;
+        observed = null;
       };
-
-      const load = (): void => {
-        const c = context();
-        const key = cacheKey(d, c.settings);
-        // Same data-affecting settings and data already in hand: nothing to do.
-        if (state.loading || (key === state.key && state.points.length > 0)) {
-          if (state.unsubscribe === null && d.subscribe !== undefined) {
-            state.unsubscribe = d.subscribe(c, onPoint);
-          }
-          return;
-        }
-        state.loading = true;
-        state.key = key;
-        void d.fetch(c).then(
-          (points) => {
-            state.loading = false;
-            if (state.dead || state.key !== key) return; // settings moved on
-            state.points = points.slice().sort((a, b) => a.time - b.time);
-            ctx.requestRecompute();
-          },
-          () => {
-            state.loading = false;
-            // A failed fetch leaves the previous points on screen rather than
-            // blanking the pane; the next settings change retries.
-            state.key = '';
-          },
-        );
-
-        state.unsubscribe?.();
-        state.unsubscribe = d.subscribe?.(c, onPoint) ?? null;
-      };
-
-      load();
-
-      return () => {
-        state.dead = true;
+      const stopLive = (): void => {
         state.unsubscribe?.();
         state.unsubscribe = null;
       };
+      const observe = (request: Tier2Request): void => {
+        if (observed === request) return;
+        observed = request;
+        void request.promise.then((points) => {
+          if (!current() || state.request !== request || request.controller.signal.aborted) return;
+          state.request = null;
+          observed = null;
+          const prepend = request.extend && request.from < state.from;
+          const merged: Tier2Point[] = request.extend && !prepend ? state.points.slice() : [];
+          for (const point of points.slice().sort((a, b) => a.time - b.time)) {
+            if (Number.isFinite(point.time)) upsert(merged, point);
+          }
+          // An older page must not overwrite the already loaded boundary or live tail.
+          if (prepend) for (const point of state.points) upsert(merged, point);
+          for (const point of state.live) upsert(merged, point);
+          state.points = merged;
+          state.from = state.loaded ? Math.min(state.from, request.from) : request.from;
+          state.to = state.loaded ? Math.max(state.to, request.to) : request.to;
+          state.loaded = true;
+          publish({ state: merged.length > 0 ? 'ready' : 'empty' });
+          ctx.requestRecompute();
+          refresh();
+        }, (error: unknown) => {
+          if (!current() || state.request !== request || request.controller.signal.aborted) return;
+          state.request = null;
+          observed = null;
+          publish({ state: 'error', error });
+        });
+      };
+      const load = (c: Tier2Context, from: number, to: number, extend: boolean): void => {
+        const controller = new AbortController();
+        publish({ state: 'loading' });
+        let promise: Promise<readonly Tier2Point[]>;
+        try { promise = d.fetch({ ...c, from, to, signal: controller.signal }); }
+        catch (error) { publish({ state: 'error', error }); return; }
+        const request: Tier2Request = { promise, controller, from, to, extend };
+        state.request = request;
+        observe(request);
+      };
+      const refresh = (retry = false): void => {
+        if (!current()) return;
+        const c = context();
+        const market = c.dataContext;
+        const key = JSON.stringify([cacheKey(d, c.settings), market?.symbol, market?.exchange, market?.interval]);
+        const changed = key !== state.key;
+        if (changed) {
+          // Invalidate before stopping providers, whose cleanup can call back synchronously.
+          generation = ++state.generation;
+          stopLive();
+          cancel();
+          state.key = key;
+          state.loaded = false;
+          state.live = [];
+          state.status = { state: 'empty' };
+          if (state.points.length > 0) {
+            state.points = [];
+            ctx.requestRecompute();
+          }
+        }
+        let supported: boolean;
+        try { supported = d.supports?.(c) ?? true; }
+        catch (error) { publish({ state: 'error', error }); return; }
+        if (!supported) {
+          generation = ++state.generation;
+          stopLive();
+          cancel();
+          state.loaded = false;
+          state.live = [];
+          if (state.points.length > 0) { state.points = []; ctx.requestRecompute(); }
+          publish({ state: 'unsupported' });
+          return;
+        }
+        if (c.bars.length === 0) {
+          // Replay may temporarily hide every bar. Retain same-source history.
+          if (state.request === null) publish({ state: 'empty' });
+          return;
+        }
+        if (state.request !== null) observe(state.request);
+        else if (retry || changed || state.status.state !== 'error') {
+          if (!state.loaded || retry) load(c, c.from, c.to, false);
+          else if (c.from < state.from) load(c, c.from, state.from, true);
+          else if (d.subscribe === undefined && c.to > state.to) load(c, state.to, c.to, true);
+          else publish({ state: state.points.length > 0 ? 'ready' : 'empty' });
+        }
+        if (state.unsubscribe === null && d.subscribe !== undefined) {
+          const liveGeneration = generation;
+          try {
+            state.unsubscribe = d.subscribe(c, (point) => {
+              if (!current() || generation !== liveGeneration || !Number.isFinite(point.time)) return;
+              upsert(state.live, point);
+              upsert(state.points, point);
+              if (state.request === null && state.status.state !== 'error') publish({ state: 'ready' });
+              ctx.requestRecompute();
+            });
+          } catch (error) { publish({ state: 'error', error }); }
+        }
+      };
+      const cleanup = (): void => {
+        if (!current() && !active) return;
+        active = false;
+        unsubscribeChanges();
+        ctx.signal?.removeEventListener('abort', abort);
+        if (state.generation !== generation) return;
+        state.generation += 1;
+        stopLive();
+        ctx.setDataRetry?.(null);
+        // Hand-built contexts have no lifetime signal. Allow synchronous style
+        // reattachment before aborting history that no attachment still owns.
+        const detached = state.generation;
+        queueMicrotask(() => { if (state.generation === detached) cancel(); });
+      };
+      const abort = (): void => { cancel(); cleanup(); };
+      ctx.signal?.addEventListener('abort', abort, { once: true });
+      unsubscribeChanges = ctx.subscribeDataChanges?.(() => refresh()) ?? (() => {});
+      ctx.setDataRetry?.(() => refresh(true));
+      ctx.setDataStatus?.(state.status);
+      refresh(state.status.state === 'error');
+      return cleanup;
     },
   };
 }

@@ -4,6 +4,7 @@ description: Time Price Opportunity profiles - sessions, letters, POC / value ar
 ---
 
 import RunnableExample from '../../components/RunnableExample'
+import { ProfileOverviewScreenshot, ProfileThemeGallery } from '../../components/ProfileShowcase'
 import { Callout } from 'nextra/components'
 
 # Market Profile (TPO)
@@ -17,14 +18,18 @@ rejection.
 It is two pieces: **`computeMarketProfile`** (pure analytics, in the `profile` tier) and the
 **`MarketProfile`** primitive that renders the result on the chart.
 
-The **2.1.0** adds compact pixel letters, individual split/unsplit controls
-and open/latest-price markers. [Open the interactive demo and theme screenshots](/docs/market-profile-examples).
+**Since 2.1.0**, compact pixel letters, individual split/unsplit controls and
+open/latest-price markers are available. Select `blockDisplay: 'compact'` to use
+the compact renderer; the library default remains `'auto'`.
+[Open the interactive demo](/docs/market-profile-examples) to change themes and split a day.
+
+<ProfileOverviewScreenshot />
 
 ```ts
 import { computeMarketProfile, MarketProfile } from 'openalgo-charts/profile';
 
 const result = computeMarketProfile(bars, { tickSize: 0.05, session: 'day', blockMinutes: 30 });
-chart.addPrimitive(new MarketProfile(result));
+chart.addPrimitive(new MarketProfile(result, { blockDisplay: 'compact' }));
 ```
 
 ## Concepts
@@ -46,17 +51,24 @@ chart.addPrimitive(new MarketProfile(result));
 
 The renderer overlays the price series, so add a price series first (it provides the time
 axis). Here is a **composite** profile - one distribution over all the bars, letters packed
-from the left:
+from the left. The synthetic bars use 0.1 ticks and two ticks per row (0.2-point
+rows); the candle series supplies the time axis and is hidden for clarity:
 
 <RunnableExample height={380} tiers={['profile']} code={`const chart = lib.createChart(el);
 const bars = lib.generateBars(1700000000, 26, 1800); // 30-min bars
-chart.addSeries('candlestick').setData(bars);
+chart.addSeries('candlestick', { style: { visible: false } }).setData(bars);
 
-const mp = lib.computeMarketProfile(bars, { tickSize: 1, session: 'composite', blockMinutes: 30 });
-chart.addPrimitive(new lib.MarketProfile(mp));
+const mp = lib.computeMarketProfile(bars, { tickSize: 0.1, rowTicks: 2, session: 'composite', blockMinutes: 30 });
+chart.addPrimitive(new lib.MarketProfile(mp, {
+  blockDisplay: 'compact',
+  opacity: 1,
+  showSessionOpen: true,
+  showLastPrice: true,
+  showSinglePrints: false,
+}));
 
 chart.timeScale.fitContent(bars.length);
-return chart;`} caption="Composite TPO: letters packed left, POC (gold) and value area with a faint fill." />
+return chart;`} caption="Composite TPO with compact letters packed left, open/latest-price markers, POC (gold) and a faint value-area fill." />
 
 ## Sessions
 
@@ -65,20 +77,27 @@ session's profile is drawn under its own bars, so you can read structure across 
 
 <RunnableExample height={400} tiers={['profile']} code={`const chart = lib.createChart(el);
 const bars = lib.generateBars(1700000000, 120, 1800);
-chart.addSeries('candlestick').setData(bars);
+chart.addSeries('candlestick', { style: { visible: false } }).setData(bars);
 
-const mp = lib.computeMarketProfile(bars, { tickSize: 1, session: 'day', blockMinutes: 60, valueAreaPercent: 0.7 });
-chart.addPrimitive(new lib.MarketProfile(mp)); // IB bracket on the left of each session
+const mp = lib.computeMarketProfile(bars, { tickSize: 0.1, rowTicks: 2, session: 'day', blockMinutes: 60, valueAreaPercent: 0.7 });
+chart.addPrimitive(new lib.MarketProfile(mp, {
+  blockDisplay: 'compact',
+  opacity: 1,
+  showSessionOpen: true,
+  showLastPrice: true,
+  showSinglePrints: false,
+})); // IB bracket on the left of each session
 
 chart.timeScale.fitContent(bars.length);
-return chart;`} caption="Day sessions: a separate profile per calendar day, on the default Asia/Kolkata, each with its own POC, value area, and initial-balance bracket." />
+return chart;`} caption="Compact day sessions: a separate profile per calendar day, on the default Asia/Kolkata, each with its own POC, value area, and initial-balance bracket." />
 
 ## Color modes & volume sub-profile
 
 `colorMode` is `period` (the default), `valueArea`, `uniform`, or the two heat modes
 `count` and `volume`, where opacity scales with the row's TPO count or volume. Use
 `blockDisplay` to swap letters for solid blocks, and overlay a volume-at-price
-sub-profile:
+sub-profile. This example deliberately uses `'blocks'` to compare heat colouring
+with the compact letter examples above:
 
 <RunnableExample height={380} tiers={['profile']} code={`const chart = lib.createChart(el);
 const bars = lib.generateBars(1700000000, 40, 1800);
@@ -94,6 +113,19 @@ chart.addPrimitive(new lib.MarketProfile(mp, {
 
 chart.timeScale.fitContent(bars.length);
 return chart;`} caption="Heat coloring by TPO count, solid blocks, with a volume sub-profile." />
+
+## Theme screenshots
+
+These browser captures use the same synthetic session and themes as the
+[interactive demo](/docs/market-profile-examples). They are **zoomed close-ups**:
+18 CSS pixels per row and 16-pixel letters at double resolution. Compact mode
+uses regular text at this zoom; the overview above shows its compressed pixel
+glyphs. Click a screenshot to inspect its original resolution.
+
+<ProfileThemeGallery />
+
+See [packed and split views](/docs/market-profile-examples#packed-and-split-views)
+for the same session before and after splitting.
 
 ## `computeMarketProfile` options
 
@@ -321,7 +353,7 @@ result - the primitive is just one way to draw it.
 Recompute on new bars and hand the fresh result to the same primitive; `setData` repaints:
 
 ```ts
-const profile = new MarketProfile(computeMarketProfile(bars, opts));
+const profile = new MarketProfile(computeMarketProfile(bars, opts), { blockDisplay: 'compact' });
 chart.addPrimitive(profile);
 
 // later, as bars grow:
@@ -340,6 +372,6 @@ approximation. For true bid/ask volume distribution use the [Footprint](/docs/pr
 |---|---|---|
 | Nothing renders | No price series, so the time axis has no bars | Add a series (`addSeries`) before the profile |
 | Only one profile for many days | `session: 'composite'` | Use `session: 'day'` (or `week` / `month`) |
-| Letters overlap vertically | `tickSize` too small for the price range | Increase `tickSize` (fewer, taller rows) |
+| Letters are too small | Too many price rows for the chart height | Use `blockDisplay: 'compact'` or zoom vertically; increase `rowTicks` only when you intend to aggregate more ticks per row |
 | Letters run past the session | Many periods and a wide `letterWidth` | Lower `letterWidth`, or raise `blockMinutes` |
 | Value area looks wrong | `valueAreaPercent` not in 0..1 | Pass a fraction (0.7), not a percent (70) |

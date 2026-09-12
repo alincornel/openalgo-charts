@@ -48,6 +48,7 @@ Every name emitted by the engine, verified against the `emit(` call sites in `sr
 | `priceAxisMoved` | `{ paneIndex, from, to }` | `movePriceAxis` succeeded: a pane's prices and their scale changed strip. Re-read `priceAxisState` for any menu still open on that axis. |
 | `indicatorRemoved` | `{ instanceId, indicatorId, paneIndex }` | An indicator instance was removed (legend button or `removeIndicator`). |
 | `indicatorSettings` | `{ instanceId, indicatorId, paneIndex }` | The legend's settings button was clicked. The engine ships no form, render your own. |
+| `objects:change` | `{}` | The primary source or indicator inventory/state changed, including indicator settings and visibility. Re-read the inventory; this is an invalidation event, not an object snapshot. |
 | `contextmenu` | `ContextMenuEvent`: `{ paneIndex, point, price, time, index, target, preventDefault }` | The chart was right-clicked, axis strips included. `target.kind` classifies what is under the pointer, and a `price-scale` hit adds `side` and `scaleId` for the axis it names. With no listener the save-image snapshot stays as the fallback. See [settings-and-menus](settings-and-menus.md). |
 | `replay:start` | `ReplayState` | The first frame a `ReplayController` applies. |
 | `replay:frame` | `ReplayState` | Every playhead move: seek, step, and each played bar. |
@@ -84,6 +85,24 @@ Notes:
 - Typed alternatives exist for three of these and coexist with the bus: `chart.subscribeCrosshairMove(cb)` (`CrosshairMoveEvent`), `chart.subscribeClick(cb)` (hit-only, `cb(externalId)`), `chart.subscribeDrag(onDrag, onDragEnd)` (`(id, price, time)`).
 - Keyboard shortcuts are **not** on this bus, subscribe via `chart.shortcuts?.on(cb)`. See [interactions](interactions.md).
 
+## Object inventory lifecycle
+
+The base-tier `ChartObjects` combines source, indicator and drawing events with
+explicit provider subscriptions. Use `objects.subscribe(listener)` for one
+immutable inventory delivered immediately and after changes; avoid reconstructing
+the list from each event payload. The model follows `objects:change`, indicator
+removal/data status, pane changes, data context, and drawing changes/selection.
+It also disposes itself on chart destruction. See
+[core-api](core-api.md#object-inventory-and-management).
+
+The callback's `ChartObjectSnapshot.id` is the inventory identity, while `sourceId`
+is the existing subsystem's identity. Removal or replacement can invalidate an ID;
+read the latest snapshot instead of retaining an indicator instance ID across
+layout restore. `objects.destroy()` and the disposer returned by `subscribe`
+release observations without removing chart objects. Drawing actions still pass
+through the drawing controller's undo history. Host provider state needs its own
+subscription or an explicit `objects.refresh()` after a host-side change.
+
 ## getState and restoreState
 
 `chart.getState(): ChartState & ChartSettingsState` returns a JSON-safe snapshot; `chart.restoreState(state): RestoreReport` puts it back. The widened return type is still a `ChartState` to every existing consumer.
@@ -94,15 +113,21 @@ Notes:
 | `viewport` `{ from, to }` (logical range), `barSpacing` | yes, viewport only when the chart already has data |
 | `grid` `{ vertLines, horzLines }` plus the grid style keys | yes |
 | `canvas` (grid, crosshair, scales, margins), `statusLine`, `trading` colours, `events` filters | yes; `canvas` is applied **before** the panes, so a pane's own saved margins are the more specific answer and win |
+| `navigation` (`mousePan`, `defaultVisibleBars`) | yes; controls pointer panning and the initial/reset view. An explicitly restored viewport takes precedence until reset |
 | `crosshairMode` `'normal' \| 'magnet'` | yes |
 | `timezone` (IANA name) | yes, but a name this runtime does not recognise is **skipped**, not thrown, so one stale zone cannot cost the whole layout |
 | `panes[]`: `weight`, and per-pane `priceScale` `{ marginTop, marginBottom, minMove, mode, inverted, autoScale, range? }` | yes; panes are created as needed, `range` only present when `autoScale` is false |
-| `indicators[]`: `{ indicatorId, settings, paneIndex }` | yes, replaced not appended |
+| `indicators[]`: `{ indicatorId, settings, paneIndex, visible? }` | yes, replaced not appended; omitted legacy visibility restores as visible |
 | `drawings` | round-tripped opaquely; only present when a drawing state has been set. The draw tier writes a `DrawingsDocument` (`{ version: 2, drawings }`) here and reads a 1.9.x bare array too |
 | `series[]`: `{ type, style, paneIndex, priceScaleId }` | **no**, reported back to you |
 | series **data** | **no**, never captured |
 
 **`restoreState` never recreates series.** The chart does not know your symbol, timeframe, or feed. It restores what it owns and hands back the descriptors so you rebuild and refeed them.
+
+Indicator visibility is saved with its instance settings. Drawing visibility and
+lock remain in the drawing document. `ChartObjects` provider callbacks, profile
+data and profile state are host-owned and are not serialized; re-register them
+after chart replacement and persist them separately when needed.
 
 `RestoreReport`:
 

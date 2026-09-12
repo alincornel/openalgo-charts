@@ -1,0 +1,86 @@
+import RunnableExample from './RunnableExample';
+
+const code = `el.style.display = 'flex';
+el.style.flexDirection = 'column';
+const controls = document.createElement('div');
+controls.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;padding:8px;flex-shrink:0';
+const stage = document.createElement('div');
+stage.style.cssText = 'flex:1;min-height:0;max-width:100%;width:100%';
+el.append(controls, stage);
+const bars = Array.from({ length: 160 }, (_, index) => {
+  const close = 100 + Math.sin(index / 12) * 4;
+  return { time: 1700000000 + index * 60, open: close - 0.4,
+    high: close + 1, low: close - 1, close, volume: 100 + index };
+});
+const widget = lib.createWidget(stage, {
+  symbol: 'OBJECTS SIM', interval: '1m', intervals: ['1m'],
+  rail: false, statusline: false, topbar: false,
+  navigation: { defaultVisibleBars: 100 },
+});
+widget.series.setData(bars);
+function addDrawing() {
+  widget.draw.add({ tool: 'trend-line', paneIndex: 0,
+    points: [{ time: bars[100].time, price: 97 }, { time: bars[140].time, price: 103 }],
+    style: { color: '#f0a020', lineWidth: 3 },
+  });
+}
+addDrawing();
+widget.draw.add({ tool: 'rectangle', paneIndex: 0,
+  points: [{ time: bars[159].time + 20 * 60, price: 107 },
+    { time: bars[159].time + 35 * 60, price: 110 }],
+  style: { color: '#4da3ff', lineWidth: 2 },
+});
+widget.chart.addIndicator('rsi');
+const profile = new lib.VolumeProfile(
+  lib.computeVolumeProfileSessions(bars, { tickSize: 0.5, session: 'composite' }),
+  { width: 60, showValueArea: false, showPocLabel: false },
+);
+widget.chart.addPrimitive(profile);
+let exists = true;
+let visible = true;
+const unregister = widget.objects.register({
+  id: 'session-profile',
+  get: () => exists ? { kind: 'profile', name: 'Session profile', paneIndex: 0, visible } : null,
+  setVisible(on) {
+    if (visible === on) return;
+    visible = on;
+    if (on) widget.chart.addPrimitive(profile); else widget.chart.removePrimitive(profile);
+  },
+  remove() { widget.chart.removePrimitive(profile); exists = false; },
+});
+function button(label, action) {
+  const node = document.createElement('button');
+  node.textContent = label;
+  node.type = 'button';
+  node.style.cssText = 'padding:5px 9px;border:1px solid var(--oac-card-border);border-radius:4px;background:var(--oac-card);color:inherit;font:12px system-ui';
+  node.addEventListener('click', action);
+  controls.appendChild(node);
+  return node;
+}
+button('Open Objects', () => widget.openObjects());
+button('Add drawing', addDrawing);
+button('Add RSI', () => widget.chart.addIndicator('rsi'));
+button('Undo drawing action', () => widget.draw.undo());
+let compact = false;
+const widthButton = button('Width: fit', () => {
+  compact = !compact;
+  stage.style.width = compact ? '350px' : '100%';
+  widthButton.textContent = compact ? 'Width: 350 px' : 'Width: fit';
+  widthButton.setAttribute('aria-pressed', String(compact));
+});
+widthButton.setAttribute('aria-pressed', 'false');
+let saved;
+const restoreButton = button('Restore layout', () => {
+  if (saved) widget.restoreState(saved);
+});
+restoreButton.disabled = true;
+button('Save layout', () => {
+  saved = JSON.parse(JSON.stringify(widget.getState()));
+  restoreButton.disabled = false;
+});
+return { destroy() { unregister(); widget.destroy(); } };`;
+
+export default function ObjectsDemo() {
+  return <RunnableExample height={500} tiers={['widget', 'profile']} code={code} watermark={false}
+    caption="Synthetic candles. Open Objects to manage drawings and indicators, or focus the rectangle beyond the newest bar. Try the 350 px width, or hide RSI, save the layout, show it, and restore. The profile offers only show/hide and removal; its host-owned state is separate from the saved chart layout." />;
+}

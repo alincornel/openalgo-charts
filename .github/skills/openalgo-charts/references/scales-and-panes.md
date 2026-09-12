@@ -75,7 +75,7 @@ ps.setPriceRange({ min: 0, max: 100 });   // e.g. an RSI pane
 ps.setAutoScale(true);                     // hand it back to the data
 ```
 
-`chart.resetScale()` (also double-click) re-enables autoscale on every pane and fits content.
+`chart.resetScale()` (also the navigator reset button and the default double-click action) re-enables autoscale and releases ratio locks on every created right, left and overlay scale, then restores the configured default view. `navigation.defaultVisibleBars: 0` fits all loaded bars; a positive count targets the newest N loaded bars plus four right-padding slots, within data and spacing limits.
 
 Chart-wide equivalents, for a settings dialog: `chart.setPriceScaleOptions(patch, allScales = false)` writes each pane's right scale (`allScales` includes left and overlay), `chart.priceScaleOptions()` reads pane 0's, and `chart.setAutoScale(on)` flips every pane at once. See [settings-and-menus](settings-and-menus.md).
 
@@ -164,7 +164,9 @@ import { DEFAULT_TIME_SCALE_OPTIONS } from 'openalgo-charts';
 | `maxBarSpacing` | `number` | `80` | Ceiling; read once in the constructor, not settable later. |
 | `rightOffset` | `number` | `4` | Empty bar slots kept right of the latest bar. Unclamped. |
 
-The chart constructs its own `TimeScale` with defaults, **`ChartOptions` has no `timeScale` key**. Tune the live instance:
+Since 2.1.1, `ChartOptions.timeScale` accepts `Partial<TimeScaleOptions>` at construction.
+For a wide footprint column use `createChart(el, { timeScale: { maxBarSpacing: 260 } })`.
+The minimum and maximum are constructor options; tune spacing and offset on the live instance:
 
 ```ts
 chart.timeScale.setBarSpacing(12);
@@ -173,6 +175,30 @@ chart.timeScale.fitContent(bars.length);
 ```
 
 `chart.timeScale` is shared by every pane, which is why panes stay aligned bar-for-bar.
+
+### Default visible bars
+
+`ChartOptions.navigation` accepts `Partial<ChartNavigationOptions>`, whose defaults are
+`{ mousePan: 'both', defaultVisibleBars: 0 }`. Read the resolved values through
+`chart.navigationOptions()` and merge a patch through `chart.setNavigationOptions(patch)`.
+
+```ts
+const chart = createChart(el, { navigation: { defaultVisibleBars: 120 } });
+chart.addSeries('candlestick').setData(bars);
+chart.setNavigationOptions({ defaultVisibleBars: 80 });  // apply the new default view now
+chart.resetScale();                                    // restore it after panning
+chart.fitContent();                                    // explicitly fit all loaded bars
+```
+
+Initial data and reset use the configured count. `0` fits all loaded bars; a positive N
+targets the newest `min(N, loaded bar count)` bars plus four empty bar slots on the right,
+with spacing bounded by the time scale's minimum and maximum. A host's explicit viewport
+after loading data takes precedence. Ordinary widget loads honour the configured count.
+
+This is a viewport preference, not a history lookback or feed-request limit: all loaded
+bars stay available for panning. Explicit `fitContent` methods still fit all supplied
+bars. The two navigation fields are exposed on the settings schema and round-trip in
+chart state; a saved viewport is applied after navigation options on restore.
 
 ### The logical-index model
 
@@ -186,10 +212,10 @@ Details in [interactions](interactions.md); what matters here is which gesture l
 
 | Gesture | Effect | Leaves manual? |
 |---|---|---|
-| Wheel | `timeScale.zoomAtX(x, 1.1 or 1/1.1)` | no |
-| Drag inside the plot | horizontal: `setRightOffset`; vertical: `panByPixels` on the pressed pane | **yes** (price scale) |
+| Wheel | `timeScale.zoomAtX(x, 1.1 or 1/1.1)`, eased by default; `zoomAnchor` selects cursor or right edge | no |
+| Drag inside the plot | time `setRightOffset` and vertical `panByPixels` on the pressed pane by default; `navigation.mousePan: 'horizontal'` limits mouse and pen to time | only when panning price; horizontal-only mouse/pen panning preserves autoscale |
 | Drag either price axis strip (right, or the reserved left column) | `setPriceRange` around the centre by `exp(dy * 0.005)` on **that strip's** scale, then `setAutoScale(false)` | **yes** |
-| Drag the time axis strip (bottom pane, last `timeAxisHeight` px) | `setBarSpacing(start * exp(dx * 0.005))` | no |
+| Drag the time axis strip (bottom pane, last `timeAxisHeight` px) | `setBarSpacing(start * exp(-dx * 0.005))`: left expands, right compresses; preserves the logical right edge | no |
 | Two-finger pinch | zoom time, pan time, `panByPixels` on the pinched pane | **yes** (price scale) |
 | Double-click | `chart.resetScale()` | no, restores autoscale everywhere |
 | `panUp` / `panDown` shortcuts | `panByPixels(±20)` on **pane 0 only** | **yes** |

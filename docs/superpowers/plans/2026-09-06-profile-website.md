@@ -15,7 +15,7 @@
 - [x] Extend `website/scripts/sync-lib.mjs` to copy the standalone profile HTML, theme module and required bundles into `website/public/demos/`; rewrite the demo's bundle imports to relative paths.
 - [x] Ignore generated demo assets in `website/.gitignore`; include standalone example changes in the existing website deployment workflow's path filter.
 - [x] Add `scripts/capture-profile-screenshots.mjs` to capture deterministic single-day screenshots at 800 x 1320, DPR 2, with 16-pixel letters from the working demo, for Dark, Blue, Graphite, Emerald and Ivory, plus split/packed views.
-- [x] Store the actual screenshots under `website/public/screenshots/market-profile/` and document capture commands in `website/README.md`.
+- [x] Store the actual screenshots under `website/public/screenshots/market-profile-v2.1.1/` and document capture commands in `website/README.md`.
 - [x] Verify generated assets load from the site's base path and screenshots show actual letters, markers and theme colors.
 
 ## 2. Website pages and profile guides

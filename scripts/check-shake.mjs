@@ -63,16 +63,14 @@ const BUNDLE = new URL('../dist/openalgo-charts.mjs', import.meta.url).pathname.
 // ships with the chart rather than behind a lazy import. Measured cost 3.75 kB
 // brotli: 39.34 kB before, 43.09 kB after, on the same build.
 //
-// Raised to 45.7 kB on merging upstream 2.0.2 into this fork. Upstream's own
-// 44 kB covers the wheel glide and the synchronous SVG export; this fork then
-// pays for its own chart-only input work on top of the same tree — the touch
-// crosshair, the tap-not-pan guard, the adopted-pointer steering and the
-// drag-cancel seam. Measured 45.53 kB here against upstream's own 43.84 kB on
-// the same build: 1.69 kB, up from the 1.17 kB the same features cost against
-// 1.9.2, because the crosshair paths now carry the 2.0 pointer payload
-// (modifiers, pressure, coalesced samples) that upstream added to
-// `_updateCursor`. Trim before raising this again.
-const LIMIT_BYTES = 45.7 * 1024;
+// Raised to 45.7 kB on merging upstream 2.0.2 into this fork, and to 46.9 kB on
+// merging 2.1.7. Upstream's own line moved 44 -> 45 kB over 2.1.x for the
+// navigation preferences and the reset control, which are chart-only input too;
+// this fork then pays for its own chart-only input work on top of the same tree
+// — the touch crosshair, the tap-not-pan guard, the adopted-pointer steering
+// and the drag-cancel seam. Measured 46.56 kB here against upstream's own
+// published 45 kB ceiling for 2.1.7. Trim before raising this again.
+const LIMIT_BYTES = 46.9 * 1024;
 
 // Absent from a chart-only build. Each is a string that appears in the adapter
 // source and nowhere in the rendering core.

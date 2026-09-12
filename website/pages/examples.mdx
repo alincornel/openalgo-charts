@@ -7,6 +7,8 @@ import RunnableExample from '../components/RunnableExample'
 import { ProfileDemo, ProfileThemeGallery } from '../components/ProfileShowcase'
 import DepthLadderDemo from '../components/DepthLadderDemo'
 import DrawingToolsDemo from '../components/DrawingToolsDemo'
+import DataLoadingDemo from '../components/DataLoadingDemo'
+import ObjectsDemo from '../components/ObjectsDemo'
 import { RangeSwitcherCard, LegendCard, SeriesCompareCard, IndicatorsCard, ChartTypeCard, ThemeCard, DataTooltipCard, EventMarkersCard, PriceScaleCard, CustomTypesCard, ScalesFormatCard, ScalesConfigCard, DataCard, CustomPluginsCard, PositionsCard, TradeMarkersCard } from '../components/gallery'
 
 # Live examples
@@ -17,6 +19,22 @@ is the code that ran. Try it, copy it, ship it.
 Jump to [depth of market](#depth-of-market), [drawing tools](#drawing-tools),
 [market profiles](#compact-market-profiles), [chart controls](#interactive),
 or [trading](#trading).
+
+## Objects and compact dialogs
+
+Find drawings, indicators and registered profiles in one panel. Hide, lock, edit or
+remove supported objects, or focus a drawing beyond the latest candle. Change the
+host width to try compact dialogs. See the [Objects guide](/docs/objects).
+
+<ObjectsDemo />
+
+## Managed data loading
+
+Load older history, simulate a failed refresh and retry, or hold the display while
+live updates continue. The [data-loading guide](/docs/data-loading) explains the
+shared controller for widgets and custom terminals.
+
+<DataLoadingDemo />
 
 ## Depth of market
 

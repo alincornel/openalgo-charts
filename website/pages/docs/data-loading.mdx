@@ -5,6 +5,7 @@ description: Load, stream, page, and downsample data efficiently.
 
 import { Callout } from 'nextra/components'
 import RunnableExample from '../../components/RunnableExample'
+import DataLoadingDemo from '../../components/DataLoadingDemo'
 
 # Data loading
 
@@ -12,13 +13,115 @@ This page covers every way to get price data into a chart: bulk load, live
 updates, tick aggregation, infinite history paging, large-dataset downsampling,
 and gap recovery after a feed drop.
 
-<Callout type="info">
-Loading the *same* series repeatedly (a symbol switch and back, a timeframe flip, a reload,
-a [linked grid](/docs/chart-linking) opening one instrument in four panes) is a caching
-problem rather than a loading one. Wrap the feed with
-[`withBarCache`](/docs/bar-cache) and it is answered from memory, without ever serving a
-stale forming bar.
-</Callout>
+## Shared loading controller (2.1.6)
+
+`DataLoadingController` owns one instrument's history, live bar store, retries
+and older pages. It has no DOM dependency. The widget uses it automatically when
+supplied a feed; custom terminals can subscribe to the same state contract.
+
+<DataLoadingDemo />
+
+```ts
+import { DataLoadingController, withBarCache } from 'openalgo-charts';
+
+const data = new DataLoadingController(withBarCache(sourceFeed), {
+  timeoutMs: 15_000,
+  pageSize: 500,
+  maxBars: 100_000,
+  pollIntervalMs: 0,
+});
+const off = data.subscribe(state => {
+  renderLoadingState(state.status, state.error);
+  // A custom host maps load/prepend/live/refresh to its displayed series.
+  // Skip chart writes while replay owns the display.
+  if (!state.paused) renderSnapshot(state);
+});
+await data.load({ symbol: 'NIFTY', exchange: 'NFO', interval: '1m', from, to });
+await data.loadMore();
+await data.refresh();
+// On unmount:
+off();
+data.destroy();
+```
+
+Use the widget for a ready-made canvas binding, accessible status and Retry
+controls. A custom host should use `series.update` for `reason: 'live'`, prepend
+only new older bars for `reason: 'prepend'`, and retain the visible **time anchor**
+when a refresh replaces its source. Do not fit the chart on every response.
+Pair `chart.setHistoryLoader(() => data.loadMore().finally(() =>
+chart.historyLoadComplete()))` with that subscriber. The widget supplies these
+bindings and preserves a saved view when the original instrument matches.
+
+| Operation | Behavior |
+| --- | --- |
+| `load(req)` | Cancel the old context, clear its bars, optionally paint closed cache bars, fetch current history and seed the stream. |
+| `refresh()` | Fetch authoritative history, buffer incoming bars, then publish the merged result. A failure retains a stale display and Retry remains available. |
+| `loadMore()` | Share a pending page, deduplicate older bars and reject obsolete responses after a context change. |
+| `pushBar(bar)` | Accept live bars from an existing host-owned subscription. Omit `feed.subscribeBars` to avoid a second subscription. |
+| `getState()` / `subscribe(fn)` | Read/observe display bars and typed loading status. Subscribe does not immediately invoke the listener. |
+| `bars()` | Read the current live store, including updates held away from the display. Treat arrays and bars as read-only. |
+| `setPaused(true)` | Hold the display snapshot while the live store continues. A paused historical replay still needs this fence. |
+| `setPaused(false)` | Publish current live bars with `reason: 'resume'`; stop the replay owner before resuming. |
+| `setVisible(false)` | Suspend periodic repair; returning to visible refreshes history. Live subscription ownership remains unchanged. |
+| `destroy()` | Abort owned work, detach subscriptions and stop polling. Shared feeds remain their owner's responsibility. |
+
+Primary status is `idle`, `loading`, `ready`, `empty`, `refreshing`, `stale` or
+`error`. Older history has independent `historyStatus`: `idle`, `loading`,
+`error`, `exhausted` or `limited`. Errors are published in state; managed methods
+complete with retained bars, so a resolved promise alone does not prove success.
+
+`hasMore` is `true`, `false`, or `null` when the provider has not established it.
+Optional `getBarsPage(request)` returns `{ bars, hasMore?, nextBefore? }` with an
+exclusive `before` cursor and `countBack` target. Without it the controller scans
+at most `maxEmptyPages` date windows per gesture (default 4). An empty weekend
+window does not prove exhaustion. `pageWindowSec` defaults to the initial request
+width. Reaching `maxBars` stops paging with `limited`, separately from provider
+exhaustion; live appends retain the newest bars.
+
+### Requests and cache freshness
+
+`HistoryRequestPool` deduplicates identical pending requests for the **same feed
+instance**, limits concurrency (default 4), and schedules higher priorities first.
+`sharedHistoryRequests(feed)` returns that feed's pool. Each consumer has its own
+`signal` and `timeoutMs` (default 15 seconds), including time spent queued. One
+consumer cancelling does not cancel another; the final consumer releases the
+underlying request. Custom feeds should pass `req.signal` into their transport.
+The OpenAlgo REST adapter bounds both fetch and JSON decoding.
+
+`withBarCache` supplies optional `getCachedBars(req)`: a validated closed-bar
+snapshot for immediate display, followed by authoritative refresh. Durable-store
+read, write, delete or invalid-entry failures fall back to bounded memory. A warm
+snapshot is not a claim that the latest candle is current. Cache reads are bounded
+to 500 ms in the controller, and forming candles are never stored.
+
+Refresh preserves observed live extrema and close; overlapping whole-bar volumes
+use their maximum because a REST snapshot cannot identify overlap with sampled
+updates. Exact tick replay and reconstruction of missed trades require upstream
+sequence/trade data. See [cache behavior](/docs/bar-cache) and
+[OpenAlgo compatibility](/docs/openalgo-compatibility).
+
+### External study context
+
+Set the chart identity before loading the next source:
+
+```ts
+series.setData([]);
+chart.setDataContext({ symbol, exchange, interval });
+series.setData(nextBars);
+```
+
+The widget does this automatically. `createTier2Indicator` receives
+`ctx.dataContext` and `ctx.signal`, refreshes on context changes and extends its
+requested range when history is prepended. `supports(ctx)` can explicitly decline
+unavailable data. Read `indicator.dataStatus()`, observe
+`indicator.subscribeDataStatus(fn)`, and invoke `indicator.retryData()` for
+`loading`, `ready`, `empty`, `unsupported` and `error` states. Unsubscribe the status
+listener on teardown. Live studies append through their subscription; history-only
+studies refresh the tail as the source grows. No future external value is aligned
+into an earlier replay candle.
+
+The following sections cover direct series APIs for hosts that manage their own
+loading lifecycle.
 
 ## Initial load
 
@@ -229,7 +332,7 @@ chart.setHistoryLoader(async () => {
     series.prependData(older);
     oldestLoadedTime = older[0].time;
   }
-  // Always call this, even when there is nothing left to load.
+  // Call this from finally in an async loader, including failures.
   // Without it the loader will never fire again.
   chart.historyLoadComplete();
 });
