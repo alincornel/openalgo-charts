@@ -474,12 +474,17 @@ export class BarCache implements DataFeed {
    */
   public async getCachedBars(req: BarsRequest): Promise<Bar[] | undefined> {
     throwIfAborted(req.signal);
-    if (req.noCache === true || req.from === undefined || req.to === undefined) return undefined;
+    if (req.noCache === true) return undefined;
+    // The same two shapes `getBars` takes. Gating on `from`/`to` alone made the
+    // cache-first paint dead code for a count-shaped host, which is the shape
+    // this fork's own consumer asks in.
+    const ask = this._ask(req);
+    if (ask === undefined) return undefined;
     const key = barCacheKey(req);
     const entry = await this._readEntry(key, req.interval);
     throwIfAborted(req.signal);
     if (entry === undefined) return undefined;
-    const snapshot = sliceBars(entry.bars, { endSec: req.to, count: entry.bars.length, from: req.from });
+    const snapshot = sliceBars(entry.bars, ask);
     if (snapshot.length === 0) return undefined;
     this._remember(key, entry);
     await this._evict();
@@ -499,18 +504,26 @@ export class BarCache implements DataFeed {
    * count it implies is used for the coverage question alone.
    */
   private _ask(req: BarsRequest): BarsAsk | undefined {
-    if (req.endSec !== undefined && req.count !== undefined) {
+    const windowed = req.from !== undefined && req.to !== undefined;
+    // A page request carries a window AND, if its caller spread a host request
+    // to build it, the host's `endSec`/`count` as well. Reading the count there
+    // answers the NEWEST n bars to a question about the oldest, which is how a
+    // scroll-back pages backwards for ever loading nothing. The window a caller
+    // actually supplied wins over a count it did not mean to send.
+    if (!windowed && (req as { before?: UTCSeconds }).before === undefined
+      && req.endSec !== undefined && req.count !== undefined) {
       return { endSec: req.endSec, count: req.count };
     }
     if (req.from === undefined || req.to === undefined) return undefined;
-    const close = this._barCloses(req.interval, req.from);
+    const from = req.from, to = req.to;
+    const close = this._barCloses(req.interval, from);
     // A span of 0 (an interval with no knowable close) leaves `count` at 0, so
     // the left-edge gate cannot fire. Such a series is never stored anyway.
-    const span = close === null ? 0 : Math.max(1, close - req.from);
+    const span = close === null ? 0 : Math.max(1, close - from);
     return {
-      endSec: req.to,
-      count: span === 0 ? 0 : Math.ceil((req.to - req.from) / span),
-      from: req.from,
+      endSec: to,
+      count: span === 0 ? 0 : Math.ceil((to - from) / span),
+      from,
     };
   }
 
@@ -537,11 +550,13 @@ export class BarCache implements DataFeed {
    *     window asked for. Peek again without one to see where its bars are.
    *
    * It does touch LRU recency, because an entry about to be extended must not
-   * be the next victim. Nothing is written and nothing is evicted here, but the
-   * touch ADOPTS the entry into this session's index — which is the point over a
-   * persistent store, where a reload starts with an empty index — and from then
-   * on it counts towards `max` and `maxBars`. So a peek can make a LATER put
-   * evict on its behalf: it is free at the moment it runs, not free thereafter.
+   * be the next victim. Nothing is written here, but the touch ADOPTS the entry
+   * into this session's index — which is the point over a persistent store,
+   * where a reload starts with an empty index — and from then on it counts
+   * towards `max` and `maxBars`. It therefore evicts like any other adoption:
+   * peeking forty cold series with `max: 24` used to leave forty entries in
+   * memory and no evictions at all, which is the bound not holding rather than
+   * the peek being free.
    */
   public async peek(req: BarsRequest): Promise<CachedPeek | undefined> {
     const key = barCacheKey(req);
@@ -549,6 +564,7 @@ export class BarCache implements DataFeed {
     if (entry === undefined || entry.bars.length === 0) return undefined;
     // An entry about to be extended must not be the next LRU victim.
     this._remember(key, entry);
+    await this._evict();
     const bars = sliceBars(entry.bars, {
       endSec: req.endSec ?? req.to ?? entry.bars[entry.bars.length - 1].time,
       // A window is answered as a window: `count` narrows a peek that gave one.
@@ -797,7 +813,13 @@ export class BarCache implements DataFeed {
       return;
     }
     if (signal?.aborted === true) {
-      await this._drop(key);
+      // The caller walked away while the store was busy, so this answer must not
+      // be published. What was already there is a different question: dropping
+      // the key outright threw away bars earlier, successful writes had put
+      // here, and a cancelled request is no evidence against them. Only a key
+      // this put CREATED goes.
+      if (previous === undefined) await this._drop(key);
+      else await this._restore(key, previous);
       this._latestWrite.delete(key);
       throwIfAborted(signal);
     }
@@ -969,9 +991,24 @@ export class BarCache implements DataFeed {
 
   /** Take the entry into memory and into this session's bounds, as one act. */
   private _remember(key: string, entry: CachedBars): void {
+    // A warm read hands back the object memory is already holding, and copying
+    // it onto itself is pure cost: a 50k-bar entry peeked twenty times spent
+    // 25 ms cloning bars nobody was going to mutate.
+    if (this._memory.get(key) === entry) {
+      this._index.set(key, { lastUsed: ++this._tick, bars: entry.bars.length });
+      return;
+    }
     const copy = this._cloneEntry(entry);
     this._memory.set(key, copy);
     this._index.set(key, { lastUsed: ++this._tick, bars: copy.bars.length });
+  }
+
+  /** Put a known-good entry back, in memory and in the store, after a failed put. */
+  private async _restore(key: string, entry: CachedBars): Promise<void> {
+    this._remember(key, entry);
+    // A hint taken before the abandoned write must not be unioned against.
+    this._gen.set(key, (this._gen.get(key) ?? 0) + 1);
+    await this._writeBacking(key, entry);
   }
 
   /**
@@ -1001,11 +1038,19 @@ export class BarCache implements DataFeed {
     if (stored === undefined) return memory;
     const storedAt = (stored as Partial<CachedBars>).storedAt;
     if (memory !== undefined && typeof storedAt === 'number' && memory.storedAt >= storedAt) return memory;
-    if (!this._validEntry(stored, interval, this._now())) {
+    const nowMs = this._now();
+    if (!this._validEntry(stored, interval, nowMs)) {
       await this._deleteBacking(key);
       return memory;
     }
-    return this._cloneEntry(stored);
+    const durable = this._cloneEntry(stored);
+    // A `storedAt` in the future is a clock that stepped backwards, not a
+    // corrupt record: the bars are still bars. Deleting the entry for it threw
+    // away the whole durable cache over a 30-second NTP correction. What the
+    // stamp CANNOT do any more is vouch for the tail, so it is read as
+    // unrevalidated and the next request that reaches the tail refetches it.
+    if (durable.storedAt > nowMs) durable.storedAt = Math.max(0, nowMs - this._ttlMs - 1);
+    return durable;
   }
 
   /**
@@ -1020,12 +1065,17 @@ export class BarCache implements DataFeed {
     const candidate = value as Partial<CachedBars>;
     if (candidate.version !== undefined && candidate.version !== BAR_CACHE_VERSION) return false;
     if (!Number.isInteger(candidate.from) || !Number.isInteger(candidate.to)) return false;
-    if (!Number.isFinite(candidate.storedAt) || candidate.storedAt! < 0 || candidate.storedAt! > nowMs) return false;
+    if (!Number.isFinite(candidate.storedAt) || candidate.storedAt! < 0) return false;
     if (!Number.isInteger(candidate.nextClose)) return false;
     if (candidate.from! > candidate.to! || candidate.nextClose! <= candidate.to!) return false;
     if (!Array.isArray(candidate.bars) || candidate.bars.length === 0) return false;
     if (candidate.bars.length > this._maxBars || this._max < 1) return false;
-    const nowSec = Math.floor(nowMs / 1000);
+    // Bar closure is judged against the LATER of this clock and the one that
+    // wrote the entry. Only closed bars are ever stored, so a stamp ahead of us
+    // is evidence about what had closed by then — and without that, a clock
+    // stepping backwards makes a closed tail look like a forming bar and the
+    // whole entry is deleted for it.
+    const nowSec = Math.floor(Math.max(nowMs, candidate.storedAt as number) / 1000);
     let previous = -Infinity;
     let lastClose: number | null = null;
     for (const bar of candidate.bars) {
