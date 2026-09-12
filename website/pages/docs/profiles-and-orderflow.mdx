@@ -669,7 +669,7 @@ import {
 
 ### diagonalImbalances
 
-`diagonalImbalances(cells, ratio = 3, rowSize?, threshold = 0)` scans the `FootprintCell[]` of one bar (sorted high
+`diagonalImbalances(cells, ratio = 3, rowSize?, threshold = 0, minOpposing = 0)` scans the `FootprintCell[]` of one bar (sorted high
 to low, as returned by `computeFootprint`) and returns `Imbalance[]`. A buy imbalance fires
 when ask volume at price P is at least `ratio` times the bid volume at the cell one row
 below; a sell imbalance fires when bid volume at P is at least `ratio` times the ask volume
@@ -679,10 +679,18 @@ this cannot distinguish uniformly missing rows from a coarser grid. `threshold` 
 minimum qualifying side volume. Positive volume against zero can qualify, while zero
 against zero does not. Both sides can be imbalanced at the same price.
 
+`minOpposing` is the floor the opposing quantity is compared **at**, and it exists because
+nothing times zero is zero: against an empty row the ratio drops out of the comparison and
+any positive print qualifies, at 3 and at a billion alike. That is the honest reading for a
+sparse ladder, and it is the wrong one once rows have been *manufactured*. The `Footprint`
+primitive passes `1`, so `imbalanceRatio` still means something under `zeroFill`; the
+default `0` leaves the comparison as fractional quantities deserve.
+
 ```ts
 const bar = computeFootprint(time, trades, tickSize);
 const imb = diagonalImbalances(bar.cells, 3, bar.rowSize);
 const imb4 = diagonalImbalances(bar.cells, 4, bar.rowSize, 10); // ratio 4, minimum volume 10
+const ladder = diagonalImbalances(bar.cells, 3, bar.rowSize, 0, 1); // the renderer's rule
 // imb: Array<{ price: number; side: 'buy' | 'sell' }>
 ```
 
@@ -699,7 +707,7 @@ const cd = cumulativeDelta(footprintBars);
 
 ### stackedImbalances
 
-`stackedImbalances(cells, ratio = 3, minStack = 3, rowSize?, threshold = 0)` builds on `diagonalImbalances` and
+`stackedImbalances(cells, ratio = 3, minStack = 3, rowSize?, threshold = 0, minOpposing = 0)` builds on `diagonalImbalances` and
 finds runs of `minStack` or more consecutive same-side imbalances within one bar's cell
 stack. Buy and sell runs are tracked independently, and neither crosses a missing row.
 Returns `StackedImbalance[]`, each with `{ startPrice, endPrice, side, count }`.

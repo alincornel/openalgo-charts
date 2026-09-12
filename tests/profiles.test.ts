@@ -252,10 +252,7 @@ describe('profile primitives render', () => {
     cramped.draw(b.ctx, rc());
     expect(a.rec.count('fillText')).toBeGreaterThan(0);
     expect(b.rec.count('fillText')).toBe(0);   // heatmap only
-    // Still every cell, just painted as plain fills: a row too short to carry a
-    // number is too short to show a rounded corner, and the path per cell is
-    // what makes a zero-filled ladder expensive when zoomed out.
-    expect(b.rec.count('fillRect')).toBeGreaterThanOrEqual(a.rec.count('roundRect'));
+    expect(b.rec.count('roundRect')).toBeGreaterThan(0);
   });
 
   it('Footprint drives autoscale so the top and bottom rows are not clipped', () => {

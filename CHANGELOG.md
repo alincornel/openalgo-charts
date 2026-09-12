@@ -86,10 +86,10 @@ as a ladder instead of a hairline mesh.
     on top of it, so a drag that changes nothing (spacing clamped at its limit,
     or a press that has not moved) is still silent.
 
-- Budgets re-measured on the merged tree: base engine 68.90 -> 75.88 kB (limit
-  69.3 -> 76.2), base + trade 76.59 -> 83.57 (77 -> 83.9), profile tier
-  13.12 -> 16.76 (13.2 -> 17.2), widget terminal 157.54 -> 168.54 (158 ->
-  168.9), everything 187.41 -> 202.02 (187.9 -> 202.6). Chart-only shake
+- Budgets re-measured on the merged tree: base engine 68.90 -> 76.00 kB (limit
+  69.3 -> 76.2), base + trade 76.59 -> 83.69 (77 -> 83.9), profile tier
+  13.12 -> 16.86 (13.2 -> 16.9), widget terminal 157.54 -> 168.66 (158 ->
+  168.9), everything 187.41 -> 202.24 (187.9 -> 202.3). Chart-only shake
   45.53 -> 46.56 kB (45.7 -> 46.9). The indicator, draw, transform, WebGL2 and
   widget tiers did not move past their existing budgets.
 

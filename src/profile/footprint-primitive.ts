@@ -231,6 +231,25 @@ export interface FootprintOptions {
   radius: number;
 }
 
+/**
+ * A patch as the primitive reads it. A key explicitly set to `undefined` means
+ * "not supplied" when the option HAS a default, and a deliberate clear when it
+ * does not.
+ *
+ * Both halves are a host's real code. `{ candle: saved?.candle }` is how a
+ * saved layout is restored, and it must not turn a required mode into nothing —
+ * it used to throw on the enum check, and before that check existed it left the
+ * renderer reading `undefined`. `{ pocOutline: undefined }` is how the same
+ * host turns the ring off, and it must keep doing exactly that.
+ */
+function supplied(patch: Partial<FootprintOptions>): Partial<FootprintOptions> {
+  const out = { ...patch } as Record<string, unknown>;
+  for (const key of Object.keys(DEFAULT_FOOTPRINT_OPTIONS)) {
+    if (key in out && out[key] === undefined) delete out[key];
+  }
+  return out as Partial<FootprintOptions>;
+}
+
 export const DEFAULT_FOOTPRINT_OPTIONS: FootprintOptions = {
   widthFactor: 0.9, font: 10, minTextHeight: 11, textFade: 4,
   displayMode: 'bidask', volumeDivisor: 1, cellStyle: 'heatmap', textColorMode: 'contrast',
@@ -344,7 +363,8 @@ export class Footprint implements IPrimitive {
   /** What `onLayout` last saw, so an unchanged frame does not push again. */
   private _layoutKey = '';
 
-  public constructor(opts: Partial<FootprintOptions> = {}) {
+  public constructor(options: Partial<FootprintOptions> = {}) {
+    const opts = supplied(options);
     this._opts = { ...DEFAULT_FOOTPRINT_OPTIONS, ...opts,
       statsRows: [...(opts.statsRows ?? DEFAULT_FOOTPRINT_OPTIONS.statsRows)], tableRows: [...(opts.tableRows ?? [])] };
     this._validateOptions(this._opts);
@@ -409,7 +429,7 @@ export class Footprint implements IPrimitive {
       [o.statsPosition, ['bottom', 'bar'], 'statistics position'],
       [o.pocStyle, ['marker', 'outline'], 'POC style'],
     ] as readonly (readonly [string, readonly string[], string])[]) {
-      if (!allowed.includes(value)) throw new RangeError(`Footprint ${what} must be one of ${allowed.join(', ')}`);
+      if (value !== undefined && !allowed.includes(value)) throw new RangeError(`Footprint ${what} must be one of ${allowed.join(', ')}`);
     }
     const dc = o.deltaCell;
     if (dc !== undefined) {
@@ -442,7 +462,8 @@ export class Footprint implements IPrimitive {
     this._host?.requestUpdate();
   }
 
-  public setOptions(patch: Partial<FootprintOptions>): void {
+  public setOptions(input: Partial<FootprintOptions>): void {
+    const patch = supplied(input);
     const next = { ...this._opts, ...patch };
     this._validateOptions(next);
     this._opts = { ...next, statsRows: [...next.statsRows], tableRows: [...next.tableRows],
@@ -894,12 +915,16 @@ export class Footprint implements IPrimitive {
     const fillX = profile && side === 'bid' ? x + w - fillW : x;
     if (fillW > 0) {
       ctx.fillStyle = fill;
-      const radius = o.cellStyle === 'ladder' || profile ? 0 : Math.min(o.radius * dpr, h / 2, fillW / 2);
-      // A row too short to carry a number is too short to show a corner, and a
-      // path-and-fill per cell is the expensive way to paint one: a zero-filled
-      // ladder at three pixels of bar spacing asks for six figures of them in a
-      // frame. Above the text threshold nothing changes, radius included.
-      if (alpha > 0) {
+      // A heatmap cell is drawn as a path only when it has a corner to draw. A
+      // row squeezed below a device pixel of radius shows no arc at any zoom,
+      // and a path-and-fill per cell is the expensive way to paint one: a
+      // zero-filled ladder at three pixels of bar spacing asks for six figures
+      // of them in a frame. The cluster and profile styles are square by
+      // design and keep their own path. Nothing here reads the text threshold —
+      // hiding the numbers by configuration must not round off a tall row.
+      const rounded = o.cellStyle === 'heatmap';
+      const radius = rounded ? Math.min(o.radius * dpr, h / 2, fillW / 2) : 0;
+      if (!rounded || radius >= 1) {
         ctx.beginPath();
         ctx.roundRect(fillX, y, fillW, h, radius);
         ctx.fill();

@@ -95,6 +95,22 @@ describe('zero-fill puts every row on the grid', () => {
     { price: 99.90, bidVol: 10, askVol: 0 },
   ] };
 
+  it('puts a bucket holding one off-grid cell at the grid price', () => {
+    // The root cause. A bucket with two cells in it was already rebuilt at the
+    // grid price; a bucket with ONE kept whatever that cell arrived with, so a
+    // filled column drew a row between the two beside it.
+    const fp = new Footprint({ ...LADDER, zeroFill: true });
+    fp.setBars([{ time: 1, delta: 40, cells: [
+      { price: 100.01, bidVol: 0, askVol: 50 },   // alone in the 100.00 bucket
+      { price: 99.90, bidVol: 10, askVol: 0 },
+    ] }]);
+    const rc = context();
+    fp.draw(makeCtx().ctx, rc);
+    const x = rc.timeScale.indexToX(0);
+    expect(fp.hoverAt(x, rc.priceScale.priceToY(100))?.cell)
+      .toEqual({ price: 100, bidVol: 0, askVol: 50 });
+  });
+
   it('hovers a filled row at the grid price, not the price a lone cell arrived with', () => {
     const fp = new Footprint({ ...LADDER, zeroFill: true });
     fp.setBars([OFF_GRID]);
@@ -204,6 +220,36 @@ describe('Footprint options are the primitive\'s own', () => {
     const handed = fp.options().deltaCell!;
     handed.tintFloor = 0.5;
     expect(fp.options().deltaCell!.tintFloor).toBe(0.2);
+  });
+
+  it.each([
+    // label, key, what the default is, what this ladder already had
+    ['candle', 'candle', 'ohlc', 'off'],
+    ['cell mode', 'cells', 'bidAsk', 'bidAsk'],
+    ['colour mode', 'colorBy', 'imbalance', 'imbalance'],
+    ['cell style', 'cellStyle', 'heatmap', 'heatmap'],
+    ['tint curve', 'tintCurve', 'sqrt', 'sqrt'],
+    ['statistics position', 'statsPosition', 'bottom', 'bottom'],
+    ['POC style', 'pocStyle', 'marker', 'marker'],
+  ])('reads an explicitly undefined %s as not supplied', (_label, key, fallback, kept) => {
+    // `{ candle: saved?.candle }` is how a host restores a layout that may not
+    // carry the key. It threw on the allowlist, and before that check existed
+    // it left the renderer reading `undefined`. Not supplied means the default
+    // on the way in, and no change on a patch.
+    const constructed = new Footprint({ ...LADDER, [key]: undefined } as never);
+    expect(constructed.options()[key as 'candle']).toBe(fallback);
+    const patched = new Footprint(LADDER);
+    expect(() => patched.setOptions({ [key]: undefined } as never)).not.toThrow();
+    expect(patched.options()[key as 'candle']).toBe(kept);
+  });
+
+  it('still lets an explicit undefined clear an option that has no default', () => {
+    const fp = new Footprint({ ...LADDER, pocOutline: '#f0a020', cellBaseColor: '#a0a0a0',
+      cells: 'deltaVolume', deltaCell: { colorBy: 'delta' } });
+    fp.setOptions({ pocOutline: undefined, cellBaseColor: undefined, deltaCell: undefined });
+    expect(fp.options().pocOutline).toBeUndefined();
+    expect(fp.options().cellBaseColor).toBeUndefined();
+    expect(fp.options().deltaCell).toBeUndefined();
   });
 
   it.each([
