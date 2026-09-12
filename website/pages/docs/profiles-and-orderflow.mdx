@@ -85,11 +85,13 @@ otherwise ask for tens of thousands of rows on one frame; a bar over the cap fal
 traded rows.
 
 Zero-fill also changes what the diagonal imbalance rule compares against: the neighbour of a
-row becomes the **adjacent price** rather than the next price that happened to trade. A
-positive quantity against zero opposing volume qualifies at any ratio, so an isolated ask
-print flags a buy imbalance more readily. `imbalanceRatio` cannot damp that case — nothing
-times zero is still zero — so **`imbalanceThreshold` is the knob** for it: it sets the
-quantity a side has to reach before it counts at all.
+row becomes the **adjacent price** rather than the next price that happened to trade, so an
+isolated ask print flags a buy imbalance more readily. The ladder compares against a floor of
+one there, so `imbalanceRatio` still damps it: a print has to reach the ratio outright before
+an empty row counts as beaten. `imbalanceThreshold` is the other knob, and sets the quantity a
+side has to reach before it counts at all. (The exported `diagonalImbalances` compares against
+a bare zero by default — a positive quantity against nothing IS an imbalance for an analytics
+caller reading a sparse ladder — and takes a `minOpposing` argument for the renderer's rule.)
 
 ### What a row says, and what colours it
 

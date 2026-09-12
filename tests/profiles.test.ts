@@ -419,7 +419,7 @@ describe('profile primitives render', () => {
     const { ctx, rec } = makeCtx();
     fp.draw(ctx, r);
     // Only the on-pane traded row survives the cull; a filled grid would have
-    // put ~60 rows (120 cells) inside the 98..103 window.
+    // put ten rows (twenty cells) inside the 99.8..100.3 window.
     expect(rec.count('roundRect')).toBe(2);
   });
 
@@ -457,8 +457,8 @@ describe('profile primitives render', () => {
 
   it("Footprint 'gutter' draws a wick from high to low and a body from open to close", () => {
     const r = rcBars([bar(1, 100.0, 100.3, 99.9, 100.25, 0)]);
-    // A roomy slot: the default 24 px one leaves a 5 px gutter, which is strip
-    // territory (see the narrow-slot test below).
+    // A roomy slot pinned rather than derived, so the gutter is 13 px and the
+    // body is a body (see the narrow-slot test below for the other side).
     const fp = new Footprint({ ...candleStyle, candle: 'gutter', cellWidth: 60 });
     fp.setBars([askBar()]);
     const { ctx, rec } = makeCtx();
@@ -925,7 +925,7 @@ describe('profile primitives render', () => {
   });
 
   it('Footprint volume bars cost a visible row each, not a row of the bar', () => {
-    const r = rc();                                    // the pane covers 98..103
+    const r = rc();                                    // the pane covers 99.8..100.3
     const fp = new Footprint({ ...cellStyle, showVolumeBar: true, zeroFill: true });
     fp.setBars([computeFootprint(1, [
       { price: 100.0, qty: 1, side: 'ask' },

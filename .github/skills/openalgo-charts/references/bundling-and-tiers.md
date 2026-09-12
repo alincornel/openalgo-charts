@@ -154,7 +154,11 @@ managed study status. Aggregate rows constrain the total independently of indivi
 
 Version 2.1.7 budgets the shared object inventory and compact Objects panel at
 74 KB base, 82 KB base plus trade, 40 KB widget, 168 KB widget terminal and 200 KB
-for all tiers. The chart-only import keeps its 45 kB tree-shaking ceiling.
+for all tiers, and holds the chart-only import to a 45 kB tree-shaking ceiling.
+This fork carries its own work on the same tree, so its lines are higher: 76.2 KB
+base, 83.9 KB base plus trade, 17.2 KB profile, 168.9 KB widget terminal, 202.6 KB
+for all tiers, and a 46.9 kB chart-only ceiling. `.size-limit.json` and
+`scripts/check-shake.mjs` are the authority; both carry the measurement.
 
 **Nothing is excluded from these numbers.** The package has zero runtime dependencies (`dependencies` is absent; everything in `devDependencies` is build tooling), so the measured file *is* the shipped payload. There is no CSS to import, no peer dependency, no web-component registration.
 
