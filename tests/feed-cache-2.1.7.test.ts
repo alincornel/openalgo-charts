@@ -119,6 +119,9 @@ describe('BarCache.peek adoption is bounded', () => {
     expect(stats.entries).toBe(24);
     expect(stats.bars).toBe(24 * 99);
     expect(stats.evictions).toBe(16);
+    // `max` and `maxBars` bound what this session holds in RAM. A look must not
+    // delete somebody else's disk: sweeping the store is `prune(maxAgeMs)`.
+    expect(store.map.size).toBe(40);
   });
 
   it('does not copy an entry onto itself when the read came from memory', async () => {
@@ -171,13 +174,107 @@ describe('BarCache and a clock that steps backwards', () => {
 
     const feed = new CountFeed(bars);
     const stepped = withBarCache(feed, { storage: store, ttlMs: 60_000, now: () => (T0 + 5 * MIN - 30) * 1000 });
-    // The bars survive: a peek never fetches and still sees all five.
-    expect((await stepped.peek(REQ))?.bars).toHaveLength(5);
+    // The closed bars survive: a peek never fetches and still sees four of the
+    // five. The fifth has NOT closed on this clock — the writing clock thought
+    // it had — so it is cut off and treated as never stored rather than served
+    // while still forming, or taken down with the whole entry.
+    expect((await stepped.peek(REQ))?.bars.map((value) => value.time))
+      .toEqual([T0, T0 + MIN, T0 + 2 * MIN, T0 + 3 * MIN]);
     expect(store.map.has(barCacheKey(REQ))).toBe(true);
     expect(feed.count).toBe(0);
     // What the stamp can no longer do is vouch for the tail, so a request that
     // reaches it refetches exactly once.
     await stepped.getBars({ ...REQ, endSec: T0 + 5 * MIN - 30, count: 5 });
     expect(feed.count).toBe(1);
+  });
+});
+
+describe('BarCache and a key dropped while a put is in flight', () => {
+  /** A store whose first blocked write waits for the test to release it. */
+  function blocking(store: MapStore) {
+    let release: (() => void) | undefined;
+    let started: (() => void) | undefined;
+    const inside = new Promise<void>((resolve) => { started = resolve; });
+    const plain = store.set.bind(store);
+    let armed = false;
+    store.set = async (key, value): Promise<void> => {
+      if (!armed) return plain(key, value);
+      armed = false;
+      started!();
+      await new Promise<void>((resolve) => { release = resolve; });
+      return plain(key, value);
+    };
+    return { arm: (): void => { armed = true; }, inside, release: (): void => release!() };
+  }
+
+  async function warm(): Promise<{ cache: ReturnType<typeof withBarCache>; store: MapStore; gate: ReturnType<typeof blocking> }> {
+    const store = new MapStore();
+    const gate = blocking(store);
+    const cache = withBarCache(new CountFeed(makeBars(T0, 5)), { storage: store, now: () => (T0 + 5 * MIN) * 1000 });
+    await cache.getBars({ ...REQ, endSec: T0 + 5 * MIN, count: 5 });
+    gate.arm();
+    return { cache, store, gate };
+  }
+
+  const gone = async (cache: ReturnType<typeof withBarCache>, store: MapStore): Promise<void> => {
+    expect(await cache.peek(REQ)).toBeUndefined();
+    expect(store.map.has(KEY)).toBe(false);
+    expect(cache.stats()).toMatchObject({ entries: 0, bars: 0 });
+  };
+
+  it('does not resurrect a series invalidate() removed under an aborted put', async () => {
+    const { cache, store, gate } = await warm();
+    const controller = new AbortController();
+    const cancelled = cache.getBars({ ...REQ, endSec: T0 + 5 * MIN, count: 5, noCache: true, signal: controller.signal });
+    await gate.inside;
+    controller.abort();
+    await cache.invalidate(REQ);
+    gate.release();
+    await expect(cancelled).rejects.toMatchObject({ name: 'AbortError' });
+    await gone(cache, store);
+  });
+
+  it('does not resurrect it under a put that succeeded, either', async () => {
+    // The same hole without a signal anywhere near it: the write lands after
+    // the drop and the series is back, bars and all.
+    const { cache, store, gate } = await warm();
+    const put = cache.getBars({ ...REQ, endSec: T0 + 5 * MIN, count: 5, noCache: true });
+    await gate.inside;
+    await cache.invalidate(REQ);
+    gate.release();
+    expect(await put).toHaveLength(5);      // the CALLER still gets its answer
+    await gone(cache, store);
+  });
+
+  it('treats clear() the same as invalidate()', async () => {
+    const { cache, store, gate } = await warm();
+    const put = cache.getBars({ ...REQ, endSec: T0 + 5 * MIN, count: 5, noCache: true });
+    await gate.inside;
+    await cache.clear();
+    gate.release();
+    await put;
+    await gone(cache, store);
+  });
+});
+
+describe('BarCache._remember elides a copy onto itself', () => {
+  it('clones nothing when the read came from the memory copy', async () => {
+    const feed = new CountFeed(makeBars(T0, 100));
+    const cache = withBarCache(feed, { now: () => (T0 + 99 * MIN + 30) * 1000 });
+    await cache.getBars({ ...REQ, endSec: T0 + 99 * MIN + 30, count: 100 });
+
+    // The elision is invisible from outside — a peek hands out a fresh slice
+    // either way — so it is pinned where it happens.
+    const internals = cache as unknown as { _cloneEntry(entry: CachedBars): CachedBars };
+    const original = internals._cloneEntry;
+    let clones = 0;
+    internals._cloneEntry = function (entry: CachedBars): CachedBars {
+      clones++;
+      return original.call(this, entry);
+    };
+    await cache.peek(REQ);
+    await cache.peek(REQ);
+    await cache.getCachedBars({ ...REQ, endSec: T0 + 99 * MIN + 30, count: 10 });
+    expect(clones).toBe(0);
   });
 });

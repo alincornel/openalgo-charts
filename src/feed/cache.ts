@@ -557,6 +557,10 @@ export class BarCache implements DataFeed {
    * peeking forty cold series with `max: 24` used to leave forty entries in
    * memory and no evictions at all, which is the bound not holding rather than
    * the peek being free.
+   *
+   * What it evicts is the MEMORY copy. `max` and `maxBars` bound what this
+   * session holds in RAM; a look must not delete somebody else's disk. Sweeping
+   * a persistent store is `prune(maxAgeMs)`, on an age the host chooses.
    */
   public async peek(req: BarsRequest): Promise<CachedPeek | undefined> {
     const key = barCacheKey(req);
@@ -564,7 +568,7 @@ export class BarCache implements DataFeed {
     if (entry === undefined || entry.bars.length === 0) return undefined;
     // An entry about to be extended must not be the next LRU victim.
     this._remember(key, entry);
-    await this._evict();
+    await this._evict(false);
     const bars = sliceBars(entry.bars, {
       endSec: req.endSec ?? req.to ?? entry.bars[entry.bars.length - 1].time,
       // A window is answered as a window: `count` narrows a peek that gave one.
@@ -812,6 +816,18 @@ export class BarCache implements DataFeed {
       throwIfAborted(signal);
       return;
     }
+    // `invalidate()`, `clear()` or an eviction dropped the key while this write
+    // was inside the store, and the store is now holding an entry the cache has
+    // decided to forget. Memory is the record of that decision — the write put
+    // this entry there itself, so its absence can only mean a drop — and the
+    // durable copy has to follow it out. Without this, a put in flight
+    // resurrected a series `invalidate()` had just removed, aborted or not.
+    if (!this._memory.has(key)) {
+      await this._deleteBacking(key);
+      this._latestWrite.delete(key);
+      throwIfAborted(signal);
+      return;
+    }
     if (signal?.aborted === true) {
       // The caller walked away while the store was busy, so this answer must not
       // be published. What was already there is a different question: dropping
@@ -973,7 +989,12 @@ export class BarCache implements DataFeed {
     await this._deleteBacking(key);
   }
 
-  private async _evict(): Promise<void> {
+  /**
+   * Bring `max` and `maxBars` back. `durable` says whether the victim's stored
+   * copy goes with its memory copy: a write that pushed the bounds over owns
+   * what it evicts, while a peek is a look and may only forget.
+   */
+  private async _evict(durable = true): Promise<void> {
     for (;;) {
       let bars = 0;
       for (const e of this._index.values()) bars += e.bars;
@@ -985,8 +1006,18 @@ export class BarCache implements DataFeed {
       }
       if (victim === undefined) return;
       this._evictions++;
-      await this._drop(victim);
+      if (durable) await this._drop(victim);
+      else this._forget(victim);
     }
+  }
+
+  /** Drop the memory copy only, leaving whatever the store holds alone. */
+  private _forget(key: string): void {
+    this._memory.delete(key);
+    this._index.delete(key);
+    // A hint taken before this must not be unioned against: the next read comes
+    // off the store, and the entry it finds may not be the one that was here.
+    this._gen.set(key, (this._gen.get(key) ?? 0) + 1);
   }
 
   /** Take the entry into memory and into this session's bounds, as one act. */
@@ -1039,18 +1070,54 @@ export class BarCache implements DataFeed {
     const storedAt = (stored as Partial<CachedBars>).storedAt;
     if (memory !== undefined && typeof storedAt === 'number' && memory.storedAt >= storedAt) return memory;
     const nowMs = this._now();
-    if (!this._validEntry(stored, interval, nowMs)) {
+    // A `storedAt` in the future is a clock that stepped backwards, not a
+    // corrupt record: the bars are still bars, and deleting the entry for it
+    // threw away a whole durable cache over a 30-second NTP correction. What
+    // that entry cannot be trusted about is its TAIL — a bar the writing clock
+    // thought had closed has not closed on ours — so the unclosed tail is cut
+    // off and treated as never stored, rather than the whole entry being either
+    // swallowed whole or thrown away.
+    const candidate = typeof storedAt === 'number' && storedAt > nowMs
+      ? this._trimUnclosed(stored, interval, nowMs) : stored;
+    if (candidate === undefined || !this._validEntry(candidate, interval, nowMs)) {
       await this._deleteBacking(key);
       return memory;
     }
-    const durable = this._cloneEntry(stored);
-    // A `storedAt` in the future is a clock that stepped backwards, not a
-    // corrupt record: the bars are still bars. Deleting the entry for it threw
-    // away the whole durable cache over a 30-second NTP correction. What the
-    // stamp CANNOT do any more is vouch for the tail, so it is read as
-    // unrevalidated and the next request that reaches the tail refetches it.
+    const durable = this._cloneEntry(candidate);
+    // The stamp can no longer vouch for freshness either, so it is read as
+    // unrevalidated and the next request reaching the tail refetches once.
     if (durable.storedAt > nowMs) durable.storedAt = Math.max(0, nowMs - this._ttlMs - 1);
     return durable;
+  }
+
+  /**
+   * The entry with every trailing bar that has not closed by `nowMs` removed,
+   * its coverage and `nextClose` recomputed to match what is left. `undefined`
+   * when nothing closed survives, and the value unchanged when the shape is not
+   * one this can reason about — the validator has the last word either way.
+   */
+  private _trimUnclosed(value: unknown, interval: string, nowMs: number): unknown {
+    if (typeof value !== 'object' || value === null) return value;
+    const entry = value as Partial<CachedBars>;
+    if (!Array.isArray(entry.bars) || entry.bars.length === 0) return value;
+    const nowSec = Math.floor(nowMs / 1000);
+    let end = entry.bars.length;
+    while (end > 0) {
+      const bar = entry.bars[end - 1] as Partial<Bar>;
+      const close = typeof bar?.time === 'number' ? this._barCloses(interval, bar.time) : null;
+      if (close !== null && close <= nowSec) break;
+      end--;
+    }
+    if (end === entry.bars.length) return value;
+    if (end === 0) return undefined;
+    const bars = entry.bars.slice(0, end);
+    const lastClose = this._barCloses(interval, bars[bars.length - 1].time) as UTCSeconds;
+    return {
+      ...entry,
+      bars,
+      to: (lastClose - 1) as UTCSeconds,
+      nextClose: this._barCloses(interval, lastClose) ?? lastClose,
+    };
   }
 
   /**
@@ -1070,12 +1137,7 @@ export class BarCache implements DataFeed {
     if (candidate.from! > candidate.to! || candidate.nextClose! <= candidate.to!) return false;
     if (!Array.isArray(candidate.bars) || candidate.bars.length === 0) return false;
     if (candidate.bars.length > this._maxBars || this._max < 1) return false;
-    // Bar closure is judged against the LATER of this clock and the one that
-    // wrote the entry. Only closed bars are ever stored, so a stamp ahead of us
-    // is evidence about what had closed by then — and without that, a clock
-    // stepping backwards makes a closed tail look like a forming bar and the
-    // whole entry is deleted for it.
-    const nowSec = Math.floor(Math.max(nowMs, candidate.storedAt as number) / 1000);
+    const nowSec = Math.floor(nowMs / 1000);
     let previous = -Infinity;
     let lastClose: number | null = null;
     for (const bar of candidate.bars) {
