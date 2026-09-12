@@ -246,6 +246,36 @@ describe('BarCache and a key dropped while a put is in flight', () => {
     await gone(cache, store);
   });
 
+  it('keeps the durable entry when a PEEK evicts the key mid-write', async () => {
+    // A peek evicting a memory copy is not a deletion: it leaves the record on
+    // disk on purpose. Reading the missing memory copy as a drop made the put
+    // delete the entry it had just correctly written, and the next load went to
+    // the network for bars that were on disk the whole time.
+    const store = new MapStore();
+    const other = { ...REQ, symbol: 'NQ' };
+    const bars = makeBars(T0, 5);
+    const writer = withBarCache(new CountFeed(bars), { storage: store, max: 64, now: () => (T0 + 5 * MIN) * 1000 });
+    await writer.getBars({ ...REQ, endSec: T0 + 5 * MIN, count: 5 });
+    await writer.getBars({ ...other, endSec: T0 + 5 * MIN, count: 5 });
+
+    const gate = blocking(store);
+    const feed = new CountFeed(bars);
+    const reader = withBarCache(feed, { storage: store, max: 1, now: () => (T0 + 5 * MIN) * 1000 });
+    await reader.peek(REQ);
+    gate.arm();
+    const put = reader.getBars({ ...REQ, endSec: T0 + 5 * MIN, count: 5, noCache: true });
+    await gate.inside;
+    await reader.peek(other);                 // evicts the in-flight key from memory
+    gate.release();
+    await put;
+
+    expect(reader.stats().evictions).toBe(1);
+    expect(store.map.get(KEY)?.bars).toHaveLength(5);
+    // ...and it is still servable, without going back to the feed.
+    expect((await reader.peek(REQ))?.bars).toHaveLength(5);
+    expect(feed.count).toBe(1);
+  });
+
   it('treats clear() the same as invalidate()', async () => {
     const { cache, store, gate } = await warm();
     const put = cache.getBars({ ...REQ, endSec: T0 + 5 * MIN, count: 5, noCache: true });

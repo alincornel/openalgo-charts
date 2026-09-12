@@ -370,6 +370,14 @@ export class BarCache implements DataFeed {
   private readonly _latestWrite = new Map<string, symbol>();
   /** Bumped on every commit and every drop, so a stale read is detectable. */
   private readonly _gen = new Map<string, number>();
+  /**
+   * Bumped ONLY when a key is dropped — `invalidate`, `clear`, or a write-path
+   * eviction. `_gen` cannot answer the same question because a commit bumps it
+   * itself, and the absence of a memory copy cannot either: a peek evicting a
+   * memory copy leaves the store's record standing on purpose, and a put in
+   * flight must be able to tell that apart from a deletion.
+   */
+  private readonly _drops = new Map<string, number>();
   private _tick = 0;
   private _hits = 0;
   private _misses = 0;
@@ -783,6 +791,7 @@ export class BarCache implements DataFeed {
     if (end === 0) return; // Nothing closed to cache, and an empty entry would only mislead.
     const fresh = cloneBars(bars.slice(0, end));
     const gen = this._gen.get(key) ?? 0;
+    const dropped = this._drops.get(key) ?? 0;
     // A hint is only good while nothing has written to the key since it was
     // read. A put queued ahead of this one, or an eviction, makes it a stale
     // base to union against, and reading the store is then the cheap option
@@ -816,13 +825,15 @@ export class BarCache implements DataFeed {
       throwIfAborted(signal);
       return;
     }
-    // `invalidate()`, `clear()` or an eviction dropped the key while this write
-    // was inside the store, and the store is now holding an entry the cache has
-    // decided to forget. Memory is the record of that decision — the write put
-    // this entry there itself, so its absence can only mean a drop — and the
-    // durable copy has to follow it out. Without this, a put in flight
-    // resurrected a series `invalidate()` had just removed, aborted or not.
-    if (!this._memory.has(key)) {
+    // `invalidate()`, `clear()` or a write-path eviction dropped this key while
+    // the write was inside the store, so the store is now holding an entry the
+    // cache has decided to forget and the durable copy has to follow it out.
+    // Without this, a put in flight resurrected a series `invalidate()` had
+    // just removed, aborted or not. The test is the drop COUNT for this key and
+    // not the absence of a memory copy, because a peek evicting memory is not a
+    // deletion: it deliberately leaves the record on disk, and reading it as a
+    // drop deleted an entry this put had just correctly written.
+    if ((this._drops.get(key) ?? 0) !== dropped) {
       await this._deleteBacking(key);
       this._latestWrite.delete(key);
       throwIfAborted(signal);
@@ -981,6 +992,7 @@ export class BarCache implements DataFeed {
   }
 
   private async _drop(key: string): Promise<void> {
+    this._drops.set(key, (this._drops.get(key) ?? 0) + 1);
     this._memory.delete(key);
     this._index.delete(key);
     // A hint taken before this drop must not be unioned against afterwards: it
