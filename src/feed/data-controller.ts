@@ -56,6 +56,23 @@ function normalize(bars: readonly Bar[]): Bar[] {
 function merge(...parts: readonly (readonly Bar[])[]): Bar[] {
   return normalize(parts.flat());
 }
+/**
+ * A request this controller has given its own window, with the host's
+ * count-and-end shape removed.
+ *
+ * A host may ask in `{ endSec, count }` — "the last n bars at or before this
+ * instant" — and the controller then spreads that request to build its own
+ * windowed one. Carrying the count along asks two questions at once, and a
+ * `DataFeed` that prefers the count answers the NEWEST n bars to a page request
+ * about the oldest, which pages backwards for ever loading nothing.
+ */
+function windowed<T extends BarsRequest>(req: T): T {
+  if (req.from === undefined || req.to === undefined) return req;
+  const out = { ...req };
+  delete out.endSec;
+  delete out.count;
+  return out;
+}
 
 /**
  * Owns history, paging and live updates for one current instrument. Consumers
@@ -134,7 +151,7 @@ export class DataLoadingController {
       if (!req.noCache && this._feed.getCachedBars) {
         try {
           const snapshot = await withHistoryDeadline({ signal: scope.signal, timeoutMs: Math.min(req.timeoutMs ?? 500, 500) },
-            signal => this._feed.getCachedBars!({ ...req, signal }));
+            signal => this._feed.getCachedBars!(windowed({ ...req, signal })));
           cached = snapshot ? normalize(snapshot) : undefined;
         } catch { /* A cache failure cannot prevent authoritative history loading. */ }
       }
@@ -146,7 +163,8 @@ export class DataLoadingController {
       }
       const from = cached?.length && req.from !== undefined && cached[0].time <= req.from
         ? Math.max(req.from, cached[Math.max(0, cached.length - 2)].time) : req.from;
-      const fresh = await this._pool.getBars({ ...req, from, signal: scope.signal, noCache: req.noCache || !!this._feed.getCachedBars }, 10);
+      const fresh = await this._pool.getBars(windowed({ ...req, from, signal: scope.signal,
+        noCache: req.noCache || !!this._feed.getCachedBars }), 10);
       if (!this._current(generation)) return this._bars;
       this._bars = this._replaceWindow(normalize(fresh), from, req.to);
       this._limit();
@@ -182,7 +200,7 @@ export class DataLoadingController {
     const from = width === undefined ? original.from : to - width;
     this._publish('state', { status: 'refreshing', error: undefined });
     try {
-      const fresh = await this._pool.getBars({ ...original, from, to, noCache: true, signal: abort.signal }, 5);
+      const fresh = await this._pool.getBars(windowed({ ...original, from, to, noCache: true, signal: abort.signal }), 5);
       if (!this._current(generation) || id !== this._refreshId) return this._bars;
       if (fresh.length === 0 && this._bars.length) throw new Error('History refresh returned no bars');
       const updated = this._replaceWindow(normalize(fresh), from, to);
@@ -265,8 +283,8 @@ export class DataLoadingController {
       for (let attempt = 0; attempt < this._options.maxEmptyPages!; attempt++) {
         const before = this._before ?? this._bars[0]?.time ?? req.from;
         if (before === undefined) throw new Error('Older history needs a starting time');
-        const request = { ...req, from: before - window, to: before - 0.000001, before,
-          countBack: this._options.pageSize!, signal: abort.signal };
+        const request = windowed({ ...req, from: before - window, to: before - 0.000001, before,
+          countBack: this._options.pageSize!, signal: abort.signal });
         const page = this._feed.getBarsPage ? await this._pool.getBarsPage(request)
           : { bars: await this._pool.getBars(request), hasMore: undefined, nextBefore: undefined };
         if (!this._current(generation) || abort.signal.aborted) return this._bars;

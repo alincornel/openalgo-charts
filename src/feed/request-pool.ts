@@ -102,8 +102,12 @@ export class HistoryRequestPool {
     let timeout: number;
     try { timeout = deadline(req.timeoutMs ?? this._timeout); }
     catch (error) { return Promise.reject(error); }
+    // Every field that changes the ANSWER belongs in the key. `endSec`/`count`
+    // are a second request shape, not decoration: two count-shaped asks for one
+    // series differing only in `count` hashed to the same job, and the second
+    // caller was handed the first one's bars.
     const key = JSON.stringify([page, req.symbol, req.exchange, req.interval, req.from, req.to,
-      req.countBack, req.noCache === true, 'before' in req ? req.before : null]);
+      req.endSec, req.count, req.countBack, req.noCache === true, 'before' in req ? req.before : null]);
     let job = this._jobs.get(key);
     if (!job) {
       // Consumer timers own the deadline. A provider's shorter default must
