@@ -1,0 +1,285 @@
+import { describe, expect, it } from 'vitest';
+import { clipPolygon, clippedLine, insidePolygon, sampleArc } from '../src/draw/advanced-shared';
+import { ADVANCED_LINE_TOOLS } from '../src/draw/advanced-lines';
+import { RecordingContext } from './helpers/fake-ctx';
+import type { Drawing, DrawingPoint, DrawingTool } from '../src/draw/types';
+import type { PrimitiveRenderContext, Bar } from '../src';
+
+const rc = (dpr = 1, bars: Bar[] = []): PrimitiveRenderContext => ({
+  plotWidth: 800, plotHeight: 400, dpr, priceAxisWidth: 60,
+  theme: { background: '#101010', lineColor: '#123456' },
+  priceScale: { priceToY: (p: number) => 400 - p * 10, format: (p: number) => p.toFixed(2) },
+  timeScale: { indexToX: (i: number) => 100 + i * 100 },
+  dataLayer: { timeToIndexFloat: (t: number) => t / 60 }, bars: () => bars,
+} as unknown as PrimitiveRenderContext);
+const anchors = [{ time: 0, price: 10 }, { time: 60, price: 20 }, { time: 120, price: 14 }, { time: 180, price: 16 }];
+function tool(id: string): DrawingTool { return ADVANCED_LINE_TOOLS.find(t => t.id === id)!; }
+function drawing(id: string, points = anchors.slice(0, tool(id).points), patch: Partial<Drawing> = {}): Drawing {
+  return { id: 'test', tool: id, points, style: { ...tool(id).defaultStyle }, paneIndex: 0, zIndex: 0, ...patch };
+}
+function project(points: DrawingPoint[], context = rc()) {
+  return points.map(p => ({ x: context.timeScale.indexToX(context.dataLayer.timeToIndexFloat(p.time)), y: context.priceScale.priceToY(p.price) }));
+}
+function paint(d: Drawing, context = rc()) {
+  const rec = new RecordingContext();
+  let alpha = 1;
+  const stack: number[] = [];
+  Object.defineProperty(rec, 'globalAlpha', { get: () => alpha, set: (v: number) => { alpha = v; } });
+  const save = rec.save.bind(rec), restore = rec.restore.bind(rec), fill = rec.fill.bind(rec);
+  rec.save = () => { stack.push(alpha); save(); };
+  rec.restore = () => { alpha = stack.pop() ?? 1; restore(); };
+  rec.fill = () => { fill(); rec.ops[rec.ops.length - 1].args.push(alpha); };
+  tool(d.tool).draw({ ctx: rec as unknown as CanvasRenderingContext2D, rc: context,
+    pts: project(d.points, context).map(p => ({ x: p.x * context.dpr, y: p.y * context.dpr })),
+    drawing: d, style: { color: '#123456', lineWidth: 1.5, ...d.style }, selected: false, formatPrice: p => p.toFixed(2) });
+  return rec;
+}
+const moves = (r: RecordingContext) => r.ops.filter(o => o.type === 'moveTo').map(o => o.args);
+const ends = (r: RecordingContext) => r.ops.filter(o => o.type === 'lineTo').map(o => o.args);
+const texts = (r: RecordingContext) => r.ops.filter(o => o.type === 'fillText').map(o => o.text!);
+function hit(d: Drawing, x: number, y: number, context = rc()) {
+  return tool(d.tool).distance(x, y, { drawing: d, pts: project(d.points, context), rc: context });
+}
+const barsOf = (closes: number[]) => closes.map((close, i) => ({ time: i * 60, open: close, high: close, low: close, close, volume: 1 }));
+
+describe('advanced line descriptors', () => {
+  it('provides every required distinct descriptor', () => {
+    expect(ADVANCED_LINE_TOOLS.map(t => t.id)).toEqual([
+      'disjoint-channel', 'flat-top-bottom', 'regression-channel', 'pitchfork', 'schiff-pitchfork',
+      'modified-schiff-pitchfork', 'inside-pitchfork', 'info-line', 'trend-angle',
+      'fib-extension-two-point', 'fib-speed-resistance-fan', 'icon-stamp',
+    ]);
+    expect(ADVANCED_LINE_TOOLS.every(t => t.settings!.fields.length > 0)).toBe(true);
+  });
+  it('keeps all four disjoint boundary endpoints independent', () => {
+    const d = drawing('disjoint-channel', anchors, { style: { fill: false } });
+    expect(moves(paint(d))).toEqual([[100, 300], [300, 260]]);
+    expect(ends(paint(d))).toEqual([[200, 200], [400, 240]]);
+    expect(hit(d, 350, 250)).toBe(0);
+    expect(hit(d, 350, 300)).toBeGreaterThan(6);
+  });
+  it('keeps the flat boundary horizontal across the sloped boundary span', () => {
+    const d = drawing('flat-top-bottom', anchors.slice(0, 3), { style: { fill: false } });
+    expect(moves(paint(d))).toEqual([[100, 300], [100, 260]]);
+    expect(ends(paint(d))).toEqual([[200, 200], [200, 260]]);
+    const p = tool(d.tool).constrain!(d.points, 2);
+    expect(p[2]).toEqual({ time: 30, price: 14 });
+  });
+  it('does not accept the empty corners of a filled channel bounding box', () => {
+    const d = drawing('disjoint-channel', anchors, { style: { fill: true } });
+    expect(hit(d, 250, 250)).toBe(0);
+    expect(hit(d, 380, 205)).toBeGreaterThan(6);
+  });
+  it.each([
+    ['pitchfork', [100, 300]], ['schiff-pitchfork', [100, 250]],
+    ['modified-schiff-pitchfork', [150, 250]], ['inside-pitchfork', [250, 230]],
+  ])('uses the correct %s median origin', (id, origin) => {
+    const d = drawing(id as string, anchors.slice(0, 3), { style: { fill: false, levels: [{ ratio: 0 }] } });
+    expect(moves(paint(d))[0]).toEqual(origin);
+  });
+  it('emits parallel pitchfork tines and no hits for disabled additional levels', () => {
+    const d = drawing('pitchfork', anchors.slice(0, 3), { style: { fill: false, levels: [{ ratio: 0 }, { ratio: 1, enabled: false }] } });
+    expect(paint(d).count('stroke')).toBe(2); // median and base
+    expect(hit(d, 450, 230)).toBeGreaterThan(6);
+    d.style.levels![1].enabled = true;
+    expect(paint(d).count('stroke')).toBe(4);
+    const r = paint(d);
+    const start = moves(r)[1];
+    const end = ends(r)[1];
+    expect((end[1] - start[1]) / (end[0] - start[0])).toBeCloseTo(-70 / 150);
+  });
+  it('fills an extended channel through the plot corner between boundary exits', () => {
+    const d = drawing('disjoint-channel', anchors, { style: { fill: true, extendRight: true } });
+    expect(hit(d, 780, 10)).toBe(0);
+  });
+  it('fills the band through plot corners when its rays exit different edges', () => {
+    const d = drawing('pitchfork', anchors.slice(0, 3), { style: { fill: true, levels: [{ ratio: 1 }] } });
+    expect(hit(d, 780, 10)).toBe(0);
+  });
+  it('applies the fan line color when no level color overrides it', () => {
+    const d = drawing('fib-speed-resistance-fan');
+    d.style.color = '#ff0000';
+    expect(paint(d).ops.filter(o => o.type === 'stroke').every(o => o.strokeStyle === '#ff0000')).toBe(true);
+  });
+  it('extends a reversed pitchfork towards its target and clips rays to the pane', () => {
+    const d = drawing('pitchfork', [{ time: 240, price: 10 }, { time: 60, price: 20 }, { time: 120, price: 14 }], { style: { fill: false, levels: [{ ratio: 0 }] } });
+    expect(ends(paint(d))[0][0]).toBe(0);
+    expect(hit(d, 700, 356)).toBeGreaterThan(6);
+  });
+  it('fits actual closes and labels perfect fit without using anchor prices', () => {
+    const d = drawing('regression-channel', [{ time: 0, price: 2 }, { time: 180, price: 3 }], { style: { fill: false } });
+    const r = paint(d, rc(1, barsOf([10, 12, 14, 16])));
+    expect(moves(r)[0]).toEqual([100, 300]);
+    expect(ends(r)[0]).toEqual([400, 240]);
+    expect(texts(r).some(t => t.includes('R^2 1.000'))).toBe(true);
+  });
+  it('refreshes regression for in-place historical and forming-bar corrections', () => {
+    const bars = barsOf([10, 12, 14, 16]);
+    const context = rc(1, bars);
+    const d = drawing('regression-channel', [{ time: 0, price: 2 }, { time: 180, price: 3 }]);
+    const first = paint(d, context).ops;
+    bars[1] = { ...bars[1], close: 20 };
+    expect(paint(d, context).ops).not.toEqual(first);
+    const corrected = paint(d, context).ops;
+    bars[3].close = 30;
+    expect(paint(d, context).ops).not.toEqual(corrected);
+  });
+  it('uses population residual deviation and honors its multiplier', () => {
+    const d = drawing('regression-channel', [{ time: 0, price: 2 }, { time: 180, price: 3 }], { style: { fill: false }, props: { deviation: 2 } });
+    const r = paint(d, rc(1, barsOf([10, 14, 12, 16])));
+    expect(moves(r)[0][1]).toBeCloseTo(294);
+    expect(moves(r)[1][1]).toBeCloseTo(294 - 20 * Math.sqrt(1.8));
+    expect(texts(r).some(t => t.includes('R^2 0.640'))).toBe(true);
+  });
+  it('handles missing regression data without inventing a fit', () => {
+    const d = drawing('regression-channel');
+    expect(paint(d).count('stroke')).toBe(0);
+    expect(texts(paint(d))).toContain('No bars in range');
+    expect(hit(d, 200, 200)).toBeNull();
+  });
+  it('restricts regression to its inclusive selected time range', () => {
+    const d = drawing('regression-channel', [{ time: 60, price: 0 }, { time: 120, price: 0 }], { style: { fill: false } });
+    const r = paint(d, rc(1, barsOf([1000, 12, 14, 1000])));
+    expect(moves(r)[0]).toEqual([200, 280]);
+    expect(ends(r)[0]).toEqual([300, 260]);
+  });
+  it('prints price, percentage and logical bar count for info line', () => {
+    expect(texts(paint(drawing('info-line'))).join(' ')).toContain('+10.00 (+100.00%)  1 bars');
+  });
+  it('draws a baseline and arc with the signed screen angle', () => {
+    const r = paint(drawing('trend-angle'));
+    expect(texts(r)).toContain('45.0 deg');
+    expect(moves(r)).toContainEqual([100, 300]);
+    expect(ends(r).some(([x, y]) => y === 300 && x > 100)).toBe(true);
+    expect(r.count('lineTo')).toBeGreaterThan(5);
+    expect(r.count('lineTo')).toBeLessThan(110);
+  });
+  it('places two-point extension targets beyond the second price', () => {
+    const d = drawing('fib-extension-two-point', anchors.slice(0, 2), { style: { levels: [{ ratio: 1.618 }, { ratio: 2 }] } });
+    const r = paint(d);
+    expect(texts(r).some(t => t.includes('26.18'))).toBe(true);
+    expect(texts(r).some(t => t.includes('30.00'))).toBe(true);
+    expect(hit(d, 150, 100)).toBe(0);
+    d.style.levels![1].enabled = false;
+    expect(hit(d, 150, 100)).toBeGreaterThan(6);
+  });
+  it('draws price and time fan rays with a single common diagonal', () => {
+    const d = drawing('fib-speed-resistance-fan', anchors.slice(0, 2), { style: { levels: [{ ratio: 0.5 }, { ratio: 1 }] } });
+    expect(paint(d).count('stroke')).toBe(3);
+    expect(hit(d, 300, 200)).toBeCloseTo(0);
+    expect(hit(d, 150, 200)).toBeCloseTo(0);
+    expect(hit(d, 200, 200)).toBeCloseTo(0);
+    d.style.levels![0].enabled = false;
+    expect(hit(d, 300, 200)).toBeGreaterThan(6);
+    expect(hit(d, 150, 200)).toBeGreaterThan(6);
+  });
+  it('keeps fan projection direction when anchors are reversed', () => {
+    const d = drawing('fib-speed-resistance-fan', [anchors[1], anchors[0]], { style: { levels: [{ ratio: 0.5 }] } });
+    expect(hit(d, 100, 250)).toBeCloseTo(0);
+    expect(hit(d, 150, 300)).toBeCloseTo(0);
+    expect(hit(d, 300, 150)).toBeGreaterThan(6);
+  });
+  it('offers and paints distinct vector stamp shapes with plain labels', () => {
+    const options = tool('icon-stamp').settings!.fields.find(f => f.path === 'props.shape')!.options!;
+    expect(options.length).toBeGreaterThanOrEqual(4);
+    const streams = options.map(({ value, label }) => {
+      expect(label).toMatch(/^[A-Za-z ]+$/);
+      const r = paint(drawing('icon-stamp', [anchors[0]], { props: { shape: value } }));
+      expect(r.count('fillText')).toBe(0);
+      expect(r.count('stroke')).toBeGreaterThan(0);
+      return JSON.stringify(r.ops);
+    });
+    expect(new Set(streams).size).toBe(options.length);
+  });
+  it('scales stamp size and excludes empty corners from hit tests', () => {
+    const d = drawing('icon-stamp', [anchors[0]], { props: { shape: 'diamond', size: 40 }, style: { fill: true } });
+    expect(hit(d, 100, 300)).toBe(0);
+    expect(hit(d, 118, 318)).toBeGreaterThan(6);
+    d.props!.size = 80;
+    expect(hit(d, 118, 318)).toBe(0);
+  });
+  it.each(ADVANCED_LINE_TOOLS.map(t => t.id))('keeps %s finite for coincident anchors and DPR 2', id => {
+    const d = drawing(id, Array.from({ length: tool(id).points }, () => anchors[0]));
+    const r = paint(d, rc(2, barsOf([10])));
+    expect(r.ops.flatMap(o => o.args).every(Number.isFinite)).toBe(true);
+    expect(r.ops.length).toBeLessThan(1000);
+  });
+  it.each(ADVANCED_LINE_TOOLS.flatMap(t => t.settings!.fields.map(f => [t.id, f.path] as const)))('%s consumes %s in its painted output', (id, path) => {
+    const d = drawing(id);
+    if (id === 'regression-channel') d.points = [anchors[0], anchors[3]];
+    const context = rc(1, barsOf([10, 14, 12, 16]));
+    const before = paint(d, context).ops;
+    const values: Record<string, unknown> = {
+      'style.color': '#ff0099', 'style.lineWidth': 7, 'style.lineStyle': 'dashed',
+      'style.fill': false, 'style.fillColor': '#aaff00', 'style.fillOpacity': 0.6,
+      'style.extendLeft': true, 'style.extendRight': true, 'style.showLabels': false,
+      'style.levels': [{ ratio: 0.25, color: '#aa1122', label: 'Quarter' }],
+      'text.color': '#ffff00', 'text.fontSize': 24, 'text.fontFamily': 'monospace',
+      'text.bold': true, 'text.italic': true, 'props.deviation': 4,
+      'props.shape': 'diamond', 'props.size': 80,
+    };
+    expect(values[path]).toBeDefined();
+    const [root, key] = path.split('.');
+    if (root === 'style') d.style = { ...d.style, [key]: values[path] };
+    if (root === 'text') d.text = { value: '', [key]: values[path] };
+    if (root === 'props') d.props = { [key]: values[path] };
+    expect(paint(d, context).ops).not.toEqual(before);
+  });
+  it('honors level-specific colors and labels for every level family', () => {
+    for (const id of ['pitchfork', 'schiff-pitchfork', 'modified-schiff-pitchfork', 'inside-pitchfork', 'fib-extension-two-point', 'fib-speed-resistance-fan']) {
+      const d = drawing(id);
+      d.style.levels = [{ ratio: 0.618, color: '#aa5511', label: 'Target' }];
+      const r = paint(d);
+      expect(r.ops.some(o => o.type === 'stroke' && o.strokeStyle === '#aa5511')).toBe(true);
+      expect(texts(r).some(t => t.startsWith('Target'))).toBe(true);
+    }
+  });
+  it('computes the trend-angle hit shape from the same bounded arc samples', () => {
+    const d = drawing('trend-angle');
+    const arcPoint = { x: 100 + 40 * Math.cos(-Math.PI / 8), y: 300 + 40 * Math.sin(-Math.PI / 8) };
+    expect(hit(d, arcPoint.x, arcPoint.y)).toBeLessThan(0.1);
+    expect(hit(d, 100 - 40, 300)).toBeGreaterThan(6);
+  });
+  it('treats a zero-price info-line percentage as unavailable', () => {
+    const d = drawing('info-line', [{ time: 0, price: 0 }, anchors[1]]);
+    expect(texts(paint(d)).join(' ')).toContain('(n/a)');
+  });
+  it('returns finite geometry and no false hits for unmappable anchors', () => {
+    for (const descriptor of ADVANCED_LINE_TOOLS) {
+      const d = drawing(descriptor.id, Array.from({ length: descriptor.points }, () => ({ time: NaN, price: NaN })));
+      expect(paint(d).ops.flatMap(o => o.args).every(Number.isFinite)).toBe(true);
+      expect(hit(d, 20, 20)).toBeNull();
+    }
+  });
+  it('keeps reversed regression selection identical and reflects replacement data', () => {
+    const d = drawing('regression-channel', [anchors[0], anchors[3]]);
+    const context = rc(1, barsOf([10, 12, 14, 16]));
+    const original = paint(d, context).ops;
+    d.points.reverse();
+    expect(paint(d, context).ops).toEqual(original);
+    context.bars = () => barsOf([20, 22, 24, 26]);
+    expect(paint(d, context).ops).not.toEqual(original);
+  });
+  it('converts the same geometry once at the DPR boundary', () => {
+    const d = drawing('disjoint-channel', anchors, { style: { fill: false } });
+    expect(moves(paint(d, rc(2)))).toEqual(moves(paint(d)).map(p => p.map(n => n * 2)));
+    expect(hit(d, 350, 250, rc(2))).toBe(0);
+  });
+});
+
+describe('advanced shared geometry', () => {
+  it('bounds arc samples independently of radius and resolution', () => {
+    expect(sampleArc({ x: 0, y: 0 }, 1e9, 1e9, 0, Math.PI * 2)).toHaveLength(97);
+    expect(sampleArc({ x: 0, y: 0 }, 0, 0, 0, 0)).toHaveLength(3);
+  });
+  it('clips vertical rays and rejects rays that point away from the pane', () => {
+    expect(clippedLine({ x: 100, y: 100 }, { x: 100, y: 200 }, rc(), 0, Infinity)).toEqual([{ x: 100, y: 100 }, { x: 100, y: 400 }]);
+    expect(clippedLine({ x: -100, y: 100 }, { x: -200, y: 100 }, rc(), 0, Infinity)).toEqual([]);
+  });
+  it('clips polygon fills to each plot edge and preserves interior membership', () => {
+    const polygon = clipPolygon([{ x: -50, y: -50 }, { x: 900, y: -50 }, { x: 900, y: 450 }, { x: -50, y: 450 }], rc());
+    expect(polygon).toHaveLength(4);
+    expect(insidePolygon(799, 399, polygon)).toBe(true);
+    expect(insidePolygon(801, 399, polygon)).toBe(false);
+  });
+});
