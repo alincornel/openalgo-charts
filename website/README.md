@@ -19,9 +19,12 @@ npm run dev          # http://localhost:3000/openalgo-charts
 
 `npm run dev` / `npm run build` automatically run `scripts/sync-lib.mjs`, which copies the
 built bundles from `../dist` into `lib/oac/` for the demos.
-The same step copies the standalone profile demo, its theme module and two
-required bundles into generated `public/demos/` assets. Relative imports keep
-that demo working under the website's `/openalgo-charts` base path.
+The same step copies the standalone profile demo, its theme module and the
+drawing gallery into generated `public/demos/` assets, along with all required
+bundles. Relative imports keep these demos working under the website's
+`/openalgo-charts` base path. The drawing gallery at `/demos/drawings/index.html`
+exposes all 85 registered tools with sample anchors, manual placement and the
+packaged widget's settings and object controls.
 
 To preview the actual static export:
 
@@ -54,10 +57,10 @@ screens scroll within a card instead of shrinking letters further. Screenshots a
 tracked in `public/screenshots/market-profile-v2.1.1/`; generated demo bundles are ignored.
 Pass a full demo URL as the script's first argument to capture another local host.
 
-The 2.1.6 build retains these captures because their renderer/demo source
+The 2.2.0 build retains these captures because their renderer/demo source
 fingerprints are unchanged. The gallery shows the current profile implementation;
 the 2.1.1 release notes record when its themes and footprint controls shipped.
-CI and Pages both run the profile and depth checks before publishing the site.
+CI and Pages run the profile, depth and drawing checks before publishing the site.
 
 ## Interactive and API checks
 

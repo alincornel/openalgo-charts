@@ -21,7 +21,7 @@ try {
 
   // Two chart clicks must commit a real drawing and select it automatically.
   await demo.getByRole('button', { name: 'Trend line', exact: true }).click();
-  await expect(status).toContainText('Trend line');
+  await expect(status).toContainText('Trend Line');
   await plot.scrollIntoViewIfNeeded();
   const bounds = await plot.boundingBox();
   assert.ok(bounds && bounds.width > 200 && bounds.height > 200);
@@ -53,6 +53,16 @@ try {
   await expect(status).toContainText('3 drawings');
   await expect(demo.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
 
+  const catalogue = demo.getByLabel('All drawing tools');
+  await expect(catalogue.locator('option')).toHaveCount(86);
+  await catalogue.selectOption('pitchfork');
+  await expect(status).toContainText('Pitchfork');
+  for (const [x, y] of [[.2, .55], [.4, .25], [.6, .65]]) {
+    await plot.click({ position: { x: bounds.width * x, y: bounds.height * y } });
+  }
+  await expect(status).toContainText('4 drawings');
+  await demo.getByRole('button', { name: 'Reset demo', exact: true }).click();
+
   await demo.getByText('View the running example source', { exact: true }).click();
   await expect(demo.getByRole('region', { name: 'Drawing playground source' })).toContainText('new lib.DrawingController');
   await demo.getByText('View the running example source', { exact: true }).click();
@@ -81,6 +91,19 @@ try {
 
   await page.goto(`${base}/examples/`);
   await expect(page.locator('.oac-drawing-demo').getByRole('status')).toContainText('3 drawings');
+
+  await page.goto(`${base}/demos/drawings/index.html`);
+  await page.waitForFunction(() => window.drawingGallery);
+  await expect(page.locator('#tool option')).toHaveCount(85);
+  await page.selectOption('#tool', 'gartley');
+  await expect(page.locator('#status')).toContainText('Gartley');
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'Drawing gallery fits a phone');
+  assert.equal(await page.evaluate(() => window.drawingGallery.widget.draw.drawings()[0].tool), 'gartley');
+  await page.screenshot({ path: 'artifacts/website-drawing-gallery-mobile.png' });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByRole('button', { name: 'Show sample', exact: true }).click();
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await page.screenshot({ path: 'artifacts/website-drawing-gallery.png' });
   assert.deepEqual(errors, []);
   console.log('Drawing playground passed: real placement, selection, delete, undo/redo, local shortcuts, reset, source, theme recreation, mobile layout, and examples integration.');
 } finally {

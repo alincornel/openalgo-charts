@@ -397,3 +397,18 @@ host controls.
   readout means the newest bar has closed while the venue is open: the feed is
   behind, or the load was warm and the cache holds only closed bars (reload
   ignoring the cache from the cache menu).
+
+
+### Drawing catalogue (2.2.0)
+
+The drawing rail includes 85 tools: the existing annotations plus pitchforks,
+regression and disjoint channels, advanced Fibonacci and Gann geometry, wavefronts
+and harmonic or Elliott patterns. Open a rail group's chevron to choose a tool; edit
+its settings from the selected drawing's properties. Mobile drawing controls use
+the same catalogue and saved document format.
+
+For a prepared, editable sample of every tool, open
+`/examples/drawings/index.html` on this server. The gallery uses simulated NIFTY
+prices near 23800; it does not request a live feed. Choose a tool and Show sample,
+or press Draw and place its anchors. Undo, redo and body/handle dragging use the
+packaged widget and public controller.

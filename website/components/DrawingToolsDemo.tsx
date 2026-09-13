@@ -47,7 +47,7 @@ draw.add({ id: 'demo-level', tool: 'horizontal-line', paneIndex: 0,
 const initial = draw.toJSON();
 draw.fromJSON(initial);
 
-const tools = [
+const quickTools = [
   [null, 'Cursor', 'Click a drawing to select it; drag its body or handles.'],
   ['trend-line', 'Trend line', 'Click a start and end point, or drag across the chart.'],
   ['horizontal-line', 'Horizontal line', 'Click once to mark a price level.'],
@@ -58,6 +58,21 @@ const tools = [
   ['measure', 'Measure', 'Click two points to measure price, time and volume.'],
   ['brush', 'Brush', 'Press, draw a stroke, and release.'],
 ];
+const tools = [quickTools[0], ...lib.registeredDrawingTools().map(tool => [
+  tool.id, tool.name, tool.freehand ? 'Press, draw, and release.' :
+    tool.points === 0 ? 'Click each point, then double-click to finish.' :
+    'Click ' + tool.points + ' point(s) to place the drawing.',
+])];
+const catalog = document.createElement('select');
+catalog.setAttribute('aria-label', 'All drawing tools');
+catalog.add(new Option('All drawing tools...', ''));
+for (const [id, name] of tools.slice(1)) catalog.add(new Option(name, id));
+actions.prepend(catalog);
+listen(catalog, 'change', () => {
+  draw.setTool(catalog.value || null);
+  plot.focus({ preventScroll: true });
+  refresh();
+});
 const toolButtons = new Map();
 function button(parent, label, action) {
   const node = document.createElement('button');
@@ -67,7 +82,7 @@ function button(parent, label, action) {
   parent.appendChild(node);
   return node;
 }
-for (const [id, label, instruction] of tools) {
+for (const [id, label, instruction] of quickTools) {
   const node = button(rail, label, () => { draw.setTool(id); plot.focus({ preventScroll: true }); });
   node.title = instruction;
   toolButtons.set(id, node);
@@ -83,6 +98,7 @@ button(actions, 'Reset demo', () => {
 
 function refresh() {
   const active = draw.activeTool();
+  catalog.value = active || '';
   const picked = draw.get(draw.selected());
   const label = drawing => drawing.text?.value || lib.getDrawingTool(drawing.tool).name;
   const rows = draw.drawings();
@@ -161,6 +177,7 @@ export default function DrawingToolsDemo() {
         .oac-draw-playground__main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
         .oac-draw-playground__actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px; border-bottom: 1px solid var(--oac-card-border); }
         .oac-draw-playground__actions select { min-width: 0; max-width: 175px; flex: 1 1 145px; }
+        .oac-draw-playground select { appearance: none; padding-right: 24px; background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%); background-position: calc(100% - 12px) 14px, calc(100% - 8px) 14px; background-size: 4px 4px; background-repeat: no-repeat; }
         .oac-draw-playground__plot { flex: 1; min-height: 220px; min-width: 0; position: relative; }
         .oac-draw-playground__plot:focus-visible { outline: 2px solid var(--oac-accent); outline-offset: -2px; }
         .oac-draw-playground__status { min-height: 50px; border-top: 1px solid var(--oac-card-border); padding: 8px 12px; color: var(--oac-muted); }

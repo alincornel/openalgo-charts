@@ -8,6 +8,57 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 2.2.0
+
+2026-09-13
+
+### Added
+
+- The drawing catalogue grows from 51 to 85 tools. New line tools include
+  disjoint, flat-edge and regression channels, four pitchfork variants,
+  Info Line, Trend Angle, a two-point Fibonacci extension, a full time/price
+  speed-resistance fan and configurable vector stamps.
+- Advanced geometry adds Trend Fib Time, Fibonacci circles, arcs, wedge and
+  spiral, Gann Square, Dedekind Tessellation, and ordinary or golden-spaced
+  sonic and supersonic wavefronts. Curve painting uses native circle/ellipse
+  paths where appropriate, with bounded hit testing and recursive work.
+- Eleven manual pattern tools cover XABCD, ABCD, Elliott impulse and correction,
+  Head and Shoulders, Gartley, Bat, Butterfly, Crab, Shark and Cypher, with
+  point labels, editable fills and measured harmonic ratios.
+- A full-size drawing gallery provides editable samples of every tool with
+  irregular simulated NIFTY prices near 23800. The website playground,
+  widget rail and reference host expose the expanded catalogue on desktop
+  and touch layouts.
+- `ADVANCED_LINE_TOOLS`, `ADVANCED_GEOMETRY_TOOLS` and
+  `PATTERN_DRAWING_TOOLS` expose the new descriptor families from the draw tier.
+
+### Improved
+
+- Multi-point placement keeps chosen anchors and a dashed connecting guide
+  visible until the final point is placed.
+- Repeated label widths share measurements within one paint. Measurements are
+  discarded afterward so newly available fonts cannot leave stale widths.
+- Measurement volume reads seek directly to the selected history window and
+  reread its live values on every paint. Dense stacks stop hit testing at the
+  topmost exact hit while preserving nearest-hit and paint-order semantics.
+- Table column layout and hit testing share actual font measurements, including
+  bold headers. Long cells remain selectable without a fixed-width phantom area.
+- Speed-resistance fan labels use compact, collision-checked edge placement.
+  Dense geometry labels spread into separate rows; labels that cannot fit in
+  a tiny plot are omitted instead of painting over one another.
+  Numeric geometry, disabled levels, fill regions and DPR validity are covered
+  by focused regression tests alongside real-browser catalogue sweeps.
+
+### Compatibility
+
+- Drawing documents remain version 2. Existing tool IDs and stored anchor
+  meanings are preserved. `fib-fan` is named Fib Fan; the full two-family
+  construction has its own `fib-speed-resistance-fan` ID. Existing
+  `fib-extension` remains a three-anchor projection.
+- Drawings, temporary guides and handles remain visible in forward space and
+  clipped inside the plot at price and time axes. The library keeps eight
+  optional tiers and zero runtime dependencies.
+
 ## 2.1.9
 
 2026-09-13

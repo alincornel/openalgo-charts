@@ -36,18 +36,25 @@ export const RAIL_GROUPS = [
   { id: 'lines', title: 'Lines', items: [
     { head: 'Lines' },
     { tool: 'trend-line' }, { tool: 'ray' }, { tool: 'extended-line' }, { tool: 'arrow' },
+    { tool: 'info-line' }, { tool: 'trend-angle' },
     { head: 'Horizontal and vertical' },
     { tool: 'horizontal-line' }, { tool: 'horizontal-ray' }, { tool: 'vertical-line' }, { tool: 'cross-line' },
   ] },
   { id: 'channels', title: 'Channels', items: [
     { head: 'Channels' },
     { tool: 'parallel-channel' }, { tool: 'fib-channel' },
+    { tool: 'disjoint-channel' }, { tool: 'flat-top-bottom' }, { tool: 'regression-channel' },
+    { head: 'Pitchforks' },
+    { tool: 'pitchfork' }, { tool: 'schiff-pitchfork' }, { tool: 'modified-schiff-pitchfork' }, { tool: 'inside-pitchfork' },
   ] },
   { id: 'fib', title: 'Fibonacci and Gann', items: [
     { head: 'Fibonacci' },
     { tool: 'fib-retracement' }, { tool: 'fib-extension' }, { tool: 'fib-time-zone' }, { tool: 'fib-fan' },
+    { tool: 'fib-extension-two-point' }, { tool: 'fib-speed-resistance-fan' },
+    { tool: 'trend-fib-time' }, { tool: 'fib-circles' }, { tool: 'fib-speed-resistance-arcs' },
+    { tool: 'fib-wedge' }, { tool: 'fib-spiral' },
     { head: 'Gann' },
-    { tool: 'gann-fan' }, { tool: 'gann-box' },
+    { tool: 'gann-fan' }, { tool: 'gann-box' }, { tool: 'gann-square' },
   ] },
   { sep: true },
   { id: 'shapes', title: 'Shapes', items: [
@@ -60,11 +67,23 @@ export const RAIL_GROUPS = [
     { head: 'Cycles' },
     { tool: 'cyclic-lines' }, { tool: 'time-cycles' }, { tool: 'sine-line' },
   ] },
+  { id: 'patterns', title: 'Patterns', items: [
+    { head: 'Patterns and waves' },
+    { tool: 'xabcd-pattern' }, { tool: 'abcd-pattern' }, { tool: 'head-shoulders' },
+    { tool: 'elliott-impulse' }, { tool: 'elliott-correction' },
+    { head: 'Harmonic patterns' },
+    { tool: 'gartley' }, { tool: 'bat' }, { tool: 'butterfly' }, { tool: 'crab' }, { tool: 'shark' }, { tool: 'cypher' },
+  ] },
+  { id: 'geometry', title: 'Geometric studies', items: [
+    { head: 'Geometric studies' },
+    { tool: 'dedekind-tessellation' }, { tool: 'sonic' }, { tool: 'supersonic' },
+    { tool: 'golden-sonic' }, { tool: 'golden-supersonic' },
+  ] },
   { id: 'marks', title: 'Arrows and marks', items: [
     { head: 'Arrows' },
     { tool: 'arrow-up' }, { tool: 'arrow-down' }, { tool: 'arrow-left' }, { tool: 'arrow-right' },
     { head: 'Marks' },
-    { tool: 'flag-mark' }, { tool: 'price-label' }, { tool: 'signpost' },
+    { tool: 'flag-mark' }, { tool: 'icon-stamp' }, { tool: 'price-label' }, { tool: 'signpost' },
   ] },
   { sep: true },
   { id: 'forecast', title: 'Forecasting', items: [

@@ -63,3 +63,13 @@ console.log('[sync-lib] copied standalone order-flow demo into website/public/de
 const profilesHtml = readFileSync(resolve(here, '..', '..', 'examples', 'phase11-profiles.html'), 'utf8')
   .replaceAll("from '../dist/", "from './dist/");
 writeFileSync(resolve(demoOutput, '..', 'phase11-profiles.html'), profilesHtml);
+
+// The drawing catalog is shared by the standalone demo and website embeds.
+const drawingOutput = resolve(demoOutput, '..', 'drawings');
+mkdirSync(drawingOutput, { recursive: true });
+for (const name of ['index.html', 'gallery.js']) {
+  const source = readFileSync(resolve(here, '..', '..', 'examples', 'drawings', name), 'utf8')
+    .replaceAll("from '/dist/", "from '../dist/");
+  writeFileSync(join(drawingOutput, name), source);
+}
+for (const name of wanted) copyFileSync(join(distDir, name), join(demoBundles, name));

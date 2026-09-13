@@ -2,6 +2,7 @@
 import type { PrimitiveRenderContext } from 'openalgo-charts';
 import type { DrawContext, Drawing, DrawingPoint, DrawingTool, FibLevel, HitContext, ScreenPoint } from './types';
 import { distToSegment } from './geometry';
+import { drawingTextWidth } from './text-metrics';
 
 export interface GeometryPath {
   points: ScreenPoint[];
@@ -228,10 +229,30 @@ export function paintGeometry(c: DrawContext, geometry: DrawingGeometry): void {
   ctx.font = `${text?.italic === true ? 'italic ' : ''}${text?.bold === true ? '700 ' : ''}${size}px ${text?.fontFamily || 'ui-sans-serif, system-ui, sans-serif'}`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'bottom';
+  const occupied: { x: number; y: number; width: number }[] = [];
+  const lineHeight = size / dpr * 1.3;
   for (const label of geometry.labels ?? []) {
     if (!finiteDevicePoint(label.at, dpr)) continue;
+    let { x, y } = label.at;
+    // Keep nearby levels readable at ordinary zoom and on narrow panes. The
+    // bounded search changes text placement only; saved anchors stay exact.
+    if (x >= 0 && x <= rc.plotWidth && y >= 0 && y <= rc.plotHeight) {
+      const width = drawingTextWidth(ctx, label.text) / dpr;
+      x = Math.max(0, Math.min(x, rc.plotWidth - width));
+      let placed = false;
+      for (const lane of [0, -1, 1, -2, 2, -3, 3, -4]) {
+        const candidateY = y + lane * lineHeight;
+        if (candidateY < size / dpr || candidateY > rc.plotHeight) continue;
+        if (occupied.some(box => x < box.x + box.width + 3 && x + width + 3 > box.x && Math.abs(candidateY - box.y) < lineHeight - 0.01)) continue;
+        y = candidateY;
+        occupied.push({ x, y, width });
+        placed = true;
+        break;
+      }
+      if (!placed) continue;
+    }
     ctx.fillStyle = text?.color ?? label.color ?? style.color;
-    ctx.fillText(label.text, label.at.x * dpr, label.at.y * dpr);
+    ctx.fillText(label.text, x * dpr, y * dpr);
   }
   ctx.restore();
 }

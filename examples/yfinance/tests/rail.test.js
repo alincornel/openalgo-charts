@@ -109,7 +109,7 @@ describe('sprite and glyphs', () => {
 
     clickOn(groupButton(page, 'lines'), { from: groupButton(page, 'lines').querySelector('.rail__chev') });
     const rows = flyoutEl().querySelectorAll('.fly__row');
-    expect(rows.length).toBe(8);
+    expect(rows.length).toBe(10);
     for (const r of rows) expect(useIds(r.querySelector('.fly__glyph'))).toEqual(['#' + ICON_SYMBOL_PREFIX + r.dataset.tool]);
   });
 

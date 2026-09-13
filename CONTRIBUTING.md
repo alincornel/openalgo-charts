@@ -83,6 +83,20 @@ For loading or drawing changes, run the managed-loading Playwright projects in
 Chromium, Firefox and WebKit. Keep drawing previews visible past the newest candle
 and assert that saved drawings never paint inside either price-axis strip.
 
+For a drawing descriptor change, run `npx playwright test drawing-catalog`
+against the built package. The catalogue sweep covers visible pixels, persistence,
+pointer placement, touch placement, body and handle movement, and undo. Inspect
+the screenshots as well as the assertions. Open `/examples/drawings/index.html`
+for a sample of every tool; use `node scripts/check-drawing-demo.mjs` for the
+website's embedded playground and standalone gallery. Keep registry, rail and
+icon coverage in step, and preserve the version-2 drawing document.
+
+Measure drawing paint, hit and drag work separately when changing performance.
+Use identical data, viewport, DPR and drawing counts, and run timings without
+concurrent builds or test workers. Bound curve/recursive work and include loaded
+history with a changing forming bar. A faster result must preserve accurate
+hit regions, level visibility, font changes and price-axis clipping.
+
 These check depth grouping, profile/orderflow controls and screenshot fingerprints,
 and current bundles plus time-axis dragging, two-axis plot panning, optional horizontal
 panning and Reset view across website charts. They accept

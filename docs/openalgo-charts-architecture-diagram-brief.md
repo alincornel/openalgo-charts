@@ -7,8 +7,8 @@ Written 2026-08-28 against openalgo-charts 1.8.2.
 > record of what was wrong, what the measured figures were, and why each change
 > was made, so the next redraw starts from evidence rather than memory.
 >
-> **Current release source of truth:** the SVG reports 76.16 KB base and 203.62 KB
-> for every tier, eight tier chips, 102 built-in indicators and 51 drawing tools.
+> **Current release source of truth:** the SVG reports 76.22 KB base and 212.52 KB
+> for every tier, eight tier chips, 102 built-in indicators and 85 drawing tools.
 > Earlier measurements below remain the historical record of each redraw.
 
 Build brief for the replacement of `docs/architecture-diagram.png` in

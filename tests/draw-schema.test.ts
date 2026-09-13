@@ -32,6 +32,10 @@ const RC = {
   priceScale: { priceToY: (p: number) => 400 - p, format: (p: number) => p.toFixed(2) },
   timeScale: { indexToX: (i: number) => i },
   dataLayer: { timeToIndexFloat: (t: number) => t / 6 },
+  bars: () => Array.from({ length: 60 }, (_, i) => ({
+    time: i * 60, open: 100 + i, high: 130 + i, low: 90 + i,
+    close: 110 + i + (i % 3) * 7, volume: 100 + i,
+  })),
 };
 
 const toPt = (p: DrawingPoint) => ({ x: p.time / 6, y: 400 - p.price });
@@ -39,6 +43,8 @@ const toPt = (p: DrawingPoint) => ({ x: p.time / 6, y: 400 - p.price });
 // Away from the left edge, so "extend left" has somewhere to extend to.
 const ANCHORS: DrawingPoint[] = [
   { time: 300, price: 100 }, { time: 900, price: 300 }, { time: 1500, price: 200 },
+  { time: 1800, price: 260 }, { time: 2100, price: 150 }, { time: 2400, price: 280 },
+  { time: 2700, price: 220 }, { time: 3000, price: 240 }, { time: 3300, price: 120 },
 ];
 
 /** A drawing the way the controller would create it: defaults, then `expand`. */
@@ -146,9 +152,9 @@ function sampleFor(field: SettingsField): unknown {
 // ── every tool ────────────────────────────────────────────────────────────
 
 describe('every built-in tool declares a settings schema', () => {
-  it('registers 51 tools, each with at least one field', () => {
+  it('registers 85 tools, each with at least one field', () => {
     const tools = registeredDrawingTools();
-    expect(tools.length).toBe(51);
+    expect(tools.length).toBe(85);
     for (const t of tools) {
       expect(t.settings, t.id).toBeDefined();
       expect(t.settings?.fields.length, t.id).toBeGreaterThan(0);

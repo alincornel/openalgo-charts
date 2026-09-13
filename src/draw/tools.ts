@@ -36,6 +36,10 @@ import {
   cloneLevels, cycleColor, levelColor, formatRatio, gannLabel,
 } from './levels';
 import { catmullRom, pressureWidth } from './freehand';
+import { ADVANCED_LINE_TOOLS } from './advanced-lines';
+import { ADVANCED_GEOMETRY_TOOLS } from './advanced-geometry';
+import { PATTERN_DRAWING_TOOLS } from './pattern-tools';
+import { drawingTextWidth } from './text-metrics';
 
 const registry = new Map<string, DrawingTool>();
 
@@ -243,7 +247,7 @@ function label(
   ctx.font = fontOf(t, size);
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'left';
-  const w = ctx.measureText(text).width;
+  const w = drawingTextWidth(ctx, text);
   const left = opts.center === true ? x - w / 2 : x;
   ctx.globalAlpha = 0.85;
   ctx.fillStyle = rc.theme.background;
@@ -287,7 +291,7 @@ function chip(
   const padY = 3 * d;
   const lh = size * 1.35;
   let textW = 0;
-  for (const s of lines) textW = Math.max(textW, ctx.measureText(s).width);
+  for (const s of lines) textW = Math.max(textW, drawingTextWidth(ctx, s));
   const w = textW + padX * 2;
   const h = lh * lines.length + padY * 2;
   const align = opts.align ?? 'left';
@@ -796,8 +800,16 @@ export const MEASURE: DrawingTool = {
       const hi = Math.max(p[0].time, p[1].time);
       let vol = 0;
       let seen = false;
-      for (const b of src) {
-        if (b.time < lo) continue;
+      // Seek the selected window without walking unrelated loaded history.
+      // Read the window again on every paint because its last bar may be live.
+      let first = 0, end = src.length;
+      while (first < end) {
+        const mid = (first + end) >>> 1;
+        if (src[mid].time < lo) first = mid + 1;
+        else end = mid;
+      }
+      for (let i = first; i < src.length; i++) {
+        const b = src[i];
         if (b.time > hi) break;
         if (b.volume !== undefined) { vol += b.volume; seen = true; }
       }
@@ -1942,6 +1954,23 @@ export const PRICE_NOTE: DrawingTool = {
 const TABLE_SIZE = 11;
 const TABLE_OPACITY = 0.92;
 
+function tableWidths(ctx: CanvasRenderingContext2D | null, text: DrawingText, rows: string[][], dpr: number): number[] {
+  const size = (text.fontSize ?? TABLE_SIZE) * dpr;
+  const widths = Array.from({ length: Math.max(...rows.map(row => row.length)) }, () => 0);
+  ctx?.save();
+  try {
+    for (let r = 0; r < rows.length; r++) {
+      if (ctx !== null) ctx.font = fontOf(text, size, r === 0 ? text.bold === true ? '800' : '600' : undefined);
+      for (let col = 0; col < widths.length; col++) {
+        const cell = rows[r][col] ?? '';
+        const width = ctx === null ? cell.length * size * 0.6 : drawingTextWidth(ctx, cell);
+        widths[col] = Math.max(widths[col], width + 14 * dpr);
+      }
+    }
+  } finally { ctx?.restore(); }
+  return widths;
+}
+
 /**
  * Table: rows of text in a grid, anchored top-left.
  *
@@ -1972,16 +2001,10 @@ export const TABLE: DrawingTool = {
     const pad = 7 * d;
     const rowH = size * 1.7;
     c.ctx.save();
-    c.ctx.font = fontOf(t, size);
     // Column widths are the widest cell in each column, so a table with one
-    // long label does not stretch every other column to match it.
-    const cols = Math.max(...rows.map((r) => r.length));
-    const widths: number[] = [];
-    for (let i = 0; i < cols; i++) {
-      let w = 0;
-      for (const r of rows) w = Math.max(w, c.ctx.measureText(r[i] ?? '').width);
-      widths.push(w + pad * 2);
-    }
+    // long label does not stretch every other column to match it. Include
+    // the heavier header font in the same layout used for hit testing.
+    const widths = tableWidths(c.ctx, t, rows, d);
     const total = widths.reduce((a, b) => a + b, 0);
     const h = rowH * rows.length;
     c.ctx.setLineDash([]);
@@ -2035,9 +2058,8 @@ export const TABLE: DrawingTool = {
     const p = h.pts[0];
     const rows = tableRows(h.drawing);
     const size = h.drawing.text?.fontSize ?? TABLE_SIZE;
-    // Width cannot be measured without a canvas, so a column-count estimate.
-    const cols = Math.max(...rows.map((r) => r.length));
-    return insidePlate(x, y, p.x, p.y, cols * 70, size * 1.7 * rows.length);
+    const width = tableWidths(measureContext(), textOf(h.drawing), rows, 1).reduce((sum, w) => sum + w, 0);
+    return insidePlate(x, y, p.x, p.y, width, size * 1.7 * rows.length);
   },
 };
 
@@ -2511,7 +2533,7 @@ export const FIB_TIME_ZONE: DrawingTool = {
 
 /** Rays from the anchor at fib fractions of the leg: the speed resistance fan. */
 export const FIB_FAN: DrawingTool = {
-  id: 'fib-fan', name: 'Fib Speed Fan', points: 2,
+  id: 'fib-fan', name: 'Fib Fan', points: 2,
   defaultStyle: { showLabels: true, levels: cloneLevels(DEFAULT_FIB_FAN) },
   settings: LADDER_SETTINGS,
   draw: (c) => {
@@ -2644,6 +2666,9 @@ export const BUILTIN_DRAWING_TOOLS: readonly DrawingTool[] = [
   TEXT, PATH, PRICE_LABEL, CALLOUT, FLAG_MARK,
   NOTE, BALLOON, COMMENT, SIGNPOST, PRICE_NOTE, TABLE,
   ARROW_LEFT, ARROW_RIGHT,
+  ...ADVANCED_LINE_TOOLS,
+  ...ADVANCED_GEOMETRY_TOOLS,
+  ...PATTERN_DRAWING_TOOLS,
 ];
 
 let _registered = false;

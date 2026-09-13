@@ -23,6 +23,7 @@
 import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, PrimitiveHit, ZOrder } from 'openalgo-charts';
 import type { Drawing, DrawingPoint, ScreenPoint } from './types';
 import { getDrawingTool, hasDrawingTool } from './tools';
+import { withDrawingTextMetrics } from './text-metrics';
 
 /** Grab radius for a shape, in media px. */
 const GRAB = 6;
@@ -231,7 +232,7 @@ export class DrawingLayer implements IPrimitive {
     ctx.beginPath();
     ctx.rect(0, 0, Math.round(rc.plotWidth * rc.dpr), Math.round(rc.plotHeight * rc.dpr));
     ctx.clip();
-    try { this._drawContent(ctx, this._drawingContext(rc)); } finally { ctx.restore(); }
+    try { withDrawingTextMetrics(ctx, () => this._drawContent(ctx, this._drawingContext(rc))); } finally { ctx.restore(); }
   }
 
   private _drawingContext(rc: PrimitiveRenderContext): PrimitiveRenderContext {
@@ -246,11 +247,14 @@ export class DrawingLayer implements IPrimitive {
     for (const d of all) {
       if (d.visible === false || !hasDrawingTool(d.tool)) continue;
       const tool = getDrawingTool(d.tool);
-      if (d.points.length < Math.max(1, tool.points)) continue;
       const media = this._points(rc, d);
-      // Skip anything entirely off-pane; a fib grid with a far anchor would
-      // otherwise stroke thousands of off-screen px every frame.
-      if (!media.some((p) => Number.isFinite(p.x) && Number.isFinite(p.y))) continue;
+      if (media.length === 0 || !media.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y))) continue;
+      if (d.points.length < Math.max(1, tool.points)) {
+        // A multi-point tool cannot paint its final geometry yet. Keep the
+        // chosen anchors visible so each click has immediate feedback.
+        if (d === this._preview) this._drawPlacementGuide(ctx, rc, media, d);
+        continue;
+      }
 
       const style = {
         color: d.style.color ?? rc.theme.lineColor,
@@ -281,6 +285,30 @@ export class DrawingLayer implements IPrimitive {
       for (const d of this._below._handled()) this._drawHandles(ctx, rc, this._points(rc, d), d.tool, false);
     }
     if (this._snap !== null) this._drawSnapRing(ctx, rc, this._project(rc, this._snap.time, this._snap.price));
+  }
+
+  private _drawPlacementGuide(
+    ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext, points: readonly ScreenPoint[], drawing: Drawing,
+  ): void {
+    const dpr = rc.dpr;
+    ctx.save();
+    ctx.globalAlpha *= 0.7;
+    ctx.strokeStyle = drawing.style.color ?? rc.theme.lineColor;
+    ctx.lineWidth = Math.max(1, (drawing.style.lineWidth ?? 1.5) * dpr);
+    ctx.setLineDash([3 * dpr, 3 * dpr]);
+    ctx.beginPath();
+    ctx.moveTo(points[0].x * dpr, points[0].y * dpr);
+    for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x * dpr, points[i].y * dpr);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    for (const point of points) {
+      ctx.beginPath();
+      ctx.arc(point.x * dpr, point.y * dpr, 3 * dpr, 0, Math.PI * 2);
+      ctx.fillStyle = rc.theme.background;
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   /**
@@ -368,6 +396,8 @@ export class DrawingLayer implements IPrimitive {
       // on the pane.
       if (dist === null || !Number.isFinite(dist) || dist > grab) continue;
       if (best === null || dist < best.distance) best = { id: d.id, distance: dist };
+      // No lower shape can beat zero; reverse paint order already wins its tie.
+      if (dist === 0) break;
     }
     if (best === null) return null;
     return {
