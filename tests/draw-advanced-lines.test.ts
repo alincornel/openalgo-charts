@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { clipPolygon, clippedLine, insidePolygon, sampleArc } from '../src/draw/advanced-shared';
 import { ADVANCED_LINE_TOOLS } from '../src/draw/advanced-lines';
+import { DataLayer } from '../src/model/data-layer';
 import { RecordingContext } from './helpers/fake-ctx';
 import type { Drawing, DrawingPoint, DrawingTool } from '../src/draw/types';
 import type { PrimitiveRenderContext, Bar } from '../src';
@@ -58,6 +59,34 @@ describe('advanced line descriptors', () => {
     expect(hit(d, 350, 250)).toBe(0);
     expect(hit(d, 350, 300)).toBeGreaterThan(6);
   });
+  it.each([
+    { extendRight: true }, { extendLeft: true }, { extendLeft: true, extendRight: true },
+  ])('keeps vertical channel strokes and fill at their anchors for %j', extension => {
+    const points = [{ time: 0, price: 30 }, { time: 0, price: 20 }, { time: 60, price: 30 }, { time: 60, price: 20 }];
+    for (const reversed of [false, true]) {
+      const ordered = reversed ? [points[1], points[0], points[3], points[2]] : points;
+      const baseline = drawing('disjoint-channel', ordered, { style: { fill: true } });
+      const extended = drawing('disjoint-channel', ordered, { style: { fill: true, ...extension } });
+      for (const dpr of [1, 2]) {
+        const context = rc(dpr);
+        expect(paint(extended, context).ops).toEqual(paint(baseline, context).ops);
+        expect(hit(extended, 150, 150, context)).toBe(0);
+        expect(hit(extended, 150, 300, context)).toBeCloseTo(Math.hypot(50, 100));
+        expect(hit(extended, 150, 50, context)).toBeCloseTo(Math.hypot(50, 50));
+      }
+    }
+  });
+  it('extends only the sloped side of a mixed vertical and sloped channel', () => {
+    const d = drawing('disjoint-channel', [
+      { time: 0, price: 30 }, { time: 0, price: 20 }, { time: 60, price: 30 }, { time: 120, price: 20 },
+    ], { style: { fill: true, extendRight: true } });
+    for (const dpr of [1, 2]) {
+      const context = rc(dpr);
+      expect(ends(paint(d, context)).slice(-2)).toEqual([[100 * dpr, 200 * dpr], [500 * dpr, 400 * dpr]]);
+      expect(hit(d, 150, 150, context)).toBe(0);
+      expect(hit(d, 100, 300, context)).toBeGreaterThan(6);
+    }
+  });
   it('keeps the flat boundary horizontal across the sloped boundary span', () => {
     const d = drawing('flat-top-bottom', anchors.slice(0, 3), { style: { fill: false } });
     expect(moves(paint(d))).toEqual([[100, 300], [100, 260]]);
@@ -112,6 +141,34 @@ describe('advanced line descriptors', () => {
     expect(moves(r)[0]).toEqual([100, 300]);
     expect(ends(r)[0]).toEqual([400, 240]);
     expect(texts(r).some(t => t.includes('R^2 1.000'))).toBe(true);
+  });
+  it('fits shared logical indices from a real sparse multi-series timeline', () => {
+    const dataLayer = new DataLayer(), primary = dataLayer.createSeries(), secondary = dataLayer.createSeries();
+    dataLayer.setSeriesData(primary, barsOf([10, 12, 14, 16]));
+    dataLayer.setSeriesData(secondary, barsOf([1, 2]).map((b, i) => ({ ...b, time: 30 + i * 60 })));
+    const context = { ...rc(), dataLayer, bars: () => dataLayer.seriesBars(primary) };
+    const d = drawing('regression-channel', [anchors[0], anchors[3]], { style: { fill: false } });
+    const r = paint(d, context);
+    expect(moves(r)[0][1]).toBeCloseTo(400 - 5800 / 59);
+    expect(ends(r)[0]).toEqual([600, expect.closeTo(400 - 9200 / 59)]);
+    expect(texts(r)).toContain('R^2 0.980  4 bars');
+    dataLayer.update(primary, { ...dataLayer.seriesBars(primary)[1], close: 20 });
+    expect(paint(d, context).ops).not.toEqual(r.ops);
+  });
+  it('keeps binary-search mapping calls bounded when scanning actual stored bars', () => {
+    class CountedDataLayer extends DataLayer {
+      fractionalCalls = 0;
+      override timeToIndexFloat(time: number): number {
+        this.fractionalCalls++;
+        return super.timeToIndexFloat(time);
+      }
+    }
+    const dataLayer = new CountedDataLayer(), primary = dataLayer.createSeries();
+    dataLayer.setSeriesData(primary, barsOf(Array.from({ length: 100 }, (_, i) => 10 + i / 10)));
+    const context = { ...rc(), dataLayer, bars: () => dataLayer.seriesBars(primary) };
+    const d = drawing('regression-channel', [{ time: 0, price: 10 }, { time: 5940, price: 20 }]);
+    paint(d, context);
+    expect(dataLayer.fractionalCalls).toBeLessThan(20);
   });
   it('refreshes regression for in-place historical and forming-bar corrections', () => {
     const bars = barsOf([10, 12, 14, 16]);

@@ -49,6 +49,9 @@ export function clippedLine(
 }
 
 export function extendedLine(a: ScreenPoint, b: ScreenPoint, c: HitContext): ScreenPoint[] {
+  // Left/right extension changes the time span, so a vertical segment keeps
+  // its anchors. Directional rays use clippedLine with explicit bounds.
+  if (a.x === b.x) return clippedLine(a, b, c.rc);
   const forward = b.x >= a.x;
   return clippedLine(a, b, c.rc,
     (forward ? c.drawing.style.extendLeft : c.drawing.style.extendRight) === true ? -Infinity : 0,

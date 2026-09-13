@@ -78,7 +78,10 @@ const regression = geometryTool({
   // Bars are live and even historical closes can change in place. Recompute
   // exact moments instead of treating array identity as a revision signal.
   for (let i = first; i < last; i++) {
-    const bar = bars[i], x = c.rc.dataLayer.timeToIndexFloat(bar.time), y = bar.close;
+    const bar = bars[i], y = bar.close;
+    // Stored times have exact shared indices; the map avoids a binary search
+    // per close and still includes timeline entries from secondary series.
+    const x = c.rc.dataLayer.timeToIndex?.(bar.time) ?? c.rc.dataLayer.timeToIndexFloat(bar.time);
     if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
     if (n === 0) { firstTime = bar.time; firstIndex = x; }
     lastTime = bar.time; lastIndex = x;
