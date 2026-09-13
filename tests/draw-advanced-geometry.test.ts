@@ -311,6 +311,44 @@ describe('shared native ellipse paths', () => {
   const arcGeometry = (rx: number, ry: number, start: number, sweep: number, closed = false, sector = false): DrawingGeometry => ({
     paths: [{ points: [], arc: { center: { x: 200, y: 300 }, rx, ry, start, sweep, sector }, closed }],
   });
+  it.each([false, true])('rejects DPR-overflowing circle paint, labels and hits together with fill %s', fill => {
+    const d = drawing('fib-circles', undefined, { style: { levels: [{ ratio: 1e306 }], fill } });
+    const single = paint(d, rc(1));
+    expect(curves(single)).toHaveLength(fill ? 2 : 1);
+    expect(single.count('fill')).toBe(fill ? 1 : 0);
+    expect(single.count('fillText')).toBe(1);
+    expect(single.ops.flatMap(o => o.args).every(Number.isFinite)).toBe(true);
+    expect(hit(d, 400, 300, rc(1))).toBe(fill ? 0 : 1e308);
+
+    const double = paint(d, rc(2));
+    expect({
+      curves: curves(double).length, fills: double.count('fill'), labels: double.count('fillText'),
+      finite: double.ops.flatMap(o => o.args).every(Number.isFinite), distance: hit(d, 400, 300, rc(2)),
+    }).toEqual({ curves: 0, fills: 0, labels: 0, finite: true, distance: null });
+
+    d.style.levels = [{ ratio: 1 }];
+    const ordinary = paint(d, rc(2));
+    expect(curves(ordinary)).toHaveLength(fill ? 2 : 1);
+    expect(ordinary.count('fillText')).toBe(1);
+    expect(hit(d, 300, 300, rc(2))).toBe(0);
+  });
+  it('applies render-context DPR validity to point paths while preserving media-only distance callers', () => {
+    const d = drawing('fib-circles', undefined, { style: { fill: true } });
+    const g: DrawingGeometry = { paths: [{
+      points: [{ x: 100, y: 100 }, { x: 1e308, y: 100 }, { x: 1e308, y: 400 }, { x: 100, y: 400 }],
+      fill: true, closed: true,
+    }] };
+    const descriptor = geometryTool({ id: 'probe', name: 'Probe', points: 2 }, () => g);
+    expect(geometryDistance(200, 200, g, d)).toBe(0);
+    for (const dpr of [1, 2]) {
+      const rec = new CurvesContext(), context = rc(dpr);
+      descriptor.draw({ ctx: rec as unknown as CanvasRenderingContext2D, rc: context, pts: [], drawing: d,
+        style: { color: '#123456', lineWidth: 1, fill: true }, selected: false, formatPrice: String });
+      expect(rec.count('fill')).toBe(dpr === 1 ? 1 : 0);
+      expect(rec.ops.flatMap(o => o.args).every(Number.isFinite)).toBe(true);
+      expect(descriptor.distance(200, 200, { rc: context, pts: [], drawing: d })).toBe(dpr === 1 ? 0 : null);
+    }
+  });
   it('measures native ellipse points without flattening the painted curve', () => {
     const d = drawing('fib-circles');
     const g = arcGeometry(200, 50, 0, Math.PI / 2);

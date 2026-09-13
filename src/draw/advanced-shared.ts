@@ -109,6 +109,15 @@ const TAU = 2 * Math.PI;
 function validArc(a: GeometryArc): boolean {
   return finitePoint(a.center) && [a.rx, a.ry, a.start, a.sweep, a.start + a.sweep].every(Number.isFinite) && a.rx > 0 && a.ry > 0;
 }
+function finiteDevicePoint(p: ScreenPoint, dpr: number): boolean {
+  return finitePoint(p) && Number.isFinite(p.x * dpr) && Number.isFinite(p.y * dpr);
+}
+function renderablePath(path: GeometryPath, dpr: number): boolean {
+  const a = path.arc;
+  return a === undefined
+    ? path.points.length >= 2 && path.points.every(p => finiteDevicePoint(p, dpr))
+    : validArc(a) && finiteDevicePoint(a.center, dpr) && Number.isFinite(a.rx * dpr) && Number.isFinite(a.ry * dpr);
+}
 function arcPoint(a: GeometryArc, angle: number): ScreenPoint {
   return { x: a.center.x + a.rx * Math.cos(angle), y: a.center.y + a.ry * Math.sin(angle) };
 }
@@ -155,12 +164,12 @@ function insideArc(x: number, y: number, a: GeometryArc): boolean {
   return nx * Math.cos(mid) + ny * Math.sin(mid) >= Math.cos(Math.abs(a.sweep) / 2);
 }
 
-export function geometryDistance(x: number, y: number, geometry: DrawingGeometry, drawing: Drawing): number | null {
+export function geometryDistance(x: number, y: number, geometry: DrawingGeometry, drawing: Drawing, dpr = 1): number | null {
   let best = Infinity;
   for (const path of geometry.paths) {
+    if (!renderablePath(path, dpr)) continue;
     if (path.arc !== undefined) {
       const a = path.arc;
-      if (!validArc(a)) continue;
       if (path.fill === true && drawing.style.fill === true && (drawing.style.fillOpacity ?? 0.12) > 0 && insideArc(x, y, a)) return 0;
       if (path.stroke !== false) {
         best = Math.min(best, arcDistance(x, y, a));
@@ -175,7 +184,6 @@ export function geometryDistance(x: number, y: number, geometry: DrawingGeometry
       continue;
     }
     const p = path.points;
-    if (p.length < 2 || !p.every(finitePoint)) continue;
     const filled = path.fill === true && drawing.style.fill === true && (drawing.style.fillOpacity ?? 0.12) > 0;
     if (filled && insidePolygon(x, y, p)) return 0;
     if (path.stroke === false) continue;
@@ -194,12 +202,7 @@ export function paintGeometry(c: DrawContext, geometry: DrawingGeometry): void {
   ctx.lineCap = 'round';
   ctx.setLineDash(style.lineStyle === 'dashed' ? [6 * dpr, 4 * dpr] : style.lineStyle === 'dotted' ? [dpr, 3 * dpr] : []);
   for (const path of geometry.paths) {
-    if (path.arc !== undefined ? !validArc(path.arc) : path.points.length < 2 || !path.points.every(finitePoint)) continue;
-    const scaledFinite = path.arc === undefined
-      ? path.points.every(p => Number.isFinite(p.x * dpr) && Number.isFinite(p.y * dpr))
-      : Number.isFinite(path.arc.center.x * dpr) && Number.isFinite(path.arc.center.y * dpr)
-        && Number.isFinite(path.arc.rx * dpr) && Number.isFinite(path.arc.ry * dpr);
-    if (!scaledFinite) continue;
+    if (!renderablePath(path, dpr)) continue;
     ctx.beginPath();
     if (path.arc !== undefined) {
       const a = path.arc;
@@ -226,7 +229,7 @@ export function paintGeometry(c: DrawContext, geometry: DrawingGeometry): void {
   ctx.textAlign = 'left';
   ctx.textBaseline = 'bottom';
   for (const label of geometry.labels ?? []) {
-    if (!finitePoint(label.at)) continue;
+    if (!finiteDevicePoint(label.at, dpr)) continue;
     ctx.fillStyle = text?.color ?? label.color ?? style.color;
     ctx.fillText(label.text, label.at.x * dpr, label.at.y * dpr);
   }
@@ -243,7 +246,7 @@ export function geometryTool(descriptor: Omit<DrawingTool, 'draw' | 'distance'>,
     },
     distance(x, y, c) {
       if (x < 0 || y < 0 || x > c.rc.plotWidth || y > c.rc.plotHeight) return null;
-      return geometryDistance(x, y, build(c), c.drawing);
+      return geometryDistance(x, y, build(c), c.drawing, c.rc.dpr);
     },
   };
 }
