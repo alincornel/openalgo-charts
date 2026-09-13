@@ -151,6 +151,21 @@ describe('harmonic rules and statuses', () => {
     ]));
   });
 
+  it('rejects a same-direction leg sequence even when every magnitude is in range', () => {
+    const prices = [0, 100, 161.8, 130.9, 178.6];
+    const d = drawing('gartley', prices.map((price, i) => point(100 + i * 100, price)));
+    expect(texts(paint(d))).toEqual(expect.arrayContaining([
+      'AB/XA 0.618 OK', 'BC/AB 0.500 OK', 'CD/BC 1.544 OK', 'AD/XA 0.786 OK',
+      'Gartley: invalid sequence',
+    ]));
+  });
+
+  it('accepts the mirrored alternating sequence', () => {
+    const prices = [0, -100, -38.2, -69.1, -21.4];
+    const d = drawing('gartley', prices.map((price, i) => point(100 + i * 100, price)));
+    expect(texts(paint(d))).toContain('Gartley: valid');
+  });
+
   it('omits ratios with degenerate denominators and never paints non-finite arguments', () => {
     for (const id of IDS) {
       const same = Array.from({ length: POINTS[id] }, (_, i) => point(100 + i * 100, 100));
@@ -165,6 +180,22 @@ describe('harmonic rules and statuses', () => {
 });
 
 describe('pattern settings and hit geometry', () => {
+  it.each(IDS)('%s ignores imported anchors beyond its declared fixed count', id => {
+    const base = drawing(id);
+    const extras = Array.from({ length: 256 }, (_, index) => point(780 - index % 2, index % 2 === 0 ? 100 : 500));
+    const imported = drawing(id, [...base.points, ...extras]);
+    expect(paint(imported).ops).toEqual(paint(base).ops);
+    expect(imported.points).toHaveLength(base.points.length + extras.length);
+  });
+
+  it('does not hit an excess imported leg', () => {
+    const points = [point(100, 500), point(200, 400), point(300, 500)];
+    const base = drawing('elliott-correction', points);
+    const imported = drawing('elliott-correction', [...points, point(300, 100)]);
+    expect(hit(base, 300, 400)).toBeGreaterThan(100);
+    expect(hit(imported, 300, 400)).toEqual(hit(base, 300, 400));
+  });
+
   it.each(IDS)('%s hides every generated label when labels are disabled', id => {
     const d = drawing(id, undefined, { style: { ...tool(id).defaultStyle, showLabels: false } });
     expect(texts(paint(d))).toEqual([]);

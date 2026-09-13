@@ -68,6 +68,18 @@ function priceLength(points: readonly DrawingPoint[], a: number, b: number): num
   return Number.isFinite(first) && Number.isFinite(second) ? Math.abs(second - first) : NaN;
 }
 
+function alternatingPriceDirections(points: readonly DrawingPoint[], count: number): boolean {
+  if (points.length < count) return false;
+  let previous = points[1].price - points[0].price;
+  if (!Number.isFinite(previous) || previous === 0) return false;
+  for (let index = 2; index < count; index++) {
+    const current = points[index].price - points[index - 1].price;
+    if (!Number.isFinite(current) || current === 0 || Math.sign(current) === Math.sign(previous)) return false;
+    previous = current;
+  }
+  return true;
+}
+
 function genericRules(points: readonly DrawingPoint[], kind: 'xabcd' | 'abcd'): RatioRule[] {
   if (kind === 'xabcd') {
     const xa = priceLength(points, 0, 1), ab = priceLength(points, 1, 2), bc = priceLength(points, 2, 3);
@@ -150,36 +162,39 @@ function lineSegmentIntersection(lineA: ScreenPoint, lineB: ScreenPoint, a: Scre
 }
 
 function patternGeometry(spec: PatternSpec, c: HitContext): DrawingGeometry {
-  if (c.pts.length < 2) return empty();
+  const points = c.pts.slice(0, spec.labels.length);
+  const dataPoints = c.drawing.points.slice(0, spec.labels.length);
+  if (points.length < 2) return empty();
   const paths: GeometryPath[] = [];
   if (spec.fill === true) {
     for (const indices of [[0, 1, 2], [2, 3, 4]] as const) {
-      const triangle = indices.map(index => c.pts[index]);
+      const triangle = indices.map(index => points[index]);
       if (triangle.every((point): point is ScreenPoint => point !== undefined && finitePoint(point))) {
         paths.push({ points: clipPolygon(triangle, c.rc), closed: true, fill: true, stroke: false });
       }
     }
   }
-  for (let index = 1; index < c.pts.length; index++) paths.push(leg(c.pts[index - 1], c.pts[index], c));
-  if (spec.neckline !== undefined && c.pts.length >= spec.labels.length) {
+  for (let index = 1; index < points.length; index++) paths.push(leg(points[index - 1], points[index], c));
+  if (spec.neckline !== undefined && points.length >= spec.labels.length) {
     const [leftIndex, rightIndex] = spec.neckline;
-    const leftTrough = c.pts[leftIndex], rightTrough = c.pts[rightIndex];
-    const left = lineSegmentIntersection(leftTrough, rightTrough, c.pts[0], c.pts[1]) ?? leftTrough;
-    const last = c.pts.length - 1;
-    const right = lineSegmentIntersection(leftTrough, rightTrough, c.pts[last - 1], c.pts[last]) ?? rightTrough;
+    const leftTrough = points[leftIndex], rightTrough = points[rightIndex];
+    const left = lineSegmentIntersection(leftTrough, rightTrough, points[0], points[1]) ?? leftTrough;
+    const last = points.length - 1;
+    const right = lineSegmentIntersection(leftTrough, rightTrough, points[last - 1], points[last]) ?? rightTrough;
     paths.push(...dashedLeg(left, right, c));
   }
   if (c.drawing.style.showLabels === false) return { paths };
-  const labels = vertexLabels(spec, c.pts);
-  const rules = spec.harmonic !== undefined ? harmonicRules(c.drawing.points, spec.harmonic)
-    : spec.ratios !== undefined ? genericRules(c.drawing.points, spec.ratios) : [];
-  labels.push(...ratioLabels(rules, c.pts));
-  if (spec.harmonic !== undefined && c.pts.length >= spec.labels.length) {
-    const valid = rules.length > 0 && rules.every(inBand);
-    const completion = c.pts[spec.labels.length - 1];
+  const labels = vertexLabels(spec, points);
+  const rules = spec.harmonic !== undefined ? harmonicRules(dataPoints, spec.harmonic)
+    : spec.ratios !== undefined ? genericRules(dataPoints, spec.ratios) : [];
+  labels.push(...ratioLabels(rules, points));
+  if (spec.harmonic !== undefined && points.length >= spec.labels.length) {
+    const topologyValid = alternatingPriceDirections(dataPoints, spec.labels.length);
+    const valid = topologyValid && rules.length > 0 && rules.every(inBand);
+    const completion = points[spec.labels.length - 1];
     if (completion && finitePoint(completion)) labels.push({
       at: { x: completion.x + 4, y: completion.y + 30 },
-      text: `${spec.name}: ${valid ? 'valid' : 'outside range'}`,
+      text: `${spec.name}: ${!topologyValid ? 'invalid sequence' : valid ? 'valid' : 'outside range'}`,
       color: valid ? VALID_COLOR : INVALID_COLOR,
     });
   }
