@@ -5,12 +5,23 @@ import { distToSegment } from './geometry';
 
 export interface GeometryPath {
   points: ScreenPoint[];
+  /** Native canvas curve; points are unused when present. Radii are media px. */
+  arc?: GeometryArc;
   closed?: boolean;
   /** Filled paths use the drawing's fill settings. */
   fill?: boolean;
   /** False permits fill polygons without introducing visible end caps. */
   stroke?: boolean;
   color?: string;
+}
+export interface GeometryArc {
+  center: ScreenPoint;
+  rx: number;
+  ry: number;
+  start: number;
+  sweep: number;
+  /** Close a filled arc through its center, for a circular sector. */
+  sector?: boolean;
 }
 export interface GeometryLabel { at: ScreenPoint; text: string; color?: string }
 export interface DrawingGeometry { paths: GeometryPath[]; labels?: GeometryLabel[] }
@@ -94,9 +105,75 @@ export function sampleArc(center: ScreenPoint, rx: number, ry: number, start: nu
   });
 }
 
+const TAU = 2 * Math.PI;
+function validArc(a: GeometryArc): boolean {
+  return finitePoint(a.center) && [a.rx, a.ry, a.start, a.sweep, a.start + a.sweep].every(Number.isFinite) && a.rx > 0 && a.ry > 0;
+}
+function arcPoint(a: GeometryArc, angle: number): ScreenPoint {
+  return { x: a.center.x + a.rx * Math.cos(angle), y: a.center.y + a.ry * Math.sin(angle) };
+}
+function withinSweep(angle: number, a: GeometryArc): boolean {
+  if (a.sweep === 0) return false;
+  const delta = ((angle - a.start) * Math.sign(a.sweep) % TAU + TAU) % TAU;
+  return Math.abs(a.sweep) >= TAU - 1e-12 || delta <= Math.abs(a.sweep) + 1e-12;
+}
+function arcDistance(x: number, y: number, a: GeometryArc): number {
+  if (a.rx === a.ry && Math.abs(a.sweep) >= TAU - 1e-12) return Math.abs(Math.hypot(x - a.center.x, y - a.center.y) - a.rx);
+  const first = arcPoint(a, a.start), last = arcPoint(a, a.start + a.sweep);
+  const firstDistance = Math.hypot(x - first.x, y - first.y), lastDistance = Math.hypot(x - last.x, y - last.y);
+  const endpoints = Math.min(firstDistance, lastDistance);
+  if (a.rx === a.ry) {
+    return withinSweep(Math.atan2(y - a.center.y, x - a.center.x), a)
+      ? Math.abs(Math.hypot(x - a.center.x, y - a.center.y) - a.rx) : endpoints;
+  }
+  // A coarse bounded search locates the nearest ellipse interval; refinement
+  // avoids the flat chords that make eccentric arcs hard to select precisely.
+  const distance = (t: number): number => {
+    const p = arcPoint(a, a.start + a.sweep * t);
+    return Math.hypot(x - p.x, y - p.y);
+  };
+  let best = endpoints, index = lastDistance < firstDistance ? 32 : 0;
+  for (let i = 0; i <= 32; i++) {
+    const d = distance(i / 32);
+    if (d < best) { best = d; index = i; }
+  }
+  let lo = Math.max(0, (index - 1) / 32), hi = Math.min(1, (index + 1) / 32);
+  const refinements = Math.min(80, Math.max(32, Math.ceil(Math.log2(Math.max(a.rx, a.ry))) * 2 + 8));
+  for (let i = 0; i < refinements; i++) {
+    const left = lo + (hi - lo) / 3, right = hi - (hi - lo) / 3;
+    if (distance(left) < distance(right)) hi = right; else lo = left;
+  }
+  return Math.min(best, distance((lo + hi) / 2));
+}
+
+function insideArc(x: number, y: number, a: GeometryArc): boolean {
+  const nx = (x - a.center.x) / a.rx, ny = (y - a.center.y) / a.ry;
+  if (nx * nx + ny * ny > 1) return false;
+  if (Math.abs(a.sweep) >= TAU - 1e-12) return true;
+  if (a.sector === true) return withinSweep(Math.atan2(ny, nx), a);
+  const mid = a.start + a.sweep / 2;
+  return nx * Math.cos(mid) + ny * Math.sin(mid) >= Math.cos(Math.abs(a.sweep) / 2);
+}
+
 export function geometryDistance(x: number, y: number, geometry: DrawingGeometry, drawing: Drawing): number | null {
   let best = Infinity;
   for (const path of geometry.paths) {
+    if (path.arc !== undefined) {
+      const a = path.arc;
+      if (!validArc(a)) continue;
+      if (path.fill === true && drawing.style.fill === true && (drawing.style.fillOpacity ?? 0.12) > 0 && insideArc(x, y, a)) return 0;
+      if (path.stroke !== false) {
+        best = Math.min(best, arcDistance(x, y, a));
+        if (a.sector === true || path.closed === true) {
+          const first = arcPoint(a, a.start), last = arcPoint(a, a.start + a.sweep);
+          if (a.sector === true) {
+            best = Math.min(best, distToSegment(x, y, a.center, first));
+            if (path.closed === true) best = Math.min(best, distToSegment(x, y, last, a.center));
+          } else best = Math.min(best, distToSegment(x, y, last, first));
+        }
+      }
+      continue;
+    }
     const p = path.points;
     if (p.length < 2 || !p.every(finitePoint)) continue;
     const filled = path.fill === true && drawing.style.fill === true && (drawing.style.fillOpacity ?? 0.12) > 0;
@@ -117,10 +194,22 @@ export function paintGeometry(c: DrawContext, geometry: DrawingGeometry): void {
   ctx.lineCap = 'round';
   ctx.setLineDash(style.lineStyle === 'dashed' ? [6 * dpr, 4 * dpr] : style.lineStyle === 'dotted' ? [dpr, 3 * dpr] : []);
   for (const path of geometry.paths) {
-    if (path.points.length < 2 || !path.points.every(finitePoint)) continue;
+    if (path.arc !== undefined ? !validArc(path.arc) : path.points.length < 2 || !path.points.every(finitePoint)) continue;
+    const scaledFinite = path.arc === undefined
+      ? path.points.every(p => Number.isFinite(p.x * dpr) && Number.isFinite(p.y * dpr))
+      : Number.isFinite(path.arc.center.x * dpr) && Number.isFinite(path.arc.center.y * dpr)
+        && Number.isFinite(path.arc.rx * dpr) && Number.isFinite(path.arc.ry * dpr);
+    if (!scaledFinite) continue;
     ctx.beginPath();
-    ctx.moveTo(path.points[0].x * dpr, path.points[0].y * dpr);
-    for (let i = 1; i < path.points.length; i++) ctx.lineTo(path.points[i].x * dpr, path.points[i].y * dpr);
+    if (path.arc !== undefined) {
+      const a = path.arc;
+      if (a.sector === true) ctx.moveTo(a.center.x * dpr, a.center.y * dpr);
+      if (a.rx === a.ry) ctx.arc(a.center.x * dpr, a.center.y * dpr, a.rx * dpr, a.start, a.start + a.sweep, a.sweep < 0);
+      else ctx.ellipse(a.center.x * dpr, a.center.y * dpr, a.rx * dpr, a.ry * dpr, 0, a.start, a.start + a.sweep, a.sweep < 0);
+    } else {
+      ctx.moveTo(path.points[0].x * dpr, path.points[0].y * dpr);
+      for (let i = 1; i < path.points.length; i++) ctx.lineTo(path.points[i].x * dpr, path.points[i].y * dpr);
+    }
     if (path.closed === true) ctx.closePath();
     if (path.fill === true && style.fill === true) {
       ctx.save();
