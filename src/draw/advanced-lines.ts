@@ -185,7 +185,7 @@ const extension = geometryTool({ id: 'fib-extension-two-point', name: 'Fib Exten
   const [a, b] = c.pts, [p0, p1] = c.drawing.points;
   const paths: GeometryPath[] = [], labels: NonNullable<DrawingGeometry['labels']> = [];
   const levels = activeLevels(c.drawing, EXTENSION_LEVELS);
-  if (c.drawing.style.fill === true) {
+  if (c.drawing.style.fill === true && a.x !== b.x) {
     const ys = levels.map(lv => c.rc.priceScale.priceToY(p0.price + (p1.price - p0.price) * lv.ratio)).filter(Number.isFinite).sort((x, y) => x - y);
     const left = c.drawing.style.extendLeft === true ? 0 : Math.min(a.x, b.x);
     const right = c.drawing.style.extendRight === true ? c.rc.plotWidth : Math.max(a.x, b.x);
@@ -213,9 +213,9 @@ function fanGeometry(c: HitContext, measure?: (text: string) => number): Drawing
   paths.push({ points: [{ x: a.x, y: b.y }, b, { x: b.x, y: a.y }] });
   const size = c.drawing.text?.fontSize ?? 11;
   const height = size * 1.2, occupied: FanLabelBox[] = [];
-  const minX = Math.min(a.x, b.x), maxX = Math.max(a.x, b.x);
-  const minY = Math.min(a.y, b.y), maxY = Math.max(a.y, b.y);
-  const addLabel = (target: ScreenPoint, vertical: boolean, text: string, color: string): void => {
+  const addLabel = (target: ScreenPoint, edge: ScreenPoint, vertical: boolean, text: string, color: string): void => {
+    const minX = Math.min(a.x, edge.x), maxX = Math.max(a.x, edge.x);
+    const minY = Math.min(a.y, edge.y), maxY = Math.max(a.y, edge.y);
     if (!measure || c.drawing.style.showLabels === false || occupied.length >= 32) return;
     const width = measure(text);
     if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) return;
@@ -225,11 +225,13 @@ function fanGeometry(c: HitContext, measure?: (text: string) => number): Drawing
     for (const offset of [0, -height, height]) {
       let x: number, baseline: number;
       if (vertical) {
-        x = b.x >= a.x ? b.x + 4 : b.x - width - 4;
+        x = edge.x >= a.x ? edge.x + 4 : edge.x - width - 4;
+        if (x < 0 || x + width > c.rc.plotWidth) x = edge.x >= a.x ? edge.x - width - 4 : edge.x + 4;
         baseline = Math.max(minY + height, Math.min(maxY, target.y + height / 2 + offset));
       } else {
         x = Math.max(minX, Math.min(maxX - width, target.x - width / 2 + offset));
-        baseline = b.y < a.y ? b.y - 4 : b.y + height + 4;
+        baseline = edge.y < a.y ? edge.y - 4 : edge.y + height + 4;
+        if (baseline - height < 0 || baseline > c.rc.plotHeight) baseline = edge.y < a.y ? edge.y + height + 4 : edge.y - 4;
       }
       const box = { x, y: baseline - height, width, height };
       if (x < 0 || x + width > c.rc.plotWidth || box.y < 0 || baseline > c.rc.plotHeight) continue;
@@ -246,9 +248,15 @@ function fanGeometry(c: HitContext, measure?: (text: string) => number): Drawing
     targets.forEach((target, i) => {
       const points = clippedLine(a, target, c.rc, 0, Infinity), color = lv.color ?? levelColor(lv.ratio);
       paths.push({ points, color });
-      if (points.length === 2 && lv.ratio >= 0) {
-        const at = interpolate(a, target, 1 / Math.max(1, lv.ratio));
-        addLabel(at, lv.ratio <= 1 ? i === 0 : i !== 0, lv.label ?? String(lv.ratio), color);
+      if (points.length === 2) {
+        // Negative ratios reflect one ray component across the origin. Reflect
+        // its label box too, instead of clamping onto the positive-ratio edge.
+        const edge = {
+          x: a.x + (Math.sign(target.x - a.x) || Math.sign(b.x - a.x)) * Math.abs(b.x - a.x),
+          y: a.y + (Math.sign(target.y - a.y) || Math.sign(b.y - a.y)) * Math.abs(b.y - a.y),
+        };
+        const ratio = Math.abs(lv.ratio), at = interpolate(a, target, 1 / Math.max(1, ratio));
+        addLabel(at, edge, ratio <= 1 ? i === 0 : i !== 0, lv.label ?? String(lv.ratio), color);
       }
     });
   }

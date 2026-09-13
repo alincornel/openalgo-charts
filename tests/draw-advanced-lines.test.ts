@@ -299,6 +299,71 @@ describe('advanced line descriptors', () => {
     expect(paint(d).count('fill')).toBe(0);
     expect(hit(d, 180, 250)).toBeGreaterThan(6);
   });
+  it.each([
+    { extendRight: true }, { extendLeft: true }, { extendLeft: true, extendRight: true },
+  ])('keeps equal-time extension fills zero-width for %j', extension => {
+    for (const reversed of [false, true]) for (const dpr of [1, 2]) {
+      const points = [{ time: 0, price: 10 }, { time: 0, price: 20 }];
+      if (reversed) points.reverse();
+      const d = drawing('fib-extension-two-point', points, { style: { fill: true, levels: [{ ratio: 0 }, { ratio: 1 }], ...extension } });
+      const context = rc(dpr), r = paint(d, context);
+      expect(r.count('fill')).toBe(0);
+      expect(moves(r).every(p => p[0] === 100 * dpr)).toBe(true);
+      expect(ends(r).every(p => p[0] === 100 * dpr)).toBe(true);
+      expect(hit(d, 400, 250, context)).toBe(300);
+      expect(hit(d, 50, 250, context)).toBe(50);
+    }
+  });
+  it('retains extended fills for distinct-time extension anchors', () => {
+    const d = drawing('fib-extension-two-point', anchors.slice(0, 2), { style: { fill: true, levels: [{ ratio: 0 }, { ratio: 1 }] } });
+    expect(hit(d, 400, 250)).toBeGreaterThan(6);
+    d.style.extendRight = true;
+    expect(hit(d, 400, 250)).toBe(0);
+    d.style.extendLeft = true;
+    expect(hit(d, 50, 250)).toBe(0);
+  });
+  it.each([false, true])('labels visible negative fan rays in their actual direction, reversed=%s', reversed => {
+    const points = [{ time: 120, price: 20 }, { time: 240, price: 30 }];
+    if (reversed) points.reverse();
+    const d = drawing('fib-speed-resistance-fan', points, { style: { showLabels: true, levels: [{ ratio: -0.5, label: 'Negative half', color: '#aa5511' }] } });
+    for (const dpr of [1, 2]) {
+      const context = rc(dpr), labels = paint(d, context).ops.filter(o => o.type === 'fillText');
+      expect(labels.map(o => o.text)).toEqual(['Negative half', 'Negative half']);
+      expect(labels.every(o => o.fillStyle === '#aa5511')).toBe(true);
+      const [price, time] = labels.map(o => ({ x: o.args[0] / dpr, y: o.args[1] / dpr }));
+      const width = 'Negative half'.length * 11 * 0.6;
+      expect(price.x).toBeCloseTo(reversed ? 300 - width - 4 : 504);
+      expect(reversed ? price.y < 100 : price.y > 200).toBe(true);
+      expect(time.y).toBeCloseTo(reversed ? 200 + 11 * 1.2 + 4 : 96);
+      expect(reversed ? time.x > 500 : time.x < 300).toBe(true);
+      expect(paint(d, context).ops.filter(o => o.type === 'stroke' && o.strokeStyle === '#aa5511')).toHaveLength(2);
+    }
+    delete d.style.levels![0].label;
+    expect(texts(paint(d))).toEqual(['-0.5', '-0.5']);
+    d.style.showLabels = false;
+    expect(texts(paint(d))).toEqual([]);
+  });
+  it('fits a negative fan label inside an edge that reaches the pane boundary', () => {
+    const d = drawing('fib-speed-resistance-fan', [{ time: 240, price: 30 }, { time: 120, price: 20 }], { style: { levels: [{ ratio: -2, label: 'Negative', color: '#aa5511' }] } });
+    for (const dpr of [1, 2]) {
+      const labels = paint(d, rc(dpr)).ops.filter(o => o.type === 'fillText');
+      expect(labels.map(o => o.text)).toEqual(['Negative', 'Negative']);
+      expect(labels.every(o => o.args[1] / dpr >= 11 && o.args[1] / dpr <= 400)).toBe(true);
+      expect(labels[0].args[1] / dpr).toBeCloseTo(11 * 1.2 + 4);
+    }
+  });
+  it('retains all crowded negative fan rays while filtering colliding labels', () => {
+    const d = drawing('fib-speed-resistance-fan', [{ time: 120, price: 20 }, { time: 240, price: 30 }]);
+    d.style.levels = Array.from({ length: 100 }, (_, i) => ({ ratio: -(i + 1) / 100, label: `Level ${i}` }));
+    const r = paint(d), labels = r.ops.filter(o => o.type === 'fillText');
+    expect(labels.length).toBeGreaterThan(0);
+    expect(labels.length).toBeLessThanOrEqual(32);
+    expect(r.count('stroke')).toBe(201);
+    for (let i = 0; i < labels.length; i++) for (let j = 0; j < i; j++) {
+      const a = labels[i], b = labels[j], wa = a.text!.length * 11 * 0.6, wb = b.text!.length * 11 * 0.6;
+      expect(a.args[0] + wa <= b.args[0] || b.args[0] + wb <= a.args[0] || a.args[1] <= b.args[1] - 11 || b.args[1] <= a.args[1] - 11).toBe(true);
+    }
+  });
   it('keeps fan projection direction when anchors are reversed', () => {
     const d = drawing('fib-speed-resistance-fan', [anchors[1], anchors[0]], { style: { levels: [{ ratio: 0.5 }] } });
     expect(hit(d, 100, 250)).toBeCloseTo(0);
