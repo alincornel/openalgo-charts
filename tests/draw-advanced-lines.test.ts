@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { clipPolygon, clippedLine, insidePolygon, sampleArc } from '../src/draw/advanced-shared';
+import { levelColor } from '../src/draw/levels';
 import { ADVANCED_LINE_TOOLS } from '../src/draw/advanced-lines';
 import { DataLayer } from '../src/model/data-layer';
 import { RecordingContext } from './helpers/fake-ctx';
@@ -23,6 +24,7 @@ function project(points: DrawingPoint[], context = rc()) {
 }
 function paint(d: Drawing, context = rc()) {
   const rec = new RecordingContext();
+  rec.measureText = text => ({ width: text.length * (Number(/([0-9.]+)px/.exec(rec.font)?.[1]) || 11) * 0.6 });
   let alpha = 1;
   const stack: number[] = [];
   Object.defineProperty(rec, 'globalAlpha', { get: () => alpha, set: (v: number) => { alpha = v; } });
@@ -125,10 +127,12 @@ describe('advanced line descriptors', () => {
     const d = drawing('pitchfork', anchors.slice(0, 3), { style: { fill: true, levels: [{ ratio: 1 }] } });
     expect(hit(d, 780, 10)).toBe(0);
   });
-  it('applies the fan line color when no level color overrides it', () => {
+  it('keeps the fan construction color independent of the level palette', () => {
     const d = drawing('fib-speed-resistance-fan');
     d.style.color = '#ff0000';
-    expect(paint(d).ops.filter(o => o.type === 'stroke').every(o => o.strokeStyle === '#ff0000')).toBe(true);
+    const colors = paint(d).ops.filter(o => o.type === 'stroke').map(o => o.strokeStyle);
+    expect(colors).toContain('#ff0000');
+    expect(colors).toContain(levelColor(0.382));
   });
   it('extends a reversed pitchfork towards its target and clips rays to the pane', () => {
     const d = drawing('pitchfork', [{ time: 240, price: 10 }, { time: 60, price: 20 }, { time: 120, price: 14 }], { style: { fill: false, levels: [{ ratio: 0 }] } });
@@ -222,13 +226,78 @@ describe('advanced line descriptors', () => {
   });
   it('draws price and time fan rays with a single common diagonal', () => {
     const d = drawing('fib-speed-resistance-fan', anchors.slice(0, 2), { style: { levels: [{ ratio: 0.5 }, { ratio: 1 }] } });
-    expect(paint(d).count('stroke')).toBe(3);
+    expect(paint(d).count('stroke')).toBe(4); // Three rays and the two-edge construction path.
     expect(hit(d, 300, 200)).toBeCloseTo(0);
-    expect(hit(d, 150, 200)).toBeCloseTo(0);
+    expect(hit(d, 200, 100)).toBeCloseTo(0);
     expect(hit(d, 200, 200)).toBeCloseTo(0);
     d.style.levels![0].enabled = false;
     expect(hit(d, 300, 200)).toBeGreaterThan(6);
-    expect(hit(d, 150, 200)).toBeGreaterThan(6);
+    expect(hit(d, 200, 100)).toBeGreaterThan(6);
+  });
+  it('includes both zero rays and conventional colors in the default fan', () => {
+    const d = drawing('fib-speed-resistance-fan');
+    expect(d.style.levels!.map(l => l.ratio)).toContain(0);
+    for (const level of d.style.levels!) expect(level.color).toBe(levelColor(level.ratio));
+    expect(hit(d, 400, 300)).toBeCloseTo(0);
+    expect(hit(d, 100, 100)).toBeCloseTo(0);
+  });
+  it('places compact fan ratios at anchor-box edges without overlap', () => {
+    const d = drawing('fib-speed-resistance-fan', [{ time: 0, price: 8 }, { time: 84, price: 30 }]);
+    for (const dpr of [1, 2]) {
+      const labels = paint(d, rc(dpr)).ops.filter(o => o.type === 'fillText');
+      expect(labels.length).toBeGreaterThanOrEqual(5);
+      const boxes = labels.map(o => {
+        expect(o.text).toMatch(/^[0-9.]+$/);
+        const x = o.args[0] / dpr, y = o.args[1] / dpr;
+        expect(Math.abs(x - 244) < 0.01 || Math.abs(y - 96) < 0.01).toBe(true);
+        return { x, y: y - 11, width: o.text!.length * 11 * 0.6, height: 11 };
+      });
+      for (let i = 0; i < boxes.length; i++) for (let j = 0; j < i; j++) {
+        const a = boxes[i], b = boxes[j];
+        expect(a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y).toBe(true);
+      }
+    }
+  });
+  it('skips fan labels when the anchor box cannot fit their text', () => {
+    const d = drawing('fib-speed-resistance-fan', [{ time: 0, price: 10 }, { time: 0.6, price: 10.1 }]);
+    expect(texts(paint(d))).toEqual([]);
+    expect(paint(d).count('stroke')).toBeGreaterThan(1);
+  });
+  it('bounds crowded fan labels without discarding their rays', () => {
+    const d = drawing('fib-speed-resistance-fan');
+    d.style.levels = Array.from({ length: 100 }, (_, i) => ({ ratio: i / 99 }));
+    const r = paint(d);
+    expect(texts(r).length).toBeLessThanOrEqual(32);
+    expect(r.count('stroke')).toBe(200); // 199 rays plus the construction path.
+  });
+  it('keeps fan user labels and colors and honors hidden labels', () => {
+    const d = drawing('fib-speed-resistance-fan', [{ time: 0, price: 8 }, { time: 180, price: 30 }]);
+    d.style.levels = [{ ratio: 0.5, color: '#aa5511', label: 'Half' }];
+    const labels = paint(d).ops.filter(o => o.type === 'fillText');
+    expect(labels.map(o => o.text)).toEqual(['Half', 'Half']);
+    expect(labels.every(o => o.fillStyle === '#aa5511')).toBe(true);
+    expect(paint(d).ops.filter(o => o.type === 'stroke' && o.strokeStyle === '#aa5511')).toHaveLength(2);
+    d.style.showLabels = false;
+    expect(texts(paint(d))).toEqual([]);
+  });
+  it('includes intermediate extension targets and exposes optional fill settings', () => {
+    const d = drawing('fib-extension-two-point');
+    expect(d.style.levels!.map(l => l.ratio)).toEqual(expect.arrayContaining([0.382, 0.618]));
+    expect(tool(d.tool).settings!.fields.map(f => f.path)).toEqual(expect.arrayContaining(['style.fill', 'style.fillColor', 'style.fillOpacity']));
+  });
+  it('fills extension bands only between enabled targets with configured appearance', () => {
+    const d = drawing('fib-extension-two-point', anchors.slice(0, 2), { style: {
+      fill: true, fillColor: '#aabbcc', fillOpacity: 0.17, levels: [0, 0.382, 0.618, 1].map(ratio => ({ ratio })),
+    } });
+    const fills = paint(d).ops.filter(o => o.type === 'fill');
+    expect(fills).toHaveLength(3);
+    expect(fills.every(o => o.fillStyle === '#aabbcc' && o.args[0] === 0.17)).toBe(true);
+    expect(hit(d, 180, 280)).toBe(0);
+    d.style.levels![0].enabled = false;
+    expect(hit(d, 180, 280)).toBeGreaterThan(6);
+    d.style.fill = false;
+    expect(paint(d).count('fill')).toBe(0);
+    expect(hit(d, 180, 250)).toBeGreaterThan(6);
   });
   it('keeps fan projection direction when anchors are reversed', () => {
     const d = drawing('fib-speed-resistance-fan', [anchors[1], anchors[0]], { style: { levels: [{ ratio: 0.5 }] } });

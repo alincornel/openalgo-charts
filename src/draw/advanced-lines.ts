@@ -1,16 +1,16 @@
 /** Channels, pitchforks and dedicated line tools. Geometry stays in media pixels. */
-import type { DrawingPoint, DrawingTool, FibLevel, HitContext, ScreenPoint } from './types';
+import type { DrawContext, DrawingPoint, DrawingTool, FibLevel, HitContext, ScreenPoint } from './types';
 import { composeSettings, EXTEND_FIELDS, FILL_FIELDS, FONT_FIELDS, LEVEL_FIELDS, LINE_FIELDS, SHOW_LABELS_FIELD } from './schema';
 import { cloneLevels, formatRatio, levelColor } from './levels';
 import {
   activeLevels, clippedLine, clipPolygon, extendedLine, geometryTool, interpolate, midpoint, numericProp,
-  projectPoint, sampleArc, type DrawingGeometry, type GeometryPath,
+  paintGeometry, projectPoint, sampleArc, type DrawingGeometry, type GeometryPath,
 } from './advanced-shared';
 
 const CHANNEL_SETTINGS = composeSettings([LINE_FIELDS, FILL_FIELDS, EXTEND_FIELDS]);
 const FORK_LEVELS: readonly FibLevel[] = [{ ratio: 0 }, { ratio: 0.5 }, { ratio: 1 }];
-const EXTENSION_LEVELS: readonly FibLevel[] = [0, 1, 1.272, 1.618, 2, 2.618, 3.618, 4.236].map(ratio => ({ ratio }));
-const FAN_LEVELS: readonly FibLevel[] = [0.382, 0.5, 0.618, 1].map(ratio => ({ ratio }));
+const EXTENSION_LEVELS: readonly FibLevel[] = [0, 0.382, 0.618, 1, 1.272, 1.618, 2, 2.618, 3.618, 4.236].map(ratio => ({ ratio }));
+const FAN_LEVELS: readonly FibLevel[] = [0, 0.382, 0.5, 0.618, 1].map(ratio => ({ ratio, color: levelColor(ratio) }));
 const empty = (): DrawingGeometry => ({ paths: [] });
 const line = (a: ScreenPoint, b: ScreenPoint): GeometryPath => ({ points: [a, b] });
 
@@ -178,13 +178,24 @@ const angle = geometryTool({ id: 'trend-angle', name: 'Trend Angle', points: 2, 
 });
 
 const extension = geometryTool({ id: 'fib-extension-two-point', name: 'Fib Extension (Two Point)', points: 2,
-  defaultStyle: { levels: cloneLevels(EXTENSION_LEVELS), showLabels: true },
-  settings: composeSettings([LINE_FIELDS, LEVEL_FIELDS, EXTEND_FIELDS, FONT_FIELDS]),
+  defaultStyle: { levels: cloneLevels(EXTENSION_LEVELS), showLabels: true, fill: true, fillOpacity: 0.06 },
+  settings: composeSettings([LINE_FIELDS, LEVEL_FIELDS, FILL_FIELDS, EXTEND_FIELDS, FONT_FIELDS]),
 }, c => {
   if (c.pts.length < 2) return empty();
   const [a, b] = c.pts, [p0, p1] = c.drawing.points;
-  const paths: GeometryPath[] = [line(a, b)], labels: NonNullable<DrawingGeometry['labels']> = [];
-  for (const lv of activeLevels(c.drawing, EXTENSION_LEVELS)) {
+  const paths: GeometryPath[] = [], labels: NonNullable<DrawingGeometry['labels']> = [];
+  const levels = activeLevels(c.drawing, EXTENSION_LEVELS);
+  if (c.drawing.style.fill === true) {
+    const ys = levels.map(lv => c.rc.priceScale.priceToY(p0.price + (p1.price - p0.price) * lv.ratio)).filter(Number.isFinite).sort((x, y) => x - y);
+    const left = c.drawing.style.extendLeft === true ? 0 : Math.min(a.x, b.x);
+    const right = c.drawing.style.extendRight === true ? c.rc.plotWidth : Math.max(a.x, b.x);
+    for (let i = 1; i < ys.length; i++) {
+      if (ys[i] === ys[i - 1]) continue;
+      paths.push({ points: clipPolygon([{ x: left, y: ys[i - 1] }, { x: right, y: ys[i - 1] }, { x: right, y: ys[i] }, { x: left, y: ys[i] }], c.rc), closed: true, fill: true, stroke: false });
+    }
+  }
+  paths.push(line(a, b));
+  for (const lv of levels) {
     const price = p0.price + (p1.price - p0.price) * lv.ratio;
     const y = c.rc.priceScale.priceToY(price), color = lv.color ?? levelColor(lv.ratio);
     paths.push({ points: extendedLine({ x: a.x, y }, { x: b.x, y }, c), color });
@@ -193,25 +204,74 @@ const extension = geometryTool({ id: 'fib-extension-two-point', name: 'Fib Exten
   return { paths, labels };
 });
 
-const fan = geometryTool({ id: 'fib-speed-resistance-fan', name: 'Fib Speed Resistance Fan', points: 2,
-  defaultStyle: { levels: cloneLevels(FAN_LEVELS), showLabels: true }, settings: composeSettings([LINE_FIELDS, LEVEL_FIELDS, FONT_FIELDS]),
-}, c => {
+interface FanLabelBox { x: number; y: number; width: number; height: number }
+
+function fanGeometry(c: HitContext, measure?: (text: string) => number): DrawingGeometry {
   if (c.pts.length < 2) return empty();
   const [a, b] = c.pts, paths: GeometryPath[] = [], labels: NonNullable<DrawingGeometry['labels']> = [];
+  // The two far box edges locate the anchors without doubling any fan ray.
+  paths.push({ points: [{ x: a.x, y: b.y }, b, { x: b.x, y: a.y }] });
+  const size = c.drawing.text?.fontSize ?? 11;
+  const height = size * 1.2, occupied: FanLabelBox[] = [];
+  const minX = Math.min(a.x, b.x), maxX = Math.max(a.x, b.x);
+  const minY = Math.min(a.y, b.y), maxY = Math.max(a.y, b.y);
+  const addLabel = (target: ScreenPoint, vertical: boolean, text: string, color: string): void => {
+    if (!measure || c.drawing.style.showLabels === false || occupied.length >= 32) return;
+    const width = measure(text);
+    if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) return;
+    if (vertical ? maxY - minY < height : maxX - minX < width) return;
+    // At most three nearby positions per label. Crowded labels disappear,
+    // rather than stacking rows of text over the rays or moving far from them.
+    for (const offset of [0, -height, height]) {
+      let x: number, baseline: number;
+      if (vertical) {
+        x = b.x >= a.x ? b.x + 4 : b.x - width - 4;
+        baseline = Math.max(minY + height, Math.min(maxY, target.y + height / 2 + offset));
+      } else {
+        x = Math.max(minX, Math.min(maxX - width, target.x - width / 2 + offset));
+        baseline = b.y < a.y ? b.y - 4 : b.y + height + 4;
+      }
+      const box = { x, y: baseline - height, width, height };
+      if (x < 0 || x + width > c.rc.plotWidth || box.y < 0 || baseline > c.rc.plotHeight) continue;
+      if (occupied.some(other => x < other.x + other.width + 3 && x + width + 3 > other.x
+        && box.y < other.y + other.height + 3 && box.y + height + 3 > other.y)) continue;
+      occupied.push(box);
+      labels.push({ at: { x, y: baseline }, text, color });
+      return;
+    }
+  };
   for (const lv of activeLevels(c.drawing, FAN_LEVELS)) {
     const targets = [{ x: b.x, y: a.y + (b.y - a.y) * lv.ratio }];
     if (lv.ratio !== 1) targets.push({ x: a.x + (b.x - a.x) * lv.ratio, y: b.y });
     targets.forEach((target, i) => {
-      const points = clippedLine(a, target, c.rc, 0, Infinity), color = lv.color ?? c.drawing.style.color ?? levelColor(lv.ratio);
+      const points = clippedLine(a, target, c.rc, 0, Infinity), color = lv.color ?? levelColor(lv.ratio);
       paths.push({ points, color });
-      if (c.drawing.style.showLabels !== false && points.length === 2) {
-        const at = interpolate(points[0], points[1], 0.7);
-        labels.push({ at: { x: at.x + 4, y: at.y - 4 }, text: `${lv.label ?? formatRatio(lv.ratio)} ${i === 0 ? 'price' : 'time'}`, color });
+      if (points.length === 2 && lv.ratio >= 0) {
+        const at = interpolate(a, target, 1 / Math.max(1, lv.ratio));
+        addLabel(at, lv.ratio <= 1 ? i === 0 : i !== 0, lv.label ?? String(lv.ratio), color);
       }
     });
   }
   return { paths, labels };
-});
+}
+
+const fan: DrawingTool = {
+  ...geometryTool({ id: 'fib-speed-resistance-fan', name: 'Fib Speed Resistance Fan', points: 2,
+    defaultStyle: { levels: cloneLevels(FAN_LEVELS), showLabels: true }, settings: composeSettings([LINE_FIELDS, LEVEL_FIELDS, FONT_FIELDS]),
+  }, c => fanGeometry(c)),
+  draw(c: DrawContext) {
+    const { ctx, rc } = c, text = c.drawing.text;
+    let geometry: DrawingGeometry;
+    ctx.save();
+    try {
+      // Match the shared painter's font so collision checks use actual glyph
+      // widths, including custom labels and font choices, at this DPR.
+      ctx.font = `${text?.italic === true ? 'italic ' : ''}${text?.bold === true ? '700 ' : ''}${(text?.fontSize ?? 11) * rc.dpr}px ${text?.fontFamily || 'ui-sans-serif, system-ui, sans-serif'}`;
+      geometry = fanGeometry({ rc, drawing: { ...c.drawing, style: c.style }, pts: c.pts.map(p => ({ x: p.x / rc.dpr, y: p.y / rc.dpr })) }, value => ctx.measureText(value).width / rc.dpr);
+    } finally { ctx.restore(); }
+    paintGeometry(c, geometry);
+  },
+};
 
 const STAMP_SHAPES = ['star', 'diamond', 'circle', 'arrow up', 'arrow down', 'check', 'cross'] as const;
 const stamp = geometryTool({ id: 'icon-stamp', name: 'Icon Stamp', points: 1,
