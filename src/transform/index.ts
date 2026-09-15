@@ -55,3 +55,15 @@ export {
   type PointFigureBoxMode,
 } from './point-figure';
 export { KagiTransform, type KagiOptions } from './kagi';
+
+// Symbol arithmetic. It sits in this tier because it is the same shape as
+// the others -- bars in, bars out, no DOM -- and a host that never charts a
+// spread should not carry a parser in the base bundle.
+export {
+  parseExpression,
+  evaluateExpression,
+  isPlainSymbol,
+  ExpressionError,
+  type SymbolExpression,
+  type EvaluateOptions,
+} from './expression';

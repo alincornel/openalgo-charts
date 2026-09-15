@@ -15,6 +15,7 @@ import { initHover } from './hover.js';
 import { fillIntervalSelect, clampPeriod } from './intervals.js';
 import { initFeed, fetchBars, fetchNote, feedErrorState } from './feed.js';
 import { applyTransform } from './transforms.js';
+import { isExpression, fetchExpressionBars, mountOperatorKeypad } from './expression.js';
 import { initStatus, nameOf, symbolStatus } from './status.js';
 import { DEFAULT_TZ, initTimezone } from './timezone.js';
 import { initAxisChrome, applyAxisChrome, applyStatusLineChoice, applyTradeChoice } from './axis-chrome.js';
@@ -398,7 +399,11 @@ async function load(opts) {
   try {
     // The main slot: a newer main load cancels the one in flight, so a
     // quick symbol switch cannot land the older answer on the newer name.
-    const bars = await fetchBars(app.req.symbol, app.req.interval, app.req.period, { ...(opts || {}), slot: 'main' });
+    // A symbol box holding arithmetic (`AAPL/MSFT`) fetches every leg and folds
+    // them into one series. Anything else takes the ordinary single-symbol path.
+    const bars = isExpression(app.req.symbol)
+      ? (await fetchExpressionBars(app.req.symbol, app.req.interval, app.req.period, { ...(opts || {}) })).bars
+      : await fetchBars(app.req.symbol, app.req.interval, app.req.period, { ...(opts || {}), slot: 'main' });
     // Read the cache verdict now: `syncComparisons()` below fetches too, and
     // `lastFetch` describes whichever load ran most recently, so composing
     // the line at the end would report the comparison's verdict as this
@@ -452,6 +457,11 @@ initVolume(app);
 initOrders(app);
 initBracket(app);
 initIndicators(app);
+
+// The operator keypad lives beside the symbol field. Mounted once: it writes
+// into the field and the ordinary Enter handler does the loading, so nothing
+// here needs to know how a chart is built.
+mountOperatorKeypad(el('symbol'), el('symkeys'));
 initChartSettings(app);
 initCompare(app);
 initSnapshot(app);

@@ -102,4 +102,72 @@ A transformed series is indexed by **element**, not by clock. Every element carr
 - **Drawings anchored in time drift.** A trendline placed on a transformed series is pinned to element positions on the shared axis; the same coordinates over the raw bars land somewhere else. Do not switch a chart between raw and transformed data while keeping drawings and expect them to hold.
 - `flush()` output is provisional. `RangeBarsTransform` and `PointFigureTransform` emit an in-progress element and `KagiTransform` emits a live vertex, those change as more data arrives, unlike completed elements, which are stable (an incremental run's prefix equals a batch run's prefix).
 
+## Symbol arithmetic (2.3.0)
+
+A chart of `NIFTY1!/NSE:RELIANCE`, `(A+B)/2`, `1/GOLD`, or any expression over
+any number of legs. Two calls, deliberately separate:
+
+```ts
+import { parseExpression, evaluateExpression, isPlainSymbol } from 'openalgo-charts/transform';
+
+const expr = parseExpression('NSEIX:NIFTY1!/NSE:RELIANCE+NASDAQ:META');
+expr.symbols;  // ['NSEIX:NIFTY1!', 'NSE:RELIANCE', 'NASDAQ:META'] -> fetch exactly these
+const bars = evaluateExpression(expr, { 'NSEIX:NIFTY1!': a, 'NSE:RELIANCE': b, 'NASDAQ:META': c });
+chart.addSeries('line').setData(bars);
+```
+
+`parseExpression` names the legs **before** anything is fetched, which is the
+point: a host resolves and loads exactly those symbols. The engine fetches
+nothing, the same way `addComparison` takes bars rather than a symbol.
+`isPlainSymbol` tells an ordinary symbol from arithmetic, so one code path
+serves both. `ExpressionError` carries the offending character's index, so a
+search box can underline it.
+
+Grammar: `+ - * / ^` with the usual precedence and `^` right associative, unary
+minus, parentheses, numeric constants, and `abs sqrt ln log log10 exp min max
+pow`. The keypad glyphs a search box prints are accepted too. A ticker
+containing `-` goes in quotes (`'BRK-B'/SPY`), because bare `-` is subtraction
+and no lookahead settles `A-B` in general.
+
+### Weighted legs: options combinations
+
+Numeric coefficients make this an options-combination tool as much as a ratio
+tool:
+
+| Expression | What it is |
+| --- | --- |
+| `2*CE25000 - CE25200` | 1x2 ratio spread |
+| `CE25000 + PE25000` | Long straddle |
+| `-CE25000 - PE25000` | Short straddle, a credit, so negative |
+| `75*(CE25000 - CE25200)` | The spread scaled by lot size |
+
+A sold combination is a credit, so the series goes negative, and that is allowed
+rather than clamped. Two consequences. A series reaching zero or below cannot be
+drawn on a **logarithmic** price scale, so leave a spread pane on the regular
+one. And a leg that did not print gaps the whole combination rather than pricing
+it from an earlier minute: for an illiquid strike that is the normal case, and a
+premium carried forward is exactly the number that gets someone hurt.
+
+### Open and close are exact; the high and low are a bound
+
+A bar records where a market opened, closed and how far it travelled, but not
+*when* it was at each price, so the true high of a ratio is not recoverable from
+two OHLC bars.
+
+| `ohlc` | What you get |
+| --- | --- |
+| `'close'` (default) | A flat bar from the legs' own opens and closes, which are simultaneous by definition. Exact. |
+| `'interval'` | Additionally bounds the high and low by interval arithmetic. Guaranteed to contain the truth, usually wider than it. |
+
+The bound assumes each leg hit its extreme at the worst possible moment, so it
+overstates the range. It also cannot see that two mentions of one symbol move
+together, so `A/A` bounds rather than collapsing to 1: the classic dependency
+problem, and the reason `'close'` is the default.
+
+Three more behaviours worth knowing. A bar the other legs did not trade produces
+a **gap**, not a value carried forward, because a ratio against another minute's
+price was never true. A divisor reaching zero gaps rather than spiking. And the
+result carries no `volume`: the volume of a ratio is not a quantity anyone
+traded, and picking one leg's would be arbitrary.
+
 Related: [chart-types](./chart-types.md), [data-and-time](./data-and-time.md), [indicators](./indicators.md), [drawing-tools](./drawing-tools.md), [bundling-and-tiers](./bundling-and-tiers.md), [pitfalls](./pitfalls.md).

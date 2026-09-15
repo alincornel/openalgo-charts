@@ -2,6 +2,57 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 2.3.0
+
+2026-09-16
+
+### Added
+
+- **Symbol arithmetic.** `openalgo-charts/transform` gains `parseExpression`
+  and `evaluateExpression`, so a host can chart `NIFTY1!/NSE:RELIANCE`,
+  `(A+B)/2`, `1/GOLD`, or any expression over any number of legs.
+  `+ - * / ^` with the usual precedence (`^` right associative), unary minus,
+  parentheses, numeric constants, and `abs sqrt ln log log10 exp min max pow`.
+  The keypad glyphs a search box prints are accepted too, so a pasted
+  expression works.
+- `parseExpression` reports the symbols it needs **before** anything is
+  fetched, which is what lets a host resolve and load exactly those legs.
+  `isPlainSymbol` tells an ordinary symbol from arithmetic, so one code path
+  serves both. `ExpressionError` carries the offending character's index, so a
+  search box can underline it.
+- **Weighted legs, for options combinations.** `2*CE25000 - CE25200` is a ratio
+  spread, `CE + PE` a straddle, `75*(CE25000 - CE25200)` the same spread scaled
+  by lot size. A sold spread is a credit, so the combined premium is negative,
+  and that is allowed rather than clamped. One consequence to know: a series
+  that goes at or below zero cannot be drawn on a logarithmic price scale, so
+  leave a spread pane on the regular scale.
+- A leg that did not print gaps the whole combination rather than pricing it
+  from an earlier minute. For an illiquid strike that is the normal case, and a
+  premium carried forward is exactly the number that gets someone hurt.
+- The reference host wires it end to end: type `AAPL/MSFT` into the symbol
+  field, or build an expression with the operator keypad beside it.
+
+### Notes
+
+- **Open and close are exact; the high and low are a bound.** A bar records
+  where a market opened, closed and how far it travelled, but not *when* it was
+  at each price, so the true high of a ratio is not recoverable from two OHLC
+  bars. `ohlc: 'close'` is the default and is exact. `ohlc: 'interval'` bounds
+  the extremes by interval arithmetic, which is guaranteed to contain the truth
+  and is usually wider, because it assumes each leg hit its extreme at the worst
+  possible moment. An interval also cannot see that two mentions of one symbol
+  move together, so `A/A` bounds rather than collapsing to 1.
+- A bar the other legs did not trade produces a gap, not a value carried
+  forward: a ratio against another minute's price was never true. A divisor
+  reaching zero gaps rather than spiking.
+- The result carries no `volume`. The volume of a ratio is not a quantity
+  anyone traded, and picking one leg's would be arbitrary.
+- A ticker containing `-` is written in quotes (`'BRK-B'/SPY`), because bare
+  `-` is subtraction and no lookahead settles `A-B` in general.
+- Two size budgets were raised deliberately: the transform tier from 5 to 6 KB
+  (it gained the parser and evaluator, 2.66 to 4.44 KB), and Everything from
+  215 to 218 KB, which had 0.08 KB of headroom left.
+
 ## 2.2.3
 
 2026-09-16

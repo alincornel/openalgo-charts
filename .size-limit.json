@@ -27,9 +27,9 @@
     "brotli": true
   },
   {
-    "name": "Transform tier (Renko/Range/P&F/Kagi/Line-break/HA)",
+    "name": "Transform tier (Renko/Range/P&F/Kagi/Line-break/HA + symbol arithmetic)",
     "path": "dist/openalgo-charts.transform.mjs",
-    "limit": "5 KB",
+    "limit": "6 KB",
     "brotli": true
   },
   {
@@ -73,7 +73,7 @@
       "dist/openalgo-charts.webgl.mjs",
       "dist/openalgo-charts.widget.mjs"
     ],
-    "limit": "215 kB",
+    "limit": "218 kB",
     "brotli": true
   }
 ]
