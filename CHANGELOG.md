@@ -2,6 +2,31 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 2.2.2
+
+2026-09-16
+
+### Security
+
+- Documentation-site dependencies updated to clear every open advisory:
+  `next` to 15.5.25, `sharp` to 0.35.4, `js-yaml` to 3.15.2, and
+  `@xmldom/xmldom` to 0.9.12 through an npm override, because
+  `speech-rule-engine` pins it exactly and npm cannot lift it on its own.
+  `postcss` is overridden to 8.5.28 for the same reason: Next pins 8.4.31, and
+  npm's only offered route was a Next major. `npm audit` reports zero
+  vulnerabilities.
+
+**The published package was never affected.** `openalgo-charts` has no
+`dependencies` and no `peerDependencies`; every advisory was in
+`website/package-lock.json`, which builds the documentation site and ships to
+nobody. Anyone who installed 2.2.0 or 2.2.1 was not exposed by any of these, and
+upgrading is not a security action.
+
+### Notes
+
+- No library code changed. The bundles differ from 2.2.1 only by the version
+  string they carry, which is why the measured sizes move by hundredths.
+
 ## 2.2.1
 
 2026-09-16
