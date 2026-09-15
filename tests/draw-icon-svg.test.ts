@@ -278,3 +278,47 @@ describe('toolCursor', () => {
     expect(() => toolCursor('no-such-tool')).toThrow(/no-such-tool/);
   });
 });
+
+/**
+ * 2.2.3: every interpolated attribute is escaped, not only the two that were.
+ *
+ * `opts.stroke` is typed `number`, but a JavaScript host is not held to that,
+ * and it went into the markup raw while `size` and `className` beside it were
+ * escaped. A host that forwards a value from its own settings could close the
+ * attribute and open a tag.
+ */
+describe('icon markup escapes every interpolated attribute', () => {
+  const BREAKOUT = '"><script>alert(1)</script><x y="';
+
+  it('cannot be broken out of through stroke', () => {
+    const svg = iconSvg('trend-line', { stroke: BREAKOUT as unknown as number });
+    expect(svg).not.toContain('<script>');
+    expect(svg).toContain('&quot;&gt;&lt;script&gt;');
+    // Three real tag delimiters and no more: `<svg`, `<path`, `</svg>`. An
+    // injected element would raise this count.
+    expect(svg.match(/</g)!.length).toBe(3);
+  });
+
+  it('cannot be broken out of through className', () => {
+    const svg = iconSvg('trend-line', { className: BREAKOUT });
+    expect(svg).not.toContain('<script>');
+    expect(svg).toContain('&quot;&gt;&lt;script&gt;');
+  });
+
+  it('cannot be broken out of through size', () => {
+    const svg = iconSvg('trend-line', { size: BREAKOUT });
+    expect(svg).not.toContain('<script>');
+  });
+
+  it('an empty className adds no class attribute', () => {
+    expect(iconSvg('trend-line', { className: '' })).not.toContain('class=');
+  });
+
+  it('still produces the ordinary markup unchanged', () => {
+    const svg = iconSvg('trend-line');
+    expect(svg.startsWith('<svg xmlns=')).toBe(true);
+    expect(svg.endsWith('</svg>')).toBe(true);
+    expect(svg).toContain('aria-hidden="true"');
+    expect(svg).not.toContain('&quot;');
+  });
+});

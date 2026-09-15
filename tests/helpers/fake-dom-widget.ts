@@ -424,7 +424,9 @@ export class FakeElement extends FakeNode {
   }
 
   public override get textContent(): string {
-    return this._innerHTML !== '' ? this._innerHTML.replace(/<[^>]*>/g, '') : super.textContent;
+    // `(>|$)` so an unterminated trailing tag goes too: `/<[^>]*>/g` leaves a
+    // bare `<script` behind, which is not what a browser's textContent returns.
+    return this._innerHTML !== '' ? this._innerHTML.replace(/<[^>]*(?:>|$)/g, '') : super.textContent;
   }
   public override set textContent(v: string) {
     this._innerHTML = '';

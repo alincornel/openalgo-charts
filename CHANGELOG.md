@@ -2,6 +2,39 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 2.2.3
+
+2026-09-16
+
+### Security
+
+- Every interpolated attribute in the icon markup is escaped, not only `size`
+  and `className`. `opts.stroke` is typed `number`, but a JavaScript host is not
+  held to that, and it went into the `<svg>` raw, so a host forwarding a value
+  from its own settings could close the attribute and open a tag. The sprite's
+  symbol ids, the `<use>` href, the path data and the registry's own attributes
+  are escaped too: one escaped value beside four unescaped ones is the shape a
+  later edit gets wrong.
+- Three regular expressions rewritten to remove quadratic backtracking.
+  `parseSessionSpec` and the two `rgb()` colour parsers each placed a `\s*`
+  beside something that also matches a space, so a long run of spaces on an
+  input that ultimately fails split between them in quadratically many ways.
+  Measured on the old patterns: 64k spaces took 1.96 s in the colour parser and
+  over half a second at 32k in the session parser; both are now under a
+  millisecond. The session spec is a string a user types into a settings field,
+  where a half-typed value arrives on every keystroke.
+- The test suite's fake DOM strips an unterminated trailing tag from
+  `textContent`, which `/<[^>]*>/g` left behind.
+
+These close every open CodeQL alert. The colour parsers and the session parser
+were verified to accept and capture exactly what they did before, over a corpus
+of valid and malformed inputs, and both fixes were confirmed by reverting them
+and watching the new tests fail.
+
+### Notes
+
+- No public API changed, and no behaviour changed for any valid input.
+
 ## 2.2.2
 
 2026-09-16

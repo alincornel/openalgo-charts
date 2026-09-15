@@ -581,7 +581,10 @@ export interface SessionSpec {
   days?: readonly number[];
 }
 
-const SESSION_RE = /^\s*(\d{2})(\d{2})\s*-\s*(\d{2})(\d{2})\s*(?::\s*([1-7]+))?\s*$/;
+// The whitespace before the optional day list lives inside the group. Left
+// outside it, an absent group leaves `\s*\s*$`, and trailing spaces on a spec
+// that does not match split between the two in quadratically many ways.
+const SESSION_RE = /^\s*(\d{2})(\d{2})\s*-\s*(\d{2})(\d{2})(?:\s*:\s*([1-7]+))?\s*$/;
 
 /** `HH` and `MM` as minutes from midnight, or -1 if either is out of range. */
 function specMinutes(hh: string, mm: string): number {

@@ -194,7 +194,8 @@ export function toHexColor(input: unknown): string | null {
     if (h.length === 6 || h.length === 8) return '#' + h.slice(0, 6).toLowerCase();
     return null;
   }
-  const fn = /^rgba?\(\s*([\d.]+)\s*[, ]\s*([\d.]+)\s*[, ]\s*([\d.]+)/i.exec(s);
+  // See tokens.ts: one unambiguous separator alternation, not `\s*[, ]\s*`.
+  const fn = /^rgba?\(\s*([\d.]+)(?:\s*,\s*|\s+)([\d.]+)(?:\s*,\s*|\s+)([\d.]+)/i.exec(s);
   if (fn === null) return null;
   const part = (v: string): string => Math.round(Math.max(0, Math.min(255, Number(v)))).toString(16).padStart(2, '0');
   return `#${part(fn[1])}${part(fn[2])}${part(fn[3])}`;
