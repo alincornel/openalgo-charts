@@ -2,6 +2,44 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 2.2.1
+
+2026-09-16
+
+### Added
+
+- `IndicatorInput` gains an optional `tooltip`, help text a settings UI renders
+  as a hover mark beside the label. A label has to stay short enough for a dense
+  panel, which left nowhere to say what a parameter does, so a ported study
+  arrived with its explanation dropped. Every one of the six input variants
+  carries it, as does the chart-settings `colorPair` row.
+- `IndicatorPlot` gains an optional `priceFormat`, which sets the axis and
+  crosshair formatting of the scale the plot maps to. A new `percent` variant
+  suffixes the value without scaling it, so a ratio study no longer has to
+  choose between an axis that reads correctly and a value that does.
+- `PriceFormat` is exported, and `addSeries`'s `priceFormat` accepts the same
+  `percent` variant.
+
+### Improved
+
+- Historical Volatility and Bollinger BandWidth label their axes as percentages,
+  and carry help text on the inputs whose meaning was previously left unstated.
+  Historical Volatility's "Days per bar unit" label loses its parenthetical,
+  which now sits in its tooltip.
+- The chart-settings dialog explains Scale and Timezone: what Percent and
+  Indexed to 100 rebase against, and that changing the zone moves VWAP and pivot
+  values rather than only the labels.
+
+### Notes
+
+- Both additions are optional fields. A descriptor, a host implementing
+  `IndicatorHost`, and a saved chart state written by 2.2.0 all behave exactly
+  as before; `addIndicatorSeries` gained a trailing optional parameter, which an
+  existing implementation still satisfies.
+- `priceFormat` is a property of the price **scale**, like `style.precision`, so
+  it belongs to a plot that owns its pane. On an `'onchart'` plot it would
+  reformat the instrument's own axis.
+
 ## 2.2.0
 
 2026-09-13

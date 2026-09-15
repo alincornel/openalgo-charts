@@ -69,3 +69,72 @@ describe('Chart.priceFormatter option', () => {
     expect(chart.panes()[0].priceScale.format(50)).not.toContain('pts');
   });
 });
+
+/**
+ * 2.2.1: `percent` as a declared format, and an indicator plot naming one.
+ *
+ * The percent case exists because a ratio study has to choose between an axis
+ * that reads correctly and a value that reads correctly, and scaling inside
+ * `calc` to fix the axis silently changes the legend, the crosshair and every
+ * downstream calculation. The formatter suffixes and does not scale, so the two
+ * stay in agreement.
+ */
+describe('priceFormat: percent', () => {
+  it('suffixes without scaling, at two decimals by default', () => {
+    const chart = makeChart();
+    chart.addSeries('line', { priceFormat: { type: 'percent' } })
+      .setData([{ time: 1000, value: 62.244 }, { time: 1060, value: 63 }]);
+    expect(chart.panes()[0].priceScale.format(62.244)).toBe('62.24%');
+    // A 0..1 study keeps its own value rather than being multiplied to look nicer.
+    expect(chart.panes()[0].priceScale.format(0.62)).toBe('0.62%');
+  });
+
+  it('honours an explicit precision', () => {
+    const chart = makeChart();
+    chart.addSeries('line', { priceFormat: { type: 'percent', precision: 1 } })
+      .setData([{ time: 1000, value: 5 }]);
+    expect(chart.panes()[0].priceScale.format(62.244)).toBe('62.2%');
+  });
+});
+
+describe('IndicatorPlot.priceFormat', () => {
+  const bars = Array.from({ length: 40 }, (_, i) => bar(1000 + i * 60, 100 + (i % 7)));
+
+  it('reaches the price scale of the pane the plot lands on', async () => {
+    const { registerIndicator } = await import('../src/model/indicator-registry');
+    registerIndicator({
+      id: 'test-pct-fmt',
+      name: 'Percent Study',
+      placement: 'pane',
+      inputs: [],
+      plots: [{
+        key: 'v', type: 'line', title: 'V',
+        priceFormat: { type: 'percent', precision: 2 },
+      }],
+      calc: (b) => ({ v: b.map((_, i) => i / 100) }),
+    });
+
+    const chart = makeChart();
+    chart.addSeries('candlestick').setData(bars);
+    chart.addIndicator('test-pct-fmt');
+    // The study owns pane 1; pane 0 is the instrument and must be untouched.
+    expect(chart.panes()[1].priceScale.format(0.62)).toBe('0.62%');
+    expect(chart.panes()[0].priceScale.format(0.62)).not.toContain('%');
+  });
+
+  it('a plot that declares no format leaves its scale alone', async () => {
+    const { registerIndicator } = await import('../src/model/indicator-registry');
+    registerIndicator({
+      id: 'test-no-fmt',
+      name: 'Plain Study',
+      placement: 'pane',
+      inputs: [],
+      plots: [{ key: 'v', type: 'line', title: 'V' }],
+      calc: (b) => ({ v: b.map((_, i) => i / 100) }),
+    });
+    const chart = makeChart();
+    chart.addSeries('candlestick').setData(bars);
+    chart.addIndicator('test-no-fmt');
+    expect(chart.panes()[1].priceScale.format(0.62)).not.toContain('%');
+  });
+});

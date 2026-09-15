@@ -8,7 +8,7 @@
  * indicators draw through the same Family-A renderers as any other series.
  */
 import type { Bar } from './bar';
-import type { SeriesApi } from './series';
+import type { PriceFormat, SeriesApi } from './series';
 import type { PriceLine } from '../primitives/price-line';
 import type { PaneLegend, LegendValue } from '../primitives/pane-legend';
 import type { SeriesMarkers } from '../primitives/markers';
@@ -91,6 +91,8 @@ export interface IndicatorHost {
     paneIndex: number,
     style: Record<string, unknown> | undefined,
     priceScaleId: string | undefined,
+    /** Axis/crosshair formatting for the scale this plot maps to. */
+    priceFormat?: PriceFormat,
   ): SeriesApi;
   /**
    * Add a reference level. One options object rather than seven positional
@@ -328,7 +330,7 @@ export class IndicatorInstance implements IndicatorApi {
       this._plotTypes.set(plot.key, type);
       this._series.set(
         plot.key,
-        host.addIndicatorSeries(type, this._plotPane(plot), this._plotStyle(plot), plot.priceScaleId),
+        host.addIndicatorSeries(type, this._plotPane(plot), this._plotStyle(plot), plot.priceScaleId, plot.priceFormat),
       );
     }
 
@@ -789,7 +791,7 @@ export class IndicatorInstance implements IndicatorApi {
         this._series.get(plot.key)?.remove();
         this._series.set(
           plot.key,
-          this._host.addIndicatorSeries(wanted, this._plotPane(plot), this._plotStyle(plot), plot.priceScaleId),
+          this._host.addIndicatorSeries(wanted, this._plotPane(plot), this._plotStyle(plot), plot.priceScaleId, plot.priceFormat),
         );
         this._plotTypes.set(plot.key, wanted);
         continue;

@@ -157,7 +157,7 @@ export type {
 export { CandleBuilder, DEFAULT_CANDLE_BUILDER_OPTIONS } from './feed/candle-builder';
 export type { CandleBuilderOptions, Tick, CandleUpdate, VolumeMode, LateTickPolicy } from './feed/candle-builder';
 
-export type { SeriesApi, PriceScaleId } from './model/series';
+export type { SeriesApi, PriceScaleId, PriceFormat } from './model/series';
 
 // primitives / plugin API
 export { bestHit } from './primitives/primitive';

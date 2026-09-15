@@ -14,7 +14,7 @@
 import type { Bar } from './bar';
 import type { SeriesType } from './chart-type-registry';
 import type { SeriesStyle } from '../render/series-style';
-import type { PriceScaleId } from './series';
+import type { PriceScaleId, PriceFormat } from './series';
 import type { SeriesMarker } from '../primitives/markers';
 import type { TableCell, ChartTableOptions } from '../primitives/table';
 import type { IPrimitive } from '../primitives/primitive';
@@ -22,14 +22,23 @@ import type { IPrimitive } from '../primitives/primitive';
 /** Which price a calculation reads from each bar. */
 export type IndicatorSource = 'open' | 'high' | 'low' | 'close' | 'hl2' | 'hlc3' | 'ohlc4' | 'volume';
 
-/** One tunable input. `type` is what a settings UI renders; the core only reads `key`/`default`. */
+/**
+ * One tunable input. `type` is what a settings UI renders; the core only reads
+ * `key`/`default`.
+ *
+ * `tooltip` is help text for the row. A label has to stay short enough to fit a
+ * dense panel, which leaves nowhere to say what a parameter actually does, and a
+ * ported study whose every input carried an explanation arrives here with that
+ * explanation dropped. A settings UI renders it as a hover affordance beside the
+ * label; the core ignores it.
+ */
 export type IndicatorInput =
-  | { key: string; type: 'number'; label: string; default: number; min?: number; max?: number; step?: number; group?: string }
-  | { key: string; type: 'boolean'; label: string; default: boolean; group?: string }
-  | { key: string; type: 'color'; label: string; default: string; group?: string }
-  | { key: string; type: 'text'; label: string; default: string; group?: string }
-  | { key: string; type: 'select'; label: string; default: string; options: readonly { label: string; value: string }[]; group?: string }
-  | { key: string; type: 'source'; label: string; default: IndicatorSource; group?: string };
+  | { key: string; type: 'number'; label: string; default: number; min?: number; max?: number; step?: number; group?: string; tooltip?: string }
+  | { key: string; type: 'boolean'; label: string; default: boolean; group?: string; tooltip?: string }
+  | { key: string; type: 'color'; label: string; default: string; group?: string; tooltip?: string }
+  | { key: string; type: 'text'; label: string; default: string; group?: string; tooltip?: string }
+  | { key: string; type: 'select'; label: string; default: string; options: readonly { label: string; value: string }[]; group?: string; tooltip?: string }
+  | { key: string; type: 'source'; label: string; default: IndicatorSource; group?: string; tooltip?: string };
 
 /** Dash pattern for a level, a drawing, or a plot. */
 export type IndicatorLineStyle = 'solid' | 'dashed' | 'dotted';
@@ -152,6 +161,22 @@ export interface IndicatorPlot {
   style?: SeriesStyle;
   /** Price axis for this plot. Defaults to 'right'. */
   priceScaleId?: PriceScaleId;
+  /**
+   * Value formatting for the axis and crosshair tag of the scale this plot maps
+   * to: `percent` for a ratio study, `volume` for a cumulative one, `custom` for
+   * anything else.
+   *
+   * Like `style.precision`, this is a property of the **price scale**, not of the
+   * series, so it belongs to a plot that owns its pane. Setting it on an
+   * `'onchart'` plot reformats the instrument's own axis, which is almost never
+   * what a study wants.
+   *
+   * `percent` suffixes the value as it stands and does not scale it, so a study
+   * returning a 0..1 fraction should keep returning it and read `0.62%`. Scaling
+   * inside `calc` to make the axis read better changes the plotted value, and the
+   * legend, the crosshair and every downstream calculation with it.
+   */
+  priceFormat?: PriceFormat;
   /**
    * Draw this one plot on the price pane even though the indicator owns a pane
    * of its own. An oscillator that also wants a signal

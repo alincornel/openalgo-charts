@@ -67,6 +67,8 @@ export interface ChartSettingsColorPairInput {
   type: 'colorPair';
   label: string;
   group?: string;
+  /** Help text for the row, on the same terms as `IndicatorInput['tooltip']`. */
+  tooltip?: string;
   enabled?: { key: string; default: boolean };
   up: { key: string; label: string; default: string };
   down: { key: string; label: string; default: string };
@@ -173,9 +175,10 @@ function selectCtl(
   key: string, label: string, group: string, def: string,
   options: readonly { label: string; value: string }[],
   get: (c: Chart) => string, set: (c: Chart, v: string) => void,
+  tooltip?: string,
 ): Control {
   return {
-    input: { key, type: 'select', label, default: def, options, group },
+    input: { key, type: 'select', label, default: def, options, group, tooltip },
     fields: [{ key, read: get, write: (c, v) => set(c, String(v)) }],
   };
 }
@@ -552,6 +555,9 @@ function axesControls(chart: Chart): Control[] {
       'scales.mode', 'Scale', 'Price scale', 'linear', SCALE_MODES,
       (c) => c.priceScaleOptions().mode,
       (c, v) => c.setPriceScaleOptions({ mode: v as PriceScaleMode }),
+      'Regular plots the price. Logarithmic gives equal space to equal percentage moves. '
+        + 'Percent and Indexed to 100 both rebase to the left edge of the visible range, '
+        + 'the first as a change from it, the second as a level starting at 100.',
     ),
     boolCtl(
       'scales.autoScale', 'Auto (fits data to screen)', 'Price scale', true,
@@ -573,6 +579,8 @@ function axesControls(chart: Chart): Control[] {
       // build's zone list), and `setTimezone` throws on a name the runtime does
       // not know. Skipping it keeps one stale zone from losing the whole apply.
       (c, v) => { if (isValidTimezone(v)) c.setTimezone(v); },
+      'The calendar the axis and crosshair label in, and the one every session-anchored '
+        + 'study resets on. Changing it moves VWAP and pivot values, not only the labels.',
     ),
     // Both default to off, and that is a deliberate library default rather than
     // an oversight. The countdown repaints once a second for as long as the

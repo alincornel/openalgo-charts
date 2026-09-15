@@ -19,7 +19,7 @@ import {
   type RendererFallbackReason,
 } from '../render/backend';
 import { DataLayer } from '../model/data-layer';
-import { createSeriesRecord, type SeriesApi, type SeriesRecord, type PriceScaleId } from '../model/series';
+import { createSeriesRecord, type SeriesApi, type SeriesRecord, type PriceScaleId, type PriceFormat } from '../model/series';
 import { getChartType, type SeriesType } from '../model/chart-type-registry';
 import {
   getIndicator, hasIndicator, plotStyleKeys,
@@ -364,13 +364,15 @@ export interface AddSeriesOptions {
   priceScaleId?: PriceScaleId;
   /**
    * Value formatting applied to this series' price scale (axis + crosshair tag):
-   * `price` (tick-size precision), `volume` (compact 1.2K / 3.4M / 5.6B), or a
-   * `custom` formatter (currency, percent, ...).
+   * `price` (tick-size precision), `volume` (compact 1.2K / 3.4M / 5.6B),
+   * `percent` (a `%` suffix at a fixed precision), or a `custom` formatter.
+   *
+   * `percent` suffixes the value as it stands and does **not** scale it: a study
+   * that already returns 0..100 reads `62.24%`, and one that returns a 0..1
+   * fraction reads `0.62%`. Multiplying here would put the axis and the plotted
+   * value into disagreement, which is the one thing a formatter must never do.
    */
-  priceFormat?:
-    | { type: 'price'; precision?: number; minMove?: number }
-    | { type: 'volume' }
-    | { type: 'custom'; formatter: (value: number) => string };
+  priceFormat?: PriceFormat;
 }
 
 /** Compact volume/number formatter (1.2K / 3.4M / 5.6B). */
@@ -1143,7 +1145,10 @@ export class Chart {
       const pf = options.priceFormat;
       if (pf.type === 'custom') scale.setPriceFormatter(pf.formatter);
       else if (pf.type === 'volume') scale.setPriceFormatter(compactVolume);
-      else {
+      else if (pf.type === 'percent') {
+        const digits = pf.precision ?? 2;
+        scale.setPriceFormatter((v) => `${v.toFixed(digits)}%`);
+      } else {
         const minMove = pf.minMove ?? (pf.precision !== undefined ? Math.pow(10, -pf.precision) : undefined);
         if (minMove !== undefined) scale.setOptions({ minMove });
       }
@@ -1466,10 +1471,15 @@ export class Chart {
         this._restackLegends();
       },
       legendRowsOn: (paneIndex): number => this._legends.filter((l) => l.paneIndex === paneIndex).length,
-      addIndicatorSeries: (type, paneIndex, style, priceScaleId): SeriesApi =>
+      addIndicatorSeries: (type, paneIndex, style, priceScaleId, priceFormat): SeriesApi =>
         this._createSeries(
           type as SeriesType,
-          { paneIndex, style: style as SeriesStyle | undefined, priceScaleId: priceScaleId as PriceScaleId | undefined },
+          {
+            paneIndex,
+            style: style as SeriesStyle | undefined,
+            priceScaleId: priceScaleId as PriceScaleId | undefined,
+            priceFormat,
+          },
           false,
         ),
       addIndicatorLevel: (l, paneIndex): PriceLine => {

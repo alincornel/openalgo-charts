@@ -8,6 +8,40 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 2.2.1
+
+2026-09-16
+
+### Added
+
+- `IndicatorInput` gains an optional `tooltip`, help text a settings UI renders
+  as a hover mark beside the label. A label has to stay short enough for a dense
+  panel, which left nowhere to say what a parameter does, so a ported study
+  arrived with its explanation dropped. All six input variants carry it, as does
+  the chart-settings `colorPair` row.
+- `IndicatorPlot` gains an optional `priceFormat`, setting the axis and
+  crosshair formatting of the scale the plot maps to. A new `percent` variant
+  suffixes the value without scaling it, so a ratio study no longer has to
+  choose between an axis that reads correctly and a value that does.
+- `PriceFormat` is exported, and the `priceFormat` option on `addSeries` accepts
+  the same `percent` variant.
+
+### Improved
+
+- Historical Volatility and Bollinger BandWidth label their axes as percentages
+  and carry help text on the inputs whose meaning was previously left unstated.
+- The chart-settings dialog explains Scale and Timezone: what Percent and
+  Indexed to 100 rebase against, and that changing the zone moves VWAP and pivot
+  values rather than only the labels.
+
+### Notes
+
+- Both additions are optional fields, so a descriptor, a host implementing
+  `IndicatorHost`, and a saved chart state written by 2.2.0 all behave exactly
+  as before.
+- `priceFormat` is a property of the price scale, like `style.precision`, so it
+  belongs to a plot that owns its pane.
+
 ## 2.2.0
 
 2026-09-13

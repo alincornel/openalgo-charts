@@ -93,6 +93,16 @@ export const WIDGET_CSS = `
 .oac-widget .oac-row { display: flex; align-items: center; gap: 8px; min-height: 26px; padding: 2px 0; }
 .oac-widget .oac-row > label { flex: 1 1 auto; min-width: 0; color: ${v('tx')}; }
 
+/* Help mark: a 13px ring after a label, muted until pointed at. It must not
+   grow the row, so it sits on the label's own line box and never wraps away
+   from the words it belongs to. */
+.oac-widget .oac-help { display: inline-flex; align-items: center; justify-content: center;
+  width: 13px; height: 13px; margin-left: 5px; vertical-align: -2px; flex: none;
+  border: 1px solid ${v('bd')}; border-radius: 50%; color: ${v('faint')};
+  font-size: 9px; font-weight: 600; line-height: 1; cursor: help; user-select: none; }
+.oac-widget .oac-help:hover, .oac-widget .oac-help:focus-visible {
+  color: ${v('tx')}; border-color: ${v('bd-hover')}; outline: none; }
+
 /* Buttons: flat, 28px tall, a tint when pressed or armed. */
 .oac-widget .oac-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   height: ${v('ctl-h')}; padding: 0 9px; background: transparent; border: 1px solid transparent;

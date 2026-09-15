@@ -87,7 +87,7 @@ const vol = chart.addSeries('histogram', {
 | `paneIndex` | `number` | `0` | Panes are created on demand; pane 0 gets weight 1, later panes 0.32. |
 | `style` | `SeriesStyle` | `{}` | Merged over the chart type's `defaultStyle`. See [chart-types](chart-types.md). |
 | `priceScaleId` | `'right' \| 'left' \| ''` | `'right'` | `''` is a hidden overlay scale with no axis. |
-| `priceFormat` | `{ type: 'price', precision?, minMove? } \| { type: 'volume' } \| { type: 'custom', formatter }` | none | Applied to the series' *price scale*, not the series. |
+| `priceFormat` | `PriceFormat`: `{ type: 'price', precision?, minMove? } \| { type: 'volume' } \| { type: 'percent', precision? } \| { type: 'custom', formatter }` | none | Applied to the series' *price scale*, not the series. `percent` suffixes the value at `precision` decimals (default 2) and does **not** scale it, so 0.62 reads `0.62%`. The type is exported as `PriceFormat`, and `IndicatorPlot.priceFormat` takes the same union. |
 
 The first `addSeries` call whose type has `isPriceSeries: true` becomes the primary series: it drives the magnet crosshair, `CrosshairMoveEvent.bar`, the last-price line/tag, and the bars indicators compute from. Indicator-created series never claim it.
 

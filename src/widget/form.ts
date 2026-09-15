@@ -35,6 +35,8 @@ export interface FormControl {
   label: string;
   /** Sub-heading the row sits under; consecutive rows with one group share a header. */
   group?: string;
+  /** Help text; rendered as a hover affordance beside the label. */
+  tooltip?: string;
   min?: number;
   max?: number;
   step?: number;
@@ -93,6 +95,7 @@ export interface FormHandle {
 export function controlsFromInputs(inputs: readonly ChartSettingsInput[]): FormControl[] {
   const out: FormControl[] = [];
   for (const input of inputs) {
+    const before = out.length;
     switch (input.type) {
       case 'colorPair':
         out.push({
@@ -122,6 +125,9 @@ export function controlsFromInputs(inputs: readonly ChartSettingsInput[]): FormC
         out.push({ key: input.key, kind: input.type, label: input.label, group: input.group });
         break;
     }
+    // Set once here rather than in seven branches: every variant carries the
+    // field, and a branch that forgot it would drop the help text silently.
+    if (input.tooltip !== undefined && out.length > before) out[before].tooltip = input.tooltip;
   }
   return out;
 }
@@ -753,6 +759,16 @@ export function renderForm(host: HTMLElement, controls: readonly FormControl[], 
     const row = el(doc, 'div', 'oac-row');
     row.dataset.key = c.key;
     const label = el(doc, 'label', 'oac-row__label', c.label);
+    // The mark rides inside the label so it lands the same way in all three row
+    // shapes below, and so a pointer-less device can still reach it by tab.
+    if (c.tooltip !== undefined && c.tooltip !== '') {
+      const help = el(doc, 'span', 'oac-help', '?');
+      help.title = c.tooltip;
+      help.tabIndex = 0;
+      help.setAttribute('role', 'note');
+      help.setAttribute('aria-label', c.tooltip);
+      label.appendChild(help);
+    }
 
     if (c.kind === 'custom') {
       const body = opts.custom === undefined ? null : opts.custom(c, row);
