@@ -141,6 +141,19 @@ for (const [width, height] of [[350, 440], [350, 240], [700, 240]]) {
       (node as HTMLElement).style.width = `${size[0]}px`;
       (node as HTMLElement).style.height = `${size[1]}px`;
     }, [width, height]);
+    // The widget rebuilds its chrome from a ResizeObserver, so opening the
+    // panel in the same frame as the resize raced it: the Enter landed on an
+    // Objects button that the relayout then replaced, and the panel never
+    // appeared. A human cannot resize and press within one frame; this test
+    // could, and did, about one run in three. Wait for the new width to reach
+    // the canvas before touching anything.
+    await page.waitForFunction(
+      (w) => {
+        const canvas = document.querySelector('.oac-chart canvas');
+        return canvas !== null && canvas.getBoundingClientRect().width <= w;
+      },
+      width,
+    );
     const panel = await open(page);
     await expect(panel).toBeVisible();
     const host = (await page.locator('#host').boundingBox())!;
