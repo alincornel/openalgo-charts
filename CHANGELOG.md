@@ -2,6 +2,37 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 2.3.1
+
+2026-09-16
+
+### Fixed
+
+- **A refresh no longer deletes a bar the stream completed and REST has not
+  caught up to.** `DataLoadingController.refresh()`, which the repair poll, the
+  resume after a hidden tab and a stream resync all go through, fetches the
+  window from the oldest loaded bar to now and treated the reply as
+  authoritative for all of it. A broker's REST history runs a few seconds
+  behind its stream, so a refresh fired just after a candle closed came back
+  one bar short, and that candle was removed from the series until a later
+  refresh found it in REST. On screen: the current candle became the previous
+  candle, vanished, then came back. The window REST is allowed to overwrite now
+  ends at the newest bar REST actually returned. A bar REST has not published
+  yet is left alone; a bar it does return is still corrected by it.
+
+### Notes
+
+- Bars pushed while a refresh was in flight were already protected by the
+  buffer. The gap was bars that completed before the refresh started, which
+  lived only in the held series and so were not in the buffer either. Three
+  regression tests cover both timings and the correction case, and the fix was
+  confirmed by reverting it and watching them fail.
+- `ExpressionNode` and `ExpressionFunctionName`, the types behind
+  `SymbolExpression.ast`, are now exported from the transform tier. They were
+  reachable from the public API without a page in the API reference. Nothing
+  else in the public API changed, and the bundles move by hundredths: base
+  76.52 to 76.46 KB, everything 215.04 to 214.99 KB Brotli.
+
 ## 2.3.0
 
 2026-09-16

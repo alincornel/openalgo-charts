@@ -122,6 +122,9 @@ nothing, the same way `addComparison` takes bars rather than a symbol.
 `isPlainSymbol` tells an ordinary symbol from arithmetic, so one code path
 serves both. `ExpressionError` carries the offending character's index, so a
 search box can underline it.
+`SymbolExpression.ast` is an `ExpressionNode` (its `fn` members name an
+`ExpressionFunctionName`), exported for typing only: build one with
+`parseExpression`, never by hand.
 
 Grammar: `+ - * / ^` with the usual precedence and `^` right associative, unary
 minus, parentheses, numeric constants, and `abs sqrt ln log log10 exp min max

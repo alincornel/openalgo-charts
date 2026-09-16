@@ -37,7 +37,7 @@ export interface SymbolExpression {
   /** Distinct symbols, in first-seen order. The first is the default time grid. */
   readonly symbols: readonly string[];
   /** Opaque syntax tree. */
-  readonly ast: Node;
+  readonly ast: ExpressionNode;
 }
 
 export interface EvaluateOptions {
@@ -57,22 +57,28 @@ export interface EvaluateOptions {
 
 // ── syntax tree ───────────────────────────────────────────────────────────
 
-type Node =
+/**
+ * The syntax tree behind a parsed expression. Exported so the type of
+ * `SymbolExpression.ast` has a name; a host builds one with `parseExpression`,
+ * never by hand.
+ */
+export type ExpressionNode =
   | { k: 'num'; v: number }
   | { k: 'sym'; name: string }
-  | { k: 'neg'; a: Node }
-  | { k: 'bin'; op: '+' | '-' | '*' | '/' | '^'; a: Node; b: Node }
-  | { k: 'fn'; name: FnName; args: Node[] };
+  | { k: 'neg'; a: ExpressionNode }
+  | { k: 'bin'; op: '+' | '-' | '*' | '/' | '^'; a: ExpressionNode; b: ExpressionNode }
+  | { k: 'fn'; name: ExpressionFunctionName; args: ExpressionNode[] };
 
 /**
  * Functions are limited to ones whose interval image is cheap and correct to
  * derive. Anything non-monotonic in a way that needs calculus is left out
  * rather than shipped with a bound that is quietly wrong.
  */
-const FN_ARITY = {
+const FN_ARITY: Record<ExpressionFunctionName, 1 | 2> = {
   abs: 1, sqrt: 1, ln: 1, log: 1, log10: 1, exp: 1, min: 2, max: 2, pow: 2,
-} as const;
-type FnName = keyof typeof FN_ARITY;
+};
+/** The functions an expression may call. */
+export type ExpressionFunctionName = 'abs' | 'sqrt' | 'ln' | 'log' | 'log10' | 'exp' | 'min' | 'max' | 'pow';
 
 export class ExpressionError extends Error {
   public constructor(message: string, public readonly position: number) {
@@ -155,12 +161,12 @@ function tokenize(src: string): Tok[] {
 /** Binding power per binary operator. `^` is right associative. */
 const BP: Record<string, number> = { '+': 1, '-': 1, '*': 2, '/': 2, '^': 3 };
 
-function parse(toks: Tok[], src: string): Node {
+function parse(toks: Tok[], src: string): ExpressionNode {
   let p = 0;
   const peek = (): Tok | undefined => toks[p];
   const at = (): number => peek()?.i ?? src.length;
 
-  function primary(): Node {
+  function primary(): ExpressionNode {
     const t = peek();
     if (t === undefined) throw new ExpressionError('expression ended early', src.length);
     if (t.t === 'num') { p++; return { k: 'num', v: t.v }; }
@@ -169,7 +175,7 @@ function parse(toks: Tok[], src: string): Node {
       const fn = t.v.toLowerCase();
       if (fn in FN_ARITY && peek()?.t === 'op' && peek()?.v === '(') {
         p++;
-        const args: Node[] = [];
+        const args: ExpressionNode[] = [];
         if (!(peek()?.t === 'op' && peek()?.v === ')')) {
           for (;;) {
             args.push(expr(0));
@@ -179,11 +185,11 @@ function parse(toks: Tok[], src: string): Node {
         }
         if (!(peek()?.t === 'op' && peek()?.v === ')')) throw new ExpressionError(`${fn}( is not closed`, at());
         p++;
-        const want = FN_ARITY[fn as FnName];
+        const want = FN_ARITY[fn as ExpressionFunctionName];
         if (args.length !== want) {
           throw new ExpressionError(`${fn}() takes ${want} argument${want === 1 ? '' : 's'}, got ${args.length}`, t.i);
         }
-        return { k: 'fn', name: fn as FnName, args };
+        return { k: 'fn', name: fn as ExpressionFunctionName, args };
       }
       return { k: 'sym', name: t.v };
     }
@@ -199,9 +205,9 @@ function parse(toks: Tok[], src: string): Node {
     throw new ExpressionError(`unexpected "${t.v}"`, t.i);
   }
 
-  function unary(): Node { return primary(); }
+  function unary(): ExpressionNode { return primary(); }
 
-  function expr(min: number): Node {
+  function expr(min: number): ExpressionNode {
     let left = unary();
     for (;;) {
       const t = peek();
@@ -222,7 +228,7 @@ function parse(toks: Tok[], src: string): Node {
   return out;
 }
 
-function collect(n: Node, into: string[]): void {
+function collect(n: ExpressionNode, into: string[]): void {
   if (n.k === 'sym') { if (!into.includes(n.name)) into.push(n.name); return; }
   if (n.k === 'neg') { collect(n.a, into); return; }
   if (n.k === 'bin') { collect(n.a, into); collect(n.b, into); return; }
@@ -303,7 +309,7 @@ function mono(a: Iv, f: (x: number) => number): Iv {
   return span([f(a.lo), f(a.hi)]);
 }
 
-function evalNode(n: Node, leg: (s: string) => Iv | null): Iv {
+function evalNode(n: ExpressionNode, leg: (s: string) => Iv | null): Iv {
   switch (n.k) {
     case 'num': return { lo: n.v, hi: n.v };
     case 'sym': return leg(n.name) ?? NA;

@@ -65,5 +65,7 @@ export {
   isPlainSymbol,
   ExpressionError,
   type SymbolExpression,
+  type ExpressionNode,
+  type ExpressionFunctionName,
   type EvaluateOptions,
 } from './expression';
