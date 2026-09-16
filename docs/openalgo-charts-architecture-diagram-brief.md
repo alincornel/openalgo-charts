@@ -7,7 +7,7 @@ Written 2026-08-28 against openalgo-charts 1.8.2.
 > record of what was wrong, what the measured figures were, and why each change
 > was made, so the next redraw starts from evidence rather than memory.
 >
-> **Current release source of truth:** the SVG reports 76.46 KB base and 214.99 KB
+> **Current release source of truth:** the SVG reports 77.23 KB base and 215.76 KB
 > for every tier, eight tier chips, 102 built-in indicators and 85 drawing tools.
 > Earlier measurements below remain the historical record of each redraw.
 
@@ -421,3 +421,17 @@ indicators, 85 drawing tools, 13 chart types in the base; the strings that
 carry them did not change. The base chip, the everything chip, the subtitle
 (which carries the exact figures) and the `<desc>` were substituted by
 matching the surrounding text.
+
+## 2.3.2: stream-driven repair grows the base by under a kilobyte
+
+Stream-driven repair and provisional bars live in the base engine, so the base
+chip and the three rows that include it moved. `npm run size` on the 2.3.2
+build reads base 77.23 KB (was 76.46, budget raised from 77 to 78 kB), base +
+trade 84.84 KB (was 84.07, budget raised from 85 to 86 kB), widget terminal
+182.37 KB (was 181.60) and everything 215.76 KB (was 214.99). Confirmed
+unchanged on the same build: widget 42.41 KB, indicators 28.19 KB, draw
+34.53 KB, profile 14.96 KB, trade 7.61 KB as a delta over the base, webgl
+6.38 KB, transform 4.44 KB. Counts from the registry at runtime: 102
+indicators, 85 drawing tools, 13 chart types in the base. The base chip, the
+everything chip, the subtitle and the `<desc>` were substituted by matching
+the surrounding text.

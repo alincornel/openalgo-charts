@@ -73,6 +73,22 @@ describe('OpenAlgoLiveDataFeed.subscribeBars', () => {
     expect(last.volume).toBe(500); // 1500 - 1000, not the raw cumulative
   });
 
+  it('marks the bar a builder opens from a stale seed provisional, and the bucket after it not', () => {
+    // History ended on the previous minute, so the first tick opens the current
+    // bucket at whatever price it happens to carry: provisional. The next
+    // bucket opens on its first trade, because the builder streamed this one.
+    const { feed, sock } = makeFeed('ltq-sum');
+    const seen: Array<[number, boolean | undefined]> = [];
+    feed.subscribeBars({ symbol: 'X', exchange: 'NSE', interval: '1m', from: 0 },
+      (b, meta) => seen.push([b.time, meta?.provisional]),
+      { seedFrom: { time: 1699999980, open: 1, high: 1, low: 1, close: 1, volume: 1 } });
+    const s = sock();
+    s.onmessage(ltpFrame({ symbol: 'X', exchange: 'NSE', ltp: 100, ltq: 1, timestamp: 1700000050 }));
+    s.onmessage(ltpFrame({ symbol: 'X', exchange: 'NSE', ltp: 101, ltq: 1, timestamp: 1700000055 }));
+    s.onmessage(ltpFrame({ symbol: 'X', exchange: 'NSE', ltp: 102, ltq: 1, timestamp: 1700000100 }));
+    expect(seen).toEqual([[1700000040, true], [1700000040, true], [1700000100, undefined]]);
+  });
+
   it('uses the current time when a tick omits its timestamp (never buckets at the epoch)', () => {
     const { feed, sock } = makeFeed('ltq-sum');
     const bars: Bar[] = [];

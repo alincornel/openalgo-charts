@@ -5,7 +5,7 @@
  * interval bars instead of being a no-op trap.
  */
 import type { Bar } from '../model/bar';
-import type { BarsRequest, BarSubscriptionOptions, DataFeed, MarketDepth, UnsubscribeFn } from './types';
+import type { BarsRequest, BarSubscriptionOptions, DataFeed, LiveBarMeta, MarketDepth, UnsubscribeFn } from './types';
 import { OpenAlgoDataFeed, type OpenAlgoConfig } from './openalgo-rest';
 import { OpenAlgoWsFeed, type OpenAlgoWsConfig, type SocketFactory, type LtpEvent, type WsMode } from './openalgo-ws';
 import { CandleBuilder, type VolumeMode } from './candle-builder';
@@ -189,7 +189,7 @@ export class OpenAlgoLiveDataFeed implements DataFeed {
    */
   public subscribeBars(
     req: BarsRequest,
-    onBar: (bar: Bar) => void,
+    onBar: (bar: Bar, meta?: LiveBarMeta) => void,
     opts?: BarSubscriptionOptions,
   ): UnsubscribeFn {
     // Resolve up front: a bad interval code fails here, at subscribe time, and
@@ -219,7 +219,7 @@ export class OpenAlgoLiveDataFeed implements DataFeed {
 
   private _candleReader(
     bucketing: IntervalBucketing,
-    onBar: (bar: Bar) => void,
+    onBar: (bar: Bar, meta?: LiveBarMeta) => void,
     opts?: { seedFrom?: Bar; cumDayVolumeSoFar?: number },
   ): (e: LtpEvent) => void {
     // The anchor travels with the interval, and dropping it put a
@@ -238,13 +238,15 @@ export class OpenAlgoLiveDataFeed implements DataFeed {
       const u = builder.onTick({
         time: OpenAlgoLiveDataFeed._tickTime(e), price: e.ltp, ltq: e.ltq, cumDayVolume: e.volume,
       });
-      if (u !== null) onBar(u.bar);
+      // A bucket the builder opened without having streamed the one before it
+      // carries only the ticks it saw; the consumer holds history for the rest.
+      if (u !== null) onBar(u.bar, u.provisional ? { provisional: true } : undefined);
     };
   }
 
   private _aggregatorReader(
     bucketing: Exclude<Bucketing, IntervalBucketing>,
-    onBar: (bar: Bar) => void,
+    onBar: (bar: Bar, meta?: LiveBarMeta) => void,
     opts?: { seedFrom?: Bar; cumDayVolumeSoFar?: number },
   ): (e: LtpEvent) => void {
     const agg = new TickBarAggregator(bucketing, { timezone: this._timezone });

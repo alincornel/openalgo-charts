@@ -2,6 +2,59 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 2.3.2
+
+2026-09-16
+
+### Added
+
+- **Stream-driven repair.** Three opt-in `DataLoadingController` options let
+  history repair follow what the stream reports instead of a clock.
+  `refreshOnBarClose` runs one refresh a moment after a pushed bar opens a new
+  bucket, which is when the bar before it closed, and retries a bounded number
+  of times while history has not published that bar yet; nothing fires while
+  the market is quiet. `refreshOnGap` refreshes at once when a pushed bar skips
+  whole buckets, the shape a dropped socket, a hidden tab or a sleeping machine
+  leaves behind. `refreshWindowBars` makes every refresh a tail request instead
+  of re-fetching the whole load window. Together they cost about one small
+  request per bar instead of two full-window requests a minute, and a skipped
+  bucket is repaired the moment the stream resumes. `pollIntervalMs` is
+  unchanged and still serves as a slow backstop for silent drift.
+- **Provisional bars.** `CandleBuilder` now says when a bar's open, high, low
+  and volume cover only the ticks it saw. `CandleUpdate.provisional` is true
+  for a bucket the builder opened from a tick without having streamed the bar
+  before it: a cold start, or a seed from an older bucket, both of which mean
+  the trades between the bucket's true open and the first tick were missed.
+  `CandleBuilder.reconcile(bar)` adopts an authoritative bar for that bucket,
+  taking the true open for a provisional bar, the union of the extremes and the
+  larger volume for any bar, and keeping the close with the ticks;
+  `isProvisional()` reads the flag.
+  `DataLoadingController.pushBar(bar, { provisional: true })` keeps the open
+  history already holds for that bucket instead of replacing it, so a repair
+  that found the true open is not undone by the next tick. `subscribeBars` callbacks receive the same `LiveBarMeta`,
+  and `OpenAlgoLiveDataFeed` passes it through.
+- A refresh keeps the extremes and volume the stream observed on the bar that
+  was forming when the request went out, as it already did for bars pushed
+  while the request was in flight.
+
+### Changed
+
+- `examples/live` runs on `DataLoadingController` with the new options in
+  place of its own reconcile loop, seeds its builder from history, and reseeds
+  it after a stream resync so the bucket opened after the gap is provisional.
+- Two budgets raised deliberately: the base engine from 77 to 78 KB (76.46 to
+  77.23 KB measured) and base + trade from 85 to 86 KB (84.07 to 84.84 KB).
+  The widget terminal (182.37 KB) and everything (215.76 KB) stay inside
+  their budgets.
+
+### Notes
+
+- Every new option is off by default. A controller built the old way makes
+  exactly the requests it made before, and a test pins that.
+- A rollover repair fires only on a push, so a host streaming whole candles
+  from an exchange gets the same cadence as one building candles from ticks,
+  and a host with no stream keeps polling.
+
 ## 2.3.1
 
 2026-09-16

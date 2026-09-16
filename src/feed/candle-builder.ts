@@ -42,6 +42,16 @@ export interface CandleUpdate {
   bar: Bar;
   /** True when this tick started a new interval bar (append vs mutate-in-place). */
   isNew: boolean;
+  /**
+   * True while the bar's open, high, low and volume cover only the ticks this
+   * builder has seen. A bar is provisional when it was opened from a tick
+   * without the builder having streamed the bar before it: a cold start, or a
+   * seed from an older bucket, both of which mean the trades between the
+   * bucket's true open and the first tick seen were missed. The close is still
+   * the latest price. An authoritative bar for the same bucket, from history,
+   * corrects the rest through `reconcile`.
+   */
+  provisional?: boolean;
 }
 
 export class CandleBuilder {
@@ -50,6 +60,9 @@ export class CandleBuilder {
   private _cumAtBarStart = 0;
   private _lastCum = 0;
   private _hasCum = false;
+  /** The current bar has received at least one tick, so a rollover from it sees the true open. */
+  private _streamed = false;
+  private _provisional = false;
 
   public constructor(options: Partial<CandleBuilderOptions> = {}) {
     this._opts = { ...DEFAULT_CANDLE_BUILDER_OPTIONS, ...options };
@@ -59,6 +72,8 @@ export class CandleBuilder {
   public seed(lastBar: Bar, cumDayVolumeSoFar?: number): void {
     this._current = { ...lastBar };
     this._hasCum = false;
+    this._streamed = false;
+    this._provisional = false;
     if (cumDayVolumeSoFar !== undefined) {
       this._lastCum = cumDayVolumeSoFar;
       this._cumAtBarStart = cumDayVolumeSoFar - (lastBar.volume ?? 0);
@@ -68,6 +83,47 @@ export class CandleBuilder {
 
   public current(): Bar | null {
     return this._current === null ? null : { ...this._current };
+  }
+
+  /** Whether the current bar is provisional; see `CandleUpdate.provisional`. */
+  public isProvisional(): boolean {
+    return this._current !== null && this._provisional;
+  }
+
+  /**
+   * Adopt an authoritative bar for the current bucket, typically the broker's
+   * history for the bar that is still forming.
+   *
+   * A provisional bar takes the authoritative open, because its own is the
+   * first tick this builder happened to see. Every bar takes the union of the
+   * extremes, since both sides observed real prices, and the larger volume,
+   * since volume inside a bar only grows. The close stays with the ticks: a
+   * history snapshot was taken before the request went out, and a price that
+   * jumps backwards on every repair is the one thing a live chart must not do.
+   *
+   * Returns the reconciled bar, or null when the builder holds no bar for that
+   * bucket, in which case the caller decides whether to `seed` instead.
+   */
+  public reconcile(authoritative: Bar): Bar | null {
+    const current = this._current;
+    if (current === null || authoritative.time !== current.time) return null;
+    const volume = current.volume === undefined && authoritative.volume === undefined
+      ? undefined : Math.max(current.volume ?? 0, authoritative.volume ?? 0);
+    const merged: Bar = {
+      ...current,
+      open: this._provisional ? authoritative.open : current.open,
+      high: Math.max(current.high, authoritative.high),
+      low: Math.min(current.low, authoritative.low),
+      volume,
+    };
+    // In day-delta mode the volume is recomputed from the cumulative on every
+    // tick, so the baseline moves with it or the next tick would shrink it back.
+    if (this._opts.volumeMode === 'day-delta' && this._hasCum && volume !== undefined) {
+      this._cumAtBarStart = this._lastCum - volume;
+    }
+    this._current = merged;
+    this._provisional = false;
+    return { ...merged };
   }
 
   /** Bucket-start (bar-open) time for a tick, aligned to the session anchor. */
@@ -89,11 +145,15 @@ export class CandleBuilder {
       if (this._opts.lateTickPolicy === 'dropOlderThanPrevBar') return null;
       // foldIntoBar: merge into the current bar.
       this._foldInto(this._current, tick);
-      return { bar: { ...this._current }, isNew: false };
+      this._streamed = true;
+      return { bar: { ...this._current }, isNew: false, provisional: this._provisional };
     }
 
     if (this._current === null || bs > this._current.time) {
-      // Start a new bar.
+      // Start a new bar. Its open is the true open only when this builder was
+      // already streaming the bar before it; otherwise the trades between the
+      // bucket's start and this tick were never seen.
+      const provisional = this._current === null || !this._streamed;
       const vol = this._volumeForNewBar(tick);
       const bar: Bar = {
         time: bs,
@@ -104,12 +164,15 @@ export class CandleBuilder {
         volume: vol,
       };
       this._current = bar;
-      return { bar: { ...bar }, isNew: true };
+      this._streamed = true;
+      this._provisional = provisional;
+      return { bar: { ...bar }, isNew: true, provisional };
     }
 
     // Same bucket → update the current bar in place.
     this._foldInto(this._current, tick);
-    return { bar: { ...this._current }, isNew: false };
+    this._streamed = true;
+    return { bar: { ...this._current }, isNew: false, provisional: this._provisional };
   }
 
   private _foldInto(bar: Bar, tick: Tick): void {

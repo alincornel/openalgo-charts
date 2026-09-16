@@ -200,7 +200,7 @@
   </div>
 
   <script type="module">
-    import { createChart, OpenAlgoDataFeed, OpenAlgoWsFeed, OpenAlgoTradeFeed, CandleBuilder, intervalToSeconds } from '/dist/openalgo-charts.mjs';
+    import { createChart, DataLoadingController, OpenAlgoDataFeed, OpenAlgoWsFeed, OpenAlgoTradeFeed, CandleBuilder, intervalToSeconds } from '/dist/openalgo-charts.mjs';
     import { runTransform, HeikinAshiTransform, RenkoTransform, RangeBarsTransform, LineBreakTransform, PointFigureTransform, KagiTransform } from '/dist/openalgo-charts.transform.mjs';
 
     const el = (id) => document.getElementById(id);
@@ -215,8 +215,8 @@
     const LOOKBACK = { '1m': 10 * 86400, '5m': 45 * 86400, '15m': 90 * 86400, '1h': 250 * 86400, 'D': 800 * 86400 };
 
     let chart, price, volume, ws, rest, ltpLine, offLtp = null, tickN = 0;
-    let reconcileTimer = null, liveBucket = null, lastReq = null;
-    let rawBars = [], builder = null, liveAgg = false; // raw OHLC (history + forming bar)
+    let data = null, offData = null, lastReq = null; // the controller owns history, its repair and live merges
+    let rawBars = [], builder = null, liveAgg = false; // the controller's latest snapshot (history + forming bar)
 
     // Chart types: base types render directly; Family-B run a transform first.
     const boxOf = () => { const c = rawBars.length ? rawBars[rawBars.length - 1].close : 100; return Math.max(0.05, Math.round(c * 0.0015 / 0.05) * 0.05); };
@@ -235,7 +235,7 @@
     const chartType = () => CHART_TYPES[el('ctype').value] || CHART_TYPES.candlestick;
     // Push price + volume from the raw bars, applying the selected transform.
     // Transformed types (Renko / Range / Line Break / Kagi / P&F) emit their own
-    // element times; the volume pane must use THOSE times too — feeding it the
+    // element times; the volume pane must use THOSE times too: feeding it the
     // raw bars would re-add every raw timestamp to the shared time axis and
     // scatter the bricks with gaps.
     function bucketVolume(tbars) {
@@ -281,30 +281,33 @@
     function disconnect() {
       if (offLtp) { offLtp(); offLtp = null; }
       if (ws) { ws.close(); ws = null; }
-      if (reconcileTimer) { clearTimeout(reconcileTimer); reconcileTimer = null; }
-      liveBucket = null;
+      if (offData) { offData(); offData = null; }
+      if (data) { data.destroy(); data = null; }
       clearTrading();
       el('wsstate').textContent = 'WS idle';
     }
 
-    // Periodically re-fetch history and snap COMPLETED bars to the broker's official
-    // OHLC/volume (live-built bars drift since we only see ticks from connect-time).
-    // Staggered 20-30s reconcile; never touches the forming bar.
-    function scheduleReconcile() {
-      reconcileTimer = setTimeout(async () => {
-        try {
-          const fresh = await rest.getBars({ ...lastReq, to: nowSec() });
-          const byTime = new Map(fresh.map((b) => [b.time, b]));
-          let changed = false;
-          for (let i = 0; i < rawBars.length; i++) {
-            const f = byTime.get(rawBars[i].time);
-            if (f && (liveBucket == null || f.time < liveBucket)) { rawBars[i] = f; changed = true; } // keep the live bar
-          }
-          if (changed) setPriceData(); // re-applies the active transform too
-        } catch (_) { /* transient, next cycle retries */ }
-        if (ws) scheduleReconcile();
-      }, 20000 + Math.random() * 10000);
+    // Every snapshot from the controller is the whole series: history, a repair
+    // or a live push. Repainting from it is the simplest correct thing and fast
+    // enough for one chart.
+    function applySnapshot(s) {
+      if (s.reason === 'state') {
+        if (s.status === 'stale' && s.error) el('status').textContent = 'history stale: ' + s.error.message;
+        return;
+      }
+      rawBars = [...s.bars];
+      if (s.reason === 'refresh' && builder) {
+        // History's view of the bar still forming: the true open when the
+        // builder opened the bucket mid-way, the union of the extremes and the
+        // larger volume. The close stays with the ticks.
+        const current = builder.current();
+        const i = current ? rawBars.findIndex((b) => b.time === current.time) : -1;
+        if (i >= 0) { const merged = builder.reconcile(rawBars[i]); if (merged) rawBars[i] = merged; }
+      }
+      if (chart) setPriceData(); // before the first load completes there is no chart yet
     }
+    // A hidden tab pauses repairs; coming back refreshes once.
+    document.addEventListener('visibilitychange', () => { if (data) data.setVisible(!document.hidden); });
 
     // ── chart trading (real OpenAlgo orders via the proxy) ──────────────────
     const round2v = (n) => Math.round(n * 100) / 100;
@@ -494,12 +497,24 @@
       rest = new OpenAlgoDataFeed({ baseUrl: '', apiKey }); // baseUrl '' -> relative -> proxy
       const to = nowSec(), from = to - (LOOKBACK[interval] || 30 * 86400);
       lastReq = { symbol, exchange, interval, from };
-      liveBucket = null; lastLtp = null;
+      lastLtp = null; rawBars = [];
       el('status').textContent = `loading ${symbol} ${interval} history...`;
-      try {
-        rawBars = await rest.getBars({ symbol, exchange, interval, from, to });
-      } catch (e) { el('status').textContent = 'history error: ' + e.message; return; }
-      if (!rawBars.length) { el('status').textContent = `no history for ${symbol} ${exchange} ${interval}`; return; }
+      // One owner for history and its repair. The repairs are driven by the
+      // stream: one refresh a moment after each bar closes, an immediate one when
+      // the stream skips a bucket, and a slow poll as the backstop for silent
+      // drift. Each asks history for the tail only.
+      const mine = new DataLoadingController(rest, {
+        refreshOnBarClose: true, refreshOnGap: true, refreshWindowBars: 5, pollIntervalMs: 120_000,
+      });
+      data = mine;
+      offData = mine.subscribe(applySnapshot);
+      await mine.load({ symbol, exchange, interval, from, to });
+      if (data !== mine) return; // a newer Connect took over while history loaded
+      if (!rawBars.length) {
+        const err = mine.getState().error;
+        el('status').textContent = err ? 'history error: ' + err.message : `no history for ${symbol} ${exchange} ${interval}`;
+        return;
+      }
       buildChart();
       const lastBar = rawBars[rawBars.length - 1];
       setLegend(symbol, exchange, interval, lastBar, lastBar.close);
@@ -512,9 +527,14 @@
         if (m.type === 'client_warning') {
           el('wsstate').textContent = 'WS ' + m.code;
           // The socket came back, so ticks were missed and the bar that was
-          // forming across the gap is wrong. Reconcile normally protects the
-          // forming bar; here it is the one thing that must be refetched.
-          if (m.code === 'STREAM_RESYNC') liveBucket = null;
+          // forming across the gap is wrong. Reseeding the builder from its own
+          // bar marks the next bucket it opens provisional, and the refresh
+          // fetches whatever closed while the socket was down.
+          if (m.code === 'STREAM_RESYNC') {
+            const last = builder && builder.current();
+            if (last) builder.seed(last);
+            if (data) data.refresh();
+          }
           return;
         }
         if (m.type === 'auth') el('wsstate').textContent = m.status === 'success' ? 'WS authenticated' : `auth ${m.status}`;
@@ -536,12 +556,17 @@
         } else if (rec) { chart.removePrimitive(rec.line); orderLines.delete(e.orderId); }
         el('status').textContent = `order ${e.orderId} ${e.status}` +
           (e.status === 'complete' ? ` @ ${fmt(e.averagePrice || e.price)}` : '') +
-          (e.rejectionReason ? ' — ' + e.rejectionReason : '');
+          (e.rejectionReason ? ': ' + e.rejectionReason : '');
         if (!working) pollBook(); // a fill/cancel changes the position book too
       });
       ws.subscribeOrders();
       liveAgg = /^\d+(m|h)$/i.test(interval); // aggregate ticks into candles for intraday only
       builder = new CandleBuilder({ intervalSec: intervalToSeconds(interval), volumeMode: 'ltq-sum' });
+      // Seeded with the bar history ended on. If that is the bucket still forming,
+      // the ticks fold into it. If history stopped one bucket short, the first tick
+      // opens the current bucket provisionally and the bar-close repair brings the
+      // open it missed.
+      if (liveAgg && rawBars.length) builder.seed(rawBars[rawBars.length - 1]);
       tickN = 0;
       offLtp = ws.onLtp((e) => {
         if (e.symbol && e.symbol !== symbol) return;
@@ -555,17 +580,17 @@
         if (liveAgg) {
           const u = builder.onTick({ time: e.timeSec || nowSec(), price: e.ltp, ltq: e.ltq });
           if (u) {
-            liveBucket = u.bar.time;
-            if (u.isNew) rawBars.push(u.bar); else rawBars[rawBars.length - 1] = u.bar;
-            setPriceData(); // redraws candles/transform + volume
-            setLegend(symbol, exchange, interval, u.bar, e.ltp);
+            // The controller merges the push into the series it owns and publishes
+            // the snapshot that repaints. A bar the builder opened mid-bucket is
+            // provisional: it keeps the open history holds, not its first tick.
+            data.pushBar(u.bar, u.provisional ? { provisional: true } : undefined);
+            setLegend(symbol, exchange, interval, rawBars[rawBars.length - 1] || u.bar, e.ltp);
           }
         } else {
           setLegend(symbol, exchange, interval, rawBars[rawBars.length - 1], e.ltp);
         }
       });
       ws.subscribe('LTP', symbol, exchange);
-      scheduleReconcile();                     // snap completed bars to broker OHLC + volume every 20-30s
 
       // ── chart trading: real OpenAlgo orders ──
       trade = new OpenAlgoTradeFeed({ baseUrl: '', apiKey, strategy: 'openalgo-charts', defaultProduct: el('product').value });

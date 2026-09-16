@@ -1,4 +1,4 @@
-# OpenAlgo LIVE demo — history + WebSocket
+# OpenAlgo LIVE demo: history + WebSocket
 
 Streams a real OpenAlgo instance into the chart: historical candles over REST
 (`/api/v1/history`) plus live updates over the OpenAlgo WebSocket proxy
@@ -9,10 +9,10 @@ It uses the library's real adapters unchanged: `OpenAlgoDataFeed` (history),
 
 ## Run
 
-1. Have OpenAlgo running locally — REST on `http://127.0.0.1:5000`, WS proxy on
+1. Have OpenAlgo running locally: REST on `http://127.0.0.1:5000`, WS proxy on
    `ws://127.0.0.1:8765` (the defaults).
 2. Start this demo's server (it serves the package + proxies REST so the browser
-   isn't blocked by CORS — OpenAlgo sends no `Access-Control-Allow-*` headers):
+   isn't blocked by CORS, since OpenAlgo sends no `Access-Control-Allow-*` headers):
 
    ```bash
    python examples/live/server.py            # http://127.0.0.1:8001
@@ -27,26 +27,31 @@ The toolbar shows `WS live`, a running tick count, and the live LTP; intraday
 intervals (1m/5m/15m/1h) aggregate LTP ticks into the forming candle, while `D`
 shows the daily history with a moving LTP line.
 
-Like OpenAlgo's `/scalping` chart, a staggered **reconcile loop** re-fetches
-history every 20–30s and snaps **completed** bars to the broker's official
-OHLC + volume (it never touches the live forming bar). Live OHLC uses **LTP**
-mode (reliable across brokers); the forming bar's volume fills in when it
-completes and the reconcile corrects it. (Quote-mode live volume exists in the
-adapter but is broker-dependent — some brokers return `subscribe partial`.)
+History and its repair belong to one `DataLoadingController`. Repairs are
+driven by the stream rather than a clock: one refresh a moment after each bar
+closes (`refreshOnBarClose`), an immediate one when the stream skips a bucket
+(`refreshOnGap`), and a slow poll every two minutes as the backstop for silent
+drift. Each repair asks history for the last few bars only
+(`refreshWindowBars`). Completed bars snap to the broker's official OHLC and
+volume. The forming bar keeps its live close, takes the union of the extremes
+and, when the builder opened it mid-bucket, the open history reports. Live OHLC
+uses **LTP** mode (reliable across brokers); the forming bar's volume fills in
+from history. (Quote-mode live volume exists in the adapter but is
+broker-dependent, some brokers return `subscribe partial`.)
 
 ## Chart trading (real orders)
 
-Right-click the chart to place an order **at the cursor price** — Buy/Sell
-**Market / Limit / Stop (SL)** — via OpenAlgo's `placeorder` API. Working orders
+Right-click the chart to place an order **at the cursor price**, Buy/Sell
+**Market / Limit / Stop (SL)**, via OpenAlgo's `placeorder` API. Working orders
 appear as draggable lines (drag and release to **modify**, click the ✕ to
 **cancel**); the net position shows as a line with **live P&L marked to the LTP**
 and its own ✕ to **exit** (square off to flat via `placesmartorder position_size 0`).
 Orders/positions are polled from `/orderbook` + `/positionbook` every 3s.
 
 Safety:
-- **Arm trading** is OFF by default — nothing places until you tick it.
+- **Arm trading** is OFF by default; nothing places until you tick it.
 - The **mode** pill reflects OpenAlgo's routing, read from the book response:
-  `ANALYZE (sandbox)` or `LIVE — real orders`. In **LIVE** mode every order asks
+  `ANALYZE (sandbox)` or `LIVE - real orders`. In **LIVE** mode every order asks
   for an explicit confirm first.
 - Set OpenAlgo to **Analyzer** mode (`/analyzer`) to test against the ₹1 Cr
   sandbox with no real fills. Validated end-to-end in sandbox: place → modify →
@@ -57,7 +62,7 @@ Safety:
 - **Your API key is never stored in this repo.** It is entered in the page, saved
   only to the browser's `localStorage`, and forwarded in the request body by the
   local proxy. The WebSocket authenticates with it directly from the browser.
-- **Live ticks only flow during market hours** — outside them the history loads
+- **Live ticks only flow during market hours**; outside them the history loads
   and the WS subscribes, but no `market_data` arrives.
 - REST is proxied (same origin); the WebSocket connects straight to OpenAlgo
   (WS upgrades aren't subject to the CORS preflight that blocks REST).

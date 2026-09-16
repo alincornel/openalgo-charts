@@ -10,8 +10,8 @@ Source of truth: `package.json` (`exports`, `sideEffects`, `files`), `rollup.con
 
 | Specifier | Emitted file | Contents | Brotli measured / limit | Import has side effects |
 |---|---|---|---|---|
-| `openalgo-charts` | `dist/openalgo-charts.mjs` | engine, 13 chart types, indicator + chart-type registries, primitives, feeds, trading controller, shortcuts, TimeNavigator, `ReplayController`, comparison controller, settings schema, chart timezone | 76.46 KB / 77 KB | no |
-| `openalgo-charts/trade` | `dist/openalgo-charts.trade.mjs` | order/position/bracket primitives, DOM ladder, `OrderEngine`, `TradeController`, `FakeBroker` | 7.61 KB standalone; 85 KB limit for base + trade | no |
+| `openalgo-charts` | `dist/openalgo-charts.mjs` | engine, 13 chart types, indicator + chart-type registries, primitives, feeds, trading controller, shortcuts, TimeNavigator, `ReplayController`, comparison controller, settings schema, chart timezone | 77.23 KB / 78 KB | no |
+| `openalgo-charts/trade` | `dist/openalgo-charts.trade.mjs` | order/position/bracket primitives, DOM ladder, `OrderEngine`, `TradeController`, `FakeBroker` | 7.61 KB standalone; 86 KB limit for base + trade | no |
 | `openalgo-charts/transform` | `dist/openalgo-charts.transform.mjs` | Renko, Range, Point & Figure, Kagi, Line Break, Heikin Ashi, `runTransform`, symbol arithmetic (`parseExpression`, `evaluateExpression`) | 4.44 KB / 6 KB | **yes**, registers the `point-figure` and `kagi` chart types |
 | `openalgo-charts/profile` | `dist/openalgo-charts.profile.mjs` | Volume Profile, TPO / Market Profile, Footprint, orderflow | 14.96 KB / 15 KB | no |
 | `openalgo-charts/indicators` | `dist/openalgo-charts.indicators.mjs` | 102 Tier-1 built-ins plus the Tier-2 contract | 28.19 KB / 30 KB | **yes**, registers all 102 descriptors |
@@ -137,16 +137,16 @@ Enforced by `npm run size` (`size-limit`, Brotli, `@size-limit/file`), from `.si
 
 | Budget row | Files measured | Limit | Measured |
 |---|---|---|---|
-| Base engine | `openalgo-charts.mjs` | 77 KB | 76.46 KB |
-| Base + trade layer | base + `trade.mjs` | 85 KB | 84.07 KB |
+| Base engine | `openalgo-charts.mjs` | 78 KB | 77.23 KB |
+| Base + trade layer | base + `trade.mjs` | 86 KB | 84.84 KB |
 | Indicator tier | `indicators.mjs` | 30 KB | 28.19 KB |
 | Draw tier | `draw.mjs` | 36 KB | 34.53 KB |
 | Transform tier | `transform.mjs` | 6 KB | 4.44 KB |
 | Profile tier | `profile.mjs` | 15 KB | 14.96 KB |
 | WebGL2 tier | `webgl.mjs` | 7 KB | 6.38 KB |
 | Widget tier | `widget.mjs` | 43 KB | 42.41 KB |
-| Widget terminal | base + `draw.mjs` + `indicators.mjs` + `widget.mjs` | 183 KB | 181.60 KB |
-| Everything | all eight bundles | 218 KB | 214.99 KB |
+| Widget terminal | base + `draw.mjs` + `indicators.mjs` + `widget.mjs` | 183 KB | 182.37 KB |
+| Everything | all eight bundles | 218 KB | 215.76 KB |
 
 Version 2.1.2 raises the full-package budget from 187 KB to 188 KB for the feed, indicator lifecycle and recovery fixes. Version 2.1.3 raises base, widget and widget-terminal ceilings to 68 KB, 37 KB and 157 KB for navigation controls, and the chart-only tree-shaking ceiling to 45 KiB. Version 2.1.6 raises the base, base-plus-trade, widget-terminal and total ceilings
 to 73 KB, 81 KB, 165 KB and 197 KB for shared loading, resilient caching and
@@ -210,4 +210,6 @@ base-only hosts do not load it. The budgets are 36 KB draw, 43 KB widget,
 
 Version 2.3.0 raises the transform budget from 5 KB to 6 KB for symbol arithmetic
 and the total from 215 KB to 218 KB. Version 2.3.1 changes no budget; the base
-engine and the three rows that include it move by hundredths.
+engine and the three rows that include it move by hundredths. Version 2.3.2
+raises the base budget from 77 KB to 78 KB and base + trade from 85 KB to
+86 KB for stream-driven repair and provisional bars.
