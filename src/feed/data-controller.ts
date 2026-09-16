@@ -185,7 +185,19 @@ export class DataLoadingController {
       const fresh = await this._pool.getBars({ ...original, from, to, noCache: true, signal: abort.signal }, 5);
       if (!this._current(generation) || id !== this._refreshId) return this._bars;
       if (fresh.length === 0 && this._bars.length) throw new Error('History refresh returned no bars');
-      const updated = this._replaceWindow(normalize(fresh), from, to);
+      const arrived = normalize(fresh);
+      // REST is authoritative for the bars it returned and for nothing past
+      // them. The bar the stream just completed is routinely a few seconds
+      // ahead of a broker's history endpoint, and a refresh that fires inside
+      // that gap would otherwise delete it: on screen the current candle
+      // becomes the previous one, vanishes, and backfills on a later poll. So
+      // the window handed over to REST ends at the newest bar REST actually
+      // has, and anything the stream built beyond it is kept. Bars inside the
+      // window are still REST's to correct.
+      let newest = -Infinity;
+      for (const value of arrived) if (value.time > newest) newest = value.time;
+      const authoritativeTo = arrived.length ? Math.min(to, newest) : to;
+      const updated = this._replaceWindow(arrived, from, authoritativeTo);
       const byTime = new Map(updated.map(bar => [bar.time, bar]));
       for (const live of this._buffer?.values() ?? []) {
         const historical = byTime.get(live.time);
