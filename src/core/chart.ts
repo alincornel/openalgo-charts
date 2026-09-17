@@ -19,7 +19,7 @@ import {
   type RendererFallbackReason,
 } from '../render/backend';
 import { DataLayer } from '../model/data-layer';
-import { createSeriesRecord, type SeriesApi, type SeriesRecord, type PriceScaleId } from '../model/series';
+import { createSeriesRecord, type SeriesApi, type SeriesRecord, type PriceScaleId, type PriceFormat } from '../model/series';
 import { getChartType, type SeriesType } from '../model/chart-type-registry';
 import {
   getIndicator, hasIndicator, plotStyleKeys,
@@ -102,6 +102,7 @@ import type { Bar, SeriesDataItem } from '../model/bar';
 import { toBar } from '../model/bar';
 import { KineticAnimation } from '../input/kinetic';
 import { ZoomGlide } from '../input/zoom-glide';
+import { wheelPixels, wheelLogFactor } from '../input/wheel';
 import { magnetSnapPrice, type CrosshairMode } from '../input/crosshair';
 import { ShortcutManager } from '../input/shortcuts';
 import type { ShortcutManagerOptions } from '../input/shortcuts';
@@ -116,6 +117,16 @@ import { PaneLegend, type PaneLegendAction, type LegendStatusLineOptions } from 
 import { ChartTable } from '../primitives/table';
 import { TimeNavigator, type TimeNavigatorOptions } from '../primitives/time-navigator';
 import type { ChartSettingsState } from '../model/chart-settings';
+import { LogoWatermark, type LogoWatermarkOptions } from '../primitives/watermark';
+import { TextWatermark, type TextWatermarkOptions } from '../primitives/text-watermark';
+
+/** Optional background text. Blank text follows the chart's symbol and interval. */
+export interface ChartWatermarkOptions extends Partial<TextWatermarkOptions> {
+  visible?: boolean;
+}
+
+/** Defensive branding snapshot emitted synchronously after setBranding as `branding:changed`. */
+export type BrandingChangedEvent = false | LogoWatermarkOptions;
 import { DEFAULT_TIMEZONE, isValidTimezone } from '../feed/time';
 import { clamp } from '../helpers/math';
 
@@ -262,10 +273,11 @@ export interface ChartOptions {
   /** Time source for kinetic animation (defaults to performance.now). */
   now?: () => number;
   /**
-   * Multiplier for each wheel-zoom step. `1` (default) preserves the shipped
-   * 1.1x step, values below 1 tame high-frequency trackpad bursts, values above
-   * 1 accelerate them, and 0 disables wheel zoom. Pinch and keyboard zoom are
-   * unaffected.
+   * Multiplier for every wheel zoom, on the plot and on a price axis. The
+   * wheel step is already proportional to the event's distance (a 100 px mouse
+   * notch is 1.1x, a trackpad's small deltas are fine steps); `1` (default)
+   * keeps that, values below 1 slow it, values above 1 speed it up, and 0
+   * disables wheel zoom. Wheel pans, pinch and keyboard zoom are unaffected.
    */
   wheelZoomSensitivity?: number;
   /**
@@ -275,6 +287,8 @@ export interface ChartOptions {
    * instruments. Off restores the single-frame step.
    */
   animZoom?: boolean;
+  /** Ease automatic price ranges during navigation. Defaults to animZoom (true). */
+  animAutoscale?: boolean;
   /**
    * What a wheel zoom holds still: the bar under the cursor, or the right edge
    * (the latest bar). Default `'cursor'`, which is what the chart has always
@@ -377,6 +391,10 @@ export interface ChartOptions {
    * of the chart. Pass `false` to drop them, or an options object to restyle.
    */
   timeNavigator?: boolean | Partial<TimeNavigatorOptions>;
+  /** OpenAlgo corner mark by default. Pass false to hide it or options for custom branding. */
+  branding?: boolean | LogoWatermarkOptions;
+  /** Background text, off by default. Blank text follows setDataContext. */
+  watermark?: boolean | ChartWatermarkOptions;
 }
 
 export interface AddSeriesOptions {
@@ -392,13 +410,15 @@ export interface AddSeriesOptions {
   priceScaleId?: PriceScaleId;
   /**
    * Value formatting applied to this series' price scale (axis + crosshair tag):
-   * `price` (tick-size precision), `volume` (compact 1.2K / 3.4M / 5.6B), or a
-   * `custom` formatter (currency, percent, ...).
+   * `price` (tick-size precision), `volume` (compact 1.2K / 3.4M / 5.6B),
+   * `percent` (a `%` suffix at a fixed precision), or a `custom` formatter.
+   *
+   * `percent` suffixes the value as it stands and does **not** scale it: a study
+   * that already returns 0..100 reads `62.24%`, and one that returns a 0..1
+   * fraction reads `0.62%`. Multiplying here would put the axis and the plotted
+   * value into disagreement, which is the one thing a formatter must never do.
    */
-  priceFormat?:
-    | { type: 'price'; precision?: number; minMove?: number }
-    | { type: 'volume' }
-    | { type: 'custom'; formatter: (value: number) => string };
+  priceFormat?: PriceFormat;
 }
 
 /** Compact volume/number formatter (1.2K / 3.4M / 5.6B). */
@@ -778,13 +798,17 @@ export class Chart {
   private _lastDragT = 0;
   private _dragVelocity = 0;
   private _kineticHandle: number | null = null;
+  private _kineticEpoch = 0;
   private _zoomHandle: number | null = null;
   /** The glide in flight, so a second wheel tick folds into it (see ZoomGlide.add). */
   private _zoomGlide: ZoomGlide | null = null;
   private _zoomGlideStart = 0;
   private _zoomGlideApplied = 0;
-  private _zoomGlideX = 0;
   private readonly _animZoom: boolean;
+  private readonly _animAutoscale: boolean;
+  private _autoscaleTime: number | null = null;
+  private _autoscaleFrames = 0;
+  private _navigationEpoch = 0;
   private readonly _zoomAnchor: ZoomAnchor;
   private readonly _doubleClick: DoubleClickAction;
   private readonly _firstDataId: { value: number | null } = { value: null };
@@ -893,6 +917,13 @@ export class Chart {
   private _timeNav: TimeNavigator | null = null;
   /** Pane the navigator is currently attached to, so it can follow the bottom. */
   private _timeNavPane = -1;
+  private _branding: LogoWatermark | null = null;
+  private _brandingOptions: false | LogoWatermarkOptions = false;
+  private _brandingPress: { pointerId: number; mark: LogoWatermark; moved: boolean } | null = null;
+  private _watermark: TextWatermark | null = null;
+  private _watermarkOptions: ChartWatermarkOptions = {
+    visible: false, text: '', color: '#9aa4b2', opacity: 0.08, fontSize: 64,
+  };
 
   public constructor(container: HTMLElement, options: ChartOptions = {}) {
     this._timeScale = new TimeScale(options.timeScale);
@@ -926,6 +957,7 @@ export class Chart {
       ? Math.max(0, options.wheelZoomSensitivity as number)
       : 1;
     this._animZoom = options.animZoom ?? true;
+    this._animAutoscale = options.animAutoscale ?? this._animZoom;
     this._zoomAnchor = options.zoomAnchor ?? 'cursor';
     this._doubleClick = options.doubleClick ?? 'reset';
     this._conflate = options.conflate ?? false;
@@ -992,11 +1024,16 @@ export class Chart {
     this._loop = new RenderLoop(() => this._onFrame(), this._raf.schedule, this._raf.cancel);
 
     this._addPane();
+    this.setBranding(options.branding ?? true);
+    this.setWatermarkOptions(options.watermark ?? false);
     this._observeSize();
     this._attachInput();
     // A host that mutates the time scale directly (e.g. setVisibleLogicalRange to
     // preserve zoom across a data reload) still triggers a repaint.
-    this._timeScale.setChangeHandler(() => this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full)));
+    this._timeScale.setChangeHandler(() => {
+      this._stopNavigationMotion();
+      this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
+    });
     this.applySize(container.clientWidth, container.clientHeight);
     this._remeasureHandle = this._raf.schedule(() => {
       this._remeasureHandle = null;
@@ -1027,6 +1064,7 @@ export class Chart {
 
   /** Restore a saved logical range (e.g. preserve the user's zoom across a data reload). */
   public setVisibleLogicalRange(range: LogicalRange): void {
+    this._stopNavigationMotion();
     const before = this._timeScale.visibleRange();
     this._timeScale.setVisibleLogicalRange(range);
     this._emitViewportIfMoved(before);
@@ -1039,6 +1077,7 @@ export class Chart {
 
   /** Fit all bars into view (no-arg convenience; bar count from the data). */
   public fitContent(): void {
+    this._stopNavigationMotion();
     if (this._dataLayer.length <= 0) return;
     const before = this._timeScale.visibleRange();
     this._timeScale.fitContent(this._dataLayer.length);
@@ -1187,7 +1226,10 @@ export class Chart {
       const pf = options.priceFormat;
       if (pf.type === 'custom') scale.setPriceFormatter(pf.formatter);
       else if (pf.type === 'volume') scale.setPriceFormatter(compactVolume);
-      else {
+      else if (pf.type === 'percent') {
+        const digits = pf.precision ?? 2;
+        scale.setPriceFormatter((v) => `${v.toFixed(digits)}%`);
+      } else {
         const minMove = pf.minMove ?? (pf.precision !== undefined ? Math.pow(10, -pf.precision) : undefined);
         if (minMove !== undefined) scale.setOptions({ minMove });
       }
@@ -1422,7 +1464,65 @@ export class Chart {
     if (this._dataContext?.symbol === context?.symbol && this._dataContext?.exchange === context?.exchange
       && this._dataContext?.interval === context?.interval && !!this._dataContext === !!context) return;
     this._dataContext = context ? Object.freeze({ ...context }) : undefined;
+    this._syncWatermark();
     this.emit('data:context', this._dataContext);
+  }
+
+  /** Replace chart-owned branding. Manually attached primitives are independent. */
+  public setBranding(options: boolean | LogoWatermarkOptions): void {
+    if (this._branding !== null) this.removePrimitive(this._branding);
+    this._branding = null;
+    this._brandingOptions = options === false ? false : {
+      position: 'bottom-left', margin: 14, opacity: 1, padding: 8,
+      label: 'Chart by OpenAlgo', href: 'https://openalgo.in', id: 'chart-branding',
+      ...(options === true ? {} : options),
+    };
+    if (this._brandingOptions !== false) {
+      if (typeof this._brandingOptions.padding === 'object') this._brandingOptions.padding = { ...this._brandingOptions.padding };
+      this._branding = new LogoWatermark(this._brandingOptions);
+      this.addPrimitive(this._branding, { anchor: 'chart-bottom' });
+    }
+    this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Light));
+    this.emit('branding:changed', this.brandingOptions());
+  }
+
+  /** Host branding options, excluded from saved chart state. */
+  public brandingOptions(): false | LogoWatermarkOptions {
+    const o = this._brandingOptions;
+    return o === false ? false : { ...o, ...(typeof o.padding === 'object' ? { padding: { ...o.padding } } : {}) };
+  }
+
+  /** Patch background text preferences. Boolean input changes visibility only. */
+  public setWatermarkOptions(options: boolean | ChartWatermarkOptions): void {
+    const patch = typeof options === 'boolean' ? { visible: options } : options;
+    if (patch === null || typeof patch !== 'object') return;
+    const o = this._watermarkOptions;
+    if (typeof patch.visible === 'boolean') o.visible = patch.visible;
+    for (const key of ['text', 'color', 'font', 'id'] as const) {
+      if (typeof patch[key] === 'string') o[key] = patch[key];
+    }
+    if (typeof patch.opacity === 'number' && Number.isFinite(patch.opacity)) o.opacity = Math.max(0, Math.min(1, patch.opacity));
+    if (typeof patch.fontSize === 'number' && Number.isFinite(patch.fontSize)) o.fontSize = Math.max(10, Math.min(200, patch.fontSize));
+    if (patch.zOrder === 'bottom' || patch.zOrder === 'normal' || patch.zOrder === 'top') o.zOrder = patch.zOrder;
+    this._syncWatermark();
+  }
+
+  /** JSON-safe preferences. Automatic text remains blank in this snapshot. */
+  public watermarkOptions(): Readonly<ChartWatermarkOptions> { return { ...this._watermarkOptions }; }
+
+  private _syncWatermark(): void {
+    const o = this._watermarkOptions;
+    if (!o.visible) {
+      if (this._watermark !== null) this.removePrimitive(this._watermark);
+      this._watermark = null;
+      return;
+    }
+    const text = o.text?.trim() ? o.text : [this._dataContext?.symbol, this._dataContext?.interval].filter(Boolean).join(' ');
+    if (this._watermark === null) {
+      this._watermark = new TextWatermark({ ...o, text });
+      this.addPrimitive(this._watermark, { anchor: 'chart-top' });
+    } else this._watermark.setOptions({ ...o, text });
+    this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Light));
   }
 
   private _indicatorHost(): IndicatorHost {
@@ -1452,10 +1552,15 @@ export class Chart {
         this._restackLegends();
       },
       legendRowsOn: (paneIndex): number => this._legends.filter((l) => l.paneIndex === paneIndex).length,
-      addIndicatorSeries: (type, paneIndex, style, priceScaleId): SeriesApi =>
+      addIndicatorSeries: (type, paneIndex, style, priceScaleId, priceFormat): SeriesApi =>
         this._createSeries(
           type as SeriesType,
-          { paneIndex, style: style as SeriesStyle | undefined, priceScaleId: priceScaleId as PriceScaleId | undefined },
+          {
+            paneIndex,
+            style: style as SeriesStyle | undefined,
+            priceScaleId: priceScaleId as PriceScaleId | undefined,
+            priceFormat,
+          },
           false,
         ),
       addIndicatorLevel: (l, paneIndex): PriceLine => {
@@ -1706,7 +1811,7 @@ export class Chart {
   // 'click', 'dblclick', 'hover', 'drag', 'drag:end', 'drag:cancel', 'pan', 'zoom', 'resize',
   // 'lazy-load', 'paneAdded', 'paneRemoved', 'paneMoved', 'paneMaximized', 'paneResized',
   // 'priceAxisMoved', 'indicatorRemoved', 'indicatorSettings', 'renderer:fallback',
-  // 'destroy'. The
+  // 'branding:changed', 'destroy'. The
   // trading layer routes its 'trading:*' events through here too, and the draw
   // tier emits 'draw:*' plus the 2.0 pair 'drawing:select' and 'drawing:change'
   // (the legacy names carry one id; the new ones carry the whole selection).
@@ -2169,9 +2274,12 @@ export class Chart {
     g.fillRect(0, 0, out.width, out.height);
     const layout = this._paneLayout();
     for (let i = 0; i < this._panes.length; i++) {
+      if (this._layoutWeight(i) <= 0) continue;
       const y = Math.round((layout[i]?.top ?? 0) * dpr);
-      g.drawImage(this._panes[i].base.element, 0, y);
-      g.drawImage(this._panes[i].top.element, 0, y);
+      for (const layer of [this._panes[i].base, this._panes[i].top]) {
+        // Hidden or unmeasured buffers are invalid Canvas2D image sources.
+        if (layer.element.width > 0 && layer.element.height > 0) g.drawImage(layer.element, 0, y);
+      }
     }
     return out;
   }
@@ -2403,6 +2511,7 @@ export class Chart {
   }
 
   private _setData(dataId: number, bars: readonly Bar[]): void {
+    if (dataId === this._firstDataId.value) this._stopNavigationMotion();
     this._dataLayer.setSeriesData(dataId, bars);
     // An indicator's plots are series in this same layer, so `baseIndex` is the
     // longest of *all* of them, this one included. Replacing the primary series
@@ -2672,6 +2781,7 @@ export class Chart {
       // the settings module so `ChartState` stays the shape of the core.
       canvas: this.canvasOptions(),
       statusLine: this.statusLineOptions(),
+      watermark: this.watermarkOptions(),
       trading: { ...this._tradingSettings },
       // The two switches, never the clock function: a callback does not survive
       // JSON, and the host that supplied one supplies it again on the way back.
@@ -2723,6 +2833,7 @@ export class Chart {
     // last and win.
     if (s.canvas) this.setCanvasOptions(s.canvas);
     if (s.statusLine) this.setStatusLineOptions(s.statusLine);
+    if (s.watermark) this.setWatermarkOptions(s.watermark);
     if (s.trading) this.setTradingSettings(s.trading);
     if (s.axisChrome) this.setAxisChromeOptions(s.axisChrome);
     if (s.navigation && typeof s.navigation === 'object') this._patchNavigation(s.navigation);
@@ -3290,13 +3401,20 @@ export class Chart {
     if (mask === null || mask.isEmpty()) return;
 
     const global = mask.globalLevel;
+    let easing = false;
+    const now = this._now();
+    const fraction = this._autoscaleTime === null || ++this._autoscaleFrames >= 90
+      ? 1 : 1 - Math.exp(-Math.max(1, now - this._autoscaleTime) / 80);
+    if (this._autoscaleTime !== null) this._autoscaleTime = now;
     for (let i = 0; i < this._panes.length; i++) {
       const pane = this._panes[i];
       const perPane = mask.paneInvalidation(i);
       const level = Math.max(global, perPane?.level ?? InvalidationLevel.None);
       const isBottom = i === this._bottomPaneIndex();
       const ctx = this._renderContext(isBottom);
-      if (level >= InvalidationLevel.Full || perPane?.autoScale) pane.autoscale(ctx);
+      if (level >= InvalidationLevel.Full || perPane?.autoScale || this._autoscaleTime !== null) {
+        easing = pane.autoscale(ctx, fraction) || easing;
+      }
       if (level >= InvalidationLevel.Light) pane.paintBase(ctx);
       if (level >= InvalidationLevel.Cursor && !this._overlayFrozen) {
         // Global crosshair: every pane draws the vertical line at the shared x;
@@ -3308,6 +3426,8 @@ export class Chart {
         pane.paintTop(cross, ctx);
       }
     }
+    if (easing) this.invalidate(m => m.invalidateGlobal(InvalidationLevel.Light));
+    else this._autoscaleTime = null;
     // After the loop, not inside it: swapping a pane's backend while its
     // frame is half painted would hand the rest of that frame to a backend
     // that never began one. The device is shared, so one pane's answer is
@@ -3328,7 +3448,7 @@ export class Chart {
     el.addEventListener('pointerdown', this._onPointerDown);
     el.addEventListener('pointermove', this._onPointerMove);
     el.addEventListener('pointerup', this._onPointerUpNative);
-    el.addEventListener('pointercancel', this._onPointerUp);
+    el.addEventListener('pointercancel', this._onPointerCancel);
     el.addEventListener('pointerleave', this._onPointerLeave);
     el.addEventListener('wheel', this._onWheel, { passive: false });
     el.addEventListener('dblclick', this._onDblClick);
@@ -3543,7 +3663,8 @@ export class Chart {
     // Only the primary button starts a pan / line-drag. A right-click (context
     // menu) also fires pointerdown, and its pointerup is often swallowed by the
     // menu — arming the drag state then makes the chart pan with no button held.
-    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if ((e.pointerType === 'mouse' || e.pointerType === 'pen') && e.button !== 0) return;
+    this._endedPointers.delete(e.pointerId);
     this._stopKinetic();
     // Taking hold of the chart ends a zoom glide too: the viewport is the
     // user's again the moment they touch it.
@@ -3606,6 +3727,13 @@ export class Chart {
       this._axisStartCoord = p.x;
       this._axisStartSpacing = this._timeScale.barSpacing;
       this._dragging = false;
+      return;
+    }
+
+    if (this._branding !== null && this._brandingHit(p.pane, p.x, p.localY)) {
+      this._brandingPress = { pointerId: e.pointerId, mark: this._branding, moved: false };
+      this._dragging = false;
+      this._pointerMoved = false;
       return;
     }
 
@@ -3718,7 +3846,9 @@ export class Chart {
     this._unfreezeOverlay();
     // Safety: if the primary button is no longer held (missed pointerup — e.g.
     // released over a context menu or outside the window), end any drag now.
-    if (e.pointerType === 'mouse' && (e.buttons & 1) === 0 && (this._dragging || this._dragId !== null || this._axisDrag !== null)) {
+    if (e.pointerType === 'mouse' && (e.buttons & 1) === 0
+      && (this._dragging || this._dragId !== null || this._axisDrag !== null || this._brandingPress !== null)) {
+      if (this._brandingPress !== null) this._brandingPress.moved = true;
       this._onPointerUp(e);
       // Marked after the fact, not before: the recovery IS this pointer's one
       // real end, so it has to run. What must be swallowed is the release that
@@ -3729,6 +3859,13 @@ export class Chart {
     const p = this._localPoint(e);
     if (this._pointers.has(e.pointerId)) this._pointers.set(e.pointerId, { x: p.x, y: p.y, pane: p.pane });
     if (this._pinch !== null) { this._updatePinch(); return; }
+    if (this._brandingPress !== null) {
+      if (Math.abs(p.x - this._downX) > 3 || Math.abs(p.localY - this._downLocalY) > 3
+        || p.pane !== this._downPane || (e.pointerType === 'mouse' && (e.buttons & 1) === 0)) {
+        this._brandingPress.moved = true;
+      }
+      return;
+    }
     if (this._axisDrag === 'price') {
       // drag up (dy<0) → expand (zoom in); drag down → compress (zoom out)
       const dy = p.localY - this._axisStartCoord;
@@ -3757,6 +3894,7 @@ export class Chart {
       return;
     }
     if (this._axisDrag === 'time') {
+      this._beginAutoscaleMotion();
       // Drag left to widen bars; drag right to show more bars in the same space.
       const dx = p.x - this._axisStartCoord;
       const before = this._timeScale.visibleRange();
@@ -3823,6 +3961,7 @@ export class Chart {
       return;
     }
     if (this._dragging) {
+      this._beginAutoscaleMotion();
       const dx = p.x - this._dragStartX;
       if (Math.abs(dx) > 3 || Math.abs(p.y - this._dragStartY) > 3) this._pointerMoved = true;
       // horizontal: scroll time
@@ -3866,6 +4005,19 @@ export class Chart {
     if (this._endedPointers.has(e.pointerId)) { this._endedPointers.delete(e.pointerId); return; }
     this._pointers.delete(e.pointerId);
     this._clearCrosshairPress();
+    if (this._brandingPress?.pointerId === e.pointerId) {
+      const press = this._brandingPress;
+      this._brandingPress = null;
+      const p = this._localPoint(e);
+      if (!press.moved && press.mark === this._branding && p.pane === this._downPane
+        && Math.abs(p.x - this._downX) <= 3 && Math.abs(p.localY - this._downLocalY) <= 3
+        && this._brandingHit(p.pane, p.x, p.localY)) {
+        const href = press.mark.href();
+        if (href && /^https?:\/\//i.test(href)) this._doc.defaultView?.open(href, '_blank', 'noopener,noreferrer');
+      }
+      this._endedPointers.add(e.pointerId);
+      return;
+    }
     if (this._crosshairPointer === e.pointerId) {
       // The finger is off the glass but the crosshair stays: see
       // `_crosshairSticky`. Nothing else about this gesture happens, or the
@@ -3886,8 +4038,8 @@ export class Chart {
       if (e.pointerType !== 'mouse') this._setHover(null);
     }
     if (this._pinch !== null) {
-      // a finger lifted mid-pinch: end the gesture; don't start a drag with the remnant
-      if (this._pointers.size < 2) { this._pinch = null; this._dragging = false; }
+      // Keep the remaining finger in the same gesture so its release cannot place a drawing.
+      if (this._pointers.size === 0) { this._pinch = null; this._dragging = false; }
       return;
     }
     if (this._paneResize !== null) {
@@ -4010,12 +4162,12 @@ export class Chart {
    * refreshed and still holds the *previous* left-click. Letting a non-primary
    * pointerup through would re-run the click branch against that stale position
    * and replay the last click (e.g. re-firing a Buy/Sell button → a phantom
-   * order). Touch/pen are unaffected (they contact with button 0). The internal
+   * order). Touch and pen tip contact use button 0. The internal
    * recovery call from `_onPointerMove` invokes `_onPointerUp` directly, so it
    * bypasses this filter and still ends a drag when a button release is missed.
    */
   private readonly _onPointerUpNative = (e: PointerEvent): void => {
-    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if ((e.pointerType === 'mouse' || e.pointerType === 'pen') && e.button !== 0) return;
     this._onPointerUp(e);
   };
 
@@ -4049,6 +4201,23 @@ export class Chart {
     this.emit('crosshair:move', cleared);
   }
 
+  private readonly _onPointerCancel = (e: PointerEvent): void => {
+    if (this._brandingPress?.pointerId === e.pointerId) this._brandingPress.moved = true;
+    this._onPointerUp(e);
+  };
+
+  private _brandingHit(paneIndex: number, x: number, y: number): boolean {
+    const pane = this._panes[paneIndex];
+    if (this._branding === null || !pane?.hasPrimitive(this._branding)) return false;
+    const isBottom = paneIndex === this._bottomPaneIndex();
+    return this._branding.hitTest(x - this._leftAxisWidth, y, {
+      timeScale: this._timeScale, priceScale: pane.priceScale, dataLayer: this._dataLayer,
+      plotWidth: this._width - this._leftAxisWidth - this._rightAxisWidth,
+      plotHeight: (this._paneLayout()[paneIndex]?.height ?? 0) - (isBottom ? this._timeAxisHeight : 0),
+      priceAxisWidth: this._rightAxisWidth, dpr: this._pixelRatio(), theme: this._theme,
+    }) !== null;
+  }
+
   private readonly _onPointerLeave = (): void => {
     this._pointerInside = false;
     this._feedTimeNav(null);
@@ -4063,41 +4232,62 @@ export class Chart {
   };
 
   private readonly _onWheel = (e: WheelEvent): void => {
+    const delta = wheelPixels(e, this._width, this._height);
+    if (delta.x === 0 && delta.y === 0) return;
     this._unfreezeOverlay();
     e.preventDefault();
-    if (e.deltaY === 0 || this._wheelZoomSensitivity === 0) return;
-    // A mouse wheel commonly emits one event per notch, while a Mac trackpad
-    // emits a high-frequency burst. Scaling the step retains the exact shipped
-    // 1.1x at sensitivity 1 while letting hosts damp every event in that burst:
-    // the glide works in log space, where `1.1 ** s` is `s * ln(1.1)`.
-    const logFactor = (e.deltaY < 0 ? 1 : -1) * this._wheelZoomSensitivity * Math.log(1.1);
-    // 'right' pins the latest bar: zoom about the right edge of the plot, so
-    // history stretches away from it instead of the cursor's bar staying put.
-    const focusX = this._zoomAnchor === 'right' ? this._timeScale.width : this._localPoint(e).x;
-
-    if (!this._animZoom || !ZoomGlide.shouldAnimate(logFactor)) {
+    this._stopKinetic();
+    const p = this._localPoint(e);
+    const onLeft = this._leftAxisWidth > 0 && p.x < this._leftAxisWidth;
+    const onRight = this._rightAxisWidth > 0 && p.x >= this._width - this._rightAxisWidth;
+    // The host's sensitivity scales every zoom the wheel makes, on the plot and
+    // on an axis alike; a pan is a distance, not a step, and is left alone.
+    const zoomStep = wheelLogFactor(delta.y) * this._wheelZoomSensitivity;
+    if (onLeft || onRight) {
+      // A zero step is not a no-op here: scaling by 1 still takes the axis
+      // out of autoscale.
+      if (zoomStep === 0) return;
       this._stopZoomGlide();
+      const pane = this._panes[p.pane];
+      const scale = pane.scaleFor(this._axisScaleId(p.pane, onLeft ? 'left' : 'right'));
+      scale.scaleAtY(p.localY, Math.exp(-zoomStep));
+      this.invalidate(m => m.invalidateGlobal(InvalidationLevel.Full));
+      return;
+    }
+    if (!e.ctrlKey && !e.metaKey && (e.shiftKey || Math.abs(delta.x) > Math.abs(delta.y))) {
+      this._stopZoomGlide();
+      this._beginAutoscaleMotion();
+      this._timeScale.scrollByPixels(-(e.shiftKey && delta.x === 0 ? delta.y : delta.x));
+      this._maybeLoadHistory();
+      this.invalidate(m => m.invalidateGlobal(InvalidationLevel.Full));
+      this._emitViewport('pan');
+      return;
+    }
+    if (zoomStep === 0) return;
+    const focusX = this._zoomAnchor === 'right' && !e.ctrlKey && !e.metaKey
+      ? this._timeScale.width : Math.max(0, Math.min(this._timeScale.width, p.x - this._leftAxisWidth));
+    // Carry the unpainted distance across device changes and cursor movement.
+    // Bound the target now so input at a limit cannot accumulate invisible debt.
+    const remaining = this._zoomGlide === null ? 0 : this._zoomGlide.totalLogFactor - this._zoomGlideApplied;
+    const spacing = this._timeScale.barSpacing;
+    const target = this._timeScale.constrainBarSpacing(spacing * Math.exp(remaining + zoomStep));
+    const logFactor = Math.log(target / spacing);
+    this._stopZoomGlide();
+    if (logFactor === 0) return;
+    if (!this._animZoom || !ZoomGlide.shouldAnimate(logFactor)) {
       this._applyZoom(focusX, logFactor);
       return;
     }
-    // A tick during a glide extends it rather than starting a new one, or a
-    // fast scroll would restart the ease on every notch and barely move.
-    // The lead lands on the event itself, so there is no input latency and a
-    // synchronous read of the viewport after a wheel sees it move.
     const lead = logFactor * ZoomGlide.leadFraction();
+    const epoch = this._navigationEpoch;
     this._applyZoom(focusX, lead);
-    const rest = logFactor - lead;
-
-    if (this._zoomGlide !== null && this._zoomGlideX === focusX) {
-      this._zoomGlide.add(rest, this._zoomGlideApplied, this._now() - this._zoomGlideStart);
-      return;
-    }
-    this._stopZoomGlide();
-    this._startZoomGlide(focusX, rest);
+    if (this._destroyed || epoch !== this._navigationEpoch) return;
+    this._startZoomGlide(focusX, logFactor - lead);
   };
 
   /** One zoom step, applied now. Shared by the instant path and each glide frame. */
   private _applyZoom(focusX: number, logFactor: number): void {
+    this._beginAutoscaleMotion();
     this._timeScale.zoomAtX(focusX, Math.exp(logFactor));
     this._maybeLoadHistory();
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
@@ -4109,15 +4299,16 @@ export class Chart {
     this._zoomGlide = glide;
     this._zoomGlideStart = this._now();
     this._zoomGlideApplied = 0;
-    this._zoomGlideX = focusX;
     let frames = 0;
     const step = (): void => {
+      if (this._zoomGlide !== glide || this._destroyed) return;
       const elapsed = this._now() - this._zoomGlideStart;
       const applied = glide.appliedAt(elapsed);
       const delta = applied - this._zoomGlideApplied;
       this._zoomGlideApplied = applied;
       // A frame that moved nothing still costs a full-pane repaint, so skip it.
       if (delta !== 0) this._applyZoom(focusX, delta);
+      if (this._zoomGlide !== glide || this._destroyed) return;
       if (!glide.finished(elapsed) && ++frames < ZOOM_GLIDE_MAX_FRAMES) {
         this._zoomHandle = this._raf.schedule(step);
       } else {
@@ -4129,6 +4320,19 @@ export class Chart {
       }
     };
     this._zoomHandle = this._raf.schedule(step);
+  }
+
+  private _beginAutoscaleMotion(): void {
+    if (!this._animAutoscale || this._autoscaleTime !== null) return;
+    this._autoscaleTime = this._now() - 16;
+    this._autoscaleFrames = 0;
+  }
+
+  private _stopNavigationMotion(): void {
+    this._navigationEpoch++;
+    this._stopZoomGlide();
+    this._stopKinetic();
+    this._autoscaleTime = null;
   }
 
   private _stopZoomGlide(): void {
@@ -4145,6 +4349,7 @@ export class Chart {
    * Same as double-clicking the chart.
    */
   public resetScale(): void {
+    this._stopNavigationMotion();
     const before = this._timeScale.visibleRange();
     this._hasFitContent = this._fitDefaultView();
     for (const pane of this._panes) {
@@ -4159,6 +4364,7 @@ export class Chart {
 
   private readonly _onDblClick = (e: { clientX: number; clientY: number }): void => {
     const p = this._localPoint(e);
+    if (this._brandingHit(p.pane, p.x, p.localY)) return;
     const ev: DoubleClickEvent = { paneIndex: p.pane, x: p.x, y: p.y, handled: false };
     this.emit('dblclick', ev);
     // While a tool is armed a double-click means "finish this shape" — a
@@ -4172,6 +4378,7 @@ export class Chart {
 
   // ── multi-touch pinch (zoom + two-finger pan) ─────────────────────────────
   private _beginPinch(): void {
+    this._brandingPress = null;
     const pts = [...this._pointers.values()];
     this._pinch = pinchState(pts[0], pts[1]);
     this._pinchPane = pts[0].pane;
@@ -4195,6 +4402,7 @@ export class Chart {
     if (pts.length < 2 || this._pinch === null) return;
     const cur = pinchState(pts[0], pts[1]);
     const d = pinchDelta(this._pinch, cur);
+    this._beginAutoscaleMotion();
     if (d.factor !== 1) this._timeScale.zoomAtX(cur.cx, d.factor);                       // pinch → zoom time
     this._timeScale.setRightOffset(this._timeScale.rightOffset - d.dx / this._timeScale.barSpacing); // two-finger pan X
     this._panes[this._pinchPane]?.priceScale.panByPixels(d.dy);                          // two-finger pan Y
@@ -4238,12 +4446,16 @@ export class Chart {
     // the time window, and deliberately emit nothing (the payload is a time
     // range, and `_emitViewportIfMoved` sees no movement in it anyway).
     const pan = (bars: number): boolean => {
+      this._stopZoomGlide();
+      this._beginAutoscaleMotion();
       const before = ts.visibleRange();
       ts.setRightOffset(ts.rightOffset + bars);
       this._emitViewportIfMoved(before);
       return true;
     };
     const zoom = (factor: number): boolean => {
+      this._stopZoomGlide();
+      this._beginAutoscaleMotion();
       const before = ts.visibleRange();
       ts.zoomAtX(this._width / 2, factor);
       this._emitViewportIfMoved(before);
@@ -4341,7 +4553,9 @@ export class Chart {
     this._setHover(hit);
     // The navigator reveals on pointer position, not on hover id — see the note
     // in time-navigator.ts. Only the bottom pane carries it.
-    this._feedTimeNav(paneIndex === this._bottomPaneIndex() ? { x: plotX, y: localY } : null);
+    // The hover label occupies the same bottom strip as the navigation row.
+    this._feedTimeNav(paneIndex === this._bottomPaneIndex() && !this._brandingHit(paneIndex, x, localY)
+      ? { x: plotX, y: localY } : null);
     let y = localY;
     const index = Math.round(this._timeScale.xToIndex(plotX));
     let hoveredBar: Bar | null = null;
@@ -4408,6 +4622,8 @@ export class Chart {
    * unnoticed until a browser drove it.
    */
   private _startKinetic(velocity: number): void {
+    this._stopKinetic();
+    const epoch = this._kineticEpoch;
     const anim = new KineticAnimation(velocity);
     if (anim.durationMs <= 0) return;
     const start = this._now();
@@ -4420,10 +4636,12 @@ export class Chart {
     // ten seconds of frames is a ceiling no real animation reaches.
     let frames = 0;
     const step = (): void => {
+      if (epoch !== this._kineticEpoch || this._destroyed) return;
       const elapsed = this._now() - start;
       const dist = anim.distanceAt(elapsed);
       const delta = dist - lastDist;
       lastDist = dist;
+      this._beginAutoscaleMotion();
       this._timeScale.setRightOffset(this._timeScale.rightOffset - delta / this._timeScale.barSpacing);
       this._maybeLoadHistory();
       this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
@@ -4432,6 +4650,7 @@ export class Chart {
       // downstream (a linked chart, a host tracking the visible range) is left on
       // that window while this one coasts on for another few hundred milliseconds.
       this._emitViewport('pan');
+      if (epoch !== this._kineticEpoch || this._destroyed) return;
       if (!anim.finished(elapsed) && ++frames < KINETIC_MAX_FRAMES) {
         this._kineticHandle = this._raf.schedule(step);
       } else {
@@ -4442,6 +4661,7 @@ export class Chart {
   }
 
   private _stopKinetic(): void {
+    this._kineticEpoch++;
     if (this._kineticHandle !== null) {
       this._raf.cancel(this._kineticHandle);
       this._kineticHandle = null;
@@ -4466,11 +4686,10 @@ export class Chart {
       this._raf.cancel(this._remeasureHandle);
       this._remeasureHandle = null;
     }
-    this._stopKinetic();
+    this._stopNavigationMotion();
     // A long press pending when the chart goes away would fire into a
     // destroyed instance, which is the classic timer leak.
     this._clearCrosshairPress();
-    this._stopZoomGlide();
     for (const indicator of this._indicators.splice(0)) indicator.remove();
     this._resizeObserver?.disconnect();
     this._resizeObserver = null;
@@ -4479,7 +4698,7 @@ export class Chart {
       el.removeEventListener('pointerdown', this._onPointerDown);
       el.removeEventListener('pointermove', this._onPointerMove);
       el.removeEventListener('pointerup', this._onPointerUpNative);
-      el.removeEventListener('pointercancel', this._onPointerUp);
+      el.removeEventListener('pointercancel', this._onPointerCancel);
       el.removeEventListener('pointerleave', this._onPointerLeave);
       el.removeEventListener('wheel', this._onWheel);
       el.removeEventListener('dblclick', this._onDblClick);

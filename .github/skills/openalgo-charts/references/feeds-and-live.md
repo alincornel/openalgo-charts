@@ -179,7 +179,7 @@ Only buffered timestamps are merged; other bars retain authoritative history. Wh
 | `lateTickPolicy` | `'foldIntoBar'` | `'foldIntoBar'` merges a tick older than the current bar into it; `'dropOlderThanPrevBar'` returns `null`. |
 | `sessionAnchorSec` | `0` | Bucket alignment origin, in UTC seconds. |
 
-`onTick(tick)` returns `{ bar, isNew } | null`, `null` only under `'dropOlderThanPrevBar'`. `isNew` is true on the first tick of a bucket, so a host can append rather than replace. `bucketStart(t) = anchor + floor((t - anchor) / intervalSec) * intervalSec`. `current()` returns a copy of the forming bar.
+`onTick(tick)` returns `{ bar, isNew, provisional? } | null`, `null` only under `'dropOlderThanPrevBar'`. `isNew` is true on the first tick of a bucket, so a host can append rather than replace. `provisional` is true while the bar's open, high, low and volume cover only the ticks this builder saw (2.3.2, below). `bucketStart(t) = anchor + floor((t - anchor) / intervalSec) * intervalSec`. `current()` returns a copy of the forming bar.
 
 `'day-delta'` handles the daily reset: when the incoming cumulative drops below the last one, the new bar starts from 0; otherwise it carries from the previous bar's closing cumulative.
 
@@ -198,6 +198,70 @@ ws.onLtp((e) => {
   if (u !== null) series.update(u.bar);
 });
 ws.subscribe('LTP', 'RELIANCE', 'NSE');
+```
+
+## Stream-driven repair and provisional bars (2.3.2)
+
+Base exports added: `LiveBarMeta`. Existing exports gained members:
+`DataLoadingOptions.refreshOnBarClose`, `.refreshOnGap`, `.refreshWindowBars`;
+`DataLoadingController.pushBar(bar, meta?)`; `CandleUpdate.provisional`;
+`CandleBuilder.reconcile(bar)` and `.isProvisional()`; `DataFeed.subscribeBars`
+callbacks receive `(bar, meta?)`.
+
+**Repair follows the stream, not a clock.** All three options are off by default,
+and a controller built without them makes exactly the requests it always did.
+
+| Option | Meaning |
+|---|---|
+| `refreshOnBarClose` | `true` or `{ delayMs?, retries?, retryDelayMs? }` (defaults 2500 ms, 2, 5000 ms). A pushed bar that opens a new bucket means the bar before it closed: one refresh runs `delayMs` later, retried up to `retries` times while the reply still stops short of that bar. Fires on any rollover, fixed-length interval or not. Nothing fires while the stream is quiet. |
+| `refreshOnGap` | Refresh at once when a pushed bar skips one or more whole buckets. Needs a fixed-length interval; the window reaches back to the last bar the stream delivered. |
+| `refreshWindowBars` | A refresh re-fetches only this many bars back from the tail instead of the whole load window. Needs a fixed-length interval; other intervals keep the whole window. A gap repair widens it to cover the gap. |
+
+A repair requested while a refresh is in flight queues behind it rather than
+aborting it. Hiding the tab cancels pending repairs; returning refreshes once,
+as before. `pollIntervalMs` still works and is the right backstop for silent
+drift, at a slow cadence. `examples/live` uses `refreshOnBarClose: true,
+refreshOnGap: true, refreshWindowBars: 5, pollIntervalMs: 120_000`.
+
+**A provisional bar is one the builder opened without having streamed the bar
+before it**: a cold builder, or a seed from an older bucket. Either way the
+trades between the bucket's true open and the first tick seen were missed, so
+its open, high, low and volume are only what the builder saw; the close is
+still the latest price. `CandleUpdate.provisional` says so per update and
+`isProvisional()` on demand. The bucket after a provisional bar is not
+provisional: the builder streamed to its end. Reseeding with `seed()` marks the
+lineage unstreamed again, which is the right thing after a socket resync:
+`builder.seed(builder.current())`, then refresh.
+
+`reconcile(authoritative)` adopts history's bar for the current bucket: the open
+when provisional, the union of the extremes and the larger volume always, the
+close kept with the ticks. Returns the merged bar, or `null` for a different
+bucket (then `seed` instead). Call it on `reason: 'refresh'` snapshots with the
+bar history holds for `builder.current().time`.
+
+`pushBar(bar, { provisional: true })` onto a bar the controller already holds for
+that bucket keeps that bar's open and widens the extremes instead of replacing
+it, so history's true open survives the next tick. A plain `pushBar(bar)` still
+replaces the bar, as it always did. `OpenAlgoLiveDataFeed.subscribeBars` passes
+the flag through, and so does the controller's own subscription.
+
+```ts
+const data = new DataLoadingController(feed, {
+  refreshOnBarClose: true, refreshOnGap: true, refreshWindowBars: 5, pollIntervalMs: 120_000,
+});
+data.subscribe((s) => {
+  if (s.reason === 'state') return;
+  if (s.reason === 'refresh') {
+    const current = builder.current();
+    const held = current && s.bars.find((b) => b.time === current.time);
+    if (held) builder.reconcile(held);
+  }
+  paint(s.bars);
+});
+ws.onLtp((e) => {
+  const u = builder.onTick({ time: e.timeSec, price: e.ltp, ltq: e.ltq });
+  if (u) data.pushBar(u.bar, u.provisional ? { provisional: true } : undefined);
+});
 ```
 
 ## The interval registry

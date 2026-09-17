@@ -4,17 +4,17 @@
 
 **A from-scratch, dependency-free HTML5-canvas charting engine for OpenAlgo.**
 
-Professional interactive charts, 102 built-in indicators plus your own custom ones, 51 drawing tools, order flow, market replay, linked chart grids, on-chart trading, vector SVG export and an optional WebGL2 backend. Eight lazy-loaded tiers, zero runtime dependencies, 73.31 KB Brotli for the base engine, and a one-call widget tier that adds the toolbar, drawing rail, dialogs and shortcuts.
+Professional interactive charts, 102 built-in indicators plus your own custom ones, 85 drawing tools, order flow, market replay, linked chart grids, on-chart trading, vector SVG export and an optional WebGL2 backend. Eight lazy-loaded tiers, zero runtime dependencies, 77.23 KB Brotli for the base engine, and a one-call widget tier that adds the toolbar, drawing rail, dialogs and shortcuts.
 
 [![npm version](https://img.shields.io/npm/v/openalgo-charts.svg?color=cb3837&label=npm)](https://www.npmjs.com/package/openalgo-charts)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
-[![bundle](https://img.shields.io/badge/brotli-73.31%20KB%20base%20%C2%B7%20197.58%20KB%20all%20tiers-brightgreen.svg)](#size-budget)
-[![tests](https://img.shields.io/badge/tests-4337%20passing-brightgreen.svg)](#develop)
+[![bundle](https://img.shields.io/badge/brotli-77.23%20KB%20base%20%C2%B7%20215.76%20KB%20all%20tiers-brightgreen.svg)](#size-budget)
+[![tests](https://img.shields.io/badge/tests-5182%20passing-brightgreen.svg)](#develop)
 [![dependencies](https://img.shields.io/badge/runtime%20deps-0-brightgreen.svg)](#principles)
 
 [**Documentation**](https://marketcalls.github.io/openalgo-charts/) &nbsp;·&nbsp; [**Live examples**](https://marketcalls.github.io/openalgo-charts/examples) &nbsp;·&nbsp; [**Getting started**](./docs/getting-started.md) &nbsp;·&nbsp; [**Migrating to 2.0**](./docs/migrating-to-2.md) &nbsp;·&nbsp; [**Architecture**](./ARCHITECTURE.md)
 
-<img src="docs/architecture-diagram.svg" alt="OpenAlgo Charts architecture: seven layers from the public API down to feeds and data, with 102 built-in plus custom indicators, 51 drawing tools, and an eight-tier bundle legend" width="920" />
+<img src="docs/architecture-diagram.svg" alt="OpenAlgo Charts architecture: seven layers from the public API down to feeds and data, with 102 built-in plus custom indicators, 85 drawing tools, and an eight-tier bundle legend" width="920" />
 
 </div>
 
@@ -43,14 +43,13 @@ Every chart in the [live gallery](https://marketcalls.github.io/openalgo-charts/
 
 ## Install
 
-Current version: **2.1.7**.
+Current version: **2.3.2**.
 
-This release adds a searchable Objects panel and shared object-management API for
-drawings, indicators and host-registered profiles. Dialogs fit narrow chart panes,
-and indicator visibility survives settings changes and layout restoration.
-See the [Objects guide](https://marketcalls.github.io/openalgo-charts/docs/objects/),
-the [2.1.7 changelog](./CHANGELOG.md#217) and
-[OpenAlgo compatibility guide](https://marketcalls.github.io/openalgo-charts/docs/openalgo-compatibility/).
+This release makes history repair follow the stream: one refresh a moment after
+each bar closes, an immediate one when the stream skips a bucket, each fetching
+only the tail; and a forming bar the builder opened mid-bucket takes its true
+open from history instead of its first tick. See the
+[2.3.2 changelog](./CHANGELOG.md#232).
 
 ```bash
 npm install openalgo-charts
@@ -63,6 +62,14 @@ const chart = createChart(document.getElementById('chart'));
 chart.addSeries('candlestick').setData(generateBars(1700000000, 200, 3600));
 ```
 
+## Branding and optional watermark
+
+Version 2.1.9 adds default corner branding and an optional background
+watermark. The background text starts off. Use `branding: false` for a host-owned
+logo, and `watermark: true` with `setDataContext` to show the current symbol and
+interval. The same watermark controls appear under Appearance in chart settings.
+See the [branding guide](https://marketcalls.github.io/openalgo-charts/docs/branding-and-watermarks/).
+
 ## No build step
 
 Every release is on unpkg and jsDelivr the moment it is published, because both sit
@@ -71,7 +78,7 @@ in front of npm rather than being places you upload to. A chart is one HTML file
 ```html
 <div id="chart" style="width:100vw;height:100vh"></div>
 <script type="module">
-  import { createChart } from 'https://unpkg.com/openalgo-charts@2.1.7/dist/openalgo-charts.mjs';
+  import { createChart } from 'https://unpkg.com/openalgo-charts@2.3.2/dist/openalgo-charts.mjs';
   const chart = createChart(document.getElementById('chart'), { timezone: 'Asia/Kolkata' });
   chart.addSeries('candlestick').setData(bars);
 </script>
@@ -94,6 +101,7 @@ const widget = createWidget('#terminal', {
   feed: new OpenAlgoDataFeed({ baseUrl: 'http://127.0.0.1:5000', apiKey: 'YOUR_KEY' }),
   symbol: 'RELIANCE', exchange: 'NSE', interval: '5m',
   theme: 'dark',
+  mobile: 'auto', // compact controls at 640 CSS px or less, or on a coarse pointer
   persist: true,
   onOrder: (order) => broker.place(order),   // the right-click menu offers order entry only when this is set
 });
@@ -102,7 +110,7 @@ widget.chart;   // the Chart underneath, every base API available
 widget.draw;    // the DrawingController the rail drives
 ```
 
-`openalgo-charts/widget` is the eighth tier and the only one that builds DOM: a top bar (symbol search, interval pills, chart type, Indicators, capture, settings, theme), the drawing rail with pins and flyouts, a status line, toasts, a right-click menu, a keymap with a `?` panel, and optional layout persistence. Every dialog is generated from a schema the engine already ships (`chartSettingsSchema`, the indicator descriptor, `drawingSettingsSchema`), so no control exists without something behind it, and the chrome takes its colours from the active `ChartTheme` through `--oac-` tokens, so `setTheme` recolours canvas and chrome together. It drives the engine only through the public API, and the build proves it: the ESLint tier ACL and `npm run shake` keep it out of every other bundle, and importing the module touches no DOM, so it can sit in code that also runs on a server. The guide is [`docs/widget.md`](./docs/widget.md).
+`openalgo-charts/widget` is the eighth tier and the only one that builds DOM: a top bar (symbol search, interval pills, chart type, Indicators, capture, settings, theme), the drawing rail with pins and flyouts, a status line, responsive mobile header and bottom controls, toasts, a right-click menu, a keymap with a `?` panel, and optional layout persistence. Every dialog is generated from a schema the engine already ships (`chartSettingsSchema`, the indicator descriptor, `drawingSettingsSchema`), so no control exists without something behind it, and the chrome takes its colours from the active `ChartTheme` through `--oac-` tokens, so `setTheme` recolours canvas and chrome together. It drives the engine only through the public API, and the build proves it: the ESLint tier ACL and `npm run shake` keep it out of every other bundle, and importing the module touches no DOM, so it can sit in code that also runs on a server. The guide is [`docs/widget.md`](./docs/widget.md).
 
 ## Tiers
 
@@ -110,16 +118,16 @@ Import only what you use. Each tier is a separate bundle that registers into the
 
 | Import | Contents | Brotli |
 |---|---|---|
-| `openalgo-charts` | Engine, 13 chart types, panes &amp; scales, primitives, registries, chart state, chart linking, object inventory, bar cache, data-loading controller, interval registry, trading overlay, SVG export, render backend port, OpenAlgo feeds | 76.03 KB |
-| `openalgo-charts/indicators` | 102 built-in indicators, the `registerIndicator` contract for your own, and the Tier-2 (external-data) contract | 28.05 KB |
-| `openalgo-charts/draw` | 51 drawing tools + a headless drawing controller, clipboard, settings schema, level palette, freehand geometry and SVG icons | 25.90 KB |
-| `openalgo-charts/transform` | Heikin Ashi, Renko, Range bars, Line Break, Point &amp; Figure, Kagi | 2.66 KB |
+| `openalgo-charts` | Engine, 13 chart types, panes &amp; scales, primitives, registries, chart state, chart linking, bar cache, interval registry, trading overlay, SVG export, render backend port, OpenAlgo feeds | 80.01 KB |
+| `openalgo-charts/indicators` | 102 built-in indicators, the `registerIndicator` contract for your own, and the Tier-2 (external-data) contract | 28.19 KB |
+| `openalgo-charts/draw` | 85 drawing tools + a headless drawing controller, clipboard, settings schema, level palette, freehand geometry and SVG icons | 34.53 KB |
+| `openalgo-charts/transform` | Heikin Ashi, Renko, Range bars, Line Break, Point &amp; Figure, Kagi, and symbol arithmetic (`AAPL/MSFT`) | 4.44 KB |
 | `openalgo-charts/profile` | Volume Profile, Market Profile (TPO) with compact pixel letters, Footprint, order flow | 16.86 KB |
 | `openalgo-charts/trade` | Order / position / bracket tools + DOM ladder | 7.69 KB |
 | `openalgo-charts/webgl` | WebGL2 series backend: batched, analytically anti-aliased GPU rendering of the standard chart types behind `renderer: 'auto'`, with a session-long fallback to the 2D path | 6.38 KB |
-| `openalgo-charts/widget` | The chart with its chrome in one call: `createWidget` adds a top bar, the drawing rail, a status line, the settings and indicator dialogs, drawing properties, a right-click menu, a keymap with a `?` panel and optional layout persistence. The only tier that ships DOM | 38.72 KB |
+| `openalgo-charts/widget` | The chart with its chrome in one call: `createWidget` adds a top bar, the drawing rail, a status line, the settings and indicator dialogs, drawing properties, a right-click menu, a keymap with a `?` panel and optional layout persistence. The only tier that ships DOM | 42.41 KB |
 
-Everything together is **202.28 KB Brotli**; a widget terminal (base + draw + indicators + widget, what one `createWidget` call loads) is 168.69 KB. Figures are the measured `size-limit` output. The trade tier is listed as its delta over the base, so loading base + trade costs 83.72 KB.
+Everything together is **220.51 KB Brotli**; a widget terminal (base + draw + indicators + widget, what one `createWidget` call loads) is 185.15 KB. Figures are the measured `size-limit` output of this fork on 2.3.2. The trade tier is listed as its delta over the base, so loading base + trade costs 84.84 KB.
 
 ## What's built
 
@@ -151,7 +159,7 @@ const draw = new DrawingController(chart, { magnet: true });
 draw.setTool('trend-line');   // the next two clicks place it
 ```
 
-51 tools. Lines: trend line, ray, extended line, arrow, horizontal line/ray, vertical line, cross line. Shapes: rectangle, rotated rectangle, ellipse, circle, triangle. Paths: path, polyline, arc, curve, double curve. Channels: parallel channel, fib channel. Fibonacci: retracement, extension, time zone, speed fan. Gann: fan, box. Cycles: cyclic lines, time cycles, sine line. Forecasting: long/short position (1:1 from one click, with risk/reward and risk-based sizing), forecast. Measurers: price range, date range, measure. Arrows: mark up, down, left, right. Text and notes: text, price label, callout, flag mark. Annotations: note, balloon, comment, signpost, price note, table. Brushes: brush, highlighter (freehand).
+85 tools. Lines, channels and four pitchfork variants. Fibonacci levels, time projections, fans, circles, arcs, wedges and spirals. Gann fans, boxes and squares. Harmonic patterns, Elliott waves and Head and Shoulders. Geometric wavefronts and tessellation. Shapes, paths, forecasts, positions, measurements, text, tables and freehand brushes. Every tool appears in the [editable drawing gallery](https://marketcalls.github.io/openalgo-charts/demos/drawings/index.html), with simulated NIFTY prices near 23800 and desktop or touch controls.
 
 Headless by design: no toolbar, no dialogs. Placement with live preview, selection, whole-shape and per-anchor dragging, magnet snap to O/H/L/C, undo/redo (a drag is one step), and persistence. Anchors are `{ time, price }`, never pixels, so they survive zoom and resolve inside collapsed session gaps and past the last bar.
 
@@ -411,16 +419,16 @@ Enforced in CI by [`size-limit`](./.size-limit.json). Nothing is excluded, becau
 
 | Bundle | Limit | Actual |
 |---|---|---|
-| Base engine | 76.2 KB | 76.03 KB |
-| Base + trade | 83.9 KB | 83.72 KB |
-| Indicators tier | 30 KB | 28.05 KB |
-| Draw tier | 26 KB | 25.90 KB |
-| Transform tier | 5 KB | 2.66 KB |
+| Base engine | 80.2 KB | 80.01 KB |
+| Base + trade | 87.9 KB | 87.70 KB |
+| Indicators tier | 30 KB | 28.19 KB |
+| Draw tier | 36 KB | 34.53 KB |
+| Transform tier | 6 KB | 4.44 KB |
 | Profile tier | 16.9 KB | 16.86 KB |
 | WebGL2 tier | 7 KB | 6.38 KB |
-| Widget tier | 40 KB | 38.72 KB |
-| Widget terminal (base + draw + indicators + widget) | 168.9 KB | 168.69 KB |
-| **Everything** | **202.3 KB** | **202.28 KB** |
+| Widget tier | 43 KB | 42.41 KB |
+| Widget terminal (base + draw + indicators + widget) | 185.3 KB | 185.15 KB |
+| **Everything** | **220.7 KB** | **220.51 KB** |
 
 ## Documentation
 
@@ -465,7 +473,7 @@ See [Contributing](./CONTRIBUTING.md) for setup, targeted checks, documentation 
 ```bash
 npm install        # install dev toolchain
 npm run typecheck  # strict TypeScript check
-npm test           # unit tests (vitest) - 4337 across 193 files
+npm test           # unit tests (vitest) - 5215 across 210 files
 npm run build      # Rollup -> dist/ (minified ESM per tier + types)
 npm run size       # size-limit (Brotli) against the budget
 npm run e2e        # Playwright Chromium smoke tests
@@ -482,7 +490,7 @@ npm run verify     # lint + typecheck + test + build + demo tests + dts + size +
 
 ## Status &amp; limitations
 
-Version **2.1.7**. All engine build phases are implemented. Upgrading a 1.9.x host: [Migrating to 2.0](./docs/migrating-to-2.md).
+Version **2.3.2**. All engine build phases are implemented. Upgrading a 1.9.x host: [Migrating to 2.0](./docs/migrating-to-2.md).
 
 Known gaps, stated plainly:
 

@@ -1,6 +1,6 @@
 import {
   getDrawingTool, hasDrawingTool, drawingShortcuts, matchDrawingShortcut, keyToDrawingAction,
-  iconSprite, toolCursor, DRAWING_TOOL_ICONS,
+  iconSprite, toolCursor, DRAWING_TOOL_ICONS, BUILTIN_DRAWING_TOOLS,
 } from '/dist/openalgo-charts.draw.mjs';
 import { el, inTextField } from './ui.js';
 import {
@@ -36,18 +36,25 @@ export const RAIL_GROUPS = [
   { id: 'lines', title: 'Lines', items: [
     { head: 'Lines' },
     { tool: 'trend-line' }, { tool: 'ray' }, { tool: 'extended-line' }, { tool: 'arrow' },
+    { tool: 'info-line' }, { tool: 'trend-angle' },
     { head: 'Horizontal and vertical' },
     { tool: 'horizontal-line' }, { tool: 'horizontal-ray' }, { tool: 'vertical-line' }, { tool: 'cross-line' },
   ] },
   { id: 'channels', title: 'Channels', items: [
     { head: 'Channels' },
     { tool: 'parallel-channel' }, { tool: 'fib-channel' },
+    { tool: 'disjoint-channel' }, { tool: 'flat-top-bottom' }, { tool: 'regression-channel' },
+    { head: 'Pitchforks' },
+    { tool: 'pitchfork' }, { tool: 'schiff-pitchfork' }, { tool: 'modified-schiff-pitchfork' }, { tool: 'inside-pitchfork' },
   ] },
   { id: 'fib', title: 'Fibonacci and Gann', items: [
     { head: 'Fibonacci' },
     { tool: 'fib-retracement' }, { tool: 'fib-extension' }, { tool: 'fib-time-zone' }, { tool: 'fib-fan' },
+    { tool: 'fib-extension-two-point' }, { tool: 'fib-speed-resistance-fan' },
+    { tool: 'trend-fib-time' }, { tool: 'fib-circles' }, { tool: 'fib-speed-resistance-arcs' },
+    { tool: 'fib-wedge' }, { tool: 'fib-spiral' },
     { head: 'Gann' },
-    { tool: 'gann-fan' }, { tool: 'gann-box' },
+    { tool: 'gann-fan' }, { tool: 'gann-box' }, { tool: 'gann-square' },
   ] },
   { sep: true },
   { id: 'shapes', title: 'Shapes', items: [
@@ -60,11 +67,23 @@ export const RAIL_GROUPS = [
     { head: 'Cycles' },
     { tool: 'cyclic-lines' }, { tool: 'time-cycles' }, { tool: 'sine-line' },
   ] },
+  { id: 'patterns', title: 'Patterns', items: [
+    { head: 'Patterns and waves' },
+    { tool: 'xabcd-pattern' }, { tool: 'abcd-pattern' }, { tool: 'head-shoulders' },
+    { tool: 'elliott-impulse' }, { tool: 'elliott-correction' },
+    { head: 'Harmonic patterns' },
+    { tool: 'gartley' }, { tool: 'bat' }, { tool: 'butterfly' }, { tool: 'crab' }, { tool: 'shark' }, { tool: 'cypher' },
+  ] },
+  { id: 'geometry', title: 'Geometric studies', items: [
+    { head: 'Geometric studies' },
+    { tool: 'dedekind-tessellation' }, { tool: 'sonic' }, { tool: 'supersonic' },
+    { tool: 'golden-sonic' }, { tool: 'golden-supersonic' },
+  ] },
   { id: 'marks', title: 'Arrows and marks', items: [
     { head: 'Arrows' },
     { tool: 'arrow-up' }, { tool: 'arrow-down' }, { tool: 'arrow-left' }, { tool: 'arrow-right' },
     { head: 'Marks' },
-    { tool: 'flag-mark' }, { tool: 'price-label' }, { tool: 'signpost' },
+    { tool: 'flag-mark' }, { tool: 'icon-stamp' }, { tool: 'price-label' }, { tool: 'signpost' },
   ] },
   { sep: true },
   { id: 'forecast', title: 'Forecasting', items: [
@@ -145,7 +164,9 @@ const lastOf = (g) => prefs.last[g.id] || toolsOf(g)[0] || null;
 // and separate selections, so "the one the pointer is over" is the only
 // answer that needs no focus ring the canvas cannot draw.
 const activeDraw = () => (app.focusPane === 2 && app.draw2 ? app.draw2 : app.draw);
+const activeChart = () => (app.focusPane === 2 && app.chart2 ? app.chart2 : app.chart);
 const eachDraw = (fn) => { for (const d of [app.draw, app.draw2]) if (d) fn(d); };
+const mobileObserved = new WeakSet();
 const selectionOf = (d) => {
   if (!d) return [];
   if (typeof d.selection === 'function') return d.selection().slice();
@@ -803,6 +824,100 @@ export function initRail(a, opts = {}) {
       else if (!box.checked && prefs.magnet !== 'off') setMagnetMode('off');
     });
   }
+}
+
+/** Scale the current logical range around its center through the chart's public API. */
+export function zoomVisibleRange(chart, factor) {
+  if (!chart || typeof chart.getVisibleLogicalRange !== 'function'
+      || typeof chart.setVisibleLogicalRange !== 'function'
+      || !Number.isFinite(factor) || factor <= 0) return false;
+  const range = chart.getVisibleLogicalRange();
+  if (!range || !Number.isFinite(range.from) || !Number.isFinite(range.to) || range.to <= range.from) return false;
+  const scale = chart.timeScale;
+  if (!scale || !(scale.width > 0) || typeof scale.constrainBarSpacing !== 'function') return false;
+  const spacing = scale.width / (range.to - range.from);
+  const legalSpacing = scale.constrainBarSpacing(spacing / factor);
+  if (Math.abs(legalSpacing - spacing) <= Number.EPSILON * Math.max(1, spacing)) return false;
+  const center = (range.from + range.to) / 2;
+  const half = scale.width / legalSpacing / 2;
+  chart.setVisibleLogicalRange({ from: center - half, to: center + half });
+  return true;
+}
+
+/** Keep the compact picker and stateful controls aligned with the shared host state. */
+export function syncMobileControls(tool) {
+  const picker = el('mobile-draw');
+  if (picker) picker.value = tool || '';
+  const magnet = el('mobile-magnet');
+  if (magnet) {
+    const mode = magnetMode();
+    magnet.textContent = 'Magnet ' + mode;
+    magnet.setAttribute('aria-pressed', String(mode !== 'off'));
+  }
+  const draw = activeDraw();
+  const undo = el('mobile-undo');
+  const redo = el('mobile-redo');
+  if (undo) undo.disabled = !draw || (typeof draw.canUndo === 'function' && !draw.canUndo());
+  if (redo) redo.disabled = !draw || (typeof draw.canRedo === 'function' && !draw.canRedo());
+}
+
+/** Follow history changes regardless of whether they came from touch, keyboard or another host control. */
+export function observeMobileControls(chart, draw) {
+  if (!chart || !draw || typeof chart.on !== 'function' || mobileObserved.has(chart)) return;
+  mobileObserved.add(chart);
+  for (const event of ['drawing:select', 'draw:select', 'drawing:change', 'draw:add', 'draw:remove', 'draw:update', 'draw:paste', 'draw:cut']) {
+    chart.on(event, () => {
+      if (draw === activeDraw()) syncMobileControls(draw.activeTool());
+    });
+  }
+}
+
+function setMobileTool(tool) {
+  const draw = activeDraw();
+  if (!draw) return;
+  setDrawLock(false);
+  draw.setTool(tool || null);
+  if (draw === app.draw) syncRail(tool || null);
+  syncMobileControls(tool || null);
+}
+
+/** Wire the host-owned touch bar to the same controllers and actions as the desktop chrome. */
+export function initMobile(a) {
+  app = a;
+  const picker = el('mobile-draw');
+  if (!picker) return;
+  picker.innerHTML = '';
+  const cursor = document.createElement('option');
+  cursor.value = '';
+  cursor.textContent = 'Drawing tool';
+  picker.appendChild(cursor);
+  for (const tool of BUILTIN_DRAWING_TOOLS) {
+    const option = document.createElement('option');
+    option.value = tool.id;
+    option.textContent = tool.name;
+    picker.appendChild(option);
+  }
+
+  picker.addEventListener('change', () => setMobileTool(picker.value));
+  el('mobile-cursor').addEventListener('click', () => setMobileTool(null));
+  el('mobile-undo').addEventListener('click', () => { const draw = activeDraw(); if (draw) draw.undo(); syncMobileControls(draw?.activeTool()); });
+  el('mobile-redo').addEventListener('click', () => { const draw = activeDraw(); if (draw) draw.redo(); syncMobileControls(draw?.activeTool()); });
+  el('mobile-magnet').addEventListener('click', () => { cycleMagnet(); syncMobileControls(activeDraw()?.activeTool()); });
+  el('mobile-zoom-out').addEventListener('click', () => zoomVisibleRange(activeChart(), 1.25));
+  el('mobile-zoom-in').addEventListener('click', () => zoomVisibleRange(activeChart(), 0.8));
+  el('mobile-fit').addEventListener('click', () => { const chart = activeChart(); if (chart) chart.resetScale(); });
+
+  el('mobilebar').addEventListener('pointerdown', (event) => event.stopPropagation());
+  for (const [id, pane] of [['chart', 1], ['chart2', 2]]) {
+    const node = el(id);
+    if (node) node.addEventListener('pointerenter', () => {
+      app.focusPane = pane;
+      syncMobileControls(activeDraw()?.activeTool());
+    });
+  }
+  observeMobileControls(app.chart, app.draw);
+  observeMobileControls(app.chart2, app.draw2);
+  syncMobileControls(activeDraw()?.activeTool());
 }
 
 // ── stylesheet ─────────────────────────────────────────────────────────

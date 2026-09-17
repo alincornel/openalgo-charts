@@ -423,6 +423,32 @@ suite('controlsFromInputs', () => {
 });
 
 suite('controlsFromFields', () => {
+  /**
+   * 2.2.1: the field is on every member of the union, so a variant that forgot
+   * to copy it would drop the help text for that one type only, which is
+   * exactly the kind of gap that ships.
+   */
+  it('carries a tooltip through for every input type, colourPair included', () => {
+    const inputs: ChartSettingsInput[] = [
+      { key: 'n', type: 'number', label: 'N', default: 1, tooltip: 'number help' },
+      { key: 'b', type: 'boolean', label: 'B', default: true, tooltip: 'boolean help' },
+      { key: 'c', type: 'color', label: 'C', default: '#fff', tooltip: 'colour help' },
+      { key: 't', type: 'text', label: 'T', default: '', tooltip: 'text help' },
+      { key: 's', type: 'select', label: 'S', default: 'x', options: [{ label: 'X', value: 'x' }], tooltip: 'select help' },
+      { key: 'src', type: 'source', label: 'Src', default: 'close', tooltip: 'source help' },
+      { key: 'p', type: 'colorPair', label: 'P', tooltip: 'pair help',
+        up: { key: 'p.u', label: 'Up', default: '#0f0' }, down: { key: 'p.d', label: 'Down', default: '#f00' } },
+    ];
+    expect(controlsFromInputs(inputs).map((c) => c.tooltip)).toEqual([
+      'number help', 'boolean help', 'colour help', 'text help', 'select help', 'source help', 'pair help',
+    ]);
+  });
+
+  it('leaves tooltip undefined when the schema does not set one', () => {
+    const controls = controlsFromInputs([{ key: 'n', type: 'number', label: 'N', default: 1 }]);
+    expect(controls[0].tooltip).toBeUndefined();
+  });
+
   it('maps each draw-tier kind onto a control and names the group in our words', () => {
     const fields: SettingsField[] = [
       { path: 'style.color', label: 'Color', kind: 'color', group: 'line' },
@@ -461,6 +487,51 @@ suite('renderForm', () => {
     const form = renderForm(host, controls, { values, idPrefix: 't', onChange: (k, v) => changes.push([k, v]), ...extra });
     return { host: host as unknown as FakeElement, form, changes, d };
   }
+
+  /**
+   * 2.2.1: a label has nowhere to explain itself in a dense panel, so the help
+   * text rides on a mark beside it. It must not reshape the row, and it must be
+   * reachable without a pointer, or only mouse users can read the docs.
+   */
+  it('renders a help mark inside the label only for a control that carries a tooltip', () => {
+    const d = doc();
+    const host = d.createElement('div');
+    renderForm(host, [
+      { key: 'a.n', kind: 'number', label: 'Length', tooltip: 'Bars in the window.' },
+      { key: 'a.plain', kind: 'number', label: 'Plain' },
+      { key: 'a.blank', kind: 'number', label: 'Blank', tooltip: '' },
+    ], { values: {}, idPrefix: 't', onChange: () => {} });
+    const rows = (host as unknown as FakeElement).querySelectorAll('.oac-row');
+    expect(rows.length).toBe(3);
+
+    const mark = rows[0].querySelector('.oac-help');
+    expect(mark).not.toBeNull();
+    expect(mark!.textContent).toBe('?');
+    expect(mark!.title).toBe('Bars in the window.');
+    expect(mark!.getAttribute('aria-label')).toBe('Bars in the window.');
+    expect(mark!.tabIndex).toBe(0);
+    // Inside the label, so it stays with the words when a long label wraps.
+    expect(rows[0].querySelector('.oac-row__label')!.querySelector('.oac-help')).not.toBeNull();
+
+    expect(rows[1].querySelector('.oac-help')).toBeNull();
+    // An empty string is not help text; it would draw a mark with nothing behind it.
+    expect(rows[2].querySelector('.oac-help')).toBeNull();
+  });
+
+  it('marks a paired-colour row and a boolean row too, not only the plain shape', () => {
+    const d = doc();
+    const host = d.createElement('div');
+    renderForm(host, [
+      { key: 'a.on', kind: 'boolean', label: 'Show', tooltip: 'Draw the band.' },
+      { key: 'a.pair', kind: 'colorPair', label: 'Body', tooltip: 'Up and down colours.',
+        pair: { up: { key: 'a.up', label: 'Up' }, down: { key: 'a.down', label: 'Down' } } },
+    ], { values: {}, idPrefix: 't', onChange: () => {} });
+    const rows = (host as unknown as FakeElement).querySelectorAll('.oac-row');
+    expect(rows[0].querySelector('.oac-help')!.title).toBe('Draw the band.');
+    expect(rows[1].querySelector('.oac-help')!.title).toBe('Up and down colours.');
+    // The pair still renders both swatches: the mark must not have displaced one.
+    expect(rows[1].querySelectorAll('input[type=color]').length).toBe(2);
+  });
 
   it('draws group heads once, a switch in the switch column, and a pair as one row of two swatches', () => {
     const { host } = mount();

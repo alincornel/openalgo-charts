@@ -16,7 +16,9 @@
     back and the symbol could not be changed at all. It is `position: fixed`
     when live, so it needs no layout parent.
   -->
-  <input type="text" id="symbol" class="field field--sym" value="AAPL" aria-label="Symbol" title="Yahoo Finance symbol (AAPL, MSFT, RELIANCE.NS, ^NSEI, BTC-USD)" />
+  <input type="text" id="symbol" class="field field--sym" value="AAPL" aria-label="Symbol" title="A symbol (AAPL, RELIANCE.NS, ^NSEI, BTC-USD) or arithmetic over several (AAPL/MSFT)" />
+  <!-- Operator keypad for symbol arithmetic; filled by src/expression.js. -->
+  <div id="symkeys" class="symkeys" role="group" aria-label="Symbol arithmetic"></div>
   <header class="shellbar" id="shellbar" role="toolbar" aria-label="Chart toolbar"></header>
   <header class="topbar legacy">
     <div class="brand"><span class="brand-dot"></span> OpenAlgo <em>yfinance</em></div>
@@ -117,6 +119,17 @@
       <div class="rail" id="rail" role="toolbar" aria-label="Drawing tools" aria-orientation="vertical"></div>
       <div id="chart" role="region" aria-label="Price chart"></div>
       <div id="legend"></div>
+
+      <div class="mobilebar" id="mobilebar" role="toolbar" aria-label="Touch drawing and navigation controls">
+        <select id="mobile-draw" aria-label="Drawing tool"></select>
+        <button id="mobile-cursor" type="button">Cursor</button>
+        <button id="mobile-undo" type="button">Undo</button>
+        <button id="mobile-redo" type="button">Redo</button>
+        <button id="mobile-magnet" type="button" aria-pressed="false">Magnet off</button>
+        <button id="mobile-zoom-out" type="button">Zoom out</button>
+        <button id="mobile-zoom-in" type="button">Zoom in</button>
+        <button id="mobile-fit" type="button">Fit</button>
+      </div>
 
       <!-- What the stage says when there are no bars to draw. One overlay,
            three states (`data-state`): bars on their way, none for this

@@ -5,8 +5,10 @@ on:
     branches: [master, main]
     paths:
       - 'website/**'
+      - 'examples/phase11-profiles.html'
       - 'examples/market-profile/**'
       - 'examples/orderflow/**'
+      - 'examples/drawings/**'
       - 'src/**'
       - 'package.json'
       - 'package-lock.json'
@@ -20,6 +22,7 @@ on:
       - 'scripts/check-navigation-website.mjs'
       - 'scripts/check-data-loading-website.mjs'
       - 'scripts/check-objects-website.mjs'
+      - 'scripts/check-drawing-demo.mjs'
       - 'docs/api-introduction.md'
       - 'docs/architecture-diagram.svg'
       - '.github/workflows/deploy-docs.yml'
@@ -81,6 +84,7 @@ jobs:
           node scripts/check-navigation-website.mjs
           node scripts/check-data-loading-website.mjs
           node scripts/check-objects-website.mjs
+          node scripts/check-drawing-demo.mjs
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         if: failure()
         with:

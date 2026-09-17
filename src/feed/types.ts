@@ -57,6 +57,18 @@ export interface BarSubscriptionOptions {
   onResync?: () => void;
 }
 
+/** What a live push knows about the bar beyond its values. */
+export interface LiveBarMeta {
+  /**
+   * The bar's open, high, low and volume cover only the ticks its builder saw:
+   * it opened the bucket from a tick without having streamed the bar before
+   * it. See `CandleUpdate.provisional`. A consumer holding history for the
+   * same bucket keeps that open and widens the extremes rather than replacing
+   * them.
+   */
+  provisional?: boolean;
+}
+
 /**
  * Broker-agnostic market-data source. The chart depends only on this.
  * `subscribeBars` is optional: a history-only feed (e.g. `OpenAlgoDataFeed`) omits
@@ -67,7 +79,7 @@ export interface DataFeed {
   getBarsPage?(req: BarsPageRequest): Promise<BarsPage>;
   /** Read a closed-bar snapshot without initiating a network request. */
   getCachedBars?(req: BarsRequest): Promise<Bar[] | undefined>;
-  subscribeBars?(req: BarsRequest, onBar: (bar: Bar) => void, opts?: BarSubscriptionOptions): UnsubscribeFn;
+  subscribeBars?(req: BarsRequest, onBar: (bar: Bar, meta?: LiveBarMeta) => void, opts?: BarSubscriptionOptions): UnsubscribeFn;
   /**
    * `opts.depthLevel` requests a book depth (broker-dependent: 5/20/30/50).
    * Named on the interface so a caller holding a `DataFeed` can ask for one;

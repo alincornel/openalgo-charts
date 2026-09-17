@@ -1,6 +1,5 @@
 import { registeredIndicators, getIndicator, indicatorStyleInputs, INDICATOR_SOURCES } from '/dist/openalgo-charts.mjs';
 import { el, esc } from './ui.js';
-import { placeWatermark } from './watermark.js';
 import { autosave } from './persist.js';
 
 let app;
@@ -160,6 +159,22 @@ function inputField(host, key, kind, spec, value, onChange, unavailable) {
   return field;
 }
 
+/**
+ * The `?` after a label. Attached to the label rather than the row so it stays
+ * with the words it explains when a long label wraps, and reachable by tab so a
+ * keyboard user is not the only one who cannot read the help.
+ */
+function helpMark(tooltip) {
+  const mark = document.createElement('span');
+  mark.className = 'set-help';
+  mark.textContent = '?';
+  mark.title = tooltip;
+  mark.tabIndex = 0;
+  mark.setAttribute('role', 'note');
+  mark.setAttribute('aria-label', tooltip);
+  return mark;
+}
+
 /** A row carrying one control. Booleans sit in the switch column, in front
  *  of their label; everything else sits in the control column on the right. */
 function simpleRow(host, input, values, onChange, unavailable) {
@@ -170,6 +185,7 @@ function simpleRow(host, input, values, onChange, unavailable) {
   const label = document.createElement('label');
   label.textContent = input.label;
   label.htmlFor = host.id + '_' + input.key;
+  if (input.tooltip) label.appendChild(helpMark(input.tooltip));
   const field = inputField(host, input.key, input.type, input, values[input.key], onChange, unavailable);
   if (input.type === 'boolean') {
     field.classList.add('set-sw');
@@ -280,7 +296,6 @@ export function initIndicators(a) {
     const inst = app.chart.addIndicator(id);
     app.activeIndicators.push({ indicatorId: id, settings: inst.settings() });
     renderIndicatorChips();
-    placeWatermark(); // a new pane may now be the bottom one
     autosave();
     el('status').textContent = `added ${inst.name} on pane ${inst.paneIndex}`;
   });

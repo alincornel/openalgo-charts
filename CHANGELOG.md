@@ -4,7 +4,7 @@ All notable changes to OpenAlgo Charts.
 
 ## Unreleased
 
-Upstream 2.0.2 through 2.1.7 merged into the fork, and a footprint that reads
+Upstream 2.0.2 through 2.3.2 merged into the fork, and a footprint that reads
 as a ladder instead of a hairline mesh.
 
 ### Merged
@@ -92,6 +92,37 @@ as a ladder instead of a hairline mesh.
   168.9), everything 187.41 -> 202.28 (187.9 -> 202.3). Chart-only shake
   45.53 -> 46.56 kB (45.7 -> 46.9). The indicator, draw, transform, WebGL2 and
   widget tiers did not move past their existing budgets.
+
+- **Upstream 2.1.8 through 2.3.2** merged on top (19 commits): proportional
+  wheel and trackpad navigation (Shift/horizontal pans time, the wheel over a
+  price axis scales it, Ctrl/Meta pinch zooms at the pointer), `animAutoscale`
+  easing the price range during every gesture, pending zoom and kinetic motion
+  cancelled by a reset, a viewport restore or a primary `setData`, the widget's
+  `mobile` controls, default corner branding with `branding`/`setBranding` and
+  an optional watermark, the drawing catalogue grown from 51 to 85 tools,
+  indicator input tooltips and per-plot `priceFormat`, symbol arithmetic in the
+  transform tier, the icon-escaping and ReDoS fixes, a refresh that no longer
+  deletes a bar the stream completed ahead of REST, and stream-driven repair
+  with provisional bars in `CandleBuilder`. What had to be re-applied:
+
+  - **`wheelZoomSensitivity` multiplies upstream's proportional step.** The
+    wheel is upstream's: the step follows the event's pixel distance, so a
+    100 px mouse notch is still 1.1x at the default `1`. The multiplier now
+    covers every zoom the wheel makes, on the plot and on a price axis, and
+    `0` still disables wheel zoom; a wheel pan is a distance and is left alone.
+    A zero step returns before the axis path, because scaling an axis by 1
+    would still take it out of autoscale. The test's events are 100 px notches
+    instead of unit deltas.
+  - **The touch crosshair sits beside the branding press.** A release clears
+    the pending long press first, then resolves a press on the logo, then the
+    fork's crosshair and tap paths; `destroy()` stops upstream's navigation
+    motion and still clears the long-press timer.
+
+- Budgets re-measured on the merged tree: base engine 80.01 kB (limit 80.2),
+  base + trade 87.70 (87.9), widget terminal 185.15 (185.3), everything 220.51
+  (220.7), against upstream's 77.23 / 84.84 / 182.37 / 215.76. The profile tier
+  keeps the fork's 16.9 for its 16.86. Chart-only shake 50.74 KiB (50.9, upstream
+  48.96 against 50).
 
 ### Fixed
 
@@ -274,6 +305,387 @@ as a ladder instead of a hairline mesh.
 
 - Base engine budget 62 -> 63 kB, for the bar-indexed gates and the request
   adapter: 0.23 kB brotli measured against a 61.94 kB baseline.
+
+## 2.3.2
+
+2026-09-16
+
+### Added
+
+- **Stream-driven repair.** Three opt-in `DataLoadingController` options let
+  history repair follow what the stream reports instead of a clock.
+  `refreshOnBarClose` runs one refresh a moment after a pushed bar opens a new
+  bucket, which is when the bar before it closed, and retries a bounded number
+  of times while history has not published that bar yet; nothing fires while
+  the market is quiet. `refreshOnGap` refreshes at once when a pushed bar skips
+  whole buckets, the shape a dropped socket, a hidden tab or a sleeping machine
+  leaves behind. `refreshWindowBars` makes every refresh a tail request instead
+  of re-fetching the whole load window. Together they cost about one small
+  request per bar instead of two full-window requests a minute, and a skipped
+  bucket is repaired the moment the stream resumes. `pollIntervalMs` is
+  unchanged and still serves as a slow backstop for silent drift.
+- **Provisional bars.** `CandleBuilder` now says when a bar's open, high, low
+  and volume cover only the ticks it saw. `CandleUpdate.provisional` is true
+  for a bucket the builder opened from a tick without having streamed the bar
+  before it: a cold start, or a seed from an older bucket, both of which mean
+  the trades between the bucket's true open and the first tick were missed.
+  `CandleBuilder.reconcile(bar)` adopts an authoritative bar for that bucket,
+  taking the true open for a provisional bar, the union of the extremes and the
+  larger volume for any bar, and keeping the close with the ticks;
+  `isProvisional()` reads the flag.
+  `DataLoadingController.pushBar(bar, { provisional: true })` keeps the open
+  history already holds for that bucket instead of replacing it, so a repair
+  that found the true open is not undone by the next tick. `subscribeBars` callbacks receive the same `LiveBarMeta`,
+  and `OpenAlgoLiveDataFeed` passes it through.
+- A refresh keeps the extremes and volume the stream observed on the bar that
+  was forming when the request went out, as it already did for bars pushed
+  while the request was in flight.
+
+### Changed
+
+- `examples/live` runs on `DataLoadingController` with the new options in
+  place of its own reconcile loop, seeds its builder from history, and reseeds
+  it after a stream resync so the bucket opened after the gap is provisional.
+- Two budgets raised deliberately: the base engine from 77 to 78 KB (76.46 to
+  77.23 KB measured) and base + trade from 85 to 86 KB (84.07 to 84.84 KB).
+  The widget terminal (182.37 KB) and everything (215.76 KB) stay inside
+  their budgets.
+
+### Notes
+
+- Every new option is off by default. A controller built the old way makes
+  exactly the requests it made before, and a test pins that.
+- A rollover repair fires only on a push, so a host streaming whole candles
+  from an exchange gets the same cadence as one building candles from ticks,
+  and a host with no stream keeps polling.
+
+## 2.3.1
+
+2026-09-16
+
+### Fixed
+
+- **A refresh no longer deletes a bar the stream completed and REST has not
+  caught up to.** `DataLoadingController.refresh()`, which the repair poll, the
+  resume after a hidden tab and a stream resync all go through, fetches the
+  window from the oldest loaded bar to now and treated the reply as
+  authoritative for all of it. A broker's REST history runs a few seconds
+  behind its stream, so a refresh fired just after a candle closed came back
+  one bar short, and that candle was removed from the series until a later
+  refresh found it in REST. On screen: the current candle became the previous
+  candle, vanished, then came back. The window REST is allowed to overwrite now
+  ends at the newest bar REST actually returned. A bar REST has not published
+  yet is left alone; a bar it does return is still corrected by it.
+
+### Notes
+
+- Bars pushed while a refresh was in flight were already protected by the
+  buffer. The gap was bars that completed before the refresh started, which
+  lived only in the held series and so were not in the buffer either. Three
+  regression tests cover both timings and the correction case, and the fix was
+  confirmed by reverting it and watching them fail.
+- `ExpressionNode` and `ExpressionFunctionName`, the types behind
+  `SymbolExpression.ast`, are now exported from the transform tier. They were
+  reachable from the public API without a page in the API reference. Nothing
+  else in the public API changed, and the bundles move by hundredths: base
+  76.52 to 76.46 KB, everything 215.04 to 214.99 KB Brotli.
+
+## 2.3.0
+
+2026-09-16
+
+### Added
+
+- **Symbol arithmetic.** `openalgo-charts/transform` gains `parseExpression`
+  and `evaluateExpression`, so a host can chart `NIFTY1!/NSE:RELIANCE`,
+  `(A+B)/2`, `1/GOLD`, or any expression over any number of legs.
+  `+ - * / ^` with the usual precedence (`^` right associative), unary minus,
+  parentheses, numeric constants, and `abs sqrt ln log log10 exp min max pow`.
+  The keypad glyphs a search box prints are accepted too, so a pasted
+  expression works.
+- `parseExpression` reports the symbols it needs **before** anything is
+  fetched, which is what lets a host resolve and load exactly those legs.
+  `isPlainSymbol` tells an ordinary symbol from arithmetic, so one code path
+  serves both. `ExpressionError` carries the offending character's index, so a
+  search box can underline it.
+- **Weighted legs, for options combinations.** `2*CE25000 - CE25200` is a ratio
+  spread, `CE + PE` a straddle, `75*(CE25000 - CE25200)` the same spread scaled
+  by lot size. A sold spread is a credit, so the combined premium is negative,
+  and that is allowed rather than clamped. One consequence to know: a series
+  that goes at or below zero cannot be drawn on a logarithmic price scale, so
+  leave a spread pane on the regular scale.
+- A leg that did not print gaps the whole combination rather than pricing it
+  from an earlier minute. For an illiquid strike that is the normal case, and a
+  premium carried forward is exactly the number that gets someone hurt.
+- The reference host wires it end to end: type `AAPL/MSFT` into the symbol
+  field, or build an expression with the operator keypad beside it.
+
+### Notes
+
+- **Open and close are exact; the high and low are a bound.** A bar records
+  where a market opened, closed and how far it travelled, but not *when* it was
+  at each price, so the true high of a ratio is not recoverable from two OHLC
+  bars. `ohlc: 'close'` is the default and is exact. `ohlc: 'interval'` bounds
+  the extremes by interval arithmetic, which is guaranteed to contain the truth
+  and is usually wider, because it assumes each leg hit its extreme at the worst
+  possible moment. An interval also cannot see that two mentions of one symbol
+  move together, so `A/A` bounds rather than collapsing to 1.
+- A bar the other legs did not trade produces a gap, not a value carried
+  forward: a ratio against another minute's price was never true. A divisor
+  reaching zero gaps rather than spiking.
+- The result carries no `volume`. The volume of a ratio is not a quantity
+  anyone traded, and picking one leg's would be arbitrary.
+- A ticker containing `-` is written in quotes (`'BRK-B'/SPY`), because bare
+  `-` is subtraction and no lookahead settles `A-B` in general.
+- Two size budgets were raised deliberately: the transform tier from 5 to 6 KB
+  (it gained the parser and evaluator, 2.66 to 4.44 KB), and Everything from
+  215 to 218 KB, which had 0.08 KB of headroom left.
+
+## 2.2.3
+
+2026-09-16
+
+### Security
+
+- Every interpolated attribute in the icon markup is escaped, not only `size`
+  and `className`. `opts.stroke` is typed `number`, but a JavaScript host is not
+  held to that, and it went into the `<svg>` raw, so a host forwarding a value
+  from its own settings could close the attribute and open a tag. The sprite's
+  symbol ids, the `<use>` href, the path data and the registry's own attributes
+  are escaped too: one escaped value beside four unescaped ones is the shape a
+  later edit gets wrong.
+- Three regular expressions rewritten to remove quadratic backtracking.
+  `parseSessionSpec` and the two `rgb()` colour parsers each placed a `\s*`
+  beside something that also matches a space, so a long run of spaces on an
+  input that ultimately fails split between them in quadratically many ways.
+  Measured on the old patterns: 64k spaces took 1.96 s in the colour parser and
+  over half a second at 32k in the session parser; both are now under a
+  millisecond. The session spec is a string a user types into a settings field,
+  where a half-typed value arrives on every keystroke.
+- The test suite's fake DOM strips an unterminated trailing tag from
+  `textContent`, which `/<[^>]*>/g` left behind.
+
+These close every open CodeQL alert. The colour parsers and the session parser
+were verified to accept and capture exactly what they did before, over a corpus
+of valid and malformed inputs, and both fixes were confirmed by reverting them
+and watching the new tests fail.
+
+### Notes
+
+- No public API changed, and no behaviour changed for any valid input.
+
+## 2.2.2
+
+2026-09-16
+
+### Security
+
+- Documentation-site dependencies updated to clear every open advisory:
+  `next` to 15.5.25, `sharp` to 0.35.4, `js-yaml` to 3.15.2, and
+  `@xmldom/xmldom` to 0.9.12 through an npm override, because
+  `speech-rule-engine` pins it exactly and npm cannot lift it on its own.
+  `postcss` is overridden to 8.5.28 for the same reason: Next pins 8.4.31, and
+  npm's only offered route was a Next major. `npm audit` reports zero
+  vulnerabilities.
+
+**The published package was never affected.** `openalgo-charts` has no
+`dependencies` and no `peerDependencies`; every advisory was in
+`website/package-lock.json`, which builds the documentation site and ships to
+nobody. Anyone who installed 2.2.0 or 2.2.1 was not exposed by any of these, and
+upgrading is not a security action.
+
+### Notes
+
+- No library code changed. The bundles differ from 2.2.1 only by the version
+  string they carry, which is why the measured sizes move by hundredths.
+
+## 2.2.1
+
+2026-09-16
+
+### Added
+
+- `IndicatorInput` gains an optional `tooltip`, help text a settings UI renders
+  as a hover mark beside the label. A label has to stay short enough for a dense
+  panel, which left nowhere to say what a parameter does, so a ported study
+  arrived with its explanation dropped. Every one of the six input variants
+  carries it, as does the chart-settings `colorPair` row.
+- `IndicatorPlot` gains an optional `priceFormat`, which sets the axis and
+  crosshair formatting of the scale the plot maps to. A new `percent` variant
+  suffixes the value without scaling it, so a ratio study no longer has to
+  choose between an axis that reads correctly and a value that does.
+- `PriceFormat` is exported, and `addSeries`'s `priceFormat` accepts the same
+  `percent` variant.
+
+### Improved
+
+- Historical Volatility and Bollinger BandWidth label their axes as percentages,
+  and carry help text on the inputs whose meaning was previously left unstated.
+  Historical Volatility's "Days per bar unit" label loses its parenthetical,
+  which now sits in its tooltip.
+- The chart-settings dialog explains Scale and Timezone: what Percent and
+  Indexed to 100 rebase against, and that changing the zone moves VWAP and pivot
+  values rather than only the labels.
+
+### Notes
+
+- Both additions are optional fields. A descriptor, a host implementing
+  `IndicatorHost`, and a saved chart state written by 2.2.0 all behave exactly
+  as before; `addIndicatorSeries` gained a trailing optional parameter, which an
+  existing implementation still satisfies.
+- `priceFormat` is a property of the price **scale**, like `style.precision`, so
+  it belongs to a plot that owns its pane. On an `'onchart'` plot it would
+  reformat the instrument's own axis.
+
+## 2.2.0
+
+2026-09-13
+
+### Added
+
+- The drawing catalogue grows from 51 to 85 tools. New line tools include
+  disjoint, flat-edge and regression channels, four pitchfork variants,
+  Info Line, Trend Angle, a two-point Fibonacci extension, a full time/price
+  speed-resistance fan and configurable vector stamps.
+- Advanced geometry adds Trend Fib Time, Fibonacci circles, arcs, wedge and
+  spiral, Gann Square, Dedekind Tessellation, and ordinary or golden-spaced
+  sonic and supersonic wavefronts. Curve painting uses native circle/ellipse
+  paths where appropriate, with bounded hit testing and recursive work.
+- Eleven manual pattern tools cover XABCD, ABCD, Elliott impulse and correction,
+  Head and Shoulders, Gartley, Bat, Butterfly, Crab, Shark and Cypher, with
+  point labels, editable fills and measured harmonic ratios.
+- A full-size drawing gallery provides editable samples of every tool with
+  irregular simulated NIFTY prices near 23800. The website playground,
+  widget rail and reference host expose the expanded catalogue on desktop
+  and touch layouts.
+- `ADVANCED_LINE_TOOLS`, `ADVANCED_GEOMETRY_TOOLS` and
+  `PATTERN_DRAWING_TOOLS` expose the new descriptor families from the draw tier.
+
+### Improved
+
+- Multi-point placement keeps chosen anchors and a dashed connecting guide
+  visible until the final point is placed.
+- Repeated label widths share measurements within one paint. Measurements are
+  discarded afterward so newly available fonts cannot leave stale widths.
+- Measurement volume reads seek directly to the selected history window and
+  reread its live values on every paint. Dense stacks stop hit testing at the
+  topmost exact hit while preserving nearest-hit and paint-order semantics.
+- Table column layout and hit testing share actual font measurements, including
+  bold headers. Long cells remain selectable without a fixed-width phantom area.
+- Speed-resistance fan labels use compact, collision-checked edge placement.
+  Dense geometry labels spread into separate rows; labels that cannot fit in
+  a tiny plot are omitted instead of painting over one another.
+  Numeric geometry, disabled levels, fill regions and DPR validity are covered
+  by focused regression tests alongside real-browser catalogue sweeps.
+
+### Compatibility
+
+- Drawing documents remain version 2. Existing tool IDs and stored anchor
+  meanings are preserved. `fib-fan` is named Fib Fan; the full two-family
+  construction has its own `fib-speed-resistance-fan` ID. Existing
+  `fib-extension` remains a three-anchor projection.
+- Drawings, temporary guides and handles remain visible in forward space and
+  clipped inside the plot at price and time axes. The library keeps eight
+  optional tiers and zero runtime dependencies.
+
+## 2.1.9
+
+2026-09-13
+
+### Added
+
+- Charts display the OpenAlgo corner logo by default, with responsive sizing,
+  theme contrast and vector exports. Hosts can replace or disable the mark with
+  `branding` and `chart.setBranding`.
+- An optional background watermark supports automatic symbol/interval text or
+  custom text. It is disabled by default and configurable through Appearance
+  settings, `watermark` and `chart.setWatermarkOptions`.
+- Watermark preferences persist independently of host branding and follow the
+  current data context. The widget, reference demo and OpenAlgo chart settings
+  share the same controls.
+
+### Fixed
+
+- The basic profiles example maps volume buckets to renderer values, restoring
+  its missing Volume Profile histogram bars. Its Market Profile and order-flow
+  selections now reuse the full current demos, exposing TPO letters, themes,
+  text coloring, lot display and the optional statistics table. The order-flow
+  logo moves to the top-left while table rows are visible, keeping labels readable.
+- Objects and managed-loading demos use irregular simulated OHLC candles and
+  changing volume. Navigation and mobile controls have a dedicated example in
+  the Mobile guide and are removed from the Examples page.
+- Website and reference-host examples use the shared logo defaults, avoiding
+  missing logos on widget/mobile charts and duplicate manual marks.
+- PNG export skips hidden and empty pane buffers, including maximized panes.
+- Logo gestures stay separate from drawing placement, including pinch release,
+  missed mouse releases and secondary pen buttons.
+
+The release build measures 76.16 KB base and 203.62 KB total Brotli.
+Budgets allow the default vector artwork, optional watermark and guarded gestures:
+77 KB base, 85 KB base plus trade, 173 KB widget terminal and 205 KB total.
+The chart-only import measures 48.96 KiB against a 50 KiB ceiling.
+
+## 2.1.8
+
+2026-09-13
+
+### Added
+
+- Wheel and trackpad input now scales proportionally after pixel, line and page
+  delta normalization. Horizontal input and Shift-wheel pan time; Ctrl-wheel and
+  Meta-wheel pinch input zoom at the pointer.
+- Wheel input over a visible left or right price axis scales that axis at the
+  pointer price. Manual and fixed price ranges remain authoritative, and plot
+  drags retain two-axis panning by default.
+- Optional `animAutoscale` smooths automatic price ranges as navigation reveals
+  new extrema. It defaults to `animZoom`; programmatic viewport replacement,
+  primary data replacement, reset and destruction cancel pending navigation motion.
+- `WidgetOptions.mobile` provides responsive packaged controls. `'auto'` activates
+  at a container width of 640 CSS px or less or when the primary pointer is coarse,
+  while `'always'` and `'never'` force a layout. The touch header, bottom controls and drawing sheets share the desktop
+  widget's drawing controller, object inventory, dialogs and overlay state.
+- `mountMobile`, `MobileMode`, `MobileOptions` and `MobileHandle` are exported from
+  `openalgo-charts/widget` for custom widget composition. The website includes an
+  interactive navigation and mobile example using the website's current library bundles.
+- The yfinance reference host adds a touch toolbar for drawing tools, Cursor,
+  Undo, Redo, Magnet, Zoom in, Zoom out and Fit. It retains the focused chart's
+  state across responsive layout changes, keeps replay controls clear of the
+  toolbar, and honors reduced motion in both the primary and split charts.
+
+### Fixed
+
+- Pending zoom and kinetic callbacks cannot overwrite a viewport reset or continue
+  after chart destruction, including resets triggered from navigation listeners.
+- Mobile drawing actions retain keyboard focus during refresh. Symbol searches
+  discard obsolete responses and keep their last result reachable in short charts.
+- Reference-host zoom buttons stop at scale limits without shifting the viewport;
+  touch Undo and Redo controls follow keyboard and controller changes.
+
+### Migration and validation
+
+- Existing hosts need no required option change. Set `animZoom: false` to retain
+  immediate wheel zoom and its matching immediate autoscale default, or set
+  `animAutoscale` separately. Set `mobile: 'never'` when a widget must keep desktop
+  chrome in a narrow container.
+- The widget disables omitted navigation animation options when the user prefers
+  reduced motion. Explicit host values remain authoritative.
+- Validation covers wheel delta modes, horizontal pan, left and right price axes,
+  pinch modifiers, autoscale transitions and cancellation, mobile mode changes,
+  allowed tools, shared drawing state, teardown, declarations, skill references
+  and the documentation website. Bundle budgets rise intentionally for the new
+  gesture and mobile-control code: 75 KB base, 83 KB base plus trade, 42 KB widget,
+  170 KB widget terminal and 202 KB total, with a 46 KiB chart-only ceiling.
+
+Validation: **4,376 unit tests** across 196 files and **228 demo tests** across
+15 files pass, alongside lint, TypeScript, build, declarations and size checks.
+All **847** skill coverage entries are present and TypeDoc has no warnings.
+The browser suite passes **127 tests**; one optional historical-render comparison
+is skipped without its baseline bundle. Website navigation, Objects, loading,
+depth, profile and orderflow checks pass. The packed candidate passes the OpenAlgo
+production build and **18 `/trading` browser workflows** using synthetic protocols.
+Measured Brotli: **74.00 KB** base, **41.59 KB** widget, **169.54 KB** widget
+terminal and **201.15 KB** all tiers. Touch checks use browser emulation.
+
 ## 2.1.7
 
 2026-09-11

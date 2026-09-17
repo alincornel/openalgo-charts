@@ -62,15 +62,17 @@ const BUNDLE = new URL('../dist/openalgo-charts.mjs', import.meta.url).pathname.
 // and because the call is synchronous and returns a string, the serialiser
 // ships with the chart rather than behind a lazy import. Measured cost 3.75 kB
 // brotli: 39.34 kB before, 43.09 kB after, on the same build.
+// Navigation preferences and reset controls in 2.1.3 also belong to chart-only hosts.
+// Proportional wheel routing and eased price projections are part of the core chart.
+// Default vector branding and the opt-in chart watermark are available to raw
+// chart hosts too. The chart-only build measures 48.96 KiB versus 45.51 KiB on
+// 2.1.8, including guarded link gestures and screenshot handling for hidden panes.
 //
-// Raised to 45.7 kB on merging upstream 2.0.2 into this fork, and to 46.9 kB on
-// merging 2.1.7. Upstream's own line moved 44 -> 45 kB over 2.1.x for the
-// navigation preferences and the reset control, which are chart-only input too;
-// this fork then pays for its own chart-only input work on top of the same tree
-// — the touch crosshair, the tap-not-pan guard, the adopted-pointer steering
-// and the drag-cancel seam. Measured 46.56 kB here against upstream's own
-// published 45 kB ceiling for 2.1.7. Trim before raising this again.
-const LIMIT_BYTES = 46.9 * 1024;
+// This fork pays for its own chart-only input work on top of that tree — the
+// touch crosshair, the tap-not-pan guard, the adopted-pointer steering, the
+// drag-cancel seam and the wheel sensitivity — measured 50.74 KiB on merging
+// 2.3.2 (46.56 against upstream's 45 on 2.1.7). Trim before raising this again.
+const LIMIT_BYTES = 50.9 * 1024;
 
 // Absent from a chart-only build. Each is a string that appears in the adapter
 // source and nowhere in the rendering core.
@@ -110,7 +112,7 @@ for (const [what, needle] of MUST_BE_SHAKEN) {
   }
 }
 
-const kb = (n) => (n / 1024).toFixed(2) + ' kB';
+const kb = (n) => (n / 1024).toFixed(2) + ' KiB';
 if (size > LIMIT_BYTES) {
   console.error(`FAIL: chart-only import is ${kb(size)} brotli, over the ${kb(LIMIT_BYTES)} budget`);
   failed = true;

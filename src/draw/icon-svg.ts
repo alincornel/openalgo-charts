@@ -78,12 +78,17 @@ function gridOf(attrs: IconAttrs): number {
  * nowhere else, so overriding the stroke once changes every glyph.
  */
 function frame(inner: string, attrs: IconAttrs, fill: string, opts: IconSvgOptions): string {
+  // Every interpolated value is escaped, including the ones that come from the
+  // registry rather than the caller. `opts.stroke` is typed `number`, but a
+  // JavaScript host is not held to that, and one escaped attribute beside four
+  // unescaped ones is the shape a later edit gets wrong.
   const size = attr(opts.size ?? gridOf(attrs));
-  const stroke = opts.stroke ?? attrs.strokeWidth;
-  const cls = opts.className ? ` class="${attr(opts.className)}"` : '';
-  return `<svg xmlns="${XMLNS}" viewBox="${attrs.viewBox}" width="${size}" height="${size}"`
-    + ` fill="${fill}" stroke="${attrs.stroke}" stroke-width="${stroke}"`
-    + ` stroke-linecap="${attrs.strokeLinecap}" stroke-linejoin="${attrs.strokeLinejoin}"`
+  const stroke = attr(opts.stroke ?? attrs.strokeWidth);
+  const cls = opts.className !== undefined && opts.className !== ''
+    ? ` class="${attr(opts.className)}"` : '';
+  return `<svg xmlns="${XMLNS}" viewBox="${attr(attrs.viewBox)}" width="${size}" height="${size}"`
+    + ` fill="${attr(fill)}" stroke="${attr(attrs.stroke)}" stroke-width="${stroke}"`
+    + ` stroke-linecap="${attr(attrs.strokeLinecap)}" stroke-linejoin="${attr(attrs.strokeLinejoin)}"`
     + `${cls} aria-hidden="true">${inner}</svg>`;
 }
 
@@ -97,7 +102,7 @@ function frame(inner: string, attrs: IconAttrs, fill: string, opts: IconSvgOptio
  */
 export function iconSvg(id: string, opts: IconSvgOptions = {}): string {
   const d = glyph(DRAWING_TOOL_ICONS, id, 'tool');
-  return frame(`<path d="${d}"/>`, ICON_ATTRS, ICON_ATTRS.fill, opts);
+  return frame(`<path d="${attr(d)}"/>`, ICON_ATTRS, ICON_ATTRS.fill, opts);
 }
 
 /**
@@ -107,7 +112,7 @@ export function iconSvg(id: string, opts: IconSvgOptions = {}): string {
 export function chromeIconSvg(id: string, opts: IconSvgOptions = {}): string {
   const d = glyph(CHROME_ICONS, id, 'chrome');
   const fill = CHROME_ICON_FILLED.has(id) ? 'currentColor' : CHROME_ICON_ATTRS.fill;
-  return frame(`<path d="${d}"/>`, CHROME_ICON_ATTRS, fill, opts);
+  return frame(`<path d="${attr(d)}"/>`, CHROME_ICON_ATTRS, fill, opts);
 }
 
 /**
@@ -123,7 +128,8 @@ export function iconSprite(ids: readonly string[] = Object.keys(DRAWING_TOOL_ICO
   let symbols = '';
   for (const id of new Set(ids)) {
     const d = glyph(DRAWING_TOOL_ICONS, id, 'tool');
-    symbols += `<symbol id="${ICON_SYMBOL_PREFIX}${id}" viewBox="${ICON_ATTRS.viewBox}"><path d="${d}"/></symbol>`;
+    symbols += `<symbol id="${attr(ICON_SYMBOL_PREFIX + id)}" viewBox="${attr(ICON_ATTRS.viewBox)}">`
+      + `<path d="${attr(d)}"/></symbol>`;
   }
   return `<svg xmlns="${XMLNS}" style="display:none" aria-hidden="true">${symbols}</svg>`;
 }
@@ -131,7 +137,7 @@ export function iconSprite(ids: readonly string[] = Object.keys(DRAWING_TOOL_ICO
 /** An `<svg>` that references a symbol from `iconSprite`. Same frame as `iconSvg`. */
 export function iconUse(id: string, opts: IconSvgOptions = {}): string {
   glyph(DRAWING_TOOL_ICONS, id, 'tool');
-  return frame(`<use href="#${ICON_SYMBOL_PREFIX}${id}"/>`, ICON_ATTRS, ICON_ATTRS.fill, opts);
+  return frame(`<use href="#${attr(ICON_SYMBOL_PREFIX + id)}"/>`, ICON_ATTRS, ICON_ATTRS.fill, opts);
 }
 
 /** Black or white, whichever a hex colour will stand out against. */

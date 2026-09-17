@@ -68,21 +68,23 @@ function mount(options: Pick<ChartOptions, 'wheelZoomSensitivity'> = {}) {
 describe('ChartOptions.wheelZoomSensitivity', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it('preserves the shipped 1.1x wheel step by default', () => {
+  // Upstream 2.1.8 made the wheel proportional to the event's pixel distance,
+  // so a mouse notch is a 100 px delta: that is what earns the 1.1x step.
+  it('preserves the shipped 1.1x step for a mouse notch by default', () => {
     vi.stubGlobal('window', {});
     const { chart, wheel } = mount();
     const before = chart.timeScale.barSpacing;
 
-    expect(wheel(-1)).toHaveBeenCalledOnce();
+    expect(wheel(-100)).toHaveBeenCalledOnce();
     expect(chart.timeScale.barSpacing / before).toBeCloseTo(1.1, 8);
   });
 
-  it('damps every event in a trackpad-style burst', () => {
+  it('damps every event in a burst', () => {
     vi.stubGlobal('window', {});
     const { chart, wheel } = mount({ wheelZoomSensitivity: 0.25 });
     const before = chart.timeScale.barSpacing;
 
-    for (let i = 0; i < 8; i++) wheel(-1);
+    for (let i = 0; i < 8; i++) wheel(-100);
 
     expect(chart.timeScale.barSpacing / before).toBeCloseTo(Math.pow(1.1, 2), 8);
   });
@@ -92,7 +94,7 @@ describe('ChartOptions.wheelZoomSensitivity', () => {
     const { chart, wheel } = mount({ wheelZoomSensitivity: 0 });
     const before = chart.timeScale.barSpacing;
 
-    expect(wheel(-1)).toHaveBeenCalledOnce();
+    expect(wheel(-100)).toHaveBeenCalledOnce();
     expect(chart.timeScale.barSpacing).toBe(before);
   });
 });

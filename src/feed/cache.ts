@@ -78,7 +78,7 @@
  * `DataLoadingController` asks for: bars, or nothing.
  */
 import type { Bar, UTCSeconds } from '../model/bar';
-import type { BarsPage, BarsPageRequest, BarsRequest, DataFeed, MarketDepth, UnsubscribeFn } from './types';
+import type { BarsPage, BarsPageRequest, BarsRequest, DataFeed, MarketDepth, UnsubscribeFn, LiveBarMeta } from './types';
 import { nextBucketStart, tryResolveInterval } from './intervals';
 
 export type MaybePromise<T> = T | Promise<T>;
@@ -418,7 +418,7 @@ export class BarCache implements DataFeed {
 
   // `...rest` is part of the signature so a caller holding the concrete
   // `BarCache` can still pass a wrapped feed's extra options through.
-  public subscribeBars?: (req: BarsRequest, onBar: (bar: Bar) => void, ...rest: unknown[]) => UnsubscribeFn;
+  public subscribeBars?: (req: BarsRequest, onBar: (bar: Bar, meta?: LiveBarMeta) => void, ...rest: unknown[]) => UnsubscribeFn;
   public subscribeDepth?: (req: BarsRequest, onDepth: (depth: MarketDepth) => void, ...rest: unknown[]) => UnsubscribeFn;
   public getBarsPage?: (req: BarsPageRequest) => Promise<BarsPage>;
 

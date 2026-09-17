@@ -45,6 +45,7 @@ does not need to be loaded again.
 | `crosshairMode` | `'normal' \| 'magnet'` | `'normal'` | `magnet` snaps to O/H/L/C, price pane only. |
 | `now` | `() => number` | `performance.now` | Time source for kinetic pan / navigator fade. |
 | `animZoom` | `boolean` | `true` | Ease a wheel zoom over a few frames (`ZoomGlide`, in log space) instead of landing the whole step on one. The first frame's step is applied on the event itself, so `barSpacing` has moved by the time anything reads it synchronously, and the glide lands on exactly the single-frame result. **On by default**, which a 1.9.x host sees as a change; `false` restores the single-frame step. Not re-appliable. |
+| `animAutoscale` | `boolean` | value of `animZoom` | Ease automatic price-range changes while navigation reveals new extrema. Manual and fixed scales remain authoritative. Programmatic viewport replacement, primary data replacement, reset and destruction cancel pending navigation motion. Not re-appliable. |
 | `zoomAnchor` | `'cursor' \| 'right'` | `'cursor'` | What a wheel zoom holds still: the bar under the cursor, or the right edge (the latest bar), which a live chart usually wants. Not re-appliable. |
 | `doubleClick` | `'reset' \| 'maximize' \| 'none'` | `'reset'` | Restore the configured default view and autoscale, toggle that pane to the whole stack, or only emit `dblclick`. A listener that sets `handled` on the event suppresses the action for that press. |
 | `navigation` | `Partial<ChartNavigationOptions>` | `{ mousePan: 'both', defaultVisibleBars: 0 }` | Mouse/pen plot-pan direction and the initial/reset view. Touch retains two-axis panning. Use `setNavigationOptions` at runtime. |
@@ -86,7 +87,7 @@ const vol = chart.addSeries('histogram', {
 | `paneIndex` | `number` | `0` | Panes are created on demand; pane 0 gets weight 1, later panes 0.32. |
 | `style` | `SeriesStyle` | `{}` | Merged over the chart type's `defaultStyle`. See [chart-types](chart-types.md). |
 | `priceScaleId` | `'right' \| 'left' \| ''` | `'right'` | `''` is a hidden overlay scale with no axis. |
-| `priceFormat` | `{ type: 'price', precision?, minMove? } \| { type: 'volume' } \| { type: 'custom', formatter }` | none | Applied to the series' *price scale*, not the series. |
+| `priceFormat` | `PriceFormat`: `{ type: 'price', precision?, minMove? } \| { type: 'volume' } \| { type: 'percent', precision? } \| { type: 'custom', formatter }` | none | Applied to the series' *price scale*, not the series. `percent` suffixes the value at `precision` decimals (default 2) and does **not** scale it, so 0.62 reads `0.62%`. The type is exported as `PriceFormat`, and `IndicatorPlot.priceFormat` takes the same union. |
 
 The first `addSeries` call whose type has `isPriceSeries: true` becomes the primary series: it drives the magnet crosshair, `CrosshairMoveEvent.bar`, the last-price line/tag, and the bars indicators compute from. Indicator-created series never claim it.
 
@@ -483,3 +484,21 @@ it receives instead of restating the shape:
 
 They were referenced by the public API long before they were exported, which
 meant a host writing its own settings dialog had to infer the shape or copy it.
+
+## Chart branding and optional watermark (2.1.9)
+
+`ChartOptions.branding` is `boolean | LogoWatermarkOptions`, default true.
+`setBranding` replaces the chart-owned mark configuration and `brandingOptions` returns
+its current configuration or false. Host branding does not belong in saved user layouts.
+
+`ChartOptions.watermark` is `boolean | ChartWatermarkOptions`, default false.
+`setWatermarkOptions` patches visibility/text/style, and `watermarkOptions` reads the
+preferences. `ChartWatermarkOptions` extends `Partial<TextWatermarkOptions>` with a
+`visible` switch. Automatic text reads the current data context. These settings are in
+`ChartSettingsState` and the Appearance schema. See the detailed examples and migration
+rules in [primitives-and-plugins](primitives-and-plugins.md).
+
+`BrandingChangedEvent = false | LogoWatermarkOptions` is the defensive snapshot emitted
+synchronously as `branding:changed` after `setBranding`. Host-accessible links subscribe
+to this event and unsubscribe on teardown, so disabling or replacing a logo cannot leave
+an old destination in the toolbar.

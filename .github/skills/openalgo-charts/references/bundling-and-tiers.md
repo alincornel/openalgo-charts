@@ -8,16 +8,16 @@ Source of truth: `package.json` (`exports`, `sideEffects`, `files`), `rollup.con
 
 `exports` declares exactly eight specifiers, each with only `types` and `import` conditions. There is no `main`, no `require` condition and no CJS build: the package is ESM-only (`"type": "module"`, `module: dist/openalgo-charts.mjs`).
 
-| Specifier | Emitted file | Contents | Brotli budget | Import has side effects |
+| Specifier | Emitted file | Contents | Brotli measured / limit | Import has side effects |
 |---|---|---|---|---|
-| `openalgo-charts` | `dist/openalgo-charts.mjs` | engine, 13 chart types, indicator + chart-type registries, primitives, feeds, trading controller, shortcuts, TimeNavigator, `ReplayController`, comparison controller, settings schema, chart timezone | 73.31 KB | no |
-| `openalgo-charts/trade` | `dist/openalgo-charts.trade.mjs` | order/position/bracket primitives, DOM ladder, `OrderEngine`, `TradeController`, `FakeBroker` | no standalone row; 75 KB for base + trade | no |
-| `openalgo-charts/transform` | `dist/openalgo-charts.transform.mjs` | Renko, Range, Point & Figure, Kagi, Line Break, Heikin Ashi, `runTransform` | 2.66 KB | **yes**, registers the `point-figure` and `kagi` chart types |
-| `openalgo-charts/profile` | `dist/openalgo-charts.profile.mjs` | Volume Profile, TPO / Market Profile, Footprint, orderflow | 14.96 KB | no |
-| `openalgo-charts/indicators` | `dist/openalgo-charts.indicators.mjs` | 102 Tier-1 built-ins plus the Tier-2 contract | 28.05 KB | **yes**, registers all 102 descriptors |
-| `openalgo-charts/draw` | `dist/openalgo-charts.draw.mjs` | 51 drawing tools, `DrawingController`, `DrawingLayer` | 25.90 KB | **yes**, registers every built-in tool |
-| `openalgo-charts/webgl` | `dist/openalgo-charts.webgl.mjs` | the WebGL2 series backend, `createWebGL2Backend`, `isWebGL2Supported`, `WebGL2Backend`, `GlDevice` | 6.38 KB | **yes**, registers the `webgl2` render backend |
-| `openalgo-charts/widget` | `dist/openalgo-charts.widget.mjs` | `createWidget`, the chrome (top bar, rail, status line, toasts), the dialogs, the keymap, the tokens and stylesheet; the only tier that ships DOM. Imports `openalgo-charts/draw` itself | 38.72 KB | **yes**, registers the seven dialog mounts with the shell |
+| `openalgo-charts` | `dist/openalgo-charts.mjs` | engine, 13 chart types, indicator + chart-type registries, primitives, feeds, trading controller, shortcuts, TimeNavigator, `ReplayController`, comparison controller, settings schema, chart timezone | 77.23 KB / 78 KB | no |
+| `openalgo-charts/trade` | `dist/openalgo-charts.trade.mjs` | order/position/bracket primitives, DOM ladder, `OrderEngine`, `TradeController`, `FakeBroker` | 7.61 KB standalone; 86 KB limit for base + trade | no |
+| `openalgo-charts/transform` | `dist/openalgo-charts.transform.mjs` | Renko, Range, Point & Figure, Kagi, Line Break, Heikin Ashi, `runTransform`, symbol arithmetic (`parseExpression`, `evaluateExpression`) | 4.44 KB / 6 KB | **yes**, registers the `point-figure` and `kagi` chart types |
+| `openalgo-charts/profile` | `dist/openalgo-charts.profile.mjs` | Volume Profile, TPO / Market Profile, Footprint, orderflow | 14.96 KB / 15 KB | no |
+| `openalgo-charts/indicators` | `dist/openalgo-charts.indicators.mjs` | 102 Tier-1 built-ins plus the Tier-2 contract | 28.19 KB / 30 KB | **yes**, registers all 102 descriptors |
+| `openalgo-charts/draw` | `dist/openalgo-charts.draw.mjs` | 85 drawing tools, `DrawingController`, `DrawingLayer` | 34.53 KB / 36 KB | **yes**, registers every built-in tool |
+| `openalgo-charts/webgl` | `dist/openalgo-charts.webgl.mjs` | the WebGL2 series backend, `createWebGL2Backend`, `isWebGL2Supported`, `WebGL2Backend`, `GlDevice` | 6.38 KB / 7 KB | **yes**, registers the `webgl2` render backend |
+| `openalgo-charts/widget` | `dist/openalgo-charts.widget.mjs` | `createWidget`, the chrome (top bar, rail, status line, toasts), the dialogs, the keymap, the tokens and stylesheet; the only tier that ships DOM. Imports `openalgo-charts/draw` itself | 42.41 KB / 43 KB | **yes**, registers the seven dialog mounts with the shell |
 
 Types resolve per tier: `dist/index.d.ts`, `dist/trade/index.d.ts`, `dist/transform/index.d.ts`, `dist/profile/index.d.ts`, `dist/indicators/index.d.ts`, `dist/draw/index.d.ts`, `dist/webgl/index.d.ts`, `dist/widget/index.d.ts`.
 
@@ -137,16 +137,16 @@ Enforced by `npm run size` (`size-limit`, Brotli, `@size-limit/file`), from `.si
 
 | Budget row | Files measured | Limit | Measured |
 |---|---|---|---|
-| Base engine | `openalgo-charts.mjs` | 74 KB | 73.31 KB |
-| Base + trade layer | base + `trade.mjs` | 82 KB | 80.92 KB |
-| Indicator tier | `indicators.mjs` | 30 KB | 28.05 KB |
-| Draw tier | `draw.mjs` | 26 KB | 25.90 KB |
-| Transform tier | `transform.mjs` | 5 KB | 2.66 KB |
+| Base engine | `openalgo-charts.mjs` | 78 KB | 77.23 KB |
+| Base + trade layer | base + `trade.mjs` | 86 KB | 84.84 KB |
+| Indicator tier | `indicators.mjs` | 30 KB | 28.19 KB |
+| Draw tier | `draw.mjs` | 36 KB | 34.53 KB |
+| Transform tier | `transform.mjs` | 6 KB | 4.44 KB |
 | Profile tier | `profile.mjs` | 15 KB | 14.96 KB |
 | WebGL2 tier | `webgl.mjs` | 7 KB | 6.38 KB |
-| Widget tier | `widget.mjs` | 40 KB | 38.72 KB |
-| Widget terminal | base + `draw.mjs` + `indicators.mjs` + `widget.mjs` | 168 KB | 165.97 KB |
-| Everything | all eight bundles | 200 KB | 197.58 KB |
+| Widget tier | `widget.mjs` | 43 KB | 42.41 KB |
+| Widget terminal | base + `draw.mjs` + `indicators.mjs` + `widget.mjs` | 183 KB | 182.37 KB |
+| Everything | all eight bundles | 218 KB | 215.76 KB |
 
 Version 2.1.2 raises the full-package budget from 187 KB to 188 KB for the feed, indicator lifecycle and recovery fixes. Version 2.1.3 raises base, widget and widget-terminal ceilings to 68 KB, 37 KB and 157 KB for navigation controls, and the chart-only tree-shaking ceiling to 45 KiB. Version 2.1.6 raises the base, base-plus-trade, widget-terminal and total ceilings
 to 73 KB, 81 KB, 165 KB and 197 KB for shared loading, resilient caching and
@@ -159,6 +159,10 @@ This fork carries its own work on the same tree, so its lines are higher: 76.2 K
 base, 83.9 KB base plus trade, 16.9 KB profile, 168.9 KB widget terminal, 202.3 KB
 for all tiers, and a 46.9 kB chart-only ceiling. `.size-limit.json` and
 `scripts/check-shake.mjs` are the authority; both carry the measurement.
+
+Version 2.1.8 budgets normalized gestures and touch controls at 75 KB base,
+83 KB base plus trade, 42 KB widget, 170 KB widget terminal and 202 KB total.
+The chart-only tree-shaking ceiling is 46 KiB; widget controls remain excluded.
 
 **Nothing is excluded from these numbers.** The package has zero runtime dependencies (`dependencies` is absent; everything in `devDependencies` is build tooling), so the measured file *is* the shipped payload. There is no CSS to import, no peer dependency, no web-component registration.
 
@@ -197,3 +201,19 @@ not depend on a bare string literal that a rename would silently break:
 
 They are exported from the tier's own entry point, not from the base bundle, so
 importing one to test for it defeats the purpose. Track what your own code loaded.
+
+The 2.1.9 branding and optional watermark change uses 77 KB base, 85 KB
+base plus trade, 173 KB widget terminal and 205 KB total budgets. The chart-only
+import is 48.96 KiB (45.51 KiB in 2.1.8), with a 50 KiB ceiling for bundled vector
+artwork, watermark settings and guarded logo input. The widget stays below 42 KB.
+
+Version 2.2.0 adds 34 drawing tools, their geometry and labels, and complete host
+rail coverage. The measured draw-tier increase over 2.1.9 is about 8.6 KB Brotli;
+base-only hosts do not load it. The budgets are 36 KB draw, 43 KB widget,
+183 KB widget terminal and 215 KB total. Other tier budgets remain unchanged.
+
+Version 2.3.0 raises the transform budget from 5 KB to 6 KB for symbol arithmetic
+and the total from 215 KB to 218 KB. Version 2.3.1 changes no budget; the base
+engine and the three rows that include it move by hundredths. Version 2.3.2
+raises the base budget from 77 KB to 78 KB and base + trade from 85 KB to
+86 KB for stream-driven repair and provisional bars.

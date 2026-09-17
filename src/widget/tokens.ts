@@ -49,7 +49,10 @@ export function parseColor(input: string): Rgba | null {
     const a = h.length === 8 ? parseInt(h.slice(6, 8), 16) / 255 : 1;
     return { r, g, b, a };
   }
-  const fn = /^rgba?\(\s*([\d.]+)\s*[, ]\s*([\d.]+)\s*[, ]\s*([\d.]+)\s*(?:[,/]\s*([\d.]+%?)\s*)?\)$/i.exec(s);
+  // The separator is a comma with optional space, or space alone. Written as one
+  // alternation rather than `\s*[, ]\s*`, whose space-in-the-class overlaps the
+  // neighbouring `\s*` and makes a long run of spaces backtrack quadratically.
+  const fn = /^rgba?\(\s*([\d.]+)(?:\s*,\s*|\s+)([\d.]+)(?:\s*,\s*|\s+)([\d.]+)(?:\s*[,/]\s*([\d.]+%?))?\s*\)$/i.exec(s);
   if (fn !== null) {
     let a = 1;
     if (fn[4] !== undefined) a = fn[4].endsWith('%') ? Number(fn[4].slice(0, -1)) / 100 : Number(fn[4]);

@@ -21,6 +21,25 @@ export type { SeriesType };
  */
 export type PriceScaleId = 'right' | 'left' | '';
 
+/**
+ * Value formatting for a price scale (its axis labels and crosshair tag):
+ * `price` (tick-size precision), `volume` (compact 1.2K / 3.4M / 5.6B),
+ * `percent` (a `%` suffix at a fixed precision), or a `custom` formatter.
+ *
+ * It lives here rather than beside `addSeries` because an indicator plot names
+ * one too, and the model tier cannot reach into the core.
+ *
+ * `percent` suffixes the value as it stands and does **not** scale it: a study
+ * that already returns 0..100 reads `62.24%`, and one that returns a 0..1
+ * fraction reads `0.62%`. Scaling here would put the axis and the plotted value
+ * into disagreement, which is the one thing a formatter must never do.
+ */
+export type PriceFormat =
+  | { type: 'price'; precision?: number; minMove?: number }
+  | { type: 'volume' }
+  | { type: 'percent'; precision?: number }
+  | { type: 'custom'; formatter: (value: number) => string };
+
 export interface SeriesRecord {
   dataId: SeriesId;
   type: SeriesType;

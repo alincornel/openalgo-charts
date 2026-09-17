@@ -117,3 +117,31 @@ describe('sessionFlags', () => {
     expect(sessionFlags([], '0915-1015', IST)).toEqual([]);
   });
 });
+
+/**
+ * 2.2.3: the spec is a string a user types into a settings field, and a
+ * half-typed one arrives on every keystroke, so a pathological one must not
+ * stall the input. Before the fix the trailing `\s*` sat beside the optional
+ * group's own `\s*`, and a long run of spaces on a spec that ultimately fails
+ * split between them in quadratically many ways: 32k spaces took over half a
+ * second, 64k over two.
+ */
+describe('parseSessionSpec is linear on a hostile input', () => {
+  it('rejects a long run of trailing spaces without backtracking', () => {
+    const hostile = `0915-1530${' '.repeat(50_000)}!`;
+    const started = Date.now();
+    expect(parseSessionSpec(hostile)).toBeNull();
+    // The old pattern needed seconds here. A wide bound keeps this from being
+    // a flaky benchmark while still failing loudly if the blowup comes back.
+    expect(Date.now() - started).toBeLessThan(250);
+  });
+
+  it('still parses every accepted spelling unchanged', () => {
+    expect(parseSessionSpec('0915-1530')).toEqual({ start: 555, end: 930 });
+    expect(parseSessionSpec('  0915  -  1530  ')).toEqual({ start: 555, end: 930 });
+    expect(parseSessionSpec('0915-1530:135')).toEqual({ start: 555, end: 930, days: [1, 3, 5] });
+    expect(parseSessionSpec('0915-1530 : 135 ')).toEqual({ start: 555, end: 930, days: [1, 3, 5] });
+    expect(parseSessionSpec('0915-1530:')).toBeNull();
+    expect(parseSessionSpec('915-1530')).toBeNull();
+  });
+});

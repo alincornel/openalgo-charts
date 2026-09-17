@@ -165,13 +165,13 @@ examples/yfinance/
     intervals.js      interval registry, the picker's codes, period clamping
     feed.js           YFinanceDataFeed and its typed errors, the bar cache wrapper, the cache menu
     transforms.js     Heikin Ashi, Renko, Range, Line Break, P&F, Kagi
+    expression.js     symbol arithmetic: the operator keypad, leg fetching, folding
     status.js         venue, session hours, long names, the status-line readings
     timezone.js       the chart zone the demo carries across a rebuild
     axis-chrome.js    clock and countdown, status-line and trade palette choices
     volume.js         volume visibility and the symbol legend row
     bracket.js        the bracket panel: entry, target and stop pills
     orders.js         resting orders, market fills, the net position, trade state
-    watermark.js      the chart watermark
     indicators.js     the indicator picker and the generated settings form
     chart-settings.js the chart settings dialog, built from chartSettingsSchema()
     compare.js        multi-symbol comparison
@@ -234,6 +234,18 @@ An existing saved horizontal preference stays intact after upgrading; select
 Touch continues to pan both axes. Drag the time axis left to expand bar spacing or right
 to compress it.
 
+The demo inherits wheel behavior from the engine without host wiring. Pixel, line and
+page deltas are normalized and applied proportionally. A vertical wheel over the plot
+zooms time; horizontal input or Shift-wheel pans it. A wheel over the visible price axis
+scales price at the pointer and makes that scale manual. Browser pinch input reported as
+Ctrl-wheel or Meta-wheel zooms at the pointer. Plot drags remain two-axis by default.
+
+Automatic price ranges ease while navigation reveals new extrema. When the operating system
+requests reduced motion, both the main and split chart constructors disable zoom and autoscale
+animation. A manually panned or scaled price axis remains authoritative until Reset view or
+another explicit autoscale action. An older navigation animation cannot overwrite a
+programmatic viewport replacement, primary data replacement, reset or teardown.
+
 The same Navigation group offers **Default visible bars (0 = all)**. `0` fits all loaded
 bars; a positive value targets the newest N loaded bars plus four empty slots on the
 right, within the available data and bar-spacing limits. Changing it applies the new
@@ -247,6 +259,16 @@ or `chart.setNavigationOptions(...)`; `chart.fitContent()` explicitly fits all l
 history. Navigation settings are included in the schema's read/apply helpers and chart
 state. A host that reapplies an explicit viewport after loading data controls that view.
 
+This example is a custom host around the DOM-free engine and draw tier. Its responsive
+controls belong to `examples/yfinance`; it does not use the packaged widget's
+`WidgetOptions.mobile`. At 900 CSS pixels or less, or with a coarse primary pointer, the
+desktop drawing rail yields to a bottom touch bar and the top toolbar becomes one scrollable
+row. Every compact control is at least 44 CSS pixels high. The native drawing picker exposes
+the registered tools, followed by Cursor, Undo, Redo, Magnet, Zoom out, Zoom in and Fit.
+Drawing actions use the existing controller and navigation uses the chart's public logical
+range and reset APIs. In split view the controls act on the last plot touched. Rotating or
+resizing changes only the CSS layout, so loaded bars and drawings stay in place.
+
 ## What each module proves
 
 The engine ships no DOM, so every control here is host code; each module
@@ -254,6 +276,7 @@ exists to show one engine surface carrying real use, not just being present.
 
 | Module | Proves |
 |---|---|
+| `expression.js` | A symbol box holding arithmetic (`AAPL/MSFT`, `NSEIX:NIFTY1!/NSE:RELIANCE+NASDAQ:META`) charts the result. `parseExpression` names the legs before anything is fetched, so exactly those are loaded, in parallel, with the first failure winning: a ratio missing a leg is not a chart with a gap. `evaluateExpression` folds them onto the first leg's time grid, gapping any bar the others did not trade rather than carrying a stale price forward. Closes are exact; a high and low can be bounded by interval arithmetic, which is offered rather than assumed because the bound assumes each leg hit its extreme at the worst possible moment. |
 | `feed.js` | A `DataFeed` is one method. The bar cache wrapper (`withBarCache`) keys on symbol, exchange and interval, snaps `from` to the bar grid so a reload inside the same bar hits, stops `to` at the last seen bar while the venue is shut, and refetches only the forming bar. A 404, 429 or 5xx becomes a typed error (`NotFoundError`, `RateLimitedError`, `NetworkError`) with a deadline and one retry, so the readout can say "check the symbol" or "try again in a minute" rather than printing whatever the server wrote. A staleness badge says when the newest bar is older than the venue's clock allows. |
 | `intervals.js` | The interval registry accepts codes the built-in grammar does not (`1wk`, a calendar month, a quarter). Monthly and quarterly bars are folded from daily ones through `bucketStartOf`, so a month runs first-to-first in the chart's zone and February is 29 days long in 2024. Ranges are clamped to what the interval can serve. |
 | `indicators.js` | The picker is built from `registeredIndicators()`, not a hardcoded list, so anything registered shows up grouped by category, and the count is the tier's rather than the demo's. The gear opens a form generated from the descriptor's `inputs`; the same code renders MACD, Bollinger or your own indicator. |
@@ -270,7 +293,7 @@ exists to show one engine surface carrying real use, not just being present.
 | `level-editor.js` | A ladder tool's levels (retracement, extension, channel, fan, time zones, the Gann pair) edited one row each: enable, ratio, colour, label, add, remove, reset. Every edit is one undo entry through the controller. |
 | `text-editor.js` | Inline text editing over the painted text, sized by the same rules the text tool paints with, with every pointer and key event stopped at the box so the chart under it does not pan. |
 | `menus.js`, `toolbar.js`, `hover.js` | Host chrome to the standard in `CLAUDE.md`: styled scrollbars, no native form controls on a dark panel, real tooltips that flip inside the window, and dialog furniture in one arrangement. |
-| `snapshot.js` | `chart.takeScreenshot()` saved as a PNG or copied to the clipboard, with the watermark and the replay mark in the image because they are on the canvas. |
+| `snapshot.js` | `chart.takeScreenshot()` saved as a PNG or copied to the clipboard, with chart branding, an enabled watermark and the replay mark in the image because they are on the canvas. |
 | `persist.js` | A versioned layout document with migrations, quarantine instead of deletion, memory-only degradation when storage refuses a write, and export and import as a file. See the next section. |
 
 ## Persistence
@@ -337,7 +360,8 @@ its own. From the package root:
 ```bash
 npm run test:demo                                             # the modules (also part of npm run verify)
 python examples/yfinance/server.py --self-test                # the server
-npx playwright test --project=yfinance-demo                   # the page, in a real browser against the fixture server
+npx playwright test --project=yfinance-demo                   # desktop page against the fixture server
+npx playwright test tests/e2e/yfinance-mobile.spec.ts         # compact touch flow in all configured browsers
 ```
 
 The specs cover what runs without a browser: every module evaluates outside a
@@ -352,7 +376,9 @@ are described under [Offline fixture mode](#offline-fixture-mode). Anything
 that draws is checked in a real browser against `index.html`, and the fixture
 server is what that browser talks to: `tests/e2e/yfinance.spec.ts` drives the
 page through the rail, the mouse and the transport, and reads the result back
-through the `?test=1` handle.
+through the `?test=1` handle. `tests/e2e/yfinance-mobile.spec.ts` adds fixture-mode touch
+drawing, undo, navigation, reduced-motion and portrait-to-landscape checks for the compact
+host controls.
 
 ## Notes
 
@@ -373,3 +399,18 @@ through the `?test=1` handle.
   readout means the newest bar has closed while the venue is open: the feed is
   behind, or the load was warm and the cache holds only closed bars (reload
   ignoring the cache from the cache menu).
+
+
+### Drawing catalogue (2.2.0)
+
+The drawing rail includes 85 tools: the existing annotations plus pitchforks,
+regression and disjoint channels, advanced Fibonacci and Gann geometry, wavefronts
+and harmonic or Elliott patterns. Open a rail group's chevron to choose a tool; edit
+its settings from the selected drawing's properties. Mobile drawing controls use
+the same catalogue and saved document format.
+
+For a prepared, editable sample of every tool, open
+`/examples/drawings/index.html` on this server. The gallery uses simulated NIFTY
+prices near 23800; it does not request a live feed. Choose a tool and Show sample,
+or press Draw and place its anchors. Undo, redo and body/handle dragging use the
+packaged widget and public controller.

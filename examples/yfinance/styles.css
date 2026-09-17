@@ -144,7 +144,8 @@ body {
    max-width (not display) keeps the reveal continuous, and the toolbar to
    the right slides rather than jumping. */
 .brand { display: inline-flex; align-items: center; font-weight: 700; letter-spacing: .2px;
-  gap: 0; cursor: default; border-radius: 7px; }
+  gap: 0; cursor: default; border-radius: 7px; color: var(--tx); text-decoration: none; }
+.brand[href] { cursor: pointer; }
 .brand-mark { width: 22px; height: 22px; flex: none; display: grid; place-items: center; }
 .brand-mark svg { width: 20px; height: 20px; fill: currentColor; color: var(--acc); }
 .brand-name { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap;
@@ -254,6 +255,13 @@ select.field { cursor: pointer; padding-right: 24px; }
   column-gap: 9px; min-height: 24px; }
 .set-row > label { grid-column: 2; color: var(--mut); font-size: 12px; cursor: pointer; }
 .set-row > .set-sw { grid-column: 1; }
+/* Help mark: a 13px ring after a label, muted until pointed at. Sized so it
+   never grows the 30px row, and inline so it stays with a wrapped label. */
+.set-help { display: inline-flex; align-items: center; justify-content: center;
+  width: 13px; height: 13px; margin-left: 5px; vertical-align: -2px;
+  border: 1px solid var(--bd); border-radius: 50%; color: var(--faint);
+  font-size: 9px; font-weight: 600; line-height: 1; cursor: help; user-select: none; }
+.set-help:hover, .set-help:focus-visible { color: var(--tx); border-color: var(--bd-hover); outline: none; }
 .set-ctl { grid-column: 3; display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
 .set-ctl select, .set-ctl input[type=number], .set-ctl input[type=text] {
   flex: 1 1 auto; min-width: 0; height: 24px; background-color: var(--elev); color: var(--tx);
@@ -321,6 +329,10 @@ select.field { cursor: pointer; padding-right: 24px; }
    live here. */
 .stage.has-rail #chart { left: 42px; }
 
+/* Compact host controls. The desktop rail remains the detailed tool browser;
+   this bar keeps the primary drawing and navigation actions within finger reach. */
+.mobilebar { display: none; }
+
 /* The properties bar, its popovers, the inline text editor and the level
    editor carry their own rules (src/properties.js injects them on mount).
    The swatch vocabulary stays here: it is the one every colour control on
@@ -353,8 +365,14 @@ select.field { cursor: pointer; padding-right: 24px; }
 .pills button:focus-visible { outline-offset: -1px; }
 /* the live symbol input, shown only while editing */
 #symbol.is-live { position: fixed; top: 44px; left: 96px; z-index: 70; display: block;
-  width: 190px; height: 34px; }
+  width: 320px; height: 34px; padding-right: 150px; }
 #symbol { display: none; }
+/* The operator keypad rides inside the live field's right edge, and is not
+   in the document at all until the field is. Fixed, because the field is.
+   The field reserves padding for it so a long expression never runs under. */
+#symkeys { display: none; }
+#symbol.is-live + #symkeys { display: inline-flex; position: fixed; top: 48px;
+  left: 268px; z-index: 71; }
 
 .menu { position: fixed; z-index: 80; min-width: 190px; max-height: 70vh; overflow: auto;
   padding: 5px; background: var(--panel); border: 1px solid var(--bd); border-radius: 10px;
@@ -694,11 +712,13 @@ select.field { cursor: pointer; padding-right: 24px; }
     border-right: 0; border-top: 1px solid var(--bd-soft); }
   .stage.has-rail #chart, .stage.has-rail .chartstate { left: 0; bottom: 52px; }
   #legend { top: 10px; left: 10px; }
-  #replaybar, #replaypick { bottom: 62px; max-width: calc(100% - 16px); }
+  #replaybar, #replaypick { max-width: calc(100% - 16px); }
   #replaybar input[type=range] { width: 110px; }
   .menu { left: 0 !important; right: 0; top: auto !important; bottom: 0;
     max-height: 60vh; border-radius: 12px 12px 0 0; }
   #symbol.is-live { left: 8px; width: calc(100vw - 16px); }
+  /* The field spans the viewport on a phone, so the keys anchor to its right. */
+  #symbol.is-live + #symkeys { left: auto; right: 12px; }
   #setmodal, #cmpmodal, #chartset { align-items: stretch; justify-content: stretch; }
   .set-card, .cset-card { width: 100%; max-width: none; max-height: none; height: 100%;
     border-radius: 0; border: 0; }
@@ -708,11 +728,31 @@ select.field { cursor: pointer; padding-right: 24px; }
   .cset-tabs { flex-direction: row; overflow-x: auto; overflow-y: hidden; padding: 8px;
     border-right: 0; border-bottom: 1px solid var(--bd-soft); }
   .cset-tab { flex: none; }
-  .toasts { right: 8px; bottom: 60px; }
+  .toasts { right: 8px; }
   .chartstate__card { max-width: calc(100% - 24px); }
 }
 @media (max-width: 900px), (pointer: coarse) {
   :root { --h: 40px; }
+  .shellbar { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 2px 8px; }
+  .shellbar::-webkit-scrollbar { width: 0; height: 0; }
+  .shellbar > * { flex: none; }
+  .shellbar .status { flex: 0 0 180px; max-width: 180px; }
+  .rail { display: none; }
+  .stage.has-rail #chart, .stage.has-rail .chartstate { left: 0; bottom: 52px; }
+  #replaybar, #replaypick { bottom: 62px; }
+  .toasts { bottom: 60px; }
+  .mobilebar { position: absolute; z-index: 24; left: 0; right: 0; bottom: 0; height: 52px;
+    box-sizing: border-box; display: flex; align-items: center; gap: 6px; padding: 4px 8px;
+    overflow-x: auto; overflow-y: hidden; scrollbar-width: none; touch-action: pan-x;
+    background: var(--panel-2); border-top: 1px solid var(--bd-soft); }
+  .mobilebar::-webkit-scrollbar { width: 0; height: 0; }
+  .mobilebar select, .mobilebar button { flex: none; box-sizing: border-box; min-height: 44px;
+    border: 1px solid var(--bd); border-radius: 7px; background-color: var(--elev); color: var(--tx);
+    font: inherit; font-weight: 600; }
+  .mobilebar select { width: 142px; padding: 0 28px 0 10px; }
+  .mobilebar button { padding: 0 12px; cursor: pointer; }
+  .mobilebar button:disabled { color: var(--faint); cursor: default; }
+  .mobilebar button[aria-pressed="true"] { color: var(--acc-2); border-color: var(--on-bd); background: var(--on-bg); }
   .tbtn, .btn, .field, .set-foot .btn, .chartstate__actions .btn, #replayleave button, #replaypick button,
   .menu button, #ctxmenu button, .axrow, #snapmenu button, .set-tab, .cset-tab,
   .set-head button, .toast__x, .cmp-row .cmp-del, .fsexit { min-height: 40px; }
@@ -737,3 +777,12 @@ select.field { cursor: pointer; padding-right: 24px; }
   .chartstate[data-state="loading"] .chartstate__dots i, .toast { animation: none; }
   .toast.is-out, .btn, .splitbar { transition: none; }
 }
+
+/* Symbol arithmetic keypad: small square keys beside the symbol field, muted
+   until pointed at, sized so they never grow the field row. */
+.symkeys { display: inline-flex; align-items: center; gap: 2px; }
+.symkey { width: 22px; height: 22px; padding: 0; display: inline-flex; align-items: center;
+  justify-content: center; background: transparent; border: 1px solid transparent; border-radius: 5px;
+  color: var(--mut); font-size: 12px; line-height: 1; cursor: pointer; user-select: none; }
+.symkey:hover { background: var(--elev, #1a1f2c); border-color: var(--bd); color: var(--tx); }
+.symkey:focus-visible { outline: 2px solid var(--acc, #4f8cff); outline-offset: 1px; }

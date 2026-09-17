@@ -81,6 +81,14 @@ also leaves you two entries for that time. `setData` de-duplicates by time as of
 (keeping the later bar), so it no longer draws two candles on top of each other, but the
 open is still wrong until the bucket rolls over. Seeding is the actual fix.
 
+When history stops one bucket short of the one forming, the seed is an older bar and
+the first tick still opens the current bucket at its own price. The builder knows: the
+update carries `provisional: true`, and `builder.reconcile(bar)` adopts the open
+history reports once a refresh brings it (the extremes widen, the volume takes the
+larger value, the close stays with the ticks). `DataLoadingController.pushBar(bar, { provisional: true })` keeps that open across
+later ticks. After a reconnect, reseed with `builder.seed(builder.current())` so the
+bucket opened after the gap is provisional too, then refresh.
+
 The WS adapter speaks the documented OpenAlgo protocol (authenticate → numeric-mode subscribe
 → `market_data`), with connection and control callbacks (`onState` / `onControl`).
 Market-data frames can carry `symbol` and `exchange` on the top-level envelope with
@@ -204,4 +212,4 @@ analyzer mode while testing the [trade path](/docs/trading).
 </Callout>
 
 A complete, runnable example (history + WebSocket + chart trading) lives in the repository
-under `examples/live`.
+under `examples/live`, which runs on `DataLoadingController` with `refreshOnBarClose`, `refreshOnGap` and `refreshWindowBars`.

@@ -2,7 +2,7 @@
 
 *When to read this: the user wants a chart with a toolbar, a drawing rail, dialogs or shortcuts without writing that chrome; or asks whether the library "has a UI"; or is embedding one of the widget's dialogs in a host of their own.*
 
-Source of truth: `src/widget/index.ts` (the export list), `src/widget/widget.ts` (options, handle, state), `src/widget/context.ts` (the context, the bus, storage, the overlay stack, the dialog registry), `src/widget/keymap.ts`, `src/widget/rail.ts`, `src/widget/topbar.ts`, `src/widget/statusline.ts`, `src/widget/toast.ts`, `src/widget/tokens.ts`, `src/widget/styles.ts`, `src/widget/form.ts`, the dialog modules under `src/widget/dialogs/`, and `dist/widget/index.d.ts` once built. Packaging: `rollup.config.js`, `package.json` (`exports['./widget']`), `.size-limit.json`, `scripts/check-dts.mjs`, `scripts/check-shake.mjs`.
+Source of truth: `src/widget/index.ts` (the export list), `src/widget/widget.ts` (options, handle, state), `src/widget/mobile.ts` (responsive chrome), `src/widget/context.ts` (the context, the bus, storage, the overlay stack, the dialog registry), `src/widget/keymap.ts`, `src/widget/rail.ts`, `src/widget/topbar.ts`, `src/widget/statusline.ts`, `src/widget/toast.ts`, `src/widget/tokens.ts`, `src/widget/styles.ts`, `src/widget/form.ts`, the dialog modules under `src/widget/dialogs/`, and `dist/widget/index.d.ts` once built. Packaging: `rollup.config.js`, `package.json` (`exports['./widget']`), `.size-limit.json`, `scripts/check-dts.mjs`, `scripts/check-shake.mjs`.
 
 ## What it is
 
@@ -50,6 +50,8 @@ Everything `src/widget/index.ts` exports at runtime. The shell (`createWidget` a
 | `STATE_KEY` | const `'state'` | The storage entry the layout lives under. |
 | `WIDGET_STATE_VERSION` | const `1` | `WidgetState.version`. |
 | `Widget`, `WidgetOptions`, `WidgetState`, `WidgetChartState`, `WidgetRestoreReport`, `WidgetEventName` | types | See the sections below. |
+| `mountMobile(ctx, options)` | function | Mount the narrow header, bottom bar and sheets against an existing `WidgetContext`. Returns `MobileHandle`. |
+| `MobileMode`, `MobileOptions`, `MobileHandle` | types | Responsive mode, mount contract and handle for custom widget composition. |
 
 ### The context, bus, storage and overlays (`context.ts`)
 
@@ -185,6 +187,7 @@ Every mount takes the context and an optional anchor element (so it satisfies `D
 | `rail` | `boolean \| RailOptions` | on | `false` hides it. `RailOptions.tools` restricts which ids appear (order still follows `RAIL_GROUPS`); `favorites` seeds the pins when nothing is stored. |
 | `topbar` | `boolean` | on | |
 | `statusline` | `boolean` | on | |
+| `mobile` | `'auto'` \| `'always'` \| `'never'` | `'auto'` | Compact widget controls. Auto activates when the widget container is at most 640 CSS px wide or the primary pointer is coarse. |
 | `indicators` | `boolean` | on | The Indicators button. |
 | `persist` | `boolean \| string` | off | `true` uses the `default` namespace; a string names one, so two widgets on a page keep separate layouts. |
 | `storage` | `StorageLike \| null` | the page's `localStorage` | The store behind `persist`. |
@@ -196,6 +199,28 @@ Every mount takes the context and an optional anchor element (so it satisfies `D
 | `styleNonce` | `string` | none | Response CSP nonce for the shared widget and dialog stylesheet. Style-attribute policy remains the host's responsibility. |
 
 Confirm defaults against `WidgetOptions` in the typings rather than assuming.
+
+## Mobile controls
+
+`createWidget` always mounts one mobile handle. Mode `'auto'` observes the widget
+container and the primary-pointer media query. It activates at 640 CSS px or less or
+when `(pointer: coarse)` matches, `'always'` stays active, and `'never'` keeps desktop
+chrome. Width is based on the container, not the viewport.
+
+The compact header provides symbol entry and intervals. The bottom bar provides Draw,
+Studies, Objects and More according to the same `topbar`, `rail` and `indicators` options
+as desktop chrome. More contains theme, chart settings and chart type. A selected drawing
+adds Properties, Lock or Unlock, and Delete. An active drawing tool adds Finish, Cancel,
+Undo, Magnet and Stay in the Drawing sheet.
+
+Both layouts share `ctx.draw`, `ctx.objects`, widget events, dialogs and the overlay stack,
+so resizing does not copy or reset selection, drawings or undo state. `RailOptions.tools`
+filters the mobile Drawing sheet to the same allowed tool ids as the desktop rail.
+
+If `prefers-reduced-motion: reduce` matches, `createWidget` supplies `animZoom: false` and
+`animAutoscale: false` only when the host omitted those options. Explicit values win.
+`mountMobile` is public for custom composition and returns `{ el, active, refresh, destroy }`;
+ordinary hosts should let `createWidget` wire and destroy it.
 
 ## The `Widget` handle
 
@@ -313,7 +338,7 @@ An empty or whitespace-only SSR `<style id="oac-widget-css" nonce="...">` is fil
 
 - `package.json` `exports['./widget']`: `types: ./dist/widget/index.d.ts`, `import: ./dist/openalgo-charts.widget.mjs`. Listed in `sideEffects` (importing registers the dialogs).
 - `rollup.config.js`: `openalgo-charts` and every `openalgo-charts/<tier>` are external for tier builds and emitted as sibling paths (`./openalgo-charts.mjs`, `./openalgo-charts.draw.mjs`), so `dist/` serves with no import map. The widget must never inline the base or the draw tier; `check-dts.mjs` fails a build whose `dist/widget/index.d.ts` declares `Chart` or `DrawingController`.
-- `.size-limit.json`: `Widget tier` row (the bundle alone, 37 kB budget) and `Widget terminal` row (base + draw + indicators + widget, 157 kB budget); `Everything` includes the widget. Measure with `npm run size`; never quote from memory.
+- `.size-limit.json`: `Widget tier` row (the bundle alone, 42 kB budget) and `Widget terminal` row (base + draw + indicators + widget, 173 kB budget); `Everything` includes the widget. Measure with `npm run size`; never quote from memory.
 - The standalone IIFE is base-only and cannot host the widget. Use native ESM from `dist/`.
 
 ## Pitfalls
@@ -339,3 +364,13 @@ Retry controls and context propagation. Same-context reload preserves the visibl
 time anchor; only source changes reset to the preferred initial window.
 `dataController.setPaused(true)` fences display writes for a custom replay owner.
 See [host-integration](host-integration.md) for unmount and replay ordering.
+
+## Branding and watermark defaults (2.1.9)
+
+The widget inherits `ChartOptions.branding` and `ChartOptions.watermark`. Its existing
+symbol/interval changes update `chart.setDataContext`, which supplies automatic watermark
+text. No second text store or manually attached logo is needed. The default corner mark
+is visible on both layouts, while the background watermark starts off. Appearance settings
+operate through the same chart schema and chart state used by bare-chart hosts. See
+[primitives-and-plugins](primitives-and-plugins.md#chart-branding-and-optional-text-watermark-219)
+for the APIs, migration and interaction checks.

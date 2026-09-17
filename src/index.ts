@@ -5,7 +5,7 @@ export { VERSION, version } from './version';
 
 export { createChart, Chart, compactVolume, PRICE_SCALE_MODES } from './core/chart';
 export type {
-  ChartOptions, ChartNavigationOptions, AddSeriesOptions, CrosshairMoveEvent, ChartEventOptions,
+  ChartOptions, ChartNavigationOptions, ChartWatermarkOptions, BrandingChangedEvent, AddSeriesOptions, CrosshairMoveEvent, ChartEventOptions,
   ContextMenuEvent, ContextMenuTarget, ContextMenuTargetKind, PriceAxisState,
   AxisChromeOptions, ZoomAnchor, DoubleClickAction, DoubleClickEvent, ExportSvgOptions,
   PointerModifiers, PointerKind, PointerSample, PointerInfo,
@@ -157,7 +157,7 @@ export type {
 export { CandleBuilder, DEFAULT_CANDLE_BUILDER_OPTIONS } from './feed/candle-builder';
 export type { CandleBuilderOptions, Tick, CandleUpdate, VolumeMode, LateTickPolicy } from './feed/candle-builder';
 
-export type { SeriesApi, PriceScaleId } from './model/series';
+export type { SeriesApi, PriceScaleId, PriceFormat } from './model/series';
 
 // primitives / plugin API
 export { bestHit } from './primitives/primitive';
@@ -218,7 +218,7 @@ export { conflationGroupSize, conflateBars, conflateItems, mergeBars } from './m
 export type { Bar, LinePoint, Whitespace, SeriesDataItem, UTCSeconds, OriginalTime } from './model/bar';
 export { isWhitespace, toBar } from './model/bar';
 
-export type { DataFeed, TradeFeed, BarsRequest, BarsPageRequest, BarsPage, BarSubscriptionOptions, MarketDepth, DepthLevel, OrderSide, OrderType, PlaceOrder, UnsubscribeFn } from './feed/types';
+export type { DataFeed, TradeFeed, BarsRequest, BarsPageRequest, BarsPage, BarSubscriptionOptions, LiveBarMeta, MarketDepth, DepthLevel, OrderSide, OrderType, PlaceOrder, UnsubscribeFn } from './feed/types';
 export { HistoryRequestPool, sharedHistoryRequests } from './feed/request-pool';
 export type { HistoryRequestPoolOptions } from './feed/request-pool';
 export { DataLoadingController } from './feed/data-controller';

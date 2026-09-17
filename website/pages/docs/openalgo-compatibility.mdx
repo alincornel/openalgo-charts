@@ -112,9 +112,55 @@ production build, 408 trading tests and 13 browser workflows, plus a native
 future-drawing check on `/trading`. Crosshair candle time and OHLC remain null
 where no bar exists, so host tooltips keep their existing data contract.
 
+## Navigation compatibility in 2.1.8
+
+The packed 2.1.8 candidate passes the unchanged OpenAlgo `/trading` production build
+and 18 browser workflows. The navigation check exercises tiny trackpad input,
+horizontal wheel panning and wheel scaling on the price axis, while asserting that
+navigation creates no orders. Existing checks cover replay guards, quantity units,
+order context, persisted drawings, runtime indicators, profiles and independent panes.
+
+OpenAlgo builds its own interface around `createChart`. The new engine gestures apply
+after the package upgrade; the widget's mobile header and drawing sheets belong to
+`createWidget` and do not replace OpenAlgo's custom toolbar. Custom hosts choose their
+own controls and reduced-motion defaults. `animAutoscale` defaults to `animZoom`, and
+manual price ranges, future drawing anchors and plot clipping retain their contracts.
+
 These checks validate the inspected consumer and mocked protocol cases. They do
 not establish broker-specific data quality, exchange session alignment or exact
 trade volume when the upstream stream supplies only sampled prices.
+
+## Branding compatibility in 2.1.9
+
+Charts now owns the responsive corner logo. The companion OpenAlgo change removes
+its manually attached logo and exposes an accessible link that follows host branding.
+Optional watermark controls use the shared Appearance schema and saved chart state;
+the background text is off by default. Automatic text follows the current symbol
+and interval, and Replay retains its separate marker.
+
+The packed candidate passes the consumer production build and 20 simulated `/trading`
+browser workflows, including branding changes, watermark persistence, order quantities,
+replay, navigation, drawing restoration, profiles and independent panes.
+
+## Drawing compatibility in 2.2.0
+
+The 2.2.0 package adds 34 drawing tools while preserving the existing tool IDs,
+anchor meanings and version-2 drawing documents. OpenAlgo's custom toolbar can
+discover the full set through `registeredDrawingTools()`; the library upgrade
+does not replace that host's interface.
+
+The packed candidate was installed over Charts 2.1.9 in an isolated checkout of
+OpenAlgo commit `bc4357cae`, retaining its other locked dependencies. All **434
+trading tests across 31 files**, TypeScript and the production build pass. The
+actual `/trading` browser harness passes **20 simulated workflows**, covering
+order quantities and authority, replay isolation, navigation, drawing persistence,
+Objects, profiles, branding and independent panes. The replay probe retains its
+visible prefix with `overwroteReplay: false`.
+
+The local test runner used Node 26 with `NODE_OPTIONS=--no-experimental-webstorage`
+so the browser test environment supplies storage. The consumer CI targets Node
+20, 22 and 24. These are simulated compatibility checks, not live-broker or
+physical-device validation.
 
 ## Reproduce the browser check
 
@@ -124,7 +170,10 @@ candidate package installed. From the Charts repository:
 ```bash
 node scripts/check-openalgo-compat.mjs \
   --frontend /path/to/isolated-openalgo/frontend \
-  --label candidate-2.1.6 \
+  --label candidate-2.2.0 \
+  --objects true \
+  --navigation true \
+  --branding true \
   --probe-host true \
   --output /tmp/openalgo-compatibility.json
 ```

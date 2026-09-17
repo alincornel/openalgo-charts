@@ -2,7 +2,7 @@
 
 *When to read this: you are adding chart annotations (trendlines, fibs, shapes, text) wiring a drawing toolbar, persisting drawings, or registering a custom tool.*
 
-Source of truth: `src/draw/types.ts`, `src/draw/tools.ts`, `src/draw/controller.ts`, `src/draw/layer.ts`, `src/draw/geometry.ts`, `src/draw/index.ts`.
+Source of truth: `src/draw/advanced-lines.ts`, `src/draw/advanced-geometry.ts`, `src/draw/pattern-tools.ts`, `src/draw/types.ts`, `src/draw/tools.ts`, `src/draw/controller.ts`, `src/draw/layer.ts`, `src/draw/geometry.ts`, `src/draw/index.ts`.
 
 ## Setup
 
@@ -17,7 +17,7 @@ const draw = new DrawingController(chart, { magnet: 'weak' });   // or 'strong',
 draw.setTool('trend-line');   // the next two clicks place it
 ```
 
-Importing `openalgo-charts/draw` calls `registerBuiltinDrawingTools()` as a side effect, registering all 51 tools into the base bundle's registry. No separate registration call is needed.
+Importing `openalgo-charts/draw` calls `registerBuiltinDrawingTools()` as a side effect, registering all 85 tools into the base bundle's registry. No separate registration call is needed.
 
 **The controller is headless: it ships no toolbar, no dialogs, no key listener.** It owns the model (`Drawing[]`), placement, selection, dragging, undo, and serialisation. Every button, flyout, colour picker, and text prompt is the host's.
 
@@ -156,7 +156,7 @@ faults on the first run that reading the paths did not.
 
 ## Tool catalogue
 
-51 built-in tools. `Clicks` is what the user does; `Anchors` is what ends up in `drawing.points` (they differ only where `expand` is involved).
+85 built-in tools. `Clicks` is what the user does; `Anchors` is what ends up in `drawing.points` (they differ only where `expand` is involved).
 
 | Family | `id` | Clicks | Anchors | Shortcut |
 |---|---|---|---|---|
@@ -172,7 +172,7 @@ faults on the first run that reading the paths did not.
 | Fibonacci | `fib-extension` | 3 | 3 | |
 | Gann | `gann-fan`, `gann-box` | 2 | 2 | |
 | Cycles | `cyclic-lines`, `time-cycles`, `sine-line` | 2 | 2 | |
-| Forecasting | `long-position`, `short-position` | 1 | 3 (via `expand`) | |
+| Forecasting | `long-position`, `short-position` | 2 | 3 (via `expand`) | |
 | Forecasting | `forecast` | 2 | 2 | |
 | Measurers | `measure`, `price-range`, `date-range` | 2 | 2 | |
 | Arrows | `arrow-up`, `arrow-down` | 1 | 1 | |
@@ -181,6 +181,21 @@ faults on the first run that reading the paths did not.
 | Marks | `arrow-up`, `arrow-down`, `arrow-left`, `arrow-right` | 1 | 1 | |
 | Text / notes | `callout` | 2 | 2 | |
 | Brushes | `brush`, `highlighter` | press-drag-release | n samples | |
+| Lines | `info-line`, `trend-angle` | 2 | 2 | |
+| Channels | `disjoint-channel` | 4 | 4 | |
+| Channels | `flat-top-bottom` | 3 | 3 | |
+| Channels | `regression-channel` | 2 | 2 | |
+| Pitchforks | `pitchfork`, `schiff-pitchfork`, `modified-schiff-pitchfork`, `inside-pitchfork` | 3 | 3 | |
+| Fibonacci | `fib-extension-two-point`, `fib-speed-resistance-fan`, `fib-circles`, `fib-speed-resistance-arcs`, `fib-spiral` | 2 | 2 | |
+| Fibonacci | `trend-fib-time`, `fib-wedge` | 3 | 3 | |
+| Gann | `gann-square` | 2 | 2 | |
+| Geometry | `dedekind-tessellation`, `sonic`, `supersonic`, `golden-sonic`, `golden-supersonic` | 2 | 2 | |
+| Marks | `icon-stamp` | 1 | 1 | |
+| Patterns | `xabcd-pattern`, `gartley`, `bat`, `butterfly`, `crab`, `shark`, `cypher` | 5 | 5 | |
+| Patterns | `abcd-pattern` | 4 | 4 | |
+| Patterns | `elliott-correction` | 3 | 3 | |
+| Patterns | `elliott-impulse` | 5 | 5 | |
+| Patterns | `head-shoulders` | 7 | 7 | |
 
 Those five are the only shortcuts. `registeredDrawingTools()` returns every descriptor (`id`, `name`, `points`, `shortcut`, `defaultStyle`); `BUILTIN_DRAWING_TOOLS` is the same list in toolbar order.
 
@@ -241,7 +256,7 @@ new DrawingController(chart, {
 |---|---|
 | `setTool(id \| null)` | Arms a tool; throws on an unregistered id. Also calls `chart.setPlacementMode(true/false)`. |
 | `activeTool()` | Armed id, or `null`. |
-| `setOptions(patch)` | Live-patch the four options above. |
+| `setOptions(patch)` | Live-patch the options above. |
 | `drawings()` / `get(id)` | Read the model. `drawings()` is the live array, in **paint order** (creation order until a reorder; `createdAt` keeps the creation time). |
 | `add(drawing)` | `add({ tool, points, style, paneIndex, text?, props?, id?, locked?, visible?, zIndex? })` (a `DrawingInput`) returns the created `Drawing`, with `zIndex` 0, `createdAt` and a minted id (a supplied id that collides with a restored one is replaced). The tool's `defaultText` merges under `text` the way `defaultStyle` merges under `style`. |
 | `update(id, patch)` / `updateMany(patches)` | Patch `points` \| `style` \| `text` \| `props` \| `locked` \| `visible` \| `zIndex` (a `DrawingPatch`). `style`, `text` and `props` merge; `points` replaces. `updateMany([{ id, patch }])` is one undo step and one `drawing:change`. |
@@ -503,7 +518,7 @@ Individual tools are exported too, under the UPPER_SNAKE form of the id:
 `NOTE`, `BALLOON`, `COMMENT`, `SIGNPOST`, `PRICE_NOTE`, `TABLE`, `CALLOUT`,
 `FLAG_MARK`, `ARROW_UP`, `ARROW_DOWN`, `ARROW_LEFT`, `ARROW_RIGHT`.
 
-As with the indicator tier, importing `openalgo-charts/draw` registers all 51 tools,
+As with the indicator tier, importing `openalgo-charts/draw` registers all 85 tools,
 but each descriptor is also exported by name for selective registration:
 
 ```ts
@@ -556,3 +571,49 @@ truncate saved drawing coordinates. Moving the primary price scale to the left
 keeps drawing placement, rendering and hit testing on the same price scale.
 `PrimitiveRenderContext.readoutPriceScale` exposes that primary scale for custom
 primitives; `priceScale` retains the existing right-scale contract.
+
+
+## Advanced descriptor families (2.2.0)
+
+`ADVANCED_LINE_TOOLS`, `ADVANCED_GEOMETRY_TOOLS` and `PATTERN_DRAWING_TOOLS` are
+readonly arrays of `DrawingTool` descriptors exported by `openalgo-charts/draw`.
+They also appear in `BUILTIN_DRAWING_TOOLS`; importing the tier registers every
+family. Hosts should enumerate `registeredDrawingTools()` and inspect
+`drawingSettingsSchema(id)` rather than maintain a second catalogue.
+
+Use `draw.setTool('gartley')` to collect its anchors or `draw.add(...)` to supply
+existing `{ time, price }` points. The maintained example at
+`examples/drawings/index.html` demonstrates every descriptor with real controller
+placement, selection, properties and persistence. Its OHLC data is simulated.
+
+Keep these distinctions when migrating a host:
+
+- `fib-fan` keeps the existing price-ray geometry and is named Fib Fan. The full
+  two-family fan is `fib-speed-resistance-fan`.
+- `fib-extension` keeps three stored anchors. The two-point swing tool is
+  `fib-extension-two-point`.
+- Regression fits `PrimitiveRenderContext.bars()` closes in the selected range.
+  Its `props.deviation` scales residual standard deviation. It rereads live bars.
+- Trend Fib Time uses logical bar indices for spacing across closed sessions.
+  Radial studies use media-pixel radii. Apply DPR only when painting.
+- Named harmonic patterns annotate manual anchors and ratio ranges. They do not
+  detect signals or send orders. Do not interpret a ratio label as a trade action.
+- Multi-point guides are temporary preview state, never a saved incomplete drawing.
+  Drawing document version 2 and old IDs stay unchanged.
+
+For drawing performance changes, run the complete catalogue's real-browser
+placement, touch, body/handle drag, undo, pixel and persistence sweeps. Inspect
+screenshots and verify forward-space clipping. Keep text measurements scoped to
+a paint so font changes cannot leave stale hit boxes. Bound recursive geometry
+and curve work; never cache forming-bar calculations by array identity.
+
+`sonic` and `supersonic` use `props.waveCount` as a cap on sorted enabled
+`style.levels`: default 6, range 1..12. Their default ladder has 12 eligible
+levels, so increasing the cap adds waves without rewriting enabled flags.
+Golden variants use all enabled Fibonacci levels. Supersonic tools also read
+`props.mach` (1.01..20, default 2); tessellation reads `props.maxCurvature`
+(1..64). Every field is available through the descriptor's settings schema.
+
+Dense labels on advanced geometry use bounded vertical spacing. Labels with no
+room in a tiny plot are omitted without changing saved anchors, level values or
+hit regions. Zoom in or disable unneeded levels to inspect crowded values.

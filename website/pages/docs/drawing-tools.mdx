@@ -1,6 +1,6 @@
 ---
 title: Drawing Tools
-description: 51 drawing tools, a headless controller, undo/redo, and persistence.
+description: 85 drawing tools, a headless controller, undo/redo, and persistence.
 ---
 
 import { Callout } from 'nextra/components'
@@ -8,13 +8,13 @@ import DrawingToolsDemo from '../../components/DrawingToolsDemo'
 
 # Drawing Tools
 
-`openalgo-charts/draw` is a lazy tier (**25.90 KB** Brotli) with 51 tools and a headless
+`openalgo-charts/draw` is a lazy tier (**34.53 KB** Brotli) with 85 tools and a headless
 controller. It ships **no UI**: no toolbar, no dialogs. It owns the model and the
 interactions; your app supplies the buttons.
 
 ## Try the drawing tools
 
-Pick a tool from the visible rail and draw directly on the chart. The three sample
+Pick any tool from the full catalogue or use the quick rail and draw directly on the chart. The three sample
 drawings are editable: select one on the chart or from the drawing list, then move
 it, drag a handle, or delete it. Undo and redo let you try changes; Reset demo restores
 the examples.
@@ -23,6 +23,9 @@ the examples.
 
 This playground supplies a small toolbar around `DrawingController`. For the complete
 packaged rail, properties dialogs and shortcuts, use [the widget tier](/docs/widget).
+
+Open the [full-size drawing gallery](/demos/drawings/index.html) for a prepared, editable
+sample of every tool, phone controls and simulated NIFTY prices near 23800.
 
 ## Start with the controller
 
@@ -39,23 +42,30 @@ draw.setTool('trend-line');   // the next two clicks place it
 
 ## The tools
 
-**51 built-in tools**, all registered when the tier is imported.
+**85 built-in tools**, all registered when the tier is imported.
 
 | Group | `id` | Anchors |
 |---|---|---|
-| Lines | `trend-line`, `ray`, `extended-line`, `arrow` | 2 |
+| Lines | `trend-line`, `ray`, `extended-line`, `arrow`, `info-line`, `trend-angle` | 2 |
 | Horizontal / vertical | `horizontal-line`, `horizontal-ray`, `vertical-line`, `cross-line` | 1 |
-| Shapes | `rectangle`, `ellipse`, `circle`, `triangle`, `rotated-rectangle` | 2 / 2 / 2 / 3 / 3 |
-| Paths | `path`, `polyline` (both free-form), `arc`, `curve`, `double-curve` | n / n / 3 / 3 / 3 |
-| Channels | `parallel-channel`, `fib-channel` | 3 |
-| Fibonacci | `fib-retracement` (2), `fib-extension` (3), `fib-time-zone` (2), `fib-fan` (2) | 2-3 |
-| Gann | `gann-fan`, `gann-box` | 2 |
-| Forecasting | `long-position`, `short-position` (3), `forecast` (2) | 2-3 |
+| Shapes | `rectangle`, `ellipse`, `circle` | 2 |
+| Shapes | `triangle`, `rotated-rectangle` | 3 |
+| Paths | `path`, `polyline`; `arc`, `curve`, `double-curve` | n; 3 |
+| Channels | `parallel-channel`, `fib-channel`, `flat-top-bottom`; `disjoint-channel`; `regression-channel` | 3; 4; 2 |
+| Pitchforks | `pitchfork`, `schiff-pitchfork`, `modified-schiff-pitchfork`, `inside-pitchfork` | 3 |
+| Fibonacci levels | `fib-retracement`, `fib-extension-two-point`; `fib-extension` | 2; 3 |
+| Fibonacci time | `fib-time-zone`; `trend-fib-time` | 2; 3 |
+| Fibonacci geometry | `fib-fan`, `fib-speed-resistance-fan`, `fib-circles`, `fib-speed-resistance-arcs`, `fib-spiral`; `fib-wedge` | 2; 3 |
+| Gann | `gann-fan`, `gann-box`, `gann-square` | 2 |
+| Geometric studies | `dedekind-tessellation`, `sonic`, `supersonic`, `golden-sonic`, `golden-supersonic` | 2 |
+| Harmonic patterns | `xabcd-pattern`, `gartley`, `bat`, `butterfly`, `crab`, `shark`, `cypher`; `abcd-pattern` | 5; 4 |
+| Wave patterns | `elliott-impulse`; `elliott-correction`; `head-shoulders` | 5; 3; 7 |
+| Forecasting | `long-position`, `short-position`; `forecast` | 3; 2 |
 | Measurers | `price-range`, `date-range`, `measure` | 2 |
-| Arrows | `arrow-up`, `arrow-down` | 1 |
+| Marks | `arrow-up`, `arrow-down`, `arrow-left`, `arrow-right`, `icon-stamp` | 1 |
 | Cycles | `cyclic-lines`, `time-cycles`, `sine-line` | 2 |
-| Text and notes | `text`, `price-label`, `flag-mark` (1), `callout` (2) | 1-2 |
-| Brushes | `brush`, `highlighter` (both freehand) | n |
+| Text and notes | `text`, `price-label`, `flag-mark`, `note`, `balloon`, `comment`, `signpost`, `price-note`, `table`; `callout` | 1; 2 |
+| Brushes | `brush`, `highlighter` | n |
 
 `long-position` and `short-position` place in two clicks: the entry, then the target.
 The second click is also the direction: release above the entry and the trade is a long,
@@ -91,6 +101,54 @@ the ellipse that differing axis scales would otherwise produce. `arc` passes *th
 middle anchor; `curve` treats that anchor as a control handle, so the path only leans toward
 it. `highlighter` is `path` with a fat translucent stroke, and is grabbable anywhere across
 its width.
+
+## Advanced drawings in 2.2.0
+
+The additional 34 tools use the same selection, settings, undo/redo and saved
+`Drawing` document as the existing catalogue. Multi-point placement shows the
+anchors already chosen and a dashed guide until the final point is placed.
+
+`regression-channel` fits the loaded primary series closes within the selected
+time range. The deviation multiplier controls the outer bands and the readout
+shows R-squared and the number of valid bars. Moving or updating a forming bar
+recalculates the fit. A range without loaded bars shows a clear empty-range label.
+
+The four pitchforks offer standard, Schiff, modified Schiff and inside geometry.
+Levels, fills and labels remain editable. `disjoint-channel` has four independent
+endpoints; `flat-top-bottom` takes a trend edge and a horizontal opposite edge.
+
+`fib-extension` retains its existing three-anchor projection. The new
+`fib-extension-two-point` extends one measured swing. `fib-fan` retains its saved
+price-ray geometry and is named Fib Fan; `fib-speed-resistance-fan` adds both time
+and price ray families. `trend-fib-time` measures logical bar spacing from its
+first two anchors and projects it from the third, including across session gaps.
+
+Circles, radial arcs and wavefronts use screen radii; they remain circular when
+the time and price axes have different scales. `fib-wedge` uses three anchors
+for its centre and angle. Gann Square combines price/time divisions, fans and
+arcs. Dedekind Tessellation limits curvature and skips off-screen work to keep
+recursive geometry bounded.
+
+The wavefront tools expose editable level ladders. For `sonic` and `supersonic`,
+Wave limit caps the enabled ladder at six by default and can increase to twelve.
+Golden variants use their Fibonacci-spaced levels directly. Mach number controls
+the supersonic cone angle; Max curvature controls tessellation detail.
+
+Harmonic and wave tools are manually placed annotations. Their labels describe
+the chosen anchors and measured ratios; they do not detect patterns or generate
+orders. Named harmonic patterns compare measured ratios against their own expected
+ranges. When labels are enabled, they show measured values with `OK` or `OUT`
+and an overall status once all anchors are placed. Zero-length legs omit unavailable
+ratios instead of printing non-finite values. All anchors remain independently editable.
+
+## Existing layouts
+
+Saved documents remain version 2. Existing tool IDs and anchor formats are
+preserved, including forward projections beyond the latest candle. Drawing
+bodies, guides and handles stay clipped to the plot, including with a left price
+axis. The new descriptor arrays `ADVANCED_LINE_TOOLS`, `ADVANCED_GEOMETRY_TOOLS`
+and `PATTERN_DRAWING_TOOLS` are exported for hosts that inspect tool families;
+normal imports still register the full catalogue automatically.
 
 ## Anchors live in data space
 
@@ -467,3 +525,7 @@ truncate saved drawing coordinates. Moving the primary price scale to the left
 keeps drawing placement, rendering and hit testing on the same price scale.
 `PrimitiveRenderContext.readoutPriceScale` exposes that primary scale for custom
 primitives; `priceScale` retains the existing right-scale contract.
+
+Dense geometry labels use separate rows to stay readable. At extreme density,
+labels without available space are omitted; zoom in or disable unneeded levels
+to expose their values. The saved geometry and its hit regions remain exact.

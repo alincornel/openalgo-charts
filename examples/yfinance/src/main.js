@@ -10,11 +10,12 @@ import { createChart, PaneLegend } from '/dist/openalgo-charts.mjs';
 // imported by the modules that call into them; the indicators tier is only
 // ever registered, so it is imported here.
 import '/dist/openalgo-charts.indicators.mjs';
-import { el, fmt, round2, initShell, chartTheme, setChartState, toast } from './ui.js';
+import { el, fmt, round2, initShell, chartTheme, chartMotionOptions, setChartState, toast } from './ui.js';
 import { initHover } from './hover.js';
 import { fillIntervalSelect, clampPeriod } from './intervals.js';
 import { initFeed, fetchBars, fetchNote, feedErrorState } from './feed.js';
 import { applyTransform } from './transforms.js';
+import { isExpression, fetchExpressionBars, mountOperatorKeypad } from './expression.js';
 import { initStatus, nameOf, symbolStatus } from './status.js';
 import { DEFAULT_TZ, initTimezone } from './timezone.js';
 import { initAxisChrome, applyAxisChrome, applyStatusLineChoice, applyTradeChoice } from './axis-chrome.js';
@@ -24,9 +25,8 @@ import {
   updatePositionLine, restyleTradeChrome, clearPosition,
 } from './orders.js';
 import { initBracket, attachBracketLines, setBracketPrice, updateBracket, removeBracket } from './bracket.js';
-import { initWatermark, placeWatermark } from './watermark.js';
 import { initIndicators, fillIndicatorPicker, renderIndicatorChips, openSettings } from './indicators.js';
-import { initChartSettings } from './chart-settings.js';
+import { chartDecorationsForRebuild, initChartSettings } from './chart-settings.js';
 import { initCompare, attachComparison, removeComparison, syncComparisons } from './compare.js';
 import { initSnapshot } from './snapshot.js';
 import { initReplay, exitReplay, syncReplayBar, lastBar, movePick, startReplayAt } from './replay.js';
@@ -36,7 +36,7 @@ import { initClipboard } from './clipboard.js';
 import { initMenus, openContextMenu } from './menus.js';
 import { initPersist, datasetKey, readLayout, applyLayout } from './persist.js';
 import { initToolbar, renderToolbar } from './toolbar.js';
-import { initRail, buildRail } from './rail.js';
+import { initRail, buildRail, initMobile } from './rail.js';
 import { mountPropertiesBar } from './properties.js';
 import { initDrawing, attachDrawing } from './drawing.js';
 
@@ -111,7 +111,6 @@ const app = {
   volLegend: null,
   bracket: null,         // { side, entry, target, stop, qty }
   bLines: null,          // { entry, tp, sl } price-line primitives on the current chart
-  watermark: null,
   // { symbol, color, bars, handle, legend, byTime, hidden }. The spec survives
   // a chart rebuild and a saved layout; the handle and legend do not.
   comparisons: [],
@@ -139,6 +138,7 @@ const app = {
   draw: null,
   shortcuts: {},
   cache: null,           // the bar cache wrapping the feed; null on a dist/ without one
+  offBranding: null,     // refreshes the host link when setBranding changes at runtime
   load: null,            // set below: the modules reach the loader through the app
 };
 app.load = load;
@@ -154,15 +154,13 @@ function render() {
   // Leave replay first: stop() hands the driven series their real data back,
   // and it has to reach the chart that is about to be thrown away.
   exitReplay();
+  const decorations = chartDecorationsForRebuild(app.chart);
+  if (app.offBranding) { app.offBranding(); app.offBranding = null; }
   if (app.chart) app.chart.destroy();
   // The primitives belonged to the destroyed chart; a stale handle would
   // leave the next selection updating a shade nothing draws.
   app.replayShades = [];
   app.replayMark = null;
-  // The watermark too: placeWatermark() returns early while a handle is
-  // held, and the one held belongs to the chart just destroyed, so without
-  // this a chart-type switch came up with no logo.
-  app.watermark = null;
   // The handles belong to the destroyed chart; the specs outlive it.
   for (const c of app.comparisons) { c.handle = null; c.legend = null; }
   el('chart').innerHTML = '';
@@ -174,7 +172,11 @@ function render() {
     // A chart-type switch builds a new chart; the zone the user picked is
     // the demo's to carry across, like activeIndicators.
     timezone: app.chartTimezone,
+    ...chartMotionOptions(),
+    ...decorations,
   });
+  app.chart.setDataContext({ symbol: app.req.symbol, interval: app.req.interval });
+  app.offBranding = app.chart.on('branding:changed', renderToolbar);
   applyAxisChrome();
   applyStatusLineChoice();   // before the legends: a row added later obeys the switches
   applyTradeChoice();
@@ -276,7 +278,6 @@ function render() {
   // Comparisons go on after the indicators, so their legend rows land under
   // the indicator rows rather than in the middle of them.
   for (const c of app.comparisons) attachComparison(c);
-  placeWatermark();
   attachDrawing();
 
   // Chart trading: one drag handler routes both - drag a bracket leg -> move
@@ -291,13 +292,6 @@ function render() {
   });
   // Click the cancel box on a line: cancel that order, or close the position.
   app.chart.subscribeClick((id) => {
-    // The canvas cannot hold an anchor, so the mark reports the hit and we
-    // do the navigating. noopener: the opened tab must not reach back.
-    if (id === 'watermark') {
-      const href = app.watermark && app.watermark.href();
-      if (href) window.open(href, '_blank', 'noopener,noreferrer');
-      return;
-    }
     if (id === 'position::close') { clearPosition(); saveState(); el('status').textContent = 'position closed'; return; }
     // The volume row's eye. Ahead of the `::close` fallthrough below, which
     // reads any other `::close` as an order line's cancel box.
@@ -388,6 +382,7 @@ async function load(opts) {
   if (period !== wanted) el('period').value = period;
   const prev = app.req || {};
   app.req = { symbol: el('symbol').value.trim(), interval, period };
+  if (app.chart) app.chart.setDataContext({ symbol: app.req.symbol, interval: app.req.interval });
   // A different instrument or timeframe means the bars on screen are about to
   // be replaced rather than refreshed, so the stage blanks under the loading
   // dots. A reload of the same request keeps them: they are still correct,
@@ -404,7 +399,11 @@ async function load(opts) {
   try {
     // The main slot: a newer main load cancels the one in flight, so a
     // quick symbol switch cannot land the older answer on the newer name.
-    const bars = await fetchBars(app.req.symbol, app.req.interval, app.req.period, { ...(opts || {}), slot: 'main' });
+    // A symbol box holding arithmetic (`AAPL/MSFT`) fetches every leg and folds
+    // them into one series. Anything else takes the ordinary single-symbol path.
+    const bars = isExpression(app.req.symbol)
+      ? (await fetchExpressionBars(app.req.symbol, app.req.interval, app.req.period, { ...(opts || {}) })).bars
+      : await fetchBars(app.req.symbol, app.req.interval, app.req.period, { ...(opts || {}), slot: 'main' });
     // Read the cache verdict now: `syncComparisons()` below fetches too, and
     // `lastFetch` describes whichever load ran most recently, so composing
     // the line at the end would report the comparison's verdict as this
@@ -428,7 +427,6 @@ async function load(opts) {
     const saved = readLayout();
     if (saved) {
       applyLayout(saved, { keepView: saved.dataset === datasetKey(app.req), replaceComparisons: false });
-      placeWatermark();
     }
     // After the restore, so a comparison saved in the layout is fetched too.
     await syncComparisons();
@@ -458,8 +456,12 @@ initFeed(app);
 initVolume(app);
 initOrders(app);
 initBracket(app);
-initWatermark(app);
 initIndicators(app);
+
+// The operator keypad lives beside the symbol field. Mounted once: it writes
+// into the field and the ordinary Enter handler does the loading, so nothing
+// here needs to know how a chart is built.
+mountOperatorKeypad(el('symbol'), el('symkeys'));
 initChartSettings(app);
 initCompare(app);
 initSnapshot(app);
@@ -508,6 +510,7 @@ initToolbar(app);
 // so a bar docked to it comes along into chart-only full screen.
 initRail(app, { mountPropertiesBar });
 initDrawing(app);
+initMobile(app);
 fillIntervalSelect();
 
 buildRail();

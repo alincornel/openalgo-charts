@@ -173,3 +173,7 @@ export {
 // captures its own pointer trail can thin, smooth and weight it the way the
 // brush and highlighter do.
 export { rdpSimplify, catmullRom, pressureWidth } from './freehand';
+
+export { ADVANCED_LINE_TOOLS } from './advanced-lines';
+export { ADVANCED_GEOMETRY_TOOLS } from './advanced-geometry';
+export { PATTERN_DRAWING_TOOLS } from './pattern-tools';

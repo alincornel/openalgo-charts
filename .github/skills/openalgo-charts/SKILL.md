@@ -58,16 +58,16 @@ Import only what you use. Each tier is a separate entry point that registers int
 
 | Import | Contents | Brotli limit |
 |---|---|---|
-| `openalgo-charts` | Engine, 13 chart types, panes and scales, primitives, registries, chart state and settings schema, market replay, symbol comparison, chart linking, shared loading controller, request pool, warm-load bar cache, interval registry, chart timezone, trading visualization, OpenAlgo feeds, EMA/RSI/ATR/Supertrend calculators, vector SVG export, the render backend port | 74 KB |
+| `openalgo-charts` | Engine, 13 chart types, panes and scales, primitives, registries, chart state and settings schema, market replay, symbol comparison, chart linking, shared loading controller, request pool, warm-load bar cache, interval registry, chart timezone, trading visualization, OpenAlgo feeds, EMA/RSI/ATR/Supertrend calculators, vector SVG export, the render backend port | 77 KB |
 | `openalgo-charts/indicators` | 102 built-in indicators + the Tier-2 external-data contract | 30 KB |
-| `openalgo-charts/draw` | 51 drawing tools + a headless `DrawingController` with multi-select, z-order, a per-tool settings schema, the 1.9.x migration, the clipboard and the icon builders | 26 KB |
+| `openalgo-charts/draw` | 85 drawing tools + a headless `DrawingController` with multi-select, z-order, a per-tool settings schema, the 1.9.x migration, the clipboard and the icon builders | 36 KB |
 | `openalgo-charts/transform` | Heikin Ashi, Renko, Range bars, Line Break, Point and Figure, Kagi | 5 KB |
 | `openalgo-charts/profile` | Volume Profile, Market Profile (TPO), Footprint, order flow | 15 KB |
-| `openalgo-charts/trade` | Order engine, state machine, order/position/bracket lines, DOM ladder | 82 KB with base |
+| `openalgo-charts/trade` | Order engine, state machine, order/position/bracket lines, DOM ladder | 85 KB with base |
 | `openalgo-charts/webgl` | The WebGL2 series backend behind `renderer: 'auto' \| 'webgl2'`; composites into the pane's canvas, falls back to 2D for the session on context loss | 7 KB |
-| `openalgo-charts/widget` | `createWidget`: the chart with a top bar, drawing rail, status line, settings and indicator dialogs, drawing properties, right-click menu, keymap and optional persistence. The only tier that ships DOM; imports the draw tier itself | 40 KB |
+| `openalgo-charts/widget` | `createWidget`: the chart with a top bar, drawing rail, responsive mobile controls, status line, settings and indicator dialogs, drawing properties, right-click menu, keymap and optional persistence. The only tier that ships DOM; imports the draw tier itself | 43 KB |
 
-Limits are the CI-enforced budgets in `.size-limit.json`. This reference targets 2.1.7.
+Limits are the CI-enforced budgets in `.size-limit.json`. This reference targets 2.2.0.
 In a source checkout, run `npm run size` before quoting byte counts. In a consumer app,
 check the installed version and measure its actual imports with the app's bundler.
 Reference measurements and every budget row live in [bundling-and-tiers](references/bundling-and-tiers.md).
@@ -124,7 +124,7 @@ Detailed reference for each topic is in `references/`. Read the one that matches
 | [events-and-state](references/events-and-state.md) | The full event catalogue with payloads, `getState`/`restoreState`, saved layouts |
 | [indicators](references/indicators.md) | The 102 built-ins with exact ids, placements and input defaults, the settings model, levels/ranges/fills, signal markers, `registerIndicator`, the Tier-2 external-data contract |
 | [transforms](references/transforms.md) | Heikin Ashi, Renko, Range, Line Break, Point and Figure, Kagi |
-| [drawing-tools](references/drawing-tools.md) | The 51 tools, `DrawingController`, anchors, magnet, undo, copy/cut/paste and the clipboard payload, persistence, shortcuts, custom tools |
+| [drawing-tools](references/drawing-tools.md) | The 85 tools, `DrawingController`, anchors, magnet, undo, copy/cut/paste and the clipboard payload, persistence, shortcuts, custom tools |
 | [primitives-and-plugins](references/primitives-and-plugins.md) | `IPrimitive`, z-order, hit-testing, the dpr contract, built-in primitives including the `PriceLevels` reference-level family, `registerChartType` |
 | [replay-and-compare](references/replay-and-compare.md) | `ReplayController` and its transport events, `addComparison`, the overlay-scale mechanism, timestamp alignment |
 | [chart-linking](references/chart-linking.md) | `createLinkGroup`, the sync-by-instant rule, `followerIndex` / `followerRange`, the linked crosshair, host-driven symbol sync |
@@ -146,6 +146,8 @@ Detailed reference for each topic is in `references/`. Read the one that matches
 | First chart / blank chart | container size, `dist` present | `createChart` + `addSeries` + `setData`; hidden charts fit on their first measurable layout | assuming data needs to be fetched again when a tab opens |
 | Upgrade a 1.9.x drawing host | [drawing model](references/drawing-tools.md#the-20-drawing-model) | `DrawingText`, `FibLevel[]`, versioned drawings, multi-selection and schema controls | writing text into `DrawingStyle` or treating `toJSON()` as an array |
 | Recent-bar default / chart drifts vertically | [navigation](references/interactions.md#navigation-options) | `navigation.defaultVisibleBars`, horizontal `mousePan`, `resetScale()` | trimming history or overriding the preference with `fitContent()` |
+| Trackpad zoom or price jumps during navigation | [interactions](references/interactions.md) | normalized proportional wheel input, price-axis scaling and `animAutoscale` | mapping every wheel event to the same zoom step or replacing a manual price range |
+| Touch controls or a narrow dashboard chart | [widget](references/widget.md) | `mobile: 'auto'`, `'always'` or `'never'`; shared drawing state and tool allowlist | assuming the headless engine supplies widget chrome |
 | Compact TPO or demo palettes | [profiles](references/profiles-and-orderflow.md#compact-profiles-and-demo-themes) | per-session split, markers, explicit palette options | inventing a library theme preset |
 | Replay changes during recovery / late symbol response | [host integration](references/host-integration.md) | generation and request-owner guards around every writer | assuming replay owns the host feed or timers |
 | Bars in the wrong place | units of `time` | UTC seconds | `Date.now()` milliseconds |

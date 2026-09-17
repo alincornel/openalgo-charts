@@ -129,14 +129,24 @@ export const BOLLINGER_BANDWIDTH: IndicatorDescriptor = {
     { key: 'length', type: 'number', label: 'Length', default: 20, min: 1, max: 2000, step: 1 },
     { key: 'source', type: 'source', label: 'Source', default: 'close' },
     { key: 'mult', type: 'number', label: 'StdDev', default: 2, min: 0.001, max: 50, step: 0.1 },
-    { key: 'expansionLength', type: 'number', label: 'Highest Expansion Length', default: 125, min: 1, max: 5000, step: 1 },
-    { key: 'contractionLength', type: 'number', label: 'Lowest Contraction Length', default: 125, min: 1, max: 5000, step: 1 },
+    {
+      key: 'expansionLength', type: 'number', label: 'Highest Expansion Length', default: 125, min: 1, max: 5000, step: 1,
+      tooltip: 'Bars searched for the widest bandwidth reading, drawn as the upper reference line.',
+    },
+    {
+      key: 'contractionLength', type: 'number', label: 'Lowest Contraction Length', default: 125, min: 1, max: 5000, step: 1,
+      tooltip: 'Bars searched for the narrowest bandwidth reading, drawn as the lower reference line. A squeeze is price sitting on it.',
+    },
     { key: 'color', type: 'color', label: 'Bollinger BandWidth', default: '#2962ff' },
     { key: 'expansionColor', type: 'color', label: 'Highest Expansion', default: '#f23645' },
     { key: 'contractionColor', type: 'color', label: 'Lowest Contraction', default: '#089981' },
   ],
   plots: [
-    { key: 'bandwidth', type: 'line', title: 'Bollinger BandWidth', colorKey: 'color', style: { lineWidth: 1.5 } },
+    // (upper - lower) / basis, times 100: a percentage of the basis, not a price.
+    {
+      key: 'bandwidth', type: 'line', title: 'Bollinger BandWidth', colorKey: 'color',
+      style: { lineWidth: 1.5 }, priceFormat: { type: 'percent' },
+    },
     { key: 'expansion', type: 'line', title: 'Highest Expansion', colorKey: 'expansionColor', style: { lineWidth: 1 } },
     { key: 'contraction', type: 'line', title: 'Lowest Contraction', colorKey: 'contractionColor', style: { lineWidth: 1 } },
   ],
@@ -300,10 +310,18 @@ export const HISTORICAL_VOLATILITY: IndicatorDescriptor = {
   placement: 'pane',
   inputs: [
     { key: 'length', type: 'number', label: 'Length', default: 10, min: 1, max: 2000, step: 1 },
-    { key: 'per', type: 'number', label: 'Days per bar unit (1 intraday/daily, 7 weekly+)', default: 1, min: 1, max: 365, step: 1 },
+    {
+      key: 'per', type: 'number', label: 'Days per bar unit', default: 1, min: 1, max: 365, step: 1,
+      tooltip: 'Calendar days each bar covers, used to annualise: 1 for intraday and daily, 7 for weekly and above.',
+    },
     { key: 'color', type: 'color', label: 'HV', default: '#2962ff' },
   ],
-  plots: [{ key: 'hv', type: 'line', title: 'HV', colorKey: 'color', style: { lineWidth: 1.5 } }],
+  // Annualised standard deviation of log returns, already multiplied by 100, so
+  // the axis says so rather than leaving a bare 18.4 to be read as a price.
+  plots: [{
+    key: 'hv', type: 'line', title: 'HV', colorKey: 'color', style: { lineWidth: 1.5 },
+    priceFormat: { type: 'percent' },
+  }],
   calc: (bars, s) => {
     const n = bars.length;
     const per = num(s, 'per', 1);

@@ -29,6 +29,10 @@ const data = new DataLoadingController(withBarCache(sourceFeed), {
   pageSize: 500,
   maxBars: 100_000,
   pollIntervalMs: 0,
+  // Repair driven by the stream (2.3.2), all off by default: see below.
+  refreshOnBarClose: true,
+  refreshOnGap: true,
+  refreshWindowBars: 5,
 });
 const off = data.subscribe(state => {
   renderLoadingState(state.status, state.error);
@@ -57,7 +61,7 @@ bindings and preserves a saved view when the original instrument matches.
 | `load(req)` | Cancel the old context, clear its bars, optionally paint closed cache bars, fetch current history and seed the stream. |
 | `refresh()` | Fetch authoritative history, buffer incoming bars, then publish the merged result. A failure retains a stale display and Retry remains available. |
 | `loadMore()` | Share a pending page, deduplicate older bars and reject obsolete responses after a context change. |
-| `pushBar(bar)` | Accept live bars from an existing host-owned subscription. Omit `feed.subscribeBars` to avoid a second subscription. |
+| `pushBar(bar, meta?)` | Accept live bars from an existing host-owned subscription. Omit `feed.subscribeBars` to avoid a second subscription. `meta.provisional` marks a bar whose open is only the first tick a builder saw; it keeps the open history holds for that bucket. |
 | `getState()` / `subscribe(fn)` | Read/observe display bars and typed loading status. Subscribe does not immediately invoke the listener. |
 | `bars()` | Read the current live store, including updates held away from the display. Treat arrays and bars as read-only. |
 | `setPaused(true)` | Hold the display snapshot while the live store continues. A paused historical replay still needs this fence. |
@@ -77,6 +81,24 @@ at most `maxEmptyPages` date windows per gesture (default 4). An empty weekend
 window does not prove exhaustion. `pageWindowSec` defaults to the initial request
 width. Reaching `maxBars` stops paging with `limited`, separately from provider
 exhaustion; live appends retain the newest bars.
+
+### Repair that follows the stream (2.3.2)
+
+`pollIntervalMs` re-fetches the whole load window on a clock whether or not
+anything happened. The stream already says when something happened, so three
+options, each off by default, let repair react to it instead:
+
+| Option | Meaning |
+| --- | --- |
+| `refreshOnBarClose` | `true`, or `{ delayMs, retries, retryDelayMs }` (defaults 2500 ms, 2, 5000 ms). A pushed bar that opens a new bucket means the bar before it just closed: one refresh runs `delayMs` later, long enough for a broker's history to have published the close, and retries while the reply still stops short of that bar. Nothing fires while the market is quiet. |
+| `refreshOnGap` | Refresh at once when a pushed bar skips whole buckets, which is what a dropped socket, a hidden tab or a sleeping machine leaves behind. The window reaches back to the last bar the stream delivered. |
+| `refreshWindowBars` | Re-fetch only this many bars back from the tail on every refresh, instead of the whole window. |
+
+Together they cost about one small request per bar instead of two full-window
+requests a minute, and a skipped bucket is repaired the moment the stream
+resumes. Keep a slow `pollIntervalMs` as the backstop for silent drift. A
+controller built without these options makes exactly the requests it always
+did.
 
 ### Requests and cache freshness
 
@@ -307,6 +329,15 @@ ws.onTick((tick) => {
   }
 });
 ```
+
+A bar the builder opened without having streamed the bar before it, a cold
+start or a seed from an older bucket, carries only the ticks it saw: the trades
+between the bucket's true open and the first tick were missed. `update.provisional`
+says so, and `builder.reconcile(historyBar)` adopts history's open, the union of
+the extremes and the larger volume for that bucket while keeping the close with
+the ticks. Through the controller, `data.pushBar(update.bar, { provisional: true })`
+keeps the open history holds rather than replacing it, so a repair that found
+the true open is not undone by the next tick.
 
 `onTick` returns `null` only when the `lateTickPolicy` is
 `'dropOlderThanPrevBar'` and the tick predates the current bar's open. The

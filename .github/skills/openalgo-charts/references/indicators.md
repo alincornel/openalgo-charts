@@ -212,6 +212,29 @@ One consequence for a descriptor author: **`calc` must be a pure function of `(b
 
 **Repeated instances get rotated colours.** The 2nd and later instances of the same descriptor id fill any *unset* plot colour key from `INSTANCE_PALETTE` (`#f5a623`, `#26a69a`, `#ab47bc`, `#ef5350`, `#26c6da`, `#8bc34a`, `#ff7043`, `#5c6bc0`), strided by plot count. An explicit colour in `settings` always wins, and the first instance is never touched. Three EMAs in one blue are indistinguishable on the chart and in the legend alike.
 
+## Help text on an input (2.2.1)
+
+Every `IndicatorInput` variant takes an optional `tooltip`. A label has to stay
+short enough for a dense panel, which leaves nowhere to say what a parameter
+actually does, so put the explanation here rather than in a parenthetical that
+stretches the row:
+
+```ts
+inputs: [
+  { key: 'length', type: 'number', label: 'Length', default: 20, min: 1 },
+  {
+    key: 'per', type: 'number', label: 'Days per bar unit', default: 1, min: 1,
+    tooltip: 'Calendar days each bar covers, used to annualise: 1 for intraday and daily, 7 for weekly and above.',
+  },
+]
+```
+
+The core ignores it; a settings UI renders it as a hover mark beside the label.
+The packaged widget and the reference host both draw a small `?` ring that is
+focusable, so the help is reachable without a pointer. An empty string draws
+nothing, which is the difference between no help and a mark with nothing behind
+it. `ChartSettingsColorPairInput` carries the same field.
+
 ## The settings model
 
 Three families of keys live in one flat `IndicatorSettings` bag:
@@ -576,6 +599,36 @@ floor lifts, so a cumulative study like OBV keeps its integer form.
 
 If a plot of yours is a price but sits on its own pane, the honest fix is
 `overlay: true` on that plot so it draws on the candles, not a precision override.
+
+### Labelling a plot's axis as something other than a price (2.2.1)
+
+`IndicatorPlot.priceFormat` sets the axis and crosshair formatting of the scale
+the plot maps to. It takes the same `PriceFormat` union as `addSeries`:
+
+```ts
+plots: [{
+  key: 'hv', type: 'line', title: 'HV',
+  priceFormat: { type: 'percent' },            // 18.4 reads "18.40%"
+}]
+```
+
+| `type` | Reads |
+| --- | --- |
+| `'price'` | Tick-size precision, with optional `precision` / `minMove`. |
+| `'volume'` | Compact `1.2K` / `3.4M` / `5.6B`. |
+| `'percent'` | The value with a `%` suffix, `precision` decimals (default 2). |
+| `'custom'` | Whatever `formatter(value)` returns. |
+
+**`percent` suffixes and does not scale.** A study returning 0..100 reads
+`62.24%`; one returning a 0..1 fraction reads `0.62%`. Multiplying inside `calc`
+to make the axis read better changes the plotted value, and the legend, the
+crosshair and every downstream calculation with it. Keep the value and label it.
+
+Like `style.precision`, this is a property of the **price scale**, not the
+series, so it belongs to a plot that owns its pane. Setting it on an `'onchart'`
+plot reformats the instrument's own axis, which is almost never wanted. Two
+built-ins use it: `historical-volatility` and `bollinger-bandwidth`, both of
+which already multiply by 100.
 
 ## Free-standing geometry: `draws` (1.7.1)
 
