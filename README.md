@@ -20,6 +20,16 @@ Professional interactive charts, 102 built-in indicators plus your own custom on
 
 ---
 
+## Walkthrough video
+
+A tour of OpenAlgo Charts running inside OpenAlgo: chart types, the indicator library,
+drawing tools, order placement from the chart, market replay, combined option premium
+charts, and the historical data explorer.
+
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=7Q_Twd6mNQ8"><img src="https://img.youtube.com/vi/7Q_Twd6mNQ8/maxresdefault.jpg" alt="OpenAlgo Charts walkthrough video" width="920" /></a>
+</p>
+
 ## Live OpenAlgo trading terminal
 
 Right-click the chart to place market / limit / stop orders, drag the order and TP/SL bracket lines to modify, and watch live P&amp;L on the position line - all on real OpenAlgo history + WebSocket tick data, with an analyzer (sandbox) mode so nothing goes live until you arm it.
