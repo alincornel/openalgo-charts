@@ -3993,7 +3993,14 @@ export class Chart {
     this._updateCursor(p.pane, p.x, p.localY, p.y, e);
   };
 
-  private readonly _onPointerUp = (e: PointerEvent): void => {
+  /**
+   * The end of a pointer, released or cancelled. `cancelled` is a `pointercancel`:
+   * the browser took the pointer away (a system gesture, a notification, the
+   * palm check), so nothing the release would have done may happen — no click
+   * on the button under a still finger, no placement, no fling, and a line drag
+   * is cancelled rather than committed at the finger's price.
+   */
+  private readonly _onPointerUp = (e: PointerEvent, cancelled = false): void => {
     try { this._container.releasePointerCapture?.(e.pointerId); } catch { /* already released */ }
     // A gesture ends once. `_onPointerMove` calls this directly when it finds the
     // button already released, because a release over a context menu or outside
@@ -4028,7 +4035,7 @@ export class Chart {
       // A finger that adopted the crosshair and never moved was not aiming —
       // it was the plain tap that means "put it away". A finger that moved was
       // steering, so the crosshair stays where it was left.
-      if (adopted && !this._pointerMoved) this.hideCrosshair();
+      if (adopted && !this._pointerMoved && !cancelled) this.hideCrosshair();
       return;
     }
     if (this._tapId !== null) {
@@ -4050,6 +4057,17 @@ export class Chart {
     if (this._axisDrag !== null) {
       this._axisDrag = null;
       this._axisDragScale = null;
+      return;
+    }
+    if (this._dragId !== null && cancelled) {
+      // The same cancel a pinch gives a drag (`_beginPinch`): the host puts the
+      // line back where the order is, and no click fires for a still press.
+      const dragged = this._dragId;
+      this._dragId = null;
+      this._dragCancelCb?.(dragged);
+      this.emit('drag:cancel', { id: dragged });
+      this._setHover(null);
+      this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Light));
       return;
     }
     if (this._dragId !== null) {
@@ -4089,6 +4107,8 @@ export class Chart {
       return;
     }
     this._dragging = false;
+    // Everything below is what a release MEANS — a placement, a click, a fling.
+    if (cancelled) return;
     // Placement mode: a press-drag-release is how every charting UI draws a
     // two-point shape, but the click branch below is gated on the pointer having
     // stayed still, so the gesture used to place nothing at all. Replay it as the
@@ -4203,7 +4223,7 @@ export class Chart {
 
   private readonly _onPointerCancel = (e: PointerEvent): void => {
     if (this._brandingPress?.pointerId === e.pointerId) this._brandingPress.moved = true;
-    this._onPointerUp(e);
+    this._onPointerUp(e, true);
   };
 
   private _brandingHit(paneIndex: number, x: number, y: number): boolean {

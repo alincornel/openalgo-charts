@@ -126,6 +126,27 @@ as a ladder instead of a hairline mesh.
 
 ### Fixed
 
+- **A cancelled pointer is not a release.** `pointercancel` — the browser taking
+  a touch away for a system gesture, a notification or the palm check — went
+  through the release path, so a finger resting still on a pill's button was a
+  tap on it (close the position, cancel the order), a still press on a line was
+  a click, a line mid-drag was committed at the finger's price, an armed drawing
+  tool placed its shape and a pan flung. A cancel now ends the gesture and does
+  none of that: a line drag is cancelled the way a pinch cancels it
+  (`drag:cancel`, and `subscribeDrag`'s `onDragCancel`), and an adopted
+  crosshair is not dismissed.
+
+- **A cancelled drawing drag puts the drawing back.** `DrawingController`
+  listened for `drag:end` only, so a drawing moved by the frames before a pinch
+  or a `pointercancel` stayed there, unannounced and unsaved, with the gesture
+  still open. It now handles `drag:cancel` by restoring the snapshot the drag
+  took when it began, which also leaves no undo step behind.
+
+- **A pinch over the touch crosshair ends when its last finger lifts.** Merging
+  upstream 2.3.x kept a pinch alive until every finger was up, and the
+  crosshair finger's release returned before the pinch branch: when that finger
+  lifted last the pinch stayed armed and ate the next one-finger gesture.
+
 - **Dragging the time axis now emits `zoom`.** Stretching or compressing the
   bars from the axis strip changed the visible window without announcing it,
   so a host sizing itself off `chart.on('zoom')` (a footprint choosing between

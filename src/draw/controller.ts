@@ -327,6 +327,7 @@ export class DrawingController {
     this._off.push(chart.on('hover', (p) => this._onHover(p as { id?: string | null })));
     this._off.push(chart.on('drag', (p) => this._onDrag(p as DragPayload)));
     this._off.push(chart.on('drag:end', () => this._onDragEnd()));
+    this._off.push(chart.on('drag:cancel', () => this._onDragCancel()));
     this._off.push(chart.on('dblclick', () => { this.finish(); }));
     // Restore anything a previous session left in the chart state. A 1.9.x
     // save is a bare array; the migration upgrades it in place.
@@ -1397,6 +1398,23 @@ export class DrawingController {
     }
     for (const m of moved) this._chart.emit('draw:update', { drawing: m });
     if (moved.length > 0) this._emitChange(moved.map((m) => m.id), 'update');
+  }
+
+  /**
+   * A drag the chart called off — a pinch took the gesture, or the browser sent
+   * `pointercancel`. Nothing the frames moved is kept: the gesture pushed one
+   * snapshot when it began (`_onDrag`), the model as it stood before the drag,
+   * and taking that snapshot back is both the revert and the absence of an undo
+   * step for a move that never happened. Nothing is announced either.
+   */
+  private _onDragCancel(): void {
+    if (this._dragStart === null) return;
+    this._dragStart = null;
+    this._lifted.clear();
+    const snap = this._undo.pop();
+    if (snap !== undefined) this._drawings = JSON.parse(snap) as Drawing[];
+    this._pruneSelection();
+    this._sync();
   }
 
   // ── plumbing ────────────────────────────────────────────────────────────
