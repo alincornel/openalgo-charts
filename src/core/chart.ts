@@ -4385,6 +4385,13 @@ export class Chart {
     // abort any single-pointer interaction so it doesn't fight the pinch
     const dragged = this._dragId;
     this._dragging = false; this._axisDrag = null; this._axisDragScale = null; this._dragId = null; this._pointerMoved = true;
+    // The pinch owns every finger now, the crosshair's included. Its release
+    // branch in `_onPointerUp` returns before the pinch branch, and a pinch ends
+    // only when the last finger lifts, so a crosshair finger lifting last would
+    // otherwise leave the pinch armed and eat the next one-finger gesture. The
+    // crosshair itself stays on screen: `_crosshairSticky` is untouched.
+    this._crosshairPointer = null;
+    this._crosshairAdopted = false;
     // A line drag has to be CANCELLED, not dropped. The consumer is holding
     // that line at the finger's price for the duration of the gesture, and the
     // pointerups that follow are swallowed by the pinch branch in
