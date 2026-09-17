@@ -20,6 +20,11 @@ import type { MarketProfileResult, MarketProfileSessionResult, MarketProfileLeve
 import { nakedLevels, profileSessionIdentity, rowOf } from './market-profile';
 import { drawCompactText } from './compact-text';
 
+/** How far past a session's last column its right-hand labels can reach, in CSS px. */
+const SESSION_RIGHT_REACH_PX = 160;
+/** How far before its first column its tail, IB bracket and open marker sit, in CSS px. */
+const SESSION_LEFT_REACH_PX = 32;
+
 /**
  * `auto` crossfades letters into bricks as rows get short (the default).
  * `compact` keeps high-contrast letters, using a pixel font in short rows.
@@ -365,6 +370,12 @@ export class MarketProfile implements IPrimitive {
     const x1 = Math.max(x0 + 1, Math.round(rc.timeScale.indexToX(i1) * dpr) - spacing / 2);
     const visibleSession = x0 <= rc.plotWidth * dpr && x1 >= 0;
     this._boxes.push({ index, x0: x0 / dpr, x1: x1 / dpr });
+    // A session wholly off the plot paints nothing, in every mode. The reach
+    // either side covers what hangs outside its columns: the POC / VAH / VAL
+    // labels and a header right of x1, the tail, IB bracket and open marker
+    // left of x0. Only compact used to cull at all, so twenty sessions drawn in
+    // blocks cost twenty sessions of geometry whatever was in view.
+    if (x1 + SESSION_RIGHT_REACH_PX * dpr < 0 || x0 - SESSION_LEFT_REACH_PX * dpr > rc.plotWidth * dpr) return;
 
     const yOf = (p: number): number => rc.priceScale.priceToY(p) * dpr;
     // Row height straight off the price scale — this decides letters vs bricks.
@@ -427,7 +438,9 @@ export class MarketProfile implements IPrimitive {
         const slot = split ? l.periods[j] : j;
         const bx = x0 + slot * lw;
         if (bx > x1) break;
-        if (compact && (bx + lw > x1 || bx + lw < 0 || bx > rc.plotWidth * dpr)) continue;
+        // Periods are in order, so a column past the right edge ends the row.
+        if (bx > rc.plotWidth * dpr) break;
+        if (compact && (bx + lw > x1 || bx + lw < 0)) continue;
         const color = this._blockColor(l, l.periods[j], s);
         if (drawBlock) {
           ctx.globalAlpha = baseAlpha;

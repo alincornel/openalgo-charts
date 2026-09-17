@@ -124,7 +124,24 @@ as a ladder instead of a hairline mesh.
   keeps the fork's 16.9 for its 16.86. Chart-only shake 50.74 KiB (50.9, upstream
   48.96 against 50).
 
+### Added
+
+- **`computeMarketProfile` takes the CBOT rules as options.** `pocTieBreak:
+  'center'` makes the POC the tied row nearest the middle of the session's
+  range (the upper one when two are equally near) instead of the highest;
+  `valueAreaMethod: 'pairs'` grows the value area by comparing the next two rows
+  above with the next two below and adding the busier pair, instead of one row
+  at a time. Both default to what the profile always computed, and both apply to
+  the developing POC / VA as well.
+
 ### Fixed
+
+- **The Market Profile no longer paints sessions that are off the plot.** Only
+  `compact` culled, so `blocks+letters` and `blocks` walked every level of every
+  session each frame: twenty sessions cost twenty sessions of geometry however
+  few were in view. A session wholly off the plot (with the reach of its labels
+  and brackets) is skipped in every mode, and a row stops at the right edge of
+  the plot. Profile tier budget 16.9 -> 17.1 kB, everything 221 -> 221.2 kB.
 
 - **A zoomed-out daily chart no longer stutters.** Three costs grew with the
   bars a chart held rather than with what it showed, and together took a daily

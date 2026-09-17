@@ -112,6 +112,21 @@ export interface MarketProfileOptions {
    * tail at a session extreme. 0 disables tail detection.
    */
   tailEdges: number;
+  /**
+   * Which row is the POC when several hold the most TPOs. `'first'` (default)
+   * keeps the highest-priced of them, as the profile always has; `'center'`
+   * takes the one nearest the middle of the session's range — the CBOT rule —
+   * and the upper one when two are equally near.
+   */
+  pocTieBreak?: 'first' | 'center';
+  /**
+   * How the value area grows out of the POC. `'single'` (default) adds the
+   * busier of the next row above and the next row below; `'pairs'` compares
+   * the next TWO rows above with the next two below and adds the busier pair —
+   * the CBOT method. Both settle ties upward and stop once the area holds
+   * `valueAreaPercent` of the TPOs.
+   */
+  valueAreaMethod?: 'single' | 'pairs';
 }
 
 export const DEFAULT_MARKET_PROFILE_OPTIONS: MarketProfileOptions = {
@@ -364,22 +379,53 @@ interface LevelAcc {
 }
 
 /** POC + value area over a level list, expanding from the POC outward. */
+/** `levels` sorted by price, highest first. */
 function pocAndValueArea(
   levels: readonly { price: number; count: number }[],
   vaPct: number,
+  tieBreak: 'first' | 'center' = 'first',
+  method: 'single' | 'pairs' = 'single',
 ): { poc: number; vah: number; val: number } {
   const total = levels.reduce((s, l) => s + l.count, 0);
   let pocIdx = 0;
   for (let i = 1; i < levels.length; i++) if (levels[i].count > levels[pocIdx].count) pocIdx = i;
+  if (tieBreak === 'center') {
+    const mid = (levels[0].price + levels[levels.length - 1].price) / 2;
+    for (let i = pocIdx + 1; i < levels.length; i++) {
+      // Strictly nearer: walking down from the highest tie, an equally near
+      // lower row does not displace the upper one.
+      if (levels[i].count === levels[pocIdx].count
+        && Math.abs(levels[i].price - mid) < Math.abs(levels[pocIdx].price - mid)) pocIdx = i;
+    }
+  }
+  const step = method === 'pairs' ? 2 : 1;
   let upper = pocIdx;
   let lower = pocIdx;
   let acc = levels[pocIdx].count;
   const target = total * vaPct;
+  // Rows above the area are at lower indices, rows below at higher ones.
+  const sumAbove = (): number => {
+    let sum = -1;
+    for (let k = 1; k <= step && upper - k >= 0; k++) sum = (sum < 0 ? 0 : sum) + levels[upper - k].count;
+    return sum;
+  };
+  const sumBelow = (): number => {
+    let sum = -1;
+    for (let k = 1; k <= step && lower + k < levels.length; k++) sum = (sum < 0 ? 0 : sum) + levels[lower + k].count;
+    return sum;
+  };
   while (acc < target && (upper > 0 || lower < levels.length - 1)) {
-    const up = upper > 0 ? levels[upper - 1].count : -1;
-    const down = lower < levels.length - 1 ? levels[lower + 1].count : -1;
-    if (up >= down) { upper -= 1; acc += levels[upper].count; }
-    else { lower += 1; acc += levels[lower].count; }
+    const up = sumAbove();
+    const down = sumBelow();
+    if (up >= down) {
+      const next = Math.max(0, upper - step);
+      for (let k = upper - 1; k >= next; k--) acc += levels[k].count;
+      upper = next;
+    } else {
+      const next = Math.min(levels.length - 1, lower + step);
+      for (let k = lower + 1; k <= next; k++) acc += levels[k].count;
+      lower = next;
+    }
   }
   return { poc: levels[pocIdx].price, vah: levels[upper].price, val: levels[lower].price };
 }
@@ -553,7 +599,7 @@ export function computeMarketProfile(
       .sort((x, y) => y.price - x.price);
     if (levels.length === 0) continue;
 
-    const va = pocAndValueArea(levels, vaPct);
+    const va = pocAndValueArea(levels, vaPct, o.pocTieBreak, o.valueAreaMethod);
 
     // Developing POC / VA: recount using only the periods closed so far.
     const developing: DevelopingValue[] = [];
@@ -565,7 +611,9 @@ export function computeMarketProfile(
         if (n > 0) upto.push({ price: l.price, count: n });
       }
       if (upto.length === 0) continue;
-      developing.push({ periodIndex: p.index, time: p.endTime, ...pocAndValueArea(upto, vaPct) });
+      developing.push({
+        periodIndex: p.index, time: p.endTime, ...pocAndValueArea(upto, vaPct, o.pocTieBreak, o.valueAreaMethod),
+      });
     }
 
     const singlePrints: number[] = [];
