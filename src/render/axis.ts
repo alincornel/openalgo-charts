@@ -360,8 +360,11 @@ export function drawTimeAxis(
   const to = Math.min(dataLayer.baseIndex, Math.ceil(range.to));
   if (to < from) return;
 
-  // Label roughly every ~80px to avoid crowding.
-  const stride = Math.max(1, Math.round(80 / Math.max(1, timeScale.barSpacing)));
+  // Label roughly every ~80px to avoid crowding. In pixels at any zoom: the
+  // spacing used to be floored at one pixel here, so a zoomed-out axis with
+  // bars a quarter of a pixel apart put a grid tick every 20 px and resolved
+  // four times the labels it could ever fit.
+  const stride = Math.max(1, Math.round(80 / timeScale.barSpacing));
   const yBase = Math.round(layout.plotHeight * dpr);
 
   // Detect sub-minute (seconds / tick) timeframes from the visible data so the
@@ -425,14 +428,37 @@ export function drawTimeAxis(
   // sitting under yesterday's date, with nothing marking the change. Forcing a
   // mark at the boundary is what a professional terminal does, and it is why one
   // prints "Sep" between two hourly labels rather than on the hour.
+  //
+  // At most one forced mark per label stride, though: the most significant
+  // turn in it, a year over a month over a day. Once days turn over more often
+  // than the grid is labelled — a daily series, where every bar is the first of
+  // its day, or an hourly one zoomed out — every bar used to compete for the
+  // space two dozen labels fit in, each formatted and measured on every frame to
+  // find that out: thousands of host formatter calls a frame on a zoomed-out
+  // daily chart. The strides are counted from index 0 rather than from the left
+  // edge, so a pan does not reshuffle which bar in a stride gets the date, and
+  // two boundaries a stride or more apart never share one: an axis whose days
+  // are wider than the stride keeps every boundary it had.
   const boundaries = new Set<number>();
+  const boundaryRank = new Map<number, number>();
   {
+    const best = new Map<number, { index: number; rank: number }>();
     let prev = dataLayer.indexToTime(from);
     for (let i = from + 1; i <= to; i++) {
       const t = dataLayer.indexToTime(i);
       if (t === undefined) continue;
-      if (prev !== undefined && isNewDay(prev, t)) boundaries.add(i);
+      if (prev !== undefined && isNewDay(prev, t)) {
+        const mark = tickMarkBetween(prev, t, zone, false);
+        const rank = mark === 'year' ? 3 : mark === 'month' ? 2 : 1;
+        const slot = Math.floor(i / stride);
+        const held = best.get(slot);
+        if (held === undefined || rank > held.rank) best.set(slot, { index: i, rank });
+      }
       prev = t;
+    }
+    for (const { index, rank } of best.values()) {
+      boundaries.add(index);
+      boundaryRank.set(index, rank);
     }
   }
   const marks = [...new Set([...gridIndices(from, to, stride), ...boundaries])]
@@ -442,7 +468,7 @@ export function drawTimeAxis(
   // reading depends on the previous label, then placed in a second pass. The two
   // cannot be one loop: a boundary has to be able to displace a grid tick drawn
   // before it, and by then that tick is already on the canvas.
-  interface TimeLabel { x: number; text: string; half: number; boundary: boolean }
+  interface TimeLabel { x: number; text: string; half: number; boundary: boolean; rank: number }
   const placed: TimeLabel[] = [];
   let prevTime: number | undefined;
   for (const i of marks) {
@@ -471,6 +497,7 @@ export function drawTimeAxis(
       text: label,
       half: ctx.measureText(label).width / 2,
       boundary: boundaries.has(i),
+      rank: boundaryRank.get(i) ?? 0,
     });
     prevTime = time;
   }
@@ -484,7 +511,11 @@ export function drawTimeAxis(
     taken.every((t) => l.x + l.half + gap <= t.x - t.half || l.x - l.half - gap >= t.x + t.half);
   // Boundaries still check each other: zoomed far out, two day changes can land
   // within a label's width and would otherwise print through one another.
-  for (const l of placed) if (l.boundary && fits(l)) taken.push(l);
+  // A year claims its space before a month, and a month before a day, so the
+  // coarsest turn in view is the one that survives a collision. The sort is
+  // stable: equal ranks still go left to right.
+  const forced = placed.filter((l) => l.boundary).sort((a, b) => b.rank - a.rank);
+  for (const l of forced) if (fits(l)) taken.push(l);
   for (const l of placed) if (!l.boundary && fits(l)) taken.push(l);
 
   // Resolved by priority, drawn left to right: the order labels are chosen in is

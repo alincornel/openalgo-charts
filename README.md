@@ -118,7 +118,7 @@ Import only what you use. Each tier is a separate bundle that registers into the
 
 | Import | Contents | Brotli |
 |---|---|---|
-| `openalgo-charts` | Engine, 13 chart types, panes &amp; scales, primitives, registries, chart state, chart linking, bar cache, interval registry, trading overlay, SVG export, render backend port, OpenAlgo feeds | 80.01 KB |
+| `openalgo-charts` | Engine, 13 chart types, panes &amp; scales, primitives, registries, chart state, chart linking, bar cache, interval registry, trading overlay, SVG export, render backend port, OpenAlgo feeds | 80.35 KB |
 | `openalgo-charts/indicators` | 102 built-in indicators, the `registerIndicator` contract for your own, and the Tier-2 (external-data) contract | 28.19 KB |
 | `openalgo-charts/draw` | 85 drawing tools + a headless drawing controller, clipboard, settings schema, level palette, freehand geometry and SVG icons | 34.53 KB |
 | `openalgo-charts/transform` | Heikin Ashi, Renko, Range bars, Line Break, Point &amp; Figure, Kagi, and symbol arithmetic (`AAPL/MSFT`) | 4.44 KB |
@@ -127,7 +127,7 @@ Import only what you use. Each tier is a separate bundle that registers into the
 | `openalgo-charts/webgl` | WebGL2 series backend: batched, analytically anti-aliased GPU rendering of the standard chart types behind `renderer: 'auto'`, with a session-long fallback to the 2D path | 6.38 KB |
 | `openalgo-charts/widget` | The chart with its chrome in one call: `createWidget` adds a top bar, the drawing rail, a status line, the settings and indicator dialogs, drawing properties, a right-click menu, a keymap with a `?` panel and optional layout persistence. The only tier that ships DOM | 42.41 KB |
 
-Everything together is **220.51 KB Brotli**; a widget terminal (base + draw + indicators + widget, what one `createWidget` call loads) is 185.15 KB. Figures are the measured `size-limit` output of this fork on 2.3.2. The trade tier is listed as its delta over the base, so loading base + trade costs 84.84 KB.
+Everything together is **220.85 KB Brotli**; a widget terminal (base + draw + indicators + widget, what one `createWidget` call loads) is 185.49 KB. Figures are the measured `size-limit` output of this fork on 2.3.2. The trade tier is listed as its delta over the base, so loading base + trade costs 84.84 KB.
 
 ## What's built
 
@@ -419,16 +419,16 @@ Enforced in CI by [`size-limit`](./.size-limit.json). Nothing is excluded, becau
 
 | Bundle | Limit | Actual |
 |---|---|---|
-| Base engine | 80.2 KB | 80.01 KB |
-| Base + trade | 87.9 KB | 87.70 KB |
+| Base engine | 80.5 KB | 80.35 KB |
+| Base + trade | 88.2 KB | 88.04 KB |
 | Indicators tier | 30 KB | 28.19 KB |
 | Draw tier | 36 KB | 34.53 KB |
 | Transform tier | 6 KB | 4.44 KB |
 | Profile tier | 16.9 KB | 16.86 KB |
 | WebGL2 tier | 7 KB | 6.38 KB |
 | Widget tier | 43 KB | 42.41 KB |
-| Widget terminal (base + draw + indicators + widget) | 185.3 KB | 185.15 KB |
-| **Everything** | **220.7 KB** | **220.51 KB** |
+| Widget terminal (base + draw + indicators + widget) | 185.7 KB | 185.49 KB |
+| **Everything** | **221 KB** | **220.85 KB** |
 
 ## Documentation
 

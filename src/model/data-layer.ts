@@ -45,6 +45,16 @@ function sortedUniqueByTime(bars: readonly Bar[]): Bar[] {
   return out;
 }
 
+/** Whether every time in sorted `previous` is still in sorted `next`. */
+function keepsEveryTime(previous: readonly Bar[], next: readonly Bar[]): boolean {
+  let j = 0;
+  for (const b of previous) {
+    while (j < next.length && next[j].time < b.time) j++;
+    if (j === next.length || next[j].time !== b.time) return false;
+  }
+  return true;
+}
+
 export class DataLayer {
   private readonly _series = new Map<SeriesId, SeriesEntry>();
   private _sortedTimes: number[] = [];
@@ -70,7 +80,9 @@ export class DataLayer {
   public setSeriesData(id: SeriesId, bars: readonly Bar[]): void {
     const entry = this._series.get(id);
     if (entry === undefined) throw new Error(`openalgo-charts: unknown series ${id}`);
+    const previous = entry.bars;
     entry.bars = sortedUniqueByTime(bars);
+    if (this._axisHolds(entry.bars) && keepsEveryTime(previous, entry.bars)) return;
     this._rebuild();
   }
 
@@ -91,6 +103,8 @@ export class DataLayer {
     for (const b of entry.bars) byTime.set(b.time, b);
     for (const b of bars) byTime.set(b.time, b);
     entry.bars = Array.from(byTime.values()).sort((a, b) => a.time - b.time);
+    // An upsert never drops a time, so only a time the axis lacks can move it.
+    if (this._axisHolds(bars)) return;
     this._rebuild();
   }
 
@@ -270,6 +284,21 @@ export class DataLayer {
     const bar = entry.bars[entry.bars.length - 1];
     const index = this._indexByTime.get(bar.time);
     return index === undefined ? null : { index, bar };
+  }
+
+  /**
+   * Whether every time in `bars` already has a logical index.
+   *
+   * Together with "the series kept every time it had", this is exactly the
+   * condition under which re-merging the axis would rebuild the same axis: no
+   * time is added, and none can be lost. It is the common case, not an edge —
+   * an indicator plot re-set after the candles took a page of history, a volume
+   * series prepended onto the times the candles just brought — and the re-merge
+   * walks every bar of every series.
+   */
+  private _axisHolds(bars: readonly Bar[]): boolean {
+    for (const b of bars) if (!this._indexByTime.has(b.time)) return false;
+    return true;
   }
 
   private _rebuild(): void {

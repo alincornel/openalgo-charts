@@ -126,6 +126,33 @@ as a ladder instead of a hairline mesh.
 
 ### Fixed
 
+- **A zoomed-out daily chart no longer stutters.** Three costs grew with the
+  bars a chart held rather than with what it showed, and together took a daily
+  chart with a few years of history and a handful of indicators to a few frames
+  a second:
+  - `IndicatorFill` (the RSI band, Stochastic, Bollinger, the Ichimoku cloud)
+    walked every point of the history on every frame, building a polygon and,
+    under a gradient, a gradient for each run on screen or not. It now seeks the
+    bars in view (plus one either side), and the gradient's extremes are
+    computed once per data change — still over the whole band.
+  - The time axis forced a label candidate at every day boundary, and on a
+    daily series every bar is one: thousands of host `timeFormatter` calls and
+    `measureText`s a frame to draw two dozen labels. It now keeps one forced
+    mark per label stride — the most significant turn in it, a year over a
+    month over a day, with years claiming space first — and the strides are
+    counted from index 0, so a pan no longer reshuffles every label. The label
+    stride is also computed in pixels below one pixel per bar, where it used to
+    put a grid tick every 20 px. An axis whose days are wider than the stride
+    (any ordinary intraday zoom) draws exactly the labels it did.
+  - `DataLayer` re-merged the shared time axis from every bar of every series on
+    every `setSeriesData` and `addBars`, so a history page re-merged it once per
+    indicator plot. It now skips the re-merge when the series brings no time the
+    axis lacks and keeps every time it had.
+
+  Measured on 7 000 daily bars with eight indicators, a local zone and a host
+  formatter, the window sweeping out to every bar: 68 ms a frame to 16.7 on a
+  desktop, and at 4x CPU throttling 259 ms (94 % of frames late) to 16.7 (0 %).
+
 - **A cancelled pointer is not a release.** `pointercancel` — the browser taking
   a touch away for a system gesture, a notification or the palm check — went
   through the release path, so a finger resting still on a pill's button was a

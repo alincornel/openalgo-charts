@@ -62,6 +62,11 @@ export interface FillPoint {
 
 export class IndicatorFill implements IPrimitive {
   private _points: FillPoint[] = [];
+  /** Whether `index` never decreases, which is what lets a draw seek the view. */
+  private _sorted = true;
+  /** The band's finite extremes, for a gradient without its own stops. */
+  private _min = Infinity;
+  private _max = -Infinity;
   private _opts: IndicatorFillOptions;
   private _host: PrimitiveHost | null = null;
   private _visible = true;
@@ -79,6 +84,20 @@ export class IndicatorFill implements IPrimitive {
 
   public setPoints(points: readonly FillPoint[]): void {
     this._points = points.slice();
+    // Once per data change rather than once per frame: both used to be
+    // recomputed over the whole history on every paint.
+    this._sorted = true;
+    this._min = Infinity;
+    this._max = -Infinity;
+    for (let i = 0; i < this._points.length; i++) {
+      const p = this._points[i];
+      if (i > 0 && p.index < this._points[i - 1].index) this._sorted = false;
+      for (const v of [p.a, p.b]) {
+        if (v === null || !Number.isFinite(v)) continue;
+        if (v < this._min) this._min = v;
+        if (v > this._max) this._max = v;
+      }
+    }
     this._host?.requestUpdate();
   }
 
@@ -104,20 +123,10 @@ export class IndicatorFill implements IPrimitive {
     let gTop = 0;
     let gSpan = 1;
     if (grad !== undefined) {
-      let hi = grad.topValue;
-      let lo = grad.bottomValue;
-      if (hi === undefined || lo === undefined) {
-        let min = Infinity;
-        let max = -Infinity;
-        const bump = (v: number | null): void => {
-          if (v === null || !Number.isFinite(v)) return;
-          if (v < min) min = v;
-          if (v > max) max = v;
-        };
-        for (const p of this._points) { bump(p.a); bump(p.b); }
-        hi ??= max;
-        lo ??= min;
-      }
+      // The band's own extremes, over the whole history: a gradient that
+      // re-graded to the slice in view would shift colour on every pan.
+      const hi = grad.topValue ?? this._max;
+      const lo = grad.bottomValue ?? this._min;
       gTop = y(hi);
       // A flat band (or one with nothing finite in it) would give the gradient
       // zero length, which paints nothing at all.
@@ -156,7 +165,19 @@ export class IndicatorFill implements IPrimitive {
       run = null;
     };
 
-    for (let i = 0; i < this._points.length; i++) {
+    // Only the bars in view, plus one either side so every run still reaches
+    // the edge of the plot. Starting a run at the window instead of where it
+    // really began changes nothing on screen: its colour and side are decided
+    // by the bar itself, and the part cut off lies outside the plot.
+    let start = 0;
+    let end = this._points.length;
+    const view = typeof rc.timeScale.visibleRange === 'function' ? rc.timeScale.visibleRange() : null;
+    if (view !== null && this._sorted) {
+      start = Math.max(0, this._firstAtOrAfter(view.from) - 1);
+      end = Math.min(this._points.length, this._firstAtOrAfter(view.to, true) + 1);
+    }
+
+    for (let i = start; i < end; i++) {
       const p = this._points[i];
       if (p.a === null || p.b === null || !Number.isFinite(p.a) || !Number.isFinite(p.b)) {
         flush();
@@ -199,5 +220,22 @@ export class IndicatorFill implements IPrimitive {
     }
     flush();
     ctx.restore();
+  }
+
+  /**
+   * The first point whose index is at or after `index` (after it, when
+   * `strictly`), or the length when there is none. Binary search: the points
+   * are sorted, and a draw must not cost the length of the history.
+   */
+  private _firstAtOrAfter(index: number, strictly = false): number {
+    let lo = 0;
+    let hi = this._points.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      const at = this._points[mid].index;
+      if (strictly ? at <= index : at < index) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
   }
 }

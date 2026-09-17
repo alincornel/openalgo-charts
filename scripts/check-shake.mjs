@@ -71,8 +71,11 @@ const BUNDLE = new URL('../dist/openalgo-charts.mjs', import.meta.url).pathname.
 // This fork pays for its own chart-only input work on top of that tree — the
 // touch crosshair, the tap-not-pan guard, the adopted-pointer steering, the
 // drag-cancel seam and the wheel sensitivity — measured 50.74 KiB on merging
-// 2.3.2 (46.56 against upstream's 45 on 2.1.7). Trim before raising this again.
-const LIMIT_BYTES = 50.9 * 1024;
+// 2.3.2 (46.56 against upstream's 45 on 2.1.7). Raised to 51.2 KiB for the
+// frame-cost fixes a zoomed-out daily chart needed (51.06 KiB): an indicator
+// fill that seeks the bars in view, and a time axis that forces one day mark
+// per label stride. Trim before raising this again.
+const LIMIT_BYTES = 51.2 * 1024;
 
 // Absent from a chart-only build. Each is a string that appears in the adapter
 // source and nowhere in the rendering core.
