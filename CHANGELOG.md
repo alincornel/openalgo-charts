@@ -136,6 +136,11 @@ as a ladder instead of a hairline mesh.
 
 ### Fixed
 
+- **Every multi-tick row holds the same number of ticks.** `bucketPrice`
+  rounded with `Math.round(price / step)`, so a price exactly halfway between
+  two rows went up or down on float noise: GC at 2 ticks per row had rows of 1,
+  2 and 3 ticks, moving volume between rows and skewing POC and imbalances.
+  Halfway prices now always go up.
 - **The Market Profile no longer paints sessions that are off the plot.** Only
   `compact` culled, so `blocks+letters` and `blocks` walked every level of every
   session each frame: twenty sessions cost twenty sessions of geometry however

@@ -48,9 +48,15 @@ export interface FootprintBar {
   tradeCount?: number;
 }
 
-/** Bucket a price to the tick grid. */
+/**
+ * Bucket a price to the grid: nearest multiple of `step`, a price exactly
+ * halfway going UP. Plain `Math.round(price / step)` let float noise decide
+ * the halfway prices (4435.7 / 0.2 lands a hair either side of .5), so a
+ * multi-tick row came out 1, 2 or 3 ticks tall. The epsilon is far above that
+ * noise and far below any real gap between ticks.
+ */
 export function bucketPrice(price: number, step: number): number {
-  return Math.round((Math.round(price / step) * step) * 1e8) / 1e8;
+  return Math.round((Math.floor(price / step + 0.5 + 1e-9) * step) * 1e8) / 1e8;
 }
 
 /** Inclusive list of bucket prices spanning [low, high]. */
