@@ -168,6 +168,7 @@ Detailed reference for each topic is in `references/`. Read the one that matches
 | Two symbols on one chart | `addComparison` | hidden overlay scale + a rebasing pane mode | a second series on the same price axis |
 | A grid of charts moving together | `createLinkGroup` | one group, three switchable channels; everything syncs by **time**, never by logical index | copying `getVisibleLogicalRange()` between charts |
 | Linked crosshair shows the wrong bar | the index-to-time conversion | `followerIndex(target.dataLayer, time, whenMissing)` | assuming index N is the same instant on both charts |
+| Port a study that reads a higher timeframe, draws ahead of the last bar, or compares against another symbol | [coverage additions (2.4.0)](references/indicators.md#coverage-additions-240) | `securitySeries`, `plot.offset`, `ctx.requestBars` with `chart.setBarsProvider`, `IndicatorInputError` | folding bars by hand, emitting future times into the axis, or fetching a benchmark from inside `calc` |
 | Slaving the symbol across charts | who owns the instrument | the host emits `'symbol'` / calls `setSymbol`, each member gets an `onSymbol` loader | expecting the engine to know what a symbol is |
 | Copy and paste a drawing | `draw.copy()` / `cut()` / `paste()` | await them; the host owns the key chords | a synchronous call, or throwing on foreign clipboard text |
 | Refetching the same bars on every switch | `withBarCache(feed, opts)` | wrap the feed; key is symbol/exchange/interval, range is sliced | caching the forming bar, or keying on the range |
