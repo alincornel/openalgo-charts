@@ -390,7 +390,7 @@ chart.rendererKind;                             // 'webgl2' where WebGL2 works, 
 chart.on('renderer:fallback', (e) => { /* e.from, e.to === 'canvas2d', e.reason */ });
 ```
 
-The GPU series backend is its own lazy tier (6.38 KB Brotli; nothing of it is in the base bundle, which `tests/renderer-option.test.ts` and `npm run shake` both check). Importing it registers the backend under `'webgl2'`, so `renderer: 'auto'` picks it up wherever WebGL2 is available and `renderer: 'webgl2'` stops throwing. The bare import is enough; `registerWebGL2Renderer()` is exported (idempotent) for a bundler that would drop a side-effect-only import. Its other exports:
+The GPU series backend is its own lazy tier (6.39 KB Brotli; nothing of it is in the base bundle, which `tests/renderer-option.test.ts` and `npm run shake` both check). Importing it registers the backend under `'webgl2'`, so `renderer: 'auto'` picks it up wherever WebGL2 is available and `renderer: 'webgl2'` stops throwing. The bare import is enough; `registerWebGL2Renderer()` is exported (idempotent) for a bundler that would drop a side-effect-only import. Its other exports:
 
 | Export | What it does |
 |---|---|

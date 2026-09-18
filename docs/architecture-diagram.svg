@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1100" viewBox="0 0 1600 1100" font-family="Inter, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" role="img" aria-label="OpenAlgo Charts layered architecture">
-<title>OpenAlgo Charts 2.3.2 architecture</title>
+<title>OpenAlgo Charts 2.4.0 architecture</title>
 <desc>OpenAlgo Charts 2.4.0. Custom hosts or the widget use seven capability layers, with per-pane base and overlay canvases, optional WebGL2 series rendering, drawing model v2, compact TPO, per-session split, open/latest-close markers and grouped depth. Indicator and profile calculations run on the CPU. Eight bundle tiers: base 78.07 KB, widget 42.49 KB, indicators 29.05 KB, draw 34.53 KB, profile 14.96 KB, trade 7.61 KB, webgl 6.39 KB, transform 4.44 KB, everything 217.54 KB Brotli.</desc>
 
 <defs>

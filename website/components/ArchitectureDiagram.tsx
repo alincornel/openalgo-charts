@@ -1,13 +1,13 @@
 import { useState } from 'react';
 
-const diagram = '/openalgo-charts/architecture-diagram.svg?v=2.3.2';
+const diagram = '/openalgo-charts/architecture-diagram.svg?v=2.4.0';
 
 export default function ArchitectureDiagram() {
   const [actualSize, setActualSize] = useState(false);
   return (
     <figure className="oac-architecture">
       <div className="oac-architecture__controls" role="group" aria-label="Diagram zoom">
-        <span>Architecture · 2.3.2</span>
+        <span>Architecture · 2.4.0</span>
         <button type="button" aria-pressed={!actualSize} onClick={() => setActualSize(false)}>Fit</button>
         <button type="button" aria-pressed={actualSize} onClick={() => setActualSize(true)}>Actual size</button>
         <a href={diagram} target="_blank" rel="noreferrer">Open SVG ↗</a>
