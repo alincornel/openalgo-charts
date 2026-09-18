@@ -33,6 +33,9 @@ export interface FootprintBar {
   cells: FootprintCell[]; // sorted high → low price
   /** Net delta = Σ(askVol − bidVol). */
   delta: number;
+  /** Volume that traded in the bar with no aggressor side: part of the bar's
+   * Total Volume, in no cell, not in the delta. Absent means none. */
+  neutralVol?: number;
   /** Lowest/highest running trade delta within this bar, including initial zero.
    * Absent when only aggregated price rows are available. */
   minDelta?: number;

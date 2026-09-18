@@ -126,6 +126,10 @@ as a ladder instead of a hairline mesh.
 
 ### Added
 
+- **`FootprintBar.neutralVol`.** Volume that traded with no aggressor side (a
+  feed that cannot classify every print, about 9% of CL on Rithmic) is counted
+  in the stats' Total Volume, so it matches the candle's volume, and stays out
+  of the cells, the delta, delta % and the value area.
 - **`computeMarketProfile` takes the CBOT rules as options.** `pocTieBreak:
   'center'` makes the POC the tied row nearest the middle of the session's
   range (the upper one when two are equally near) instead of the highest;

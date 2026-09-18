@@ -560,19 +560,22 @@ export class Footprint implements IPrimitive {
     let cvd = this._opts.cvdOffset;
     this._stats = this._bars.map(bar => {
       const totals = bar.cells.map(cell => cell.bidVol + cell.askVol);
-      const volume = totals.reduce((sum, v) => sum + v, 0);
+      // The ladder, its value area and delta % are about classified volume;
+      // Total Volume is what the bar traded, prints with no side included.
+      const classified = totals.reduce((sum, v) => sum + v, 0);
+      const volume = classified + Math.max(0, bar.neutralVol ?? 0);
       const bidVolume = bar.cells.reduce((sum, cell) => sum + cell.bidVol, 0);
       const askVolume = bar.cells.reduce((sum, cell) => sum + cell.askVol, 0);
       let pocIndex = 0;
       for (let i = 1; i < totals.length; i++) if (totals[i] > totals[pocIndex]) pocIndex = i;
       let hi = pocIndex, lo = pocIndex, sum = totals[pocIndex] ?? 0;
-      while (sum < volume * this._opts.valueAreaPercent && (hi > 0 || lo < totals.length - 1)) {
+      while (sum < classified * this._opts.valueAreaPercent && (hi > 0 || lo < totals.length - 1)) {
         if ((hi > 0 ? totals[hi - 1] : -1) >= (lo < totals.length - 1 ? totals[lo + 1] : -1)) sum += totals[--hi];
         else sum += totals[++lo];
       }
       cvd += bar.delta;
       return { time: bar.time, volume, bidVolume, askVolume, delta: bar.delta,
-        minDelta: bar.minDelta ?? null, maxDelta: bar.maxDelta ?? null, deltaPct: volume > 0 ? bar.delta / volume * 100 : 0,
+        minDelta: bar.minDelta ?? null, maxDelta: bar.maxDelta ?? null, deltaPct: classified > 0 ? bar.delta / classified * 100 : 0,
         cvd, trades: bar.tradeCount ?? null, poc: bar.cells[pocIndex]?.price ?? 0,
         vah: bar.cells[hi]?.price ?? 0, val: bar.cells[lo]?.price ?? 0 };
     });

@@ -257,6 +257,17 @@ describe('footprint reporting', () => {
     expect(fp.stats()[1]).toMatchObject({ minDelta: null, maxDelta: null });
   });
 
+  it('counts volume with no aggressor side in Total Volume only', () => {
+    const fp = new Footprint();
+    fp.setBars([{ ...sample(), neutralVol: 30 }, { ...sample(), time: 2 }]);
+    const [withNeutral, without] = fp.stats();
+    expect(withNeutral.volume).toBe(without.volume + 30);
+    expect(withNeutral.bidVolume).toBe(without.bidVolume);
+    expect(withNeutral.askVolume).toBe(without.askVolume);
+    expect(withNeutral.deltaPct).toBe(without.deltaPct);
+    expect([withNeutral.poc, withNeutral.vah, withNeutral.val]).toEqual([without.poc, without.vah, without.val]);
+  });
+
   it('draws selected table rows in caller order with fixed labels and aligned columns', () => {
     const fp = new Footprint({ tableRows: ['delta', 'minDelta', 'maxDelta', 'cvd', 'askVolume', 'bidVolume', 'volume'], statsRowHeight: 19 });
     fp.setBars([{ ...sample(), minDelta: -50, maxDelta: 160 }]);
