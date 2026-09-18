@@ -814,6 +814,43 @@ Do not bypass that alignment by adding a separate raw external series when timel
 isolation matters. For concurrent module registration and host CSP boundaries, see
 [host-integration](host-integration.md#registration-and-csp).
 
+## Higher timeframes: `securitySeries` (2.4.0)
+
+The one fold from the chart's own bars to a coarser interval, one value per source bar, so a study can read the daily high on a 5-minute chart without a second data source. Exported from `openalgo-charts/indicators`.
+
+```ts
+import { securitySeries } from 'openalgo-charts/indicators';
+
+const day = securitySeries(bars, '1d', { timezone: String(settings.timezone ?? '') || undefined });
+// day.open / high / low / close / volume: (number | null)[] aligned to bars
+// day.bucketStart: first source bar time of the bucket; day.isNew: first bar of each bucket
+```
+
+`SecurityOptions` selects one of three readings, and the difference is the whole reason the helper exists:
+
+| Option | What bar `i` reads | Repaints live? |
+|---|---|---|
+| default (`offset: 0`) | The bucket **as it stood at bar i**: open so far, high and low so far, the bar's own close, volume so far. | No. Never uses a later bar. |
+| `offset: k` | The bucket completed `k` buckets before, held constant across the current one. The non-repainting reference, `close[1]` on the higher timeframe. `null` until one exists. | No. |
+| `lookahead: true` | The current bucket's **final** values on all of its bars. | Yes. Uses bars that had not happened yet; here so a source that did this can be reproduced, not recommended. |
+
+Buckets follow the chart's calendar: a day is a day in `timezone`, a week starts on Monday there, a registered calendar interval (`{ mode: 'calendar' }`) cuts on its own period, and a sub-day interval is anchored to the epoch unless `session: '0915-1530'` is given, which anchors it to the session open the way an exchange cuts hourly bars (a 30-minute bucket on a 09:15 open then runs 09:15 to 09:45, not 09:00 to 09:30). A tick or volume interval throws `IndicatorInputError`, and so do a negative `offset` and an unreadable `session`. `volume` is `null` on a bucket none of whose bars carried one.
+
+## Coverage additions (2.4.0)
+
+Every item is optional and additive: a descriptor written against 2.3.2 computes and draws what it did, the 102 built-ins are untouched, and `colorBy` keeps its string return type.
+
+- **`IndicatorPlot.offset`** paints a column `offset` bars to the right of its data (negative: left). The column stays one value per bar and the shared axis gains no bars; the last `offset` values land in the right margin past the newest candle, which is the displaced Ichimoku cloud or `plot(x, offset = n)`. A `fills` band between two plots follows the **first** plot's offset, autoscale ranges over what is painted in view, and the legend reads the value drawn under the cursor. The series-level form is `SeriesStyle.barOffset`, which `series.applyOptions({ barOffset: 6 })` sets on any series.
+- **Recompute guard and `IndicatorInputError`.** A `calc` (or hook) that throws once the indicator is on the chart no longer throws into the render loop or leaves the studies behind it stale for that frame. The runtime catches it, publishes `{ state: 'error', error }` on the instance's data status (`dataStatus()`, `subscribeDataStatus`, and the `indicator:data-status` chart event, the same channel a Tier-2 fetch failure uses), keeps the previous plots up, and publishes `ready` on the next pass that succeeds. The constructor's own pass is still unguarded on purpose: a descriptor that cannot compute at all is refused by `addIndicator`. Throw `new IndicatorInputError('Period must be greater than 0')` for a condition the user can fix, so a host can tell it from a bug; it is exported from the base entry.
+- **`IndicatorAlertSpec.message`** may be a function of the same context `when` judged (`{ bars, values, settings, index }`), so a message can carry the bar's own numbers or a JSON body for a webhook. It runs only for a bar `when` accepted.
+- **`MarkerShape`** gains `cross` and `xcross`; **`MarkerPosition`** gains `paneTop` and `paneBottom`, which pin the glyph to the plot edge (stacking inward) rather than to a price, need no bar under them and no `price`, and put marker `text` on the inward side.
+- **`IndicatorFillSpec.overlay`** draws the band on the price pane, the pair with `IndicatorPlot.overlay`: a pane study whose two edge plots are `overlay: true` can shade between them beside the candles. Ignored for an `'onchart'` descriptor.
+- **`IndicatorPlot.colorParts`** returns `{ body?, wick?, border? }` per bar (`PlotBarColor`), which is how a study paints a solid wick over a translucent body. It takes precedence over `colorBy` for the parts it names; a part it leaves undefined falls back to `colorBy`, then the plot colour. A value plot reads `body` only. The bar carries them as **`Bar.wickColor`** and **`Bar.borderColor`**, honoured by both the 2D and the WebGL2 candle paths, and any series can set them on its own bars.
+- **Drawing `tooltip` and `id`** on `label` and `box` items of `draws()`. A shape carrying either becomes hit-testable: the chart reports it through `subscribeClick` (by `id`, defaulting to the tooltip text) and, while the pointer rests on it, the layer paints the tooltip on a plate clear of the shape, above it when there is room. Lines and shapes with neither stay ink only, so a busy study does not light the cursor on every ray.
+- **`IndicatorInput` types `interval` and `time`.** `interval` holds a timeframe code the engine can bucket by; the widget renders it as a select over the built-in tokens and the registered codes, with an empty first entry meaning the chart's own interval. `time` holds a wall-clock string in the chart's zone, `YYYY-MM-DD HH:MM` (time optional), rendered as text and turned into a bar time with `zonedStringToUtcSeconds`; it is a string rather than UTC seconds so a saved layout restores to the same wall clock in another zone.
+- **`ChartTableOptions.fontSize: 'auto'`** fits each cell: as large as its row allows, shrunk until its text also fits its column, so one long label sizes only itself down. A `TableCell.fontSize` still wins for that cell.
+- **A bars provider for other instruments.** `ChartOptions.barsProvider`, `chart.setBarsProvider(provider | null)` and `chart.hasBarsProvider()` register where an indicator gets another symbol's (or interval's) bars; the engine owns no transport, so the host answers from wherever it keeps history. The attach context gains `requestBars(request)` (`IndicatorBarsRequest`: `symbol`, `exchange?`, `interval`, `from`, `to`, `signal?`; the instance lifetime is the default signal), read at request time so an indicator added before the provider still gets served, and rejecting with a clear message when there is none, which a study should publish as `unsupported`. `Tier2Context.requestBars` carries the same function into `fetch`, **`Tier2Descriptor.series`** names external columns to align besides the plots, and **`Tier2Descriptor.calc(bars, external, settings, store, ctx)`** combines the aligned columns with the chart's bars, so a relative strength or a beta against a benchmark is one Tier-2 descriptor. Without `calc` the wrapper returns the aligned plot columns exactly as before.
+
 ## Standalone calculators in the base bundle
 
 `ema`, `rsi`, `atr`/`trueRange`, and `supertrend` ship in the **base** bundle: the tier imports them rather than reimplementing them. Use these when you want to compute a value and plot it yourself, and skip the managed runtime (no legend row, no auto-recompute, no settings dialog, no pane management).

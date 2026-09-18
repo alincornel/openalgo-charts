@@ -1112,6 +1112,30 @@ For a signal that arrives from outside the calculation entirely (a subscription 
 `attach` opened), use the imperative half instead: `ctx.emit(event, payload)` on
 [the attach context](#the-attach-context) puts anything you like on the same bus.
 
+### Calculation errors (2.4.0)
+
+A `calc` (or any hook) that throws once the indicator is on the chart is caught by the
+runtime rather than thrown into the render loop. The failure is published as
+`{ state: 'error', error }` on the instance's data status (`dataStatus()`,
+`subscribeDataStatus`, and the `indicator:data-status` chart event, the same channel a
+Tier-2 fetch failure uses), the previous plots stay up, the studies behind it still
+recompute that frame, and the next pass that succeeds publishes `ready`. The constructor's
+own pass is still unguarded on purpose: a descriptor that cannot compute at all is refused
+by `addIndicator`, not added as an empty pane.
+
+```ts
+import { IndicatorInputError } from 'openalgo-charts';
+
+calc: (bars, s) => {
+  const fast = Number(s.fast), slow = Number(s.slow);
+  if (fast >= slow) throw new IndicatorInputError('Fast length must be below slow length');
+  ...
+}
+```
+
+`IndicatorInputError` names a condition the user can fix, so a host can tell it from a bug
+and put the message beside the study instead of in a console.
+
 ### Descriptor reference
 
 | Field | Type | Description |
@@ -1121,22 +1145,26 @@ For a signal that arrives from outside the calculation entirely (a subscription 
 | `category` | `string?` | Grouping for a picker UI. |
 | `placement` | `'onchart' \| 'pane'` | Overlay the price pane, or take a new one. |
 | `inputs` | `IndicatorInput[]` | Tunable settings; `type` is what a settings UI renders. |
-| `plots` | `IndicatorPlot[]` | One per drawn series. `type` is any registered chart type; `overlay: true` puts that one plot on the price pane; [`ohlc`](#a-plot-drawn-as-candles) names four columns so the plot draws as bars. |
-| `fills` | `IndicatorFillSpec[]?` | Optional shaded bands. `between` names two `calc` columns, which need not be plots. |
+| `plots` | `IndicatorPlot[]` | One per drawn series. `type` is any registered chart type; `overlay: true` puts that one plot on the price pane; [`ohlc`](#a-plot-drawn-as-candles) names four columns so the plot draws as bars; `offset` (2.4.0) paints the column that many bars to the right, the shifted tail landing in the right margin; `colorParts` (2.4.0) colours a candle plot's body, wick and border apart. |
+| `fills` | `IndicatorFillSpec[]?` | Optional shaded bands. `between` names two `calc` columns, which need not be plots. `overlay: true` (2.4.0) draws the band on the price pane beside `overlay` plots. |
 | `calc` | `(bars, settings, store, ctx?) => IndicatorValues` | Full recompute. `ctx` is the optional [calculation context](#the-calculation-context). |
 | `calcTail` | `(bars, settings, fromIndex, previous, store, ctx?) => IndicatorValues \| null` | Optional incremental path. |
-| `markers` | `({ bars, values, settings }) => SeriesMarker[]` | Optional bar-anchored signal markers, run after every `calc`. |
+| `markers` | `({ bars, values, settings }) => SeriesMarker[]` | Optional bar-anchored signal markers, run after every `calc`. Shapes include `cross` and `xcross`, and `paneTop` / `paneBottom` pin a glyph to the plot edge (2.4.0). |
 | `table` | `({ bars, values, settings }) => \{ rows, options \} \| null` | Optional corner-pinned summary grid, run after every `calc`. |
-| `draws` | `({ bars, values, settings }) => IndicatorDrawing[]` | Optional free-standing shapes anchored to time and price, run after every `calc`. |
+| `draws` | `({ bars, values, settings }) => IndicatorDrawing[]` | Optional free-standing shapes anchored to time and price, run after every `calc`. A `label` or `box` with a `tooltip` or an `id` (2.4.0) is hit-testable: clicks reach `subscribeClick` and the tooltip paints on hover. |
 | `background` | `({ bars, values, settings }) => (string \| null)[]` | Optional [per-bar shading](#shading-the-pane-by-regime) behind the indicator's own pane, run after every `calc`. |
 | `barColors` | `({ bars, values, settings }) => (string \| null)[]` | Optional [recolouring of the price candles](#recolouring-the-price-candles), run after every `calc`. |
-| `alerts` | `IndicatorAlertSpec[]?` | Optional [conditions the runtime watches](#alerts), emitted as `indicator:alert`. |
+| `alerts` | `IndicatorAlertSpec[]?` | Optional [conditions the runtime watches](#alerts), emitted as `indicator:alert`. `message` may be a function of the bar that fired (2.4.0). |
 | `levels` | `(ctx) => IndicatorLevel[]` | Optional horizontal reference lines. `ctx` is the settings plus `bars` and `values`, so a level can be data-derived. |
 | `range` | `(settings) => \{ min, max \} \| null` | Optional fixed pane range (RSI 0..100). |
 | `attach` | `(ctx) => (() => void) \| void` | Optional lifecycle for external data (Tier 2). |
 
-Input types are `number`, `boolean`, `color`, `text`, `select`, and `source`. A `source`
-input picks a price series; `INDICATOR_SOURCES` is the canonical option list for a UI.
+Input types are `number`, `boolean`, `color`, `text`, `select`, `source`, and since 2.4.0
+`interval` and `time`. A `source` input picks a price series; `INDICATOR_SOURCES` is the
+canonical option list for a UI. An `interval` holds a timeframe code the engine can bucket
+by (the widget renders a select over the built-in tokens and the registered codes, with an
+empty first entry for the chart's own interval); a `time` holds a wall-clock string in the
+chart's zone, `YYYY-MM-DD HH:MM`, which `zonedStringToUtcSeconds` turns into a bar time.
 
 <Callout type="warning">
 **`calcTail` matters for live charts.** Without it every incoming tick costs a full
@@ -1151,6 +1179,38 @@ that same bar replaced or one appended after it. A symbol change or a page of hi
 arriving at the left edge falls back to a full `calc` instead of splicing onto a history
 that no longer exists.
 </Callout>
+
+## Higher timeframes: `securitySeries` (2.4.0)
+
+A study written for a script language asks for the daily high on a 5-minute chart and gets
+a column the same length as the chart. `securitySeries` is that fold, from the chart's own
+bars, one value per source bar, so it needs no second data source:
+
+```ts
+import { securitySeries } from 'openalgo-charts/indicators';
+
+calc: (bars, s) => {
+  const day = securitySeries(bars, '1d', { timezone: String(s.timezone ?? '') || undefined });
+  return { high: day.high, low: day.low };   // (number | null)[] aligned to bars
+}
+```
+
+It returns `open`, `high`, `low`, `close`, `volume`, `bucketStart` (the first source bar's
+time in the bucket) and `isNew` (true on the first bar of each bucket). The options pick
+one of three readings, and the difference is the whole point:
+
+| Option | What bar `i` reads | Repaints live? |
+|---|---|---|
+| default | The bucket **as it stood at bar i**: open so far, high and low so far, the bar's own close, volume so far. | No, it never uses a later bar. |
+| `offset: k` | The bucket completed `k` buckets before, held constant across the current one: `close[1]` on the higher timeframe. `null` until one exists. | No. |
+| `lookahead: true` | The current bucket's **final** values on all of its bars. | Yes. Uses bars that had not happened yet; here so a source that did this can be reproduced, not recommended. |
+
+Buckets follow the chart's calendar: a day is a day in `timezone`, a week starts on Monday
+there, a registered calendar interval cuts on its own period, and a sub-day interval is
+anchored to the epoch unless `session: '0915-1530'` is given, which anchors it to the
+session open the way an exchange cuts hourly bars (a 30-minute bucket on a 09:15 open runs
+09:15 to 09:45, not 09:00 to 09:30). A tick or volume interval, a negative `offset` and an
+unreadable `session` throw `IndicatorInputError`.
 
 ## Calculation helpers
 
@@ -1233,6 +1293,31 @@ registerIndicator(createTier2Indicator({
 times. Each bar takes the most recent point **at or before** it, last-known-value, never
 interpolated and never forward-looking. Bars before the first point are `null`.
 
+**Combining with the chart's bars (2.4.0).** `series` names external columns to align
+besides the plots, and `calc(bars, external, settings, store, ctx)` folds them into the
+chart's own bars, so a relative strength or a beta against a benchmark is one descriptor.
+`Tier2Context.requestBars` carries the host's bar provider into `fetch`, so the benchmark
+comes from wherever the host keeps history rather than from a transport of your own:
+
+```ts
+registerIndicator(createTier2Indicator({
+  id: 'relative-strength', name: 'Relative Strength', placement: 'pane',
+  inputs: [{ key: 'against', type: 'text', label: 'Against', default: 'NIFTY' }],
+  plots: [{ key: 'ratio', type: 'line', title: 'Ratio' }],
+  series: ['bench'],
+  refetchOn: ['against'],
+  fetch: async ({ settings, from, to, requestBars }) => {
+    const bars = await requestBars!({ symbol: String(settings.against), interval: '1d', from, to });
+    return bars.map((b) => ({ time: b.time, values: { bench: b.close } }));
+  },
+  calc: (bars, external) => ({
+    ratio: bars.map((b, i) => (external.bench[i] ? b.close / external.bench[i]! : null)),
+  }),
+}));
+```
+
+Without `calc` the wrapper returns the aligned plot columns exactly as before.
+
 `refetchOn` names the settings that identify the external dataset. Changing one clears
 the previous dataset immediately and starts a new fetch, so old values cannot appear
 under a new symbol while its history loads or after that load fails. Include every
@@ -1265,6 +1350,7 @@ settings change, and it returns a teardown function. The context it is handed:
 | `paneIndex?()` | `number` | The pane this instance drew into. Moves when panes are reordered, so read it rather than storing it. |
 | `addPrimitive?(p)` / `removePrimitive?(p)` | `void` | Attach an arbitrary primitive to this indicator's pane, and detach it again. Anything you attach is yours to remove in the teardown. |
 | `emit?(event, payload)` | `void` | Put an event on the chart's own bus, the one `chart.on(name, cb)` listens to. The imperative half of [`alerts`](#alerts): use it when the signal arrives from outside the calculation rather than from the bars. |
+| `requestBars?(request)` | `Promise<Bar[]>` | Another instrument's (or interval's) bars, from the provider the host registered with `chart.setBarsProvider` (2.4.0). `request` is `{ symbol, exchange?, interval, from, to, signal? }`; the instance lifetime is the default signal. Read at request time, so an indicator added before the provider still gets served, and it rejects with a clear message when there is none, which a study should publish as `unsupported`. |
 
 Everything after `store` is optional so a minimal context can be hand-built (a unit test
 exercising one descriptor's lifecycle), but the runtime always supplies them.

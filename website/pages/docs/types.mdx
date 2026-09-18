@@ -45,10 +45,13 @@ interface Bar {
   low: number;
   close: number;
   volume?: number;
+  color?: string;
+  wickColor?: string;
+  borderColor?: string;
 }
 ```
 
-A single OHLC(V) bar. `volume` is optional. Line and area series read the `close` field.
+A single OHLC(V) bar. `volume` is optional. Line and area series read the `close` field. `color` overrides the bar's colour in every renderer; `wickColor` and `borderColor` (2.4.0) override the wick and border of a candle alone, falling back to `color`.
 
 ### `LinePoint`
 
@@ -719,18 +722,22 @@ type MarkerShape =
   | 'triangleUp'
   | 'triangleDown'
   | 'flag'
-  | 'text';
+  | 'text'
+  | 'labelUp'
+  | 'labelDown'
+  | 'cross'
+  | 'xcross';
 ```
 
-The glyph shape for a `SeriesMarker`. `'text'` draws no shape; only the `text` label is rendered.
+The glyph shape for a `SeriesMarker`. `'text'` draws no shape; only the `text` label is rendered. `'labelUp'` and `'labelDown'` are text plates with a tail pointing at the anchor and require `text`. `'cross'` and `'xcross'` (2.4.0) are a plus and a diagonal cross.
 
 ### `MarkerPosition`
 
 ```ts
-type MarkerPosition = 'aboveBar' | 'belowBar' | 'inBar' | 'atPrice';
+type MarkerPosition = 'aboveBar' | 'belowBar' | 'inBar' | 'atPrice' | 'paneTop' | 'paneBottom';
 ```
 
-Vertical anchor for a marker. `'atPrice'` requires the `price` field on `SeriesMarker`.
+Vertical anchor for a marker. `'atPrice'` requires the `price` field on `SeriesMarker`. `'paneTop'` and `'paneBottom'` (2.4.0) pin the glyph to the plot edge, stacking inward, and need no bar under them and no `price`.
 
 ### `MarkerSize`
 

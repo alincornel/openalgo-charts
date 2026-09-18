@@ -539,7 +539,9 @@ export class Pane {
     for (const s of this._series) {
       if (s.style.visible === false || !match(s)) continue;
       const entry = getChartType(s.type);
-      for (const ib of ctx.dataLayer.visibleBars(s.dataId, range.from, range.to)) {
+      // The same shift the paint pass applies, so the range fits what is drawn.
+      const shift = s.style.barOffset ?? 0;
+      for (const ib of ctx.dataLayer.visibleBars(s.dataId, range.from - shift, range.to - shift)) {
         const ext = entry.extents(ib.bar, s.style);
         if (ext.min < low) low = ext.min;
         if (ext.max > high) high = ext.max;
@@ -701,8 +703,11 @@ export class Pane {
       const scale = this._scaleFor(s.scaleId);
       const priceToY = (p: number): number => scale.priceToY(p);
       const entry = getChartType(s.type);
-      const visible = ctx.dataLayer.visibleBars(s.dataId, range.from, range.to);
-      let items: DrawItem[] = visible.map((ib) => ({ x: ctx.timeScale.indexToX(ib.index), bar: ib.bar }));
+      // A shifted series is painted `barOffset` bars from where its data sits,
+      // so the bars in view are the ones whose shifted position lands in range.
+      const shift = s.style.barOffset ?? 0;
+      const visible = ctx.dataLayer.visibleBars(s.dataId, range.from - shift, range.to - shift);
+      let items: DrawItem[] = visible.map((ib) => ({ x: ctx.timeScale.indexToX(ib.index + shift), bar: ib.bar }));
       if (groupSize > 1) items = conflateItems(items, groupSize);
       // Previous-close colouring needs the bar left of the visible range to
       // colour the first drawn one; nothing else does, so only that mode pays

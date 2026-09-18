@@ -26,6 +26,7 @@ import {
   indicatorDefaults,
   indicatorStyleInputs,
   plotStyleKeys,
+  type IndicatorBarsRequest,
   type ChartDataContext,
   type IndicatorDataChange,
   type IndicatorDataStatus,
@@ -185,6 +186,12 @@ export interface IndicatorHost {
   /** Emit on the chart's event bus (indicator alerts, and `attach`'s own events). */
   emit?(event: string, payload: unknown): void;
   /**
+   * Bars of another instrument or interval, from wherever the host keeps its
+   * history. Optional: without it the attach context's `requestBars` rejects,
+   * which a study reads as "not available on this chart".
+   */
+  requestBars?(request: IndicatorBarsRequest): Promise<readonly Bar[]>;
+  /**
    * Tick size of the named pane's price scale, or undefined when none is set.
    * Optional so a host predating it still satisfies this interface.
    *
@@ -300,6 +307,10 @@ export class IndicatorInstance implements IndicatorApi {
   /** Set once a tail-only change lands, which is what a live feed looks like. */
   private _live = false;
   private _visible = true;
+  /** Set once the constructor's own recompute has passed; see `recompute`. */
+  private _constructed = false;
+  /** Whether the status currently published is a recompute failure of ours. */
+  private _calcFailed = false;
 
   public constructor(
     host: IndicatorHost,
@@ -348,7 +359,8 @@ export class IndicatorInstance implements IndicatorApi {
         opacity: fill.opacity ?? 0.12,
       });
       this._fills.push(band);
-      host.addIndicatorFill(band, this.paneIndex);
+      // A band may follow its plots onto the price pane; see `IndicatorFillSpec.overlay`.
+      host.addIndicatorFill(band, fill.overlay === true ? 0 : this.paneIndex);
     }
 
     this._legend = host.addIndicatorLegend({
@@ -362,8 +374,11 @@ export class IndicatorInstance implements IndicatorApi {
 
     this._applyRange();
     // Levels are applied inside `recompute`, so a data-derived one is built
-    // from values that exist rather than from the empty set.
+    // from values that exist rather than from the empty set. This first pass
+    // is deliberately unguarded: a descriptor that cannot compute at all is
+    // refused by `addIndicator`, not added as a permanently empty pane.
     this.recompute();
+    this._constructed = true;
     this._attach();
   }
 
@@ -452,7 +467,9 @@ export class IndicatorInstance implements IndicatorApi {
     for (const plot of this._d.plots) {
       // A bar-shaped plot's `key` names no column of its own, so the legend
       // reads the close, which is the number a candle legend shows anyway.
-      const v = this._values[plot.ohlc?.close ?? plot.key]?.[i];
+      // A shifted plot paints value `i - offset` under bar `i`, and the legend
+      // reads what is drawn under the cursor, not what was computed for it.
+      const v = this._values[plot.ohlc?.close ?? plot.key]?.[i - (plot.offset ?? 0)];
       if (v === null || v === undefined || !Number.isFinite(v)) continue;
       // The pane this plot draws in, so a plot on its own pane is written the
       // way that pane's axis writes it and not the price pane's.
@@ -488,9 +505,12 @@ export class IndicatorInstance implements IndicatorApi {
         opacity: spec.opacity ?? 0.12,
       });
       if (a === undefined || b === undefined) { band.setPoints([]); continue; }
+      // The band follows its first plot's shift, so a displaced cloud is
+      // shaded where its edges are painted rather than where they were computed.
+      const shift = this._d.plots.find((p) => p.key === spec.between[0])?.offset ?? 0;
       const pts = [];
       for (let j = 0; j < this._barCount; j++) {
-        pts.push({ index: j, a: a[j] ?? null, b: b[j] ?? null });
+        pts.push({ index: j + shift, a: a[j] ?? null, b: b[j] ?? null });
       }
       band.setPoints(pts);
     }
@@ -607,13 +627,14 @@ export class IndicatorInstance implements IndicatorApi {
     while (from > 0 && bars[from - 1].time > seen) from--;
     for (let i = from; i < n; i++) {
       for (const spec of specs) {
-        if (!spec.when({ bars, values: this._values, settings, index: i })) continue;
+        const ctx = { bars, values: this._values, settings, index: i };
+        if (!spec.when(ctx)) continue;
         this._host.emit?.('indicator:alert', {
           indicatorId: this.indicatorId,
           instanceId: this.id,
           alertId: spec.id,
           title: spec.title,
-          message: spec.message ?? spec.title,
+          message: typeof spec.message === 'function' ? spec.message(ctx) : (spec.message ?? spec.title),
           time: bars[i].time,
           index: i,
         });
@@ -684,6 +705,7 @@ export class IndicatorInstance implements IndicatorApi {
     if (typeof width === 'number' && width > 0) style.lineWidth = width;
     const lineStyle = this._settings[k.lineStyle];
     if (typeof lineStyle === 'string') style.lineStyle = lineStyle;
+    if (plot.offset !== undefined && plot.offset !== 0) style.barOffset = plot.offset;
     // A reserved setting rather than a generated per-plot one: an axis crowded
     // with study tags is a whole-instrument complaint, and a MACD's three plots
     // would otherwise need three switches to answer it. It is read after the
@@ -706,18 +728,19 @@ export class IndicatorInstance implements IndicatorApi {
       dataContext: () => this._host.dataContext?.(),
       subscribeDataChanges: (listener) => this._host.subscribeDataChanges?.(listener) ?? (() => {}),
       signal: this._lifetime.signal,
-      setDataStatus: (status) => {
-        if (this._removed) return;
-        const previous = this._dataStatus;
-        if (previous?.state === status.state &&
-          (status.state !== 'error' || (previous.state === 'error' && previous.error === status.error))) return;
-        this._dataStatus = Object.freeze({ ...status });
-        for (const listener of this._dataListeners) listener(this._dataStatus);
-        this._host.emit?.('indicator:data-status', {
-          id: this.id, indicatorId: this.indicatorId, status: this._dataStatus,
-        });
-      },
+      setDataStatus: (status) => this._publishStatus(status),
       setDataRetry: (retry) => { if (!this._removed) this._dataRetry = retry; },
+      requestBars: (request) => {
+        const provider = this._host.requestBars;
+        if (provider === undefined) {
+          return Promise.reject(new Error(
+            'openalgo-charts: this chart has no bars provider; call chart.setBarsProvider(...) to serve other instruments',
+          ));
+        }
+        // The instance lifetime bounds every request, so a study removed while
+        // its benchmark is loading is not answered after it is gone.
+        return provider({ ...request, signal: request.signal ?? this._lifetime.signal });
+      },
       settings: () => this._descriptorSettings(),
       bars: () => this._host.sourceBars(),
       requestRecompute: () => {
@@ -736,6 +759,23 @@ export class IndicatorInstance implements IndicatorApi {
       emit: (event: string, payload: unknown) => { this._host.emit?.(event, payload); },
     });
     this._detach = typeof detach === 'function' ? detach : null;
+  }
+
+  /**
+   * Publish the instance's data status once per change. Shared by the attach
+   * context's `setDataStatus` and by the recompute guard, so a study's own
+   * lifecycle and a failed calculation report through one channel.
+   */
+  private _publishStatus(status: IndicatorDataStatus): void {
+    if (this._removed) return;
+    const previous = this._dataStatus;
+    if (previous?.state === status.state &&
+      (status.state !== 'error' || (previous.state === 'error' && previous.error === status.error))) return;
+    this._dataStatus = Object.freeze({ ...status });
+    for (const listener of this._dataListeners) listener(this._dataStatus);
+    this._host.emit?.('indicator:data-status', {
+      id: this.id, indicatorId: this.indicatorId, status: this._dataStatus,
+    });
   }
 
   public dataStatus(): Readonly<IndicatorDataStatus> | null { return this._dataStatus; }
@@ -829,6 +869,26 @@ export class IndicatorInstance implements IndicatorApi {
    */
   public recompute(): void {
     if (this._removed) return;
+    // The constructor's pass throws through: see the note there.
+    if (!this._constructed) { this._recompute(); return; }
+    try {
+      this._recompute();
+    } catch (error) {
+      // One study's bad input must not stall the frame for every other one, and
+      // a study that silently stops drawing tells the user nothing. So the
+      // failure goes where a Tier-2 fetch failure already goes, the previous
+      // plots stay up, and the next recompute that succeeds clears it.
+      this._calcFailed = true;
+      this._publishStatus({ state: 'error', error });
+      return;
+    }
+    if (this._calcFailed) {
+      this._calcFailed = false;
+      this._publishStatus({ state: 'ready' });
+    }
+  }
+
+  private _recompute(): void {
     const bars = this._host.sourceBars();
     const n = bars.length;
     // Resolved once: the zone is fixed for the frame, and calc, calcTail and
@@ -881,14 +941,18 @@ export class IndicatorInstance implements IndicatorApi {
         continue;
       }
       const colorBy = plot.colorBy;
+      const colorParts = plot.colorParts;
       const out = new Array<{ time: number; value: number; color?: string }>(n);
       for (let i = 0; i < n; i++) {
         const v = col[i];
         const value = v === null || v === undefined ? NaN : v;
         const point: { time: number; value: number; color?: string } = { time: bars[i].time, value };
-        if (colorBy !== undefined && Number.isFinite(value)) {
-          const c = colorBy({ value, index: i, values, settings });
-          if (c !== undefined) point.color = c;
+        if (Number.isFinite(value)) {
+          // A value column has only a body to paint; the split form's wick and
+          // border are for the candle plot, see `_ohlcPoints`.
+          const body = colorParts?.({ value, index: i, values, settings })?.body
+            ?? colorBy?.({ value, index: i, values, settings });
+          if (body !== undefined) point.color = body;
         }
         out[i] = point;
       }
@@ -930,6 +994,7 @@ export class IndicatorInstance implements IndicatorApi {
       return col;
     });
     const colorBy = plot.colorBy;
+    const colorParts = plot.colorParts;
     const out = new Array<Bar>(n);
     for (let i = 0; i < n; i++) {
       const close = cols[3][i];
@@ -941,9 +1006,15 @@ export class IndicatorInstance implements IndicatorApi {
         low: cols[2][i] ?? NaN,
         close: value,
       };
-      if (colorBy !== undefined && Number.isFinite(value)) {
-        const c = colorBy({ value, index: i, values, settings });
+      if (Number.isFinite(value)) {
+        const c = colorBy?.({ value, index: i, values, settings });
         if (c !== undefined) bar.color = c;
+        const parts = colorParts?.({ value, index: i, values, settings });
+        if (parts !== undefined) {
+          if (parts.body !== undefined) bar.color = parts.body;
+          if (parts.wick !== undefined) bar.wickColor = parts.wick;
+          if (parts.border !== undefined) bar.borderColor = parts.border;
+        }
       }
       out[i] = bar;
     }

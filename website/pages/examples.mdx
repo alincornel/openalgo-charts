@@ -213,6 +213,47 @@ A descriptor can also supply `draws` for free-standing lines, boxes and labels,
 grid, and `alerts` the chart evaluates for you. See
 [Indicators](/docs/indicators) for the full contract.
 
+### A higher timeframe from the chart's own bars
+
+`securitySeries` folds the bars in view up to a coarser interval, one value per bar, so a
+study can read the day's range on an hourly chart without a second data source. The default
+reading is the bucket as it stood at each bar, so it never repaints. This one shades the
+day's high to low, and pins a `cross` marker to the top edge of the pane on each new day.
+
+<RunnableExample height={340} tiers={['indicators']} code={`lib.registerIndicator({
+  id: 'demo-daily-range',
+  name: 'Daily Range',
+  category: 'Custom',
+  placement: 'onchart',
+  inputs: [],
+  plots: [
+    { key: 'high', type: 'step', title: 'Day high', style: { color: '#26a69a', lineWidth: 1 } },
+    { key: 'low',  type: 'step', title: 'Day low',  style: { color: '#ef5350', lineWidth: 1 } },
+  ],
+  fills: [{ between: ['high', 'low'], colorUp: '#4f8cff', colorDown: '#4f8cff', opacity: 0.08 }],
+  calc(bars, s) {
+    // The chart's zone rides along under the reserved timezone key.
+    const day = lib.securitySeries(bars, '1d', { timezone: s.timezone });
+    // isNew is a column too: markers reads it below.
+    return { high: day.high, low: day.low, isNew: day.isNew.map((v) => (v ? 1 : null)) };
+  },
+  markers({ bars, values }) {
+    const out = [];
+    for (let i = 0; i < bars.length; i++) {
+      if (values.isNew[i] === null) continue;
+      out.push({ time: bars[i].time, position: 'paneTop', shape: 'cross', size: 'small', color: '#8892a6' });
+    }
+    return out;
+  },
+});
+
+const chart = lib.createChart(el);
+const bars = lib.generateBars(1700000000, 240, 3600);
+chart.addSeries('candlestick').setData(bars);
+chart.addIndicator('demo-daily-range');
+chart.timeScale.fitContent(bars.length);
+return chart;`} />
+
 ## Render backends and vector export
 
 The series pass goes through a render backend port. `renderer: 'auto'` takes the WebGL2

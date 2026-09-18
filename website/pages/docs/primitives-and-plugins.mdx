@@ -29,7 +29,9 @@ chart.timeScale.fitContent(bars.length);
 return chart;`} />
 
 Shapes are `arrowUp`, `arrowDown`, `circle`, `square`, `triangleUp`, `triangleDown`,
-`diamond`, `flag`, `text`, and the two label plates `labelUp` / `labelDown`.
+`diamond`, `flag`, `cross`, `xcross`, `text`, and the two label plates `labelUp` / `labelDown`.
+Positions are `aboveBar`, `belowBar`, `inBar`, `atPrice`, and since 2.4.0 `paneTop` and
+`paneBottom`, which pin the glyph to the plot edge in a fixed row whatever the scale does.
 
 A **label plate** is a rounded box with a tail that points at the anchor price, for a signal
 with a name rather than a bare glyph. `labelUp` hangs its body below the anchor (tail

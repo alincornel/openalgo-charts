@@ -222,7 +222,7 @@ chart.on('indicatorSettings', ({ instanceId }) => {
   const inst = chart.indicators().find((i) => i.id === instanceId);
   const descriptor = getIndicator(inst.indicatorId);
   for (const input of descriptor.inputs) {
-    // input.type is 'number' | 'boolean' | 'color' | 'text' | 'select' | 'source'
+    // input.type is 'number' | 'boolean' | 'color' | 'text' | 'select' | 'source' | 'interval' | 'time'
     // build a field, then: inst.setSettings({ [input.key]: value })
   }
 });

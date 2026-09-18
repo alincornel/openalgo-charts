@@ -200,21 +200,25 @@ export function drawCandles(
     // for this bar: body, border and wick together, or a recoloured candle would
     // keep a wick arguing the other way.
     const over = bar.color;
+    const color = over ?? (up ? style.upColor : style.downColor);
+    // A bar may name its wick and border apart from its body (a solid wick
+    // over a translucent body); otherwise both follow the override, then the style.
+    const wickColor = bar.wickColor ?? over ?? (up ? style.wickUpColor : style.wickDownColor);
+    const borderColor = bar.borderColor ?? over ?? (up ? style.borderUpColor : style.borderDownColor);
 
     if (style.wickVisible) {
-      ctx.fillStyle = over ?? (up ? style.wickUpColor : style.wickDownColor);
+      ctx.fillStyle = wickColor;
       ctx.fillRect(geo.wickX, yHigh, geo.wickW, Math.max(1, yLow - yHigh));
     }
 
     // At the `wick` tier the body would repaint the pixels the wick just
     // covered, in the same colour, at the same x and the same width. Skipping
-    // it is free: the candle is already fully drawn.
-    if ((uniformTier ?? candleTier(w, wickW, style)) === 'wick') continue;
+    // it is free: the candle is already fully drawn. A wick painted in its own
+    // colour is the one case the tier cannot know about, so it is checked here.
+    if ((uniformTier ?? candleTier(w, wickW, style)) === 'wick' && wickColor === color) continue;
 
     const top = Math.min(yOpen, yClose);
     const bodyH = Math.max(1, Math.abs(yClose - yOpen));
-    const color = over ?? (up ? style.upColor : style.downColor);
-    const borderColor = over ?? (up ? style.borderUpColor : style.borderDownColor);
 
     if (style.hollow && up) {
       // Hollow up candle: the outline is the body, so it is drawn whether or not

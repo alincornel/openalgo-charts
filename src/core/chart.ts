@@ -23,7 +23,7 @@ import { createSeriesRecord, type SeriesApi, type SeriesRecord, type PriceScaleI
 import { getChartType, type SeriesType } from '../model/chart-type-registry';
 import {
   getIndicator, hasIndicator, plotStyleKeys,
-  type IndicatorDescriptor, type IndicatorSettings,
+  type IndicatorBarsProvider, type IndicatorDescriptor, type IndicatorSettings,
 } from '../model/indicator-registry';
 
 /**
@@ -365,6 +365,15 @@ export interface ChartOptions {
    * Tune a single pane later via `chart.panes()[n].priceScale.setOptions(...)`.
    */
   priceScale?: Partial<PriceScaleOptions>;
+  /**
+   * Where an indicator gets another instrument's bars. The engine is handed
+   * one symbol's history and owns no transport, so a study that compares
+   * against a benchmark asks through this and the host answers from wherever
+   * it keeps candles. Change it later with `setBarsProvider`. Without one an
+   * indicator's `requestBars` rejects, and the study reports itself
+   * unsupported rather than drawing something invented.
+   */
+  barsProvider?: IndicatorBarsProvider;
   /**
    * Custom time-axis and crosshair label formatter (receives UTC seconds). When
    * omitted, labels use IST (Indian market default). e.g. for UTC:
@@ -816,6 +825,7 @@ export class Chart {
   private _primary: { api: SeriesApi; record: SeriesRecord } | null = null;
   private readonly _indicators: IndicatorInstance[] = [];
   private _dataContext: Readonly<ChartDataContext> | undefined;
+  private _barsProvider: IndicatorBarsProvider | null = null;
   /** Guards indicator recompute against re-entry via its own `series.setData`. */
   private _recomputing = false;
   private _indicatorsDirty = false;
@@ -957,6 +967,7 @@ export class Chart {
       ? Math.max(0, options.wheelZoomSensitivity as number)
       : 1;
     this._animZoom = options.animZoom ?? true;
+    this._barsProvider = options.barsProvider ?? null;
     this._animAutoscale = options.animAutoscale ?? this._animZoom;
     this._zoomAnchor = options.zoomAnchor ?? 'cursor';
     this._doubleClick = options.doubleClick ?? 'reset';
@@ -1468,6 +1479,20 @@ export class Chart {
     this.emit('data:context', this._dataContext);
   }
 
+  /**
+   * Register, replace or remove (`null`) the provider indicators reach through
+   * `requestBars`. Read at request time, so an indicator added before the
+   * provider was set is served once one exists.
+   */
+  public setBarsProvider(provider: IndicatorBarsProvider | null): void {
+    this._barsProvider = provider;
+  }
+
+  /** Whether a bars provider is registered, so a host can grey what needs one. */
+  public hasBarsProvider(): boolean {
+    return this._barsProvider !== null;
+  }
+
   /** Replace chart-owned branding. Manually attached primitives are independent. */
   public setBranding(options: boolean | LogoWatermarkOptions): void {
     if (this._branding !== null) this.removePrimitive(this._branding);
@@ -1599,6 +1624,15 @@ export class Chart {
       symbol: (): string | undefined => this._dataContext?.symbol,
       interval: (): string | undefined => this._dataContext?.interval,
       dataContext: () => this._dataContext,
+      // Answered at call time rather than at host build time, so a provider
+      // registered after the indicator was added still serves it.
+      requestBars: (request) => {
+        const provider = this._barsProvider;
+        if (provider === null) {
+          return Promise.reject(new Error('openalgo-charts: this chart has no bars provider; call chart.setBarsProvider(...) to serve other instruments'));
+        }
+        return provider(request);
+      },
       subscribeDataChanges: listener => {
         const context = this.on('data:context', () => listener('context'));
         const range = this.on('data:range', () => listener('range'));

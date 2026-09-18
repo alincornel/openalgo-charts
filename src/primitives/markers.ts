@@ -16,8 +16,14 @@ import { roundRectPath, contrastText } from '../render/pill';
 export type MarkerShape =
   | 'arrowUp' | 'arrowDown' | 'circle' | 'square'
   | 'triangleUp' | 'triangleDown' | 'diamond' | 'flag' | 'text'
-  | 'labelUp' | 'labelDown';
-export type MarkerPosition = 'aboveBar' | 'belowBar' | 'inBar' | 'atPrice';
+  | 'labelUp' | 'labelDown'
+  | 'cross' | 'xcross';
+/**
+ * `paneTop` and `paneBottom` pin the glyph to the edge of the plot rather than
+ * to a price, so a squeeze dot or a session flag sits in a fixed row whatever
+ * the scale does. They need no bar under them and no `price`.
+ */
+export type MarkerPosition = 'aboveBar' | 'belowBar' | 'inBar' | 'atPrice' | 'paneTop' | 'paneBottom';
 export type MarkerSize = 'tiny' | 'small' | 'medium' | 'big';
 
 export interface SeriesMarker {
@@ -80,6 +86,20 @@ export function drawShape(
     case 'flag':
       ctx.fillRect(cx - 1, cy - r, Math.max(1, px / 8), px); // pole
       ctx.fillRect(cx, cy - r, r, r * 0.8); // flag
+      break;
+    case 'cross': {
+      // Two filled bars rather than a stroke, so the arms stay crisp at the
+      // integer widths every other glyph here lands on.
+      const t = Math.max(1, Math.round(px / 6));
+      ctx.fillRect(cx - r, cy - Math.floor(t / 2), px, t);
+      ctx.fillRect(cx - Math.floor(t / 2), cy - r, t, px);
+      break;
+    }
+    case 'xcross':
+      ctx.lineWidth = Math.max(1, Math.round(px / 6));
+      ctx.moveTo(cx - r, cy - r); ctx.lineTo(cx + r, cy + r);
+      ctx.moveTo(cx + r, cy - r); ctx.lineTo(cx - r, cy + r);
+      ctx.stroke();
       break;
     case 'text':
     case 'labelUp':
@@ -192,7 +212,13 @@ export class SeriesMarkers implements IPrimitive {
       const stack = stackByTime.get(m.time) ?? 0;
       const gap = (px + 4 * rc.dpr) * stack;
       let y: number;
-      if (m.position === 'atPrice' && m.price !== undefined) {
+      if (m.position === 'paneTop') {
+        // Pinned to the plot edge, stacking inward, so the row never moves
+        // with the scale and needs no bar under it.
+        y = px / 2 + 4 * rc.dpr + gap;
+      } else if (m.position === 'paneBottom') {
+        y = rc.plotHeight * rc.dpr - px / 2 - 4 * rc.dpr - gap;
+      } else if (m.position === 'atPrice' && m.price !== undefined) {
         y = rc.priceScale.priceToY(m.price) * rc.dpr;
       } else if (bar !== undefined && m.position === 'aboveBar') {
         y = rc.priceScale.priceToY(bar.high) * rc.dpr - px - gap;
@@ -218,7 +244,9 @@ export class SeriesMarkers implements IPrimitive {
         ctx.fillStyle = m.color;
         ctx.font = `${fontPx}px system-ui, sans-serif`;
         ctx.textAlign = 'center';
-        const below = m.position === 'belowBar';
+        // Text grows away from the edge a pinned marker sits on, the way it
+        // grows away from the bar for the bar-anchored positions.
+        const below = m.position === 'belowBar' || m.position === 'paneTop';
         ctx.textBaseline = below ? 'top' : 'bottom';
         const ty = below ? y + px : y - px;
         if (m.text.indexOf('\n') < 0) {

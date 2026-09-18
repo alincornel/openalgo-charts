@@ -67,6 +67,15 @@ export interface SeriesStyle {
    */
   precision?: number;
 
+  /**
+   * Draw every point this many bars to the right of the bar it belongs to
+   * (negative: left). The data is untouched and keeps its own times; only the
+   * painted position moves, so the last `barOffset` points of a series land in
+   * the right margin, past the newest bar. Autoscale follows what is drawn in
+   * view. Default 0.
+   */
+  barOffset?: number;
+
   // line / area / baseline / hlc-area family
   color?: string;
   lineWidth?: number;

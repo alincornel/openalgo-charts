@@ -75,7 +75,12 @@ const BUNDLE = new URL('../dist/openalgo-charts.mjs', import.meta.url).pathname.
 // frame-cost fixes a zoomed-out daily chart needed (51.06 KiB): an indicator
 // fill that seeks the bars in view, and a time axis that forces one day mark
 // per label stride. Trim before raising this again.
-const LIMIT_BYTES = 51.2 * 1024;
+//
+// Raised to 52.1 KiB for upstream 2.4.0 alone: its bars provider, per-bar
+// wick/border colours and bar offsets are core-chart code, and upstream's own
+// chart-only build went 49.01 -> 49.86 KiB on it. The fork moved 51.06 ->
+// 51.92 KiB on the same merge, i.e. the same 0.85 KiB and nothing of its own.
+const LIMIT_BYTES = 52.1 * 1024;
 
 // Absent from a chart-only build. Each is a string that appears in the adapter
 // source and nowhere in the rendering core.

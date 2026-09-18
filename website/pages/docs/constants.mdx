@@ -418,8 +418,8 @@ function drawShape(
 ```
 
 Draws one marker glyph onto a canvas context at center `(cx, cy)` with diameter `px`.
-`MarkerShape` is: `'arrowUp' | 'arrowDown' | 'circle' | 'square' | 'triangleUp' | 'triangleDown' | 'diamond' | 'flag' | 'text'`.
-The `'text'` shape is a no-op; the caller renders the label separately.
+`MarkerShape` is: `'arrowUp' | 'arrowDown' | 'circle' | 'square' | 'triangleUp' | 'triangleDown' | 'diamond' | 'flag' | 'text' | 'labelUp' | 'labelDown' | 'cross' | 'xcross'`.
+The `'text'`, `'labelUp'` and `'labelDown'` shapes are no-ops here; the caller renders the label separately (see `drawLabel`).
 
 ---
 

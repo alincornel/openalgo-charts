@@ -76,6 +76,22 @@ Since 1.8.1, and the reason to reach past a plot before hand-rolling something:
 - **`intervalParts` and `isIntradayInterval` / `isDailyInterval` / `isSecondsInterval` / `isTickInterval`** answer what kind of bar the chart is on. Never branch by matching the interval string.
 - **`parseSessionSpec` / `inSessionAt` / `sessionFlags`** for a window you state (`'0915-1015'`, `'0930-1600:23456'`), as opposed to `sessionStartFlags`, which reads the trading day back out of the bar gaps.
 
+Since 2.4.0, for the constructs a ported study most often could not express (every one optional, nothing older changes):
+
+- **`securitySeries(bars, interval, opts)`** from `openalgo-charts/indicators` folds the chart's bars to a higher timeframe, one value per bar. The default reads the bucket as it stood at that bar and never repaints; `offset: k` reads the last completed bucket; `lookahead: true` reads final values and repaints. `session: '0915-1530'` anchors sub-day buckets to the session open. This replaces every hand-rolled fold.
+- **`plot.offset`** paints a column that many bars to the right, the tail landing in the right margin (a displaced cloud). Fills follow the first plot's offset; the legend reads what is drawn under the cursor. `SeriesStyle.barOffset` is the same thing on any series.
+- **A thrown `calc` no longer takes the frame down**: it is published as `{ state: 'error' }` on the instance data status and `indicator:data-status`, the previous plots stay up, and the next good pass publishes `ready`. Throw `IndicatorInputError` for a condition the user can fix. `addIndicator` still refuses a descriptor whose first pass throws.
+- **`alerts[].message`** may be a function of the firing bar's context.
+- **Markers**: shapes `cross` and `xcross`; positions `paneTop` and `paneBottom`, pinned to the plot edge with no bar or `price` needed.
+- **`fills[].overlay`** puts a band on the price pane beside `overlay` plots.
+- **`plot.colorParts`** returns `{ body, wick, border }` per bar, carried as `Bar.wickColor` / `Bar.borderColor` and honoured by both candle renderers; `colorBy` is unchanged.
+- **`draws()` labels and boxes take `tooltip` and `id`**: hit-testable, reported through `subscribeClick`, tooltip painted on hover by the layer itself.
+- **Inputs `interval` and `time`**: a timeframe code (select over the built-in tokens plus registered codes) and a wall-clock string in the chart zone.
+- **`table` options `fontSize: 'auto'`** fits each cell.
+- **`ctx.requestBars(request)`** on the attach context asks the host for another instrument's bars; the host registers a provider with `chart.setBarsProvider` (or `ChartOptions.barsProvider`) and it rejects with a clear message when there is none. See Path D for the Tier-2 half.
+
+Full semantics for all of these are in [indicators](../openalgo-charts/references/indicators.md#coverage-additions-240).
+
 Full semantics for every one of these, including the firing rules and the known gaps, are in [indicators](../openalgo-charts/references/indicators.md). Read them before using `barColors` or `alerts`: both have behaviour that is deliberate and surprising.
 
 ```ts
@@ -111,6 +127,8 @@ import { createTier2Indicator } from 'openalgo-charts/indicators';
 ```
 
 The alignment rule matters and is not negotiable: each bar takes the most recent external point **at or before** that bar's time. Never interpolated, never forward-looking. Bars before the first point are `null`.
+
+Since 2.4.0 a Tier-2 descriptor can also combine: `series` names external columns to align besides the plots, `calc(bars, external, settings, store, ctx)` folds them into the chart's own bars, and `Tier2Context.requestBars` carries the host's bar provider into `fetch`. A relative strength or a beta against a benchmark is therefore one descriptor, with no transport of its own. Without `calc` the wrapper returns the aligned plot columns exactly as before.
 
 ## Rules
 

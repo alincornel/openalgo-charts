@@ -34,7 +34,13 @@ export interface ChartTableOptions {
   /** Column width in media px. A per-column array sizes each one separately. */
   cellWidth: number | readonly number[];
   cellHeight: number;
-  fontSize: number;
+  /**
+   * Type size in media px, or `'auto'` to fit each cell: as large as its row
+   * allows, shrunk until its text also fits its column. A stretched grid with
+   * one long label would otherwise either clip that cell or be sized down as a
+   * whole to suit it.
+   */
+  fontSize: number | 'auto';
   /** Grid line colour. Omit to draw no grid. */
   borderColor?: string;
   borderWidth: number;
@@ -194,16 +200,32 @@ export class ChartTable implements IPrimitive {
         }
         if (cell.text === '') continue;
 
+        const pad = px(4);
+        const weight = cell.bold === true ? '600 ' : '';
         // Shrink the type when a stretched row is shorter than the declared
         // font, so a tall grid in a short pane stays legible instead of
         // overlapping into its neighbours.
-        const size = Math.min(px(cell.fontSize ?? o.fontSize), Math.floor(rowH * 0.62));
-        ctx.font = `${cell.bold === true ? '600 ' : ''}${size}px system-ui, sans-serif`;
+        const rowMax = Math.floor(rowH * 0.62);
+        let size: number;
+        if (cell.fontSize === undefined && o.fontSize === 'auto') {
+          // Fit: as large as the row allows, then shrunk until the text also
+          // fits its column, so one long label sizes only itself down.
+          const floor = px(6);
+          size = Math.max(floor, rowMax);
+          ctx.font = `${weight}${size}px system-ui, sans-serif`;
+          const room = cellW - pad * 2;
+          while (size > floor && ctx.measureText(cell.text).width > room) {
+            size -= Math.max(1, px(1));
+            ctx.font = `${weight}${size}px system-ui, sans-serif`;
+          }
+        } else {
+          size = Math.min(px(cell.fontSize ?? (o.fontSize === 'auto' ? 11 : o.fontSize)), rowMax);
+        }
+        ctx.font = `${weight}${size}px system-ui, sans-serif`;
         // A cell with a fill picks its own readable ink; one without falls back
         // to the axis colour, which is legible on either theme's background.
         ctx.fillStyle = cell.textColor
           ?? (cell.bgColor !== undefined ? contrastText(cell.bgColor) : rc.theme.axisText);
-        const pad = px(4);
         const align = cell.align ?? 'center';
         ctx.textAlign = align;
         const tx = align === 'left' ? cellLeft + pad

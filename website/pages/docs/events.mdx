@@ -59,6 +59,7 @@ it on teardown (component unmount, route change) so listeners never leak.
 | `paneRemoved` / `paneMaximized` / `paneResized` | `{ paneIndex }` | The pane layout changed through a legend button or a divider drag. `paneMoved` reports `{ from, to }` instead. |
 | `indicatorRemoved` / `indicatorSettings` | `{ instanceId, indicatorId, paneIndex }` | An indicator legend's close or gear button was pressed. |
 | `indicator:alert` | `IndicatorAlertPayload` | A condition an indicator descriptor declared came true on a new bar. See [Indicator alerts](#indicator-alerts). |
+| `indicator:data-status` | `{ id, indicatorId, status: IndicatorDataStatus }` | An indicator's managed data state changed: a Tier-2 fetch is loading, ready, empty, unsupported or failed, and since 2.4.0 a `calc` that threw (`{ state: 'error', error }`) or recovered (`ready`). |
 | `pick:start` / `pick:end` | `{ kind }` / `{ kind, value }` | `chart.beginPick` armed, and then resolved or was cancelled (`value` is `null` when cancelled). See [Picking a price or a bar](/docs/interactions#picking-a-price-or-a-bar). |
 | `replay:*` | `ReplayState` | The [market replay](/docs/market-replay) playhead starts, moves, plays, pauses, ends or stops. |
 | `trading:*` | see [Trading events](#trading-events) | The user interacts with a position, order, or bracket. |

@@ -62,7 +62,7 @@ return chart;`} />
 
 ## The WebGL2 tier
 
-`openalgo-charts/webgl` is **6.38 KB** Brotli and nothing of it is in the base bundle.
+`openalgo-charts/webgl` is **6.39 KB** Brotli and nothing of it is in the base bundle.
 Importing it registers the backend under `'webgl2'`, so `renderer: 'auto'` picks it up
 wherever WebGL2 is available and `renderer: 'webgl2'` stops throwing. The bare import is
 enough; `registerWebGL2Renderer()` is exported (idempotent) for a bundler that would drop
