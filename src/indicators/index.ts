@@ -110,3 +110,4 @@ export {
   type Tier2Context,
   type Tier2Point,
 } from './external';
+export { securitySeries, type SecuritySeries, type SecurityOptions } from './security';

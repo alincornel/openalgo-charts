@@ -336,16 +336,19 @@ function emitCandles(
     const w = geo.bodyW;
     const halfW = cx - geo.bodyX;
     const over = bar.color;
+    const body = over ?? (up ? style.upColor : style.downColor);
+    // Same rule as the 2D renderer: a per-bar wick or border colour wins over
+    // the whole-bar override, which wins over the style.
+    const wick = bar.wickColor ?? over ?? (up ? style.wickUpColor : style.wickDownColor);
+    const border = bar.borderColor ?? over ?? (up ? style.borderUpColor : style.borderDownColor);
 
     if (style.wickVisible) {
-      batch.rect(geo.wickX, yHigh, geo.wickW, Math.max(1, yLow - yHigh), color(over ?? (up ? style.wickUpColor : style.wickDownColor)));
+      batch.rect(geo.wickX, yHigh, geo.wickW, Math.max(1, yLow - yHigh), color(wick));
     }
-    if ((uniformTier ?? candleTier(w, wickW, style)) === 'wick') continue;
+    if ((uniformTier ?? candleTier(w, wickW, style)) === 'wick' && wick === body) continue;
 
     const top = Math.min(yOpen, yClose);
     const bodyH = Math.max(1, Math.abs(yClose - yOpen));
-    const body = over ?? (up ? style.upColor : style.downColor);
-    const border = over ?? (up ? style.borderUpColor : style.borderDownColor);
 
     if (style.hollow && up) {
       strokeRing(batch, cx - halfW + 0.5, top + 0.5, w - 1, bodyH - 1, Math.max(1, wickW), color(style.borderVisible ? border : body));

@@ -15,7 +15,7 @@ export default function ArchitectureDiagram() {
       <div className="oac-architecture__viewport" tabIndex={0} role="region" aria-label="Architecture diagram, scroll to explore at actual size">
         <img src={diagram} width={1600} height={1100}
           style={{ width: actualSize ? 1600 : '100%', maxWidth: 'none', height: 'auto' }}
-          alt="OpenAlgo Charts 2.3.2: custom host or widget, seven capability layers, Canvas 2D and optional WebGL2 rendering, compact profiles, drawing model v2, and eight bundle tiers totalling 215.76 KB Brotli." />
+          alt="OpenAlgo Charts 2.4.0: custom host or widget, seven capability layers, Canvas 2D and optional WebGL2 rendering, compact profiles, drawing model v2, and eight bundle tiers totalling 217.54 KB Brotli." />
       </div>
       <figcaption>Choose Actual size to read every label; scroll inside the diagram or open the vector image separately.</figcaption>
     </figure>

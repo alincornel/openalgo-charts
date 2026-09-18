@@ -86,11 +86,15 @@ export {
   sourceValue,
   sourceValues,
   INDICATOR_SOURCES,
+  IndicatorInputError,
 } from './model/indicator-registry';
 export type {
   IndicatorDescriptor,
   IndicatorInput,
   IndicatorPlot,
+  PlotBarColor,
+  IndicatorBarsRequest,
+  IndicatorBarsProvider,
   IndicatorFillSpec,
   IndicatorLevel,
   IndicatorLevelContext,

@@ -11,9 +11,27 @@
  * edge shifts every index, and a trendline pinned to an index would slide off
  * its pivots the moment it did.
  */
-import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, ZOrder } from './primitive';
+import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, PrimitiveHit, ZOrder } from './primitive';
 import type { IndicatorDrawing, IndicatorLineStyle, DrawAnchor } from '../model/indicator-registry';
 import { roundRectPath, contrastText } from '../render/pill';
+
+/** A drawn label or box the pointer can rest on, in media px. */
+interface HitRect {
+  id: string;
+  tooltip?: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** What a plate occupies once drawn, in device px, so a hit rect can be kept. */
+interface PlateRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
 
 /** Dash pattern in device px, matching the drawing tier's vocabulary. */
 function dashOf(style: IndicatorLineStyle | undefined, d: number): number[] {
@@ -33,7 +51,7 @@ function drawPlate(
   bg: string,
   textColor: string | undefined,
   align: 'left' | 'center' | 'right',
-): void {
+): PlateRect {
   const size = 11 * d;
   ctx.font = `${size}px ui-sans-serif, system-ui, sans-serif`;
   ctx.textBaseline = 'middle';
@@ -54,12 +72,20 @@ function drawPlate(
   ctx.fill();
   ctx.fillStyle = textColor ?? contrastText(bg);
   for (let i = 0; i < lines.length; i++) ctx.fillText(lines[i], bx + padX, by + padY + lh * (i + 0.5));
+  return { x: bx, y: by, w, h };
 }
 
 export class IndicatorDrawings implements IPrimitive {
   private _items: readonly IndicatorDrawing[] = [];
   private _host: PrimitiveHost | null = null;
   private _visible = true;
+  /**
+   * The labels and boxes that carry an id or a tooltip, where the last frame
+   * put them. Only those are hit-testable: a bare trendline stays under the
+   * pointer as pure ink, so hovering a busy study does not light up a cursor
+   * on every ray it drew.
+   */
+  private _hits: HitRect[] = [];
 
   public attached(host: PrimitiveHost): void { this._host = host; }
   public detached(): void { this._host = null; }
@@ -83,6 +109,7 @@ export class IndicatorDrawings implements IPrimitive {
   }
 
   public draw(ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext): void {
+    this._hits = [];
     if (!this._visible || this._items.length === 0) return;
     const d = rc.dpr;
     const w = rc.plotWidth * d;
@@ -107,7 +134,8 @@ export class IndicatorDrawings implements IPrimitive {
         const px = x(item.at);
         const py = y(item.at);
         if (px < -m || px > w + m || py < -m || py > h + m) continue;
-        drawPlate(ctx, d, px, py, item.text, item.color ?? ink, item.textColor, item.align ?? 'center');
+        const rect = drawPlate(ctx, d, px, py, item.text, item.color ?? ink, item.textColor, item.align ?? 'center');
+        this._recordHit(item, rect, d);
         continue;
       }
 
@@ -166,6 +194,7 @@ export class IndicatorDrawings implements IPrimitive {
         ctx.setLineDash([]);
         ctx.strokeStyle = color;
         ctx.strokeRect(rx, ry, rw, rh);
+        this._recordHit(item, { x: rx, y: ry, w: rw, h: rh }, d);
         if (item.text !== undefined && item.text !== '') {
           drawPlate(ctx, d, rx + rw / 2, ry + rh / 2, item.text, color, item.textColor, 'center');
         }
@@ -201,6 +230,53 @@ export class IndicatorDrawings implements IPrimitive {
     }
 
     ctx.setLineDash([]);
+    this._drawTooltip(ctx, rc, d, w, h, ink);
     ctx.restore();
+  }
+
+  /** Keep a label's or box's rect when it has something to say on hover or click. */
+  private _recordHit(item: { id?: string; tooltip?: string }, rect: PlateRect, d: number): void {
+    const id = item.id ?? item.tooltip;
+    if (id === undefined) return;
+    this._hits.push({ id, tooltip: item.tooltip, x: rect.x / d, y: rect.y / d, w: rect.w / d, h: rect.h / d });
+  }
+
+  /**
+   * The hovered shape's tooltip, as a plate clear of the shape: above it when
+   * there is room, below it otherwise. Drawn last so it sits over everything
+   * else in the layer, and only while the chart reports the pointer on it, so
+   * it costs nothing on a frame with nothing hovered.
+   */
+  private _drawTooltip(
+    ctx: CanvasRenderingContext2D,
+    rc: PrimitiveRenderContext,
+    d: number,
+    w: number,
+    h: number,
+    ink: string,
+  ): void {
+    const id = rc.hoverId;
+    if (id === null || id === undefined) return;
+    const hit = this._hits.find((r) => r.id === id && r.tooltip !== undefined);
+    if (hit?.tooltip === undefined) return;
+    const gap = 8 * d;
+    const plateH = 11 * d * 1.35 * hit.tooltip.split('\n').length + 6 * d;
+    const above = hit.y * d - gap - plateH >= 0;
+    const cy = above ? hit.y * d - gap - plateH / 2 : (hit.y + hit.h) * d + gap + plateH / 2;
+    const cx = Math.min(Math.max((hit.x + hit.w / 2) * d, 0), w);
+    if (cy < -plateH || cy > h + plateH) return;
+    drawPlate(ctx, d, cx, cy, hit.tooltip, ink, undefined, 'center');
+  }
+
+  public hitTest(x: number, y: number): PrimitiveHit | null {
+    // Later items paint over earlier ones, so the last rect under the pointer
+    // is the one the user sees.
+    for (let i = this._hits.length - 1; i >= 0; i--) {
+      const r = this._hits[i];
+      if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) {
+        return { externalId: r.id, zOrder: 'normal', distance: 0, cursor: r.tooltip === undefined ? 'pointer' : 'default' };
+      }
+    }
+    return null;
   }
 }

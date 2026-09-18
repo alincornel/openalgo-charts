@@ -7,7 +7,7 @@ Written 2026-08-28 against openalgo-charts 1.8.2.
 > record of what was wrong, what the measured figures were, and why each change
 > was made, so the next redraw starts from evidence rather than memory.
 >
-> **Current release source of truth:** the SVG reports 77.23 KB base and 215.76 KB
+> **Current release source of truth:** the SVG reports 78.07 KB base and 217.54 KB
 > for every tier, eight tier chips, 102 built-in indicators and 85 drawing tools.
 > Earlier measurements below remain the historical record of each redraw.
 
@@ -435,3 +435,21 @@ unchanged on the same build: widget 42.41 KB, indicators 28.19 KB, draw
 indicators, 85 drawing tools, 13 chart types in the base. The base chip, the
 everything chip, the subtitle and the `<desc>` were substituted by matching
 the surrounding text.
+
+## 2.4.0: coverage for ported studies moves four chips
+
+Measured on the 2.4.0 build with `npx size-limit`, after the version string
+was in place. The base engine reads 78.07 KB (was 77.23, budget raised from
+78 to 79 kB) for the recompute guard, the per-bar wick and border colour, the
+bar offset in the pane, the two marker glyphs and two edge positions, the
+drawing hit layer and the bars-provider threading. The indicators tier reads
+29.05 KB (was 28.19) for `securitySeries` and the Tier-2 combiner. The widget
+reads 42.49 KB (was 42.41) for the two input types. Base + trade reads
+85.68 KB (was 84.84), the widget terminal 184.14 KB (was 182.37, budget raised
+from 183 to 185 kB) and everything 217.54 KB (was 215.76). Confirmed unchanged
+on the same build: draw 34.53 KB, profile 14.96 KB, transform 4.44 KB; webgl
+moved by one hundredth to 6.39 KB. Counts from the registry at runtime: 102
+indicators, 15 chart types, 85 drawing tools, unchanged.
+
+In the SVG: the subtitle's base figure, the base, widget, indicators, webgl
+and everything chips, and the `<desc>` version. Nothing else moved.

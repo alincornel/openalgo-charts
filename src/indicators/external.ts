@@ -16,13 +16,16 @@
  */
 import type {
   Bar,
+  IndicatorBarsRequest,
   ChartDataContext,
+  IndicatorCalcContext,
   IndicatorDataStatus,
   IndicatorDescriptor,
   IndicatorPlot,
   IndicatorInput,
   IndicatorLevel,
   IndicatorSettings,
+  IndicatorStore,
   IndicatorValues,
 } from 'openalgo-charts';
 
@@ -44,6 +47,12 @@ export interface Tier2Context {
   /** UTC seconds of the first and last source bar (0 when there are none). */
   from: number;
   to: number;
+  /**
+   * The host's bar provider, when the runtime supplies one, so a `fetch` that
+   * needs another instrument's candles asks the host rather than carrying its
+   * own transport and credentials. Rejects when the host registered none.
+   */
+  requestBars?(request: IndicatorBarsRequest): Promise<readonly Bar[]>;
 }
 
 export interface Tier2Descriptor {
@@ -53,6 +62,28 @@ export interface Tier2Descriptor {
   placement: 'onchart' | 'pane';
   inputs: readonly IndicatorInput[];
   plots: readonly IndicatorPlot[];
+  /**
+   * External columns to align besides the plots, by key. A point may carry
+   * more than what is drawn: a benchmark close that `calc` divides by, an
+   * open-interest figure a ratio is built from. Anything not named here or in
+   * `plots` is dropped at alignment.
+   */
+  series?: readonly string[];
+  /**
+   * Combine the aligned external columns with the chart's own bars. Without
+   * it the aligned columns are the result, one per plot, exactly as before.
+   * With it, `external` holds every plot and `series` key aligned onto the
+   * bars (last-known-value, `null` before the first point), and the return is
+   * what the plots draw: a relative strength, a beta, a spread. Pure in its
+   * arguments, like any `calc`.
+   */
+  calc?(
+    bars: readonly Bar[],
+    external: IndicatorValues,
+    settings: Readonly<IndicatorSettings>,
+    store: IndicatorStore,
+    ctx?: IndicatorCalcContext,
+  ): IndicatorValues;
   /** A host/provider can explicitly decline data it cannot supply. */
   supports?(ctx: Tier2Context): boolean;
   /** Load the series for the current window. */
@@ -127,22 +158,29 @@ function upsert(points: Tier2Point[], point: Tier2Point): void {
 function align(
   bars: readonly Bar[],
   points: readonly Tier2Point[],
-  plots: readonly IndicatorPlot[],
+  keys: readonly string[],
 ): IndicatorValues {
   const out: Record<string, (number | null)[]> = {};
-  for (const plot of plots) out[plot.key] = new Array<number | null>(bars.length).fill(null);
+  for (const key of keys) out[key] = new Array<number | null>(bars.length).fill(null);
   if (points.length === 0) return out;
   let p = -1;
   for (let i = 0; i < bars.length; i++) {
     while (p + 1 < points.length && points[p + 1].time <= bars[i].time) p += 1;
     if (p < 0) continue;
     const values = points[p].values;
-    for (const plot of plots) {
-      const v = values[plot.key];
-      out[plot.key][i] = typeof v === 'number' && Number.isFinite(v) ? v : null;
+    for (const key of keys) {
+      const v = values[key];
+      out[key][i] = typeof v === 'number' && Number.isFinite(v) ? v : null;
     }
   }
   return out;
+}
+
+/** The plot keys plus any extra external columns the descriptor named. */
+function alignedKeys(d: Tier2Descriptor): string[] {
+  const keys = d.plots.map((plot) => plot.key);
+  for (const key of d.series ?? []) if (!keys.includes(key)) keys.push(key);
+  return keys;
 }
 
 /**
@@ -170,9 +208,10 @@ export function createTier2Indicator(d: Tier2Descriptor): IndicatorDescriptor {
     levels: d.levels,
     range: d.range,
 
-    calc: (bars, _settings, store) => {
+    calc: (bars, settings, store, ctx) => {
       const state = stateOf(store);
-      return align(bars, state?.points ?? [], d.plots);
+      const external = align(bars, state?.points ?? [], alignedKeys(d));
+      return d.calc === undefined ? external : d.calc(bars, external, settings, store, ctx);
     },
 
     attach: (ctx) => {
@@ -203,6 +242,7 @@ export function createTier2Indicator(d: Tier2Descriptor): IndicatorDescriptor {
           settings: ctx.settings(), bars,
           dataContext: { ...market },
           from: bars[0]?.time ?? 0, to: bars[bars.length - 1]?.time ?? 0,
+          requestBars: ctx.requestBars,
         };
       };
       const cancel = (): void => {

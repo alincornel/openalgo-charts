@@ -2,6 +2,85 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 2.4.0
+
+2026-09-18
+
+Coverage for ported studies. Five hundred script-language indicators were
+ported onto the descriptor contract, and the gaps they hit were counted: the
+same dozen constructs, over and over. This release closes the ones the engine
+can close. Every addition is optional and off unless declared.
+
+### Added
+
+- **`securitySeries(bars, interval, options)`** in `openalgo-charts/indicators`:
+  the one fold from the chart's own bars to a higher timeframe, one value per
+  source bar. Three readings, named rather than guessed: the default reads
+  the bucket as it stood at that bar and never uses a later one; `offset: k`
+  reads the bucket completed `k` buckets before, held constant; `lookahead:
+  true` reads the bucket's final values on all of its bars, which repaints
+  and is here only so a source that did it can be reproduced. A day is a day
+  in `timezone`, a week starts on Monday there, a registered calendar
+  interval cuts on its period, and `session: '0915-1530'` anchors a sub-day
+  bucket to the session open the way an exchange cuts its hourly bars.
+- **`IndicatorPlot.offset`** and **`SeriesStyle.barOffset`** paint a column
+  shifted that many bars (a displaced cloud, a projected channel). The data
+  keeps its times and the axis gains no bars; the shifted tail lands in the
+  right margin, a fill follows its first plot's offset, autoscale fits what
+  is painted in view and the legend reads the value drawn under the cursor.
+- **A recompute guard and `IndicatorInputError`.** A `calc` that throws once
+  the indicator is on the chart is caught, published as `{ state: 'error' }`
+  on the instance's data status and the `indicator:data-status` event, and
+  cleared by the next pass that succeeds. The previous plots stay up and the
+  studies behind it still recompute that frame. The constructor's own pass is
+  still unguarded, so `addIndicator` still refuses a descriptor that cannot
+  compute at all. `IndicatorInputError` names a condition the user can fix.
+- **`IndicatorAlertSpec.message`** may be a function of the bar the alert
+  fired on, so a message can carry that bar's numbers or a webhook body.
+- **`cross` and `xcross` marker shapes; `paneTop` and `paneBottom` marker
+  positions**, pinned to the plot edge rather than a price.
+- **`IndicatorFillSpec.overlay`** draws a band on the price pane, the pair
+  with `IndicatorPlot.overlay`.
+- **`IndicatorPlot.colorParts`** returns `{ body, wick, border }` per bar,
+  carried as **`Bar.wickColor`** and **`Bar.borderColor`** and honoured by
+  both the 2D and the WebGL2 candle paths, so a solid wick can sit over a
+  translucent body. `colorBy` keeps its string return type.
+- **`tooltip` and `id` on `label` and `box` drawings.** A shape carrying
+  either is hit-testable, reported through `subscribeClick`, and paints its
+  tooltip on a plate while the pointer rests on it.
+- **`interval` and `time` input types.** A timeframe the engine can bucket
+  by, rendered by the widget as a select over the built-in tokens and the
+  registered codes; and a wall-clock string in the chart's zone.
+- **`ChartTableOptions.fontSize: 'auto'`** fits each cell to its row and its
+  column, so one long label sizes only itself down.
+- **A bars provider for other instruments.** `ChartOptions.barsProvider`,
+  `chart.setBarsProvider`, `chart.hasBarsProvider`, and `requestBars` on the
+  attach context and on `Tier2Context`, read at request time and bounded by
+  the instance lifetime. `Tier2Descriptor.series` names external columns to
+  align besides the plots and `Tier2Descriptor.calc` combines them with the
+  chart's bars, so a relative strength or a beta against a benchmark is one
+  Tier-2 descriptor. The types are `IndicatorBarsRequest` and
+  `IndicatorBarsProvider`.
+
+### Changed
+
+- Two budgets raised deliberately: the base engine from 78 to 79 KB (77.23 to
+  78.07 KB measured, for the recompute guard, the candle colour split, the
+  bar offset, the two marker glyphs and positions, the drawing hit layer and
+  the bars-provider threading) and the widget terminal from 183 to 185 KB
+  (182.37 to 184.14 KB, of which the indicators tier's `securitySeries` and
+  Tier-2 combiner are 0.86 KB). Everything (217.54 KB) and base + trade
+  (85.68 KB) stay inside their budgets.
+
+### Notes
+
+- A descriptor written against 2.3.2 computes and draws exactly what it did,
+  and the 102 built-ins are untouched. The one behaviour that changes is
+  deliberate: a `calc` that throws after the indicator is on the chart no
+  longer throws out of the render loop.
+- The `interval` and `time` inputs reach a host's own settings dialog only
+  once it renders them; a host that whitelists input types must add the two.
+
 ## 2.3.2
 
 2026-09-16

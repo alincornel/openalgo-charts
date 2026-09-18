@@ -38,7 +38,23 @@ export type IndicatorInput =
   | { key: string; type: 'color'; label: string; default: string; group?: string; tooltip?: string }
   | { key: string; type: 'text'; label: string; default: string; group?: string; tooltip?: string }
   | { key: string; type: 'select'; label: string; default: string; options: readonly { label: string; value: string }[]; group?: string; tooltip?: string }
-  | { key: string; type: 'source'; label: string; default: IndicatorSource; group?: string; tooltip?: string };
+  | { key: string; type: 'source'; label: string; default: IndicatorSource; group?: string; tooltip?: string }
+  /**
+   * A timeframe code (`'5m'`, `'1d'`), for a study that folds the chart's bars
+   * up to a coarser interval. A settings UI renders it as a select over the
+   * registered intervals, so the value is always one the engine can bucket by;
+   * a free text box would accept `'5min'` and leave the study computing on a
+   * code it cannot resolve. An empty default means "the chart's own interval".
+   */
+  | { key: string; type: 'interval'; label: string; default: string; group?: string; tooltip?: string }
+  /**
+   * A wall-clock instant in the chart's zone, written `YYYY-MM-DD HH:MM` (the
+   * time part optional), for an anchor a user picks by date: the start of an
+   * anchored VWAP, an event to measure from. It is carried as that string, not
+   * as UTC seconds, so a layout saved in one zone restores to the same wall
+   * clock in another, and `zonedStringToUtcSeconds` turns it into a bar time.
+   */
+  | { key: string; type: 'time'; label: string; default: string; group?: string; tooltip?: string };
 
 /** Dash pattern for a level, a drawing, or a plot. */
 export type IndicatorLineStyle = 'solid' | 'dashed' | 'dotted';
@@ -148,7 +164,23 @@ export interface IndicatorFillSpec {
   colorDownKey?: string;
   /** 0..1. Defaults to 0.12. */
   opacity?: number;
+  /**
+   * Draw the band on the price pane even though the indicator owns a pane of
+   * its own. The pair with `IndicatorPlot.overlay`: a study can already send
+   * one plot to the candles, and a band between two such plots belongs beside
+   * them rather than in the study pane the fill would otherwise land in.
+   * Ignored for an `'onchart'` descriptor, which is on the price pane already.
+   */
+  overlay?: boolean;
 }
+
+/**
+ * What `colorParts` answers: a candle plot's colour split three ways, which is
+ * how a study paints a wick in full colour over a translucent body. `body` is
+ * the bar's colour (and the only part a line, histogram or column reads); a
+ * part left undefined falls back to `colorBy`, then to the plot's own colour.
+ */
+export type PlotBarColor = { body?: string; wick?: string; border?: string };
 
 export interface IndicatorPlot {
   /** Key into the `calc` result. */
@@ -188,6 +220,16 @@ export interface IndicatorPlot {
    */
   overlay?: boolean;
   /**
+   * Draw the column shifted this many bars to the right (negative: left). The
+   * column itself stays one value per bar and `calc` returns exactly what it
+   * always did; only where each value is painted moves. Positive is what a
+   * displaced cloud or a projected channel wants: the last `offset` values land
+   * in the right margin, past the newest candle, where no bar exists to hold
+   * them. It shifts the drawn series only. A fill between two plots with the
+   * same offset follows; the legend reads the value drawn under the cursor.
+   */
+  offset?: number;
+  /**
    * Settings key holding this plot's color, so a settings change restyles the
    * series without a full rebuild.
    */
@@ -222,6 +264,19 @@ export interface IndicatorPlot {
     values: IndicatorValues;
     settings: IndicatorSettings;
   }): string | undefined;
+  /**
+   * Per-bar colour split three ways, for a candle plot whose wick or border
+   * should not follow its body: a solid wick over a translucent body, a
+   * border in the trend colour. Takes precedence over `colorBy` for the parts
+   * it names; a part it leaves undefined falls back to `colorBy`, then to the
+   * plot's own colour. A value plot (line, histogram, column) reads `body` only.
+   */
+  colorParts?(ctx: {
+    value: number;
+    index: number;
+    values: IndicatorValues;
+    settings: IndicatorSettings;
+  }): PlotBarColor | undefined;
 }
 
 /** A horizontal reference level (RSI 70/30, Stochastic 80/20, a zero line). */
@@ -276,6 +331,17 @@ export type IndicatorDrawing =
       /** Caption drawn on a plate at the centre of the box; `\n` splits lines. */
       text?: string;
       textColor?: string;
+      /**
+       * Detail shown on a plate while the pointer rests on the box, and gone
+       * when it leaves; `\n` splits lines. A zone that carries its size, its
+       * age and what formed it cannot print all of that on the box without
+       * hiding the candles under it, so the caption names it and this explains
+       * it. The box becomes hit-testable, and `id` (or the tooltip text) is
+       * what `subscribeClick` reports for it.
+       */
+      tooltip?: string;
+      /** Hit id, for `subscribeClick`. Defaults to the tooltip text. */
+      id?: string;
     }
   | {
       kind: 'label';
@@ -287,6 +353,10 @@ export type IndicatorDrawing =
       textColor?: string;
       /** Which edge of the plate sits on the anchor. Defaults to 'center'. */
       align?: 'left' | 'center' | 'right';
+      /** Hover detail, as on a box. */
+      tooltip?: string;
+      /** Hit id, for `subscribeClick`. Defaults to the tooltip text. */
+      id?: string;
     }
   | {
       kind: 'polyline';
@@ -374,10 +444,54 @@ export interface IndicatorAlertSpec {
   id: string;
   /** Short human label, e.g. `'MACD crossed up'`. */
   title: string;
-  /** Longer text for a notification; defaults to `title`. */
-  message?: string;
+  /**
+   * Longer text for a notification; defaults to `title`. A function is handed
+   * the same context `when` judged, so the message can carry the bar's own
+   * numbers: the price it crossed at, the histogram reading, a JSON body for a
+   * webhook. It runs only for a bar `when` accepted.
+   */
+  message?: string | ((ctx: IndicatorAlertContext) => string);
   when(ctx: IndicatorAlertContext): boolean;
 }
+
+/**
+ * Thrown by a `calc` (or any hook) to say its inputs cannot produce a study,
+ * the way a script language's runtime error does: a period at or below zero, a
+ * fast length above the slow one, a benchmark the provider cannot serve.
+ *
+ * Any error out of a recompute is caught by the runtime and published on the
+ * instance's data status as `{ state: 'error' }`, so the chart keeps drawing
+ * every other indicator and a host can show the reason beside this one. This
+ * class exists so a descriptor can throw a **named** condition and a host can
+ * tell a bad input, which the user can fix, from a bug, which they cannot.
+ */
+export class IndicatorInputError extends Error {
+  public constructor(message: string) {
+    super(message);
+    this.name = 'IndicatorInputError';
+  }
+}
+
+/**
+ * Bars of another instrument or interval, supplied by the host on request.
+ *
+ * The engine is handed one symbol's bars and owns no transport, so a study
+ * that compares against a benchmark, or a Tier-2 provider that needs a second
+ * series, asks the host through this and the host answers from wherever it
+ * keeps history. `from` and `to` are UTC seconds; `signal` is aborted when the
+ * instance is removed or its settings change, so a provider can drop the
+ * request rather than answer into the void.
+ */
+export interface IndicatorBarsRequest {
+  symbol: string;
+  exchange?: string;
+  interval: string;
+  from: number;
+  to: number;
+  signal?: AbortSignal;
+}
+
+export type IndicatorBarsProvider = (request: IndicatorBarsRequest) => Promise<readonly Bar[]>;
 
 /** Payload of the `'indicator:alert'` event on the chart's own bus. */
 export interface IndicatorAlertPayload {
@@ -445,6 +559,13 @@ export interface IndicatorAttachContext {
   timezone?(): string;
   /** Chart wall clock in UTC seconds, the same clock the countdown row uses. */
   now?(): number;
+  /**
+   * Ask the host for another instrument's (or interval's) bars. Always present
+   * under `chart.addIndicator`; it rejects when the host has registered no
+   * provider (`chart.setBarsProvider`), so a study can treat the rejection as
+   * "unsupported here" and say so through `setDataStatus`.
+   */
+  requestBars?(request: IndicatorBarsRequest): Promise<readonly Bar[]>;
   /** The pane this instance drew into. Moves when panes are reordered. */
   paneIndex?(): number;
   /** Attach a primitive to this indicator's pane, and detach it again. */

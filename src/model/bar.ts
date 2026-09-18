@@ -25,6 +25,15 @@ export interface Bar {
    * two. Neither is expressible with one colour for the whole series.
    */
   color?: string;
+  /**
+   * Wick colour for this bar alone, over `color`. A study that paints candles
+   * with a translucent body and a solid wick cannot say so with one colour,
+   * and without this a per-bar override always set the two together. Read by
+   * the candle renderers only; absent means the wick follows `color`.
+   */
+  wickColor?: string;
+  /** Border colour for this bar alone, on the same terms as `wickColor`. */
+  borderColor?: string;
 }
 
 /** A single value point (for line/area/baseline series). */
