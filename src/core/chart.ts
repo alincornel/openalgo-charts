@@ -226,6 +226,8 @@ export interface ChartOptions {
    * bar under the cursor (price pane only).
    */
   crosshairMode?: CrosshairMode;
+  /** Snap the vertical crosshair to the nearest primary bar's center. Default false; independent of the price magnet. */
+  crosshairSnapToBar?: boolean;
   /**
    * Optional chrome on the axis strips: the corner clock and the bar-close
    * countdown. Both are off unless asked for, so a chart that omits this block
@@ -686,6 +688,7 @@ export class Chart {
 
   // interaction state
   private _crosshairMode: CrosshairMode;
+  private _crosshairSnapToBar: boolean;
   private _shortcuts: ShortcutManager | null = null;
   private _trading: TradingController | null = null;
   private _pointerInside = false;
@@ -875,6 +878,7 @@ export class Chart {
     if (options.legendOffset?.left !== undefined) this._legendOffset.left = options.legendOffset.left;
     this._timeAxisHeight = options.timeAxisHeight ?? 22;
     this._crosshairMode = options.crosshairMode ?? 'normal';
+    this._crosshairSnapToBar = options.crosshairSnapToBar === true;
     // Assigned rather than pushed through `setAxisChromeOptions`: the setter
     // asks for a repaint, and the render loop does not exist yet.
     Object.assign(this._axisChrome, options.axisChrome);
@@ -2197,6 +2201,11 @@ export class Chart {
     return this._crosshairMode;
   }
 
+  /** Whether the vertical crosshair snaps to an existing primary bar's center. */
+  public crosshairSnapToBar(): boolean {
+    return this._crosshairSnapToBar;
+  }
+
   /** The active palette. Swap it with `setTheme`. */
   public theme(): ChartTheme {
     return this._theme;
@@ -2661,6 +2670,7 @@ export class Chart {
     timeFormatter?: ((utcSeconds: number, tickMark?: TickMarkType) => string) | undefined;
     timezone?: string;
     crosshairMode?: CrosshairMode;
+    crosshairSnapToBar?: boolean;
   }): void {
     if (opts.theme) this.setTheme(opts.theme);
     if (opts.grid) this.setGridOptions(opts.grid);
@@ -2671,6 +2681,10 @@ export class Chart {
     if ('timeFormatter' in opts) this.setTimeFormatter(opts.timeFormatter);
     if (opts.timezone !== undefined) this.setTimezone(opts.timezone);
     if (opts.crosshairMode) this._crosshairMode = opts.crosshairMode;
+    if (typeof opts.crosshairSnapToBar === 'boolean') {
+      this._crosshairSnapToBar = opts.crosshairSnapToBar;
+      this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Cursor));
+    }
   }
 
   public panes(): readonly Pane[] {
@@ -2732,6 +2746,7 @@ export class Chart {
       },
       events: this.eventOptions(),
       crosshairMode: this._crosshairMode,
+      crosshairSnapToBar: this._crosshairSnapToBar,
       panes,
       series,
       indicators: this._indicators.map((i) => ({
@@ -2780,6 +2795,7 @@ export class Chart {
     if (s.navigation && typeof s.navigation === 'object') this._patchNavigation(s.navigation);
     if (s.events) this.setEventOptions(s.events);
     if (s.crosshairMode) this._crosshairMode = s.crosshairMode;
+    if (typeof s.crosshairSnapToBar === 'boolean') this._crosshairSnapToBar = s.crosshairSnapToBar;
     // A saved zone is data of unknown provenance, so an unrecognised name is
     // skipped rather than thrown: the rest of the layout is still restorable,
     // and a whole saved workspace should not be lost to one stale zone name.
@@ -3338,6 +3354,17 @@ export class Chart {
     const fraction = this._autoscaleTime === null || ++this._autoscaleFrames >= 90
       ? 1 : 1 - Math.exp(-Math.max(1, now - this._autoscaleTime) / 80);
     if (this._autoscaleTime !== null) this._autoscaleTime = now;
+    // Keep the actual pointer untouched for drawing and hit tests. Resolve at
+    // paint time so toggling the option or changing the viewport takes effect
+    // without waiting for another pointer event, across every pane at once.
+    let crosshairX = this._cursor?.x ?? 0;
+    const snapSeries = this._firstDataId.value ?? this._panes[0]?.series()[0]?.dataId;
+    if (this._cursor !== null && this._crosshairSnapToBar && snapSeries !== undefined) {
+      const index = Math.round(this._timeScale.xToIndex(crosshairX));
+      if (this._dataLayer.visibleBars(snapSeries, index, index).length > 0) {
+        crosshairX = this._timeScale.indexToX(index);
+      }
+    }
     for (let i = 0; i < this._panes.length; i++) {
       const pane = this._panes[i];
       const perPane = mask.paneInvalidation(i);
@@ -3354,7 +3381,7 @@ export class Chart {
         // pane draws the date tag.
         const cross = this._cursor === null
           ? null
-          : { x: this._cursor.x, yLocal: i === this._cursorPane ? this._cursor.y : null, showTimeTag: isBottom };
+          : { x: crosshairX, yLocal: i === this._cursorPane ? this._cursor.y : null, showTimeTag: isBottom };
         pane.paintTop(cross, ctx);
       }
     }

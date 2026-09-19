@@ -53,7 +53,7 @@ Produces: `ChartOptions.crosshairSnapToBar?: boolean`,
 Files: `src/link/group.ts`, `tests/link-interval.test.ts`, linking API guide.
 
 Produces: `LinkOptions.interval?: boolean`, `LinkMemberOptions.interval?: string`,
-`onInterval?: (interval: string, chart: LinkChart) => void`,
+`onInterval?: (interval: string, chart: LinkChart) => boolean | void`,
 `LinkGroup.interval(): string | null`, and `setInterval(chart, interval): void`.
 The chart's `interval` event accepts a token or `{ interval }`. Default sync off.
 

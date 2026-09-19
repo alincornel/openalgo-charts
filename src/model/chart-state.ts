@@ -58,6 +58,7 @@ export interface ChartState {
   barSpacing?: number;
   grid?: { vertLines: boolean; horzLines: boolean };
   crosshairMode?: 'normal' | 'magnet';
+  crosshairSnapToBar?: boolean;
   panes?: PaneState[];
   /** Informational: `restoreState` does not recreate these (it has no data). */
   series?: SeriesState[];

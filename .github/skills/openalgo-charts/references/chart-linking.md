@@ -141,3 +141,17 @@ Since 1.4.0 the programmatic viewport paths (`setVisibleLogicalRange`, `fitConte
 - **`LinkChart` is structural, not `Chart`.** A stub with `on`, `getVisibleLogicalRange`, `setVisibleLogicalRange`, `dataLayer`, `panes`, `addPrimitive` and `removePrimitive` is a valid member, which is how the group is tested. `isDestroyed` is optional for that reason.
 - **A linked crosshair is not the chart's crosshair.** `chart.subscribeCrosshairMove` still reports only the local pointer. Read `group.crosshairIndex(chart)` for the linked one.
 - **Symbol sync does nothing on its own.** With no `onSymbol` on any member, turning the switch on changes nothing visible, because there is no code anywhere that loads bars.
+# Interval linking
+
+`createLinkGroup({ interval: true })` adds an independent timeframe channel,
+off by default. Supply the member's current `interval` and an `onInterval`
+callback to `group.add(chart, ...)`. Report subsequent choices through
+`group.setInterval(chart, token)` or `chart.emit('interval', { interval: token })`.
+`group.interval()` reads the latest selection, even while interval sync is off.
+Enabling sync or joining an enabled group adopts its latest interval.
+
+The callback applies the host's interval synchronously and starts its usual data
+load. Return `false` for an unsupported interval; this preserves the member's
+previous interval. Async fetching stays with the host and its cancellation rules.
+Callbacks cannot recursively overwrite the leader's interval by echoing a token.
+Removing or destroying a member releases the interval listener with other links.

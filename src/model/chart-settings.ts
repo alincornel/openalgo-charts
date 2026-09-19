@@ -653,6 +653,8 @@ function appearanceControls(chart: Chart): Control[] {
 
     selectCtl('canvas.crosshairMode', 'Mode', 'Crosshair', 'normal', CROSSHAIR_MODES,
       (c) => c.crosshairMode(), (c, v) => c.applyOptions({ crosshairMode: v === 'magnet' ? 'magnet' : 'normal' })),
+    boolCtl('canvas.crosshairSnapToBar', 'Snap to candle center', 'Crosshair', false,
+      (c) => c.crosshairSnapToBar(), (c, v) => c.applyOptions({ crosshairSnapToBar: v })),
     colorCtl('canvas.crosshair.color', 'Color', 'Crosshair', t.crosshair,
       (c) => cross(c).color ?? t.crosshair, (c, v) => c.setCanvasOptions({ crosshair: { color: v } })),
     selectCtl('canvas.crosshair.style', 'Style', 'Crosshair', t.crosshairStyle ?? 'dashed', LINE_STYLES,

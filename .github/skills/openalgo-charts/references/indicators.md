@@ -1,5 +1,15 @@
 # Indicators
 
+## Volume direction and average
+
+The `volume` study keeps its single-colour histogram by default. Set
+`colorByDirection: true` and supply `upColor` / `downColor` to follow candle
+direction (a doji is up). The host can pass its current candle palette when the
+theme changes. Set `showMA: true` and `maPeriod` (default 20) for a simple volume
+average on the same scale. It starts after a complete window, recomputes on live
+corrections and respects a replay prefix. `maColor` and the generated plot-style
+controls configure the line. Turning the average off leaves gaps, not zeroes.
+
 *When to read this: you are adding a built-in indicator to a chart, generating a settings UI from a descriptor, writing a custom indicator, or wiring an indicator whose data does not come from the chart's OHLCV.*
 
 ## The one-line import rule

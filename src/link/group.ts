@@ -5,7 +5,7 @@
  * ships no DOM, so the host draws its own link badge / colour chips and decides
  * which charts belong to which group.
  *
- * Three channels sync, each switchable on its own because a user routinely
+ * Four channels sync, each switchable on its own because a user routinely
  * wants one without the others (mirror the cursor across four timeframes but
  * keep each zoom; or slave every chart's symbol but let each keep its own
  * window):
@@ -13,6 +13,7 @@
  * - **crosshair**: hovering one chart marks the same instant on the others.
  * - **viewport**: panning or zooming one moves the others to the same window.
  * - **symbol**: changing the instrument on one changes it on the others.
+ * - **interval**: changing a timeframe asks each following host to adopt it.
  *
  * Four decisions carry the design.
  *
@@ -85,6 +86,8 @@ export interface LinkOptions {
   viewport?: boolean;
   /** Mirror the instrument, via each member's `onSymbol`. Default false. */
   symbol?: boolean;
+  /** Mirror the timeframe, via each member's `onInterval`. Default false. */
+  interval?: boolean;
   /** What a follower does with an instant it has no bar for. Default 'nearest'. */
   whenMissing?: LinkMissingPolicy;
 }
@@ -98,6 +101,10 @@ export interface LinkMemberOptions {
    * it still broadcasts its own changes, it just never follows anyone else's.
    */
   onSymbol?: (symbol: string, chart: LinkChart) => void;
+  /** The interval this chart is showing, if the host tracks one. */
+  interval?: string;
+  /** Apply the interval synchronously; return false to refuse an unsupported token. */
+  onInterval?: (interval: string, chart: LinkChart) => boolean | void;
 }
 
 /** Every option resolved, as `options()` reports them. */
@@ -107,6 +114,7 @@ const DEFAULT_OPTIONS: ResolvedLinkOptions = {
   crosshair: true,
   viewport: true,
   symbol: false,
+  interval: false,
   whenMissing: 'nearest',
 };
 
@@ -114,6 +122,8 @@ interface Member {
   chart: LinkChart;
   symbol: string | null;
   onSymbol: ((symbol: string, chart: LinkChart) => void) | null;
+  interval: string | null;
+  onInterval: NonNullable<LinkMemberOptions['onInterval']> | null;
   unsubscribe: (() => void)[];
   /** One linked crosshair per pane, mirroring the global crosshair's reach. */
   crosshairs: LinkCrosshair[];
@@ -132,12 +142,17 @@ function alive(chart: LinkChart): boolean {
   return chart.panes().length > 0;
 }
 
+function validInterval(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
 export class LinkGroup {
   private readonly _members: Member[] = [];
   private _options: ResolvedLinkOptions;
   /** True while the group is applying a change to followers. See decision 3. */
   private _broadcasting = false;
   private _symbol: string | null = null;
+  private _interval: string | null = null;
   private _destroyed = false;
 
   public constructor(options: LinkOptions = {}) {
@@ -166,6 +181,7 @@ export class LinkGroup {
       for (const m of this._members) this._detachCrosshairs(m);
     }
     if (!before.symbol && this._options.symbol) this._convergeSymbol();
+    if (!before.interval && this._options.interval) this._convergeInterval();
   }
 
   public members(): readonly LinkChart[] {
@@ -180,6 +196,11 @@ export class LinkGroup {
   /** The instrument the group has agreed on, or null if nobody declared one. */
   public symbol(): string | null {
     return this._symbol;
+  }
+
+  /** Latest interval selected by a member, even while interval linking is off. */
+  public interval(): string | null {
+    return this._interval;
   }
 
   /**
@@ -209,12 +230,17 @@ export class LinkGroup {
     if (existing !== null) {
       if (member.symbol !== undefined) existing.symbol = member.symbol;
       if (member.onSymbol !== undefined) existing.onSymbol = member.onSymbol;
+      if (validInterval(member.interval)) existing.interval = member.interval;
+      if (member.onInterval !== undefined) existing.onInterval = member.onInterval;
+      if (this._options.interval) this._convergeInterval();
       return;
     }
     const entry: Member = {
       chart,
       symbol: member.symbol ?? null,
       onSymbol: member.onSymbol ?? null,
+      interval: validInterval(member.interval) ? member.interval : null,
+      onInterval: member.onInterval ?? null,
       unsubscribe: [],
       crosshairs: [],
     };
@@ -223,6 +249,10 @@ export class LinkGroup {
       chart.on('pan', () => this._onViewport(entry)),
       chart.on('zoom', () => this._onViewport(entry)),
       chart.on('symbol', (p) => this._onSymbolEvent(entry, p)),
+      chart.on('interval', (p) => {
+        const interval = typeof p === 'string' ? p : (p as { interval?: unknown } | null)?.interval;
+        if (validInterval(interval)) this._applyInterval(entry, interval);
+      }),
       // Without this the group holds a destroyed chart (and every listener
       // closure it captured) until the next channel event happens to prune it,
       // which for a group whose other member is idle is forever.
@@ -232,6 +262,8 @@ export class LinkGroup {
     // The first member to declare an instrument establishes the group's.
     if (this._symbol === null && entry.symbol !== null) this._symbol = entry.symbol;
     if (this._options.symbol) this._convergeSymbol();
+    if (this._interval === null && entry.interval !== null) this._interval = entry.interval;
+    if (this._options.interval) this._convergeInterval();
   }
 
   /** Take a chart out of the group. Safe to call twice, and after `destroy`. */
@@ -253,12 +285,19 @@ export class LinkGroup {
     this._applySymbol(entry, symbol);
   }
 
+  /** Report a host-owned interval selection; followers opt in through `onInterval`. */
+  public setInterval(chart: LinkChart, interval: string): void {
+    const entry = this._find(chart);
+    if (entry !== null && validInterval(interval)) this._applyInterval(entry, interval);
+  }
+
   /** Unlink everything: no listeners, no linked crosshairs, no references. */
   public destroy(): void {
     this._destroyed = true;
     for (const m of this._members) this._release(m);
     this._members.length = 0;
     this._symbol = null;
+    this._interval = null;
   }
 
   // ── channels ──────────────────────────────────────────────────────────────
@@ -321,6 +360,27 @@ export class LinkGroup {
     });
   }
 
+  private _applyInterval(from: Member, interval: string): void {
+    // A follower can echo a normalized token while applying the request. Such
+    // an echo must not replace the leader's selection before the guard runs.
+    if (this._broadcasting || this._destroyed || !alive(from.chart)) return;
+    from.interval = interval;
+    this._interval = interval;
+    if (this._options.interval) this._broadcast(from, target => this._followInterval(target, interval));
+  }
+
+  private _followInterval(target: Member, interval: string): void {
+    if (target.interval === interval || target.onInterval === null) return;
+    if (target.onInterval(interval, target.chart) !== false) target.interval = interval;
+  }
+
+  private _convergeInterval(): void {
+    const interval = this._interval;
+    if (interval !== null && this._options.interval) {
+      this._broadcast(null, target => this._followInterval(target, interval));
+    }
+  }
+
   // ── plumbing ──────────────────────────────────────────────────────────────
 
   /**
@@ -344,6 +404,7 @@ export class LinkGroup {
       // list must not shift underneath the loop.
       for (const target of [...this._members]) {
         if (target === from) continue;
+        if (!this._members.includes(target)) continue;
         if (!alive(target.chart)) continue; // pruned on the next pass
         apply(target);
       }

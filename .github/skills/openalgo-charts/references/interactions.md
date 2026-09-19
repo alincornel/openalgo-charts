@@ -238,3 +238,12 @@ Reveal is driven by an explicit `setPointer(plotLocalPoint | null)` from the cha
 ## Related
 
 [core-api](core-api.md) · [scales-and-panes](scales-and-panes.md) · [events-and-state](events-and-state.md) · [drawing-tools](drawing-tools.md) · [primitives-and-plugins](primitives-and-plugins.md) · [react-integration](react-integration.md) · [pitfalls](pitfalls.md)
+# Candle-center crosshair
+
+`createChart(element, { crosshairSnapToBar: true })` aligns the vertical line
+with the nearest bar center. `chart.applyOptions({ crosshairSnapToBar: false })`
+restores pointer-following immediately; `chart.crosshairSnapToBar()` reads it.
+The option defaults to false, survives `getState` / `restoreState`, and is exposed
+as `canvas.crosshairSnapToBar` in the chart settings schema. It is independent of
+`crosshairMode: 'magnet'`, which controls horizontal OHLC snapping. Event points
+and drawing hit tests retain the raw pointer. Empty and future space do not snap.
