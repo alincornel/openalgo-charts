@@ -6,6 +6,7 @@
  * Add --navigation true to validate the wheel routing introduced in 2.1.8.
  * Add --branding true to validate corner branding and optional watermark settings.
  * Add --foundations true for candle-center snapping, interval sync and volume averages.
+ * Add --templates true for named study templates on the selected chart.
  * Use --browser chromium|firefox|webkit to select the rendering engine.
  *
  * No backend is started. Vite proxies are removed and every API/WS is mocked.
@@ -218,6 +219,11 @@ try {
     await page.waitForFunction((price) => window.__compatTerminals?.some((t) => !t.destroyed && t.lastLtp === price), ltp);
   };
   await page.goto(`${origin}/trading`);
+  if (args.templates === 'true') {
+    await page.getByRole('button', { name: 'Templates', exact: true }).click({ timeout: 5000 });
+    await page.getByRole('dialog', { name: 'Indicator templates' }).waitFor();
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
+  }
   await check('unchanged /trading mounts real chart', async () => {
     await waitReady();
     assert(await page.locator('canvas').count() > 0);
@@ -759,16 +765,136 @@ try {
       }
     });
   }
+  if (args.templates === 'true') {
+    await check('named study templates preserve repeated instances on the focused chart and reload', async () => {
+      const originalOrderCount = orderCounter;
+      assert.equal(await page.getByRole('button', { name: 'Templates', exact: true }).count(), 1);
+      const studies = [
+        { indicatorId: 'ema', settings: { period: 9, 'plot.ema.color': '#ff9800' }, paneIndex: 0, visible: true },
+        { indicatorId: 'ema', settings: { period: 9, 'plot.ema.color': '#ff9800' }, paneIndex: 0, visible: true },
+        { indicatorId: 'rsi', settings: { period: 14 }, paneIndex: 1, visible: false },
+        { indicatorId: 'rsi', settings: { period: 21 }, paneIndex: 1, visible: true },
+      ];
+      await terminal((t, list) => t.applyIndicatorTemplate(list, 'replace'), studies);
+      const targetKey = await terminal(t => t.sk);
+      const focus = async () => {
+        const box = await terminal(t => { const r = t.container.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+        await page.mouse.click(box.x, box.y);
+      };
+      const snapshots = () => page.evaluate(() => window.__compatTerminals.filter(t => !t.destroyed).map(t => ({
+        key: t.sk, studies: t.captureIndicatorTemplate(), bars: t.price.getData().length, range: t.chart.getVisibleLogicalRange(),
+      })));
+      await focus();
+      const before = await snapshots();
+      const expected = before.find(item => item.key === targetKey).studies;
+      await page.getByRole('button', { name: 'Templates', exact: true }).click();
+      await page.getByLabel('New template name', { exact: true }).fill('Study group');
+      await page.getByRole('button', { name: 'Save current studies', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Template saved' }).waitFor();
+      await page.getByRole('button', { name: 'Close', exact: true }).click();
+      await waitDialogClosed();
+      await terminal(t => t.applyIndicatorTemplate([], 'replace'));
+      await terminal((t, symbol) => t.loadSymbol(symbol), symbols[0]);
+      await waitReady();
+      await focus();
+      const cleared = await snapshots();
+      await page.getByRole('button', { name: 'Templates', exact: true }).click();
+      await page.getByRole('button', { name: 'Replace studies', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Studies replaced' }).waitFor();
+      const applied = await snapshots();
+      assert.deepEqual(applied.find(item => item.key === targetKey).studies, expected);
+      for (const pane of applied) {
+        const prior = cleared.find(item => item.key === pane.key);
+        assert.equal(pane.bars, prior.bars);
+        assert.deepEqual(pane.range, prior.range);
+        if (pane.key !== targetKey) assert.deepEqual(pane.studies, before.find(item => item.key === pane.key).studies);
+      }
+      await page.getByRole('button', { name: 'Close', exact: true }).click();
+      await waitDialogClosed();
+      await reload();
+      await waitReady();
+      await page.waitForFunction(({ key, count }) => window.__compatTerminals.some(t => !t.destroyed && t.sk === key && t.chart?.indicators().length === count), { key: targetKey, count: expected.length });
+      assert.deepEqual((await snapshots()).find(item => item.key === targetKey).studies, expected);
+      await focus();
+      await page.getByRole('button', { name: 'Templates', exact: true }).click();
+      await page.getByLabel('Saved template', { exact: true }).selectOption({ label: 'Study group' });
+      if (args.screenshot) await page.screenshot({ path: resolve(args.screenshot.replace(/\.png$/, '-templates.png')), fullPage: true, animations: 'disabled' });
+      assert.equal(orderCounter, originalOrderCount);
+      await page.getByRole('button', { name: 'Close', exact: true }).click();
+      await waitDialogClosed();
+    });
+  }
+  if (args.templates === 'true') {
+    await check('template imports, exports and storage failures preserve the chart and catalog', async () => {
+      const ordersBefore = orderCounter;
+      const before = await terminal(t => t.captureIndicatorTemplate());
+      await page.getByRole('button', { name: 'Templates', exact: true }).click();
+      await page.getByLabel('Saved template', { exact: true }).selectOption({ label: 'Study group' });
+      const downloadPromise = page.waitForEvent('download');
+      await page.getByRole('button', { name: 'Export JSON', exact: true }).click();
+      const download = await downloadPromise;
+      const stream = await download.createReadStream();
+      const chunks = []; for await (const chunk of stream) chunks.push(chunk);
+      const exported = JSON.parse(Buffer.concat(chunks).toString());
+      assert.equal(exported.kind, 'indicator-template');
+      assert.deepEqual(exported.indicators, before);
+      const upload = async (name, indicators) => {
+        const doc = { kind: 'indicator-template', version: 1, id: 'imported', name, createdAt: 1, updatedAt: 1, indicators };
+        await page.getByLabel('Import template JSON', { exact: true }).setInputFiles({ name: 'template.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(doc)) });
+        await page.getByRole('status').filter({ hasText: 'Template imported' }).waitFor();
+      };
+      await upload('Unavailable custom study', [{ indicatorId: 'absent-local-study', settings: {}, paneIndex: 1 }]);
+      await page.getByRole('button', { name: 'Replace studies', exact: true }).click();
+      await page.getByRole('alert').filter({ hasText: 'absent-local-study' }).waitFor();
+      assert.deepEqual(await terminal(t => t.captureIndicatorTemplate()), before);
+      await upload('Empty studies', []);
+      await page.getByRole('button', { name: 'Replace studies', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Studies replaced' }).waitFor();
+      assert.deepEqual(await terminal(t => t.captureIndicatorTemplate()), []);
+      await page.getByLabel('Saved template', { exact: true }).selectOption({ label: 'Study group' });
+      await page.getByRole('button', { name: 'Replace studies', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Studies replaced' }).waitFor();
+      await page.evaluate(() => {
+        window.__originalCatalogPut = IDBObjectStore.prototype.put;
+        IDBObjectStore.prototype.put = function(...args) {
+          if (this.name === 'catalogs') throw new DOMException('Fixture storage rejected', 'QuotaExceededError');
+          return window.__originalCatalogPut.apply(this, args);
+        };
+      });
+      await page.getByLabel('New template name', { exact: true }).fill('Rejected save');
+      await page.getByRole('button', { name: 'Save current studies', exact: true }).click();
+      await page.getByRole('alert').filter({ hasText: 'Fixture storage rejected' }).waitFor();
+      assert.equal(await page.getByLabel('New template name', { exact: true }).inputValue(), 'Rejected save');
+      assert.equal(await page.getByRole('option', { name: 'Rejected save', exact: true }).count(), 0);
+      await page.evaluate(() => { IDBObjectStore.prototype.put = window.__originalCatalogPut; delete window.__originalCatalogPut; });
+      await page.getByRole('button', { name: 'Refresh templates', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Templates refreshed' }).waitFor();
+      assert.equal(await page.getByRole('option', { name: 'Rejected save', exact: true }).count(), 0);
+      await page.setViewportSize({ width: 390, height: 844 });
+      // Resizing starts a max-width transition; measure its finished layout.
+      await page.getByRole('dialog', { name: 'Indicator templates' }).evaluate(el => {
+        for (const animation of el.getAnimations()) animation.finish();
+      });
+      const dimensions = await page.getByRole('dialog', { name: 'Indicator templates' }).evaluate(el => ({ width: el.getBoundingClientRect().width, scroll: el.scrollWidth, client: el.clientWidth }));
+      assert(dimensions.width <= 358 && dimensions.scroll <= dimensions.client + 1);
+      if (args.screenshot) await page.screenshot({ path: resolve(args.screenshot.replace(/\.png$/, '-templates-mobile.png')), fullPage: true, animations: 'disabled' });
+      await page.setViewportSize({ width: 1440, height: 1000 });
+      await page.getByRole('button', { name: 'Close', exact: true }).click();
+      await waitDialogClosed();
+      assert.equal(orderCounter, ordersBefore);
+    });
+  }
   await check('no browser runtime errors or external HTTP', async () => {
     await Promise.all(consoleReads);
     // WebKit reports fetches cancelled/refused on a departing document as
     // pageerrors even when caught. Classify only this network diagnostic during
-    // reload, to the fixture's own API; window errors/rejections still fail.
+    // reload, to caught fixture API/index reads; window errors/rejections fail.
     report.reloadNetworkNotices = [];
     const unexpected = report.pageErrorDetails.filter(error => {
       const url = error.stack?.match(/^(?:Fetch API|XMLHttpRequest) cannot load (https?:\/\/\S+) due to access control checks\./)?.[1];
       const departing = browserType === webkit && error.duringReload
-        && (url?.startsWith(`${origin}/api/`) || url?.startsWith(`${origin}/socket.io/`));
+        && (url?.startsWith(`${origin}/api/`) || url?.startsWith(`${origin}/socket.io/`)
+          || url === `${origin}/custom-indicators/index.json`);
       if (departing) report.reloadNetworkNotices.push({ ...error, url,
         cancelledRequestObserved: report.failedRequests.some(request => request.url === url && request.failure?.errorText === 'Load request cancelled'),
       });

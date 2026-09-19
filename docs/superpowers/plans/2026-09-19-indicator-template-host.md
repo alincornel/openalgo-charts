@@ -68,7 +68,7 @@ together. Pane zero remains the primary chart. Limit the combined list to 256
 instances and the target pane indices to the document limit (31). Do not merge
 instances because their parameters happen to match.
 
-- [ ] Add pure regressions with two equal EMA instances, two different EMA periods,
+- [x] Add pure regressions with two equal EMA instances, two different EMA periods,
   shared oscillator panes, empty replace/append, unknown IDs, invalid mode, size
   bounds, detached settings and legacy/version-2 persistence:
 
@@ -81,12 +81,12 @@ expect(() => planIndicatorTemplate([duplicate], [{ ...duplicate, indicatorId: 'm
   'replace', new Set(['ema']), 1)).toThrow(/missing/);
 ```
 
-- [ ] Run `npm run test:run -- src/lib/trading/indicatorTemplates.test.ts --maxWorkers=2` in the consumer frontend. Expected RED: helper module absent.
-- [ ] Implement the planner and migration helper. Preserve the existing public `dedupeIndicators` helper for legacy migration callers/tests; remove its use from modern automatic restoration.
-- [ ] Extend tracked indicator records with optional paneIndex. Read versioned records in `restoreChartTools`; include actual `IndicatorApi.paneIndex` in synchronization and write the version-2 envelope. `applyIndicators` passes paneIndex when present and retains all modern records. Existing saved arrays still load.
-- [ ] Add terminal regression tests for captured pane placement and visibility, missing custom IDs preserving current instances, stale chart ownership after deferred module loading, and suppression of intermediate `syncIndicators` while replacing.
-- [ ] Implement capture by parsing `chart.getState().indicators ?? []`. Apply snapshots the current chart before `await loadIndicators()`, rejects if it is destroyed/replaced afterward, plans against registered descriptors and current panes, and calls `chart.restoreState({ version: 1, indicators: planned })` under `applyingIndicators`. On a thrown restore, restore the previous indicator list and surface the failure. Always release the guard and sync the final current chart. No price-series, viewport, drawings or order state is restored here.
-- [ ] Run both files and the existing trading suite. Expected GREEN; no duplicate study after an async rebuild. Commit locally.
+- [x] Run `npm run test:run -- src/lib/trading/indicatorTemplates.test.ts --maxWorkers=2` in the consumer frontend. Expected RED: helper module absent.
+- [x] Implement the planner and migration helper. Preserve the existing public `dedupeIndicators` helper for legacy migration callers/tests; remove its use from modern automatic restoration.
+- [x] Extend tracked indicator records with optional paneIndex. Read versioned records in `restoreChartTools`; include actual `IndicatorApi.paneIndex` in synchronization and write the version-2 envelope. `applyIndicators` passes paneIndex when present and retains all modern records. Existing saved arrays still load.
+- [x] Add terminal regression tests for captured pane placement and visibility, missing custom IDs preserving current instances, stale chart ownership after deferred module loading, and suppression of intermediate `syncIndicators` while replacing.
+- [x] Implement capture by parsing `chart.getState().indicators ?? []`. Apply snapshots the current chart before `await loadIndicators()`, rejects if it is destroyed/replaced afterward, plans against registered descriptors and current panes, and calls `chart.restoreState({ version: 1, indicators: planned })` under `applyingIndicators`. On a thrown restore, restore the previous indicator list and surface the failure. Always release the guard and sync the final current chart. No price-series, viewport, drawings or order state is restored here.
+- [x] Run both files and the existing trading suite. Expected GREEN; no duplicate study after an async rebuild. Commit locally.
 
 ## Task 2: Account-bound catalog hook
 
@@ -117,12 +117,12 @@ account so its caller cannot show a success message in the new session. Count
 pending operations rather than allowing the first completion to clear another
 operation's busy flag. StrictMode cleanup must not reuse a closed adapter.
 
-- [ ] Write hook tests with the real repository and an async in-memory CAS storage
+- [x] Write hook tests with the real repository and an async in-memory CAS storage
   adapter: initial loading, saved template appears, failure leaves previous list,
   failed write followed by retry, two pending operations, account switch during a
   deferred write, unmount, absent IndexedDB, and StrictMode remount.
-- [ ] Run the new hook suite. Expected RED: hook absent.
-- [ ] Implement the hook with the ownership/cleanup behavior above, then run the
+- [x] Run the new hook suite. Expected RED: hook absent.
+- [x] Implement the hook with the ownership/cleanup behavior above, then run the
   hook suite and consumer lint/type build. Expected GREEN. Commit locally.
 
 ## Task 3: Focused-chart template dialog
@@ -140,22 +140,22 @@ layout/sync control, with text identifying that it acts on the selected chart.
 Keep this control singular when a grid has several panes; F9 will relocate all
 shared actions together.
 
-- [ ] Write component interaction tests for saving current studies with a name,
+- [x] Write component interaction tests for saving current studies with a name,
   applying to the currently focused target, replace versus append, empty replace,
   rename/duplicate/delete, file export/import, loading/no-chart states and a
   rejected save. Assert user-visible results through the actual component.
-- [ ] Run the new component tests. Expected RED: component absent.
-- [ ] Render saved templates in a labelled Dialog with native text inputs and
+- [x] Run the new component tests. Expected RED: component absent.
+- [x] Render saved templates in a labelled Dialog with native text inputs and
   explicit `Replace studies` / `Add studies` actions. Use repository operations
   for CRUD and portable JSON. Import only `indicator-template` documents in this
   dialog; parse before writing. File input accepts JSON and handles rejected or
   oversized files with visible feedback. Clear browser object URLs after export.
   Buttons follow pending/loading state; an error leaves the dialog open and keeps
   the user's entered name. Empty templates display `No studies` and remain usable.
-- [ ] Connect the one dialog to `useAuthStore`'s current username and focused
+- [x] Connect the one dialog to `useAuthStore`'s current username and focused
   terminal. Capture/apply errors use existing host feedback. Do not capture
   execution state or change the One-Click preference.
-- [ ] Run component/hook/trading suites and build. Expected GREEN. Commit locally.
+- [x] Run component/hook/trading suites and build. Expected GREEN. Commit locally.
 
 ## Task 4: Actual-chart browser gate and guide
 
@@ -163,17 +163,17 @@ Library files: `scripts/check-openalgo-compat.mjs` (opt-in `--templates true`) a
 the master ledger. Consumer file: `docs/userguide/trading.md` (locate existing guide
 before updating; use the existing trading guide if its path differs).
 
-- [ ] Before terminal/UI implementation is complete, add an actual `/trading`
+- [x] Before terminal/UI implementation is complete, add an actual `/trading`
   failing browser check that saves two identical studies and an oscillator
   template, switches the focused symbol, replaces its studies, reloads and asserts
   instance count/settings/visibility/pane placement from real engine snapshots.
   Add missing-custom/empty-template and storage-rejection checks. Expected RED
   against the prior consumer because the Templates control is absent.
-- [ ] After implementation, run the checks in Chromium, Firefox and WebKit with
+- [x] After implementation, run the checks in Chromium, Firefox and WebKit with
   the packed candidate. Verify template actions preserve primary bar count and
   viewport, do not send order mutations, and operate only on the focused chart.
   Record screenshots and inspect desktop plus a narrow viewport. Expected GREEN.
-- [ ] Update the user guide with save/apply/append/replace, custom-study errors,
+- [x] Update the user guide with save/apply/append/replace, custom-study errors,
   private per-account browser storage and portable imports. Run affected checks,
   full consumer lint and build; record exact evidence and commit locally.
 

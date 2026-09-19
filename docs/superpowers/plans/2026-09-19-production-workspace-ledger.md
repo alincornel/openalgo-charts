@@ -236,3 +236,64 @@ comparison/replay coordination, and every P1-P6 readiness requirement.
 Keep the replay-loading lock gap in scope: `beginReplayAt` clears picking before
 awaiting sub-bars, while the replay controller is still absent. Coordinated
 replay must hold the workspace lock through that await and handle cancellation.
+
+### Indicator templates in the consumer
+
+Task 1 is committed as consumer `1de1c37dd`: modern version-2 preferences
+retain exact repeated studies and pane placement, while legacy arrays retain
+their previous duplicate-healing policy. The terminal validates every descriptor
+before replacing studies, checks chart ownership after module loading and rolls
+back a thrown restore. Price bars and viewport are preserved.
+
+Task 2 is committed as consumer `744c18d12`: the catalog hook creates an adapter
+in the account effect, counts pending operations, closes on cleanup and rejects
+obsolete account completions. Nine tests use the real repository, including
+failed writes/retry, account switch, unmount, reload and StrictMode.
+
+The consumer now vendors source `7e27c3c` in commit `679f8b7a4`:
+`openalgo-charts-2.4.0-7e27c3c.tgz`, 1,142,277 bytes, SHA-512
+`WdGF1RtEKi0RUqS/JYkpfkFrXUM2jgJqU8MztI8rZXFihg/Ui0nyfSzlxMgWBxs7doFKhxrLths3nCJ9+2KWFQ==`.
+The lockfile and extracted package match. Real authenticated market evidence in
+`live-market-time.json` confirms that `ltt: 1789732772` is retained despite a
+later delivery timestamp; the resulting 5-minute last bar is 1789732500, with
+1,513 sorted valid-OHLC bars and no delivery-day candle. Session-calendar
+validation remains open because that reported event time is after cash hours.
+
+The dialog is committed as consumer `92e55c173`. Eight component tests and all
+539 affected consumer tests pass. The initial full UI suite passed 2,151 tests
+across 128 files. Browser regressions exposed focus stealing by the first pane
+when its shared control opened; workspace controls now preserve the selected
+pane. Firefox also exposed a visibility notification whose microtask still ran
+inside a render. A failing unit regression now requires the next browser task;
+pending timers are cancelled on unmount. Visibility tests must flush that task
+before sending the opposite transition. The correction is committed as
+`4a02be54e`; all 2,152 consumer tests across 128 files now pass. Full consumer
+lint, type build and production build pass; the existing large visualization
+chunk warning and simulated-DOM canvas notices remain. Generated tracked assets
+were restored after the build.
+
+Mobile assertions now finish the dialog resize transition before measuring its
+width. The dialog is constrained to a 16-pixel viewport margin; screenshots
+disable finite animations so they show the settled surface. All 26 compatibility
+checks now pass in each of Chromium, Firefox and WebKit. Current reports have zero
+page errors and runtime events; console counts 28/1/30 include only injected
+resource failures and the expected mode-mismatch refusal. An earlier WebKit
+reload also reported a caught custom-index fetch as a page error; the narrowly
+scoped departing-document diagnostic classifier now covers that exact local
+index URL, retaining the notice separately. Window errors/rejections still fail.
+Desktop and narrow screenshots were visually inspected. Reports and images:
+`artifacts/candidate/templates-{chromium,firefox,webkit}*`.
+
+The live dialog also saved, reapplied and deleted a temporary empty template in
+the authenticated account, preserving the actual market context and 1,513 bars.
+Its final apply measured 1,968 ms; a preceding live wait exceeded 10 seconds but
+was later observed complete. These are individual checks, not a performance
+guarantee or fresh-trade evidence. Both temporary validation entries were removed.
+The earlier live method probe covers four study instances and interval restoration.
+Sanitized live dialog report: `artifacts/candidate/live-template-dialog.json`.
+
+The focused-chart template consumer phase is complete. F1 full-grid layouts,
+reference-host controls, comparisons, shared replay/toolbar and P1-P6 remain
+required. The score remains an assessment; these checks do not establish a
+90-point production claim. Added-line, untracked-file and local commit-message
+scans still contain no excluded comparison names.
