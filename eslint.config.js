@@ -30,7 +30,7 @@ const LAZY_TIERS = ['indicators', 'draw', 'transform', 'profile', 'trade', 'webg
  */
 const BASE_DIRS = [
   'core', 'render', 'scale', 'model', 'primitives',
-  'input', 'feed', 'replay', 'compare', 'link', 'helpers',
+  'input', 'feed', 'replay', 'compare', 'link', 'helpers', 'alerts',
 ];
 
 const crossTier = (tiers, why) => ({

@@ -46,7 +46,10 @@ const BUNDLE = new URL('../dist/openalgo-charts.mjs', import.meta.url).pathname.
 // The measured chart-only cost is 0.21 KiB: 49.92 KiB at 2f6b54c to 50.13 KiB.
 // Keep one readout timestamp shared by native and linked hover. These corrections
 // belong to core chart hosts; allow 50.25 KiB while retaining every tier budget.
-const LIMIT_BYTES = 50.25 * 1024;
+// Primary source reads and the history/live update event serve headless hosts.
+// Their measured chart-only cost is 0.04 KiB (50.25 to 50.29); the optional
+// alert controller must still disappear, checked by MUST_BE_SHAKEN below.
+const LIMIT_BYTES = 50.3 * 1024;
 
 // Absent from a chart-only build. Each is a string that appears in the adapter
 // source and nowhere in the rendering core.
@@ -63,6 +66,7 @@ const MUST_BE_SHAKEN = [
   // wanted a chart can never receive a toolbar. The string is the CSS scope
   // every widget rule is written under, and nothing in the engine paints HTML.
   ['widget tier', 'oac-widget'],
+  ['trader alert controller', 'An alert controller already owns this chart'],
 ];
 
 const virtual = {

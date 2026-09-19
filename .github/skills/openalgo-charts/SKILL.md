@@ -123,6 +123,7 @@ Detailed reference for each topic is in `references/`. Read the one that matches
 | [data-and-time](references/data-and-time.md) | `Bar` shape, UTC seconds, the chart timezone and the time helpers, setData/update/prependData, the logical-index model, history paging, tick and volume bars |
 | [feeds-and-live](references/feeds-and-live.md) | `DataFeed` contract, OpenAlgo REST/WS/live feeds, `CandleBuilder`, the interval registry, `withBarCache` warm loading, writing a custom feed |
 | [events-and-state](references/events-and-state.md) | The full event catalogue with payloads, `getState`/`restoreState`, saved layouts |
+| [alerts](references/alerts.md) | Headless trader alerts, confirmed versus intrabar timing, lifecycle, expiry and host delivery |
 | [indicators](references/indicators.md) | The 102 built-ins with exact ids, placements and input defaults, the settings model, levels/ranges/fills, signal markers, `registerIndicator`, the Tier-2 external-data contract |
 | [transforms](references/transforms.md) | Heikin Ashi, Renko, Range, Line Break, Point and Figure, Kagi |
 | [drawing-tools](references/drawing-tools.md) | The 85 tools, `DrawingController`, anchors, magnet, undo, copy/cut/paste and the clipboard payload, persistence, shortcuts, custom tools |

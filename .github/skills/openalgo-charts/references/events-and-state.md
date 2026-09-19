@@ -24,6 +24,13 @@ chart.off('crosshair:move');            // drop every listener for the name
 
 ## Event catalogue
 
+Primary source updates emit `data:update` with `ChartDataUpdate`:
+`{ kind: 'update' | 'reset' | 'prepend', time?: number }`. Live updates name the
+updated UTC bar time; resets include primary-series removal. Indicator and
+secondary-series writes do not emit it. Read `chart.primaryBars()` for the
+readonly source history without copying it. The event follows indicator
+invalidation; `chart.indicators()` flushes studies when a host needs their values.
+
 Every name emitted by the engine, verified against the `emit(` call sites in `src/core/chart.ts`, `src/core/trading-controller.ts`, `src/draw/controller.ts`, and `src/replay/controller.ts`.
 
 | Event | Payload | Fires when |

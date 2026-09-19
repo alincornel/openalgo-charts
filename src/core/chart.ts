@@ -995,6 +995,12 @@ export class Chart {
     return this._dataLayer;
   }
 
+  /** Readonly source bars, without allocating a history copy on each live update. */
+  public primaryBars(): readonly Bar[] {
+    const id = this._firstDataId.value;
+    return id === null ? [] : this._dataLayer.seriesBars(id);
+  }
+
   public get timeScale(): TimeScale {
     return this._timeScale;
   }
@@ -1196,7 +1202,10 @@ export class Chart {
         this._timeScale.setBaseIndex(this._dataLayer.baseIndex);
         this._recomputeAxisColumns();
         this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
-        if (primary) this.emit('objects:change', {});
+        if (primary) {
+          this.emit('data:update', { kind: 'reset' });
+          this.emit('objects:change', {});
+        }
       },
       priceScale: (): PriceScale => pane.scaleOf(record),
       createMarkers: (): SeriesMarkers => {
@@ -2479,6 +2488,7 @@ export class Chart {
     if (dataId === this._firstDataId.value) this._invalidateIndicators();
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
     this._updateAccessibleSummary();
+    if (dataId === this._firstDataId.value) this.emit('data:update', { kind: 'update', time: bar.time });
   }
 
   private _ensurePane(index: number): void {
@@ -2528,6 +2538,7 @@ export class Chart {
     }
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
     this._updateAccessibleSummary();
+    if (dataId === this._firstDataId.value) this.emit('data:update', { kind: 'reset' });
   }
 
   /** History paging: merge older bars, preserving the viewport (§4.2). */
@@ -2539,6 +2550,7 @@ export class Chart {
     if (dataId === this._firstDataId.value) this._invalidateIndicators();
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
     this._updateAccessibleSummary();
+    if (dataId === this._firstDataId.value) this.emit('data:update', { kind: 'prepend' });
   }
 
   /**
