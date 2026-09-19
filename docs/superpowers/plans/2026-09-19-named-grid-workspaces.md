@@ -25,7 +25,7 @@ Add optional `rowWeights: number[]` and `columnWeights: number[]` to the layout 
 
 - [x] Add RED tests for asymmetric track round trips, detached arrays, mismatched lengths, zero/negative/nonfinite/oversized weights, and existing documents without weights.
 - [x] Implement validation at the document boundary. Run the document and repository suites, then package lint/types/unit/build/demo/declaration/size/tree-shaking checks and reference coverage.
-- [ ] Document the optional fields. Pack a verified source commit and update the isolated consumer's relative vendor dependency and integrity, preserving its unrelated dependency junction.
+- [x] Document the optional fields. Pack a verified source commit and update the isolated consumer's relative vendor dependency and integrity, preserving its unrelated dependency junction.
 
 ## Task 2: Terminal configuration capture and prepared restoration
 
@@ -40,8 +40,8 @@ captureWorkspacePane(id: string): WorkspacePane;
 // drawing restoration have completed, or why preparation failed.
 ```
 
-- [ ] Test complete capture from a real chart snapshot: current symbol/exchange/interval/type, engine settings/viewport/panes, host profile and volume settings, drawings, study instances, volume visibility and drawing preferences. Verify execution fields cannot escape.
-- [ ] Add an injectable preference adapter with the existing browser default. Staging uses an in-memory adapter and cannot rewrite the active grid's local keys while preparation is incomplete. Blocked legacy preference storage must not crash chart startup.
+- [x] Test complete capture from a real chart snapshot: current symbol/exchange/interval/type, engine settings/viewport/panes, host profile and volume settings, drawings, study instances, volume visibility and drawing preferences. Verify execution fields cannot escape.
+- [x] Add an injectable preference adapter with the existing browser default. Staging uses an in-memory adapter and cannot rewrite the active grid's local keys while preparation is incomplete. Blocked legacy preference storage must not crash chart startup.
 - [ ] Test initial prepared configuration before implementing it: malformed state, unknown study/type/interval, missing symbol/history, and cancellation must fail explicitly rather than load an unrelated default symbol. The ordinary terminal keeps its existing fallback behavior.
 - [ ] Await study and drawing restoration, then restore the engine configuration against the ready primary series. Preserve pane grouping and settings without duplicating indicators or restoring trading primitives. Unsupported comparison data rejects before publication until its adapter is available.
 - [ ] Guard every async completion with terminal/generation ownership and release temporary resources on failure. Run terminal, history, profile, template and execution-guard suites.

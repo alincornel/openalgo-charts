@@ -311,3 +311,22 @@ budget becomes 224 kB (223.04 measured); the workspace tier remains below its 6 
 budget at 4.89 kB. Base 78.51 kB, widget terminal 184.75 kB and tree-shaken
 chart-only 49.92 KiB are unchanged by these document fields. Size and shake
 checks pass after that budget adjustment. Packing and consumer validation remain.
+
+Weighted-grid source is committed as `117fb9d`; consumer `e9a2b4c47` vendors
+`openalgo-charts-2.4.0-117fb9d.tgz`, 1,142,510 bytes, SHA-512
+`tagbi0XKqdt1t7TwKaNMiQ0qOUcIT3LDIFtqtNGkZdZX4kkvj3lTA/XWKC7sWfZW/5yZSIt0sgrGH5BhqCFuqg==`.
+Consumer build/types and 544 affected tests across 40 files pass; the installed
+candidate passes all 26 Chromium compatibility checks. No additional engine
+interaction changed; the prior three-browser template evidence remains separate.
+
+Consumer `c558093a0` introduces pane capture and injectable preferences. Four
+preference regressions reproduced ignored adapters and blocked-storage crashes;
+five now pass. Capture regressions were observed against the absent method; ten
+cases now cover detached settings/studies/drawings and rejecting stale history,
+replay, pending study/drawing loads and unavailable charts. All 83 tests in the
+two terminal files pass, formatting/lint and TypeScript build pass. A real
+authenticated chart capture retained its symbol/interval, viewport, volume and
+drawings envelope without forbidden execution keys (`live-workspace-capture.json`).
+The live Vite dependency cache still owns the earlier market-time package; the
+weighted package was tested in the fresh compatibility server. Prepared initial
+restoration and atomic grid publication remain unimplemented.
