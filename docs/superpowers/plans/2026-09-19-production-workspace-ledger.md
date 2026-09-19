@@ -521,3 +521,12 @@ supports the optional readout. See the OI plan for red/green evidence, 5,383
 library tests, 235 reference-host tests, six browser cases, API/skills validation
 and the measured 186.1 kB terminal-budget ruling. Consumer migration and alerts
 are still unfinished; this is not the final release candidate.
+
+OpenAlgo OI checkpoint: consumer bcd334203 installs byte-verified b26d6d5 and
+implements instrument capability, history placeholder suppression, the optional
+selected-bar readout and disabled controls. All 2,259 consumer tests and the
+production build pass. Each of three browser engines passes 17 actual /trading
+checks including futures gaps/zero, crypto metadata and workspace restoration.
+See the OI plan for artifacts, static resource review, warnings and limitations.
+OI live-broker validation, reference secondary shared controls and final release
+facts remain; alerts are entirely unimplemented and remain the next major feature.

@@ -9,6 +9,7 @@
  * Add --templates true for named study templates on the selected chart.
  * Add --correctness true for volume, hover, pan and linked readout regressions.
  * Add --workspaces true for complete named chart grids.
+ * Add --oi true for history capability, readouts, studies and persistence.
  * Use --browser chromium|firefox|webkit to select the rendering engine.
  *
  * No backend is started. Vite proxies are removed and every API/WS is mocked.
@@ -18,6 +19,7 @@
 import assert from 'node:assert/strict';
 import { checkChartCorrectness } from './check-openalgo-correctness.mjs';
 import { checkWorkspaces } from './check-openalgo-workspaces.mjs';
+import { checkOpenInterest } from './check-openalgo-open-interest.mjs';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile, lstat } from 'node:fs/promises';
@@ -48,6 +50,10 @@ const symbols = [
   { symbol: 'BHEL', exchange: 'NSE', name: 'Bharat Heavy Electricals', lotsize: 1, tick_size: 0.05, freeze_qty: 100000 },
   { symbol: 'NIFTY29SEP26FUT', exchange: 'NFO', name: 'Nifty Futures', lotsize: 65, tick_size: 0.05, freeze_qty: 1800 },
   { symbol: 'NIFTY', exchange: 'NSE_INDEX', name: 'Nifty 50', lotsize: 1, tick_size: 0.0005 },
+  ...(args.oi === 'true' ? [
+    { symbol: 'BTCUSD', exchange: 'CRYPTO', instrumenttype: 'SPOT', name: 'Bitcoin Spot', lotsize: 1, tick_size: 0.01 },
+    { symbol: 'BTCUSD.P', exchange: 'CRYPTO', instrumenttype: 'PERPFUT', name: 'Bitcoin Perpetual', lotsize: 1, tick_size: 0.01 },
+  ] : []),
 ];
 function history(body) {
   const interval = body.interval;
@@ -64,7 +70,13 @@ function history(body) {
       if (seconds === 86400) break;
     }
   }
-  return rows;
+  if (args.oi !== 'true') return rows;
+  const derivative = body.exchange === 'NFO' || body.symbol === 'BTCUSD.P';
+  return rows.map((bar, index) => ({ ...bar,
+    ...(derivative && index === rows.length - 14 ? {} : {
+      oi: derivative && index !== rows.length - 20 ? 10000 + index * 10 : 0,
+    }),
+  }));
 }
 let orderCounter = 0;
 let mockOrders = [];
@@ -911,6 +923,7 @@ try {
     });
   }
   if (args.correctness === 'true') await checkChartCorrectness({ page, terminal, report, sendDepth, screenshot: args.screenshot });
+  if (args.oi === 'true') await checkOpenInterest({ page, terminal, check, reload, sendDepth, screenshot: args.screenshot, orderCount: () => orderCounter });
   if (args.workspaces === 'true') await checkWorkspaces({ page, check, reload, screenshot: args.screenshot, orderCount: () => orderCounter, sendDepth });
   await check('no browser runtime errors or external HTTP', async () => {
     await Promise.all(consoleReads);

@@ -61,7 +61,7 @@ Files: `src/model/indicator-registry.ts`, `src/core/chart.ts`, `src/primitives/p
 
 - [x] Add capability regressions for explicit supported, unsupported and unknown context. Distinguish capability from whether the current bar has a reading.
 - [x] Add an off-by-default open-interest legend field and setting. Show zero when supplied, omit missing and unsupported data, and preserve the preference through chart state and workspace restoration.
-- [ ] Thread metadata and render actual hovered/current-bar values. Verify state round trips, context changes and disabled-control feedback in browser pixels.
+- [x] Thread metadata and render actual hovered/current-bar values. Verify state round trips, context changes and disabled-control feedback in browser pixels.
 - [x] Document the exact typed chart contract consumed by OpenScript; do not modify that separate project's files.
 
 ## Task 5: Hosts and documentation
@@ -69,7 +69,7 @@ Files: `src/model/indicator-registry.ts`, `src/core/chart.ts`, `src/primitives/p
 Files: reference host, widget, OpenAlgo terminal history/legend path, README, indicator catalogue, architecture data-model section, API/skills references and release notes.
 
 - [ ] Preserve real derivatives OI from OpenAlgo history, omit unsupported instrument values using explicit host metadata, and keep quote-only forming readings absent. Display availability and user-selected readouts consistently in widget, reference host and `/trading`.
-- [ ] Exercise futures history, zero, cash, missing live OI, symbol changes, study templates and complete workspaces against the installed packed candidate. Run Chromium, Firefox and WebKit and label deterministic versus real-feed evidence.
+- [x] Exercise futures history, zero, cash, missing live OI, symbol changes, study templates and complete workspaces against the installed packed candidate. Run Chromium, Firefox and WebKit and label deterministic versus real-feed evidence.
 - [ ] Document level versus flow, missing versus zero, the live gap, indicator behavior and host capability. Measure registry counts, API coverage and bundle sizes; update repeated current facts at final release.
 - [ ] Run full library verification, skills coverage, warning-free API generation and affected host checks. Commit locally and retain all alert and remaining production requirements in the master ledger.
 
@@ -176,3 +176,53 @@ not evidence of broker OI streaming. The browser test file passes lint.
 Task 5 continues with packed-candidate OpenAlgo consumer migration. The reference
 secondary pane's shared controls remain in the already pending focused-toolbar
 work. Alerts and all outstanding master-ledger requirements remain release gates.
+
+### OpenAlgo consumer checkpoint
+
+Consumer bcd334203 integrates the OI candidate into the isolated /trading host.
+The installed package is openalgo-charts-2.4.0-b26d6d5.tgz, 1,151,170 bytes,
+SHA-512 RmUrC4sRHNUPWawxDMPh+9g7bWwUPUrOQ+FNtNoRz/phmr6qIKSCBqBE+DffyYeHtZojwqdX2QVYd7WwO6clVw==.
+All 33 installed files were compared byte-for-byte with the archive. Only the
+isolated package directory and its package/lock entries were changed.
+
+The consumer resolves capability from instrument metadata and known exchange
+segments. Crypto is not automatically treated as a derivative: SPOT is false,
+FUT/CE/PE/PERPFUT true, unclassified metadata unknown. The actual broker master
+uses PERPFUT for perpetual futures. An explicit boolean capability overrides
+fallbacks. History captures this metadata per request, before cache insertion.
+Expressions are unsupported. The readout and PNG share the same selected-bar
+model, distinguish zero from missing, and retain preferences through rebuilds.
+Unsupported settings remain visibly checked and disabled with an explanation.
+
+Red/green evidence: missing legend, capability and disabled controls failed
+before implementation. A separate regression exposed the missing repaint after
+asynchronous settings restoration and now passes. The catalogue comparison
+failed for the three new studies; regeneration now records 105 runtime entries.
+The complete consumer suite passes 2,259 tests in 140 files. TypeScript and the
+production build pass; full lint retains two existing warnings and two notices.
+The build retains its existing large-visualization-chunk warning. Two jsdom
+canvas-not-implemented notices appear in the full test log. Generated tracked
+build assets were restored, not included in the implementation commit.
+
+The actual /trading browser harness passes 17 checks in each of Chromium,
+Firefox and WebKit. Additional OI checks cover cash placeholders, futures zero
+and gaps, missing live OI while a historical zero stays hovered, disabled cash
+controls, crypto spot versus perpetual metadata, study-template application
+and complete named-workspace restoration after reload. Browser fixture queries
+were corrected to the host's actual button labels and roles. No production fix
+was made for those selector mistakes. Chromium study, Firefox restored-workspace
+and WebKit disabled-control screenshots were inspected. No external HTTP or
+unexpected browser runtime error occurred; all order endpoints were mocked.
+These results are deterministic evidence, not live-broker validation.
+
+Resource audit: the three classification sets have fixed contents. The metadata
+callback reads the existing terminal owner without allocating timers, listeners,
+connections or per-instrument caches. Existing terminal/feed teardown is unchanged.
+This is a static audit, not a prolonged memory measurement. The latter remains
+P3, and final connected validation remains part of the release gate.
+
+Task 4's host threading is validated. Task 5's packed /trading migration is
+implemented and validated. The reference secondary pane's shared control work
+remains tracked with F9, and repeated release facts await the final candidate.
+Alerts remain entirely unimplemented. Neither this checkpoint nor publication
+authorization permits shipping a partial 2.4.5.
