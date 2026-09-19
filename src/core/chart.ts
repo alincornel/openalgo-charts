@@ -2744,7 +2744,8 @@ export class Chart {
     const series: SeriesState[] = [];
     this._panes.forEach((pane, paneIndex) => {
       for (const record of pane.series()) {
-        series.push({ type: record.type, style: { ...record.style }, paneIndex, priceScaleId: record.scaleId });
+        const style = Object.fromEntries(Object.entries(record.style).filter(([, value]) => value !== undefined));
+        series.push({ type: record.type, style, paneIndex, priceScaleId: record.scaleId });
       }
     });
 
