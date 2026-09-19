@@ -67,6 +67,7 @@ const MUST_BE_SHAKEN = [
   // every widget rule is written under, and nothing in the engine paints HTML.
   ['widget tier', 'oac-widget'],
   ['trader alert controller', 'An alert controller already owns this chart'],
+  ['bar condition registry', 'Bar condition id already registered'],
 ];
 
 const virtual = {

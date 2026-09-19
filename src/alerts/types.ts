@@ -1,5 +1,6 @@
 import type { Bar } from '../model/bar';
 import type { ChartDataContext } from '../model/indicator-registry';
+import type { IndicatorApi } from '../model/indicator-instance';
 
 /** A primary-source mutation, emitted after indicator invalidation. */
 export interface ChartDataUpdate {
@@ -13,19 +14,57 @@ export interface AlertChartHost {
   getDataContext(): Readonly<ChartDataContext> | undefined;
   on(event: string, callback: (payload: unknown) => void): () => void;
   emit(event: string, payload: unknown): void;
+  /** Flushes computed study values. Only required by indicator-source alerts. */
+  indicators?(): readonly Pick<IndicatorApi, 'id' | 'paneIndex' | 'series' | 'values'>[];
 }
 
 export type AlertCondition = 'crossing' | 'crossingUp' | 'crossingDown'
-  | 'greaterThan' | 'lessThan' | 'enteringRange' | 'leavingRange';
+  | 'greaterThan' | 'lessThan' | 'enteringRange' | 'leavingRange' | 'matches';
 export type AlertPolicy = 'onBarClose' | 'onTouch';
 export type AlertRepeat = 'once' | 'everyTime';
 export type AlertState = 'armed' | 'triggered' | 'expired' | 'disabled';
 
 /** Prices are in primary-series units. Range conditions require upperPrice. */
-export interface AlertSource {
+export interface PriceAlertSource {
   kind: 'price';
   price: number;
   upperPrice?: number;
+}
+
+/** A threshold in plot units, anchored to one specific study instance. */
+export interface IndicatorAlertSource {
+  kind: 'indicator';
+  instanceId: string;
+  plotKey: string;
+  value: number;
+  upperValue?: number;
+}
+
+export interface BarConditionAlertSource {
+  kind: 'barCondition';
+  id: string;
+}
+
+export type AlertSource = PriceAlertSource | IndicatorAlertSource | BarConditionAlertSource;
+
+/** Missing values, an absent anchor or a paused/context-mismatched chart are unavailable. */
+export interface AlertAvailability {
+  available: boolean;
+  reason?: string;
+  paneIndex?: number;
+}
+
+export interface BarConditionContext {
+  /** Only the prefix through index is exposed, including for confirmed-bar checks. */
+  bars: readonly Bar[];
+  index: number;
+}
+
+export interface BarCondition {
+  id: string;
+  title: string;
+  /** Runs at the alert's chosen policy, never for loaded history. */
+  when(context: BarConditionContext): boolean;
 }
 
 /** An alert belongs to the instrument and interval present when it was armed. */
@@ -68,13 +107,17 @@ export interface Alert extends Omit<AlertInput, 'id' | 'condition' | 'policy' | 
   lastTriggeredTime?: number;
 }
 
-export interface AlertTriggeredPayload {
+/** Shared delivery fields for trader and indicator-authored alerts. */
+export interface AlertEventPayload {
   alertId: string;
   title: string;
   message?: string;
   /** Source bar UTC seconds and source index, not delivery wall-clock time. */
   time: number;
   index: number;
+}
+
+export interface AlertTriggeredPayload extends AlertEventPayload {
   price: number;
   alert: Alert;
 }

@@ -205,8 +205,9 @@ describe('trader alert timing', () => {
     expect(() => alerts.update('kept', { cooldownSeconds: -1 })).toThrow();
     expect(alerts.list()).toEqual([original]);
     const copy = alerts.list()[0];
+    if (copy.source.kind !== 'price') throw new Error('Expected price source');
     copy.source.price = 500;
-    expect(alerts.list()[0].source.price).toBe(100);
+    expect(alerts.list()[0].source).toEqual({ kind: 'price', price: 100 });
   });
 
   it('refuses duplicate controllers and tears down from a trigger callback', () => {

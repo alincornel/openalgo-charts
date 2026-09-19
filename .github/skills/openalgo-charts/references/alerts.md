@@ -34,7 +34,11 @@ off();
 `AlertInput` accepts an optional unique id, `AlertSource`, `AlertCondition`,
 `AlertPolicy`, `AlertRepeat`, initial armed/disabled state, title, message,
 nonnegative cooldownSeconds, UTC-seconds expiresAt, and opaque payload.
-The current price source is `{ kind: 'price', price, upperPrice? }`.
+`AlertSource` is a union of `PriceAlertSource`, `IndicatorAlertSource` and
+`BarConditionAlertSource`. A fixed price uses
+`{ kind: 'price', price, upperPrice? }`; an indicator plot uses
+`{ kind: 'indicator', instanceId, plotKey, value, upperValue? }`; a named
+predicate uses `{ kind: 'barCondition', id }`.
 `AlertScope` captures symbol, exchange and interval from chart data context.
 Set that context before creating alerts; alerts do not migrate to a new market.
 
@@ -81,6 +85,50 @@ Replay, context mismatches, late historical updates and history loads suppress
 delivery. Moving history backwards does not make a consumed bar new again.
 At or after expiresAt, expiry takes priority over a new trigger.
 
+## Indicator and candle conditions
+
+An indicator alert identifies a specific instance and plot key. Two instances
+of the same descriptor stay separate. Thresholds are in plot units. Intrabar
+checks use changes in the plot's values, never primary price wicks; closed
+checks use adjacent confirmed plot readings. Missing readings are unavailable,
+and a gap cannot become a synthetic zero or a crossing across missing data.
+Study edits reseed observation instead of masquerading as market movement.
+
+`availability(id)` returns `AlertAvailability`: available, an optional reason,
+and paneIndex when resolved. Context mismatch, replay or host pause, missing
+instance/plot/condition, empty history and missing plot values report why the
+alert cannot currently evaluate. This is separate from lifecycle state.
+Plot reads flush indicators through the public chart accessor when needed;
+confirmed-only alerts do not flush on each forming-bar update.
+
+Named conditions use condition `matches` (the default for that source), with
+the same timing, repetition, cooldown and expiry controls. Numeric condition
+choices are rejected for this source. The built-ins are:
+
+| Id | Meaning |
+| --- | --- |
+| bullish | Close exceeds open |
+| bearish | Close is below open |
+| inside | High is strictly below the preceding high and low strictly above the preceding low |
+| outside | High strictly exceeds the preceding high and low is strictly below the preceding low |
+| gap-up | The entire bar lies above the preceding high |
+| gap-down | The entire bar lies below the preceding low |
+
+`registerBarCondition(BarCondition)` registers a unique id, title and
+`when(BarConditionContext)` predicate. `getBarCondition(id)` returns its readonly
+descriptor or undefined. `registeredBarConditions()` returns the available
+readonly descriptors. `unregisterBarCondition(id)` returns whether it removed
+one; alerts referring to it then report unavailable. Register custom conditions
+before restoring their alerts. Runtime functions stay in the registry, while
+alert records store only their stable ids.
+
+The context exposes `{ bars, index }`, with bars ending at the evaluated bar.
+A confirmed-bar predicate cannot inspect the next forming bar. onTouch runs a
+predicate on live updates of the forming bar; its result can change before
+close. A throwing predicate emits alert:error once for that bar and does not
+prevent other alerts from evaluating. Treat context and descriptor data as
+readonly; delivery and other effects belong in event listeners.
+
 ## Events
 
 | Event | Payload |
@@ -90,6 +138,7 @@ At or after expiresAt, expiry takes priority over a new trigger.
 | alert:removed | `{ alert: Alert, reason: 'removed' }` |
 | alert:expired | `{ alert: Alert }` when an armed record expires |
 | alert:triggered | `AlertTriggeredPayload`: alertId, title, message, time, index, price, alert |
+| alert:error | `{ alert: Alert, error: unknown }` when a custom predicate throws |
 
 The trigger time and index identify the source bar, not the delivery clock.
 Closed triggers report its close. Intrabar crossing triggers report the crossed
@@ -97,3 +146,7 @@ threshold; greater/less report the observed extremum. State and duplicate guards
 are committed before callbacks. Listeners may remove another alert, change
 context or destroy the chart. The chart bus isolates throwing listeners; log
 delivery failures in the host. Existing indicator:alert behavior is preserved.
+`AlertEventPayload` defines the fields shared by IndicatorAlertPayload and
+AlertTriggeredPayload: alertId, title, message, time and index. Indicator-source
+trader triggers report the plot reading in price; predicate triggers report
+the evaluated bar's close.

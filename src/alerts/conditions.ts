@@ -40,5 +40,6 @@ export function touchMatch(condition: AlertCondition, previous: number, low: num
       if (previous < lower || previous > upper!) return undefined;
       if (low < lower) return lower;
       return high > upper! ? upper : undefined;
+    case 'matches': return undefined;
   }
 }

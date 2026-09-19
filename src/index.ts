@@ -354,4 +354,7 @@ export { AlertController } from './alerts/controller';
 export type {
   Alert, AlertChartHost, AlertCondition, AlertControllerOptions, AlertInput, AlertPatch,
   AlertPolicy, AlertRepeat, AlertScope, AlertSource, AlertState, AlertTriggeredPayload, ChartDataUpdate,
+  AlertAvailability, AlertEventPayload, PriceAlertSource, IndicatorAlertSource, BarConditionAlertSource,
+  BarCondition, BarConditionContext,
 } from './alerts/types';
+export { registerBarCondition, unregisterBarCondition, getBarCondition, registeredBarConditions } from './alerts/bar-conditions';

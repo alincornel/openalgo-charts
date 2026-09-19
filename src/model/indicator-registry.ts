@@ -12,6 +12,7 @@
  * plots its own maths pays nothing for the catalog.
  */
 import type { Bar } from './bar';
+import type { AlertEventPayload } from '../alerts/types';
 import type { SeriesType } from './chart-type-registry';
 import type { SeriesStyle } from '../render/series-style';
 import type { PriceScaleId, PriceFormat } from './series';
@@ -494,17 +495,12 @@ export interface IndicatorBarsRequest {
 export type IndicatorBarsProvider = (request: IndicatorBarsRequest) => Promise<readonly Bar[]>;
 
 /** Payload of the `'indicator:alert'` event on the chart's own bus. */
-export interface IndicatorAlertPayload {
+export interface IndicatorAlertPayload extends AlertEventPayload {
   /** Descriptor id, e.g. `'macd'`. */
   indicatorId: string;
   /** Instance id, so a host can tell three EMAs apart. */
   instanceId: string;
-  alertId: string;
-  title: string;
   message: string;
-  /** The bar that triggered it: UTC seconds, and its index in `bars`. */
-  time: number;
-  index: number;
 }
 
 /** Optional instrument identity and capability supplied by the host. */

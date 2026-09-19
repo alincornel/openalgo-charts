@@ -1,8 +1,9 @@
 import type { Bar } from '../model/bar';
 import { CONDITIONS, numericMatch, touchMatch } from './conditions';
+import { getBarCondition } from './bar-conditions';
 import type {
   Alert, AlertChartHost, AlertControllerOptions, AlertInput, AlertPatch, AlertScope,
-  AlertTriggeredPayload, ChartDataUpdate,
+  AlertTriggeredPayload, ChartDataUpdate, AlertAvailability, IndicatorAlertSource,
 } from './types';
 
 interface RecordState {
@@ -10,6 +11,8 @@ interface RecordState {
   tail?: Bar;
   closedTime?: number;
   touchedTime?: number;
+  value?: number;
+  errorTime?: number;
 }
 
 const owners = new WeakSet<AlertChartHost>();
@@ -24,16 +27,20 @@ const sameScope = (a: AlertScope, b: AlertScope): boolean =>
 
 function validate(alert: Alert): void {
   if (typeof alert.id !== 'string' || !alert.id.trim()) throw new Error('Alert id must be nonempty');
-  if (!alert.source || alert.source.kind !== 'price' || !Number.isFinite(alert.source.price)) {
-    throw new Error('Alert price must be finite');
-  }
-  if (alert.source.upperPrice !== undefined && !Number.isFinite(alert.source.upperPrice)) {
-    throw new Error('Alert upper bound must be finite');
-  }
-  if (!CONDITIONS.includes(alert.condition)) throw new Error('Unknown alert condition');
-  if ((alert.condition === 'enteringRange' || alert.condition === 'leavingRange')
-    && (alert.source.upperPrice === undefined || alert.source.upperPrice < alert.source.price)) {
-    throw new Error('Alert range requires ordered finite bounds');
+  const source = alert.source;
+  const named = source?.kind === 'barCondition';
+  if (!source || !['price', 'indicator', 'barCondition'].includes(source.kind)) throw new Error('Unknown alert source');
+  const text = (value: unknown): boolean => typeof value === 'string' && value.trim().length > 0;
+  if (source.kind === 'barCondition' && !text(source.id)) throw new Error('Invalid bar condition id');
+  if (source.kind === 'indicator' && (!text(source.instanceId) || !text(source.plotKey))) throw new Error('Invalid indicator source');
+  if (named ? alert.condition !== 'matches' : !CONDITIONS.includes(alert.condition)) throw new Error('Invalid source condition');
+  if (source.kind !== 'barCondition') {
+    const lower = source.kind === 'price' ? source.price : source.value;
+    const upper = source.kind === 'price' ? source.upperPrice : source.upperValue;
+    if (!Number.isFinite(lower) || (upper !== undefined && !Number.isFinite(upper))) throw new Error('Alert bounds must be finite');
+    if ((alert.condition === 'enteringRange' || alert.condition === 'leavingRange') && (upper === undefined || upper < lower)) {
+      throw new Error('Alert range requires ordered finite bounds');
+    }
   }
   if (alert.policy !== 'onBarClose' && alert.policy !== 'onTouch') throw new Error('Unknown alert policy');
   if (alert.repeat !== 'once' && alert.repeat !== 'everyTime') throw new Error('Unknown alert repeat');
@@ -64,6 +71,11 @@ export class AlertController {
     this._off = [
       _chart.on('data:update', payload => this._onData(payload as ChartDataUpdate)),
       _chart.on('data:context', () => this._seedAll()),
+      _chart.on('objects:change', () => {
+        for (const record of this._records.values()) {
+          if (record.alert.source.kind === 'indicator') { this._revision++; this._seed(record); }
+        }
+      }),
       _chart.on('replay:start', () => { this._replay = true; this._seedAll(); }),
       _chart.on('replay:stop', () => { this._replay = false; this._seedAll(); }),
       _chart.on('destroy', () => this.destroy()),
@@ -76,9 +88,9 @@ export class AlertController {
     if (id === undefined) do { id = `alert-${nextId++}`; } while (this._records.has(id));
     if (this._records.has(id)) throw new Error(`Duplicate alert id: ${id}`);
     const alert: Alert = {
-      ...input, id, source: { ...input.source }, condition: input.condition ?? 'crossing',
+      ...input, id, source: { ...input.source }, condition: input.condition ?? (input.source.kind === 'barCondition' ? 'matches' : 'crossing'),
       policy: input.policy ?? 'onBarClose', repeat: input.repeat ?? 'once', state: input.state ?? 'armed',
-      title: input.title ?? 'Price alert', cooldownSeconds: input.cooldownSeconds ?? 0, scope: scopeOf(this._chart),
+      title: input.title ?? 'Chart alert', cooldownSeconds: input.cooldownSeconds ?? 0, scope: scopeOf(this._chart),
     };
     validate(alert);
     if (alert.state === 'armed' && alert.expiresAt !== undefined && this._now() >= alert.expiresAt) alert.state = 'expired';
@@ -115,6 +127,25 @@ export class AlertController {
   }
 
   public list(): Alert[] { return [...this._records.values()].map(record => copy(record.alert)); }
+
+  /** Availability is independent of lifecycle state; disabled records can still have valid anchors. */
+  public availability(id: string): AlertAvailability {
+    const record = this._records.get(id);
+    if (!record) return { available: false, reason: 'Alert is unavailable' };
+    if (this._paused || this._replay) return { available: false, reason: 'Alerts are paused' };
+    if (!sameScope(record.alert.scope, scopeOf(this._chart))) return { available: false, reason: 'Instrument context differs' };
+    const { source } = record.alert;
+    const bars = this._chart.primaryBars();
+    if (source.kind === 'indicator') {
+      const resolved = this._plot(source);
+      if (!resolved.values) return { available: false, reason: resolved.reason };
+      return Number.isFinite(resolved.values[bars.length - 1])
+        ? { available: true, paneIndex: resolved.paneIndex }
+        : { available: false, reason: 'Plot value is unavailable', paneIndex: resolved.paneIndex };
+    }
+    if (source.kind === 'barCondition' && !getBarCondition(source.id)) return { available: false, reason: 'Bar condition is unavailable' };
+    return bars.length ? { available: true, paneIndex: 0 } : { available: false, reason: 'Source data is unavailable' };
+  }
   public enable(id: string): Alert | undefined { return this.update(id, { state: 'armed' }); }
   public disable(id: string): Alert | undefined { return this.update(id, { state: 'disabled' }); }
 
@@ -144,6 +175,9 @@ export class AlertController {
     const bars = this._chart.primaryBars();
     const tail = bars[bars.length - 1];
     record.tail = tail ? { ...tail } : undefined;
+    if (record.alert.source.kind === 'indicator') {
+      record.value = this._reading(this._plot(record.alert.source).values, bars.length - 1);
+    }
     const closed = bars[bars.length - 2]?.time;
     // A history reload can move backwards; it cannot make a judged bar new again.
     if (closed !== undefined) record.closedTime = Math.max(record.closedTime ?? -Infinity, closed);
@@ -159,7 +193,8 @@ export class AlertController {
     const revision = ++this._revision;
     this._expireDue();
     if (this._destroyed || revision !== this._revision) return;
-    if (update.kind !== 'update' || this._paused || this._replay) { this._seedAll(); return; }
+    if (this._paused || this._replay) return;
+    if (update.kind !== 'update') { this._seedAll(); return; }
     const bars = this._chart.primaryBars();
     const tail = bars[bars.length - 1];
     if (!tail || update.time !== tail.time) return;
@@ -177,23 +212,79 @@ export class AlertController {
         if (tail.time <= previous.time || !closed || closed.time !== previous.time
           || (record.closedTime !== undefined && closed.time <= record.closedTime)) continue;
         record.closedTime = closed.time;
-        if (numericMatch(alert.condition, bars[index - 1]?.close, closed.close, alert.source.price, alert.source.upperPrice)) {
-          this._trigger(record, closed, index, closed.close);
+        const price = this._closedMatch(record, bars, index);
+        if (price !== undefined && revision === this._revision && this._records.get(alert.id) === record) {
+          this._trigger(record, closed, index, price);
         }
       } else {
         if (tail.time < previous.time || (record.touchedTime !== undefined && tail.time <= record.touchedTime)) continue;
-        const isNew = tail.time > previous.time;
-        const changed = isNew || tail.close !== previous.close || tail.high > previous.high || tail.low < previous.low;
-        if (!changed) continue;
-        const high = Math.max(previous.close, tail.close, isNew || tail.high > previous.high ? tail.high : -Infinity);
-        const low = Math.min(previous.close, tail.close, isNew || tail.low < previous.low ? tail.low : Infinity);
-        const price = touchMatch(alert.condition, previous.close, low, high, alert.source.price, alert.source.upperPrice);
-        if (price !== undefined) {
+        const price = this._touchMatch(record, bars, previous);
+        if (price !== undefined && revision === this._revision && this._records.get(alert.id) === record) {
           // A suppressed match is consumed too: an old wick cannot wake after cooldown.
           record.touchedTime = tail.time;
           this._trigger(record, tail, bars.length - 1, price);
         }
       }
+    }
+  }
+
+  private _plot(source: IndicatorAlertSource): { values?: readonly (number | null)[]; paneIndex?: number; reason?: string } {
+    const instance = this._chart.indicators?.().find(item => item.id === source.instanceId);
+    if (!instance) return { reason: 'Indicator instance is unavailable' };
+    if (!instance.series(source.plotKey)) return { reason: 'Indicator plot is unavailable' };
+    const values = instance.values()[source.plotKey];
+    return values ? { values, paneIndex: instance.paneIndex } : { reason: 'Indicator plot is unavailable' };
+  }
+
+  private _reading(values: readonly (number | null)[] | undefined, index: number): number | undefined {
+    const value = values?.[index];
+    return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+  }
+
+  private _closedMatch(record: RecordState, bars: readonly Bar[], index: number): number | undefined {
+    const { source, condition } = record.alert;
+    if (source.kind === 'barCondition') return this._barMatch(record, bars, index) ? bars[index].close : undefined;
+    if (source.kind === 'price') return numericMatch(condition, bars[index - 1]?.close, bars[index].close, source.price, source.upperPrice)
+      ? bars[index].close : undefined;
+    const values = this._plot(source).values;
+    const current = this._reading(values, index);
+    return current !== undefined && numericMatch(condition, this._reading(values, index - 1), current, source.value, source.upperValue)
+      ? current : undefined;
+  }
+
+  private _touchMatch(record: RecordState, bars: readonly Bar[], previous: Bar): number | undefined {
+    const { source, condition } = record.alert;
+    const index = bars.length - 1;
+    const tail = bars[index];
+    if (source.kind === 'barCondition') return this._barMatch(record, bars, index) ? tail.close : undefined;
+    if (source.kind === 'indicator') {
+      const values = this._plot(source).values;
+      const current = this._reading(values, index);
+      // A consumed touch stops delivery, not updates to the preceding bar's close.
+      const before = tail.time > previous.time ? this._reading(values, index - 1) : record.value;
+      record.value = current;
+      if (current === undefined || (current === before && tail.time === previous.time)) return undefined;
+      return numericMatch(condition, before, current, source.value, source.upperValue) ? current : undefined;
+    }
+    const isNew = tail.time > previous.time;
+    const changed = isNew || tail.close !== previous.close || tail.high > previous.high || tail.low < previous.low;
+    if (!changed) return undefined;
+    const high = Math.max(previous.close, tail.close, isNew || tail.high > previous.high ? tail.high : -Infinity);
+    const low = Math.min(previous.close, tail.close, isNew || tail.low < previous.low ? tail.low : Infinity);
+    return touchMatch(condition, previous.close, low, high, source.price, source.upperPrice);
+  }
+
+  private _barMatch(record: RecordState, bars: readonly Bar[], index: number): boolean {
+    const source = record.alert.source;
+    if (source.kind !== 'barCondition' || record.errorTime === bars[index].time) return false;
+    const condition = getBarCondition(source.id);
+    if (!condition) return false;
+    try {
+      return condition.when({ bars: bars.slice(0, index + 1), index }) === true;
+    } catch (error) {
+      record.errorTime = bars[index].time;
+      this._chart.emit('alert:error', { alert: copy(record.alert), error });
+      return false;
     }
   }
 
