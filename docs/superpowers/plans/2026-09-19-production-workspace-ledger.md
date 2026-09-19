@@ -358,7 +358,55 @@ Report: `artifacts/candidate/live-workspace-startup.json`. The live browser stil
 uses its prior cached engine tier; this change is consumer orchestration.
 Grid publication, its menu, autosave and three-browser grid acceptance remain.
 
+Grid conversion is consumer `5eede30c0`: 14 tests preserve every preset, unequal
+tracks/spans, explicit imported geometry, focus/sync and all 16 allowed panes.
+Imported pane IDs never become CSS. Consumer `a7f0f7bbd` adds the coordinator:
+eight tests cover readiness order, failed history/storage, supersession, account
+teardown, prompt cancellation and reentrant factory cancellation. This owner is
+not yet connected to the page; the rendering and menu work remains.
+
+Library `2f6b54c` adds cancellable activation and an optional expected catalog
+revision. Four repository regressions and a real-browser pending-write regression
+failed before implementation. Cancellation aborts the pending browser transaction
+and removes its listener at completion/abort. A committed transaction cannot be
+undone by cancellation. A changed prepared revision rejects before activation.
+The full library gate passes 5,328 tests in 220 files, 231 demo tests in 16 files,
+lint/types/build, eight declaration checks, size and tree-shaking. Workspace is
+5.02 kB Brotli and aggregate 223.17 kB; base 78.51, widget terminal 184.75 and
+chart-only 49.92 KiB remain unchanged. References cover 901/901 runtime names.
+All 15 storage tests pass across Chromium, Firefox and WebKit.
+
+Consumer `72b2280c2` vendors `openalgo-charts-2.4.0-2f6b54c.tgz`, 1,142,991 bytes,
+SHA-512 `a/2h5Gwkh6GG7Aran/D/V11Qv9GJ9ZAIcN8s1boIVWq3UmTW42htGa+hzak7cURafGw0rtGhXwq3QRNeOlbzNg==`.
+The installed candidate passes the consumer build/types, 596 affected tests in
+44 files and all 26 Chromium compatibility checks. The screenshot was inspected;
+the already-scoped shared-toolbar work remains necessary for narrow grid panes.
+The existing large visualization chunk warning remains. Generated tracked assets
+were restored. Reports: `workspace-activation-*` and `activation-candidate.*` under
+`artifacts/candidate/`.
+
 ### Final release version
+
+Consumer `0be0a0a49` added explicit workspace transition locks and destroyed-owner
+execution refusal. Two observed failures now pass with the 106-test affected
+suite. These locks still need to be connected to grid publication in the page.
+
+Issue 2077 is implemented in library `deb6de3` and consumer `9860b3b69`: selected
+OHLC/study values survive live updates, linked readouts follow the follower's own
+bar, zero volume is readable, built-in index volume is hidden, mouse plot pan
+preserves automatic fitting by default, and expression adapters expose combined
+leg activity. See `2026-09-19-chart-correctness-2077.md` for reproduction, package
+integrity, test/browser evidence, bundle cost and the connected-session limit.
+Full consumer suite: 2,221 tests in 133 files. Full library suite: 5,339 tests in
+221 files plus 232 reference-host tests. All 34 compatibility checks pass in each
+of Chromium, Firefox and WebKit after the documented fixture timing corrections.
+The development candidate is still version 2.4.0; nothing has been published.
+
+The user also added issue 2077 and explicitly requested validation before fixes.
+Plan `2026-09-19-chart-correctness-2077.md` covers its six chart correctness reports.
+These are now validated and corrected. Resume the pending named-grid UI and every remaining
+production requirement. This extends the scope; it does not replace the release
+or earlier feature requirements.
 
 The user selected **2.4.5** for the final validated chart package and its OpenAlgo
 `/trading` integration. After completing the remaining implementation and gates,

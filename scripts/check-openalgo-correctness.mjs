@@ -97,12 +97,24 @@ export async function checkChartCorrectness({ page, terminal, report, sendDepth,
   });
   await check('combined symbols retain the sum of distinct leg volumes', async () => {
     await terminal(t => t.loadSymbol({ symbol: 'NSE:BHEL+NFO:NIFTY29SEP26FUT', exchange: 'NFO' }));
-    const view = await terminal(t => ({
-      combined: t.price.getData().at(-1).volume,
-      legs: Object.values(t.exprFeed.legBars).map(bars => bars.at(-1).volume),
-    }));
+    const view = await terminal(t => {
+      const study = t.chart.addIndicator('volume');
+      study.setSettings({ showMA: true, maPeriod: 3 });
+      const values = study.values();
+      const bars = t.price.getData();
+      const result = {
+        combined: bars.at(-1).volume,
+        legs: Object.values(t.exprFeed.legBars).map(rows => rows.at(-1).volume),
+        study: values.volume.at(-1), average: values.ma.at(-1),
+        expectedAverage: bars.slice(-3).reduce((sum, bar) => sum + bar.volume, 0) / 3,
+      };
+      study.remove();
+      return result;
+    });
     assert(view.legs.every(value => Number.isFinite(value) && value > 0));
     assert.equal(view.combined, view.legs.reduce((sum, value) => sum + value, 0));
+    assert.equal(view.study, view.combined);
+    assert(Math.abs(view.average - view.expectedAverage) < 1e-8);
   });
   await check('linked crosshair updates the follower candle readout', async () => {
     await page.evaluate(() => {

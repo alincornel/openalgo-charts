@@ -22,7 +22,7 @@ import { mkdtemp, readFile, rm, writeFile, lstat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { chromium, firefox, webkit } from '@playwright/test';
+import { chromium, firefox, webkit, expect } from '@playwright/test';
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((pairs, value, i, all) => {
   if (value.startsWith('--')) pairs.push([value.slice(2), all[i + 1]]);
@@ -116,7 +116,21 @@ try {
       original.apply(console, args);
     };
   });
-  await page.clock.setFixedTime(new Date(fixedNow));
+  // Freeze market wall time without replacing native timers. A synthetic timer
+  // scheduler can deliver Firefox visibility events inside a pending React
+  // render during reload, producing warnings absent with the browser's tasks.
+  await page.addInitScript(now => {
+    const NativeDate = Date;
+    window.__compatFixedNow = now;
+    function FixedDate(...args) {
+      if (!new.target) return new NativeDate(window.__compatFixedNow).toString();
+      return Reflect.construct(NativeDate, args.length ? args : [window.__compatFixedNow], new.target);
+    }
+    Object.setPrototypeOf(FixedDate, NativeDate);
+    FixedDate.prototype = NativeDate.prototype;
+    FixedDate.now = () => window.__compatFixedNow;
+    window.Date = FixedDate;
+  }, fixedNow);
   report.pageErrorDetails = [];
   report.failedRequests = [];
   page.on('requestfailed', request => report.failedRequests.push({ after: report.checks.at(-1), url: request.url(), failure: request.failure() }));
@@ -364,7 +378,7 @@ try {
   });
   await check('mode mismatch refuses the ticket before submitting an order', async () => {
     analyzer = true;
-    await page.clock.setFixedTime(new Date(fixedNow + 1));
+    await page.evaluate(now => { window.__compatFixedNow = now; }, fixedNow + 1);
     const count = orderCounter;
     const refusal = await terminal(async (t) => {
       await t.trade.getServerMode(0);
@@ -376,7 +390,7 @@ try {
     assert.match(refusal, /mode/);
     assert.equal(orderCounter, count);
     analyzer = false;
-    await page.clock.setFixedTime(new Date(fixedNow + 6000));
+    await page.evaluate(now => { window.__compatFixedNow = now; }, fixedNow + 6000);
     await terminal((t) => t.trade.getServerMode(0));
   });
   await check('WS order update and canvas drag/cancel preserve stop-limit context', async () => {
@@ -842,7 +856,9 @@ try {
       assert.deepEqual(exported.indicators, before);
       const upload = async (name, indicators) => {
         const doc = { kind: 'indicator-template', version: 1, id: 'imported', name, createdAt: 1, updatedAt: 1, indicators };
-        await page.getByLabel('Import template JSON', { exact: true }).setInputFiles({ name: 'template.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(doc)) });
+        const input = page.getByLabel('Import template JSON', { exact: true });
+        await expect(input).toBeEnabled();
+        await input.setInputFiles({ name: 'template.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(doc)) });
         await page.getByRole('status').filter({ hasText: 'Template imported' }).waitFor();
       };
       await upload('Unavailable custom study', [{ indicatorId: 'absent-local-study', settings: {}, paneIndex: 1 }]);
