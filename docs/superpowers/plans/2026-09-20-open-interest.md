@@ -32,19 +32,19 @@
 
 Files: the eight paths in the supplied patch; create `tests/open-interest-data.test.ts`.
 
-- [ ] Write tests for `mergeBars` returning 140 from readings 100, 110, 120, 130, 140 while volume sums; test the same completed and developing `securitySeries` buckets.
-- [ ] Cover empty buckets, zero, missing readings, REST mapping, candle and tick aggregation, one-to-one transform retention and every synthetic transform's omission. Run `npx vitest run tests/open-interest-data.test.ts`; observe the missing plumbing failures.
-- [ ] Apply `D:/OpenAlgo-Voice/codex instruction/openalgo-charts-oi-plumbing.patch` only in this worktree after `git apply --check`. The original main checkout remains untouched.
-- [ ] Verify the imported implementation, then add regressions for unsupported/missing live readings and nonfinite optional REST values before correcting those paths. Run affected feed, security, transform and conflation suites.
+- [x] Write tests for `mergeBars` returning 140 from readings 100, 110, 120, 130, 140 while volume sums; test the same completed and developing `securitySeries` buckets.
+- [x] Cover empty buckets, zero, missing readings, REST mapping, candle and tick aggregation, one-to-one transform retention and every synthetic transform's omission. Run `npx vitest run tests/open-interest-data.test.ts`; observe the missing plumbing failures.
+- [x] Apply `D:/OpenAlgo-Voice/codex instruction/openalgo-charts-oi-plumbing.patch` only in this worktree after `git apply --check`. The original main checkout remains untouched.
+- [x] Verify the imported implementation, then add regressions for unsupported/missing live readings and nonfinite optional REST values before correcting those paths. Run affected feed, security, transform and conflation suites.
 
 ## Task 2: Replay, cache and reconciliation boundaries
 
 Files: `src/replay/controller.ts`, `src/feed/data-controller.ts`, `src/feed/cache.ts`; extend the relevant replay, data-controller and cache regressions.
 
-- [ ] With a deferred REST request, deliver a live observation lacking open interest and verify the resolved historical snapshot cannot put the old level back. Also test a genuine live reading, including zero.
-- [ ] Build a partial replay bucket whose completed level is 140 and first sub-bar level is 100; verify the first replay frame reads 100 and never 140, then walk the remaining readings and a missing bucket.
-- [ ] Inject persisted nonfinite open interest and verify cache fallback without a fabricated zero. Round-trip valid optional levels through cold storage.
-- [ ] Implement only the missing propagation/validation. Run the full affected data/replay/cache suites and commit the verified data boundary.
+- [x] With a deferred REST request, deliver a live observation lacking open interest and verify the resolved historical snapshot cannot put the old level back. Also test a genuine live reading, including zero.
+- [x] Build a partial replay bucket whose completed level is 140 and first sub-bar level is 100; verify the first replay frame reads 100 and never 140, then walk the remaining readings and a missing bucket.
+- [x] Inject persisted nonfinite open interest and verify cache fallback without a fabricated zero. Round-trip valid optional levels through cold storage.
+- [x] Implement only the missing propagation/validation. Run the full affected data/replay/cache suites and commit the verified data boundary.
 
 ## Task 3: Three built-in studies
 
@@ -72,3 +72,35 @@ Files: reference host, widget, OpenAlgo terminal history/legend path, README, in
 - [ ] Exercise futures history, zero, cash, missing live OI, symbol changes, study templates and complete workspaces against the installed packed candidate. Run Chromium, Firefox and WebKit and label deterministic versus real-feed evidence.
 - [ ] Document level versus flow, missing versus zero, the live gap, indicator behavior and host capability. Measure registry counts, API coverage and bundle sizes; update repeated current facts at final release.
 - [ ] Run full library verification, skills coverage, warning-free API generation and affected host checks. Commit locally and retain all alert and remaining production requirements in the master ledger.
+
+
+## Data boundary checkpoint
+
+The original eight-file patch was checked and applied in the isolated branch.
+Eight of fourteen initial regressions failed against the previous code; all
+fourteen passed after import. Three additional live-gap/invalid-value cases failed
+before correction, then passed. Reconciliation had three observed failures for
+missing, zero and positive newer readings. Partial replay initially dropped the
+revealed sub-bar level; its regression now follows only the revealed prefix.
+
+The cache regression initially passed with the new validation removed because
+its fixture also had an inconsistent next-close value. The fixture now preserves
+valid coverage and checks the cold read directly. Removing only OI validation
+then fails the regression. Restoring validation passes the full suite.
+
+Verification: lint, types, 5,363 tests in 222 files, bundle/declaration generation,
+232 reference-host tests in 17 files and eight declaration-entry checks pass.
+The first size check exceeded the widget-terminal limit by 128 bytes. Ruling:
+raise that aggregate limit from 185 to 186 kB for the optional data field and its
+propagation; it measures 185.13 kB. Base is 78.85 kB, indicators 29.26 kB,
+all-tier aggregate 223.61 kB. Size and tree-shaking pass after this change;
+chart-only is 50.12 KiB within 50.25. Runtime-reference coverage stays 901/901.
+No new package is installed in the consumer yet; its verified workspace candidate
+remains 87f1589 until the complete OI host boundary is ready to pack.
+
+The original main checkout still has exactly the supplied eight modified files.
+The user's follow-up confirms OpenScript will consume bare `oi` and an instrument
+`hasOpenInterest` flag. Those host contracts remain Task 4, not an implemented
+claim. No work or status claim is made about the separate language workflow.
+The alert policy distinction and every Part 2 requirement remain in the preserved
+spec and master ledger.

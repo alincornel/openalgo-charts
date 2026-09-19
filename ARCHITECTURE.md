@@ -329,6 +329,14 @@ Conversion rules (in `feed/`, never in the core):
 
 ### 4.1 Shared DataLayer (`model/data-store.ts`): review point 3
 
+`Bar.oi?: number` carries open interest at the bar's timestamp. It is a level,
+where volume is a flow: historical conflation and higher-timeframe buckets take
+the latest defined open-interest reading and sum volume. Missing open interest
+remains missing, including an entire bucket with no readings; zero is a valid
+observation. One-to-one transforms preserve it and price-generated bars omit it.
+Live builders clear a prior level when the current tick has no reading, and
+partial replay cannot read the completed bar's level before it is revealed.
+
 The store is **not per series.** There is one `DataLayer` per chart that merges *all* series (price, volume, every indicator, across every pane) onto a single time axis. This is what guarantees pane sync (§3.3) and correct alignment of price + volume + indicators.
 
 ```ts

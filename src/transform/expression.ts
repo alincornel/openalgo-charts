@@ -369,6 +369,7 @@ function evalNode(n: ExpressionNode, leg: (s: string) => Iv | null): Iv {
  *
  * Volume is absent by default. Opt into `volume: 'sum'` to report the combined
  * activity of the matched legs, independently of the price expression.
+ * Open interest is always absent: an expression has no single contract position.
  */
 export function evaluateExpression(
   expr: SymbolExpression,

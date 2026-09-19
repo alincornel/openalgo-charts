@@ -830,11 +830,15 @@ The one fold from the chart's own bars to a coarser interval, one value per sour
 import { securitySeries } from 'openalgo-charts/indicators';
 
 const day = securitySeries(bars, '1d', { timezone: String(settings.timezone ?? '') || undefined });
-// day.open / high / low / close / volume: (number | null)[] aligned to bars
+// day.open / high / low / close / volume / oi: (number | null)[] aligned to bars
 // day.bucketStart: first source bar time of the bucket; day.isNew: first bar of each bucket
 ```
 
 `SecurityOptions` selects one of three readings, and the difference is the whole reason the helper exists:
+
+`oi` is the latest defined open-interest level within the selected bucket, never
+a sum. It remains `null` when that bucket has no readings. Developing buckets
+cannot use a later source bar's level; zero remains a real observation.
 
 | Option | What bar `i` reads | Repaints live? |
 |---|---|---|

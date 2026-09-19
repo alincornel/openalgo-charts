@@ -36,6 +36,14 @@ export interface Tick {
   ltq?: number;
   /** Cumulative day volume (Quote mode). */
   cumDayVolume?: number;
+  /**
+   * Open interest as at this tick, where the feed carries it. Unlike the two
+   * quantities above it is not accumulated into the bar: it replaces, because
+   * it is a level and not a flow (see `Bar.oi`). A feed that does not report it
+   * leaves the built bar without one, which is the honest result rather than a
+   * zero that reads as "nobody is holding this".
+   */
+  oi?: number;
 }
 
 export interface CandleUpdate {
@@ -163,6 +171,7 @@ export class CandleBuilder {
         close: tick.price,
         volume: vol,
       };
+      if (tick.oi !== undefined && Number.isFinite(tick.oi)) bar.oi = tick.oi;
       this._current = bar;
       this._streamed = true;
       this._provisional = provisional;
@@ -180,6 +189,9 @@ export class CandleBuilder {
     if (tick.price < bar.low) bar.low = tick.price;
     bar.close = tick.price;
     bar.volume = this._volumeForSameBar(bar, tick);
+    // An older history or tick reading cannot masquerade as a current level.
+    if (tick.oi !== undefined && Number.isFinite(tick.oi)) bar.oi = tick.oi;
+    else delete bar.oi;
   }
 
   private _volumeForNewBar(tick: Tick): number {

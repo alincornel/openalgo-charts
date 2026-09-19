@@ -117,6 +117,18 @@ describe('BarCache storage resilience', () => {
 });
 
 describe('BarCache durable entry validation', () => {
+  it('retains real zero and missing open interest through durable reads', async () => {
+    const feed = new Feed();
+    const store = new WorkingStore();
+    const saved = entry();
+    saved.bars[0].oi = 150;
+    saved.bars[2].oi = 0;
+    store.values.set(barCacheKey(REQ), saved);
+    const cache = withBarCache(feed, { storage: store, now: () => (T0 + 180) * 1000 });
+    expect((await cache.getCachedBars(REQ))?.map(bar => bar.oi)).toEqual([150, undefined, 0]);
+    expect(feed.calls).toBe(0);
+  });
+
   it('accepts a structurally valid legacy entry without a version', async () => {
     const feed = new Feed();
     const store = new WorkingStore();
@@ -133,6 +145,7 @@ describe('BarCache durable entry validation', () => {
     ['unknown version', entry({ version: BAR_CACHE_VERSION + 1 }), REQ],
     ['non-array bars', entry({ bars: 'broken' as unknown as Bar[] }), REQ],
     ['non-finite bar data', entry({ bars: [{ ...makeBars()[0], close: Number.NaN }] }), REQ],
+    ['non-finite open interest', entry({ bars: makeBars().map((bar, i) => i === 0 ? { ...bar, oi: Number.NaN } : bar) }), REQ],
     ['descending bar times', entry({ bars: makeBars().reverse() }), REQ],
     ['non-finite coverage', entry({ from: Number.NaN }), REQ],
     ['a future storage timestamp', entry({ storedAt: (T0 + 181) * 1000 }), REQ],
@@ -146,6 +159,7 @@ describe('BarCache durable entry validation', () => {
 
     const expected = makeBars().filter((bar) => bar.time <= request.to!);
     feed.bars = expected;
+    expect(await cache.getCachedBars(request)).toBeUndefined();
     expect(await cache.getBars(request)).toEqual(expected);
     expect(feed.calls).toBe(1);
     expect(store.values.get(barCacheKey(REQ))?.version).toBe(BAR_CACHE_VERSION);

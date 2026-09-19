@@ -28,11 +28,16 @@ export function mergeBars(group: readonly Bar[]): Bar {
   let low = first.low;
   let volume = first.volume ?? 0;
   let hasVolume = first.volume !== undefined;
+  // Open interest is a level, not a flow: the merged bar's is the last one in
+  // the group, never the sum. Summing it would read as plausible and be wrong
+  // by a factor of the group size.
+  let oi = first.oi;
   for (let i = 1; i < group.length; i++) {
     const b = group[i];
     if (b.high > high) high = b.high;
     if (b.low < low) low = b.low;
     if (b.volume !== undefined) { volume += b.volume; hasVolume = true; }
+    if (b.oi !== undefined) oi = b.oi;
   }
   const merged: Bar = {
     time: first.time,
@@ -42,6 +47,7 @@ export function mergeBars(group: readonly Bar[]): Bar {
     close: group[group.length - 1].close,
   };
   if (hasVolume) merged.volume = volume;
+  if (oi !== undefined) merged.oi = oi;
   return merged;
 }
 

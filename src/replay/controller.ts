@@ -162,13 +162,17 @@ function mergeSubBars(subs: readonly Bar[], from: number, to: number, time: numb
   let high = first.high;
   let low = first.low;
   let volume = first.volume ?? 0;
+  let oi = first.oi;
   for (let i = from + 1; i <= to; i++) {
     const b = subs[i];
     if (b.high > high) high = b.high;
     if (b.low < low) low = b.low;
     volume += b.volume ?? 0;
+    if (b.oi !== undefined) oi = b.oi;
   }
-  return { time, open: first.open, high, low, close: subs[to].close, volume };
+  return { time, open: first.open, high, low, close: subs[to].close, volume,
+    ...(oi === undefined ? {} : { oi }),
+  };
 }
 
 export class ReplayController {

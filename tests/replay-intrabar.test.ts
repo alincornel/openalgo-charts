@@ -76,6 +76,28 @@ function session(n: number): { display: Bar[]; sub: Bar[] } {
 }
 
 describe('a 5-minute bar over 1-minute data takes five steps', () => {
+  it('reveals only the latest available sub-bar open interest until the bucket completes', () => {
+    const { display, sub } = session(3);
+    display[1].oi = 140;
+    display[2].oi = 400;
+    for (let i = 0; i < 5; i++) sub[5 + i].oi = 100 + i * 10;
+    const series = stubSeries(display);
+    const replay = new ReplayController(host(), { series, bars: display, subBars: sub, startIndex: 0 });
+    try {
+      for (const expected of [100, 110, 120, 130, 140]) {
+        replay.step();
+        expect(series.getData()[1].oi).toBe(expected);
+        expect(replay.state().bar?.oi).toBe(expected);
+      }
+      for (let i = 0; i < 4; i++) {
+        replay.step();
+        expect(series.getData()[2].oi).toBeUndefined();
+      }
+      replay.step();
+      expect(series.getData()[2].oi).toBe(400);
+    } finally { replay.stop(); }
+  });
+
   it('reports five steps and advances through them one at a time', () => {
     const { display, sub } = session(6);
     const series = stubSeries(display);

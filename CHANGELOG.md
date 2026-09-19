@@ -2,6 +2,19 @@
 
 All notable changes to OpenAlgo Charts.
 
+## Unreleased
+
+### Added
+
+- Optional `Bar.oi`, `Tick.oi`, `AggTick.oi` and `SecuritySeries.oi`. Open interest
+  is a level, not a flow: historical folds take the latest defined reading in a
+  bucket, never sum it. Zero and absence remain distinct. One-to-one transforms
+  preserve the field; price-generated and expression bars omit it.
+- History mapping and durable-cache validation preserve finite optional open
+  interest. Live ticks without a reading clear the forming level. History repair
+  preserves newer live observations, and partial replay exposes only readings
+  already reached by the playhead.
+
 ## 2.4.0
 
 2026-09-18

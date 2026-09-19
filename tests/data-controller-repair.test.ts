@@ -44,6 +44,21 @@ function recording(answers: () => Bar[]) {
 }
 
 describe('defaults', () => {
+  it.each([undefined, 0, 150])('keeps the live open-interest observation %s during an overlapping history repair', async (oi) => {
+    const pending = deferred<Bar[]>();
+    let calls = 0;
+    const controller = make({
+      getBars: async () => ++calls === 1 ? [{ ...bar(60), oi: 100 }] : pending.promise,
+    });
+    await controller.load(req);
+    const refresh = controller.refresh();
+    controller.pushBar({ ...bar(60, 105), ...(oi === undefined ? {} : { oi }) });
+    pending.resolve([{ ...bar(60, 102), oi: 120 }]);
+    await refresh;
+    expect(controller.bars()[0].close).toBe(105);
+    expect(controller.bars()[0].oi).toBe(oi);
+  });
+
   it('a controller built the old way schedules nothing on a push', async () => {
     vi.useFakeTimers();
     const { feed, requests } = recording(() => [bar(60), bar(120)]);

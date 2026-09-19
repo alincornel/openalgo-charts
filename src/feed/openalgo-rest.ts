@@ -27,6 +27,8 @@ interface HistoryRow {
   low: number;
   close: number;
   volume?: number;
+  /** Present on a derivatives response; the platform always sends the column. */
+  oi?: number;
 }
 
 interface HistoryResponse {
@@ -68,6 +70,7 @@ export function mapHistoryResponse(json: HistoryResponse): Bar[] {
       low: r.low,
       close: r.close,
       volume: r.volume,
+      ...(Number.isFinite(r.oi) ? { oi: r.oi } : {}),
     });
   }
   return bars.sort((a, b) => a.time - b.time);

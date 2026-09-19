@@ -162,7 +162,12 @@ Since 2.4.0 a study can fold the chart's own bars up to a higher timeframe with 
 
 Every built-in is measured against its standard definition bar by bar, at several parameter sets, and each one's warmup (the first bar it can honestly produce a value for) is part of that check rather than an afterthought. A study draws nothing until it has the history it needs.
 
-The chart owns the whole lifecycle: series, pane placement, reference levels, fixed ranges (RSI 0..100), recompute on data change, teardown. Every plot gets colour, opacity, thickness, and line style for free, generated from the descriptor. Write your own with `registerIndicator`, or use the **Tier-2 contract** for indicators whose data isn't derived from OHLCV (open interest, CVD, any external feed).
+The chart owns the whole lifecycle: series, pane placement, reference levels, fixed ranges (RSI 0..100), recompute on data change, teardown. Every plot gets colour, opacity, thickness, and line style for free, generated from the descriptor. Write your own with `registerIndicator`, or use the **Tier-2 contract** for indicators whose data arrives independently of the chart's bars (CVD or an external feed).
+
+The development data contract includes optional per-bar `oi` for open interest.
+It is a level, not a flow: folds retain the latest reading instead of summing it.
+Zero and absence remain distinct, and live quotes without a reading leave a gap.
+See [Open interest data](docs/open-interest.md).
 
 ### Drawing tools
 

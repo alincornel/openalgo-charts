@@ -459,3 +459,16 @@ anchors, policies, lifecycle, rendering, events and versioned persistence, plus
 schema-driven widget controls and compatible consumer integration. No alert sends
 an order or delivers a webhook itself. No release is complete until this added
 scope and the previous scope have evidence.
+
+
+Open-interest plan: `2026-09-20-open-interest.md`. The supplied eight-file patch
+is incorporated without changing the original main checkout. Data-path tests now
+cover latest-level folding, absent/zero, live quote gaps, history reconciliation,
+partial replay, cold-cache validation and transform omissions. The engine gate
+passes 5,363 tests in 222 files plus 232 reference-host tests, lint/types/build,
+declarations, size/shake and 901/901 reference coverage. Ruling: the optional
+field's measured aggregate cost raises the widget-terminal budget from 185 to
+186 kB (185.13 measured). Studies, capability/status UI, alerts, packed consumer
+migration and all earlier unfinished scope remain required. The separate
+OpenScript workflow is not being modified; document its `oi` and
+`hasOpenInterest` integration contract when Task 4 is implemented.

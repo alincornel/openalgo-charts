@@ -11,6 +11,7 @@
 | `time` | `UTCSeconds` (`number`) | Integer UTC seconds. Required. |
 | `open` `high` `low` `close` | `number` | Required on a `Bar`. |
 | `volume` | `number?` | Optional; not all feeds carry it. |
+| `oi` | `number?` | Optional open-interest level. Zero is a reading; missing is not zero. Historical folds take the latest defined level within the bucket, never a sum. |
 | `color` | `string?` | Per-bar override honoured by renderers that support it (histogram, column). |
 
 **Bar times are UTC seconds, never milliseconds and never `Date`.** `UTCSeconds` is a bare `number`, so a millisecond timestamp compiles fine and then places the bar ~50,000 years in the future, which silently destroys the shared axis. Convert at the feed edge with `epochMsToUtcSeconds` (`src/feed/time.ts`).
@@ -20,6 +21,14 @@ import type { Bar } from 'openalgo-charts';
 
 const bar: Bar = { time: 1700000000, open: 100, high: 102, low: 99.5, close: 101, volume: 12000 };
 ```
+
+Open interest belongs to the bar's timestamp. `mergeBars` and `securitySeries`
+retain the latest defined reading in each bucket and leave an entirely missing
+bucket absent. Heikin Ashi retains it; price-generated and expression bars omit
+it. `Tick.oi` and `AggTick.oi` replace the current level. A tick without a finite
+reading clears it from the forming bar, including a history-seeded bar. The
+current quote feed does not supply open interest, so that live gap is expected.
+Partial replay uses only revealed sub-bar readings. See [open-interest data](../../../../docs/open-interest.md).
 
 ## Three item shapes, one internal bar
 
