@@ -8,6 +8,7 @@
  * Add --foundations true for candle-center snapping, interval sync and volume averages.
  * Add --templates true for named study templates on the selected chart.
  * Add --correctness true for volume, hover, pan and linked readout regressions.
+ * Add --workspaces true for complete named chart grids.
  * Use --browser chromium|firefox|webkit to select the rendering engine.
  *
  * No backend is started. Vite proxies are removed and every API/WS is mocked.
@@ -16,6 +17,7 @@
  */
 import assert from 'node:assert/strict';
 import { checkChartCorrectness } from './check-openalgo-correctness.mjs';
+import { checkWorkspaces } from './check-openalgo-workspaces.mjs';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile, lstat } from 'node:fs/promises';
@@ -235,6 +237,12 @@ try {
     await page.waitForFunction((price) => window.__compatTerminals?.some((t) => !t.destroyed && t.lastLtp === price), ltp);
   };
   await page.goto(`${origin}/trading`);
+  if (args.workspaces === 'true') {
+    await page.getByRole('button', { name: 'Workspaces', exact: true }).click({ timeout: 5000 });
+    await page.getByRole('dialog', { name: 'Chart workspaces' }).waitFor();
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(page.locator('[data-slot="dialog-overlay"]')).toHaveCount(0);
+  }
   if (args.templates === 'true') {
     await page.getByRole('button', { name: 'Templates', exact: true }).click({ timeout: 5000 });
     await page.getByRole('dialog', { name: 'Indicator templates' }).waitFor();
@@ -786,10 +794,10 @@ try {
       const originalOrderCount = orderCounter;
       assert.equal(await page.getByRole('button', { name: 'Templates', exact: true }).count(), 1);
       const studies = [
-        { indicatorId: 'ema', settings: { period: 9, 'plot.ema.color': '#ff9800' }, paneIndex: 0, visible: true },
-        { indicatorId: 'ema', settings: { period: 9, 'plot.ema.color': '#ff9800' }, paneIndex: 0, visible: true },
-        { indicatorId: 'rsi', settings: { period: 14 }, paneIndex: 1, visible: false },
-        { indicatorId: 'rsi', settings: { period: 21 }, paneIndex: 1, visible: true },
+        { indicatorId: 'ema', settings: { length: 9, 'plot.ema.color': '#ff9800' }, paneIndex: 0, visible: true },
+        { indicatorId: 'ema', settings: { length: 9, 'plot.ema.color': '#ff9800' }, paneIndex: 0, visible: true },
+        { indicatorId: 'rsi', settings: { length: 14 }, paneIndex: 1, visible: false },
+        { indicatorId: 'rsi', settings: { length: 21 }, paneIndex: 1, visible: true },
       ];
       await terminal((t, list) => t.applyIndicatorTemplate(list, 'replace'), studies);
       const targetKey = await terminal(t => t.sk);
@@ -903,6 +911,7 @@ try {
     });
   }
   if (args.correctness === 'true') await checkChartCorrectness({ page, terminal, report, sendDepth, screenshot: args.screenshot });
+  if (args.workspaces === 'true') await checkWorkspaces({ page, check, reload, screenshot: args.screenshot, orderCount: () => orderCounter, sendDepth });
   await check('no browser runtime errors or external HTTP', async () => {
     await Promise.all(consoleReads);
     // WebKit reports fetches cancelled/refused on a departing document as

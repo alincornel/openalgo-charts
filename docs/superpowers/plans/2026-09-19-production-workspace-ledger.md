@@ -425,3 +425,37 @@ Pages with its workflow, compare registry contents with the tested archive and
 verify the deployed site in a real browser. Finally install the published package
 in the consumer, rerun its checks, commit and push the integration. No additional
 publication confirmation is required by the existing authorization.
+
+
+### Named-grid consumer checkpoint
+
+Consumer `a297af9f8` completes the prepared grid, workspace menu and autosave
+integration with the verified `87f1589` engine candidate. The full suite passes
+2,253 tests across 139 files; types/build and changed-file checks pass. Full lint
+has the existing two warnings and two style notices recorded in the named-grid
+plan. All 21 workspace checks pass in each of Chromium, Firefox and WebKit,
+including storage refusal, stale catalog recovery, history failure, cancellation,
+imports and locked execution. The corrected template fixture passes 15 Chromium
+checks. Screenshots were inspected; generated tracked build files were restored.
+
+Observed cleanup errors cannot release an already published grid or prevent
+other owners from being released. Save as retains changes made during the write;
+unchanged gestures settle back to Saved even with autosave off. Resource checking
+covers owner maps/sets, links, timers, abort listeners and export URLs through
+static review and regressions. Prolonged process/memory measurements remain P3.
+
+### Additional open-interest and alert scope
+
+On September 20 the user explicitly added
+`D:/OpenAlgo-Voice/codex instruction/openalgo-charts-oi-and-alerts.md`.
+Its complete requirements are preserved in
+`../specs/2026-09-20-open-interest-and-alerts-requirements.md`.
+They extend F1-F9/P1-P6 and the 2.4.5 release; they do not replace any prior row.
+The eight initial open-interest edits exist uncommitted in the original charts
+checkout. Keep that checkout intact; port its diff into this isolated branch,
+then validate and finish the data paths, indicators, availability and status line.
+Implement alerts as the requested base-engine controller with drawing/indicator
+anchors, policies, lifecycle, rendering, events and versioned persistence, plus
+schema-driven widget controls and compatible consumer integration. No alert sends
+an order or delivers a webhook itself. No release is complete until this added
+scope and the previous scope have evidence.
