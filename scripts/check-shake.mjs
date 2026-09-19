@@ -41,7 +41,12 @@ const BUNDLE = new URL('../dist/openalgo-charts.mjs', import.meta.url).pathname.
 // Default vector branding and the opt-in chart watermark are available to raw
 // chart hosts too. The chart-only build measures 48.96 KiB versus 45.51 KiB on
 // 2.1.8, including guarded link gestures and screenshot handling for hidden panes.
-const LIMIT_BYTES = 50 * 1024;
+// Selected candle readouts survive recalculation and history prepends, and linked
+// markers update the follower's OHLC and study legends without pointer echoes.
+// The measured chart-only cost is 0.21 KiB: 49.92 KiB at 2f6b54c to 50.13 KiB.
+// Keep one readout timestamp shared by native and linked hover. These corrections
+// belong to core chart hosts; allow 50.25 KiB while retaining every tier budget.
+const LIMIT_BYTES = 50.25 * 1024;
 
 // Absent from a chart-only build. Each is a string that appears in the adapter
 // source and nowhere in the rendering core.

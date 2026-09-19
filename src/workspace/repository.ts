@@ -128,7 +128,7 @@ export class WorkspaceRepository {
     });
   }
 
-  async duplicate(kind: WorkspaceKind, id: string, name: string): Promise<Document> {
+  async duplicate(kind: WorkspaceKind, id: string, name: string): Promise<WorkspaceDocument | IndicatorTemplateDocument> {
     const title = string(name, 'name', 120);
     return this._transact(catalog => this._insert(catalog, this._find(catalog, kind, id), title));
   }
@@ -162,7 +162,7 @@ export class WorkspaceRepository {
     return this._transact(catalog => { catalog.autosave = value; });
   }
 
-  async importDocument(input: unknown): Promise<Document> {
+  async importDocument(input: unknown): Promise<WorkspaceDocument | IndicatorTemplateDocument> {
     const doc = documentOf(input);
     return this._transact(catalog => this._insert(catalog, doc, doc.name));
   }

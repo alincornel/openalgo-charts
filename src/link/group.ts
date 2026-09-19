@@ -77,6 +77,8 @@ export interface LinkChart {
   panes(): readonly unknown[];
   addPrimitive(primitive: IPrimitive, paneIndex?: number): void;
   removePrimitive(primitive: IPrimitive): void;
+  /** Optional readout support alongside the group's vertical marker. */
+  setLinkedCrosshairIndex?(index: number | null): void;
 }
 
 export interface LinkOptions {
@@ -454,11 +456,13 @@ export class LinkGroup {
       member.crosshairs.push(line);
     }
     for (const line of member.crosshairs) line.setIndex(index);
+    member.chart.setLinkedCrosshairIndex?.(index);
   }
 
   private _detachCrosshairs(member: Member): void {
     if (alive(member.chart)) {
       for (const line of member.crosshairs) member.chart.removePrimitive(line);
+      member.chart.setLinkedCrosshairIndex?.(null);
     }
     member.crosshairs.length = 0;
   }

@@ -145,6 +145,8 @@ export interface IndicatorHost {
   flushIndicators?(): void;
   /** Bars of the primary price series — the calculation input. */
   sourceBars(): readonly Bar[];
+  /** Selected candle after native or linked hover; absent means latest. */
+  legendIndex?(): number | undefined;
   /** Index of a fresh pane for an indicator that wants its own. */
   nextPaneIndex(): number;
   /**
@@ -952,7 +954,7 @@ export class IndicatorInstance implements IndicatorApi {
     this._syncBarColors(bars);
     this._applyLevels(bars, settings);
     this._syncAlerts(bars, settings, tailOnly);
-    this.updateLegendValues();
+    this.updateLegendValues(this._host.legendIndex?.());
   }
 
   /**

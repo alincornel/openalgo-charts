@@ -64,7 +64,7 @@ export async function fetchExpressionBars(source, interval, period, opts = {}) {
     bySymbol[symbol] = bars;
   }
 
-  const bars = evaluateExpression(expr, bySymbol, { ohlc: opts.ohlc || 'close' });
+  const bars = evaluateExpression(expr, bySymbol, { ohlc: opts.ohlc || 'close', volume: 'sum' });
   if (bars.length === 0) {
     // Every leg had data and nothing survived, so the legs never traded at the
     // same timestamps: a different session, or an interval one of them lacks.

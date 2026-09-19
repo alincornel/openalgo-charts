@@ -402,6 +402,8 @@ export function compactVolume(v: number): string {
  * floating tooltip. See `subscribeCrosshairMove`.
  */
 export interface CrosshairMoveEvent {
+  /** Linked readouts have no physical pointer position and are not pointer gestures. */
+  source?: 'linked';
   /** UTC seconds of the hovered bar, or null when off the data / pointer left. */
   time: number | null;
   /** Logical index under the cursor, or null. */
@@ -804,6 +806,7 @@ export class Chart {
   private _loadingHistory = false;
   private _clickCb: ((externalId: string) => void) | null = null;
   private _crosshairCb: ((e: CrosshairMoveEvent) => void) | null = null;
+  private _readoutTime: number | null = null;
   private _pointerMoved = false;
   /** While true, pointer gestures place anchors instead of panning. */
   private _placementMode = false;
@@ -1475,6 +1478,7 @@ export class Chart {
 
   private _indicatorHost(): IndicatorHost {
     return {
+      legendIndex: () => this._readoutIndex(),
       indicatorRemoved: (id): void => this._forgetIndicator(id),
       flushIndicators: (): void => this._flushIndicators(),
       // The scale that draws the ladder is the one that decides how a number on
@@ -1703,10 +1707,32 @@ export class Chart {
   /**
    * Subscribe to crosshair movement for an OHLC legend / tooltip. The callback
    * fires with the hovered bar of the primary price series on every move, and
-   * with all-null fields when the pointer leaves the plot.
+   * with all-null fields when the pointer leaves the plot. A linked crosshair
+   * also updates the readout, with source 'linked' and no pointer coordinates.
    */
   public subscribeCrosshairMove(cb: (e: CrosshairMoveEvent) => void): void {
     this._crosshairCb = cb;
+  }
+
+  /**
+   * Update the readout under a link group's separately drawn crosshair. The
+   * physical pointer takes precedence. This never emits a pointer move event,
+   * so hosts do not interpret it as drawing input or echo it to another group.
+   */
+  public setLinkedCrosshairIndex(index: number | null): void {
+    if (this.isDestroyed || this._cursor !== null) return;
+    const time = index === null ? null : this._dataLayer.indexToTime(index) ?? null;
+    if (time === this._readoutTime) return;
+    this._readoutTime = time;
+    for (const indicator of this._indicators) indicator.updateLegendValues(index ?? undefined);
+    const bar = index === null || this._firstDataId.value === null ? null
+      : this._dataLayer.visibleBars(this._firstDataId.value, index, index)[0]?.bar ?? null;
+    this._crosshairCb?.({ source: 'linked', time, index,
+      bar, price: null, point: null, paneIndex: null });
+  }
+
+  private _readoutIndex(): number | undefined {
+    return this._readoutTime === null ? undefined : this._dataLayer.timeToIndex(this._readoutTime);
   }
 
   /**
@@ -3722,6 +3748,7 @@ export class Chart {
       // grab point reads as a phantom second line (the axis tag tracks price).
       this._cursor = null;
       this._cursorPane = null;
+      this._readoutTime = null;
       this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Cursor));
       this._dragging = false;
       this._pointerMoved = false;
@@ -4368,6 +4395,7 @@ export class Chart {
     }
     this._cursorPane = paneIndex;
     this._cursor = { x: plotX, y }; // plot-relative; the crosshair line is drawn inside the plot shift
+    this._readoutTime = hoveredBar?.time ?? null;
     // Legend rows read the bar under the crosshair, like every charting package.
     for (const indicator of this._indicators) indicator.updateLegendValues(index);
     // global crosshair → repaint every pane's overlay (cheap; base untouched)

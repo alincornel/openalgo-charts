@@ -80,6 +80,17 @@ chart.subscribeCrosshairMove((e) => {
 });
 ```
 
+Linked charts also call this subscriber with `source: 'linked'`, their own mapped
+bar, and null pointer coordinates. A linked readout never emits `crosshair:move`
+on the event bus, so it cannot become drawing input or a synchronization echo.
+Native pointer hover takes precedence. Clearing or disabling the link restores
+the latest-bar fallback. Study legends retain the selected candle through live
+recalculation and history prepends.
+
+For a host-owned readout, retain the selected bar's timestamp and resolve it
+against the displayed series after a data update. Avoid replacing it with the
+latest raw bar on every tick, especially while replay owns a truncated series.
+
 ## Chart trading
 
 ```ts

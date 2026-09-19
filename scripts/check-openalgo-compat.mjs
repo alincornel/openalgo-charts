@@ -7,6 +7,7 @@
  * Add --branding true to validate corner branding and optional watermark settings.
  * Add --foundations true for candle-center snapping, interval sync and volume averages.
  * Add --templates true for named study templates on the selected chart.
+ * Add --correctness true for volume, hover, pan and linked readout regressions.
  * Use --browser chromium|firefox|webkit to select the rendering engine.
  *
  * No backend is started. Vite proxies are removed and every API/WS is mocked.
@@ -14,6 +15,7 @@
  * assertions can inspect the real series, drawings, feed and replay state.
  */
 import assert from 'node:assert/strict';
+import { checkChartCorrectness } from './check-openalgo-correctness.mjs';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile, lstat } from 'node:fs/promises';
@@ -884,6 +886,7 @@ try {
       assert.equal(orderCounter, ordersBefore);
     });
   }
+  if (args.correctness === 'true') await checkChartCorrectness({ page, terminal, report, sendDepth, screenshot: args.screenshot });
   await check('no browser runtime errors or external HTTP', async () => {
     await Promise.all(consoleReads);
     // WebKit reports fetches cancelled/refused on a departing document as
