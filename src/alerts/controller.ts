@@ -1,9 +1,11 @@
 import type { Bar } from '../model/bar';
 import { CONDITIONS, numericMatch, touchMatch } from './conditions';
 import { getBarCondition } from './bar-conditions';
+import { AlertVisuals } from './visuals';
 import type {
   Alert, AlertChartHost, AlertControllerOptions, AlertInput, AlertPatch, AlertScope,
   AlertTriggeredPayload, ChartDataUpdate, AlertAvailability, IndicatorAlertSource,
+  AlertDrawingProvider, AlertDrawingValue, DrawingAlertSource,
 } from './types';
 
 interface RecordState {
@@ -13,11 +15,14 @@ interface RecordState {
   touchedTime?: number;
   value?: number;
   errorTime?: number;
+  plotPane?: number;
 }
 
 const owners = new WeakSet<AlertChartHost>();
 let nextId = 1;
-const copy = (alert: Alert): Alert => ({ ...alert, source: { ...alert.source }, scope: { ...alert.scope } });
+const copy = (alert: Alert): Alert => ({ ...alert, source: alert.source.kind === 'drawing'
+  ? { ...alert.source, input: alert.source.input ? { ...alert.source.input } : undefined }
+  : { ...alert.source }, scope: { ...alert.scope } });
 const scopeOf = (chart: AlertChartHost): AlertScope => {
   const context = chart.getDataContext();
   return { symbol: context?.symbol, exchange: context?.exchange, interval: context?.interval };
@@ -29,12 +34,14 @@ function validate(alert: Alert): void {
   if (typeof alert.id !== 'string' || !alert.id.trim()) throw new Error('Alert id must be nonempty');
   const source = alert.source;
   const named = source?.kind === 'barCondition';
-  if (!source || !['price', 'indicator', 'barCondition'].includes(source.kind)) throw new Error('Unknown alert source');
+  if (!source || !['price', 'indicator', 'barCondition', 'drawing'].includes(source.kind)) throw new Error('Unknown alert source');
   const text = (value: unknown): boolean => typeof value === 'string' && value.trim().length > 0;
   if (source.kind === 'barCondition' && !text(source.id)) throw new Error('Invalid bar condition id');
   if (source.kind === 'indicator' && (!text(source.instanceId) || !text(source.plotKey))) throw new Error('Invalid indicator source');
+  if (source.kind === 'drawing' && (!text(source.drawingId) || (source.level !== undefined && !text(source.level))
+    || (source.input && (!text(source.input.instanceId) || !text(source.input.plotKey))))) throw new Error('Invalid drawing source');
   if (named ? alert.condition !== 'matches' : !CONDITIONS.includes(alert.condition)) throw new Error('Invalid source condition');
-  if (source.kind !== 'barCondition') {
+  if (source.kind === 'price' || source.kind === 'indicator') {
     const lower = source.kind === 'price' ? source.price : source.value;
     const upper = source.kind === 'price' ? source.upperPrice : source.upperValue;
     if (!Number.isFinite(lower) || (upper !== undefined && !Number.isFinite(upper))) throw new Error('Alert bounds must be finite');
@@ -57,6 +64,8 @@ export class AlertController {
   private readonly _records = new Map<string, RecordState>();
   private readonly _off: (() => void)[];
   private readonly _now: () => number;
+  private readonly _drawings: AlertDrawingProvider | undefined;
+  private readonly _visuals: AlertVisuals | undefined;
   private _timer: ReturnType<typeof setTimeout> | undefined;
   private _timerAt: number | undefined;
   private _paused = false;
@@ -67,15 +76,14 @@ export class AlertController {
   public constructor(private readonly _chart: AlertChartHost, options: AlertControllerOptions = {}) {
     if (owners.has(_chart)) throw new Error('An alert controller already owns this chart');
     this._now = options.now ?? (() => Date.now() / 1000);
+    this._drawings = options.drawings;
+    this._visuals = options.visuals === false ? undefined : new AlertVisuals(_chart);
     owners.add(_chart);
     this._off = [
       _chart.on('data:update', payload => this._onData(payload as ChartDataUpdate)),
       _chart.on('data:context', () => this._seedAll()),
-      _chart.on('objects:change', () => {
-        for (const record of this._records.values()) {
-          if (record.alert.source.kind === 'indicator') { this._revision++; this._seed(record); }
-        }
-      }),
+      _chart.on('objects:change', () => this._onObjects()),
+      _chart.on('paneMoved', () => this._onObjects()),
       _chart.on('replay:start', () => { this._replay = true; this._seedAll(); }),
       _chart.on('replay:stop', () => { this._replay = false; this._seedAll(); }),
       _chart.on('destroy', () => this.destroy()),
@@ -93,10 +101,12 @@ export class AlertController {
       title: input.title ?? 'Chart alert', cooldownSeconds: input.cooldownSeconds ?? 0, scope: scopeOf(this._chart),
     };
     validate(alert);
+    alert.source = copy(alert).source;
     if (alert.state === 'armed' && alert.expiresAt !== undefined && this._now() >= alert.expiresAt) alert.state = 'expired';
     const record: RecordState = { alert };
     this._seed(record);
     this._records.set(id, record);
+    this._syncVisual(record);
     this._scheduleExpiry();
     this._chart.emit('alert:created', { alert: copy(alert) });
     return copy(alert);
@@ -108,21 +118,28 @@ export class AlertController {
     if (!previous) return undefined;
     const alert: Alert = { ...previous.alert, ...patch, id, source: { ...(patch.source ?? previous.alert.source) } };
     validate(alert);
+    alert.source = copy(alert).source;
     if (alert.state === 'armed' && alert.expiresAt !== undefined && this._now() >= alert.expiresAt) alert.state = 'expired';
     const record: RecordState = { ...previous, alert };
     this._seed(record);
     this._records.set(id, record);
+    this._syncVisual(record);
     this._scheduleExpiry();
     this._chart.emit('alert:updated', { alert: copy(alert) });
     return copy(alert);
   }
 
   public remove(id: string): boolean {
+    return this._remove(id, 'removed');
+  }
+
+  private _remove(id: string, reason: string): boolean {
     const record = this._records.get(id);
     if (!record) return false;
     this._records.delete(id);
+    this._visuals?.remove(id);
     this._scheduleExpiry();
-    this._chart.emit('alert:removed', { alert: copy(record.alert), reason: 'removed' });
+    this._chart.emit('alert:removed', { alert: copy(record.alert), reason });
     return true;
   }
 
@@ -136,6 +153,14 @@ export class AlertController {
     if (!sameScope(record.alert.scope, scopeOf(this._chart))) return { available: false, reason: 'Instrument context differs' };
     const { source } = record.alert;
     const bars = this._chart.primaryBars();
+    if (source.kind === 'drawing') {
+      const info = this._drawings?.alertInfo(source.drawingId);
+      if (!info?.available) return { available: false, reason: info?.reason ?? 'Drawing provider is unavailable' };
+      if (info.paneIndex !== 0 && !source.input) return { available: false, reason: 'Select an input plot for this drawing pane' };
+      const bounds = this._drawingValue(record.alert, bars[bars.length - 1]?.time);
+      return bounds ? { available: true, paneIndex: bounds.paneIndex }
+        : { available: false, reason: 'Drawing level, time, input plot or condition is unavailable', paneIndex: info.paneIndex };
+    }
     if (source.kind === 'indicator') {
       const resolved = this._plot(source);
       if (!resolved.values) return { available: false, reason: resolved.reason };
@@ -163,6 +188,7 @@ export class AlertController {
     this._revision++;
     for (const off of this._off) off();
     this._clearTimer();
+    this._visuals?.destroy();
     this._records.clear();
     owners.delete(this._chart);
   }
@@ -176,7 +202,11 @@ export class AlertController {
     const tail = bars[bars.length - 1];
     record.tail = tail ? { ...tail } : undefined;
     if (record.alert.source.kind === 'indicator') {
-      record.value = this._reading(this._plot(record.alert.source).values, bars.length - 1);
+      const plot = this._plot(record.alert.source);
+      record.value = this._reading(plot.values, bars.length - 1);
+      record.plotPane = plot.paneIndex;
+    } else if (record.alert.source.kind === 'drawing' && record.alert.source.input) {
+      record.value = this._reading(this._plot(record.alert.source.input).values, bars.length - 1);
     }
     const closed = bars[bars.length - 2]?.time;
     // A history reload can move backwards; it cannot make a judged bar new again.
@@ -185,7 +215,40 @@ export class AlertController {
 
   private _seedAll(): void {
     this._revision++;
-    for (const record of this._records.values()) this._seed(record);
+    for (const record of this._records.values()) { this._seed(record); this._syncVisual(record); }
+  }
+
+  private _onObjects(): void {
+    if (this._destroyed) return;
+    const revision = ++this._revision;
+    for (const record of [...this._records.values()]) {
+      if (this._destroyed || this._revision !== revision) break;
+      const source = record.alert.source;
+      if (source.kind === 'drawing' && this._drawings && this._drawings.get(source.drawingId) == null) {
+        this._remove(record.alert.id, 'drawing-removed');
+      } else if (source.kind === 'indicator' || source.kind === 'drawing') {
+        this._seed(record);
+        this._syncVisual(record);
+      }
+    }
+  }
+
+  private _syncVisual(record: RecordState): void {
+    if (!this._visuals) return;
+    const { alert } = record;
+    const { source } = alert;
+    let value: AlertDrawingValue | undefined;
+    if (sameScope(alert.scope, scopeOf(this._chart))) {
+      if (source.kind === 'price') value = { price: source.price, upperPrice: source.upperPrice, paneIndex: 0 };
+      if (source.kind === 'indicator') {
+        if (record.plotPane !== undefined) value = { price: source.value, upperPrice: source.upperValue, paneIndex: record.plotPane };
+      }
+      if (source.kind === 'drawing') {
+        const bars = this._chart.primaryBars();
+        value = this._drawingValue(alert, bars[bars.length - 1]?.time);
+      }
+    }
+    this._visuals.update(alert, value, this._paused || this._replay);
   }
 
   private _onData(update: ChartDataUpdate): void {
@@ -204,6 +267,8 @@ export class AlertController {
       if (this._records.get(record.alert.id) !== record) continue;
       const previous = record.tail;
       record.tail = { ...tail };
+      if (record.alert.source.kind === 'drawing' && previous?.time !== tail.time) this._syncVisual(record);
+      if (this._destroyed || revision !== this._revision) break;
       if (record.alert.state !== 'armed' || !sameScope(record.alert.scope, scope) || !previous) continue;
       const { alert } = record;
       if (alert.policy === 'onBarClose') {
@@ -228,7 +293,7 @@ export class AlertController {
     }
   }
 
-  private _plot(source: IndicatorAlertSource): { values?: readonly (number | null)[]; paneIndex?: number; reason?: string } {
+  private _plot(source: Pick<IndicatorAlertSource, 'instanceId' | 'plotKey'>): { values?: readonly (number | null)[]; paneIndex?: number; reason?: string } {
     const instance = this._chart.indicators?.().find(item => item.id === source.instanceId);
     if (!instance) return { reason: 'Indicator instance is unavailable' };
     if (!instance.series(source.plotKey)) return { reason: 'Indicator plot is unavailable' };
@@ -244,6 +309,16 @@ export class AlertController {
   private _closedMatch(record: RecordState, bars: readonly Bar[], index: number): number | undefined {
     const { source, condition } = record.alert;
     if (source.kind === 'barCondition') return this._barMatch(record, bars, index) ? bars[index].close : undefined;
+    if (source.kind === 'drawing') {
+      const bounds = this._drawingValue(record.alert, bars[index].time);
+      const beforeBounds = this._drawingValue(record.alert, bars[index - 1]?.time);
+      const values = source.input ? this._plot(source.input).values : undefined;
+      const current = source.input ? this._reading(values, index) : bars[index].close;
+      const previous = source.input ? this._reading(values, index - 1) : bars[index - 1]?.close;
+      if (!bounds || current === undefined) return undefined;
+      return numericMatch(condition, beforeBounds ? previous : undefined, current, bounds.price, bounds.upperPrice,
+        beforeBounds?.price, beforeBounds?.upperPrice) ? current : undefined;
+    }
     if (source.kind === 'price') return numericMatch(condition, bars[index - 1]?.close, bars[index].close, source.price, source.upperPrice)
       ? bars[index].close : undefined;
     const values = this._plot(source).values;
@@ -257,6 +332,7 @@ export class AlertController {
     const index = bars.length - 1;
     const tail = bars[index];
     if (source.kind === 'barCondition') return this._barMatch(record, bars, index) ? tail.close : undefined;
+    if (source.kind === 'drawing') return this._drawingTouch(record, source, bars, previous);
     if (source.kind === 'indicator') {
       const values = this._plot(source).values;
       const current = this._reading(values, index);
@@ -288,6 +364,40 @@ export class AlertController {
     }
   }
 
+  private _drawingValue(alert: Alert, time: number | undefined): AlertDrawingValue | undefined {
+    const source = alert.source;
+    if (source.kind !== 'drawing' || time === undefined) return undefined;
+    const value = this._drawings?.valueAt(source.drawingId, time, source.level);
+    if (!value || (value.paneIndex !== 0 && !source.input)) return undefined;
+    if (source.input && this._plot(source.input).paneIndex !== value.paneIndex) return undefined;
+    const band = alert.condition === 'enteringRange' || alert.condition === 'leavingRange';
+    // A band has two boundaries: a crossing needs the trader to choose one explicitly.
+    if (band !== (value.upperPrice !== undefined)) return undefined;
+    return value;
+  }
+
+  private _drawingTouch(record: RecordState, source: DrawingAlertSource, bars: readonly Bar[], previous: Bar): number | undefined {
+    const tail = bars[bars.length - 1];
+    const bounds = this._drawingValue(record.alert, tail.time);
+    const beforeBounds = this._drawingValue(record.alert, previous.time);
+    if (source.input) {
+      const values = this._plot(source.input).values;
+      const current = this._reading(values, bars.length - 1);
+      const before = tail.time > previous.time ? this._reading(values, bars.length - 2) : record.value;
+      record.value = current;
+      if (!bounds || current === undefined || (current === before && tail.time === previous.time)) return undefined;
+      return numericMatch(record.alert.condition, beforeBounds ? before : undefined, current, bounds.price, bounds.upperPrice,
+        beforeBounds?.price, beforeBounds?.upperPrice) ? current : undefined;
+    }
+    if (!bounds || !beforeBounds) return undefined;
+    const isNew = tail.time > previous.time;
+    if (!isNew && tail.close === previous.close && tail.high <= previous.high && tail.low >= previous.low) return undefined;
+    const high = Math.max(previous.close, tail.close, isNew || tail.high > previous.high ? tail.high : -Infinity);
+    const low = Math.min(previous.close, tail.close, isNew || tail.low < previous.low ? tail.low : Infinity);
+    return touchMatch(record.alert.condition, previous.close, low, high, bounds.price, bounds.upperPrice,
+      beforeBounds.price, beforeBounds.upperPrice);
+  }
+
   private _trigger(record: RecordState, bar: Bar, index: number, price: number): void {
     const { alert } = record;
     const now = this._now();
@@ -296,6 +406,7 @@ export class AlertController {
     alert.lastTriggeredAt = now;
     alert.lastTriggeredTime = bar.time;
     if (alert.repeat === 'once') alert.state = 'triggered';
+    this._syncVisual(record);
     this._scheduleExpiry();
     const payload: AlertTriggeredPayload = {
       alertId: alert.id, title: alert.title, message: alert.message, time: bar.time, index, price, alert: copy(alert),
@@ -310,6 +421,7 @@ export class AlertController {
       const { alert } = record;
       if (alert.state === 'armed' && alert.expiresAt !== undefined && now >= alert.expiresAt) {
         alert.state = 'expired';
+        this._syncVisual(record);
         expired.push(record);
       }
     }

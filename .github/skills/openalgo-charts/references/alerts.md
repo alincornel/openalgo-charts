@@ -35,10 +35,11 @@ off();
 `AlertPolicy`, `AlertRepeat`, initial armed/disabled state, title, message,
 nonnegative cooldownSeconds, UTC-seconds expiresAt, and opaque payload.
 `AlertSource` is a union of `PriceAlertSource`, `IndicatorAlertSource` and
-`BarConditionAlertSource`. A fixed price uses
+`BarConditionAlertSource` and `DrawingAlertSource`. A fixed price uses
 `{ kind: 'price', price, upperPrice? }`; an indicator plot uses
 `{ kind: 'indicator', instanceId, plotKey, value, upperValue? }`; a named
 predicate uses `{ kind: 'barCondition', id }`.
+A drawing uses `{ kind: 'drawing', drawingId, level?, input? }`.
 `AlertScope` captures symbol, exchange and interval from chart data context.
 Set that context before creating alerts; alerts do not migrate to a new market.
 
@@ -129,13 +130,50 @@ close. A throwing predicate emits alert:error once for that bar and does not
 prevent other alerts from evaluating. Treat context and descriptor data as
 readonly; delivery and other effects belong in event listeners.
 
+## Drawing anchors and visible levels
+
+Pass the active DrawingController as `new AlertController(chart, { drawings: draw })`.
+The structural `AlertDrawingProvider` needs get(id), valueAt(id, time, level?)
+and alertInfo(id), so the base never imports the drawing tier. Destroy this alert
+controller when replacing that drawing controller or rebuilding its chart.
+
+`AlertDrawingValue` carries price, optional upperPrice and paneIndex.
+`AlertDrawingInfo` carries availability, reason, paneIndex and the possible
+`AlertDrawingLevel` entries (id and title). `draw.alertInfo(id)` reports which
+levels the tool supports. `draw.valueAt(id, time, level?)` uses its actual pane
+projection and logical time axis. Lines respect finite spans and extensions,
+logarithmic projections and collapsed session gaps. A missing/out-of-span value
+is unavailable, never zero.
+
+Channel bands support enteringRange/leavingRange. For a crossing or greater/less
+condition, explicitly select base, boundary or middle. Fib tools require an
+active rung such as ratio:0.5. Disabling that rung makes its alert unavailable;
+it never silently retargets to another rung. Closed crossings compare both
+bars against their respective drawing values. Moving a drawing changes its
+level and silently reseeds the observation rather than delivering for the drag.
+Deleting it through remove, undo or document replacement removes its alerts and
+emits alert:removed with reason drawing-removed. Redo does not recreate alerts.
+
+A drawing on a study pane requires `input: { instanceId, plotKey }` on its
+DrawingAlertSource. The study must belong to that pane; evaluation uses plot
+units and never substitutes the instrument price. A missing input is reported
+as unavailable.
+
+Chart hosts show price/drawing thresholds and indicator thresholds with the
+existing PriceLine primitive. Bands have two lines. Labels name Armed,
+Triggered, Disabled or Expired and carry distinct colors. Lines move in place,
+disappear during an instrument mismatch and are removed with their alert or
+controller. An unsupported or missing drawing does not produce a line at zero.
+`AlertControllerOptions.visuals: false` disables rendering for a model-only
+host; evaluation and event delivery are otherwise identical.
+
 ## Events
 
 | Event | Payload |
 | --- | --- |
 | alert:created | `{ alert: Alert }` after creation |
 | alert:updated | `{ alert: Alert }` after editing, enabling or disabling |
-| alert:removed | `{ alert: Alert, reason: 'removed' }` |
+| alert:removed | `{ alert: Alert, reason: 'removed' | 'drawing-removed' }` |
 | alert:expired | `{ alert: Alert }` when an armed record expires |
 | alert:triggered | `AlertTriggeredPayload`: alertId, title, message, time, index, price, alert |
 | alert:error | `{ alert: Alert, error: unknown }` when a custom predicate throws |

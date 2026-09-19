@@ -356,5 +356,7 @@ export type {
   AlertPolicy, AlertRepeat, AlertScope, AlertSource, AlertState, AlertTriggeredPayload, ChartDataUpdate,
   AlertAvailability, AlertEventPayload, PriceAlertSource, IndicatorAlertSource, BarConditionAlertSource,
   BarCondition, BarConditionContext,
+  AlertDrawingValue, AlertDrawingLevel, AlertDrawingInfo, AlertDrawingProvider,
+  DrawingAlertSource,
 } from './alerts/types';
 export { registerBarCondition, unregisterBarCondition, getBarCondition, registeredBarConditions } from './alerts/bar-conditions';

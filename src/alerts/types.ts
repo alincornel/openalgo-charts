@@ -1,6 +1,7 @@
 import type { Bar } from '../model/bar';
 import type { ChartDataContext } from '../model/indicator-registry';
 import type { IndicatorApi } from '../model/indicator-instance';
+import type { IPrimitive } from '../primitives/primitive';
 
 /** A primary-source mutation, emitted after indicator invalidation. */
 export interface ChartDataUpdate {
@@ -16,6 +17,8 @@ export interface AlertChartHost {
   emit(event: string, payload: unknown): void;
   /** Flushes computed study values. Only required by indicator-source alerts. */
   indicators?(): readonly Pick<IndicatorApi, 'id' | 'paneIndex' | 'series' | 'values'>[];
+  addPrimitive?(primitive: IPrimitive, paneIndex?: number): void;
+  removePrimitive?(primitive: IPrimitive): void;
 }
 
 export type AlertCondition = 'crossing' | 'crossingUp' | 'crossingDown'
@@ -45,13 +48,43 @@ export interface BarConditionAlertSource {
   id: string;
 }
 
-export type AlertSource = PriceAlertSource | IndicatorAlertSource | BarConditionAlertSource;
+export interface DrawingAlertSource {
+  kind: 'drawing';
+  drawingId: string;
+  level?: string;
+  /** Required for a drawing on a study pane, so prices are not compared to different units. */
+  input?: { instanceId: string; plotKey: string };
+}
+
+export type AlertSource = PriceAlertSource | IndicatorAlertSource | BarConditionAlertSource | DrawingAlertSource;
 
 /** Missing values, an absent anchor or a paused/context-mismatched chart are unavailable. */
 export interface AlertAvailability {
   available: boolean;
   reason?: string;
   paneIndex?: number;
+}
+
+export interface AlertDrawingValue {
+  price: number;
+  upperPrice?: number;
+  paneIndex: number;
+}
+
+export interface AlertDrawingLevel {
+  id: string;
+  title: string;
+}
+
+export interface AlertDrawingInfo extends AlertAvailability {
+  levels: readonly AlertDrawingLevel[];
+}
+
+/** Implemented by the optional drawing tier; the alert engine never imports it. */
+export interface AlertDrawingProvider {
+  get(id: string): unknown;
+  valueAt(id: string, time: number, level?: string): AlertDrawingValue | undefined;
+  alertInfo(id: string): AlertDrawingInfo;
 }
 
 export interface BarConditionContext {
@@ -125,4 +158,7 @@ export interface AlertTriggeredPayload extends AlertEventPayload {
 export interface AlertControllerOptions {
   /** Delivery and expiry clock in UTC seconds. Defaults to Date.now() / 1000. */
   now?: () => number;
+  drawings?: AlertDrawingProvider;
+  /** PriceLine visuals are enabled on chart hosts; disable for a model-only consumer. */
+  visuals?: boolean;
 }
