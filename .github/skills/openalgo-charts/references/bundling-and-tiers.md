@@ -221,3 +221,10 @@ bars-provider threading, and the widget terminal from 183 KB to 185 KB
 (184.14 KB measured). The indicator tier grows to 29.05 KB for `securitySeries`
 and the Tier-2 combiner, within its unchanged 30 KB budget. Every other budget
 is unchanged.
+
+The production-workspace development branch adds `openalgo-charts/workspace`,
+a non-registering tier with a 6 KB budget (4.80 KB measured). The all-tier budget
+is 223 KB (222.92 KB measured), compared with the branch's previous 219 KB ceiling.
+Base-only and widget imports do not include workspace persistence. Their measured
+sizes remain 78.48 KB base, 184.71 KB widget terminal and 49.92 KiB for a tree-shaken
+chart-only import. See [workspaces](workspaces.md) for the storage contract.

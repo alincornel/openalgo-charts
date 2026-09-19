@@ -62,6 +62,12 @@
     "brotli": true
   },
   {
+    "name": "Workspace tier (validated documents and asynchronous catalog storage)",
+    "path": "dist/openalgo-charts.workspace.mjs",
+    "limit": "6 kB",
+    "brotli": true
+  },
+  {
     "name": "Everything (all tiers, full package)",
     "path": [
       "dist/openalgo-charts.mjs",
@@ -71,9 +77,10 @@
       "dist/openalgo-charts.indicators.mjs",
       "dist/openalgo-charts.draw.mjs",
       "dist/openalgo-charts.webgl.mjs",
-      "dist/openalgo-charts.widget.mjs"
+      "dist/openalgo-charts.widget.mjs",
+      "dist/openalgo-charts.workspace.mjs"
     ],
-    "limit": "219 kB",
+    "limit": "223 kB",
     "brotli": true
   }
 ]

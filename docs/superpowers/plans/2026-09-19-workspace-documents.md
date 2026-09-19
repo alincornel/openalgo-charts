@@ -36,8 +36,8 @@ Produces:
 ```ts
 interface WorkspacePane {
   id: string; symbol: string; exchange: string; interval: string; chartType: string;
-  chart: ChartState; settings: Record<string, string | number | boolean>;
-  volume: boolean; magnet: boolean; stay: boolean;
+  chart: WorkspaceChartState; settings: Record<string, string | number | boolean>;
+  volume: boolean; magnet: 'off' | 'weak' | 'strong'; stay: boolean;
   comparisons: WorkspaceComparison[]; comparisonMode: 'price' | 'percent';
   historyPeriod?: string;
 }
@@ -134,3 +134,19 @@ Files: `package.json`, `tsconfig.json`, `rollup.config.js`, `scripts/check-dts.m
 ## Preflight
 
 The spec covers F1–F9/P1–P6. This phase supplies only the reusable F1/F2/P4 contracts; host controls, autosave orchestration, template application, comparisons, replay and the remaining readiness work remain in the master ledger. No existing public API is renamed. The adapter owns atomic writes so the repository does not falsely promise cross-tab safety from a read/then-write localStorage sequence.
+
+Task 1: Ruling: use the drawing tier's off/weak/strong magnet modes rather than a boolean. The existing widget can distinguish weak and strong; its migration must preserve that choice. Hosts with a boolean map false to off and true to weak.
+
+Task 1: Ruling: preserve `ChartSettingsState` and timezone alongside `ChartState`. An actual `Chart.getState()` regression exposed valid auto precision (`minMove: 0`) and settings slices absent from the original minimal fixture. Preserve these before hosts adopt the format.
+
+Task 2: Ruling: supply an optional IndexedDB adapter before host integration. A storage interface alone leaves each host implementing the same atomic revision requirement. The factory takes an `IDBFactory` explicitly and never accesses the DOM or browser globals at import time. Server hosts retain their own asynchronous adapters.
+
+### Task 2 addition: Browser persistence adapter
+
+Files: `src/workspace/indexed-db.ts`, barrel export, `tests/e2e/workspace-storage.spec.ts`, three-browser project matching.
+
+Produces `createIndexedDbWorkspaceStorage(factory: IDBFactory, databaseName?: string): IndexedDbWorkspaceStorage`, where the returned interface extends `WorkspaceStorage` with `close(): Promise<void>`. One catalog per namespace in the `catalogs` object store. Reads resolve after the readonly transaction completes; writes compare the stored revision and put the next catalog in one readwrite transaction, resolving only on commit. Reject malformed existing catalogs, skipped revisions and stale revisions without overwriting. Closing releases the connection and rejects new operations. A version-change notification closes the connection so upgrades are not blocked; create a new adapter afterward. Failed/blocked opens reject, and any delayed success closes its unused connection.
+
+- [ ] Write real-browser regressions for reload persistence, separate accounts, simultaneous writes from two tabs (exactly one winner), stale/corrupt storage preservation, and close/version-change lifecycle. Run first against the missing factory; expected RED.
+- [ ] Implement the adapter with no localStorage fallback or swallowed storage errors.
+- [ ] Build and run these regressions on Chromium, Firefox and WebKit; expected GREEN. Include the factory and lifecycle semantics in public references and measured budgets.

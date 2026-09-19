@@ -26,7 +26,8 @@
       "openalgo-charts/indicators": ["./src/indicators/index.ts"],
       "openalgo-charts/draw": ["./src/draw/index.ts"],
       "openalgo-charts/webgl": ["./src/webgl/index.ts"],
-      "openalgo-charts/widget": ["./src/widget/index.ts"]
+      "openalgo-charts/widget": ["./src/widget/index.ts"],
+      "openalgo-charts/workspace": ["./src/workspace/index.ts"]
     }
   },
   "include": ["src", "tests"],

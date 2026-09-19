@@ -17,6 +17,7 @@ appears in the page title.
 | --- | --- | --- |
 | A chart with your own interface | [Chart API](/openalgo-charts/api/classes/index.Chart.html) | [Core concepts](/openalgo-charts/docs/core-concepts/) |
 | A complete chart with controls | [Widget](/openalgo-charts/api/modules/widget.html) | [Widget guide](/openalgo-charts/docs/widget/) |
+| Named workspaces and indicator templates | [Workspace](/openalgo-charts/api/modules/workspace.html) | [Host integration](https://github.com/marketcalls/openalgo-charts/blob/master/docs/workspaces.md) |
 | A searchable object inventory | [ChartObjects](/openalgo-charts/api/classes/index.ChartObjects.html) | [Objects guide](/openalgo-charts/docs/objects/) |
 | Interactive drawing tools | [Drawing controller](/openalgo-charts/api/classes/draw.DrawingController.html) | [Drawing playground](/openalgo-charts/docs/drawing-tools/) |
 | A depth ladder | [Depth of market](/openalgo-charts/api/classes/trade.DomLadder.html) | [Simulated live demo](/openalgo-charts/docs/depth-of-market/) |

@@ -42,6 +42,7 @@ const TIERS = {
   'dist/transform/index.d.ts': [],
   'dist/profile/index.d.ts': [],
   'dist/webgl/index.d.ts': [],
+  'dist/workspace/index.d.ts': [],
   'dist/widget/index.d.ts': ['declare class DrawingController', 'declare class DrawingLayer'],
 };
 

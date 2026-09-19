@@ -127,6 +127,40 @@ been published and the main checkouts remain unchanged.
 
 ## Remaining
 
+### Workspace documents and persistence foundation
+
+The optional `openalgo-charts/workspace` tier now provides validated full-grid
+documents, indicator templates, an async catalog repository and an IndexedDB
+adapter with atomic revision checks. Document imports create fresh identities.
+Namespaces are immutable per repository, rejected saves remain rejected, and
+corrupt stored catalogs are not overwritten. Hosts still own controls, restoration
+and autosave orchestration; this does not complete F1, F2 or P4.
+
+Evidence: document/repository RED runs observed before implementation; an actual
+`Chart.getState()` test caught zero auto precision and additional settings slices.
+The 36 new unit tests pass. All 5,307 library tests (220 files), 231 demo tests
+(16 files), lint, typecheck, build, declaration guard, public-reference coverage
+(901/901), size and tree-shaking checks pass. Four new IndexedDB browser tests
+failed against the missing factory, then all 12 executions passed across Chromium,
+Firefox and WebKit: reload/account separation, simultaneous tab writes, stale or
+corrupt storage preservation, and close/version-change lifecycle.
+
+Ruling: the new tier has its own 6 kB Brotli budget (4.80 kB measured). The all-tier
+budget rises from 219 to 223 kB for the added optional module (222.92 kB measured).
+Base 78.48 kB, widget terminal 184.71 kB and tree-shaken chart-only 49.92 KiB are
+unchanged. Ruling: document magnet modes retain off/weak/strong; snapshots retain
+the full settings/timezone contract and minMove 0. These preserve existing state.
+
+Ruling: document, repository, browser adapter and package wiring are committed as
+one verified foundation because they form the usable public entry point. The
+tracked plan and this ledger carry the native Windows execution record rather
+than introducing a second shell-specific task ledger. Host work remains a
+separate phase.
+
+User started the real OpenAlgo backend on port 5000. A dedicated read-only browser
+is open for their login; its private profile and control script are ignored local
+artifacts. No authenticated live-market result is claimed yet.
+
 F3 and F5 have library and consumer implementations and regression evidence.
 F4/F6 also have consumer coverage; the reference host's built-in volume controls
 still need integration. The whole goal remains open: complete the reference

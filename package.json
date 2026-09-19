@@ -63,6 +63,10 @@
       "types": "./dist/webgl/index.d.ts",
       "import": "./dist/openalgo-charts.webgl.mjs"
     },
+    "./workspace": {
+      "types": "./dist/workspace/index.d.ts",
+      "import": "./dist/openalgo-charts.workspace.mjs"
+    },
     "./widget": {
       "types": "./dist/widget/index.d.ts",
       "import": "./dist/openalgo-charts.widget.mjs"
