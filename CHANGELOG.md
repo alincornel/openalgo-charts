@@ -11,6 +11,9 @@ All notable changes to OpenAlgo Charts.
 - Explicit `ChartDataContext.hasOpenInterest` and `chart.hasOpenInterest`
   capability, independent of observations. The optional OI status-line reading
   defaults off, preserves zero and disables unsupported instrument controls.
+- Request-scoped OpenAlgo history capability removes unsupported placeholder
+  OI before caching. The reference host reads optional OI and retains supplied
+  instrument capability through chart-type and interval changes.
 - Optional `Bar.oi`, `Tick.oi`, `AggTick.oi` and `SecuritySeries.oi`. Open interest
   is a level, not a flow: historical folds take the latest defined reading in a
   bucket, never sum it. Zero and absence remain distinct. One-to-one transforms

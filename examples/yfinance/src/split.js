@@ -10,6 +10,7 @@ import { tbtn, ticon, renderToolbar } from './toolbar.js';
 import { popupMenu } from './menus.js';
 import { LONG_NAMES } from './status.js';
 import { volumeShown } from './volume.js';
+import { referenceDataContext } from './expression.js';
 
 // 1.3 surfaces: chart linking, the bar cache and the interval registry.
 // Same namespace read for the same reason: this page must still draw
@@ -126,6 +127,7 @@ export function closeSplit() {
 }
 
 export function buildChart2() {
+  const dataContext = referenceDataContext(app.p2, app.chart2?.getDataContext());
   if (app.chart2) { if (app.linkGroup) app.linkGroup.remove(app.chart2); app.chart2.destroy(); }
   if (app.draw2) { app.draw2.destroy(); app.draw2 = null; }
   el('chart2').innerHTML = '';
@@ -136,7 +138,7 @@ export function buildChart2() {
     timezone: app.chartTimezone,
     ...chartMotionOptions(),
   });
-  app.chart2.setDataContext({ symbol: app.p2.symbol, interval: app.p2.interval });
+  app.chart2.setDataContext(dataContext);
   price2 = app.chart2.addSeries('candlestick');
   price2.setData(bars2);
   app.volume2 = app.chart2.addSeries('histogram', {
@@ -176,7 +178,7 @@ export function buildChart2() {
 export async function loadPane2() {
   if (!app.chart2) return;
   app.p2.period = clampPeriod(app.p2.interval, app.p2.period);
-  app.chart2.setDataContext({ symbol: app.p2.symbol, interval: app.p2.interval });
+  app.chart2.setDataContext(referenceDataContext(app.p2, app.chart2.getDataContext()));
   setPane2Note('loading ' + app.p2.symbol + ' ' + intervalLabel(app.p2.interval) + '...');
   try {
     bars2 = await fetchBars(app.p2.symbol, app.p2.interval, app.p2.period, { slot: 'pane2' });

@@ -96,6 +96,9 @@ export function renderChartSettings() {
  * Place a bracket or fill a market order and the same swatches come alive.
  */
 export function chartSettingUnavailable(key, option) {
+  if (key === 'statusLine.openInterest' && app.chart?.hasOpenInterest === false) {
+    return 'Open interest is unavailable for this instrument.';
+  }
   if (key === 'statusLine.titleMode' && option === 'description') {
     return descriptionOf(app.req.symbol || '') ? null
       : 'no long name for ' + (app.req.symbol || 'this symbol').toUpperCase() + ' in this demo';

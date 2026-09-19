@@ -52,6 +52,8 @@ export function setLegend(bar) {
     { label: 'L', text: fmt(bar.low), color: col, field: 'ohlc' },
     { label: 'C', text: fmt(bar.close), color: col, field: 'ohlc' },
     { text: `${sign}${fmt(chg)} (${sign}${pct.toFixed(2)}%)`, color: chg >= 0 ? UP : DOWN, field: 'change' },
+    ...(app.chart?.hasOpenInterest !== false && Number.isFinite(bar.oi)
+      ? [{ label: 'OI', text: fmtVol(bar.oi), color: col, field: 'openInterest' }] : []),
   ]);
   // Volume gets its own row, the way a volume study would.
   if (app.volLegend) app.volLegend.setValues([{ text: fmtVol(bar.volume ?? 0), color: col, field: 'volume' }]);

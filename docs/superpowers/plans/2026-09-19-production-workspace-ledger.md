@@ -514,3 +514,10 @@ are next. Alerts and the remaining production plan remain required.
 The user explicitly froze the readiness score at 82 overall / 85 engine,
 confirmed full remaining scope for 2.4.5 and renewed publication authorization.
 Do not raise the score or publish a partial candidate.
+
+Reference OI host/adapter checkpoint: request-scoped metadata removes unsupported
+history OI before cache; the example preserves capability through rebuilds and
+supports the optional readout. See the OI plan for red/green evidence, 5,383
+library tests, 235 reference-host tests, six browser cases, API/skills validation
+and the measured 186.1 kB terminal-budget ruling. Consumer migration and alerts
+are still unfinished; this is not the final release candidate.

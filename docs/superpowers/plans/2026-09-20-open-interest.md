@@ -146,3 +146,33 @@ are next. Alerts and the remaining production plan remain required.
 The user explicitly froze the readiness score at 82 overall / 85 engine,
 confirmed full remaining scope for 2.4.5 and renewed publication authorization.
 Do not raise the score or publish a partial candidate.
+
+### Reference host and adapter checkpoint
+
+The adapter now captures the host's OI capability for each history request.
+Explicit false omits placeholder values before caching; true and unknown keep
+finite readings, including zero. The concurrent cash/contract/unknown regression
+failed before the mapper received capability and now passes. Reference-host
+regressions cover optional readouts, zero, unsupported controls, instrument
+changes, arithmetic and rebuild metadata. Its ordinary provider still supplies
+OHLCV only; no live OI observation is invented.
+
+Validation: lint, types, 5,383 library tests, build, 235 reference-host tests and
+eight declaration checks passed in oi-host-library-verify.log. Its aggregate
+size gate failed by 56 bytes. Ruling: allow 186.1 kB for the widget terminal
+(previously 186 kB) to cover request-scoped capability mapping; measured size is
+186.06 kB. No unrelated code was altered to offset that additive contract.
+The remaining size checks pass, all tiers measure 224.54 kB, and chart-only
+remains 50.25 KiB. Size and shake were rerun successfully after the budget edit.
+API generation has no warnings; skills cover 907/907 runtime names.
+
+All six OI browser cases pass across Chromium, Firefox and WebKit. Inspection
+caught a test that enabled the engine readout directly, bypassing the host's
+settings persistence. The test now uses the real settings control and asserts
+the retained preference after rebuild. Chromium and WebKit screenshots show the
+hovered zero, raw OI gap and change histogram. These are deterministic fixtures,
+not evidence of broker OI streaming. The browser test file passes lint.
+
+Task 5 continues with packed-candidate OpenAlgo consumer migration. The reference
+secondary pane's shared controls remain in the already pending focused-toolbar
+work. Alerts and all outstanding master-ledger requirements remain release gates.

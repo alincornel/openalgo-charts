@@ -1,6 +1,6 @@
 /**
  * Tier-2 contract — indicators whose data is **not** derived from the chart's
- * OHLCV: open interest, cumulative volume delta, PCR, an external analytics
+ * OHLCV: cumulative volume delta, PCR, an external analytics
  * feed. Where a Tier-1 descriptor is a pure `calc(bars, settings)`, a Tier-2
  * descriptor owns a fetch / subscribe / merge lifecycle and its own series.
  *
@@ -187,14 +187,14 @@ function alignedKeys(d: Tier2Descriptor): string[] {
  * Wrap a Tier-2 descriptor as a normal `IndicatorDescriptor`.
  *
  * ```ts
- * export const OPEN_INTEREST = createTier2Indicator({
- *   id: 'open-interest', name: 'Open Interest', placement: 'pane',
+ * export const POSITION_INDEX = createTier2Indicator({
+ *   id: 'external-position-index', name: 'Position Index', placement: 'pane',
  *   inputs: [{ key: 'symbol', type: 'text', label: 'Symbol', default: '' }],
- *   plots: [{ key: 'oi', type: 'line', title: 'OI' }],
+ *   plots: [{ key: 'position', type: 'line', title: 'Position' }],
  *   refetchOn: ['symbol'],
- *   fetch: async ({ settings, from, to }) => loadOi(settings.symbol, from, to),
+ *   fetch: async ({ settings, from, to }) => loadPositionIndex(settings.symbol, from, to),
  * });
- * registerIndicator(OPEN_INTEREST);
+ * registerIndicator(POSITION_INDEX);
  * ```
  */
 export function createTier2Indicator(d: Tier2Descriptor): IndicatorDescriptor {

@@ -643,7 +643,7 @@ export interface IndicatorDescriptor {
   ): IndicatorValues;
   /**
    * Optional per-instance lifecycle, for indicators whose data is not derived
-   * from the chart's bars (open interest, CVD, an external feed). Called once
+   * from the chart's bars (CVD, PCR, an external feed). Called once
    * when the instance is created; return a teardown function.
    *
    * Fetch into `ctx.store`, then call `ctx.requestRecompute()` — `calc` runs

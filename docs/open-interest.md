@@ -86,3 +86,17 @@ The preference survives `getState()` / `restoreState()`. Capability is live
 instrument metadata, so the host supplies it again instead of trusting saved
 data. A widget interval change retains capability for the same instrument;
 changing symbol or exchange clears it until the host supplies new metadata.
+
+OpenAlgo hosts can also pass `OpenAlgoConfig.hasOpenInterest(request)` to the
+REST adapter. Return false for an explicitly unsupported instrument to omit
+the API's placeholder OI column before caching, replay or indicators see it.
+The callback receives the actual request, so concurrent requests for different
+instruments do not share whichever symbol happens to be selected now. True or
+undefined preserves finite reported values. The adapter snapshots capability
+before awaiting the response.
+
+The reference host forwards finite OI if supplied, honors the same readout
+switch and preserves explicit capability through an interval or chart-type
+rebuild. Its standard history provider supplies OHLCV without OI or instrument
+capability metadata. That case stays unknown with no reading. Expressions are
+explicitly unsupported, and changing instrument clears prior metadata.

@@ -1,5 +1,12 @@
 # Data and time
 
+`OpenAlgoConfig.hasOpenInterest(request)` optionally supplies instrument
+capability to the REST adapter. Explicit false removes the API's placeholder
+OI column before caching or calculation. True/undefined preserves finite
+observations, including zero. `mapHistoryResponse(response, hasOpenInterest?)`
+accepts the same flag. Metadata is captured for the request before awaiting
+its response; do not infer capability from observed zero or missing values.
+
 *When to read this: you are shaping bars for a series, wiring history paging, formatting the time axis, or explaining why bars moved, merged, or vanished.*
 
 ## The Bar shape

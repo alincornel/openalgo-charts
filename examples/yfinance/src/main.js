@@ -15,7 +15,7 @@ import { initHover } from './hover.js';
 import { fillIntervalSelect, clampPeriod } from './intervals.js';
 import { initFeed, fetchBars, fetchNote, feedErrorState } from './feed.js';
 import { applyTransform } from './transforms.js';
-import { isExpression, fetchExpressionBars, mountOperatorKeypad } from './expression.js';
+import { isExpression, fetchExpressionBars, mountOperatorKeypad, referenceDataContext } from './expression.js';
 import { initStatus, nameOf, symbolStatus } from './status.js';
 import { DEFAULT_TZ, initTimezone } from './timezone.js';
 import { initAxisChrome, applyAxisChrome, applyStatusLineChoice, applyTradeChoice } from './axis-chrome.js';
@@ -155,6 +155,7 @@ function render() {
   // and it has to reach the chart that is about to be thrown away.
   exitReplay();
   const decorations = chartDecorationsForRebuild(app.chart);
+  const dataContext = referenceDataContext(app.req, app.chart?.getDataContext());
   if (app.offBranding) { app.offBranding(); app.offBranding = null; }
   if (app.chart) app.chart.destroy();
   // The primitives belonged to the destroyed chart; a stale handle would
@@ -175,7 +176,7 @@ function render() {
     ...chartMotionOptions(),
     ...decorations,
   });
-  app.chart.setDataContext({ symbol: app.req.symbol, interval: app.req.interval });
+  app.chart.setDataContext(dataContext);
   app.offBranding = app.chart.on('branding:changed', renderToolbar);
   applyAxisChrome();
   applyStatusLineChoice();   // before the legends: a row added later obeys the switches
@@ -382,7 +383,7 @@ async function load(opts) {
   if (period !== wanted) el('period').value = period;
   const prev = app.req || {};
   app.req = { symbol: el('symbol').value.trim(), interval, period };
-  if (app.chart) app.chart.setDataContext({ symbol: app.req.symbol, interval: app.req.interval });
+  if (app.chart) app.chart.setDataContext(referenceDataContext(app.req, app.chart.getDataContext()));
   // A different instrument or timeframe means the bars on screen are about to
   // be replaced rather than refreshed, so the stage blanks under the loading
   // dots. A reload of the same request keeps them: they are still correct,

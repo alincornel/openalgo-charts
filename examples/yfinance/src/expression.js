@@ -16,6 +16,16 @@ import { fetchBars } from './feed.js';
 
 export { ExpressionError, isPlainSymbol };
 
+/** Preserve supplied metadata for one instrument; an expression has no position level. */
+export function referenceDataContext(request, previous) {
+  const context = { symbol: request.symbol, interval: request.interval };
+  if (isExpression(request.symbol)) context.hasOpenInterest = false;
+  else if (previous?.symbol === request.symbol && previous.hasOpenInterest !== undefined) {
+    context.hasOpenInterest = previous.hasOpenInterest;
+  }
+  return context;
+}
+
 /** The operator keypad, in the order it is drawn. */
 export const OPERATORS = [
   { label: '÷', insert: '/', title: 'Divide' },

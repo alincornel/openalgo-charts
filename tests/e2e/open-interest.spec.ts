@@ -1,10 +1,58 @@
 import { expect, test } from '@playwright/test';
 import type { Bar } from '../../src/model/bar';
 import type { Widget } from '../../src/widget/widget';
+import type { Chart } from '../../src/core/chart';
 
 declare global {
   interface Window { __oiDemo: { widget: Widget; bars: Bar[] } }
 }
+
+test('reference host preserves OI and capability across a chart-type rebuild', async ({ page }, info) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.setViewportSize({ width: 1440, height: 960 });
+  const bars: Bar[] = Array.from({ length: 30 }, (_, i) => ({
+    time: 1789776000 + i * 60, open: 100 + i, high: 102 + i, low: 99 + i,
+    close: 101 + i, volume: 100, ...(i === 20 ? {} : { oi: i === 16 ? 0 : 1000 + i * 10 }),
+  }));
+  await page.route('**/api/history?**', route => route.fulfill({ json: bars }));
+  await page.goto('http://127.0.0.1:8124/examples/yfinance/index.html?test=1');
+  await page.waitForFunction(() => Boolean((window as unknown as { __oac: { chart?: Chart } }).__oac?.chart));
+  await page.evaluate(() => {
+    const { chart } = (window as unknown as { __oac: { chart: Chart } }).__oac;
+    chart.setDataContext({ ...chart.getDataContext(), hasOpenInterest: true });
+  });
+  await page.getByRole('button', { name: 'Chart settings (or right-click the chart)', exact: true }).click();
+  await page.locator('#cset-tabs').getByRole('button', { name: 'Readout', exact: true }).click();
+  await page.locator('#cset-body [data-key="statusLine.openInterest"]').check();
+  await page.locator('#cset-ok').click();
+  await page.locator('#ctype').selectOption('bar', { force: true });
+  const snapshot = await page.evaluate(() => {
+    const { chart } = (window as unknown as { __oac: { chart: Chart } }).__oac;
+    const study = chart.addIndicator('open-interest');
+    chart.addIndicator('open-interest-change');
+    return {
+      capability: chart.hasOpenInterest, oi: study.values().oi,
+      type: chart.primarySeriesInfo()?.type, readout: chart.statusLineOptions().openInterest,
+    };
+  });
+  expect(snapshot.type).toBe('bar');
+  expect(snapshot.capability).toBe(true);
+  expect(snapshot.readout).toBe(true);
+  expect(snapshot.oi[16]).toBe(0);
+  expect(snapshot.oi[20]).toBeNull();
+  const point = await page.evaluate(time => {
+    const { chart } = (window as unknown as { __oac: { chart: Chart } }).__oac;
+    const rect = document.querySelector('#chart')!.getBoundingClientRect();
+    return { x: rect.left + chart.timeToCoordinate(time)!, y: rect.top + 110 };
+  }, bars[16].time);
+  await page.mouse.move(point.x, point.y);
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  const screenshot = info.outputPath('open-interest-reference.png');
+  await page.screenshot({ path: screenshot, animations: 'disabled' });
+  await info.attach('Reference host OI', { path: screenshot, contentType: 'image/png' });
+  expect(errors).toEqual([]);
+});
 
 test('OI studies paint all regimes and the readout honors zero, absence and capability', async ({ page }, info) => {
   const errors: string[] = [];

@@ -48,9 +48,8 @@ describe('demo modules', () => {
     ]);
   });
 
-  it('uses engine branding once and keeps both chart contexts current', () => {
+  it('uses engine branding once and snapshots it before teardown', () => {
     const main = readFileSync(SRC + 'main.js', 'utf8');
-    const split = readFileSync(SRC + 'split.js', 'utf8');
 
     expect(main).not.toContain("from './watermark.js'");
     expect(main).not.toContain("id === 'watermark'");
@@ -58,9 +57,7 @@ describe('demo modules', () => {
     expect(snapshot).toBeGreaterThan(-1);
     expect(snapshot).toBeLessThan(main.indexOf('app.chart.destroy()'));
     expect(main).toContain('...decorations,');
-    expect(main).toContain("app.chart.setDataContext({ symbol: app.req.symbol, interval: app.req.interval });");
     expect(main).toContain("app.chart.on('branding:changed', renderToolbar)");
-    expect(split).toContain("app.chart2.setDataContext({ symbol: app.p2.symbol, interval: app.p2.interval });");
   });
 
   for (const file of MODULES) {
