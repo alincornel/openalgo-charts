@@ -61,6 +61,11 @@ drawing times retain the engine's UTC **seconds** convention.
 
 A payload contains a grid, independent panes, the focused pane ID and four sync
 preferences. Slots use zero-based row/column coordinates with positive spans.
+Optional `layout.rowWeights` and `layout.columnWeights` preserve unequal track
+sizes, such as `[1.4, 1]` for a wider left column. Each list must match its row or
+column count and contain positive finite numbers no greater than 1,000. Omitted
+lists mean equal tracks. Hosts render these as relative fractions; a preset name
+does not override explicit geometry or weights.
 Each pane retains its instrument, interval, chart type, chart snapshot, host
 settings, volume preference, drawing magnet/stay preference, comparison definitions
 and optional `historyPeriod`. `WorkspaceChartState` preserves `ChartState`,

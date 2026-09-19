@@ -10,6 +10,8 @@ Runtime exports:
 - `WORKSPACE_VERSION`: document schema version `1`.
 - `parseWorkspaceDocument`, `parseWorkspacePayload`: validate/detach independent
   panes, grid slots, focus and crosshair/viewport/symbol/interval sync settings.
+  Optional layout `rowWeights`/`columnWeights` preserve unequal tracks: positive
+  finite values up to 1,000, one per track. Missing lists mean equal tracks.
 - `parseIndicatorTemplate`, `parseIndicatorStates`: retain duplicate instances,
   settings, visibility, pane placement and unavailable custom IDs. Empty is valid.
 - `migrateWidgetWorkspace`: explicit single-widget version-1 migration; metadata

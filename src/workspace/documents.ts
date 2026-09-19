@@ -19,7 +19,7 @@ export interface WorkspacePane {
   comparisons: WorkspaceComparison[]; comparisonMode: 'price' | 'percent'; historyPeriod?: string;
 }
 export interface WorkspacePayload {
-  layout: { rows: number; columns: number; slots: WorkspaceSlot[]; preset?: string };
+  layout: { rows: number; columns: number; slots: WorkspaceSlot[]; preset?: string; rowWeights?: number[]; columnWeights?: number[] };
   panes: WorkspacePane[]; activePaneId: string;
   sync: { crosshair: boolean; viewport: boolean; symbol: boolean; interval: boolean };
 }
@@ -172,6 +172,12 @@ function payload(input: Record<string, Json>): WorkspacePayload {
     symbol: boolean(sync.symbol, 'symbol sync', false), interval: boolean(sync.interval, 'interval sync', false),
   } };
   if (grid.preset !== undefined) out.layout.preset = string(grid.preset, 'layout preset', 100);
+  for (const [key, count] of [['rowWeights', rows], ['columnWeights', columns]] as const) {
+    if (grid[key] === undefined) continue;
+    const weights = list(grid[key], key, 8).map(value => number(value, key, Number.MIN_VALUE, 1000));
+    if (weights.length !== count) throw new WorkspaceDocumentError(`${key} must match the number of grid tracks`);
+    out.layout[key] = weights;
+  }
   return out;
 }
 

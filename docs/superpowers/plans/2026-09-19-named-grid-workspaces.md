@@ -13,7 +13,7 @@
 - Capture chart configuration through the engine state API and the terminal's host settings. Never serialize credentials, execution books, quantity/product preferences or One-Click state into a workspace.
 - Prepare replacement panes separately while retaining the current grid. A hidden staging grid has measurable geometry, isolated temporary preferences, no user input and disabled link channels while loading. Publish it only after every pane has restored successfully. On failure, destroy staging resources and leave the old grid available.
 - A workspace operation belongs to its account and generation. Closing the page, changing account, or starting a newer open aborts stale completion. All timers, listeners, data owners and links have explicit teardown.
-- Keep order entry locked during a grid transition. Files never change the user's armed preference. Retain the existing authoritative execution adapter and replay guards.
+- Keep order entry locked during a grid transition. A successful open disarms One-Click before unlocking; imported state can never arm it. Retain the existing authoritative execution adapter and replay guards.
 - Only a successful open updates the recent/active catalog entry. A catalog write failure rolls back the visual selection. Autosave applies to the current named workspace only and reports storage failures without inventing a saved state.
 - No comparison product names in new source, comments, documentation or commit messages. Local commits only; no publishing or live orders.
 
@@ -23,8 +23,8 @@ Library files: `src/workspace/documents.ts`, `tests/workspace-documents.test.ts`
 
 Add optional `rowWeights: number[]` and `columnWeights: number[]` to the layout contract. Each supplied list must match its track count, have positive finite values no greater than 1,000, and be detached from input. Preserve them in document/repository import/export. Missing weights remain absent for compatibility.
 
-- [ ] Add RED tests for asymmetric track round trips, detached arrays, mismatched lengths, zero/negative/nonfinite/oversized weights, and existing documents without weights.
-- [ ] Implement validation at the document boundary. Run the document and repository suites, then package lint/types/unit/build/demo/declaration/size/tree-shaking checks and reference coverage.
+- [x] Add RED tests for asymmetric track round trips, detached arrays, mismatched lengths, zero/negative/nonfinite/oversized weights, and existing documents without weights.
+- [x] Implement validation at the document boundary. Run the document and repository suites, then package lint/types/unit/build/demo/declaration/size/tree-shaking checks and reference coverage.
 - [ ] Document the optional fields. Pack a verified source commit and update the isolated consumer's relative vendor dependency and integrity, preserving its unrelated dependency junction.
 
 ## Task 2: Terminal configuration capture and prepared restoration

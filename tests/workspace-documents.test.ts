@@ -38,6 +38,32 @@ describe('workspace documents', () => {
     expect(parseWorkspacePayload(saved).panes).toEqual(saved.panes);
   });
 
+  it('retains unequal grid tracks as detached portable weights', () => {
+    const fixture = workspaceFixture();
+    const input = { ...fixture, layout: { ...fixture.layout, rowWeights: [1], columnWeights: [1.4, 1] } };
+    const saved = parseWorkspaceDocument(JSON.stringify(input));
+    expect(saved.layout).toEqual(input.layout);
+    const detached = parseWorkspacePayload(input);
+    input.layout.columnWeights[0] = 9;
+    input.layout.rowWeights[0] = 4;
+    expect(detached.layout.columnWeights).toEqual([1.4, 1]);
+    expect(detached.layout.rowWeights).toEqual([1]);
+    const legacy = parseWorkspaceDocument(fixture);
+    expect(legacy.layout).not.toHaveProperty('rowWeights');
+    expect(legacy.layout).not.toHaveProperty('columnWeights');
+  });
+
+  it.each([
+    { rowWeights: [] }, { rowWeights: [1, 2] }, { columnWeights: [1] },
+    { columnWeights: [0, 1] }, { columnWeights: [-1, 1] },
+    { columnWeights: [NaN, 1] }, { columnWeights: [Infinity, 1] },
+    { columnWeights: [1001, 1] }, { columnWeights: ['2', 1] },
+  ])('rejects invalid grid track weights: %j', (weights) => {
+    const fixture = workspaceFixture();
+    expect(() => parseWorkspaceDocument({ ...fixture, layout: { ...fixture.layout, ...weights } }))
+      .toThrow(WorkspaceDocumentError);
+  });
+
   it('projects configuration and drops nested credentials and execution state', () => {
     const input = workspaceFixture();
     Object.assign(input, { apiKey: 'secret-value', armed: true, orders: [{ id: 'live' }], unknown: 'ignored' });

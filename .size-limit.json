@@ -80,7 +80,7 @@
       "dist/openalgo-charts.widget.mjs",
       "dist/openalgo-charts.workspace.mjs"
     ],
-    "limit": "223 kB",
+    "limit": "224 kB",
     "brotli": true
   }
 ]

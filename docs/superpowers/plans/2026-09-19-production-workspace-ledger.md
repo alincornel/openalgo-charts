@@ -297,3 +297,17 @@ reference-host controls, comparisons, shared replay/toolbar and P1-P6 remain
 required. The score remains an assessment; these checks do not establish a
 90-point production claim. Added-line, untracked-file and local commit-message
 scans still contain no excluded comparison names.
+
+### Named-grid preparation
+
+Plan: `2026-09-19-named-grid-workspaces.md`. Optional row/column weights now
+preserve unequal grid tracks in portable documents. Eight new regressions failed
+against the previous parser; all ten new cases and the 46 document/repository
+tests now pass. The full library gate passes lint, types, 5,324 unit tests, build,
+231 demo tests and eight declaration entry checks. Public references remain
+901/901. The initial aggregate size check exceeded its old 223 kB limit by 42 B.
+Ruling: weighted-grid validation is intentional optional-tier cost, so the all-tier
+budget becomes 224 kB (223.04 measured); the workspace tier remains below its 6 kB
+budget at 4.89 kB. Base 78.51 kB, widget terminal 184.75 kB and tree-shaken
+chart-only 49.92 KiB are unchanged by these document fields. Size and shake
+checks pass after that budget adjustment. Packing and consumer validation remain.
