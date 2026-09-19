@@ -1,4 +1,5 @@
 import type { ChartState, ChartSettingsState, IndicatorState, PaneState, SeriesState } from 'openalgo-charts';
+import { parseAlertsDocument } from 'openalgo-charts';
 import { boolean, choice, list, number, readJson, record, string, WorkspaceDocumentError, type Json } from './json';
 
 export { WorkspaceDocumentError } from './json';
@@ -38,7 +39,8 @@ function metadata(input: Record<string, Json>, kind: WorkspaceKind): DocumentMet
     createdAt, updatedAt: number(input.updatedAt, 'updatedAt', createdAt) };
 }
 
-function indicatorStates(input: Json | undefined): IndicatorState[] {
+function indicatorStates(input: Json | undefined, preserveIdentity = true): IndicatorState[] {
+  const ids = new Set<string>();
   return list(input, 'indicators', 256).map(item => {
     const entry = record(item, 'indicator');
     const out: IndicatorState = {
@@ -47,6 +49,11 @@ function indicatorStates(input: Json | undefined): IndicatorState[] {
       paneIndex: number(entry.paneIndex, 'indicator paneIndex', 0, 31, true),
     };
     if (entry.visible !== undefined) out.visible = boolean(entry.visible, 'indicator visibility');
+    if (preserveIdentity && entry.instanceId !== undefined) {
+      out.instanceId = string(entry.instanceId, 'indicator instanceId');
+      if (ids.has(out.instanceId)) throw new WorkspaceDocumentError('Duplicate indicator instance ID');
+      ids.add(out.instanceId);
+    }
     return out;
   });
 }
@@ -75,6 +82,10 @@ function chartState(input: Json | undefined): WorkspaceChartState {
   if (source.crosshairMode !== undefined) out.crosshairMode = choice(source.crosshairMode, 'crosshairMode', ['normal', 'magnet'] as const);
   if (source.crosshairSnapToBar !== undefined) out.crosshairSnapToBar = boolean(source.crosshairSnapToBar, 'crosshairSnapToBar');
   if (source.indicators !== undefined) out.indicators = indicatorStates(source.indicators);
+  if (source.alerts !== undefined) {
+    try { out.alerts = parseAlertsDocument(source.alerts); }
+    catch (error) { throw new WorkspaceDocumentError(error instanceof Error ? error.message : 'Invalid alert document'); }
+  }
   if (source.drawings !== undefined) {
     if (source.drawings === null || typeof source.drawings !== 'object') throw new WorkspaceDocumentError('drawings must be a document or array');
     out.drawings = source.drawings;
@@ -189,7 +200,7 @@ export function parseWorkspaceDocument(input: unknown): WorkspaceDocument {
 export function parseWorkspacePayload(input: unknown): WorkspacePayload { return payload(record(readJson(input), 'workspace')); }
 export function parseIndicatorTemplate(input: unknown): IndicatorTemplateDocument {
   const source = record(readJson(input), 'indicator template');
-  return { kind: 'indicator-template', ...metadata(source, 'indicator-template'), indicators: indicatorStates(source.indicators) };
+  return { kind: 'indicator-template', ...metadata(source, 'indicator-template'), indicators: indicatorStates(source.indicators, false) };
 }
 
 /** Explicit migration of the existing single-widget state; no input is modified. */

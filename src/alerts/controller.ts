@@ -1,18 +1,17 @@
 import type { Bar } from '../model/bar';
-import { CONDITIONS, numericMatch, touchMatch } from './conditions';
+import { numericMatch, touchMatch } from './conditions';
 import { getBarCondition } from './bar-conditions';
 import { AlertVisuals } from './visuals';
+import { copyAlert as copy, parseAlertsDocument, validateAlert as validate } from './document';
 import type {
   Alert, AlertChartHost, AlertControllerOptions, AlertInput, AlertPatch, AlertScope,
   AlertTriggeredPayload, ChartDataUpdate, AlertAvailability, IndicatorAlertSource,
-  AlertDrawingProvider, AlertDrawingValue, DrawingAlertSource,
+  AlertDrawingProvider, AlertDrawingValue, DrawingAlertSource, AlertsDocument,
 } from './types';
 
 interface RecordState {
   alert: Alert;
   tail?: Bar;
-  closedTime?: number;
-  touchedTime?: number;
   value?: number;
   errorTime?: number;
   plotPane?: number;
@@ -20,44 +19,12 @@ interface RecordState {
 
 const owners = new WeakSet<AlertChartHost>();
 let nextId = 1;
-const copy = (alert: Alert): Alert => ({ ...alert, source: alert.source.kind === 'drawing'
-  ? { ...alert.source, input: alert.source.input ? { ...alert.source.input } : undefined }
-  : { ...alert.source }, scope: { ...alert.scope } });
 const scopeOf = (chart: AlertChartHost): AlertScope => {
   const context = chart.getDataContext();
   return { symbol: context?.symbol, exchange: context?.exchange, interval: context?.interval };
 };
 const sameScope = (a: AlertScope, b: AlertScope): boolean =>
   a.symbol === b.symbol && a.exchange === b.exchange && a.interval === b.interval;
-
-function validate(alert: Alert): void {
-  if (typeof alert.id !== 'string' || !alert.id.trim()) throw new Error('Alert id must be nonempty');
-  const source = alert.source;
-  const named = source?.kind === 'barCondition';
-  if (!source || !['price', 'indicator', 'barCondition', 'drawing'].includes(source.kind)) throw new Error('Unknown alert source');
-  const text = (value: unknown): boolean => typeof value === 'string' && value.trim().length > 0;
-  if (source.kind === 'barCondition' && !text(source.id)) throw new Error('Invalid bar condition id');
-  if (source.kind === 'indicator' && (!text(source.instanceId) || !text(source.plotKey))) throw new Error('Invalid indicator source');
-  if (source.kind === 'drawing' && (!text(source.drawingId) || (source.level !== undefined && !text(source.level))
-    || (source.input && (!text(source.input.instanceId) || !text(source.input.plotKey))))) throw new Error('Invalid drawing source');
-  if (named ? alert.condition !== 'matches' : !CONDITIONS.includes(alert.condition)) throw new Error('Invalid source condition');
-  if (source.kind === 'price' || source.kind === 'indicator') {
-    const lower = source.kind === 'price' ? source.price : source.value;
-    const upper = source.kind === 'price' ? source.upperPrice : source.upperValue;
-    if (!Number.isFinite(lower) || (upper !== undefined && !Number.isFinite(upper))) throw new Error('Alert bounds must be finite');
-    if ((alert.condition === 'enteringRange' || alert.condition === 'leavingRange') && (upper === undefined || upper < lower)) {
-      throw new Error('Alert range requires ordered finite bounds');
-    }
-  }
-  if (alert.policy !== 'onBarClose' && alert.policy !== 'onTouch') throw new Error('Unknown alert policy');
-  if (alert.repeat !== 'once' && alert.repeat !== 'everyTime') throw new Error('Unknown alert repeat');
-  if (!['armed', 'triggered', 'disabled', 'expired'].includes(alert.state)) throw new Error('Unknown alert state');
-  if (!Number.isFinite(alert.cooldownSeconds) || alert.cooldownSeconds < 0) throw new Error('Invalid alert cooldown');
-  if (alert.expiresAt !== undefined && !Number.isFinite(alert.expiresAt)) throw new Error('Invalid alert expiry');
-  if (typeof alert.title !== 'string' || (alert.message !== undefined && typeof alert.message !== 'string')) {
-    throw new Error('Alert title and message must be text');
-  }
-}
 
 /** Headless, chart-owned trader alerts. Hosts subscribe to alert:triggered for delivery. */
 export class AlertController {
@@ -69,6 +36,7 @@ export class AlertController {
   private _timer: ReturnType<typeof setTimeout> | undefined;
   private _timerAt: number | undefined;
   private _paused = false;
+  private _restoring = false;
   private _replay = false;
   private _destroyed = false;
   private _revision = 0;
@@ -84,10 +52,17 @@ export class AlertController {
       _chart.on('data:context', () => this._seedAll()),
       _chart.on('objects:change', () => this._onObjects()),
       _chart.on('paneMoved', () => this._onObjects()),
+      _chart.on('state:restore:start', () => { this._restoring = true; this._revision++; }),
+      _chart.on('state:restore:end', () => { this._restoring = false; this._seedAll(); }),
+      _chart.on('alerts:restore', document => this.fromJSON(document)),
       _chart.on('replay:start', () => { this._replay = true; this._seedAll(); }),
       _chart.on('replay:stop', () => { this._replay = false; this._seedAll(); }),
       _chart.on('destroy', () => this.destroy()),
     ];
+    try {
+      const saved = _chart.alertState?.();
+      if (saved !== undefined) this.fromJSON(saved);
+    } catch (error) { this.destroy(); throw error; }
   }
 
   public add(input: AlertInput): Alert {
@@ -108,6 +83,7 @@ export class AlertController {
     this._records.set(id, record);
     this._syncVisual(record);
     this._scheduleExpiry();
+    this._saveState();
     this._chart.emit('alert:created', { alert: copy(alert) });
     return copy(alert);
   }
@@ -125,6 +101,7 @@ export class AlertController {
     this._records.set(id, record);
     this._syncVisual(record);
     this._scheduleExpiry();
+    this._saveState();
     this._chart.emit('alert:updated', { alert: copy(alert) });
     return copy(alert);
   }
@@ -139,11 +116,57 @@ export class AlertController {
     this._records.delete(id);
     this._visuals?.remove(id);
     this._scheduleExpiry();
+    this._saveState();
     this._chart.emit('alert:removed', { alert: copy(record.alert), reason });
     return true;
   }
 
   public list(): Alert[] { return [...this._records.values()].map(record => copy(record.alert)); }
+
+  public toJSON(): AlertsDocument { return parseAlertsDocument({ version: 1, alerts: this.list() }); }
+
+  /** Validate the complete replacement before touching current alerts or their visuals. */
+  public fromJSON(input: unknown): void {
+    this._assertAlive();
+    const document = parseAlertsDocument(input);
+    const next = new Map<string, RecordState>();
+    const removed: { alert: Alert; reason: string }[] = [];
+    for (const alert of document.alerts) {
+      const source = alert.source;
+      let reason: string | undefined;
+      if (source.kind === 'drawing' && this._drawings && this._drawings.get(source.drawingId) == null) reason = 'drawing-missing';
+      const plot = source.kind === 'indicator' ? source : source.kind === 'drawing' ? source.input : undefined;
+      if (!reason && plot && this._chart.indicators) {
+        const instance = this._chart.indicators().find(item => item.id === plot.instanceId);
+        if (!instance) reason = 'indicator-missing';
+        else if (!instance.series(plot.plotKey)) reason = 'plot-missing';
+      }
+      if (reason) { removed.push({ alert, reason }); continue; }
+      if (alert.state === 'armed' && alert.expiresAt !== undefined && this._now() >= alert.expiresAt) alert.state = 'expired';
+      if (alert.lastTriggeredTime !== undefined) {
+        const key = alert.policy === 'onTouch' ? 'lastTouchedTime' : 'lastClosedTime';
+        alert[key] = Math.max(alert[key] ?? -Infinity, alert.lastTriggeredTime);
+      }
+      const record = { alert };
+      this._seed(record);
+      next.set(alert.id, record);
+    }
+    this._revision++;
+    this._visuals?.destroy();
+    this._records.clear();
+    for (const [id, record] of next) { this._records.set(id, record); this._syncVisual(record); }
+    this._scheduleExpiry();
+    this._saveState();
+    for (const event of removed) {
+      if (this._destroyed) break;
+      this._chart.emit('alert:removed', { ...event, alert: copy(event.alert) });
+    }
+    if (!this._destroyed) this._chart.emit('alerts:restored', { alerts: this.list() });
+  }
+
+  private _saveState(): void {
+    if (!this._destroyed) this._chart.setAlertState?.({ version: 1, alerts: this.list() });
+  }
 
   /** Availability is independent of lifecycle state; disabled records can still have valid anchors. */
   public availability(id: string): AlertAvailability {
@@ -210,16 +233,17 @@ export class AlertController {
     }
     const closed = bars[bars.length - 2]?.time;
     // A history reload can move backwards; it cannot make a judged bar new again.
-    if (closed !== undefined) record.closedTime = Math.max(record.closedTime ?? -Infinity, closed);
+    if (closed !== undefined) record.alert.lastClosedTime = Math.max(record.alert.lastClosedTime ?? -Infinity, closed);
   }
 
   private _seedAll(): void {
     this._revision++;
     for (const record of this._records.values()) { this._seed(record); this._syncVisual(record); }
+    if (!this._restoring) this._saveState();
   }
 
   private _onObjects(): void {
-    if (this._destroyed) return;
+    if (this._destroyed || this._restoring) return;
     const revision = ++this._revision;
     for (const record of [...this._records.values()]) {
       if (this._destroyed || this._revision !== revision) break;
@@ -252,7 +276,7 @@ export class AlertController {
   }
 
   private _onData(update: ChartDataUpdate): void {
-    if (this._destroyed) return;
+    if (this._destroyed || this._restoring) return;
     const revision = ++this._revision;
     this._expireDue();
     if (this._destroyed || revision !== this._revision) return;
@@ -262,6 +286,7 @@ export class AlertController {
     const tail = bars[bars.length - 1];
     if (!tail || update.time !== tail.time) return;
     const scope = scopeOf(this._chart);
+    let changed = false;
     for (const record of [...this._records.values()]) {
       if (this._destroyed || revision !== this._revision) break;
       if (this._records.get(record.alert.id) !== record) continue;
@@ -275,22 +300,25 @@ export class AlertController {
         const index = bars.length - 2;
         const closed = bars[index];
         if (tail.time <= previous.time || !closed || closed.time !== previous.time
-          || (record.closedTime !== undefined && closed.time <= record.closedTime)) continue;
-        record.closedTime = closed.time;
+          || (alert.lastClosedTime !== undefined && closed.time <= alert.lastClosedTime)) continue;
+        alert.lastClosedTime = closed.time;
+        changed = true;
         const price = this._closedMatch(record, bars, index);
         if (price !== undefined && revision === this._revision && this._records.get(alert.id) === record) {
           this._trigger(record, closed, index, price);
         }
       } else {
-        if (tail.time < previous.time || (record.touchedTime !== undefined && tail.time <= record.touchedTime)) continue;
+        if (tail.time < previous.time || (alert.lastTouchedTime !== undefined && tail.time <= alert.lastTouchedTime)) continue;
         const price = this._touchMatch(record, bars, previous);
         if (price !== undefined && revision === this._revision && this._records.get(alert.id) === record) {
           // A suppressed match is consumed too: an old wick cannot wake after cooldown.
-          record.touchedTime = tail.time;
+          alert.lastTouchedTime = tail.time;
+          changed = true;
           this._trigger(record, tail, bars.length - 1, price);
         }
       }
     }
+    if (changed) this._saveState();
   }
 
   private _plot(source: Pick<IndicatorAlertSource, 'instanceId' | 'plotKey'>): { values?: readonly (number | null)[]; paneIndex?: number; reason?: string } {
@@ -408,6 +436,7 @@ export class AlertController {
     if (alert.repeat === 'once') alert.state = 'triggered';
     this._syncVisual(record);
     this._scheduleExpiry();
+    this._saveState();
     const payload: AlertTriggeredPayload = {
       alertId: alert.id, title: alert.title, message: alert.message, time: bar.time, index, price, alert: copy(alert),
     };
@@ -426,6 +455,7 @@ export class AlertController {
       }
     }
     this._scheduleExpiry();
+    if (expired.length) this._saveState();
     for (const record of expired) {
       if (this._destroyed) break;
       if (this._records.get(record.alert.id) === record) this._chart.emit('alert:expired', { alert: copy(record.alert) });

@@ -312,12 +312,16 @@ export class IndicatorInstance implements IndicatorApi {
     descriptor: IndicatorDescriptor,
     settings: Readonly<IndicatorSettings> = {},
     paneIndex?: number,
+    instanceId?: string,
+    reservedIds?: ReadonlySet<string>,
   ) {
     this._host = host;
     this._d = descriptor;
     this.indicatorId = descriptor.id;
     this.name = descriptor.name;
-    this.id = `${descriptor.id}-${nextInstance++}`;
+    let id = instanceId;
+    if (id === undefined) do { id = `${descriptor.id}-${nextInstance++}`; } while (reservedIds?.has(id));
+    this.id = id;
     // Declared inputs plus the generated per-plot appearance settings, so every
     // indicator supports colour / opacity / thickness / line style with no
     // per-descriptor boilerplate.

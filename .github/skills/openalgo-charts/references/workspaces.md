@@ -1,8 +1,8 @@
 # Workspace tier
 
 Use the optional `openalgo-charts/workspace` entry point for named configurations.
-It is DOM-free, registers nothing and imports shared chart types from the base
-entry. See [the host integration guide](../../../../docs/workspaces.md) for a
+It is DOM-free, registers nothing and imports shared chart types and alert-document
+validation from the base entry. See [the host integration guide](../../../../docs/workspaces.md) for a
 complete example, limits, restore ownership and account-switch requirements.
 
 Runtime exports:
@@ -14,6 +14,8 @@ Runtime exports:
   finite values up to 1,000, one per track. Missing lists mean equal tracks.
 - `parseIndicatorTemplate`, `parseIndicatorStates`: retain duplicate instances,
   settings, visibility, pane placement and unavailable custom IDs. Empty is valid.
+  Chart states retain unique instanceId values for alert anchors. Templates omit
+  them so applying a reusable study set creates fresh instance identities.
 - `migrateWidgetWorkspace`: explicit single-widget version-1 migration; metadata
   is supplied by the host, bars and execution state are excluded.
 - `WorkspaceDocumentError`: malformed/unsupported/oversized input.
@@ -54,5 +56,8 @@ bound to their original owner. Show a save error when storage rejects.
 
 Metadata is epoch milliseconds; chart/drawing times stay UTC seconds. Import
 always creates a fresh document ID. Never include credentials or trading execution
-state. Reserved keys are filtered, but arbitrary free text is not secret-scanned.
+state. Reserved keys are filtered, except inside an opaque alert payload, where
+they cause rejection to avoid silently changing routing data. Other payload data
+must survive JSON without losing symbols, accessors or extra array properties.
+Arbitrary free text is not secret-scanned.
 Do not execute imported text or assume namespace names provide authorization.

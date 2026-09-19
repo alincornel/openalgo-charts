@@ -71,6 +71,8 @@ const INSTANCE_PALETTE: readonly string[] = [
   '#26c6da', '#8bc34a', '#ff7043', '#5c6bc0',
 ];
 import { IndicatorInstance, type IndicatorApi, type IndicatorHost } from '../model/indicator-instance';
+import type { AlertsDocument } from '../alerts/types';
+import { copyAlert, parseAlertsDocument, validateAlert } from '../alerts/document';
 import type { ChartDataContext } from '../model/indicator-registry';
 import {
   CHART_STATE_VERSION,
@@ -796,6 +798,7 @@ export class Chart {
   private _barColorAnchor = 0;
   /** Opaque drawing-tier payload, round-tripped through get/restoreState. */
   private _drawingState: unknown = undefined;
+  private _alertState: AlertsDocument | undefined;
   /** Pane currently maximized, and the weights to restore when it un-maximizes. */
   private _maximizedPane: number | null = null;
   /** Legend rows per pane, so new ones stack below existing ones. */
@@ -1333,6 +1336,8 @@ export class Chart {
       descriptor,
       this._distinctColors(descriptor, settings),
       options.paneIndex,
+      undefined,
+      new Set(this._indicators.map(item => item.id)),
     );
     this._indicators.push(instance);
     this.emit('objects:change', {});
@@ -2798,12 +2803,14 @@ export class Chart {
       series,
       indicators: this._indicators.map((i) => ({
         indicatorId: i.indicatorId,
+        instanceId: i.id,
         settings: i.settings(),
         paneIndex: i.paneIndex,
         visible: i.visible(),
       })),
     };
     if (this._drawingState !== undefined) state.drawings = this._drawingState;
+    if (this._alertState !== undefined) state.alerts = parseAlertsDocument(this._alertState);
     return state;
   }
 
@@ -2829,6 +2836,31 @@ export class Chart {
     if (s.version > CHART_STATE_VERSION) {
       return { applied: false, series: [], indicators: 0, reason: `state version ${s.version} is newer than ${CHART_STATE_VERSION}` };
     }
+
+    let alerts: AlertsDocument | undefined;
+    const reservedIds = new Set<string>();
+    try {
+      if (s.alerts !== undefined) alerts = parseAlertsDocument(s.alerts);
+      if (s.indicators !== undefined) {
+        if (!Array.isArray(s.indicators)) throw new Error('Invalid indicator list');
+        for (const spec of s.indicators) {
+          if (spec.instanceId === undefined) continue;
+          if (typeof spec.instanceId !== 'string' || !spec.instanceId.trim() || reservedIds.has(spec.instanceId)) {
+            throw new Error('Invalid or duplicate indicator instance id');
+          }
+          reservedIds.add(spec.instanceId);
+        }
+      }
+    } catch (error) {
+      return { applied: false, series: [], indicators: 0, reason: error instanceof Error ? error.message : 'Invalid saved alerts or identities' };
+    }
+    this.emit('state:restore:start', {});
+    try { return this._restoreState(s, alerts, reservedIds); }
+    finally { this.emit('state:restore:end', {}); }
+  }
+
+  private _restoreState(s: ChartState & ChartSettingsState & { timezone?: unknown }, alerts: AlertsDocument | undefined,
+    reservedIds: Set<string>): RestoreReport {
 
     if (s.grid) this.setGridOptions(s.grid);
     // Canvas before the panes: its margins are chart-wide, and a pane's own
@@ -2878,7 +2910,9 @@ export class Chart {
         const descriptor = getIndicator(spec.indicatorId);
         const instance = new IndicatorInstance(
           this._indicatorHost(), descriptor, spec.settings, spec.paneIndex,
+          spec.instanceId, reservedIds,
         );
+        reservedIds.add(instance.id);
         this._indicators.push(instance);
         if (spec.visible === false) instance.setVisible(false);
         indicators += 1;
@@ -2925,9 +2959,12 @@ export class Chart {
     }
 
     this._drawingState = s.drawings;
+    this._alertState = alerts;
     if (s.barSpacing !== undefined) this._timeScale.setBarSpacing(s.barSpacing);
     if (s.viewport && this._dataLayer.length > 0) this.setVisibleLogicalRange(s.viewport);
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
+    this.emit('drawings:restore', s.drawings ?? []);
+    this.emit('alerts:restore', alerts ?? { version: 1, alerts: [] });
     this.emit('objects:change', {});
     return { applied: true, series: s.series ?? [], indicators };
   }
@@ -2943,6 +2980,20 @@ export class Chart {
   public setDrawingState(value: unknown): void {
     this._drawingState = value;
     this.emit('objects:change', {});
+  }
+
+  /** Detached JSON state, also available when no alert controller is attached. */
+  public alertState(): AlertsDocument | undefined {
+    return this._alertState === undefined ? undefined : parseAlertsDocument(this._alertState);
+  }
+
+  /** Runtime snapshot. JSON safety of opaque payloads is checked when state is read. */
+  public setAlertState(document: AlertsDocument | undefined): void {
+    if (document !== undefined) {
+      if (document.version !== 1) throw new Error('Unsupported alert document');
+      for (const alert of document.alerts) validateAlert(alert);
+    }
+    this._alertState = document === undefined ? undefined : { version: 1, alerts: document.alerts.map(copyAlert) };
   }
 
   public invalidate(build: (mask: InvalidateMask) => void): void {

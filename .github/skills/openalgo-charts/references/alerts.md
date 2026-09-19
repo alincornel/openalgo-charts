@@ -167,16 +167,54 @@ controller. An unsupported or missing drawing does not produce a line at zero.
 `AlertControllerOptions.visuals: false` disables rendering for a model-only
 host; evaluation and event delivery are otherwise identical.
 
+## Persistence and restoration
+
+`alerts.toJSON()` returns an `AlertsDocument`, `{ version: 1, alerts: Alert[] }`.
+`alerts.fromJSON(document)` validates the complete replacement before changing
+live records. It also accepts a JSON string or a legacy bare list; an omitted
+policy migrates to onBarClose. `parseAlertsDocument(input)` provides the same
+validation without attaching a controller. Duplicate IDs, invalid bounds,
+unsupported versions and invalid lifecycle fields reject the whole document.
+
+Runtime host payloads are opaque. Persistence requires finite JSON data and
+refuses functions, accessors, symbols, cycles, sparse arrays and class instances
+instead of silently losing information. Returned documents detach payloads.
+Workspace storage additionally refuses private fields inside a routing payload
+instead of silently removing them. Keep credentials and account state outside
+portable chart workspaces.
+
+ChartState includes optional alerts, and IndicatorState includes optional
+instanceId. `chart.getState()` serializes current alert state. It can throw if
+a runtime payload cannot be persisted. `chart.alertState()` reads the detached
+document; `chart.setAlertState(document)` stores a runtime snapshot for the owner.
+An application without a controller can round-trip the document without delivery.
+The controller hydrates saved chart state when attached.
+
+`chart.restoreState` validates alert data and duplicate study identities before
+applying the layout. It restores drawings before alerts; DrawingController now
+handles drawings:restore automatically. Do not call draw.fromJSON again after
+chart restoration. Alerts with missing drawing, study or plot anchors are
+dropped with alert:removed and a reason. Missing readings, temporarily unavailable
+levels and an unloaded drawing provider are not deleted as missing anchors.
+
+Triggered once records remain visible after reload. lastTriggeredAt preserves
+cooldown; lastClosedTime and lastTouchedTime preserve consumed bars, including a
+touch suppressed by cooldown. Restoring or attaching never evaluates historical
+conditions. Complete workspace restoration preserves each study's instanceId;
+parseIndicatorTemplate strips those identities so applying a reusable template
+creates fresh instances rather than retargeting saved study alerts.
+
 ## Events
 
 | Event | Payload |
 | --- | --- |
 | alert:created | `{ alert: Alert }` after creation |
 | alert:updated | `{ alert: Alert }` after editing, enabling or disabling |
-| alert:removed | `{ alert: Alert, reason: 'removed' | 'drawing-removed' }` |
+| alert:removed | `{ alert: Alert, reason }`, including removed, drawing-removed, drawing-missing, indicator-missing and plot-missing |
 | alert:expired | `{ alert: Alert }` when an armed record expires |
 | alert:triggered | `AlertTriggeredPayload`: alertId, title, message, time, index, price, alert |
 | alert:error | `{ alert: Alert, error: unknown }` when a custom predicate throws |
+| alerts:restored | `{ alerts: Alert[] }` after a validated replacement |
 
 The trigger time and index identify the source bar, not the delivery clock.
 Closed triggers report its close. Intrabar crossing triggers report the crossed

@@ -104,8 +104,8 @@ It also disposes itself on chart destruction. See
 
 The callback's `ChartObjectSnapshot.id` is the inventory identity, while `sourceId`
 is the existing subsystem's identity. Removal or replacement can invalidate an ID;
-read the latest snapshot instead of retaining an indicator instance ID across
-layout restore. `objects.destroy()` and the disposer returned by `subscribe`
+read the latest snapshot after removal or template replacement. Workspace restore
+preserves saved indicator instance IDs. `objects.destroy()` and the disposer returned by `subscribe`
 release observations without removing chart objects. Drawing actions still pass
 through the drawing controller's undo history. Host provider state needs its own
 subscription or an explicit `objects.refresh()` after a host-side change.
@@ -124,8 +124,9 @@ subscription or an explicit `objects.refresh()` after a host-side change.
 | `crosshairMode` `'normal' \| 'magnet'` | yes |
 | `timezone` (IANA name) | yes, but a name this runtime does not recognise is **skipped**, not thrown, so one stale zone cannot cost the whole layout |
 | `panes[]`: `weight`, and per-pane `priceScale` `{ marginTop, marginBottom, minMove, mode, inverted, autoScale, range? }` | yes; panes are created as needed, `range` only present when `autoScale` is false |
-| `indicators[]`: `{ indicatorId, settings, paneIndex, visible? }` | yes, replaced not appended; omitted legacy visibility restores as visible |
+| `indicators[]`: `{ indicatorId, instanceId?, settings, paneIndex, visible? }` | yes, replaced not appended; saved identities are stable, legacy entries receive new IDs |
 | `drawings` | round-tripped opaquely; only present when a drawing state has been set. The draw tier writes a `DrawingsDocument` (`{ version: 2, drawings }`) here and reads a 1.9.x bare array too |
+| `alerts` | optional `AlertsDocument`; lifecycle, scope, anchors and consumed bars survive reload; unsupported runtime payloads reject serialization |
 | `series[]`: `{ type, style, paneIndex, priceScaleId }` | **no**, reported back to you |
 | series **data** | **no**, never captured |
 
@@ -187,7 +188,13 @@ chart.setDrawingState(value);  // write it
 
 `DrawingController` (`src/draw/controller.ts`) drives both ends automatically: it reads `chart.drawingState()` in its constructor and restores anything it finds, and it writes `chart.setDrawingState(this.toJSON())` after every mutation. So an app that already persists `getState()` keeps drawings for free once the tier is loaded, no extra storage plumbing.
 
-Ordering matters when the controller already exists: `restoreState` overwrites the slot but does not push it into a live controller. Either construct the controller after the restore, or call `controller.fromJSON(chart.drawingState())` yourself. See [drawing-tools](drawing-tools.md).
+Restoration emits `drawings:restore` before `alerts:restore`. Attached controllers
+restore automatically in that order; do not repeat `fromJSON` afterward.
+`state:restore:start` and `state:restore:end` bracket the operation so transient
+inventory changes cannot evaluate alerts or delete anchors prematurely.
+Invalid alert documents and duplicate study identities reject before mutation.
+Missing restored drawing or plot anchors emit removal reasons. See
+[drawing-tools](drawing-tools.md) and [alerts](alerts.md).
 
 ## Related
 

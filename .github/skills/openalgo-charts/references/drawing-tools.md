@@ -401,7 +401,10 @@ chart.restoreState(JSON.parse(localStorage.getItem('layout')!));
 const draw = new DrawingController(chart);   // reads the state in its constructor
 ```
 
-**Restore chart state before constructing the controller.** The constructor reads `chart.drawingState()` once; a `restoreState` afterwards leaves the controller holding the old list, which the next `_sync()` writes back over the restored one.
+The constructor reads `chart.drawingState()`, and an attached controller handles
+`drawings:restore` during later `chart.restoreState` calls. Both attachment orders
+restore the drawing list. Do not call `fromJSON` again after chart restoration;
+the drawing phase already precedes alert restoration.
 
 The controller and its layers belong to the chart they were built on, so a rebuild (interval, chart type, or theme swap) needs `const saved = draw.toJSON(); draw.destroy();` before `chart.destroy()`, then `new DrawingController(newChart).fromJSON(saved)`. Anchors are data, so the shapes land on the same bars even at a different interval.
 

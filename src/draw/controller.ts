@@ -328,6 +328,7 @@ export class DrawingController {
     this._off.push(chart.on('drag', (p) => this._onDrag(p as DragPayload)));
     this._off.push(chart.on('drag:end', () => this._onDragEnd()));
     this._off.push(chart.on('dblclick', () => { this.finish(); }));
+    this._off.push(chart.on('drawings:restore', document => this.fromJSON(document)));
     // Restore anything a previous session left in the chart state. A 1.9.x
     // save is a bare array; the migration upgrades it in place.
     const saved = chart.drawingState();

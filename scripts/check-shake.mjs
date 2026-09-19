@@ -49,7 +49,10 @@ const BUNDLE = new URL('../dist/openalgo-charts.mjs', import.meta.url).pathname.
 // Primary source reads and the history/live update event serve headless hosts.
 // Their measured chart-only cost is 0.04 KiB (50.25 to 50.29); the optional
 // alert controller must still disappear, checked by MUST_BE_SHAKEN below.
-const LIMIT_BYTES = 50.3 * 1024;
+// Alert documents also round-trip on charts without a controller. Atomic input
+// validation, JSON-safe payloads and stable study identities add 1.56 KiB:
+// 50.26 to 51.82 KiB. The controller, registry, UI and drawing tier stay optional.
+const LIMIT_BYTES = 51.9 * 1024;
 
 // Absent from a chart-only build. Each is a string that appears in the adapter
 // source and nowhere in the rendering core.

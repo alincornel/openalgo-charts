@@ -24,7 +24,7 @@ export function readJson(input: unknown): Json {
   let nodes = 0;
   let characters = 0;
   const ancestors = new Set<object>();
-  const visit = (value: unknown, depth: number): Json => {
+  const visit = (value: unknown, depth: number, opaque = false): Json => {
     if (++nodes > 100000) throw new WorkspaceDocumentError('Document node limit exceeded');
     if (depth > 32) throw new WorkspaceDocumentError('Document depth limit exceeded');
     if (value === null || typeof value === 'boolean') return value;
@@ -39,6 +39,16 @@ export function readJson(input: unknown): Json {
     if (!Array.isArray(value) && ![Object.prototype, null].includes(Object.getPrototypeOf(value))) {
       throw new WorkspaceDocumentError('Document objects must be plain records');
     }
+    if (opaque) {
+      for (const key of Reflect.ownKeys(value)) {
+        if (Array.isArray(value) && key === 'length') continue;
+        const property = Object.getOwnPropertyDescriptor(value, key)!;
+        if (typeof key !== 'string' || !property.enumerable
+          || (Array.isArray(value) && (!/^(0|[1-9]\d*)$/.test(key) || Number(key) >= value.length))) {
+          throw new WorkspaceDocumentError('Opaque payload properties must survive JSON');
+        }
+      }
+    }
     ancestors.add(value);
     let result: Json;
     if (Array.isArray(value)) {
@@ -47,19 +57,22 @@ export function readJson(input: unknown): Json {
       for (let i = 0; i < value.length; i++) {
         const descriptor = Object.getOwnPropertyDescriptor(value, String(i));
         if (!descriptor || !('value' in descriptor)) throw new WorkspaceDocumentError('Document arrays must contain data values');
-        out.push(visit(descriptor.value, depth + 1));
+        out.push(visit(descriptor.value, depth + 1, opaque));
       }
       result = out;
     } else {
       const out: Record<string, Json> = {};
       for (const key of Object.keys(value)) {
         const normalized = key.toLowerCase().replace(/[^a-z0-9_]/g, '').replace(/_/g, '');
-        if (privateKeys.has(key) || privateKeys.has(normalized)) continue;
+        if (privateKeys.has(key) || privateKeys.has(normalized)) {
+          if (opaque) throw new WorkspaceDocumentError('Opaque payload contains a private workspace field');
+          continue;
+        }
         characters += key.length;
         if (characters > MAX_DOCUMENT_BYTES) throw new WorkspaceDocumentError('Document size limit exceeded');
         const descriptor = Object.getOwnPropertyDescriptor(value, key)!;
         if (!('value' in descriptor)) throw new WorkspaceDocumentError('Document accessors are not allowed');
-        out[key] = visit(descriptor.value, depth + 1);
+        out[key] = visit(descriptor.value, depth + 1, opaque || key === 'payload');
       }
       result = out;
     }

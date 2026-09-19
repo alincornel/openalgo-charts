@@ -19,6 +19,8 @@ export interface AlertChartHost {
   indicators?(): readonly Pick<IndicatorApi, 'id' | 'paneIndex' | 'series' | 'values'>[];
   addPrimitive?(primitive: IPrimitive, paneIndex?: number): void;
   removePrimitive?(primitive: IPrimitive): void;
+  alertState?(): AlertsDocument | undefined;
+  setAlertState?(document: AlertsDocument | undefined): void;
 }
 
 export type AlertCondition = 'crossing' | 'crossingUp' | 'crossingDown'
@@ -138,6 +140,16 @@ export interface Alert extends Omit<AlertInput, 'id' | 'condition' | 'policy' | 
   scope: AlertScope;
   lastTriggeredAt?: number;
   lastTriggeredTime?: number;
+  /** Newest confirmed bar already judged, including a nonmatch. */
+  lastClosedTime?: number;
+  /** Newest intrabar match consumed, including one suppressed by cooldown. */
+  lastTouchedTime?: number;
+}
+
+/** Portable trader records. JSON persistence rejects unsupported host payloads. */
+export interface AlertsDocument {
+  version: 1;
+  alerts: Alert[];
 }
 
 /** Shared delivery fields for trader and indicator-authored alerts. */

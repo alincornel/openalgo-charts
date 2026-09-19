@@ -105,3 +105,43 @@ test('alert levels preserve pane panning and teardown removes every overlay', as
   const svg = await page.evaluate(() => window.__alertsDemo.chart.exportSVG());
   for (const label of ['Intrabar threshold', 'Confirmed threshold', 'Drawing threshold', 'Disabled level', 'Expired level']) expect(svg).not.toContain(label);
 });
+
+test('a page reload restores drawing anchors and triggered once levels without new delivery', async ({ page }, info) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.setViewportSize({ width: 1360, height: 900 });
+  await page.goto('/tests/e2e/alerts-fixture.html');
+  await page.waitForFunction(() => !!window.__alertsDemo);
+  await page.evaluate(() => {
+    const { series, bars, chart } = window.__alertsDemo;
+    series.update({ ...bars[bars.length - 1], high: 114 });
+    sessionStorage.setItem('saved-alert-chart', JSON.stringify(chart.getState()));
+  });
+  expect(await page.evaluate(() => window.__alertsDemo.fired.length)).toBe(2);
+  await page.reload();
+  await page.waitForFunction(() => !!window.__alertsDemo);
+  expect(await page.evaluate(() => window.__alertsDemo.chart.restoreState(JSON.parse(sessionStorage.getItem('saved-alert-chart')!)).applied)).toBe(true);
+  expect(await page.evaluate(() => window.__alertsDemo.alerts.list().map(alert => [alert.title, alert.state]))).toEqual([
+    ['Intrabar threshold', 'triggered'], ['Confirmed threshold', 'armed'], ['Drawing threshold', 'triggered'],
+    ['Disabled level', 'disabled'], ['Expired level', 'expired'],
+  ]);
+  expect(await page.evaluate(() => {
+    const { alerts, draw } = window.__alertsDemo;
+    const source = alerts.list().find(alert => alert.title === 'Drawing threshold')!.source;
+    return source.kind === 'drawing' && draw.get(source.drawingId)?.points[0].price;
+  })).toBe(108);
+  await page.evaluate(() => {
+    const { series, bars } = window.__alertsDemo;
+    const last = bars[bars.length - 1];
+    series.update({ ...last, high: 115 });
+    series.update({ ...last, time: last.time + 60 });
+  });
+  expect(await page.evaluate(() => window.__alertsDemo.fired)).toEqual([]);
+  await expect.poll(() => ink(page, [34, 197, 94])).toBeGreaterThan(100);
+  const svg = await page.evaluate(() => window.__alertsDemo.chart.exportSVG());
+  for (const title of ['Intrabar threshold', 'Confirmed threshold', 'Drawing threshold', 'Disabled level', 'Expired level']) {
+    expect(svg.split(title).length - 1).toBe(1);
+  }
+  await page.screenshot({ path: info.outputPath('alerts-restored.png'), animations: 'disabled' });
+  expect(errors).toEqual([]);
+});

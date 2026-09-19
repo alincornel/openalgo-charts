@@ -480,7 +480,6 @@ class WidgetImpl implements Widget {
       if (report.applied) {
         this._keepView = same;
         this._pendingView = same ? saved.chart.viewport ?? null : null;
-        this.draw.fromJSON(saved.chart.drawings === undefined ? [] : saved.chart.drawings);
       } else {
         this._toasts.toast(`The saved layout could not be restored: ${report.reason ?? 'unknown reason'}`, 'error');
       }
@@ -717,7 +716,6 @@ class WidgetImpl implements Widget {
       const doc = state.chart as unknown as WidgetChartState;
       chart = this.chart.restoreState(same ? doc : stripView(doc));
       if (!chart.applied) return { applied: false, reason: chart.reason, chart };
-      this.draw.fromJSON(doc.drawings === undefined ? [] : doc.drawings);
       this._keepView = same;
       this._pendingView = same ? doc.viewport ?? null : null;
     }

@@ -358,5 +358,7 @@ export type {
   BarCondition, BarConditionContext,
   AlertDrawingValue, AlertDrawingLevel, AlertDrawingInfo, AlertDrawingProvider,
   DrawingAlertSource,
+  AlertsDocument,
 } from './alerts/types';
+export { parseAlertsDocument } from './alerts/document';
 export { registerBarCondition, unregisterBarCondition, getBarCondition, registeredBarConditions } from './alerts/bar-conditions';

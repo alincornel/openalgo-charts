@@ -13,6 +13,7 @@ import type { SeriesStyle } from '../render/series-style';
 import type { PriceScaleId } from './series';
 import type { IndicatorSettings } from './indicator-registry';
 import type { PriceScaleMode } from '../scale/price-scale';
+import type { AlertsDocument } from '../alerts/types';
 
 /** Bumped when the shape changes incompatibly; `restoreState` ignores unknown versions. */
 export const CHART_STATE_VERSION = 1;
@@ -45,6 +46,8 @@ export interface SeriesState {
 
 export interface IndicatorState {
   indicatorId: string;
+  /** Stable workspace identity. Omitted by legacy states and reusable templates. */
+  instanceId?: string;
   settings: IndicatorSettings;
   paneIndex: number;
   /** Omitted by older layouts, which restore the indicator as visible. */
@@ -69,6 +72,7 @@ export interface ChartState {
    * tier is loaded.
    */
   drawings?: unknown;
+  alerts?: AlertsDocument;
 }
 
 /** What `restoreState` actually applied, so a caller can finish the job. */
