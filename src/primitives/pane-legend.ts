@@ -48,7 +48,7 @@ export interface LegendValue {
  * never derives these: it tags what the host hands it, so one switch hides one
  * group and leaves the rest of the row alone.
  */
-export type LegendField = 'ohlc' | 'change' | 'volume';
+export type LegendField = 'ohlc' | 'change' | 'volume' | 'openInterest';
 
 /**
  * Which name the title shows. `description` and `ticker` come from `status`;
@@ -81,9 +81,9 @@ export interface LegendStatusData {
 export type LegendStatusSource = LegendStatusData | (() => LegendStatusData | null);
 
 /**
- * Per-field switches for the status line. Every one defaults to on, so the
- * absent option object reproduces the row exactly as it drew before these
- * existed. A field whose data is missing draws nothing whether it is on or off.
+ * Per-field switches for the status line. Existing reading fields default to
+ * on; open interest and the background plate default to off. A missing reading
+ * draws nothing whether its switch is on or off.
  */
 export interface LegendStatusLineOptions {
   /** Symbol logo, when `status` supplies one. */
@@ -100,6 +100,8 @@ export interface LegendStatusLineOptions {
   barChange?: boolean;
   /** Readings tagged `field: 'volume'`. */
   volume?: boolean;
+  /** Readings tagged `field: 'openInterest'`. Off by default. */
+  openInterest?: boolean;
   /** Change since the previous close, from `status.lastDayChange`. */
   lastDayChange?: boolean;
   /**
@@ -120,6 +122,8 @@ export interface LegendStatusLineOptions {
 }
 
 export interface PaneLegendOptions {
+  /** Explicit false suppresses OI without discarding its saved switch. Set by an owning chart. */
+  hasOpenInterest?: boolean;
   /** Stable id; buttons hit-test as `${id}::close` etc. */
   id: string;
   /** Bold source name, e.g. `RSI`. */
@@ -186,11 +190,12 @@ type Seg =
   | { k: 'dot'; color: string; w: number; gap: number }
   | { k: 'text'; text: string; color: string; bold: boolean; w: number; gap: number };
 
-/** A reading draws unless the switch that owns its group is off. */
-function fieldOn(s: LegendStatusLineOptions, field: LegendField | undefined): boolean {
+/** Each group follows its own default and the instrument's capability. */
+function fieldOn(s: LegendStatusLineOptions, field: LegendField | undefined, hasOpenInterest?: boolean): boolean {
   if (field === 'ohlc') return s.chartValues !== false;
   if (field === 'change') return s.barChange !== false;
   if (field === 'volume') return s.volume !== false;
+  if (field === 'openInterest') return s.openInterest === true && hasOpenInterest !== false;
   return s.lastValueLabel !== false;
 }
 
@@ -387,7 +392,7 @@ export class PaneLegend implements IPrimitive {
     // Readings: one per plot, each in its plot's color, with a dimmed label.
     const valueColor = o.valueColor ?? o.color ?? rc.theme.axisText;
     for (const v of this._values) {
-      if (fieldOn(s, v.field)) reading(v, valueColor);
+      if (fieldOn(s, v.field, o.hasOpenInterest)) reading(v, valueColor);
     }
     if (data.lastDayChange !== undefined && s.lastDayChange !== false) {
       reading(data.lastDayChange, valueColor);

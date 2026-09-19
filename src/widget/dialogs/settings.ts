@@ -108,7 +108,8 @@ export function mountSettingsDialog(
       values: readChartSettings(chart),
       idPrefix: 'oac-cset',
       live: true,
-      unavailable: opts.unavailable,
+      unavailable: (key, option) => key === 'statusLine.openInterest' && chart.hasOpenInterest === false
+        ? 'Open interest is unavailable for this instrument.' : opts.unavailable?.(key, option) ?? null,
       onChange: (key, value) => {
         write({ [key]: value as ChartSettingsValues[string] });
         // One write can move a neighbour (a scale mode changes what auto-fit
@@ -135,7 +136,8 @@ export function mountSettingsDialog(
   frame.actions.appendChild(button(doc, { label: 'OK', variant: 'primary', onClick: () => ok() }));
 
   // Escape and the scrim are the shell's, and both mean Cancel.
-  const handle = openPanel(ctx, frame.el, { placement: 'center', modal: true }, () => cancel());
+  const offContext = chart.on('data:context', renderPane);
+  const handle = openPanel(ctx, frame.el, { placement: 'center', modal: true, onClose: offContext }, () => cancel());
 
   function revert(): void {
     if (committed || dirty.size === 0) return;

@@ -37,3 +37,52 @@ REST mapping omits nonfinite optional readings. Durable caches reject malformed
 levels. A history response arriving after a live update retains the live
 observation, including its absence or zero. During partial replay, only revealed
 sub-bars contribute a level; the completed bar's value appears when it closes.
+
+## Studies
+
+Import `openalgo-charts/indicators`, then add any of these studies:
+
+| ID | Output | Behavior |
+| --- | --- | --- |
+| `open-interest` | Pane line, `oi` | Raw position size with compact volume formatting and gaps for missing readings. |
+| `open-interest-change` | Pane histogram, `change` | Adjacent difference. The first bar and either side of a missing reading are null. Increases and decreases have separate colors. |
+| `open-interest-buildup` | Main candle colors | Close-to-close price and OI changes classify long buildup, short buildup, short covering and long unwinding. |
+
+The buildup study has four color inputs: `longBuildupColor`, `shortBuildupColor`,
+`shortCoveringColor` and `longUnwindingColor`. `unchanged: 'neutral'` is the
+default. Set it to `'up'` to treat zero price or OI change as nonnegative. Missing
+readings always leave the candle's own color. Its `state` values are 1, 2, 3 and
+4 in that same order, or null. It adds no price plot or axis.
+
+The line and histogram expose the standard generated plot style controls.
+Use `plotStyleKeys` to discover their keys. The histogram's plot color is its
+increase color; `downColor` controls decreases, and opacity affects both.
+
+## Capability and status line
+
+The host supplies instrument capability separately from observations:
+
+```ts
+chart.setDataContext({ symbol: 'CONTRACT', exchange: 'NFO', interval: '5m', hasOpenInterest: true });
+chart.setStatusLineOptions({ openInterest: true });
+```
+
+`ChartDataContext.hasOpenInterest?: boolean` and the readonly getter
+`chart.hasOpenInterest` carry the same three states: true means supported,
+false means unsupported, and undefined means unknown. Neither zero nor a
+missing forming-bar reading changes capability. `data:context` announces
+capability-only changes too. This is the chart-side contract for a language host:
+read bare `oi` from the selected bar and the flag from `chart.hasOpenInterest`.
+Preserve unknown explicitly in any host mapping; do not infer false from zero.
+
+The OI readout defaults off. A canvas legend receives
+`{ label: 'OI', text: formattedReading, field: 'openInterest' }` only when a
+reading exists. The owning chart suppresses that field when capability is false
+without clearing the saved preference. A standalone `PaneLegend` can receive
+`hasOpenInterest` in its options. The widget supplies the hovered or latest
+reading, and its settings form disables an unsupported field with a reason.
+
+The preference survives `getState()` / `restoreState()`. Capability is live
+instrument metadata, so the host supplies it again instead of trusting saved
+data. A widget interval change retains capability for the same instrument;
+changing symbol or exchange clears it until the host supplies new metadata.

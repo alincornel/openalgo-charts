@@ -507,11 +507,13 @@ export interface IndicatorAlertPayload {
   index: number;
 }
 
-/** Optional instrument identity supplied by the host. */
+/** Optional instrument identity and capability supplied by the host. */
 export interface ChartDataContext {
   symbol?: string;
   exchange?: string;
   interval?: string;
+  /** Instrument capability, independent of readings: false unsupported, absent unknown. */
+  hasOpenInterest?: boolean;
 }
 
 /** Source identity changed, or the available source-bar range changed. */

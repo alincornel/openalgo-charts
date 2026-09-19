@@ -6,6 +6,11 @@ All notable changes to OpenAlgo Charts.
 
 ### Added
 
+- Open Interest, Open Interest Change and Open Interest Buildup studies, with
+  missing-data gaps, adjacent changes and four configurable candle regimes.
+- Explicit `ChartDataContext.hasOpenInterest` and `chart.hasOpenInterest`
+  capability, independent of observations. The optional OI status-line reading
+  defaults off, preserves zero and disables unsupported instrument controls.
 - Optional `Bar.oi`, `Tick.oi`, `AggTick.oi` and `SecuritySeries.oi`. Open interest
   is a level, not a flow: historical folds take the latest defined reading in a
   bucket, never sum it. Zero and absence remain distinct. One-to-one transforms

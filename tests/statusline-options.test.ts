@@ -100,6 +100,15 @@ const symbol = (statusLine?: PaneLegendOptions['statusLine']): PaneLegendOptions
   ({ id: 'sym', title: 'AAPL', status: STATUS, actions: ['hide', 'settings', 'close'], statusLine });
 
 describe('defaults reproduce the row as it drew before the switches existed', () => {
+  it('keeps OI off by default and renders an explicitly enabled zero reading', () => {
+    const values: LegendValue[] = [{ label: 'OI', text: '0', field: 'openInterest' }];
+    expect(paint(symbol(), values).texts).not.toContain('OI');
+    expect(paint(symbol({ openInterest: true }), values).texts).toContain('0');
+    expect(paint(symbol({ openInterest: false }), values).texts).not.toContain('OI');
+    expect(paint({ ...symbol({ openInterest: true }), hasOpenInterest: false }, values).texts).not.toContain('OI');
+    expect(paint({ ...symbol({ openInterest: true }), hasOpenInterest: true }, values).texts).toContain('0');
+  });
+
   it('lays out swatch, title, params and a labelled reading unchanged', () => {
     const { rec, texts } = paint(
       { id: 'ind', title: 'EMA', params: '20 close', color: '#f5a623' },

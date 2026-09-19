@@ -318,6 +318,32 @@ describe('controls reach the renderer, not just an option bag', () => {
     expect(legend.options().statusLine?.titleMode).toBe('ticker');
   });
 
+  it('keeps the OI preference when capability suppresses the readout and across state restoration', () => {
+    const { chart } = mount();
+    const legend = new PaneLegend({ id: 'symbol', title: 'Contract' });
+    chart.addPrimitive(legend, 0);
+    expect(readChartSettings(chart)['statusLine.openInterest']).toBe(false);
+    applyChartSettings(chart, { 'statusLine.openInterest': true });
+    expect(legend.options().statusLine?.openInterest).toBe(true);
+    chart.setDataContext({ hasOpenInterest: false });
+    expect(legend.options().hasOpenInterest).toBe(false);
+    expect(legend.options().statusLine?.openInterest).toBe(true);
+    expect(readChartSettings(chart)['statusLine.openInterest']).toBe(true);
+    const state = JSON.parse(JSON.stringify(chart.getState()));
+    const restored = mount().chart;
+    restored.setDataContext({ hasOpenInterest: false });
+    restored.restoreState(state);
+    const added = new PaneLegend({ id: 'restored', title: 'Cash' });
+    restored.addPrimitive(added, 0);
+    expect(restored.statusLineOptions().openInterest).toBe(true);
+    expect(added.options().hasOpenInterest).toBe(false);
+    restored.setDataContext({ hasOpenInterest: true });
+    expect(added.options().hasOpenInterest).toBe(true);
+    expect(added.options().statusLine?.openInterest).toBe(true);
+    chart.setDataContext(undefined);
+    expect(legend.options().statusLine?.openInterest).toBe(true);
+  });
+
   it('a legend added after the switches still obeys them', () => {
     const { chart } = mount();
     applyChartSettings(chart, { 'statusLine.barChange': false });

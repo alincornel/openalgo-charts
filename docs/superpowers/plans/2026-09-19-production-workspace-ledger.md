@@ -472,3 +472,45 @@ field's measured aggregate cost raises the widget-terminal budget from 185 to
 migration and all earlier unfinished scope remain required. The separate
 OpenScript workflow is not being modified; document its `oi` and
 `hasOpenInterest` integration contract when Task 4 is implemented.
+
+
+## Studies and capability checkpoint
+
+All nine new study tests failed before registration, then passed. Additional
+regressions exposed the histogram appearance control and interval capability
+reset; both were observed failing and corrected. Capability, status-line and
+widget settings tests cover unknown, false, true, zero, missing, restore and a
+capability-only context change. The no-dead-controls suite needed an actual OI
+reading in its shared legend fixture; all thirteen chart types then passed.
+
+Verification: lint, types, 5,382 tests in 223 files, build, 232 reference-host
+tests and eight declaration checks passed. All three browser projects passed
+rendered candle-color, raw-line gap, change gap, hovered zero and capability
+control assertions. Chromium and Firefox study screenshots and the WebKit
+unavailable-control screenshot were visually inspected.
+
+Ruling: instrument capability is a separate legend option, not a destructive
+rewrite of its saved readout switch. This preserves per-legend and chart
+preferences through unsupported instruments. A standalone legend may receive
+the same optional flag. Unknown capability permits a supplied observation.
+If metadata is wrong, a host could suppress a valid reading; hosts own its truth.
+
+Ruling: check the study and capability pixels together in one fixture to cover
+the complete readout interaction. All three browser engines execute it.
+
+Ruling: increase the all-tier budget from 224 to 225 kB for the three studies
+and capability/readout integration. It measures 224.46 kB. Base is 78.92 kB,
+indicators 29.84 kB, widget 42.68 kB and widget terminal 185.98 kB. Size and
+shake pass after the budget change; chart-only is 50.25 KiB within 50.25.
+Runtime counts are 105 studies: Trend 36, Momentum 29, Volatility 22, Volume 18.
+Skills coverage is 907/907. Repeated public counts and final release sizes
+remain part of the release documentation gate.
+
+Task 3 is complete. Task 4's engine and widget behavior is implemented and
+validated; full metadata threading is retained with Task 5. Reference-host and
+OpenAlgo consumer migration, packed-candidate installation and consumer checks
+are next. Alerts and the remaining production plan remain required.
+
+The user explicitly froze the readiness score at 82 overall / 85 engine,
+confirmed full remaining scope for 2.4.5 and renewed publication authorization.
+Do not raise the score or publish a partial candidate.

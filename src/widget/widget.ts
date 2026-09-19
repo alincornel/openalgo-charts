@@ -374,7 +374,7 @@ class WidgetImpl implements Widget {
     this.chart = createChart(chartEl, { ...(chartOpts as ChartOptions), theme: this._chartTheme, document: doc });
     chartEl.setAttribute('aria-label', options.ariaLabel ?? 'Price chart');
     this._series = this.chart.addSeries(this._chartType as SeriesType);
-    this.chart.setDataContext({ symbol: this._symbol, exchange: this._exchange, interval: this._interval });
+    this._publishDataContext();
     this.draw = new DrawingController(this.chart, {});
     this.objects = new ChartObjects(this.chart, {
       drawings: this.draw,
@@ -530,7 +530,7 @@ class WidgetImpl implements Widget {
     this._pendingView = null;
     if (this.dataController === null) {
       this._series.setData([]);
-      this.chart.setDataContext({ symbol: this._symbol, exchange: this._exchange, interval: this._interval });
+      this._publishDataContext();
     }
     this._statusline?.setSymbol(s, ex, this._interval);
     this._topbar?.refresh();
@@ -553,7 +553,7 @@ class WidgetImpl implements Widget {
     this._pendingView = null;
     if (this.dataController === null) {
       this._series.setData([]);
-      this.chart.setDataContext({ symbol: this._symbol, exchange: this._exchange, interval: this._interval });
+      this._publishDataContext();
     }
     this._statusline?.setSymbol(this._symbol, this._exchange, c);
     this._topbar?.refresh();
@@ -611,6 +611,17 @@ class WidgetImpl implements Widget {
   }
 
   // ── data ─────────────────────────────────────────────────────────────
+  private _publishDataContext(): void {
+    const previous = this.chart.getDataContext();
+    // Capabilities belong to the instrument, so an interval change retains them
+    // while a symbol change waits for fresh metadata from the host.
+    const sameInstrument = previous?.symbol === this._symbol && previous.exchange === this._exchange;
+    this.chart.setDataContext({
+      symbol: this._symbol, exchange: this._exchange, interval: this._interval,
+      ...(sameInstrument && previous.hasOpenInterest !== undefined ? { hasOpenInterest: previous.hasOpenInterest } : {}),
+    });
+  }
+
   public async reload(): Promise<void> {
     const controller = this.dataController;
     if (controller === null || this._destroyed) return;
@@ -623,7 +634,7 @@ class WidgetImpl implements Widget {
     this._initialView = true;
     this._displayedBars = null;
     this._series.setData([]);
-    this.chart.setDataContext({ symbol: this._symbol, exchange: this._exchange, interval: this._interval });
+    this._publishDataContext();
     await controller.load(request);
   }
 
@@ -726,7 +737,7 @@ class WidgetImpl implements Widget {
       if (this._opts.feed) void this.reload();
       else {
         this._series.setData([]);
-        this.chart.setDataContext({ symbol: this._symbol, exchange: this._exchange, interval: this._interval });
+        this._publishDataContext();
       }
     }
     this._rail?.refresh();

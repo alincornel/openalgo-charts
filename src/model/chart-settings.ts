@@ -459,6 +459,11 @@ function readoutControls(chart: Chart): Control[] {
     statusSwitch('chartValues', 'Open, high, low, close', 'Show'),
     statusSwitch('barChange', 'Bar change', 'Show'),
     statusSwitch('volume', 'Volume', 'Show'),
+    boolCtl(
+      'statusLine.openInterest', 'Open interest', 'Show', false,
+      (c) => c.statusLineOptions().openInterest === true,
+      (c, v) => c.setStatusLineOptions({ openInterest: v }),
+    ),
     statusSwitch('lastDayChange', 'Change since previous close', 'Show'),
     statusSwitch('lastValueLabel', 'Indicator values', 'Show'),
     // The plate is the one switch that is off by default: the row has never had

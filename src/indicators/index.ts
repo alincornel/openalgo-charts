@@ -1,7 +1,7 @@
 /**
  * Indicator tier (opt-in: "openalgo-charts/indicators").
  *
- * 102 Tier-1 built-ins — computed from the chart's own OHLCV, no extra data —
+ * 105 Tier-1 built-ins, computed from the chart's own bars, no extra data,
  * plus the Tier-2 contract for indicators that own an external fetch/subscribe
  * lifecycle. Importing this module registers every built-in as a side effect.
  *
@@ -25,6 +25,7 @@ import type { IndicatorDescriptor } from 'openalgo-charts';
 import { SMA, EMA, WMA, VWAP, BOLLINGER, SUPERTREND, PARABOLIC_SAR, ICHIMOKU, HALFTREND } from './trend';
 import { RSI, MACD, STOCHASTIC, ADX, CCI, MFI, ATR, WILLIAMS_VIX_FIX } from './momentum';
 import { VOLUME, OBV, ADL } from './volume';
+import { OPEN_INTEREST, OPEN_INTEREST_CHANGE, OPEN_INTEREST_BUILDUP } from './open-interest';
 // The ported built-in indicators. Grouped by family in their own modules so the
 // tier index stays a manifest rather than a wall of descriptors.
 import { OVERLAY_INDICATORS } from './overlay';
@@ -48,6 +49,7 @@ export const BUILTIN_INDICATORS: readonly IndicatorDescriptor[] = [
   SMA, EMA, WMA, VWAP, BOLLINGER, SUPERTREND, HALFTREND, PARABOLIC_SAR, ICHIMOKU,
   RSI, MACD, STOCHASTIC, ADX, CCI, MFI, ATR, WILLIAMS_VIX_FIX,
   VOLUME, OBV, ADL,
+  OPEN_INTEREST, OPEN_INTEREST_CHANGE, OPEN_INTEREST_BUILDUP,
   ...OVERLAY_INDICATORS,
   ...OSCILLATOR_INDICATORS,
   ...VOLATILITY_INDICATORS,
@@ -81,6 +83,7 @@ registerBuiltinIndicators(); // side effect on tier import
 export { SMA, EMA, WMA, VWAP, BOLLINGER, SUPERTREND, HALFTREND, PARABOLIC_SAR, ICHIMOKU } from './trend';
 export { RSI, MACD, STOCHASTIC, ADX, CCI, MFI, ATR, WILLIAMS_VIX_FIX } from './momentum';
 export { VOLUME, OBV, ADL } from './volume';
+export { OPEN_INTEREST, OPEN_INTEREST_CHANGE, OPEN_INTEREST_BUILDUP } from './open-interest';
 export * from './overlay';
 export * from './oscillators';
 export * from './volatility';

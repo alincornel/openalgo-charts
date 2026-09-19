@@ -650,6 +650,42 @@ describe('dialogs and the toolbar', () => {
 });
 
 describe('the status line', () => {
+  it.each([true, false])('preserves instrument capability across interval changes (managed feed: %s)', managed => {
+    const { w } = make({ symbol: 'CONTRACT', exchange: 'NFO',
+      ...(managed ? { feed: { getBars: async () => bars(2) } } : {}),
+    });
+    w.chart.setDataContext({ ...w.chart.getDataContext(), hasOpenInterest: true });
+    w.setInterval('5m');
+    expect(w.chart.hasOpenInterest).toBe(true);
+    expect(w.chart.getDataContext()?.interval).toBe('5m');
+    w.setSymbol('CASH', 'NSE');
+    expect(w.chart.hasOpenInterest).toBeUndefined();
+  });
+
+  it('shows an opted-in OI zero, hides missing readings and reacts to instrument capability', () => {
+    const { w, root } = make({ locale: 'en-US' });
+    const bar = { ...bars(1)[0], oi: 0 };
+    const field = () => root.querySelector('.oac-statusline__oi') as FakeElement;
+    const hover = (b: Bar) => w.chart.emit('crosshair:move', {
+      time: b.time, index: 0, price: b.close, bar: b, point: { x: 10, y: 10 }, paneIndex: 0,
+    });
+    hover(bar);
+    expect(field()).not.toBeNull();
+    expect(field().hidden).toBe(true);
+    w.chart.setStatusLineOptions({ openInterest: true });
+    hover({ ...bar });
+    expect(field().hidden).toBe(false);
+    expect(root.querySelector('.oac-statusline__oi b')?.textContent).toBe('0');
+    w.chart.setDataContext({ hasOpenInterest: false });
+    expect(field().hidden).toBe(true);
+    w.chart.setDataContext({ hasOpenInterest: true });
+    expect(field().hidden).toBe(false);
+    hover({ ...bar, oi: undefined });
+    expect(field().hidden).toBe(true);
+    hover({ ...bar, oi: 1_500_000 });
+    expect(root.querySelector('.oac-statusline__oi b')?.textContent).toBe('1.5M');
+  });
+
   it('shows the hovered bar in the engine fields and follows the chart switches', () => {
     const { w, root } = make({ locale: 'de-DE' });
     w.series.setData(bars(20));

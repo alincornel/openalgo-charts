@@ -164,6 +164,22 @@ describe('the dialog tier as the shell sees it', () => {
 // ── chart settings ────────────────────────────────────────────────────────
 
 describe('mountSettingsDialog', () => {
+  it('disables unsupported OI without losing its preference and refreshes on a context change', () => {
+    const rig = makeRig();
+    rig.chart.setStatusLineOptions({ openInterest: true });
+    rig.chart.setDataContext({ hasOpenInterest: false });
+    const handle = mountSettingsDialog(rig.ctx, undefined, { tab: 'readout' });
+    const control = () => rig.q('#oac-cset-statusLine-openInterest') as FakeElement;
+    expect(control()).not.toBeNull();
+    expect(control().disabled).toBe(true);
+    expect(control().checked).toBe(true);
+    expect(control().title).toContain('instrument');
+    rig.chart.setDataContext({ hasOpenInterest: true });
+    expect(control().disabled).toBe(false);
+    expect(control().checked).toBe(true);
+    handle.close();
+  });
+
   it('draws one tab per non-empty schema tab, each with a glyph, and the active tab as a generated form', () => {
     const rig = makeRig();
     const handle = mountSettingsDialog(rig.ctx);

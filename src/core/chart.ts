@@ -1396,11 +1396,18 @@ export class Chart {
     return this._dataContext;
   }
 
+  /** Instrument capability from the host. A missing bar reading does not change it. */
+  public get hasOpenInterest(): boolean | undefined {
+    return this._dataContext?.hasOpenInterest;
+  }
+
   /** Clear the previous source bars before changing context, then load the new source. */
   public setDataContext(context: ChartDataContext | undefined): void {
     if (this._dataContext?.symbol === context?.symbol && this._dataContext?.exchange === context?.exchange
+      && this._dataContext?.hasOpenInterest === context?.hasOpenInterest
       && this._dataContext?.interval === context?.interval && !!this._dataContext === !!context) return;
     this._dataContext = context ? Object.freeze({ ...context }) : undefined;
+    for (const entry of this._legends) entry.legend.setOptions({ hasOpenInterest: this.hasOpenInterest });
     this._syncWatermark();
     this.emit('data:context', this._dataContext);
   }
@@ -2375,6 +2382,7 @@ export class Chart {
     // symbol/OHLC row) and indicator legends must stack beneath it.
     if (primitive instanceof PaneLegend) {
       this._legends.push({ legend: primitive, paneIndex });
+      primitive.setOptions({ hasOpenInterest: this.hasOpenInterest });
       // A row added after the switches were set still obeys them; a legend that
       // brought its own `statusLine` keeps whatever it set on top. Skipped when
       // the chart has no switches to push, which is the usual case: `setOptions`

@@ -50,19 +50,19 @@ Files: `src/replay/controller.ts`, `src/feed/data-controller.ts`, `src/feed/cach
 
 Create `src/indicators/open-interest.ts` and `tests/indicator-open-interest.test.ts`; wire the existing indicators entry/registry.
 
-- [ ] Raw Open Interest is a pane line with volume price formatting and null gaps.
-- [ ] Open Interest Change is a pane histogram of adjacent readings, null on the first bar or either missing side, with up/down colors and generated plot styling.
-- [ ] Open Interest Buildup paints candles using close-to-close price change and open-interest change. Four configurable colors identify long buildup, short buildup, short covering and long unwinding. The unchanged selector defaults to neutral; its up mode treats zero change as nonnegative. Missing inputs always remain neutral.
-- [ ] Test all four signs, unchanged behavior, missing/zero, warmup, style input generation, source replacement and live updates. Observe failures, implement, run indicator integration suites and inspect actual browser pixels.
+- [x] Raw Open Interest is a pane line with volume price formatting and null gaps.
+- [x] Open Interest Change is a pane histogram of adjacent readings, null on the first bar or either missing side, with up/down colors and generated plot styling.
+- [x] Open Interest Buildup paints candles using close-to-close price change and open-interest change. Four configurable colors identify long buildup, short buildup, short covering and long unwinding. The unchanged selector defaults to neutral; its up mode treats zero change as nonnegative. Missing inputs always remain neutral.
+- [x] Test all four signs, unchanged behavior, missing/zero, warmup, style input generation, source replacement and live updates. Observe failures, implement, run indicator integration suites and inspect actual browser pixels.
 
 ## Task 4: Capability and status line
 
 Files: `src/model/indicator-registry.ts`, `src/core/chart.ts`, `src/primitives/pane-legend.ts`, `src/model/chart-settings.ts` and their existing tests.
 
-- [ ] Add capability regressions for explicit supported, unsupported and unknown context. Distinguish capability from whether the current bar has a reading.
-- [ ] Add an off-by-default open-interest legend field and setting. Show zero when supplied, omit missing and unsupported data, and preserve the preference through chart state and workspace restoration.
+- [x] Add capability regressions for explicit supported, unsupported and unknown context. Distinguish capability from whether the current bar has a reading.
+- [x] Add an off-by-default open-interest legend field and setting. Show zero when supplied, omit missing and unsupported data, and preserve the preference through chart state and workspace restoration.
 - [ ] Thread metadata and render actual hovered/current-bar values. Verify state round trips, context changes and disabled-control feedback in browser pixels.
-- [ ] Document the exact typed chart contract consumed by OpenScript; do not modify that separate project's files.
+- [x] Document the exact typed chart contract consumed by OpenScript; do not modify that separate project's files.
 
 ## Task 5: Hosts and documentation
 
@@ -104,3 +104,45 @@ The user's follow-up confirms OpenScript will consume bare `oi` and an instrumen
 claim. No work or status claim is made about the separate language workflow.
 The alert policy distinction and every Part 2 requirement remain in the preserved
 spec and master ledger.
+
+
+## Studies and capability checkpoint
+
+All nine new study tests failed before registration, then passed. Additional
+regressions exposed the histogram appearance control and interval capability
+reset; both were observed failing and corrected. Capability, status-line and
+widget settings tests cover unknown, false, true, zero, missing, restore and a
+capability-only context change. The no-dead-controls suite needed an actual OI
+reading in its shared legend fixture; all thirteen chart types then passed.
+
+Verification: lint, types, 5,382 tests in 223 files, build, 232 reference-host
+tests and eight declaration checks passed. All three browser projects passed
+rendered candle-color, raw-line gap, change gap, hovered zero and capability
+control assertions. Chromium and Firefox study screenshots and the WebKit
+unavailable-control screenshot were visually inspected.
+
+Ruling: instrument capability is a separate legend option, not a destructive
+rewrite of its saved readout switch. This preserves per-legend and chart
+preferences through unsupported instruments. A standalone legend may receive
+the same optional flag. Unknown capability permits a supplied observation.
+If metadata is wrong, a host could suppress a valid reading; hosts own its truth.
+
+Ruling: check the study and capability pixels together in one fixture to cover
+the complete readout interaction. All three browser engines execute it.
+
+Ruling: increase the all-tier budget from 224 to 225 kB for the three studies
+and capability/readout integration. It measures 224.46 kB. Base is 78.92 kB,
+indicators 29.84 kB, widget 42.68 kB and widget terminal 185.98 kB. Size and
+shake pass after the budget change; chart-only is 50.25 KiB within 50.25.
+Runtime counts are 105 studies: Trend 36, Momentum 29, Volatility 22, Volume 18.
+Skills coverage is 907/907. Repeated public counts and final release sizes
+remain part of the release documentation gate.
+
+Task 3 is complete. Task 4's engine and widget behavior is implemented and
+validated; full metadata threading is retained with Task 5. Reference-host and
+OpenAlgo consumer migration, packed-candidate installation and consumer checks
+are next. Alerts and the remaining production plan remain required.
+
+The user explicitly froze the readiness score at 82 overall / 85 engine,
+confirmed full remaining scope for 2.4.5 and renewed publication authorization.
+Do not raise the score or publish a partial candidate.
