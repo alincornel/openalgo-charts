@@ -161,6 +161,27 @@ User started the real OpenAlgo backend on port 5000. A dedicated read-only brows
 is open for their login; its private profile and control script are ignored local
 artifacts. No authenticated live-market result is claimed yet.
 
+Foundation source commit: `566858e`. Packed candidate:
+`openalgo-charts-2.4.0-566858e.tgz`, 1,141,884 bytes,
+SHA-512 `bNXJPmaAxViYOWdWvx3mxPWxFgMwXHwCVvIrWKc0d6BO9Wc75I4pcS2bztLySIannUru3Ux7wadrOuzYhV5yOg==`.
+A separate consumer package directory successfully typechecked shared Chart/state
+types against the extracted tarball and executed a workspace storage round trip.
+Consumer commit `3c1a90a8f` vendors this candidate and matches its integrity.
+All 514 affected consumer tests (38 files) and `npm run build` pass; the build
+retains its existing oversized visualization-chunk warning. Generated frontend
+assets were restored. The actual consumer with this package passes all 24 Chromium
+fixture checks, with zero page errors/runtime events; deliberately injected
+network failures and the expected analyzer refusal remain in the console report.
+Artifacts: `artifacts/candidate/workspace-package-chromium.{json,png}` and
+`workspace-consumer-{tests,build}.log`. Other rendering engines retain the prior
+foundation evidence; the new storage functionality has current three-browser
+coverage as recorded above.
+
+Live-session handoff is not yet complete: after the user's ready message, the
+dedicated browser still redirected to `/login` with no cookies, and the actual
+`/auth/session-status` endpoint reported unauthenticated. A clarification is
+pending; do not use another browser's cookies or claim real-feed validation.
+
 F3 and F5 have library and consumer implementations and regression evidence.
 F4/F6 also have consumer coverage; the reference host's built-in volume controls
 still need integration. The whole goal remains open: complete the reference
