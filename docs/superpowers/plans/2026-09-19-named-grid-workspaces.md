@@ -42,9 +42,9 @@ captureWorkspacePane(id: string): WorkspacePane;
 
 - [x] Test complete capture from a real chart snapshot: current symbol/exchange/interval/type, engine settings/viewport/panes, host profile and volume settings, drawings, study instances, volume visibility and drawing preferences. Verify execution fields cannot escape.
 - [x] Add an injectable preference adapter with the existing browser default. Staging uses an in-memory adapter and cannot rewrite the active grid's local keys while preparation is incomplete. Blocked legacy preference storage must not crash chart startup.
-- [ ] Test initial prepared configuration before implementing it: malformed state, unknown study/type/interval, missing symbol/history, and cancellation must fail explicitly rather than load an unrelated default symbol. The ordinary terminal keeps its existing fallback behavior.
-- [ ] Await study and drawing restoration, then restore the engine configuration against the ready primary series. Preserve pane grouping and settings without duplicating indicators or restoring trading primitives. Unsupported comparison data rejects before publication until its adapter is available.
-- [ ] Guard every async completion with terminal/generation ownership and release temporary resources on failure. Run terminal, history, profile, template and execution-guard suites.
+- [x] Test initial prepared configuration before implementing it: malformed state, unknown study/type/interval, missing symbol/history, and cancellation must fail explicitly rather than load an unrelated default symbol. The ordinary terminal keeps its existing fallback behavior.
+- [x] Await study and drawing restoration, then restore the engine configuration against the ready primary series. Preserve pane grouping and settings without duplicating indicators or restoring trading primitives. Unsupported comparison data rejects before publication until its adapter is available.
+- [x] Guard every async completion with terminal/generation ownership and release temporary resources on failure. Run terminal, history, profile, template and execution-guard suites.
 
 ## Task 3: Grid owner and transactional switching
 

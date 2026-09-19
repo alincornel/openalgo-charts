@@ -330,3 +330,50 @@ drawings envelope without forbidden execution keys (`live-workspace-capture.json
 The live Vite dependency cache still owns the earlier market-time package; the
 weighted package was tested in the fresh compatibility server. Prepared initial
 restoration and atomic grid publication remain unimplemented.
+
+Consumer `fa14464a8` completes the prepared-pane boundary. Initial documents are
+validated and detached before terminal listeners, and their preferences use a
+private map. Startup rejects missing metadata/history, unsupported type/interval,
+missing studies, incomplete drawing restoration and cancellation. It awaits
+settings, restores studies once, applies host series styles, and preserves weak
+snapping. Volume visibility stays authoritative for both histogram and average.
+Preparation holds the terminal trading lock, and failed initialization destroys
+its resources idempotently. Ordinary unnamed startup retains its fallback.
+
+Ten initial startup cases failed before implementation; drawing pane lookup,
+the loading refusal message and volume-average visibility also have observed
+RED regressions. All 417 affected consumer tests in 27 files pass, as do changed
+file lint/formatting and the TypeScript build. The scoped resource audit verifies
+data-owner destruction, socket close, visibility listener removal and zero
+remaining fake timers on failure, with static checks of the other exits. This
+is not a long-running process resource measurement.
+
+The authenticated browser restored two identical averages and two oscillators
+sharing a pane (one hidden, lengths 14 and 7), a trend line, weak snapping,
+hidden volume and the exact viewport. The original chart retained its 1,513 bars
+and zero studies, and the prepared chart read 1,512 history bars; no browser
+preferences were written and One-Click remained off. Final preparation measured
+148 ms with cached responses, not a latency guarantee or fresh-trade evidence.
+Report: `artifacts/candidate/live-workspace-startup.json`. The live browser still
+uses its prior cached engine tier; this change is consumer orchestration.
+Grid publication, its menu, autosave and three-browser grid acceptance remain.
+
+### Final release version
+
+The user selected **2.4.5** for the final validated chart package and its OpenAlgo
+`/trading` integration. After completing the remaining implementation and gates,
+update library release metadata, build and pack that exact revision, and update
+the consumer's vendored dependency, lockfile integrity and integration guide.
+Re-run compatibility against the final archive. The current 2.4.0 candidates are
+development checkpoints; a version change alone is not readiness evidence.
+The user's subsequent instruction authorizes the final commit and push, npm
+publication, website deployment and GitHub release. This supersedes the earlier
+local-only restriction for the final validated release and companion integration.
+Read `CLAUDE.md` before release and follow its complete measured-facts checklist,
+including all repeated website, README, diagram, example and API facts. Push and
+wait for CI; push the immutable tag and manually dispatch the Release workflow
+for trusted npm publishing. Create the GitHub release after npm succeeds, deploy
+Pages with its workflow, compare registry contents with the tested archive and
+verify the deployed site in a real browser. Finally install the published package
+in the consumer, rerun its checks, commit and push the integration. No additional
+publication confirmation is required by the existing authorization.
