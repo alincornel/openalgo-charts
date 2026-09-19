@@ -66,7 +66,9 @@ export async function checkWorkspaces({ page, check, reload, screenshot, orderCo
       assert(Math.abs(a.barSpacing - b.barSpacing) * (b.viewport.to - b.viewport.from) <= 1, `Pane ${index} spacing changed by more than one plot pixel`);
     }
     const canonical = panes => panes.map(pane => {
-      const { viewport, barSpacing, ...chart } = pane.chart;
+      const chart = { ...pane.chart };
+      delete chart.viewport;
+      delete chart.barSpacing;
       return { ...pane, chart: { ...chart, series: chart.series.map(series => ({ ...series, style: { ...series.style, visible: series.style.visible ?? true } })) } };
     });
     assert.deepEqual(canonical(actual), canonical(expected));
