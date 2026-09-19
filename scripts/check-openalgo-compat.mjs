@@ -10,6 +10,7 @@
  * Add --correctness true for volume, hover, pan and linked readout regressions.
  * Add --workspaces true for complete named chart grids.
  * Add --oi true for history capability, readouts, studies and persistence.
+ * Add --alerts true for source controls, live delivery, persistence and replay guards.
  * Use --browser chromium|firefox|webkit to select the rendering engine.
  *
  * No backend is started. Vite proxies are removed and every API/WS is mocked.
@@ -20,6 +21,7 @@ import assert from 'node:assert/strict';
 import { checkChartCorrectness } from './check-openalgo-correctness.mjs';
 import { checkWorkspaces } from './check-openalgo-workspaces.mjs';
 import { checkOpenInterest } from './check-openalgo-open-interest.mjs';
+import { checkAlerts } from './check-openalgo-alerts.mjs';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile, lstat } from 'node:fs/promises';
@@ -230,7 +232,7 @@ try {
   // Wait for that chart's context before driving Replay or another interaction.
   const waitReady = () => page.waitForFunction(() => window.__compatTerminals?.some(t => {
     const context = t.chart?.getDataContext();
-    return !t.destroyed && t.price?.getData().length > 0 && context?.symbol === t.sym?.symbol
+    return !t.destroyed && !t.dataUnavailable?.() && t.price?.getData().length > 0 && context?.symbol === t.sym?.symbol
       && context?.exchange === t.sym?.exchange && context?.interval === t.interval;
   }));
   const waitDialogClosed = () => page.waitForFunction(() => !document.querySelector('[role="dialog"]')
@@ -259,6 +261,7 @@ try {
     await page.getByRole('button', { name: 'Templates', exact: true }).click({ timeout: 5000 });
     await page.getByRole('dialog', { name: 'Indicator templates' }).waitFor();
     await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(page.locator('[data-slot="dialog-overlay"]')).toHaveCount(0);
   }
   await check('unchanged /trading mounts real chart', async () => {
     await waitReady();
@@ -382,7 +385,7 @@ try {
     await page.getByRole('dialog').waitFor();
     assert.equal(orderCounter, 0);
     await page.keyboard.press('Escape');
-    await page.locator('[data-slot="dialog-overlay"]').waitFor({ state: 'detached' });
+    await expect(page.locator('[data-slot="dialog-overlay"]')).toHaveCount(0);
     await waitDialogClosed();
     await waitReady();
     await terminal((t) => { t.setArmed(true); t.placeCtx('BUY', 'MARKET'); });
@@ -531,6 +534,7 @@ try {
   await check('daily broker interval and quote-only symbol retain correct contracts', async () => {
     await terminal(async (t, symbol) => { t.setChartType('candlestick'); await t.loadSymbol(symbol); t.setInterval('D'); }, symbols[2]);
     await page.waitForFunction(() => window.__compatTerminals.some((t) => !t.destroyed && t.interval === 'D' && t.price?.getData().length === 3));
+    await waitReady();
     assert(report.requests.some((r) => r.path === '/api/v1/history' && r.body.interval === 'D'));
     assert.equal(await terminal((t) => t.tradeBtns), null);
     assert.equal(await terminal((t) => t.sym.tick), 0.05);
@@ -924,6 +928,7 @@ try {
   }
   if (args.correctness === 'true') await checkChartCorrectness({ page, terminal, report, sendDepth, screenshot: args.screenshot });
   if (args.oi === 'true') await checkOpenInterest({ page, terminal, check, reload, sendDepth, screenshot: args.screenshot, orderCount: () => orderCounter });
+  if (args.alerts === 'true') await checkAlerts({ page, terminal, check, reload, sendDepth, screenshot: args.screenshot, orderCount: () => orderCounter });
   if (args.workspaces === 'true') await checkWorkspaces({ page, check, reload, screenshot: args.screenshot, orderCount: () => orderCounter, sendDepth });
   await check('no browser runtime errors or external HTTP', async () => {
     await Promise.all(consoleReads);

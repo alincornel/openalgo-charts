@@ -80,6 +80,8 @@ export async function checkWorkspaces({ page, check, reload, screenshot, orderCo
     await page.getByRole('button', { name: 'Chart sync', exact: true }).click();
     const viewport = page.getByRole('checkbox', { name: 'Time range', exact: true });
     if (await viewport.isChecked()) await viewport.click();
+    const intervalSync = page.getByRole('checkbox', { name: 'Interval', exact: true });
+    if (await intervalSync.isChecked()) await intervalSync.click();
     await page.keyboard.press('Escape');
     await page.evaluate(async () => {
       const terminals = window.__compatTerminals.filter(t => !t.destroyed && t.chart);

@@ -555,3 +555,13 @@ with 251 bars and no orders/fills. This does not prove connected-broker behavior
 Alert Task 6 remains open for the exact packed OpenAlgo consumer migration.
 The remaining F/P requirements, final review, release facts and publication
 remain required; version 2.4.5 is unpublished and the frozen score is unchanged.
+
+Consumer alert checkpoint, 2026-09-20: OpenAlgo commit `834b582cc` installs the
+exact packed chart build `2a7ca17` and integrates the alert toolbar, editor/list,
+local delivery, preserved study/drawing anchors, workspace state and replay/data
+loading guards. All 33 installed package files match. Full frontend suite is
+2271 tests in 141 files; build/types and coverage pass. The combined browser
+harness passes 43 cases each in Chromium, Firefox and WebKit, with inspected
+desktop/mobile alert screenshots. No real orders were sent. The detailed alert
+plan records warnings, resource review and remaining consumer gates. This is
+another development checkpoint, not completion of Task 6 or the release.
