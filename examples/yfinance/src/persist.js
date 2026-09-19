@@ -271,6 +271,11 @@ export function layoutSnapshot() {
     // Demo-owned like the comparisons: `render()` builds the histogram from
     // this flag, so without it a hidden volume comes back on a reload.
     volume: volumeShown(),
+    secondary: app.chart2 ? {
+      request: { symbol: app.p2.symbol, interval: app.p2.interval, period: app.p2.period },
+      state: app.chart2.getState(),
+      width: parseFloat(el('pane2').style.flexBasis) || 50,
+    } : undefined,
   };
 }
 
@@ -315,11 +320,8 @@ export function applyLayout(doc, { keepView = true, replaceComparisons = true } 
     return report;
   }
   syncTimezoneFromChart();   // the saved zone is the engine's to apply, ours to remember
-  // The controller reads the chart's drawing slot when it is built, not on
-  // every restore, so the document has to be handed to it directly. The
-  // controller runs its own migration, which is what makes a 1.x save
-  // usable here at all.
-  if (app.draw) app.draw.fromJSON(state.drawings === undefined ? [] : state.drawings);
+  // The engine restores drawings before alerts. A second drawing restore
+  // would remove the anchors underneath the alerts that just returned.
   if (replaceComparisons) {
     // Comparisons are ours to swap: take the live ones off, put the saved set
     // on, and let syncComparisons() fetch the bars in the background.
@@ -333,6 +335,7 @@ export function applyLayout(doc, { keepView = true, replaceComparisons = true } 
   if (replaceComparisons) syncComparisons();
   renderIndicatorChips();
   renderToolbar();
+  if (app.restoreSecondary) report.secondaryReady = app.restoreSecondary(state.secondary);
   return report;
 }
 
@@ -352,9 +355,9 @@ export function persistLayoutNow(opts) {
 export function autosave() {
   // Not while replaying: the chart is showing a prefix of the session and a
   // viewport captured over it would restore the user into a truncated chart.
-  if (!app.chart || app.replay) return;
+  if (!app.chart || app.replay || app.replayLoading || app.loading || app.restoringSecondary) return;
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => { saveTimer = 0; persistLayoutNow(); }, SAVE_DEBOUNCE_MS);
+  saveTimer = setTimeout(flushAutosave, SAVE_DEBOUNCE_MS);
 }
 
 /** Run a pending autosave now, for the moment the page is going away. */
@@ -362,7 +365,7 @@ export function flushAutosave() {
   if (!saveTimer) return;
   clearTimeout(saveTimer);
   saveTimer = 0;
-  if (app.chart && !app.replay) persistLayoutNow();
+  if (app.chart && !app.replay && !app.replayLoading && !app.loading && !app.restoringSecondary) persistLayoutNow();
 }
 
 // ── files ──────────────────────────────────────────────────────────────
@@ -422,6 +425,7 @@ export async function importLayoutFile(file) {
   }
   const report = applyLayout(doc, { keepView: doc.dataset === datasetKey(app.req), replaceComparisons: true });
   if (!report.applied) return false;
+  if (report.secondaryReady && !await report.secondaryReady) return false;
   persistLayoutNow();
   toast('success', `Layout imported: ${report.indicators} indicator(s), ${(doc.drawings && doc.drawings.drawings || []).length} drawing(s).`);
   return true;

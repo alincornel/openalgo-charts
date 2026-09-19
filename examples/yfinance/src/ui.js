@@ -270,6 +270,7 @@ export function closeTopOverlay() {
  * that, and Tab stays inside it.
  */
 export function overlayKeydown(e) {
+  if (app?.alertUi?.isOpen() || app?.alertUi2?.isOpen()) return;
   const top = stack[stack.length - 1];
   if (!top) return;
   if (e.key === 'Escape') {

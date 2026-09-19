@@ -23,6 +23,7 @@ export const WIDGET_CSS = `
   min-height: 0; min-width: 0; background: ${v('bg')}; color: ${v('tx')}; font: ${v('fs')}/1.35 ${v('font')};
   -webkit-font-smoothing: antialiased; overflow: hidden; }
 .oac-widget, .oac-widget * { box-sizing: border-box; }
+.oac-widget.oac-alert-host { position: absolute; inset: 0; display: block; background: transparent; pointer-events: none; z-index: 40; }
 .oac-widget[data-theme="dark"] { color-scheme: dark; }
 .oac-widget[data-theme="light"] { color-scheme: light; }
 .oac-widget button, .oac-widget input, .oac-widget select, .oac-widget textarea { font: inherit; color: inherit; }

@@ -22,7 +22,7 @@ import { initAxisChrome, applyAxisChrome, applyStatusLineChoice, applyTradeChoic
 import { initVolume, volumeShown, setVolumeShown, setLegend } from './volume.js';
 import {
   initOrders, saveState, restoreState, cancelOrder, attachOrderLines, removeAllOrders,
-  updatePositionLine, restyleTradeChrome, clearPosition,
+  updatePositionLine, restyleTradeChrome, clearPosition, executionAllowed,
 } from './orders.js';
 import { initBracket, attachBracketLines, setBracketPrice, updateBracket, removeBracket } from './bracket.js';
 import { initIndicators, fillIndicatorPicker, renderIndicatorChips, openSettings } from './indicators.js';
@@ -34,7 +34,8 @@ import { initSplit, joinLink } from './split.js';
 import { initLink } from './link.js';
 import { initClipboard } from './clipboard.js';
 import { initMenus, openContextMenu } from './menus.js';
-import { initPersist, datasetKey, readLayout, applyLayout } from './persist.js';
+import { initPersist, datasetKey, readLayout, applyLayout, stripView, autosave } from './persist.js';
+import { attachAlerts, detachAlerts } from './alerts.js';
 import { initToolbar, renderToolbar } from './toolbar.js';
 import { initRail, buildRail, initMobile } from './rail.js';
 import { mountPropertiesBar } from './properties.js';
@@ -150,13 +151,17 @@ if (new URLSearchParams(location.search).get('test') === '1') {
 }
 
 // (Re)build the chart for the currently selected type using cached bars.
-function render() {
+function render({ keepView = true } = {}) {
   // Leave replay first: stop() hands the driven series their real data back,
   // and it has to reach the chart that is about to be thrown away.
   exitReplay();
+  const previousState = app.chart?.getState();
+  const rebuildState = previousState && (keepView ? previousState : stripView(previousState));
   const decorations = chartDecorationsForRebuild(app.chart);
   const dataContext = referenceDataContext(app.req, app.chart?.getDataContext());
   if (app.offBranding) { app.offBranding(); app.offBranding = null; }
+  detachAlerts(app);
+  if (app.draw) { app.draw.destroy(); app.draw = null; }
   if (app.chart) app.chart.destroy();
   // The primitives belonged to the destroyed chart; a stale handle would
   // leave the next selection updating a shade nothing draws.
@@ -270,7 +275,7 @@ function render() {
   // draws declared reference levels (RSI 70/30), pins a declared fixed range
   // (RSI 0..100), and recomputes on every data change.
   if (!isTransform) {
-    for (const spec of app.activeIndicators) {
+    for (const spec of rebuildState ? [] : app.activeIndicators) {
       try { app.chart.addIndicator(spec.indicatorId, spec.settings); }
       catch (e) { console.warn('indicator', spec.indicatorId, e.message); }
     }
@@ -280,11 +285,19 @@ function render() {
   // the indicator rows rather than in the middle of them.
   for (const c of app.comparisons) attachComparison(c);
   attachDrawing();
+  attachAlerts(app);
+  if (rebuildState) {
+    // The new series type is the user's selection; carry studies and anchors
+    // through the engine's ordered restore without applying the old series style.
+    app.chart.restoreState({ ...rebuildState, series: [] });
+    renderIndicatorChips();
+  }
 
   // Chart trading: one drag handler routes both - drag a bracket leg -> move
   // that leg; drag a resting order line -> re-price that order. Both are redrawn
   // on the freshly-rebuilt chart.
   app.chart.subscribeDrag((externalId, p) => {
+    if (!executionAllowed()) return;
     if (externalId.startsWith('bk-')) { setBracketPrice(externalId.slice(3), p); return; }
     if (externalId.startsWith('order:')) {
       const o = app.orders.find((x) => `order:${x.id}` === externalId);
@@ -373,8 +386,15 @@ function render() {
   window.__cache = () => app.cache;
 }
 
+let loadRevision = 0;
 async function load(opts) {
+  const revision = ++loadRevision;
+  exitReplay();
+  app.loading = true;
+  app.loadFailed = false;
+  app.alerts?.setPaused(true);
   const status = el('status');
+  const hadChart = Boolean(app.chart);
   // Clamp here too, not just at the interval buttons: a saved layout or a
   // hand-set select can otherwise ask for a range the interval cannot serve.
   const interval = el('interval').value;
@@ -410,6 +430,7 @@ async function load(opts) {
     // the line at the end would report the comparison's verdict as this
     // symbol's.
     const note = fetchNote();
+    if (revision !== loadRevision) return;
     app.currentBars = bars;
     app.idxByTime.clear();
     bars.forEach((b, i) => app.idxByTime.set(b.time, i));
@@ -419,15 +440,16 @@ async function load(opts) {
     // match these bars, so drop the cache and let syncComparisons() refetch
     // rather than drawing a chart of pure whitespace on the way there.
     for (const c of app.comparisons) c.bars = [];
-    render();
+    render({ keepView: !identityChanged });
     setChartState(bars.length ? 'ready' : 'empty', app.req);
     // Re-apply the saved layout now the series exists: a logical viewport
     // means nothing on an empty chart, and the drawing controller reads its
     // model back out of the restored state. readLayout() upgrades an old
     // document and sets a corrupt one aside, so nothing here can throw.
-    const saved = readLayout();
+    const saved = hadChart ? null : readLayout();
     if (saved) {
-      applyLayout(saved, { keepView: saved.dataset === datasetKey(app.req), replaceComparisons: false });
+      const report = applyLayout(saved, { keepView: saved.dataset === datasetKey(app.req), replaceComparisons: false });
+      await report.secondaryReady;
     }
     // After the restore, so a comparison saved in the layout is fetched too.
     await syncComparisons();
@@ -440,9 +462,17 @@ async function load(opts) {
     const fault = feedErrorState(e);
     // A superseded load has nothing to report: the newer one owns the readout.
     if (fault.state === 'aborted') return;
+    if (revision !== loadRevision) return;
+    app.loadFailed = true;
     status.textContent = 'error: ' + fault.message;
     setChartState('error', { ...app.req, message: fault.message, retry: () => load(opts) });
     toast('error', `Could not load ${app.req.symbol}: ${fault.message}`);
+  } finally {
+    if (revision === loadRevision) {
+      app.loading = false;
+      app.alerts?.setPaused(Boolean(app.loadFailed || app.replay || app.replayPicking || app.replayLoading));
+      if (!app.loadFailed) autosave();
+    }
   }
 }
 

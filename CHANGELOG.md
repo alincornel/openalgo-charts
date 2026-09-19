@@ -12,6 +12,10 @@ All notable changes to OpenAlgo Charts.
 - The widget owns an alert controller and provides a draft editor, live list,
   lifecycle toasts and price/study/drawing context actions. Study identity,
   plot and drawing level are explicit; missing observations never become zero.
+- `createAlertUi` mounts the shared alert dialogs in custom hosts. The yfinance
+  reference page exposes Alerts for either chart, preserves alerts and their
+  study/drawing identities through rebuilds and reloads, and delivers local
+  notices. Replay selection, history loading and playback pause evaluation.
 - Versioned alert persistence restores drawings and study identities before
   their alert anchors. Missing anchors are dropped with a removal reason.
   Triggered once alerts remain visible after reload, without historical delivery.

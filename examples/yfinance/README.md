@@ -159,6 +159,7 @@ examples/yfinance/
   server.py           static server, /api/history (yfinance or fixture), the self-test
   requirements.txt    yfinance, the one dependency, needed only outside --fixture
   src/
+    alerts.js         alert controller ownership, shared editor/list and local event delivery
     main.js           composition root: the shared app state, render(), load(), boot
     ui.js             el(), number and text formatting, the candle palette, toasts, the overlay stack (focus trap, one Escape per layer), the chart loading, empty and error card, the theme switch
     hover.js          the one hover label every icon-only control shares
@@ -295,6 +296,16 @@ exists to show one engine surface carrying real use, not just being present.
 | `menus.js`, `toolbar.js`, `hover.js` | Host chrome to the standard in `CLAUDE.md`: styled scrollbars, no native form controls on a dark panel, real tooltips that flip inside the window, and dialog furniture in one arrangement. |
 | `snapshot.js` | `chart.takeScreenshot()` saved as a PNG or copied to the clipboard, with chart branding, an enabled watermark and the replay mark in the image because they are on the canvas. |
 | `persist.js` | A versioned layout document with migrations, quarantine instead of deletion, memory-only degradation when storage refuses a write, and export and import as a file. See the next section. |
+| `alerts.js` | The Alerts toolbar button opens the focused chart's lifecycle list and source editor. Price, study plots, supported drawing levels and registered candle conditions use the same controls as the packaged widget. Local notices display fired events; the demo does not send notifications or orders for an alert. |
+
+Alerts default to confirmed bar closes. Intrabar touch can fire on a wick that
+the provider later removes from final history. Absent study readings remain
+unavailable, including OI on this OHLCV-only provider. Alerts keep their symbol,
+exchange and interval scope, and loading history never evaluates past signals.
+Expiry uses UTC and progresses while the page is open, even without ticks.
+Triggered once alerts remain visible after a reload. Evaluation stops during
+replay selection, finer-history loading and playback, then resumes from a fresh
+baseline. This browser demo cannot deliver alerts while its page is closed.
 
 ## Persistence
 

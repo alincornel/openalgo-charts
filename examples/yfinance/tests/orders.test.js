@@ -29,6 +29,16 @@ describe('orders and the net position', () => {
     expect(tradeColors().order).toBe('#123456');
   });
 
+  it.each(['replay', 'replayPicking', 'replayLoading', 'loading', 'loadFailed'])('refuses execution during %s', flag => {
+    app[flag] = true;
+    placeOrder('BUY', 'LIMIT', 10);
+    fillMarket('SELL', 1);
+    expect(app.orders).toEqual([]);
+    expect(app.position).toBeNull();
+    expect(app.fills).toEqual([]);
+    expect(app.nextOrderId).toBe(1);
+  });
+
   it('rests a limit order with the quantity and product from the controls', () => {
     placeOrder('BUY', 'LIMIT', 101.239);
     expect(app.orders).toEqual([{ id: 1, side: 'BUY', type: 'LIMIT', price: 101.24, qty: 100, product: 'MIS', line: null }]);

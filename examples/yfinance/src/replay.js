@@ -1,6 +1,6 @@
 import * as engine from '/dist/openalgo-charts.mjs';
 import { el, onEscape } from './ui.js';
-import { fetchBars } from './feed.js';
+import { fetchBars, abortFetch } from './feed.js';
 import { renderToolbar, ticon } from './toolbar.js';
 import { attachTip } from './hover.js';
 import { setLegend } from './volume.js';
@@ -21,6 +21,9 @@ export const REPLAY_SPEEDS = [0.5, 1, 2, 5, 10];
 let replaySpeed = 1;
 /** Base-interval bars under the displayed ones, for intra-bar replay. */
 let replaySubBars = null;
+let replayLoadRevision = 0;
+const requestKey = req => JSON.stringify([req.symbol, req.interval, req.period]);
+const syncAlertPause = () => app.alerts?.setPaused(Boolean(app.replay || app.replayPicking || app.replayLoading || app.loading || app.loadFailed));
 
 /**
  * The interval a displayed bar is built from, so replay can form one in
@@ -62,11 +65,12 @@ export function replayStartIndex(total) {
  * the one thing replay exists to remove.
  */
 export function enterReplay() {
-  if (app.replay || app.replayPicking || !app.chart) return;
+  if (app.replay || app.replayPicking || app.replayLoading || app.loading || app.loadFailed || !app.chart) return;
   if (!ReplayController) { el('status').textContent = 'replay is not in this build of dist/'; return; }
   const bars = app.price ? app.price.getData() : [];
   if (bars.length < 2) { el('status').textContent = 'replay needs bars'; return; }
   app.replayPicking = true;
+  syncAlertPause();
   app.replayPickIndex = replayStartIndex(bars.length);
   setShadeIndex(app.replayPickIndex);
   el('chart').classList.add('is-picking');
@@ -114,8 +118,12 @@ export function syncPickHint() {
 }
 
 export function cancelPick() {
-  if (!app.replayPicking) return;
+  if (!app.replayPicking && !app.replayLoading) return;
+  replayLoadRevision++;
+  abortFetch('replay');
+  app.replayLoading = false;
   app.replayPicking = false;
+  syncAlertPause();
   app.replayPickIndex = null;
   setShadeIndex(null);
   el('chart').classList.remove('is-picking');
@@ -132,15 +140,23 @@ export function cancelPick() {
  * left to cover.
  */
 export async function startReplayAt(index) {
-  if (!app.chart || app.replay) return;
+  if (!app.chart || app.replay || app.replayLoading || app.loading || app.loadFailed) return;
   const bars = app.price ? app.price.getData() : [];
   if (bars.length < 2) return;
+  const revision = ++replayLoadRevision;
+  const chart = app.chart;
+  const key = requestKey(app.req);
+  app.replayLoading = true;
   app.replayPicking = false;
+  syncAlertPause();
   el('chart').classList.remove('is-picking');
   el('replaypick').hidden = true;
   setShadeIndex(null);
 
+  renderToolbar();
   const sub = await loadReplaySubBars();
+  if (revision !== replayLoadRevision) return;
+  if (app.chart !== chart || requestKey(app.req) !== key) { cancelPick(); return; }
   // Volume rides along: the DataLayer merges every series onto one axis, so
   // a full-length volume histogram would hold the axis open at bars the
   // price series has not reached yet.
@@ -151,6 +167,7 @@ export async function startReplayAt(index) {
     barMs: 1000,
     speed: replaySpeed,
   });
+  app.replayLoading = false;
   showReplayMark(true);
   buildReplayBar();
   el('replaybar').hidden = false;
@@ -171,13 +188,15 @@ export async function startReplayAt(index) {
  * blocking the mode on a second network call.
  */
 export async function loadReplaySubBars() {
-  const finer = REPLAY_SUB_INTERVAL[app.req.interval];
+  const req = { ...app.req };
+  const key = requestKey(req);
+  const finer = REPLAY_SUB_INTERVAL[req.interval];
   if (!finer) return null;
-  if (replaySubBars && replaySubBars.interval === app.req.interval) return replaySubBars.bars;
+  if (replaySubBars && replaySubBars.key === key) return replaySubBars.bars;
   try {
-    const bars = await fetchBars(app.req.symbol, finer, app.req.period);
+    const bars = await fetchBars(req.symbol, finer, req.period, { slot: 'replay' });
     if (!bars || bars.length === 0) return null;
-    replaySubBars = { interval: app.req.interval, bars };
+    replaySubBars = { key, bars };
     return bars;
   } catch (_) {
     return null;
@@ -213,6 +232,7 @@ export function exitReplay() {
   if (!app.replay) return;
   app.replay.stop();   // restores each driven series' data and the viewport
   app.replay = null;
+  syncAlertPause();
   showReplayMark(false);
   el('replaybar').hidden = true;
   el('replaybar').innerHTML = '';
@@ -227,7 +247,7 @@ export function exitReplay() {
  * discarding it on a mis-click.
  */
 export function askExitReplay() {
-  if (app.replayPicking) { cancelPick(); return; }
+  if (app.replayPicking || app.replayLoading) { cancelPick(); return; }
   if (!app.replay) return;
   el('replayleave').hidden = false;
 }
@@ -349,11 +369,13 @@ export function syncReplayBar() {
 
 export function initReplay(a) {
   app = a;
+  replayLoadRevision++;
+  replaySubBars = null;
   el('rp-pick-cancel').addEventListener('click', cancelPick);
   el('rp-leave-stay').addEventListener('click', () => { el('replayleave').hidden = true; });
   el('rp-leave-go').addEventListener('click', exitReplay);
   onEscape(() => {
     if (!el('replayleave').hidden) { el('replayleave').hidden = true; return; }
-    if (app.replayPicking) cancelPick();
+    if (app.replayPicking || app.replayLoading) cancelPick();
   }, document);
 }

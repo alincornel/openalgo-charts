@@ -1,10 +1,12 @@
 import * as engine from '/dist/openalgo-charts.mjs';
 import { createChart } from '/dist/openalgo-charts.mjs';
+import { attachAlerts, detachAlerts } from './alerts.js';
 import { DrawingController } from '/dist/openalgo-charts.draw.mjs';
-import { el, esc, fmt, UP, DOWN, chartTheme, chartMotionOptions } from './ui.js';
+import { el, esc, fmt, UP, DOWN, chartTheme, chartMotionOptions, toast } from './ui.js';
 import { clipboardPort } from './clipboard.js';
 import { armCursor, magnetMode, stayMode, syncMobileControls, observeMobileControls } from './rail.js';
-import { fetchBars, fetchNote, feedErrorState } from './feed.js';
+import { fetchBars, fetchNote, feedErrorState, abortFetch } from './feed.js';
+import { autosave } from './persist.js';
 import { INTERVALS, intervalLabel, intervalName, clampPeriod } from './intervals.js';
 import { tbtn, ticon, renderToolbar } from './toolbar.js';
 import { popupMenu } from './menus.js';
@@ -21,6 +23,8 @@ const { createLinkGroup } = engine;
 let app;
 let price2 = null;
 let bars2 = [];
+let pane2LoadRevision = 0;
+let restoreRevision = 0;
 
 // ══ split view: a second chart in the same link group ═══════════════════
 //
@@ -36,6 +40,7 @@ let bars2 = [];
 
 export function initSplit(a) {
   app = a;
+  app.restoreSecondary = restoreSecondaryLayout;
   app.linkGroup = createLinkGroup
     ? createLinkGroup({ crosshair: true, viewport: true, symbol: false, whenMissing: 'nearest' })
     : null;
@@ -108,11 +113,14 @@ export async function openSplit() {
   buildChart2();
   renderPane2Bar();
   renderToolbar();
-  await loadPane2();
+  return loadPane2();
 }
 
 export function closeSplit() {
+  pane2LoadRevision++;
+  abortFetch('pane2');
   if (app.chart2) {
+    detachAlerts(app, 2);
     if (app.linkGroup) app.linkGroup.remove(app.chart2);
     if (app.draw2) { app.draw2.destroy(); app.draw2 = null; }
     app.chart2.destroy();
@@ -124,9 +132,38 @@ export function closeSplit() {
   el('p2legend').innerHTML = '';
   app.focusPane = 1;
   renderToolbar();
+  autosave();
+}
+
+/** Restore the second chart only after its own history is available. */
+export async function restoreSecondaryLayout(saved) {
+  const revision = ++restoreRevision;
+  app.restoringSecondary = true;
+  try {
+    closeSplit();
+    if (!saved) return true;
+    const req = saved.request;
+    if (!req || !['symbol', 'interval', 'period'].every(key => typeof req[key] === 'string' && req[key].length > 0 && req[key].length <= 256)) {
+      throw new Error('The second chart has invalid instrument settings');
+    }
+    app.p2 = { symbol: req.symbol, interval: req.interval, period: req.period };
+    const loaded = await openSplit();
+    if (revision !== restoreRevision || !loaded || !app.chart2) return false;
+    const report = app.chart2.restoreState(saved.state);
+    if (!report.applied) throw new Error('The second chart layout could not be restored');
+    if (Number.isFinite(saved.width)) el('pane2').style.flexBasis = Math.max(18, Math.min(78, saved.width)) + '%';
+    return true;
+  } catch (error) {
+    if (revision === restoreRevision) toast('error', error.message || 'The second chart could not be restored');
+    return false;
+  } finally {
+    if (revision === restoreRevision) { app.restoringSecondary = false; autosave(); }
+  }
 }
 
 export function buildChart2() {
+  const saved = app.chart2?.getState();
+  detachAlerts(app, 2);
   const dataContext = referenceDataContext(app.p2, app.chart2?.getDataContext());
   if (app.chart2) { if (app.linkGroup) app.linkGroup.remove(app.chart2); app.chart2.destroy(); }
   if (app.draw2) { app.draw2.destroy(); app.draw2 = null; }
@@ -158,11 +195,14 @@ export function buildChart2() {
   // this side from landing before that.
   app.draw2 = new DrawingController(app.chart2, { magnet: magnetMode(), stayInDrawingMode: stayMode(), clipboard: clipboardPort });
   observeMobileControls(app.chart2, app.draw2);
+  attachAlerts(app, 2);
+  if (saved) app.chart2.restoreState(saved);
   app.chart2.on('draw:tool', ({ tool }) => {
     armCursor(el('chart2'), tool);
     if (app.focusPane === 2) syncMobileControls(tool);
   });
   app.chart2.on('draw:add', () => { el('status').textContent = 'chart 2: ' + app.draw2.drawings().length + ' drawings'; });
+  for (const event of ['draw:add', 'draw:remove', 'draw:update', 'indicatorAdded', 'indicatorRemoved', 'indicatorUpdated']) app.chart2.on(event, autosave);
   // No properties widget over here (it is glued to the main chart's box),
   // but the chords apply to whichever plot the pointer is over, so the
   // selection has to say so on this side too.
@@ -176,12 +216,17 @@ export function buildChart2() {
 }
 
 export async function loadPane2() {
-  if (!app.chart2) return;
+  if (!app.chart2) return false;
+  const revision = ++pane2LoadRevision;
+  const chart = app.chart2;
+  app.alerts2?.setPaused(true);
   app.p2.period = clampPeriod(app.p2.interval, app.p2.period);
   app.chart2.setDataContext(referenceDataContext(app.p2, app.chart2.getDataContext()));
   setPane2Note('loading ' + app.p2.symbol + ' ' + intervalLabel(app.p2.interval) + '...');
   try {
-    bars2 = await fetchBars(app.p2.symbol, app.p2.interval, app.p2.period, { slot: 'pane2' });
+    const loaded = await fetchBars(app.p2.symbol, app.p2.interval, app.p2.period, { slot: 'pane2' });
+    if (revision !== pane2LoadRevision || app.chart2 !== chart) return false;
+    bars2 = loaded;
     const note = `${bars2.length} bars${fetchNote()}`;
     price2.setData(bars2);
     if (app.volume2) {
@@ -192,10 +237,15 @@ export async function loadPane2() {
     setPane2Note(note);
     renderPane2Bar();
     renderToolbar();   // this load counts towards the cache chip too
+    app.alerts2?.setPaused(false);
+    autosave();
+    return true;
   } catch (e) {
+    if (revision !== pane2LoadRevision || app.chart2 !== chart) return false;
     const fault = feedErrorState(e);
-    if (fault.state === 'aborted') return;   // a newer load of this pane owns the note
+    if (fault.state === 'aborted') return false;
     setPane2Note('error: ' + fault.message);
+    return false;
   }
 }
 

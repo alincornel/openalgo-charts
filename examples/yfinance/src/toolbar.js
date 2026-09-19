@@ -10,6 +10,7 @@ import { isSplit, openSplit, closeSplit } from './split.js';
 import { describeLink, openLinkMenu } from './link.js';
 import { openCacheMenu } from './feed.js';
 import { openChartSettings } from './chart-settings.js';
+import { openAlerts } from './alerts.js';
 
 let app;
 
@@ -260,11 +261,15 @@ export function renderToolbar() {
   cmp.addEventListener('click', openCompare);
   bar.appendChild(cmp);
 
+  const alerts = tbtn('<span>Alerts</span>', 'Alerts');
+  alerts.addEventListener('click', () => openAlerts(app));
+  bar.appendChild(alerts);
+
   // replay: enter the session bar by bar, or leave and get the chart back
   const rp = tbtn(ticon('replay') + '<span>Replay</span>',
-    app.replay ? 'Exit replay' : app.replayPicking ? 'Cancel bar selection' : 'Replay this session bar by bar');
-  if (app.replay || app.replayPicking) rp.classList.add('is-on');
-  rp.addEventListener('click', () => ((app.replay || app.replayPicking) ? askExitReplay() : enterReplay()));
+    app.replay ? 'Exit replay' : app.replayLoading ? 'Cancel replay loading' : app.replayPicking ? 'Cancel bar selection' : 'Replay this session bar by bar');
+  if (app.replay || app.replayPicking || app.replayLoading) rp.classList.add('is-on');
+  rp.addEventListener('click', () => ((app.replay || app.replayPicking || app.replayLoading) ? askExitReplay() : enterReplay()));
   bar.appendChild(rp);
 
   // Snapshot. The chart is a picture people share, and the two things they

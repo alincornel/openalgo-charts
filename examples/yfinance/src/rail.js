@@ -731,7 +731,7 @@ function onRailKey(e) {
  * module's and pass through untouched.
  */
 function onGlobalKey(e) {
-  if (inTextField(e) || dialogOpen() || railOwnsFocus()) return;
+  if (inTextField(e) || dialogOpen() || railOwnsFocus() || app.alertUi?.isOpen() || app.alertUi2?.isOpen()) return;
   const d = activeDraw();
   if (!d) return;
   const claim = () => { e.preventDefault(); e.stopPropagation(); };

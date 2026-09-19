@@ -327,7 +327,7 @@ describe('applying a layout', () => {
     expect(app.chart.restored).toHaveLength(1);
     expect(app.chart.restored[0].viewport).toBeUndefined();
     expect(app.activeIndicators).toEqual([{ indicatorId: 'rsi', settings: { length: 14 } }]);
-    expect(app.draw.fromJSON).toHaveBeenCalledWith(doc.drawings);
+    expect(app.draw.fromJSON).not.toHaveBeenCalled();
     expect(setVolumeShown).toHaveBeenCalledWith(false);
     expect(removeComparison).toHaveBeenCalledWith(live);
     expect(app.comparisons).toEqual([{ symbol: 'MSFT', color: '#f00', bars: [] }]);
@@ -392,7 +392,7 @@ describe('layout files', () => {
     expect(await importLayoutFile(JSON.stringify({ layout: doc }))).toBe(true);
     // Captured on another dataset: the workspace comes over, the view does not.
     expect(app.chart.restored[0].viewport).toBeUndefined();
-    expect(app.draw.fromJSON).toHaveBeenCalledTimes(1);
+    expect(app.draw.fromJSON).not.toHaveBeenCalled();
     expect(JSON.parse(store.get(LAYOUT_KEY)).schema).toBe(LAYOUT_SCHEMA);
     expect(toastsShown(dom).pop()).toContain('imported');
     // Garbage is reported, not thrown, and changes nothing.

@@ -466,3 +466,28 @@ Custom hosts can mount `mountAlertEditor(ctx, anchor?, { source?, alertId? })` a
 `mountAlertsPanel(ctx, anchor?)` from the widget entry. Both return a `PanelHandle`
 and dispose their subscriptions when closed. `alertSettingsSchema` is available
 from the base entry for hosts that provide their own forms.
+
+For a custom chart host without a `WidgetContext`, `createAlertUi` provides the
+shared dialogs over a positioned container:
+
+```ts
+import { AlertController } from 'openalgo-charts';
+import { createAlertUi } from 'openalgo-charts/widget';
+
+const alerts = new AlertController(chart, { drawings: draw });
+const alertUi = createAlertUi(container, {
+  chart, draw, alerts, theme: 'dark',
+  onOpenChange: open => { hostShortcutsEnabled = !open; },
+});
+alertUi.openList();
+// On teardown, the host owns all three lifecycles.
+alertUi.destroy();
+alerts.destroy();
+draw.destroy();
+```
+
+The adapter owns only its dialogs. It does not load data, place orders, persist
+records or send notifications. Use a container spanning the workspace so the
+editor remains readable when its source chart is narrow. The yfinance reference
+host demonstrates this integration on both charts and persists their alerts
+with the surrounding chart documents.

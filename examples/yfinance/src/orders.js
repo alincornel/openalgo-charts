@@ -3,6 +3,12 @@ import { el, fmt, round2, rupee } from './ui.js';
 let app;
 export function initOrders(a) { app = a; }
 
+export function executionAllowed() {
+  if (!app.replay && !app.replayPicking && !app.replayLoading && !app.loading && !app.loadFailed) return true;
+  el('status').textContent = 'Order entry is unavailable during replay or while chart data is unavailable.';
+  return false;
+}
+
 export const TRADE_EXTENT = 0.30; // order/bracket lines span only the rightmost 30% (broker-style)
 
 /**
@@ -61,6 +67,7 @@ export function cancelOrder(id) { // id = "order:<n>"
   saveState();
 }
 export function placeOrder(side, type, price) {
+  if (!executionAllowed()) return;
   const qty = Math.max(1, Number(el('qty').value) || 1);
   if (type === 'MARKET') { fillMarket(side, qty); return; } // executes into a position
   const o = { id: app.nextOrderId++, side, type, price: round2(price), qty, product: el('product').value };
@@ -78,6 +85,7 @@ export function removeAllOrders() {
 // Execute a market order at the last price -> update the net position, drop an
 // arrow marker on the bar, and (re)draw the position line.
 export function fillMarket(side, qty) {
+  if (!executionAllowed()) return;
   if (!app.currentBars.length) return;
   const last = app.currentBars[app.currentBars.length - 1];
   const price = round2(last.close);

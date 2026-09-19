@@ -398,7 +398,7 @@ select.field { cursor: pointer; padding-right: 24px; }
    the divider between them is draggable so a user can decide how much of
    the width the follower gets. `min-width: 0` on both, or a flex child
    refuses to shrink below its content and the right pane falls off. */
-.split { display: flex; flex: 1 1 auto; min-height: 0; min-width: 0; }
+.split { position: relative; display: flex; flex: 1 1 auto; min-height: 0; min-width: 0; }
 .stage { position: relative; flex: 1 1 auto; min-height: 0; min-width: 0; }
 /* An armed tool sets --tool-cursor (see armCursor); the engine's own hover
    hints are inline and still win while one is up. */

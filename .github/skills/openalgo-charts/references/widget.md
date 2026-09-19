@@ -348,6 +348,19 @@ An empty or whitespace-only SSR `<style id="oac-widget-css" nonce="...">` is fil
 
 ## Packaging facts
 
+`createAlertUi(container, options: AlertUiOptions): AlertUi` mounts the shared
+alert editor and list over an existing chart. Supply the host-owned `chart`,
+`draw` and `alerts` controllers and a positioned container with a real size.
+It exposes `openList`, `openEditor`, `close`, `isOpen`, `setTheme` and `destroy`.
+`onOpenChange` follows the whole nested dialog stack, so capture-phase host
+shortcuts can stay suspended until every dialog closes. `theme`, `chartTheme`,
+`locale` and `styleNonce` are optional. Destroying this UI leaves its chart and
+controllers alive; destroying the chart disposes the UI automatically.
+Delivery and persistence remain the host's responsibility. Observe
+`alert:triggered` for delivery and `alerts:checkpoint` plus lifecycle events for
+persistence. Restore the complete chart document once, with the drawing and
+alert controllers already attached. Do not restore drawings again afterward.
+
 - `package.json` `exports['./widget']`: `types: ./dist/widget/index.d.ts`, `import: ./dist/openalgo-charts.widget.mjs`. Listed in `sideEffects` (importing registers the dialogs).
 - `rollup.config.js`: `openalgo-charts` and every `openalgo-charts/<tier>` are external for tier builds and emitted as sibling paths (`./openalgo-charts.mjs`, `./openalgo-charts.draw.mjs`), so `dist/` serves with no import map. The widget must never inline the base or the draw tier; `check-dts.mjs` fails a build whose `dist/widget/index.d.ts` declares `Chart` or `DrawingController`.
 - `.size-limit.json`: `Widget tier` row (the bundle alone, 42 kB budget) and `Widget terminal` row (base + draw + indicators + widget, 173 kB budget); `Everything` includes the widget. Measure with `npm run size`; never quote from memory.

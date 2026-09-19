@@ -541,3 +541,17 @@ Reference/yfinance and OpenAlgo /trading alert controls are not integrated yet.
 Task 6 must migrate those hosts and install/test the exact packed candidate.
 Connected-broker validation, remaining F/P production scope and final release
 facts/publication remain required. The frozen readiness score is unchanged.
+
+Reference alert checkpoint, 2026-09-20: yfinance now owns alert evaluators and
+the shared editor/list for both charts. It persists their source identities,
+drawing anchors and lifecycle records across rebuild and reload. Its replay
+loading/cancellation and history-cache identity gaps are fixed; simulated
+order/bracket execution is guarded throughout replay and data loading.
+Full library 5511/5511; reference modules 244/244; reference browser suite
+28/28, including twelve alert cases across all three engines. API, types,
+lint, build, declarations, skills 917/917, size/shake and website build pass.
+Real yfinance history and the editor were checked on the running 8125 server,
+with 251 bars and no orders/fills. This does not prove connected-broker behavior.
+Alert Task 6 remains open for the exact packed OpenAlgo consumer migration.
+The remaining F/P requirements, final review, release facts and publication
+remain required; version 2.4.5 is unpublished and the frozen score is unchanged.

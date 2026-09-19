@@ -85,3 +85,5 @@ export type {
 } from './dialogs/index';
 export { renderForm, controlsFromInputs, controlsFromFields } from './form';
 export type { FormControl, FormKind, FormOptions, FormHandle } from './form';
+export { createAlertUi } from './alert-ui';
+export type { AlertUi, AlertUiOptions } from './alert-ui';

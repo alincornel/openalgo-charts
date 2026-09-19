@@ -4,7 +4,153 @@ const ORIGIN = 'http://127.0.0.1:8124';
 const PAGE = ORIGIN + '/examples/yfinance/index.html?test=1';
 const PROBE = ORIGIN + '/api/history?symbol=AAPL&interval=1d&period=1mo';
 
+test('reference alerts retain drawing anchors through rebuild and reload', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1280, height: 850 });
+  await openDemo(page);
+  await page.getByRole('button', { name: 'Alerts', exact: true }).click();
+  await page.getByRole('button', { name: 'Create alert', exact: true }).click();
+  const editor = page.locator('.oac-alert-editor');
+  await editor.locator('[data-key="title"] input').fill('Reference price');
+  await editor.locator('[data-key="condition"] select').selectOption('greaterThan');
+  await editor.locator('[data-key="price"] input').fill('1');
+  await editor.getByRole('button', { name: 'Save', exact: true }).click();
+  const drawingId = await page.evaluate(() => {
+    const { app } = (window as any).__oac;
+    const tail = app.chart.primaryBars().at(-1);
+    const drawing = app.draw.add({ tool: 'horizontal-line', paneIndex: 0,
+      points: [{ time: tail.time, price: tail.close + 10 }], style: {} });
+    app.alertUi.openEditor({ source: { kind: 'drawing', drawingId: drawing.id } });
+    return drawing.id;
+  });
+  await editor.locator('[data-key="title"] input').fill('Reference drawing');
+  await editor.getByRole('button', { name: 'Save', exact: true }).click();
+  const studyId = await page.evaluate(() => (window as any).__oac.chart.indicators().find((study: any) => study.indicatorId === 'rsi').id);
+  await page.getByRole('button', { name: 'Create alert', exact: true }).click();
+  await editor.locator('[data-key="kind"] select').selectOption('indicator');
+  await editor.locator('[data-key="instanceId"] select').selectOption(studyId);
+  await editor.locator('[data-key="title"] input').fill('Reference study');
+  await editor.locator('[data-key="condition"] select').selectOption('greaterThan');
+  await editor.locator('[data-key="value"] input').fill('1');
+  await editor.getByRole('button', { name: 'Save', exact: true }).click();
+  await page.evaluate(() => (window as any).__oac.app.alertUi.close());
+  await page.getByRole('button', { name: 'Chart type', exact: true }).click();
+  await page.getByRole('button', { name: 'Line', exact: true }).click();
+  expect(await page.evaluate(() => (window as any).__oac.app.alerts.list().length)).toBe(3);
+  expect(await page.evaluate(id => (window as any).__oac.chart.indicators().some((study: any) => study.id === id), studyId)).toBe(true);
+  expect(await page.evaluate(id => Boolean((window as any).__oac.draw.get(id)), drawingId)).toBe(true);
+  await page.evaluate(() => {
+    const { app } = (window as any).__oac;
+    const tail = app.chart.primaryBars().at(-1);
+    app.price.update({ ...tail, time: tail.time + 86400 });
+  });
+  await expect.poll(() => page.evaluate(() => (window as any).__oac.app.alerts.list()[0].state)).toBe('triggered');
+  await page.waitForTimeout(350);
+  await page.reload();
+  await page.waitForFunction(() => (window as any).__oac?.app.alerts?.list().length === 3);
+  expect(await page.evaluate(() => (window as any).__oac.app.alerts.list().find((alert: any) => alert.title === 'Reference study').source.instanceId)).toBe(studyId);
+  expect(await page.evaluate(() => (window as any).__oac.app.alerts.list()[0].state)).toBe('triggered');
+  expect(await page.evaluate(id => Boolean((window as any).__oac.draw.get(id)), drawingId)).toBe(true);
+  await page.getByRole('button', { name: 'Alerts', exact: true }).click();
+  await expect(page.locator('.oac-alerts')).toContainText('Reference drawing');
+  await page.screenshot({ path: testInfo.outputPath('reference-alerts-desktop.png') });
+  await page.setViewportSize({ width: 390, height: 740 });
+  await expect(page.locator('.oac-alerts')).toBeVisible();
+  await page.getByRole('button', { name: 'Create alert', exact: true }).click();
+  await expect(editor).toBeVisible();
+  const bounds = await editor.boundingBox();
+  expect(bounds!.x).toBeGreaterThanOrEqual(0);
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390);
+  await page.screenshot({ path: testInfo.outputPath('reference-alerts-narrow.png') });
+});
+
 let serverUp: boolean | null = null;
+
+test('reference alert dialogs do not commit a replay pick underneath them', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 850 });
+  await openDemo(page);
+  await page.evaluate(async () => {
+    const path = '/examples/yfinance/src/replay.js';
+    const replay = await import(path);
+    replay.enterReplay();
+    (window as any).__oac.app.alertUi.openEditor();
+  });
+  await page.locator('.oac-alert-editor').getByRole('button', { name: 'Save', exact: true }).click();
+  expect(await page.evaluate(() => (window as any).__oac.app.replayPicking)).toBe(true);
+});
+
+test('reference replay loading and playback stay silent and cancellation leaves no late replay', async ({ page }) => {
+  await openDemo(page);
+  let release!: () => void;
+  let started!: () => void;
+  const waiting = new Promise<void>(resolve => { started = resolve; });
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/history?**', async route => {
+    if (new URL(route.request().url()).searchParams.get('interval') !== '60m') { await route.continue(); return; }
+    started();
+    await gate;
+    await route.fulfill({ json: [] }).catch(() => {});
+  });
+  await page.evaluate(async () => {
+    const { app } = (window as any).__oac;
+    (window as any).__alertDeliveries = [];
+    app.chart.on('alert:triggered', (event: any) => (window as any).__alertDeliveries.push(event));
+    app.alerts.add({ source: { kind: 'price', price: 1 }, condition: 'greaterThan', policy: 'onTouch' });
+    const path = '/examples/yfinance/src/replay.js';
+    const replay = await import(path);
+    void replay.startReplayAt(10);
+  });
+  await waiting;
+  const loading = await page.evaluate(async () => {
+    const { app } = (window as any).__oac;
+    const tail = app.chart.primaryBars().at(-1);
+    app.price.update({ ...tail, close: tail.close + 1, high: tail.high + 1 });
+    const path = '/examples/yfinance/src/orders.js';
+    const orders = await import(path);
+    orders.placeOrder('BUY', 'MARKET', tail.close);
+    return { loading: app.replayLoading, orders: app.orders.length, fills: app.fills.length, fired: (window as any).__alertDeliveries.length };
+  });
+  expect(loading).toEqual({ loading: true, orders: 0, fills: 0, fired: 0 });
+  await page.evaluate(async () => { const path = '/examples/yfinance/src/replay.js'; (await import(path)).exitReplay(); });
+  release();
+  await page.unrouteAll({ behavior: 'wait' });
+  const state = await page.evaluate(async () => {
+    const { app } = (window as any).__oac;
+    const path = '/examples/yfinance/src/replay.js';
+    const replay = await import(path);
+    await replay.startReplayAt(10);
+    app.replay.step();
+    app.replay.seek(20);
+    replay.exitReplay();
+    return { loading: app.replayLoading, replay: app.replay, fired: (window as any).__alertDeliveries.length, state: app.alerts.list()[0].state };
+  });
+  expect(state).toEqual({ loading: false, replay: null, fired: 0, state: 'armed' });
+});
+
+test('reference second-chart alerts restore on reload and stay scoped to that chart', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1280, height: 850 });
+  await openDemo(page);
+  await page.getByRole('button', { name: /Open a second, linked chart/ }).click();
+  await page.waitForFunction(() => (window as any).__oac.app.chart2?.primaryBars().length > 0);
+  await page.evaluate(() => { (window as any).__oac.app.focusPane = 2; });
+  await page.getByRole('button', { name: 'Alerts', exact: true }).click();
+  await page.getByRole('button', { name: 'Create alert', exact: true }).click();
+  await page.locator('.oac-alert-editor [data-key="title"] input').fill('Secondary alert');
+  await page.locator('.oac-alert-editor').getByRole('button', { name: 'Save', exact: true }).click();
+  expect(await page.evaluate(() => (window as any).__oac.app.alerts.list().length)).toBe(0);
+  expect(await page.evaluate(() => (window as any).__oac.app.alerts2.list()[0].scope.symbol)).toBe('MSFT');
+  await page.waitForTimeout(350);
+  await page.reload();
+  await page.waitForFunction(() => (window as any).__oac?.app.alerts2?.list().length === 1);
+  expect(await page.evaluate(() => (window as any).__oac.app.alerts2.list()[0].title)).toBe('Secondary alert');
+  await page.setViewportSize({ width: 390, height: 740 });
+  await page.evaluate(() => (window as any).__oac.app.alertUi2.openEditor());
+  const editor = page.locator('.oac-alert-editor');
+  await expect(editor).toBeVisible();
+  const bounds = await editor.boundingBox();
+  expect(bounds!.width).toBeGreaterThan(300);
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390);
+  await page.screenshot({ path: testInfo.outputPath('reference-secondary-alerts-narrow.png') });
+});
 
 test.use({
   viewport: { width: 390, height: 740 },
