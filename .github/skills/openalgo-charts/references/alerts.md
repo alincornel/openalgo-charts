@@ -64,6 +64,25 @@ not keep an expiry timer. Destruction cancels it.
 `AlertChartHost` is the structural chart interface, allowing a host integration
 without a nominal dependency on a specific bundled Chart class.
 
+## Editor schema and widget ownership
+
+`alertSettingsSchema(source, condition?)` returns readonly `IndicatorInput`
+fields for the supported conditions, numeric bounds, timing, repetition,
+cooldown, expiry, message and enabled state. A drawing `band` offers entering
+and leaving range; a single drawing level offers numeric line conditions.
+Named candle predicates offer only matches. No DOM is imported by this schema.
+
+`createWidget` owns `widget.alerts`; do not create a second AlertController on
+its chart. `widget.openAlerts()` opens the live list, and the widget tier exports
+`mountAlertEditor` and `mountAlertsPanel` for custom host composition. The editor
+defaults to confirmed bar-close evaluation. Cancel discards drafts. Editing a
+triggered record leaves it triggered unless Enabled is explicitly changed.
+
+Persistence is opt-in through the widget's existing `persist` option. A triggered
+record remains visible after reload, without another delivery. Automatic save
+reports nonportable payloads through the widget status event and still permits
+cleanup; an explicit `getState()` continues to reject invalid portable data.
+
 ## Conditions and timing
 
 `AlertCondition` accepts crossing, crossingUp, crossingDown, greaterThan,
@@ -215,6 +234,7 @@ creates fresh instances rather than retargeting saved study alerts.
 | alert:triggered | `AlertTriggeredPayload`: alertId, title, message, time, index, price, alert |
 | alert:error | `{ alert: Alert, error: unknown }` when a custom predicate throws |
 | alerts:restored | `{ alerts: Alert[] }` after a validated replacement |
+| alerts:checkpoint | `{}` after history seeding or live evaluation advances consumed-bar guards; save chart state without delivering a notification |
 
 The trigger time and index identify the source bar, not the delivery clock.
 Closed triggers report its close. Intrabar crossing triggers report the crossed

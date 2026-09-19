@@ -25,6 +25,7 @@ export interface MobileOptions {
   onSettings(anchor: HTMLElement): boolean;
   onIndicators(anchor: HTMLElement): boolean;
   onObjects(anchor: HTMLElement): boolean;
+  onAlerts?(anchor: HTMLElement): boolean;
   onProperties(anchor: HTMLElement): boolean;
   settingsAvailable(): boolean;
   indicatorsAvailable(): boolean;
@@ -368,6 +369,10 @@ export function mountMobile(ctx: WidgetContext, opts: MobileOptions): MobileHand
     bar.appendChild(makeAction('objects', 'Objects', (anchor) => { opts.onObjects(anchor); }));
     bar.appendChild(makeAction('more', 'More', (anchor) => {
       openSheet('More', anchor, (body, close) => {
+        if (opts.onAlerts) body.appendChild(makeAction('alerts', 'Alerts', () => {
+          close();
+          opts.onAlerts?.(anchor);
+        }));
         const theme = makeAction('theme', opts.state().theme === 'dark' ? 'Light theme' : 'Dark theme', () => {
           opts.onTheme();
           close();

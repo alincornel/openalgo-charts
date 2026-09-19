@@ -1,4 +1,5 @@
 import type { Bar } from '../model/bar';
+import { getIndicator, hasIndicator } from '../model/indicator-registry';
 import { numericMatch, touchMatch } from './conditions';
 import { getBarCondition } from './bar-conditions';
 import { AlertVisuals } from './visuals';
@@ -239,7 +240,10 @@ export class AlertController {
   private _seedAll(): void {
     this._revision++;
     for (const record of this._records.values()) { this._seed(record); this._syncVisual(record); }
-    if (!this._restoring) this._saveState();
+    if (!this._restoring) {
+      this._saveState();
+      if (!this._destroyed && this._records.size) this._chart.emit('alerts:checkpoint', {});
+    }
   }
 
   private _onObjects(): void {
@@ -318,7 +322,10 @@ export class AlertController {
         }
       }
     }
-    if (changed) this._saveState();
+    if (changed) {
+      this._saveState();
+      if (!this._destroyed) this._chart.emit('alerts:checkpoint', {});
+    }
   }
 
   private _plot(source: Pick<IndicatorAlertSource, 'instanceId' | 'plotKey'>): { values?: readonly (number | null)[]; paneIndex?: number; reason?: string } {
@@ -326,7 +333,9 @@ export class AlertController {
     if (!instance) return { reason: 'Indicator instance is unavailable' };
     if (!instance.series(source.plotKey)) return { reason: 'Indicator plot is unavailable' };
     const values = instance.values()[source.plotKey];
-    return values ? { values, paneIndex: instance.paneIndex } : { reason: 'Indicator plot is unavailable' };
+    const overlay = instance.indicatorId && hasIndicator(instance.indicatorId)
+      && getIndicator(instance.indicatorId).plots.some(plot => plot.key === source.plotKey && plot.overlay);
+    return values ? { values, paneIndex: overlay ? 0 : instance.paneIndex } : { reason: 'Indicator plot is unavailable' };
   }
 
   private _reading(values: readonly (number | null)[] | undefined, index: number): number | undefined {

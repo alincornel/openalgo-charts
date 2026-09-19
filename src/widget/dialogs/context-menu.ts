@@ -15,7 +15,7 @@
  * and the same rows serve the price ladder, a left-hand scale and an indicator
  * pane's.
  */
-import { PRICE_SCALE_MODES } from 'openalgo-charts';
+import { getIndicator, PRICE_SCALE_MODES } from 'openalgo-charts';
 import type { Chart, ContextMenuEvent, ContextMenuTarget, PriceScaleId, PriceScaleMode } from 'openalgo-charts';
 import { drawingSettingsSchema } from 'openalgo-charts/draw';
 import type { Drawing } from 'openalgo-charts/draw';
@@ -27,6 +27,7 @@ import { mountIndicatorSettings } from './indicator-settings';
 import { mountLevelEditor } from './level-editor';
 import { mountSettingsDialog } from './settings';
 import { chartContainer, isTextContent, mountTextEditor } from './text-editor';
+import { mountAlertEditor, mountAlertsPanel } from './alerts';
 
 /** What the menu asks a host to do when an order row is picked. */
 export interface OrderRequest {
@@ -224,6 +225,26 @@ export function contextMenuEntries(ctx: WidgetContext, e: ContextMenuEvent, hook
 
   const hitId = drawingIdOf(target);
   const hit = hitId === null ? undefined : draw.get(hitId);
+  if (ctx.alerts && target.kind !== 'time-scale') {
+    sep();
+    if (hit) {
+      const info = draw.alertInfo(hit.id);
+      out.push({ id: 'alert-drawing', label: 'Create drawing alert...', disabled: !info.available, note: info.reason,
+        run: () => { mountAlertEditor(ctx, undefined, { source: { kind: 'drawing', drawingId: hit.id } }); } });
+    } else if (target.kind === 'indicator' && target.instanceId) {
+      const instance = chart.indicators().find(item => item.id === target.instanceId);
+      const plot = instance && getIndicator(instance.indicatorId).plots.find(item => (item.overlay ? 0 : instance.paneIndex) === e.paneIndex);
+      if (instance && plot) out.push({ id: 'alert-indicator', label: 'Create study alert...', run: () => {
+        const values = instance.values()[plot.key];
+        const value = values?.[chart.primaryBars().length - 1];
+        mountAlertEditor(ctx, undefined, { source: { kind: 'indicator', instanceId: instance.id, plotKey: plot.key, value: value ?? NaN } });
+      } });
+    } else if (e.paneIndex === 0 && e.price !== null && Number.isFinite(e.price)) {
+      out.push({ id: 'alert-create', label: `Create alert at ${priceText(chart, 0, e.price)}...`,
+        run: () => { mountAlertEditor(ctx, undefined, { source: { kind: 'price', price: e.price! } }); } });
+    }
+    out.push({ id: 'chart-alerts', label: 'Alerts...', run: () => { mountAlertsPanel(ctx); } });
+  }
   if (hit !== undefined) {
     // A right-click picks the drawing the way a click does, so the actions
     // read on the thing under the pointer and not on a stale selection.

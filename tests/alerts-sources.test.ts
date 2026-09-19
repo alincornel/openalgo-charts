@@ -33,7 +33,20 @@ registerIndicator({
   calc: bars => ({ reading: bars.map(item => item.oi ?? null) }),
 });
 
+registerIndicator({
+  id: 'alert-source-overlay', name: 'Mixed panes', placement: 'pane', inputs: [],
+  plots: [{ key: 'price', type: 'line', title: 'Price reading', overlay: true }, { key: 'reading', type: 'line', title: 'Reading' }],
+  calc: bars => ({ price: bars.map(item => item.close), reading: bars.map(item => item.oi ?? null) }),
+});
+
 describe('trader alert sources', () => {
+  it('places an overlay-plot alert on its actual price pane', () => {
+    const { chart, alerts } = setup();
+    const study = chart.addIndicator('alert-source-overlay');
+    expect(study.paneIndex).toBeGreaterThan(0);
+    const alert = alerts.add({ source: { kind: 'indicator', instanceId: study.id, plotKey: 'price', value: 13 } });
+    expect(alerts.availability(alert.id)).toMatchObject({ available: true, paneIndex: 0 });
+  });
   it('resolves the selected instance after invalidation, even with two identical study ids', () => {
     const { chart, series, alerts, fired } = setup();
     const slow = chart.addIndicator('ema', { length: 5 });

@@ -143,10 +143,10 @@ afterEach(() => {
 // ── registration and stylesheet ───────────────────────────────────────────
 
 describe('the dialog tier as the shell sees it', () => {
-  it('registers all seven mounts under the names the shell knows', () => {
+  it('registers every mount under the names the shell knows', () => {
     expect(registeredWidgetDialogs().sort()).toEqual(Object.keys(WIDGET_DIALOGS).sort());
     expect(Object.keys(WIDGET_DIALOGS).sort()).toEqual(
-      ['contextMenu', 'drawingProperties', 'indicatorPicker', 'indicatorSettings', 'levelEditor', 'settings', 'textEditor'],
+      ['alertEditor', 'alerts', 'contextMenu', 'drawingProperties', 'indicatorPicker', 'indicatorSettings', 'levelEditor', 'settings', 'textEditor'],
     );
   });
 

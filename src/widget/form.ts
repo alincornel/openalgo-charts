@@ -72,6 +72,8 @@ export interface FormOptions {
    * slider one edit on release, which is what a per-edit undo history wants.
    */
   live?: boolean;
+  /** Keep an invalid numeric draft visible for validation when a form is saved. */
+  preserveInvalidNumbers?: boolean;
   /** Renders the control column of a `custom` row. Null skips the row. */
   custom?(control: FormControl, row: HTMLElement): HTMLElement | null;
 }
@@ -681,7 +683,11 @@ export function renderForm(host: HTMLElement, controls: readonly FormControl[], 
           const raw = input.value.trim();
           const n = raw === '' ? NaN : Number(raw);
           // A blank or unparseable box is not an edit; the last good value comes back.
-          if (!Number.isFinite(n)) { show(last.has(key) ? last.get(key) : value); return; }
+          if (!Number.isFinite(n)) {
+            if (opts.preserveInvalidNumbers) emit(key, undefined);
+            else show(last.has(key) ? last.get(key) : value);
+            return;
+          }
           const lo = spec.min ?? -Infinity;
           const hi = spec.max ?? Infinity;
           const clamped = Math.min(hi, Math.max(lo, n));

@@ -24,9 +24,9 @@
  *   every listener.
  */
 import {
-  ChartObjects, DataLoadingController, createChart, darkTheme, lightTheme, registeredIntervals, registeredChartTypes, tryResolveInterval, resolveInterval, isKnownInterval,
+  AlertController, ChartObjects, DataLoadingController, createChart, darkTheme, lightTheme, registeredIntervals, registeredChartTypes, tryResolveInterval, resolveInterval, isKnownInterval,
   type Chart, type ChartOptions, type ChartTheme, type DataFeed, type Bar, type SeriesApi, type SeriesType,
-  type RestoreReport, type BarsRequest, type DataLoadingOptions, type DataLoadingSnapshot,
+  type RestoreReport, type BarsRequest, type DataLoadingOptions, type DataLoadingSnapshot, type AlertTriggeredPayload,
 } from 'openalgo-charts';
 import { DrawingController, drawingShortcuts, keyToDrawingAction, type DrawingKeyContext } from 'openalgo-charts/draw';
 import {
@@ -41,7 +41,7 @@ import { mountToasts, type ToastHandle, type ToastKind, type Toaster } from './t
 import { applyTokens, themeMode, widgetTokens, type WidgetThemeName } from './tokens';
 import { injectWidgetStyles } from './styles';
 import { mountDataStatus, type DataStatusHandle } from './data-status';
-import { attachContextMenu, DIALOG_CSS, mountIndicatorSettings, mountDrawingProperties, type OrderRequest, type PanelHandle } from './dialogs/index';
+import { attachContextMenu, DIALOG_CSS, mountIndicatorSettings, mountDrawingProperties, mountAlertsPanel, type OrderRequest, type PanelHandle } from './dialogs/index';
 import { mountObjectsPanel, OBJECTS_PANEL_CSS } from './objects-panel';
 import { mountMobile, type MobileHandle, type MobileMode } from './mobile';
 
@@ -129,6 +129,7 @@ export interface Widget {
   readonly dataController: DataLoadingController | null;
   readonly chart: Chart;
   readonly draw: DrawingController;
+  readonly alerts: AlertController;
   /** Shared inventory and supported actions for drawings, indicators and registered profiles. */
   readonly objects: ChartObjects;
   /** The `.oac-widget` element. */
@@ -151,6 +152,8 @@ export interface Widget {
   openIndicatorPicker(): boolean;
   /** Open the searchable object inventory. False after destruction. */
   openObjects(): boolean;
+  /** Open trader alerts and their lifecycle states. False after destruction. */
+  openAlerts(): boolean;
   getState(): WidgetState;
   restoreState(state: unknown): WidgetRestoreReport;
   /** Load (or reload) bars from the feed for the current symbol and interval. */
@@ -221,6 +224,7 @@ class WidgetContextImpl implements WidgetContext {
   public readonly chart: Chart;
   public readonly draw: DrawingController;
   public readonly objects: ChartObjects | undefined;
+  public readonly alerts: AlertController | undefined;
   public readonly root: HTMLElement;
   public readonly document: Document;
   public readonly keymap: Keymap;
@@ -241,6 +245,7 @@ class WidgetContextImpl implements WidgetContext {
     this.chart = parts.chart;
     this.draw = parts.draw;
     this.objects = parts.objects;
+    this.alerts = parts.alerts;
     this.root = parts.root;
     this.document = parts.document;
     this.keymap = parts.keymap;
@@ -265,6 +270,7 @@ class WidgetImpl implements Widget {
   public readonly chart: Chart;
   public readonly draw: DrawingController;
   public readonly objects: ChartObjects;
+  public readonly alerts: AlertController;
   public readonly root: HTMLElement;
   public readonly context: WidgetContext;
   private _series: SeriesApi;
@@ -281,6 +287,7 @@ class WidgetImpl implements Widget {
   private _statusline: StatuslineHandle | null = null;
   private _mobile: MobileHandle | null = null;
   private _objectsPanel: PanelHandle | null = null;
+  private _alertsPanel: PanelHandle | null = null;
   private readonly _intervals: string[];
 
   private _symbol: string;
@@ -376,6 +383,7 @@ class WidgetImpl implements Widget {
     this._series = this.chart.addSeries(this._chartType as SeriesType);
     this._publishDataContext();
     this.draw = new DrawingController(this.chart, {});
+    this.alerts = new AlertController(this.chart, { drawings: this.draw });
     this.objects = new ChartObjects(this.chart, {
       drawings: this.draw,
       onSettings: object => {
@@ -397,6 +405,7 @@ class WidgetImpl implements Widget {
       chart: this.chart,
       draw: this.draw,
       objects: this.objects,
+      alerts: this.alerts,
       root,
       document: doc,
       keymap: this._keymap,
@@ -442,6 +451,7 @@ class WidgetImpl implements Widget {
         onSettings: (anchor) => this._openDialog('settings', anchor),
         onIndicators: (anchor) => this._openDialog('indicatorPicker', anchor),
         onObjects: (anchor) => this._openObjects(anchor),
+        onAlerts: (anchor) => this._openAlerts(anchor),
         settingsAvailable: () => widgetDialog('settings') !== null,
         indicatorsAvailable: () => widgetDialog('indicatorPicker') !== null,
       });
@@ -463,6 +473,7 @@ class WidgetImpl implements Widget {
       onSettings: (anchor) => this._openDialog('settings', anchor),
       onIndicators: (anchor) => this._openDialog('indicatorPicker', anchor),
       onObjects: (anchor) => this._openObjects(anchor),
+      onAlerts: (anchor) => this._openAlerts(anchor),
       onProperties: (anchor) => this._openDialog('drawingProperties', anchor),
       settingsAvailable: () => widgetDialog('settings') !== null,
       indicatorsAvailable: () => widgetDialog('indicatorPicker') !== null,
@@ -594,6 +605,14 @@ class WidgetImpl implements Widget {
   public openIndicatorPicker(): boolean { return this._openDialog('indicatorPicker'); }
 
   public openObjects(): boolean { return this._openObjects(); }
+  public openAlerts(): boolean { return this._openAlerts(); }
+
+  private _openAlerts(anchor?: HTMLElement): boolean {
+    if (this._destroyed) return false;
+    if (this._alertsPanel?.isOpen()) { this._alertsPanel.el.focus(); return true; }
+    this._alertsPanel = mountAlertsPanel(this.context, anchor, { onClose: () => { this._alertsPanel = null; } });
+    return true;
+  }
 
   private _openObjects(anchor?: HTMLElement): boolean {
     if (this._destroyed) return false;
@@ -770,7 +789,11 @@ class WidgetImpl implements Widget {
   private _saveNow(): void {
     if (!this._storage.enabled || this._destroyed) return;
     if (this._saveTimer !== 0) { clearTimeout(this._saveTimer); this._saveTimer = 0; }
-    this._storage.set(STATE_KEY, this.getState());
+    try {
+      if (!this._storage.set(STATE_KEY, this.getState())) this.context.status('The chart layout could not be saved', 'error');
+    } catch (error) {
+      this.context.status(`The chart layout could not be saved: ${error instanceof Error ? error.message : 'invalid state'}`, 'error');
+    }
   }
 
   // ── keyboard ─────────────────────────────────────────────────────────
@@ -885,9 +908,14 @@ class WidgetImpl implements Widget {
     for (const ev of chartEvents) {
       this._cleanups.push(this.chart.on(ev, () => { this._bus.emit('layout', { reason: ev }); this._scheduleSave(); }));
     }
-    for (const ev of ['draw:add', 'draw:remove', 'draw:update', 'draw:paste', 'draw:cut']) {
+    for (const ev of ['draw:add', 'draw:remove', 'draw:update', 'draw:paste', 'draw:cut',
+      'alert:created', 'alert:updated', 'alert:removed', 'alert:triggered', 'alert:expired', 'alerts:restored', 'alerts:checkpoint']) {
       this._cleanups.push(this.chart.on(ev, () => this._scheduleSave()));
     }
+    this._cleanups.push(this.chart.on('alert:triggered', payload => {
+      const event = payload as AlertTriggeredPayload;
+      this.context.toast(event.message ?? event.title, 'success');
+    }));
     const win = this._doc.defaultView;
     if (win !== null && win !== undefined && typeof win.addEventListener === 'function') {
       // A debounced save still pending when the tab closes is the last quarter
@@ -914,6 +942,7 @@ class WidgetImpl implements Widget {
     this._toasts.destroy();
     this._keymap.destroy();
     this.objects.destroy();
+    this.alerts.destroy();
     this.draw.destroy();
     this.chart.destroy();
     this.root.remove();

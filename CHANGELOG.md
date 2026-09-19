@@ -6,6 +6,15 @@ All notable changes to OpenAlgo Charts.
 
 ### Added
 
+- Trader alert evaluation for prices, study plots, drawing levels and named
+  candle conditions, with explicit bar-close or intrabar timing, repeat,
+  cooldown and expiry. Delivery is event-based and remains the host's job.
+- The widget owns an alert controller and provides a draft editor, live list,
+  lifecycle toasts and price/study/drawing context actions. Study identity,
+  plot and drawing level are explicit; missing observations never become zero.
+- Versioned alert persistence restores drawings and study identities before
+  their alert anchors. Missing anchors are dropped with a removal reason.
+  Triggered once alerts remain visible after reload, without historical delivery.
 - Open Interest, Open Interest Change and Open Interest Buildup studies, with
   missing-data gaps, adjacent changes and four configurable candle regimes.
 - Explicit `ChartDataContext.hasOpenInterest` and `chart.hasOpenInterest`

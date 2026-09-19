@@ -530,3 +530,14 @@ checks including futures gaps/zero, crypto metadata and workspace restoration.
 See the OI plan for artifacts, static resource review, warnings and limitations.
 OI live-broker validation, reference secondary shared controls and final release
 facts remain; alerts are entirely unimplemented and remain the next major feature.
+
+Alert widget checkpoint, 2026-09-20: alert Tasks 1-5 are now implemented and
+validated, including the engine, source bridges, drawing visuals, persistence,
+widget editor/list and context menus. Full library suite 5508/5508; reference
+suite 235/235; eighteen alert browser cases across three engines. Actual desktop
+and narrow screenshots were inspected. API, declarations, skills, size/shake
+and website build pass. The alert plan records regressions and measured limits.
+Reference/yfinance and OpenAlgo /trading alert controls are not integrated yet.
+Task 6 must migrate those hosts and install/test the exact packed candidate.
+Connected-broker validation, remaining F/P production scope and final release
+facts/publication remain required. The frozen readiness score is unchanged.

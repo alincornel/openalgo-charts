@@ -7,7 +7,7 @@
  * behind it.
  *
  * Every mount function takes the widget context and an optional anchor, and
- * returns a handle with `close()`. Importing this module registers the seven
+ * returns a handle with `close()`. Importing this module registers the mounts
  * with the shell's dialog registry; `DIALOG_CSS` is the stylesheet they need,
  * appended to the widget's one `<style>`.
  */
@@ -19,6 +19,8 @@ import { mountIndicatorSettings } from './indicator-settings';
 import { mountLevelEditor } from './level-editor';
 import { mountSettingsDialog } from './settings';
 import { mountTextEditor } from './text-editor';
+import { mountAlertEditor, mountAlertsPanel } from './alerts';
+export { mountAlertEditor, mountAlertsPanel, type AlertEditorOptions, type AlertsPanelOptions } from './alerts';
 
 export { mountSettingsDialog, tabDefaults, type SettingsDialogOptions } from './settings';
 export { mountIndicatorPicker, filterIndicators, groupIndicators, type IndicatorPickerOptions } from './indicator-picker';
@@ -45,7 +47,7 @@ export {
 } from './context-menu';
 export type { PanelHandle } from '../form';
 
-/** The seven mounts under the names the shell's registry knows them by. */
+/** The mounts under the names the shell's registry knows them by. */
 export const WIDGET_DIALOGS = {
   settings: mountSettingsDialog,
   indicatorPicker: mountIndicatorPicker,
@@ -54,6 +56,8 @@ export const WIDGET_DIALOGS = {
   contextMenu: mountContextMenu,
   levelEditor: mountLevelEditor,
   textEditor: mountTextEditor,
+  alertEditor: mountAlertEditor,
+  alerts: mountAlertsPanel,
 } satisfies Record<string, DialogMount>;
 
 registerWidgetDialogs(WIDGET_DIALOGS);
@@ -67,6 +71,18 @@ const v = (name: string): string => `var(--oac-${name})`;
  * shell's and is not restated here.
  */
 export const DIALOG_CSS = `
+.oac-widget .oac-alert-editor { width: 480px; }
+.oac-widget .oac-alerts { width: 560px; }
+.oac-widget .oac-alerts__row { padding: 10px 0; border-bottom: 1px solid ${v('bd-soft')}; }
+.oac-widget .oac-alerts__summary { white-space: pre-line; overflow-wrap: anywhere; line-height: 1.5; }
+.oac-widget .oac-alerts__status { color: ${v('mut')}; font-size: 11px; line-height: 1.5; margin: 4px 0 8px; overflow-wrap: anywhere; }
+.oac-widget .oac-alerts__actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.oac-widget .oac-alert-context { margin: 0 0 8px; color: ${v('mut')}; overflow-wrap: anywhere; }
+.oac-widget .oac-alert-help { color: ${v('mut')}; font-size: 11px; line-height: 1.5; margin: 10px 0 0; }
+.oac-widget .oac-alert-error { color: ${v('danger')}; font-size: 12px; margin: 6px 0 0; overflow-wrap: anywhere; }
+.oac-widget .oac-alert-editor input[type=datetime-local] { width: 100%; min-width: 0; color-scheme: inherit;
+  height: 28px; padding: 3px 6px; border: 1px solid ${v('bd')}; border-radius: 6px; background: ${v('elev')}; color: ${v('tx')}; font: inherit; }
+.oac-widget .oac-alert-editor [data-key=expiresAt] .oac-row__ctl { width: 224px; max-width: 70%; }
 /* Panels: the card a dialog or a popover is built on. */
 .oac-widget .oac-panel { display: flex; flex-direction: column; min-width: 0; max-width: calc(100% - 24px);
   max-height: calc(100% - 24px); background: ${v('panel')}; border: 1px solid ${v('bd')}; border-radius: 12px;

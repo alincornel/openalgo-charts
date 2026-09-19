@@ -161,15 +161,25 @@ Every mount takes the context and an optional anchor element (so it satisfies `D
 | `mountLevelEditor(ctx, anchor?, { ids? })` | function | Per-level ratio, colour and visibility for the fib and gann tools. |
 | `mountTextEditor(ctx, anchor?, { id?, onDone? })` | function | In-place editing laid over the painted text. Returns a `TextEditorHandle` with `commit()` and `cancel()`; an outside press commits, Escape cancels. |
 | `mountContextMenu(ctx, anchor?, { event?, hooks? })` | function | The right-click menu for the chart's `contextmenu` payload: trade rows when `onOrder` is given, drawing actions on a drawing, scale modes on a price axis, paste, fit, indicators, settings. |
+| `mountAlertEditor(ctx, anchor?, opts?: AlertEditorOptions)` | function | Draft editor seeded by `source` or editing `alertId`. Save validates source identities, finite bounds and UTC expiry. Cancel never arms an alert. |
+| `mountAlertsPanel(ctx, anchor?, opts?: AlertsPanelOptions)` | function | Live alert list with lifecycle, scope, timing, availability, last delivery, edit, enable/disable and delete. Both options types accept `onClose`. |
 | `attachContextMenu(ctx, hooks?)` | function | Subscribe to the chart's `contextmenu`, `preventDefault`, mount the menu. Returns the unsubscriber. `createWidget` does this itself. |
 | `contextMenuEntries(ctx, event, hooks)` | function | The `MenuEntry[]` the menu is built from, for a host composing its own. |
-| `WIDGET_DIALOGS` | const | The seven mounts under the registry names: `settings`, `indicatorPicker`, `indicatorSettings`, `drawingProperties`, `contextMenu`, `levelEditor`, `textEditor`. Registered on import. |
+| `WIDGET_DIALOGS` | const | Registry mounts: `settings`, `indicatorPicker`, `indicatorSettings`, `drawingProperties`, `contextMenu`, `levelEditor`, `textEditor`, `alertEditor`, `alerts`. Registered on import. |
 | `renderForm(host, controls, opts)` | function | One control renderer for every generated form: switch column, label, control column; `colorPair` on one row. Returns a `FormHandle`. |
 | `controlsFromInputs(inputs)` | function | `ChartSettingsInput[]` (the engine's settings schema) to `FormControl[]`. |
 | `controlsFromFields(fields)` | function | A drawing tool's `SettingsField[]` to `FormControl[]`. |
 | `SettingsDialogOptions`, `IndicatorPickerOptions`, `IndicatorSettingsOptions`, `IndicatorSettingsTab`, `DrawingPropertiesOptions`, `LevelEditorOptions`, `TextEditorOptions`, `TextEditorHandle`, `ContextMenuHooks`, `ContextMenuOptions`, `MenuEntry`, `MenuItem`, `OrderRequest`, `PanelHandle`, `FormControl`, `FormKind`, `FormOptions`, `FormHandle` | types | |
 
 `OrderRequest` is `{ side: 'BUY' | 'SELL'; type: 'MARKET' | 'LIMIT' | 'SL'; price: number | null; paneIndex: number }`; `price` is null for a market order.
+
+Alert panels use optional `WidgetContext.alerts`, supplied automatically by
+`createWidget`. Custom contexts without a controller show an unavailable reason.
+Draft numeric forms set `FormOptions.preserveInvalidNumbers` so an empty field
+stays empty and Save can report it. Live settings forms retain their previous
+behavior of restoring the last valid numeric value. Alert expiry is entered in
+UTC; editing another field preserves the stored instant, including its seconds.
+Context changes or removed anchors prevent stale drafts from being saved.
 
 ## `WidgetOptions`
 
@@ -230,6 +240,7 @@ widget.draw;                         // DrawingController
 widget.root;                         // the .oac-widget element
 widget.context;                      // the WidgetContext every mounted piece was handed
 widget.objects;                      // the owned base-tier ChartObjects inventory
+widget.alerts;                       // the owned AlertController, including drawing anchors
 widget.series;                       // the primary SeriesApi, replaced by setChartType
 widget.symbol(); widget.exchange(); widget.interval(); widget.chartType(); widget.theme();
 widget.setSymbol(symbol, exchange?);
@@ -239,7 +250,8 @@ widget.setTheme('dark' | 'light' | theme);
 widget.openSettings();               // false when no dialog is registered under 'settings'
 widget.openIndicatorPicker();
 widget.openObjects();                // false after destruction; focuses the existing panel when open
-widget.getState();                   // WidgetState, JSON-safe
+widget.openAlerts();                 // desktop Alerts and mobile More use the same live list
+widget.getState();                   // WidgetState; rejects nonportable alert payloads
 widget.restoreState(state);          // WidgetRestoreReport
 await widget.reload();               // fetch again for the current symbol and interval
 widget.on(event, cb);                // returns the unsubscriber

@@ -16,7 +16,7 @@ export interface AlertChartHost {
   on(event: string, callback: (payload: unknown) => void): () => void;
   emit(event: string, payload: unknown): void;
   /** Flushes computed study values. Only required by indicator-source alerts. */
-  indicators?(): readonly Pick<IndicatorApi, 'id' | 'paneIndex' | 'series' | 'values'>[];
+  indicators?(): readonly (Pick<IndicatorApi, 'id' | 'paneIndex' | 'series' | 'values'> & Partial<Pick<IndicatorApi, 'indicatorId'>>)[];
   addPrimitive?(primitive: IPrimitive, paneIndex?: number): void;
   removePrimitive?(primitive: IPrimitive): void;
   alertState?(): AlertsDocument | undefined;

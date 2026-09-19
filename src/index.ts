@@ -351,6 +351,7 @@ export { beginPick } from './input/pick';
 export type { PickKind, PickHost } from './input/pick';
 
 export { AlertController } from './alerts/controller';
+export { alertSettingsSchema } from './alerts/schema';
 export type {
   Alert, AlertChartHost, AlertCondition, AlertControllerOptions, AlertInput, AlertPatch,
   AlertPolicy, AlertRepeat, AlertScope, AlertSource, AlertState, AlertTriggeredPayload, ChartDataUpdate,

@@ -211,6 +211,7 @@ export interface TopbarOptions {
   onIndicators(anchor: HTMLElement): boolean;
   /** A text control for the host's object inventory, omitted without a handler. */
   onObjects?(anchor: HTMLElement): boolean;
+  onAlerts?(anchor: HTMLElement): boolean;
   settingsAvailable(): boolean;
   indicatorsAvailable(): boolean;
 }
@@ -427,6 +428,13 @@ export function mountTopbar(ctx: WidgetContext, host: HTMLElement, opts: TopbarO
     objects.setAttribute('aria-haspopup', 'dialog');
     objects.addEventListener('click', () => { opts.onObjects?.(objects); });
     host.appendChild(objects);
+  }
+  if (opts.onAlerts) {
+    const alerts = btn('Alerts', 'oac-topbar__alerts');
+    alerts.textContent = 'Alerts';
+    alerts.setAttribute('aria-haspopup', 'dialog');
+    alerts.addEventListener('click', () => { opts.onAlerts?.(alerts); });
+    host.appendChild(alerts);
   }
 
   // ── capture ──────────────────────────────────────────────────────────

@@ -12,7 +12,7 @@
  * overlay stack, the tooltip, the storage wrapper and the dialog registry
  * through which the dialog tier makes its mount functions known.
  */
-import type { Chart, ChartObjects, ChartTheme } from 'openalgo-charts';
+import type { AlertController, Chart, ChartObjects, ChartTheme } from 'openalgo-charts';
 import type { DrawingController } from 'openalgo-charts/draw';
 import type { Keymap } from './keymap';
 import type { ToastHandle, ToastKind } from './toast';
@@ -259,7 +259,7 @@ export type DialogMount = (ctx: WidgetContext, anchor?: HTMLElement) => DialogHa
  */
 export type WidgetDialogName =
   | 'settings' | 'indicatorPicker' | 'indicatorSettings' | 'drawingProperties'
-  | 'contextMenu' | 'levelEditor' | 'textEditor';
+  | 'contextMenu' | 'levelEditor' | 'textEditor' | 'alertEditor' | 'alerts';
 
 const DIALOGS = new Map<WidgetDialogName, DialogMount>();
 
@@ -625,6 +625,8 @@ export interface WidgetContext {
   readonly draw: DrawingController;
   /** Live inventory owned by the widget, optional for custom contexts. */
   readonly objects?: ChartObjects;
+  /** Trader alerts owned by the widget, optional for custom contexts. */
+  readonly alerts?: AlertController;
   /** The `.oac-widget` element every piece of chrome lives in. */
   readonly root: HTMLElement;
   readonly document: Document;

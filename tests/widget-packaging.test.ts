@@ -134,7 +134,7 @@ describe('the widget is budgeted', () => {
   it('has its own size-limit row', () => {
     const own = sizeRows.filter((r) => pathsOf(r).length === 1 && pathsOf(r)[0] === WIDGET_BUNDLE);
     expect(own).toHaveLength(1);
-    expect(own[0].limit).toMatch(/^\d+ kB$/);
+    expect(own[0].limit).toMatch(/^\d+(?:\.\d+)? kB$/);
   });
 
   it('the Everything row measures every tier bundle, the widget included', () => {

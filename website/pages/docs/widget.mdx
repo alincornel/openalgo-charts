@@ -9,7 +9,7 @@ import { Callout } from 'nextra/components'
 # The widget tier
 
 `openalgo-charts/widget` turns the engine into a working terminal in one call: a chart
-with a top bar (symbol, interval, chart type, theme, settings, indicators, objects), a drawing rail
+with a top bar (symbol, interval, chart type, theme, settings, indicators, objects, alerts), a drawing rail
 down the left, a status line, the dialogs behind each of those buttons, keyboard shortcuts
 with a `?` panel that lists them, and optional persistence of the layout. It is the eighth
 loadable tier (**41.91 KB** Brotli), and it is the only one that builds DOM.
@@ -419,3 +419,50 @@ on which it was captured. The history loader always releases its completion latc
 For a custom replay host, call `dataController.setPaused(true)` for the entire
 replay lifetime, including paused replay; stop replay before resuming delivery.
 See [data loading](/docs/data-loading) for the interactive failure/retry example.
+
+## Trader alerts
+
+The widget owns `widget.alerts`, an `AlertController` attached to its chart and
+drawing controller. Open **Alerts** in the desktop toolbar, or **More**, then **Alerts**
+on a narrow screen. `widget.openAlerts()` opens the same list programmatically.
+Do not create a second controller on a widget chart.
+
+The editor offers price thresholds, a specific study instance and plot, supported
+drawing levels, and registered candle conditions. Drawing alerts on study panes
+require a plot from that pane. Missing plot values remain unavailable; they do
+not become zero. A zero threshold is valid.
+
+**Bar close** is the default: the next live bar confirms the previous one.
+**Intrabar touch** can fire on a wick absent from the final candle, so the editor
+states that tradeoff beside the controls. Crossing conditions require movement
+beyond the threshold; equality alone is not a crossing. Range boundaries count
+as inside. Cooldown uses seconds, and expiry is entered as a UTC date and time.
+
+Save commits the draft; Cancel and Escape discard it. Editing a triggered alert
+preserves that state unless Enabled is explicitly changed. The list retains
+armed, disabled, expired and triggered records, with their last delivery and any
+availability reason. Right-click a price, study or supported drawing to seed an
+editor from that target.
+
+```ts
+const widget = createWidget(container, {
+  symbol: 'CONTRACT', exchange: 'DERIVATIVES', interval: '1m',
+  persist: 'my-chart',
+});
+widget.alerts.add({
+  source: { kind: 'price', price: 100 },
+  condition: 'crossingUp', policy: 'onBarClose', title: 'Confirmed crossing',
+});
+widget.chart.on('alert:triggered', event => deliverFromHost(event));
+```
+
+The widget shows a toast for a trigger; external delivery remains the host's job.
+With persistence enabled, alerts save in the chart state and restore after their
+drawings and study identities. Reloading history sends no alerts. A triggered
+once alert remains visible after reload. Invalid portable host payloads produce
+a save-status error and do not prevent widget cleanup.
+
+Custom hosts can mount `mountAlertEditor(ctx, anchor?, { source?, alertId? })` and
+`mountAlertsPanel(ctx, anchor?)` from the widget entry. Both return a `PanelHandle`
+and dispose their subscriptions when closed. `alertSettingsSchema` is available
+from the base entry for hosts that provide their own forms.
