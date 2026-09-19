@@ -177,10 +177,55 @@ Artifacts: `artifacts/candidate/workspace-package-chromium.{json,png}` and
 foundation evidence; the new storage functionality has current three-browser
 coverage as recorded above.
 
-Live-session handoff is not yet complete: after the user's ready message, the
-dedicated browser still redirected to `/login` with no cookies, and the actual
-`/auth/session-status` endpoint reported unauthenticated. A clarification is
-pending; do not use another browser's cookies or claim real-feed validation.
+Live-session handoff initially reached a different browser. The user subsequently
+logged into the dedicated window; `/auth/session-status` then confirmed the
+authenticated broker session. Never copy another browser's cookies.
+
+### Real backend observation and priority correction
+
+The development frontend on port 5176 uses the actual backend on port 5000 with
+the dedicated authenticated browser. History returned 1,512 BHEL/NSE 5-minute
+candles with sorted times and valid OHLC. Exact symbol search, supported intervals,
+an authenticated socket and a market-data frame were observed. The 1-minute
+history subsequently loaded; the immediate post-switch snapshot still contained
+old bars, so readiness assertions must use `chart.getDataContext().interval`.
+No live orders were sent; the browser blocks execution routes.
+
+This is read-only adapter evidence, not an endurance run or proof of fresh exchange
+trades. A cached mode-3 snapshot carried `ltt: 1789732772` and a delivery
+`timestamp: 1789833463417`. The parser used the newer delivery time and created a
+new delivery-day candle. Ruling: address timestamp provenance before proceeding
+with the next template UI task. Prefer valid explicit trade/market event times,
+then delivery time for legacy payloads; retain seconds/milliseconds/ISO support
+and add numeric-string support. Seven parser regressions reproduced the defect
+before the correction. Calendar/unknown-time policies remain required under P1;
+this fix alone does not establish session correctness.
+
+Ignored sanitized evidence: `live-openalgo-candidate.json`,
+`live-openalgo-timestamp-probe.json`, and `live-indicator-template-methods.json`
+under `artifacts/candidate`. The terminal template methods were also exercised
+against actual loaded bars: four instances including exact repeats and a shared
+oscillator pane survived an interval rebuild, with price data and viewport
+preserved; the previous studies were restored afterward. The template picker and
+account-bound catalog hook are not yet implemented.
+
+The full consumer suite initially exposed two visibility-transition test failures
+in `StrategyBuilder.test.tsx`. Both dispatched hidden/visible in one synchronous
+turn while the shared hook deliberately defers state to a microtask. The tests
+now flush each real-world event boundary; all 33 tests in that file pass and the
+full suite passes 2,134 tests across 126 files. Existing simulated-DOM canvas
+warnings remain in its log. Modern study persistence also rejects an explicit
+null pane index; a regression reproduced its previous accidental coercion to zero.
+
+The market-time correction passes all 5,314 library tests, 231 demo tests and the
+complete `npm run verify` gate (lint, types, build, declarations, size, tree
+shaking). Negative numeric strings no longer pass through permissive date parsing.
+Public reference coverage is 901/901. The final all-tier bundle is 222.95 kB,
+widget terminal 184.75 kB and chart-only tree-shaken import 49.92 KiB, within the
+existing budgets. The new packed candidate still needs live backend verification.
+
+The user reiterated the naming restriction. Added-line and commit-message scans
+against both branch baselines found zero restricted comparison-name matches.
 
 F3 and F5 have library and consumer implementations and regression evidence.
 F4/F6 also have consumer coverage; the reference host's built-in volume controls

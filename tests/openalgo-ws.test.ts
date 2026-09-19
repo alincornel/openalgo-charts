@@ -81,6 +81,36 @@ describe('OpenAlgo proxy market-data envelope', () => {
     }
   });
 
+  it('uses the market event time when a cached quote has a newer delivery timestamp', () => {
+    // Captured field shape: a previous-session event delivered on reconnect.
+    const data = { ltt: 1789732772, timestamp: 1789833463417 };
+    for (const frame of [ltpFrame, quoteFrame]) {
+      expect(parseMessage({ ...frame, data: { ...frame.data, ...data } }))
+        .toMatchObject({ kind: 'ltp', event: { timeSec: 1789732772 } });
+    }
+    expect(parseMessage({ ...depthFrame, data: { ...depthFrame.data, ...data } }))
+      .toMatchObject({ kind: 'depth', depth: { timeSec: 1789732772 } });
+  });
+
+  it.each([1789732772, 1789732772000, '1789732772', '1789732772000', '2026-09-18T11:59:32Z'])(
+    'normalizes explicit market timestamps in seconds, milliseconds or ISO form: %s', (ltt) => {
+      expect(parseMessage({ ...ltpFrame, data: { ltp: 100, ltt, timestamp: 1789833463417 } }))
+        .toMatchObject({ kind: 'ltp', event: { timeSec: 1789732772 } });
+    },
+  );
+
+  it('prefers explicit trade/exchange fields and falls back past invalid timestamps', () => {
+    const parse = (data: Record<string, unknown>) => parseMessage({ ...ltpFrame, data: { ltp: 100, ...data } });
+    expect(parse({ last_trade_time: 1789732700, ltt: 1789732772, timestamp: 1789833463417 }))
+      .toMatchObject({ event: { timeSec: 1789732700 } });
+    expect(parse({ ltt: 0, exchange_timestamp: '1789732772', timestamp: 1789833463417 }))
+      .toMatchObject({ event: { timeSec: 1789732772 } });
+    expect(parse({ ltt: 'invalid', exchange_timestamp: Infinity, timestamp: '1756376445123' }))
+      .toMatchObject({ event: { timeSec: 1756376445 } });
+    expect(parse({ ltt: -1, timestamp: NaN })).toMatchObject({ event: { timeSec: 0 } });
+    expect(parse({ ltt: '-1', timestamp: 1789732772 })).toMatchObject({ event: { timeSec: 1789732772 } });
+  });
+
   it('retains nested identity precedence for existing broker payloads', () => {
     expect(parseMessage({
       ...ltpFrame, topic: 'SBIN.BSE',
