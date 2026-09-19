@@ -29,12 +29,22 @@ Runtime exports:
 Types: `WorkspaceKind`, `WorkspaceSettings`, `WorkspaceChartState`,
 `WorkspaceComparison`, `WorkspaceSlot`, `WorkspacePane`, `WorkspacePayload`,
 `WorkspaceDocument`, `IndicatorTemplateDocument`, `WorkspaceCatalog`,
-`WorkspaceStorage`, `WorkspaceRepositoryOptions`, `IndexedDbWorkspaceStorage`.
+`WorkspaceStorage`, `WorkspaceRepositoryOptions`, `WorkspaceOperationOptions`, `WorkspaceOpenOptions`,
+`IndexedDbWorkspaceStorage`.
 
-`WorkspaceStorage.write(namespace, catalog, expectedRevision)` MUST compare and
+`WorkspaceStorage.write(namespace, catalog, expectedRevision, options?)` MUST compare and
 write atomically. A read/then-write localStorage adapter does not meet this
 contract. The IndexedDB adapter resolves writes on transaction completion and
 rejects stale/corrupt revisions; custom server adapters must do the equivalent.
+`WorkspaceOperationOptions` carries an optional `signal: AbortSignal`.
+`WorkspaceOpenOptions` adds optional `expectedRevision` to reject activation when
+the catalog changed after the host prepared its grid. Capture that revision before
+preparation, then pass it with the signal to `openWorkspace`.
+`openWorkspace(id, { signal, expectedRevision })` checks cancellation before queued/read work and
+passes the signal into storage. The browser adapter aborts its pending write
+transaction, preserving active/recent IDs and revision. Custom adapters must
+honor cancellation before commit, not merely stop waiting for a remote response.
+Cancellation cannot undo a committed transaction; the host still guards owners.
 
 Hosts provide controls and application semantics. `openWorkspace` records catalog
 selection and returns a document; it does not load charts. `setAutosave` saves a

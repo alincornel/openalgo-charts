@@ -26,6 +26,60 @@ function memory() {
 }
 
 describe('workspace repository', () => {
+  it('refuses to activate a catalog revision different from the prepared grid', async () => {
+    const { repo } = memory();
+    const doc = await repo.createWorkspace('Desk', workspaceFixture());
+    const revision = (await repo.load()).revision;
+    await repo.saveWorkspace(doc.id, { ...workspaceFixture(), activePaneId: 'p1' });
+    await expect(repo.openWorkspace(doc.id, { expectedRevision: revision })).rejects.toBeInstanceOf(WorkspaceConflictError);
+    expect((await repo.load()).activeWorkspaceId).toBeNull();
+    await expect(repo.openWorkspace(doc.id, { expectedRevision: -1 })).rejects.toThrow();
+    const current = await repo.load();
+    await repo.openWorkspace(doc.id, { expectedRevision: current.revision });
+    expect((await repo.load()).activeWorkspaceId).toBe(doc.id);
+  });
+
+  it('does not read or write for an already cancelled open and keeps the queue usable', async () => {
+    const { repo, calls } = memory();
+    const doc = await repo.createWorkspace('Desk', workspaceFixture());
+    const controller = new AbortController();
+    controller.abort(new Error('cancelled open'));
+    calls.length = 0;
+    await expect(repo.openWorkspace(doc.id, { signal: controller.signal })).rejects.toThrow('cancelled open');
+    expect(calls).toEqual([]);
+    expect((await repo.load()).activeWorkspaceId).toBeNull();
+    await repo.openWorkspace(doc.id);
+    expect((await repo.load()).activeWorkspaceId).toBe(doc.id);
+  });
+
+  it('rechecks cancellation after catalog reads before changing active or recent selection', async () => {
+    const { repo, storage, calls } = memory();
+    const doc = await repo.createWorkspace('Desk', workspaceFixture());
+    const controller = new AbortController();
+    const read = storage.read.bind(storage);
+    storage.read = async namespace => { const value = await read(namespace); controller.abort(new Error('superseded')); return value; };
+    calls.length = 0;
+    await expect(repo.openWorkspace(doc.id, { signal: controller.signal })).rejects.toThrow('superseded');
+    expect(calls).toEqual(['read:user-a']);
+    const catalog = await repo.load();
+    expect(catalog.activeWorkspaceId).toBeNull();
+    expect(catalog.recentWorkspaceIds).toEqual([]);
+  });
+
+  it('passes the opening owner signal to the atomic write adapter', async () => {
+    const { repo, storage } = memory();
+    const doc = await repo.createWorkspace('Desk', workspaceFixture());
+    const controller = new AbortController();
+    const write = storage.write.bind(storage);
+    let observed: AbortSignal | undefined;
+    storage.write = async (namespace, catalog, revision, options) => {
+      observed = options?.signal;
+      await write(namespace, catalog, revision);
+    };
+    await repo.openWorkspace(doc.id, { signal: controller.signal });
+    expect(observed).toBe(controller.signal);
+  });
+
   it('creates, saves, renames, duplicates and exports detached documents', async () => {
     const { repo } = memory();
     const created = await repo.createWorkspace('Desk', workspaceFixture());

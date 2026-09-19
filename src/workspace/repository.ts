@@ -10,10 +10,17 @@ export interface WorkspaceCatalog {
   recentWorkspaceIds: string[]; activeWorkspaceId: string | null; autosave: boolean;
 }
 
+/** Cancellation is effective until the storage transaction commits. */
+export interface WorkspaceOperationOptions { signal?: AbortSignal }
+export interface WorkspaceOpenOptions extends WorkspaceOperationOptions {
+  /** Reject if a grid was prepared from a catalog that has since changed. */
+  expectedRevision?: number;
+}
+
 /** The host must atomically reject writes whose expectedRevision is stale. */
 export interface WorkspaceStorage {
   read(namespace: string): Promise<unknown | null>;
-  write(namespace: string, catalog: WorkspaceCatalog, expectedRevision: number): Promise<void>;
+  write(namespace: string, catalog: WorkspaceCatalog, expectedRevision: number, options?: WorkspaceOperationOptions): Promise<void>;
 }
 export interface WorkspaceRepositoryOptions { now?: () => number; id?: () => string }
 export class WorkspaceConflictError extends Error {
@@ -138,13 +145,16 @@ export class WorkspaceRepository {
     });
   }
 
-  async openWorkspace(id: string): Promise<WorkspaceDocument> {
+  async openWorkspace(id: string, options: WorkspaceOpenOptions = {}): Promise<WorkspaceDocument> {
+    const expected = options.expectedRevision === undefined ? undefined
+      : number(options.expectedRevision, 'expected revision', 0, Number.MAX_SAFE_INTEGER, true);
     return this._transact(catalog => {
+      if (expected !== undefined && catalog.revision !== expected) throw new WorkspaceConflictError();
       const doc = this._find(catalog, 'workspace', id) as WorkspaceDocument;
       catalog.activeWorkspaceId = doc.id;
       catalog.recentWorkspaceIds = [doc.id, ...catalog.recentWorkspaceIds.filter(item => item !== doc.id)].slice(0, 10);
       return doc;
-    });
+    }, options.signal);
   }
 
   async setAutosave(enabled: boolean): Promise<void> {
@@ -167,15 +177,18 @@ export class WorkspaceRepository {
     return input === null ? emptyCatalog() : parseWorkspaceCatalog(input);
   }
 
-  private _transact<T>(mutate: (catalog: WorkspaceCatalog) => T): Promise<T> {
+  private _transact<T>(mutate: (catalog: WorkspaceCatalog) => T, signal?: AbortSignal): Promise<T> {
     const operation = this._queue.then(async () => {
+      signal?.throwIfAborted();
       const catalog = await this._read();
+      signal?.throwIfAborted();
       const expectedRevision = catalog.revision;
       const result = mutate(catalog);
       catalog.revision++;
       // Validate the entire candidate, including limits, before touching storage.
       const next = parseWorkspaceCatalog(catalog);
-      await this._storage.write(this._namespace, next, expectedRevision);
+      signal?.throwIfAborted();
+      await this._storage.write(this._namespace, next, expectedRevision, { signal });
       return result === undefined ? result : readJson(result) as T;
     });
     this._queue = operation.then(() => {}, () => {});

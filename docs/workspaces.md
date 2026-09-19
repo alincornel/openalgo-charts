@@ -116,7 +116,7 @@ Constructor options can supply `now` and `id` factories; the defaults are
 The catalog permits 100 workspaces, 100 templates and 10 unique recent workspace
 IDs. Creating or importing does not open a workspace. `openWorkspace` records
 the active document and moves it to the front of the recent list; it returns the
-document for the host to restore. Deleting the active workspace chooses the
+document. Prepare the host's replacement charts before calling it. Deleting the active workspace chooses the
 newest remaining recent ID or null. Duplicate/import create fresh identities
 and metadata timestamps, leaving the original intact.
 
@@ -125,6 +125,18 @@ every mutation. A mutation increments `revision` once and reports success only
 after storage resolves. A rejected write leaves the existing saved catalog
 intact, rejects to the caller and does not poison the queue. Invalid stored
 catalogs are reported, never replaced with an empty catalog.
+
+`openWorkspace(id, { signal, expectedRevision })` accepts optional
+`WorkspaceOpenOptions`. Capture the catalog revision when preparing a grid and
+pass it as `expectedRevision`: a changed catalog rejects with
+`WorkspaceConflictError`, so a grid cannot open under a newer saved definition.
+The signal field is shared with storage's `WorkspaceOperationOptions`.
+The repository checks cancellation before queued work, after the catalog read
+and before handing the write to storage. The browser adapter aborts a pending
+write transaction when the signal aborts, preserving the previous active/recent
+selection and revision. Abort a preparation's controller when its owner changes
+or a newer open supersedes it. Cancellation cannot undo an already committed
+transaction; retain host generation checks when publishing the prepared grid.
 
 `setAutosave` stores a preference. Hosts must debounce actual saves, suppress
 them during restoration and replay, cancel pending timers on account changes,
@@ -146,7 +158,7 @@ Server persistence uses the same `WorkspaceStorage` interface:
 interface WorkspaceStorage {
   read(namespace: string): Promise<unknown | null>;
   write(namespace: string, catalog: WorkspaceCatalog,
-        expectedRevision: number): Promise<void>;
+        expectedRevision: number, options?: WorkspaceOperationOptions): Promise<void>;
 }
 ```
 
@@ -156,6 +168,10 @@ atomic across tabs. For remote persistence, authorize the namespace server-side
 and use a database transaction or conditional version update. Namespace separation
 alone is not authorization. After a conflict, reload and let the user decide
 whether to retry; do not silently overwrite another session's changes.
+When a write receives an abort signal, a custom adapter must reject cancellation
+before commit without changing storage. Do not acknowledge cancellation after
+committing a write. A remote adapter needs an explicit transactional cancellation
+protocol to provide this guarantee; aborting only its HTTP response is insufficient.
 
 ## Migration and restoration
 

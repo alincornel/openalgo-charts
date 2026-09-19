@@ -56,17 +56,28 @@ export function createIndexedDbWorkspaceStorage(
         transaction.onabort = () => reject(transaction.error ?? new Error('Workspace read was aborted'));
       });
     },
-    async write(namespace, catalog, expectedRevision) {
+    async write(namespace, catalog, expectedRevision, options) {
+      const signal = options?.signal;
+      signal?.throwIfAborted();
       const key = string(namespace, 'storage namespace');
       const expected = number(expectedRevision, 'expected revision', 0, Number.MAX_SAFE_INTEGER, true);
       const next = parseWorkspaceCatalog(catalog);
       if (next.revision !== expected + 1) throw new WorkspaceDocumentError('A write must advance the catalog revision by one');
       const db = await open();
+      signal?.throwIfAborted();
       return new Promise<void>((resolve, reject) => {
         const transaction = db.transaction('catalogs', 'readwrite');
         const store = transaction.objectStore('catalogs');
         const request = store.get(key);
         let failure: unknown;
+        const cancel = () => {
+          try {
+            transaction.abort();
+            failure = signal?.reason;
+          } catch { /* A committed transaction cannot be undone by cancellation. */ }
+        };
+        const cleanup = () => signal?.removeEventListener('abort', cancel);
+        signal?.addEventListener('abort', cancel, { once: true });
         request.onsuccess = () => {
           try {
             const previous = request.result;
@@ -78,8 +89,8 @@ export function createIndexedDbWorkspaceStorage(
             transaction.abort();
           }
         };
-        transaction.oncomplete = () => resolve();
-        transaction.onabort = () => reject(failure ?? transaction.error ?? new Error('Workspace save was aborted'));
+        transaction.oncomplete = () => { cleanup(); resolve(); };
+        transaction.onabort = () => { cleanup(); reject(failure ?? transaction.error ?? new Error('Workspace save was aborted')); };
       });
     },
     async close() {

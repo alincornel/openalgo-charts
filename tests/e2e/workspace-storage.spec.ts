@@ -3,6 +3,35 @@ import { workspaceFixture } from '../helpers/workspace-fixture';
 
 const modulePath = '/dist/openalgo-charts.workspace.mjs';
 
+test('cancelling a pending activation aborts the catalog transaction and allows retry', async ({ page }) => {
+  await page.goto('/tests/e2e/fixture.html');
+  const result = await page.evaluate(async ({ modulePath, payload }) => {
+    const { WorkspaceRepository, createIndexedDbWorkspaceStorage } = await import(modulePath);
+    const storage = createIndexedDbWorkspaceStorage(indexedDB, 'workspace-cancelled-activation');
+    const repo = new WorkspaceRepository(storage, 'account', { id: () => 'desk', now: () => 4000 });
+    const doc = await repo.createWorkspace('Desk', payload);
+    const controller = new AbortController();
+    const original = IDBObjectStore.prototype.put;
+    let failure = '';
+    let puts = 0;
+    IDBObjectStore.prototype.put = function (...args) {
+      const request = original.apply(this, args);
+      puts++;
+      queueMicrotask(() => controller.abort(new Error('Activation cancelled')));
+      return request;
+    };
+    try { await repo.openWorkspace(doc.id, { signal: controller.signal }); }
+    catch (error) { failure = (error as Error).message; }
+    finally { IDBObjectStore.prototype.put = original; }
+    const after = await repo.load();
+    await repo.openWorkspace(doc.id);
+    const retry = await repo.load();
+    await storage.close();
+    return { failure, puts, after: { active: after.activeWorkspaceId, recent: after.recentWorkspaceIds, revision: after.revision }, retry: retry.activeWorkspaceId };
+  }, { modulePath, payload: workspaceFixture() });
+  expect(result).toEqual({ failure: 'Activation cancelled', puts: 1, after: { active: null, recent: [], revision: 1 }, retry: 'desk' });
+});
+
 test('saved layouts and repeated indicator templates survive a reload within their account', async ({ page }) => {
   await page.goto('/tests/e2e/fixture.html');
   const result = await page.evaluate(async ({ modulePath, payload }) => {
