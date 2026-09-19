@@ -5,6 +5,8 @@
  * Add --objects true only when the host includes the shared Objects integration.
  * Add --navigation true to validate the wheel routing introduced in 2.1.8.
  * Add --branding true to validate corner branding and optional watermark settings.
+ * Add --foundations true for candle-center snapping, interval sync and volume averages.
+ * Use --browser chromium|firefox|webkit to select the rendering engine.
  *
  * No backend is started. Vite proxies are removed and every API/WS is mocked.
  * The app source is unchanged; an entry wrapper records terminal instances so
@@ -17,13 +19,15 @@ import { mkdtemp, readFile, rm, writeFile, lstat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { chromium } from '@playwright/test';
+import { chromium, firefox, webkit } from '@playwright/test';
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((pairs, value, i, all) => {
   if (value.startsWith('--')) pairs.push([value.slice(2), all[i + 1]]);
   return pairs;
 }, []));
 assert(args.frontend, '--frontend must name an isolated OpenAlgo frontend');
+const browserType = { chromium, firefox, webkit }[args.browser ?? 'chromium'];
+assert(browserType, '--browser must be chromium, firefox or webkit');
 const frontend = resolve(args.frontend);
 assert((await lstat(join(frontend, '..', '.git'))).isFile(), 'Use a linked OpenAlgo git worktree');
 assert(!(await lstat(join(frontend, 'node_modules'))).isSymbolicLink(), 'Use copied dependencies in an isolated checkout');
@@ -85,15 +89,48 @@ const server = await createServer({
 });
 let browser;
 let page;
+let reloading = false;
 try {
   await server.listen();
   const origin = `http://127.0.0.1:${server.httpServer.address().port}`;
-  browser = await chromium.launch({ headless: true });
+  browser = await browserType.launch({ headless: true });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' });
   page = await context.newPage();
+  report.runtimeEvents = [];
+  await page.exposeFunction('__reportCompatRuntimeError', error => report.runtimeEvents.push(error));
+  report.consoleTraces = [];
+  await page.exposeFunction('__reportCompatConsoleTrace', trace => report.consoleTraces.push({ after: report.checks.at(-1), ...trace }));
+  await page.addInitScript(() => {
+    window.addEventListener('error', event => window.__reportCompatRuntimeError({
+      type: 'error', message: event.message, stack: event.error?.stack,
+    }));
+    window.addEventListener('unhandledrejection', event => window.__reportCompatRuntimeError({
+      type: 'unhandledrejection', message: String(event.reason), stack: event.reason?.stack,
+    }));
+    const original = console.error;
+    console.error = (...args) => {
+      window.__reportCompatConsoleTrace({ message: args.map(String).join(' '), visibility: document.visibilityState, ready: document.readyState, stack: new Error().stack });
+      original.apply(console, args);
+    };
+  });
   await page.clock.setFixedTime(new Date(fixedNow));
-  page.on('pageerror', (error) => report.pageErrors.push(error.message));
-  page.on('console', (message) => { if (message.type() === 'error') report.consoleErrors.push(message.text()); });
+  report.pageErrorDetails = [];
+  report.failedRequests = [];
+  page.on('requestfailed', request => report.failedRequests.push({ after: report.checks.at(-1), url: request.url(), failure: request.failure() }));
+  page.on('pageerror', (error) => {
+    report.pageErrors.push(error.message);
+    report.pageErrorDetails.push({ after: report.checks.at(-1), duringReload: reloading, name: error.name, message: error.message, stack: error.stack });
+  });
+  const consoleReads = [];
+  page.on('console', (message) => {
+    if (message.type() !== 'error') return;
+    const index = report.consoleErrors.push(message.text()) - 1;
+    // Some browsers stringify an Error as just "Error". Preserve its actual
+    // message so the deliberate mode-refusal check cannot hide another error.
+    consoleReads.push(Promise.all(message.args().map(arg => arg.evaluate(value =>
+      value instanceof Error ? value.message : String(value)
+    ))).then(parts => { if (parts.length) report.consoleErrors[index] = parts.join(' '); }).catch(() => {}));
+  });
   await context.route('**/*', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -167,6 +204,11 @@ try {
   }));
   const waitDialogClosed = () => page.waitForFunction(() => !document.querySelector('[role="dialog"]')
     && getComputedStyle(document.body).pointerEvents !== 'none');
+  const reload = async () => {
+    reloading = true;
+    try { return await page.reload(); }
+    finally { reloading = false; }
+  };
   const sendDepth = async (symbol, exchange, ltp) => {
     for (const socket of sockets) {
       try { socket.send(JSON.stringify({ type: 'market_data', symbol, exchange, ...(args['legacy-topic'] ? { topic: `${symbol}.${exchange}` } : {}), mode: 3, data: {
@@ -216,7 +258,7 @@ try {
       await waitDialogClosed();
       await page.waitForFunction(() => window.__compatTerminals.some(t => !t.destroyed && t.chart?.watermarkOptions().visible));
       assert.match(await terminal(t => t.chart.exportSVG()), /BHEL/);
-      await page.reload();
+      await reload();
       await waitReady();
       assert.equal(await terminal(t => t.chart.watermarkOptions().visible), true);
       await terminal(async (t, symbol) => t.loadSymbol(symbol), symbols[1]);
@@ -412,7 +454,7 @@ try {
       t.setInterval('15m');
     });
     await page.waitForFunction(() => window.__compatTerminals.some((t) => !t.destroyed && t.interval === '15m' && t.draw?.toJSON().drawings.length));
-    await page.reload();
+    await reload();
     await waitReady();
     await page.waitForFunction(() => window.__compatTerminals.some((t) => !t.destroyed && t.draw?.toJSON().drawings.length));
     const state = await terminal((t) => ({ interval: t.interval, symbol: t.sym.symbol, drawings: t.draw.toJSON().drawings, indicators: t.activeIndicators, gridV: t.gridV, gridH: t.gridH }));
@@ -426,7 +468,7 @@ try {
   await check('runtime custom indicator receives the shared chart API and survives reload', async () => {
     await terminal((t) => t.addIndicatorById('compat-close'));
     await page.waitForFunction(() => window.__compatCustomCalls > 0);
-    await page.reload();
+    await reload();
     await waitReady();
     await page.waitForFunction(() => window.__compatCustomCalls > 0);
     assert(await terminal((t) => t.listIndicators().some((indicator) => indicator.indicatorId === 'compat-close')));
@@ -434,7 +476,7 @@ try {
   await check('saved TPO and session volume profiles attach and survive live updates', async () => {
     for (const kind of ['tpo', 'session-volume-profile']) {
       await terminal(async (t, kind) => { t.setChartType(kind); await t.profileLayer?.ready; }, kind);
-      await page.reload();
+      await reload();
       await waitReady();
       await terminal(async (t) => t.profileLayer?.ready);
       assert.equal(await terminal((t) => t.ctype), kind);
@@ -458,7 +500,7 @@ try {
     await page.getByTitle('2 columns', { exact: true }).click();
     const waitTwo = () => page.waitForFunction(() => window.__compatTerminals.filter((t) => !t.destroyed && t.price?.getData().length > 0).length === 2);
     await waitTwo();
-    await page.reload();
+    await reload();
     await waitTwo();
     assert.equal(await page.evaluate(() => localStorage.getItem('oa-trading-layout')), 'cols2');
     const panes = await page.evaluate(() => window.__compatTerminals.filter((t) => !t.destroyed && t.chart).map((t) => ({ key: t.sk, interval: t.interval, symbol: t.sym.symbol })));
@@ -508,7 +550,7 @@ try {
       await panel.getByRole('button', { name: `Settings for ${details.name}` }).click();
       await page.getByRole('heading', { name: details.name }).waitFor();
       await page.keyboard.press('Escape');
-      await page.reload();
+      await reload();
       await page.waitForFunction(() => window.__compatTerminals.filter((t) => !t.destroyed && t.price?.getData().length > 0).length === 2);
       await page.evaluate(() => {
         const pane = window.__compatTerminals.find((t) => !t.destroyed && t.sk === 'oa-trading-p1');
@@ -608,8 +650,132 @@ try {
       });
     });
   }
+  if (args.foundations === 'true') {
+    await check('interval sync is selectable in the real workspace and survives reload', async () => {
+      await page.evaluate(() => {
+        for (const pane of window.__compatTerminals.filter(t => !t.destroyed)) {
+          pane.stopReplay();
+          pane.setChartType('candlestick');
+        }
+      });
+      await page.getByRole('button', { name: 'Chart sync', exact: true }).click();
+      await page.getByRole('checkbox', { name: 'Interval', exact: true }).check();
+      await page.keyboard.press('Escape');
+      await terminal(t => t.setInterval('15m'));
+      const bothReady = async () => {
+        try {
+          await page.waitForFunction(() => {
+            const panes = window.__compatTerminals.filter(t => !t.destroyed);
+            return panes.length === 2 && panes.every(t => t.interval === '15m' && t.chart?.getDataContext()?.interval === '15m');
+          });
+        } catch (error) {
+          report.foundationPanes = await page.evaluate(() => window.__compatTerminals.map(t => ({
+            key: t.sk, destroyed: t.destroyed, interval: t.interval, context: t.chart?.getDataContext(),
+            groupInterval: t.link?.interval(), options: t.link?.options(),
+          })));
+          throw error;
+        }
+      };
+      await bothReady();
+      await reload();
+      await bothReady();
+      assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('oa-trading-sync')).interval), true);
+    });
+    await check('settings expose candle-center snapping and volume averages on the existing scale', async () => {
+      await terminal(async t => t.cb.onChartSettings(await t.chartSettings()));
+      await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+      await page.getByRole('checkbox', { name: 'Snap to candle center', exact: true }).check();
+      await page.getByRole('button', { name: 'Volume', exact: true }).click();
+      await page.getByRole('checkbox', { name: 'Show moving average', exact: true }).check();
+      await page.getByRole('spinbutton', { name: 'Period', exact: true }).fill('3');
+      await page.getByRole('button', { name: 'Ok', exact: true }).click();
+      await waitDialogClosed();
+      await page.waitForFunction(() => window.__compatTerminals.some(t => !t.destroyed && t.chart?.crosshairSnapToBar()));
+      const volume = await terminal(t => ({
+        sameScale: t.volumeMA.priceScale() === t.volume.priceScale(),
+        bars: t.volume.getData(), average: t.volumeMA.getData(),
+        price: t.price.getData(), style: t.chart.primarySeriesInfo().style, theme: t.chart.theme(),
+      }));
+      assert.equal(volume.sameScale, true);
+      assert(volume.average.length > 3);
+      assert.equal(volume.average[0].close, NaN);
+      for (let i = 2; i < volume.average.length; i++) {
+        const expected = (volume.bars[i - 2].close + volume.bars[i - 1].close + volume.bars[i].close) / 3;
+        assert(Math.abs(volume.average[i].close - expected) < 1e-8);
+      }
+      assert(volume.bars.every((b, i) => b.color === (volume.price[i].close >= volume.price[i].open
+        ? volume.style.upColor ?? volume.theme.upColor : volume.style.downColor ?? volume.theme.downColor)));
+      await reload();
+      await waitReady();
+      await page.waitForFunction(() => window.__compatTerminals.some(t => !t.destroyed && t.volumeMA?.getData().length > 3));
+      assert.equal(await terminal(t => t.chart.crosshairSnapToBar()), true);
+    });
+    await check('volume average stays on the replay prefix while its period changes', async () => {
+      await terminal(t => t.beginReplayAt(3));
+      await terminal(t => t.applyChartSettings({ 'volume.maPeriod': 2 }));
+      const counts = await terminal(t => ({ price: t.price.getData().length, volume: t.volume.getData().length, average: t.volumeMA.getData().length }));
+      assert.deepEqual(counts, { price: 4, volume: 4, average: 4 });
+      await terminal(t => t.stopReplay());
+      assert(await terminal(t => t.volumeMA.getData().length > 4));
+    });
+    await check('volume direction renders in both theme palettes after chart rebuilds', async () => {
+      for (const mode of ['dark', 'light']) {
+        const toggle = page.getByRole('button', { name: `Switch to ${mode} mode`, exact: true });
+        if (await toggle.count()) await toggle.click();
+        await page.waitForFunction(mode => window.__compatTerminals.filter(t => !t.destroyed)
+          .every(t => t.getTheme().mode === mode), mode);
+        await terminal(t => {
+          t.rawBars = t.rawBars.map((bar, index) => ({ ...bar, close: bar.open + (index % 2 ? -0.4 : 0.4) }));
+          t.setPriceData();
+        });
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        const paint = await terminal(t => {
+          const palette = t.volumeCandleStyle();
+          const volumes = t.volume.getData();
+          const colors = [...new Set(volumes.map(bar => bar.color))];
+          const probe = document.createElement('canvas').getContext('2d');
+          const wanted = colors.map(color => {
+            probe.fillStyle = color;
+            probe.fillRect(0, 0, 1, 1);
+            return [...probe.getImageData(0, 0, 1, 1).data].slice(0, 3);
+          });
+          const ink = wanted.map(() => 0);
+          for (const canvas of t.container.querySelectorAll('canvas')) {
+            const context = canvas.getContext('2d');
+            if (!context || !canvas.width || !canvas.height) continue;
+            const start = Math.floor(canvas.height * 0.9);
+            const pixels = context.getImageData(0, start, canvas.width, canvas.height - start).data;
+            for (let i = 0; i < pixels.length; i += 4) {
+              wanted.forEach((rgb, index) => {
+                if (pixels[i + 3] > 200 && rgb.every((value, channel) => Math.abs(value - pixels[i + channel]) < 4)) ink[index]++;
+              });
+            }
+          }
+          return { colors, expected: [palette.upColor, palette.downColor], ink };
+        });
+        assert.deepEqual(paint.colors.sort(), paint.expected.sort());
+        assert(paint.ink.every(count => count > 30), `${mode} volume pixels: ${paint.ink}`);
+        if (args.screenshot) await page.screenshot({ path: resolve(args.screenshot.replace(/\.png$/, `-${mode}.png`)), fullPage: true });
+      }
+    });
+  }
   await check('no browser runtime errors or external HTTP', async () => {
-    assert.deepEqual(report.pageErrors, []);
+    await Promise.all(consoleReads);
+    // WebKit reports fetches cancelled/refused on a departing document as
+    // pageerrors even when caught. Classify only this network diagnostic during
+    // reload, to the fixture's own API; window errors/rejections still fail.
+    report.reloadNetworkNotices = [];
+    const unexpected = report.pageErrorDetails.filter(error => {
+      const url = error.stack?.match(/^(?:Fetch API|XMLHttpRequest) cannot load (https?:\/\/\S+) due to access control checks\./)?.[1];
+      const departing = browserType === webkit && error.duringReload
+        && (url?.startsWith(`${origin}/api/`) || url?.startsWith(`${origin}/socket.io/`));
+      if (departing) report.reloadNetworkNotices.push({ ...error, url,
+        cancelledRequestObserved: report.failedRequests.some(request => request.url === url && request.failure?.errorText === 'Load request cancelled'),
+      });
+      return !departing;
+    });
+    assert.deepEqual(unexpected, []);
+    assert.deepEqual(report.runtimeEvents, []);
     assert.deepEqual(report.consoleErrors.filter((message) => !message.startsWith('Failed to load resource:') && !message.includes('refusing to place, caller expects live mode but the OpenAlgo server is in analyzer mode')), []);
     assert.deepEqual(report.blocked, []);
   });

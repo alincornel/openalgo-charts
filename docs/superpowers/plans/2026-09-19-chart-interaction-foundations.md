@@ -35,17 +35,17 @@ Produces: `ChartOptions.crosshairSnapToBar?: boolean`,
 `chart.crosshairSnapToBar(): boolean`, the matching `applyOptions` field and
 `canvas.crosshairSnapToBar` settings key. Default false.
 
-- [ ] Add measured Chart pointer tests. Hover at `center + spacing * 0.3` and
+- [x] Add measured Chart pointer tests. Hover at `center + spacing * 0.3` and
   assert that the painted cursor x is the center when enabled and the actual
   pointer when disabled; pointer events keep their original position.
-- [ ] Assert horizontal price remains pointer-driven in normal mode, magnet still
+- [x] Assert horizontal price remains pointer-driven in normal mode, magnet still
   snaps OHLC when selected, empty/future positions remain unsnapped, and settings
   and state restore both true and false reversibly.
-- [ ] Run `npm test -- tests/crosshair-snap.test.ts` and inspect the failure.
-- [ ] Thread the option through construction, getter, mutation, state and schema.
+- [x] Run `npm test -- tests/crosshair-snap.test.ts` and inspect the failure.
+- [x] Thread the option through construction, getter, mutation, state and schema.
   In the cursor update use `timeScale.indexToX(index)` only if an actual primary
   bar exists at the hovered index; retain the raw pointer for all hit tests.
-- [ ] Run affected crosshair, pointer, settings and state tests; add browser paint
+- [x] Run affected crosshair, pointer, settings and state tests; add browser paint
   evidence before completing the phase. Commit the verified change locally.
 
 ## Task 2: Interval linking
@@ -57,15 +57,15 @@ Produces: `LinkOptions.interval?: boolean`, `LinkMemberOptions.interval?: string
 `LinkGroup.interval(): string | null`, and `setInterval(chart, interval): void`.
 The chart's `interval` event accepts a token or `{ interval }`. Default sync off.
 
-- [ ] Test independent channel defaults, event and imperative delivery, enabling
+- [x] Test independent channel defaults, event and imperative delivery, enabling
   sync after separate changes, late joins, removal, invalid tokens and callback
   echoes. In a follower callback, echo a different token and verify it cannot
   overwrite the leader token or fan out recursively.
-- [ ] Run `npm test -- tests/link-interval.test.ts` and inspect failures.
-- [ ] Track member/current interval in LinkGroup and use the existing broadcast
+- [x] Run `npm test -- tests/link-interval.test.ts` and inspect failures.
+- [x] Track member/current interval in LinkGroup and use the existing broadcast
   guard. Validate nonempty strings; interval support remains the host's decision.
   Ignore reentrant changes before mutating agreed state. Reset on destroy.
-- [ ] Run all link tests and typecheck; update documentation and commit locally.
+- [x] Run all link tests and typecheck; update documentation and commit locally.
 
 ## Task 3: Volume average and candle direction
 
@@ -77,22 +77,22 @@ Produces: backward-compatible volume settings for direction colouring and an
 optional simple moving average, with period and line styling. Existing colour
 defaults remain unchanged unless the host opts into candle direction.
 
-- [ ] Add a fixture with volumes `[10, 20, 30, 60]`, period 3; expect no line at
+- [x] Add a fixture with volumes `[10, 20, 30, 60]`, period 3; expect no line at
   indices 0 and 1, then 20 and `110/3`. Replace the last volume with 90 and assert
   the last average becomes `140/3`. Assert candle-direction colours and dojis.
-- [ ] Run the tests before implementation. Add descriptor settings/plot and reuse
+- [x] Run the tests before implementation. Add descriptor settings/plot and reuse
   the existing SMA helper, preserving the histogram's volume scale.
-- [ ] Connect OpenAlgo's built-in volume to candle colours and configurable
+- [x] Connect OpenAlgo's built-in volume to candle colours and configurable
   average without duplicating a scale or revealing future replay data.
-- [ ] Verify normal/transformed/live/replayed series and theme changes. Commit
+- [x] Verify normal/transformed/live/replayed series and theme changes. Commit
   only after library and targeted consumer checks pass.
 
 ## Phase gate
 
-- [ ] Build and pack the candidate; install it in the isolated consumer with a
+- [x] Build and pack the candidate; install it in the isolated consumer with a
   portable dependency strategy recorded in the broader workspace plan.
-- [ ] Wire center snapping through the schema-backed settings dialog and interval
+- [x] Wire center snapping through the schema-backed settings dialog and interval
   sync through the existing terminal/link group; test supported interval refusal.
-- [ ] Run the actual `/trading` browser harness and inspect changed interactions.
-- [ ] Record commands, results and remaining F/P requirements in the ledger.
+- [x] Run the actual `/trading` browser harness and inspect changed interactions.
+- [x] Record commands, results and remaining F/P requirements in the ledger.
 - [ ] Continue with workspace documents/storage and shared controls plans.
