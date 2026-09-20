@@ -2,6 +2,22 @@
 
 All notable changes to OpenAlgo Charts.
 
+## Unreleased
+
+### Changed
+
+- An armed alert's on-chart badge reads "Alert" rather than "Armed". It is the
+  state every alert is in almost all the time, and the engine's word for it
+  reads as jargon on a chart. Triggered, Expired, Disabled and Paused keep
+  their words, because each says something the line cannot.
+
+### Added
+
+- An alert's line can be dragged to move its price, live while the pointer is
+  down and committed on release. Price and study-threshold sources only: a
+  drawing-sourced alert is anchored to its drawing and has no price of its own,
+  and its line still refuses the gesture so the drawing underneath gets it.
+
 ## 2.4.6
 
 2026-09-20

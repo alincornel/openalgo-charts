@@ -2,7 +2,7 @@ import type { Bar } from '../model/bar';
 import { getIndicator, hasIndicator } from '../model/indicator-registry';
 import { numericMatch, touchMatch } from './conditions';
 import { getBarCondition } from './bar-conditions';
-import { AlertVisuals } from './visuals';
+import { AlertVisuals, parseAlertLineId } from './visuals';
 import { copyAlert as copy, parseAlertsDocument, validateAlert as validate } from './document';
 import type {
   Alert, AlertChartHost, AlertControllerOptions, AlertInput, AlertPatch, AlertScope,
@@ -59,11 +59,46 @@ export class AlertController {
       _chart.on('replay:start', () => { this._replay = true; this._seedAll(); }),
       _chart.on('replay:stop', () => { this._replay = false; this._seedAll(); }),
       _chart.on('destroy', () => this.destroy()),
+      // Dragging an alert's line moves its price. Live while the pointer is
+      // down so the number under the label keeps up with the cursor, and
+      // committed on release: writing on every frame would restart the
+      // evaluation state dozens of times across one gesture.
+      _chart.on('drag', payload => this._onDrag(payload as { id?: unknown; price?: unknown }, false)),
+      _chart.on('drag:end', payload => this._onDrag(payload as { id?: unknown; price?: unknown }, true)),
     ];
     try {
       const saved = _chart.alertState?.();
       if (saved !== undefined) this.fromJSON(saved);
     } catch (error) { this.destroy(); throw error; }
+  }
+
+  /**
+   * Move an alert's price because its line was dragged.
+   *
+   * Only a source whose price is the alert's own: a drawing-sourced alert is
+   * anchored to a drawing and has no price to move, and its line does not
+   * hit-test in the first place. An id that is not one of ours, or a drag on
+   * some other primitive, falls straight through.
+   */
+  private _onDrag(payload: { id?: unknown; price?: unknown }, done: boolean): void {
+    if (this._destroyed) return;
+    const externalId = typeof payload.id === 'string' ? payload.id : '';
+    const price = typeof payload.price === 'number' ? payload.price : Number.NaN;
+    const parsed = parseAlertLineId(externalId);
+    if (parsed === null || !Number.isFinite(price)) return;
+    const record = this._records.get(parsed.id);
+    if (record === undefined) return;
+    const source = record.alert.source;
+    if (source.kind !== 'price' && source.kind !== 'indicator') return;
+
+    // Which of the two the gesture has hold of. A range alert draws a line per
+    // bound, and index 1 is the upper one.
+    const lower = parsed.index === 0;
+    const next = source.kind === 'price'
+      ? { ...source, ...(lower ? { price } : { upperPrice: price }) }
+      : { ...source, ...(lower ? { value: price } : { upperValue: price }) };
+    this.update(parsed.id, { source: next });
+    if (done) this._chart.emit('alerts:changed', { id: parsed.id, reason: 'dragged' });
   }
 
   public add(input: AlertInput): Alert {

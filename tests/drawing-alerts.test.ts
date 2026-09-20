@@ -271,7 +271,11 @@ describe('alert line visuals', () => {
     const line = attach.mock.calls.map(([primitive]) => primitive).find(primitive => primitive instanceof PriceLine) as PriceLine;
     expect(line).toBeInstanceOf(PriceLine);
     const colors = [line.options().color];
-    expect(line.options().badge?.toLowerCase()).toContain('armed');
+    // The ordinary state says what the line IS, not which state it is in:
+    // "Armed" on a chart is the engine's word for the state every alert is in
+    // almost all the time, and it reads as jargon. The other three stay,
+    // because each tells you something the line cannot show on its own.
+    expect(line.options().badge).toBe('Alert');
     series.update({ ...bar(120, 100), high: 106 });
     colors.push(line.options().color);
     expect(line.options().badge?.toLowerCase()).toContain('triggered');
@@ -311,5 +315,89 @@ describe('alert line visuals', () => {
     expect(chart.exportSVG()).toContain('Owned level');
     alerts.destroy();
     expect(chart.exportSVG()).not.toContain('Owned level');
+  });
+});
+
+describe('moving an alert by dragging its line', () => {
+  /** The `drag` payload the chart emits while a primitive is held. */
+  const drag = (chart: { emit(name: string, payload: unknown): void }, id: string, price: number, done = false) =>
+    chart.emit(done ? 'drag:end' : 'drag', { id, price });
+
+  it('moves a price alert to where the line was dropped', () => {
+    // The point of it: "not there, here" without opening a dialog and
+    // retyping a number.
+    const { chart, alerts } = alertSetup([60, 120]);
+    const alert = alerts.add({ source: { kind: 'price', price: 105 }, title: 'Breakout' });
+    drag(chart, `alert:${alert.id}:0`, 112, true);
+    expect(alerts.list()[0].source).toMatchObject({ kind: 'price', price: 112 });
+  });
+
+  it('moves the bound the gesture has hold of, not the other one', () => {
+    // A range alert draws a line per bound and index 1 is the upper. Reading
+    // the index wrong swaps a channel's bounds on the first drag, which the
+    // engine would then accept as a channel inside out.
+    const { chart, alerts } = alertSetup([60, 120]);
+    const alert = alerts.add({
+      source: { kind: 'price', price: 100, upperPrice: 120 },
+      condition: 'enteringRange',
+    });
+    drag(chart, `alert:${alert.id}:1`, 130, true);
+    expect(alerts.list()[0].source).toMatchObject({ price: 100, upperPrice: 130 });
+    drag(chart, `alert:${alert.id}:0`, 95, true);
+    expect(alerts.list()[0].source).toMatchObject({ price: 95, upperPrice: 130 });
+  });
+
+  it('moves a study threshold in the plot units it is already in', () => {
+    const { chart, alerts } = alertSetup([60, 120]);
+    const alert = alerts.add({
+      source: { kind: 'indicator', instanceId: 'missing', plotKey: 'v', value: 30 },
+    });
+    drag(chart, `alert:${alert.id}:0`, 70, true);
+    expect(alerts.list()[0].source).toMatchObject({ kind: 'indicator', value: 70 });
+  });
+
+  it('follows the cursor while held, not only on release', () => {
+    // Otherwise the label sits at the old number for the whole gesture and
+    // jumps at the end, which reads as the drag not having worked.
+    const { chart, alerts } = alertSetup([60, 120]);
+    const alert = alerts.add({ source: { kind: 'price', price: 105 } });
+    drag(chart, `alert:${alert.id}:0`, 108);
+    expect(alerts.list()[0].source).toMatchObject({ price: 108 });
+    drag(chart, `alert:${alert.id}:0`, 111, true);
+    expect(alerts.list()[0].source).toMatchObject({ price: 111 });
+  });
+
+  it('leaves a drawing alert alone, because the price is not its own', () => {
+    // A drawing-sourced alert is anchored to the drawing and follows it. Its
+    // line does not hit-test, so this drag cannot come from it in practice;
+    // the guard is what makes that true no matter who emits the event.
+    const { chart, draw, alerts } = alertSetup([60, 120]);
+    const line = add(draw, { tool: 'horizontal-line', points: [point(120, 110)] });
+    const alert = alerts.add({ source: { kind: 'drawing', drawingId: line.id } });
+    const before = alerts.list()[0].source;
+    drag(chart, `alert:${alert.id}:0`, 130, true);
+    // Compared whole, not by the keys it should still have. Without the guard
+    // the drag spreads a `price` onto a drawing source: every key this asks
+    // about is still correct, and the source now carries a number that means
+    // nothing and that nothing reads. `toMatchObject` would pass on that.
+    expect(alerts.list()[0].source).toEqual(before);
+    expect(alerts.list()[0].source).not.toHaveProperty('price');
+  });
+
+  it('ignores a drag that is not an alert, and an id that is not one of ours', () => {
+    const { chart, alerts } = alertSetup([60, 120]);
+    const alert = alerts.add({ source: { kind: 'price', price: 105 } });
+    drag(chart, 'order:7', 500, true);
+    drag(chart, `alert:${alert.id}:notanumber`, 500, true);
+    drag(chart, 'alert:nosuchalert:0', 500, true);
+    expect(alerts.list()[0].source).toMatchObject({ price: 105 });
+  });
+
+  it('ignores a drag with no usable price rather than moving to NaN', () => {
+    const { chart, alerts } = alertSetup([60, 120]);
+    const alert = alerts.add({ source: { kind: 'price', price: 105 } });
+    chart.emit('drag:end', { id: `alert:${alert.id}:0` });
+    chart.emit('drag:end', { id: `alert:${alert.id}:0`, price: Number.NaN });
+    expect(alerts.list()[0].source).toMatchObject({ price: 105 });
   });
 });
