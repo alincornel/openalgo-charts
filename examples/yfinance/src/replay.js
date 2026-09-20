@@ -29,7 +29,7 @@ const requestKey = req => JSON.stringify([req.symbol, req.interval, req.period])
 const readouts = new WeakMap();
 let controlHomes = [];
 export function syncReplayAlertPause() {
-  const active = Boolean(app.replay || app.replayPicking || app.replayLoading);
+  const active = Boolean(app.workspaceLoading || app.replay || app.replayPicking || app.replayLoading);
   app.alerts?.setPaused(active || Boolean(app.loading || app.loadFailed));
   app.alerts2?.setPaused(active || Boolean(app.loading2 || app.loadFailed2));
 }
@@ -185,7 +185,7 @@ export function replayStartIndex(total) {
  * the one thing replay exists to remove.
  */
 export function enterReplay() {
-  if (app.replay || app.replayPicking || app.replayLoading) return;
+  if (app.workspaceLoading || app.replay || app.replayPicking || app.replayLoading) return;
   const target = captureReplayTarget();
   if (!ready(target)) return;
   if (!ReplayGroup) { el('status').textContent = 'shared replay is not in this build of dist/'; return; }
@@ -287,7 +287,7 @@ export function cancelPick(destroyedPane) {
  * left to cover.
  */
 export async function startReplayAt(index) {
-  if (app.replay || app.replayLoading) return;
+  if (app.workspaceLoading || app.replay || app.replayLoading) return;
   const target = owner();
   if (!ready(target)) return;
   const bars = target.series.getData();

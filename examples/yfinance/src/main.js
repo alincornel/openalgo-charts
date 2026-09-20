@@ -19,7 +19,7 @@ import { isExpression, fetchExpressionBars, mountOperatorKeypad, referenceDataCo
 import { initStatus, nameOf, symbolStatus } from './status.js';
 import { DEFAULT_TZ, initTimezone } from './timezone.js';
 import { initAxisChrome, applyAxisChrome, applyStatusLineChoice, applyTradeChoice } from './axis-chrome.js';
-import { initVolume, attachVolume, refreshVolume, setVolumeShown, setLegend } from './volume.js';
+import { initVolume, attachVolume, refreshVolume, setVolumeShown, setLegend, applyVolumeSettings } from './volume.js';
 import {
   initOrders, saveState, restoreState, cancelOrder, attachOrderLines, removeAllOrders,
   updatePositionLine, restyleTradeChrome, clearPosition, executionAllowed,
@@ -27,17 +27,18 @@ import {
 import { initBracket, attachBracketLines, setBracketPrice, updateBracket, removeBracket } from './bracket.js';
 import { initIndicators, fillIndicatorPicker, renderIndicatorChips, openSettings } from './indicators.js';
 import { chartDecorationsForRebuild, initChartSettings, restorePrimaryStyle } from './chart-settings.js';
-import { initCompare, attachComparison, invalidateComparisons, syncComparisons } from './compare.js';
+import { initCompare, attachComparison, invalidateComparisons, syncComparisons, restoreComparisons } from './compare.js';
 import { initSnapshot } from './snapshot.js';
 import { initReplay, exitReplay, attachReplay, syncReplayAlertPause } from './replay.js';
-import { initSplit, joinLink } from './split.js';
+import { initSplit, joinLink, installSecondaryWorkspace } from './split.js';
 import { initLink } from './link.js';
 import { initClipboard } from './clipboard.js';
 import { initMenus, openContextMenu } from './menus.js';
-import { initPersist, datasetKey, readLayout, applyLayout, stripView, autosave, restorePrimarySelection } from './persist.js';
+import { initPersist, datasetKey, readLayout, applyLayout, stripView, autosave, restorePrimarySelection, primaryLayoutSelection } from './persist.js';
 import { attachAlerts, detachAlerts } from './alerts.js';
 import { initToolbar, renderToolbar } from './toolbar.js';
-import { initRail, buildRail, initMobile } from './rail.js';
+import { initRail, buildRail, initMobile, focusChart, setMagnetMode, setStayMode } from './rail.js';
+import { initWorkspaceHost } from './workspace-host.js';
 import { mountPropertiesBar } from './properties.js';
 import { initDrawing, attachDrawing } from './drawing.js';
 import { capturePaneTarget } from './pane-target.js';
@@ -157,11 +158,11 @@ if (new URLSearchParams(location.search).get('test') === '1') {
 }
 
 // (Re)build the chart for the currently selected type using cached bars.
-function render({ keepView = true } = {}) {
+function render({ keepView = true, state } = {}) {
   // Leave replay first: stop() hands the driven series their real data back,
   // and it has to reach the chart that is about to be thrown away.
   exitReplay(1);
-  const previousState = app.chart?.getState();
+  const previousState = state || app.chart?.getState();
   const rebuildState = previousState && (keepView ? previousState : stripView(previousState));
   const decorations = chartDecorationsForRebuild(app.chart);
   const dataContext = referenceDataContext(app.req, app.chart?.getDataContext());
@@ -260,7 +261,8 @@ function render({ keepView = true } = {}) {
   if (rebuildState) {
     // The new series type is the user's selection; carry studies and anchors
     // through the engine's ordered restore without applying the old series style.
-    app.chart.restoreState({ ...rebuildState, series: [] });
+    const report = app.chart.restoreState({ ...rebuildState, series: [] });
+    if (state && !report.applied) throw new Error('The primary chart state could not be restored');
     restorePrimaryStyle(app.chart, rebuildState);
     refreshVolume(1);
     renderIndicatorChips();
@@ -343,6 +345,45 @@ function render({ keepView = true } = {}) {
 }
 
 let loadRevision = 0;
+
+function installWorkspace({ layout, bars }) {
+  const selection = primaryLayoutSelection(layout);
+  if (!selection.request || !bars[0]?.length || (layout.secondary && !bars[1]?.length)) {
+    throw new Error('Every workspace chart needs prepared history');
+  }
+  loadRevision++;
+  app.linkGroup?.setOptions({ crosshair: false, viewport: false, symbol: false, interval: false });
+  invalidateComparisons(1);
+  removeBracket(); removeAllOrders(); clearPosition();
+  app.req = { ...selection.request };
+  for (const [key, value] of Object.entries(app.req)) el(key).value = value;
+  el('ctype').value = selection.chartType || 'candlestick';
+  el('pfmode').value = selection.pfmode || 'atr';
+  app.chartTimezone = selection.timezone || DEFAULT_TZ;
+  app.currentBars = bars[0].map(bar => ({ ...bar }));
+  app.idxByTime.clear();
+  app.currentBars.forEach((bar, index) => app.idxByTime.set(bar.time, index));
+  app.activeIndicators = (layout.indicators || []).map(study => ({ ...study, settings: { ...study.settings } }));
+  applyVolumeSettings(1, layout.volumeSettings || { 'volume.visible': layout.volume !== false });
+  restoreComparisons(layout, 1);
+  restoreState(app.req.symbol);
+  setMagnetMode(layout.magnet || 'off');
+  setStayMode(layout.stay === true);
+  // Set split geometry before creating the primary chart so its saved viewport
+  // is applied against the final plot width, without a later resize correction.
+  installSecondaryWorkspace(layout.secondary, bars[1]);
+  render({ state: layout });
+  focusChart(layout.focusPane);
+  const focused = app.focusPane === 2 ? app.chart2 : app.chart;
+  const request = app.focusPane === 2 ? app.p2 : app.req;
+  app.linkGroup?.setSymbol(focused, request.symbol);
+  app.linkGroup?.setInterval?.(focused, request.interval);
+  app.linkGroup?.setOptions(layout.linkOptions || {});
+  setChartState('ready', app.req);
+  el('status').textContent = `Layout loaded: ${app.req.symbol}${app.chart2 ? ' / ' + app.p2.symbol : ''}`;
+  renderToolbar();
+}
+
 async function load(opts) {
   const revision = ++loadRevision;
   exitReplay(1);
@@ -498,6 +539,7 @@ initDrawing(app);
 initMobile(app);
 fillIntervalSelect();
 restorePrimarySelection();
+initWorkspaceHost(app, installWorkspace);
 
 buildRail();
 fillIndicatorPicker();

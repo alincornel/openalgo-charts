@@ -83,6 +83,26 @@ export function initSplit(a) {
 
 export const isSplit = () => app.chart2 !== null;
 
+/** Raw feed bars are needed to roll back a transformed chart without folding twice. */
+export const secondaryRawBars = () => bars2.map(bar => ({ ...bar }));
+
+/** Install already prepared history; no request or animation frame is awaited here. */
+export function installSecondaryWorkspace(saved, bars) {
+  closeSplit();
+  if (!saved) return;
+  app.p2 = { ...saved.request, chartType: saved.chartType || 'candlestick', pfmode: saved.pfmode || 'atr',
+    timezone: saved.state?.timezone || app.chartTimezone };
+  el('pane2').style.flexBasis = (saved.width ?? 50) + '%';
+  el('pane2').hidden = false;
+  el('splitbar').hidden = false;
+  bars2 = bars.map(bar => ({ ...bar }));
+  applyVolumeSettings(2, saved.volumeSettings || { 'volume.visible': saved.volume !== false });
+  restoreComparisons(saved, 2);
+  buildChart2({ state: saved.state });
+  setPane2Note(`${bars2.length} bars`);
+  renderPane2Bar();
+}
+
 /**
  * Join (or re-join) both charts. Adding a chart already in the group only
  * refreshes its member options, so this is safe to call on every rebuild,
@@ -262,7 +282,10 @@ export function buildChart2({ keepView = true, typeChanged = false, state } = {}
   app.chart2.on('destroy', closeMenu);
   app.chart2.on('indicatorSettings', ({ instanceId }) => openSettings(instanceId, capturePaneTarget(app, 2)));
   app.chart2.on('indicatorRemoved', renderIndicatorChips);
-  if (saved) app.chart2.restoreState(typeChanged ? { ...saved, series: [] } : saved);
+  if (saved) {
+    const report = app.chart2.restoreState(typeChanged ? { ...saved, series: [] } : saved);
+    if (state && !report.applied) throw new Error('The second chart state could not be restored');
+  }
   restorePrimaryStyle(app.chart2, saved);
   refreshVolume(2);
   for (const spec of comparisonState(2).items) attachComparison(spec, 2);

@@ -872,3 +872,26 @@ all 324 reference tests in 25 files, lint/typecheck and actual two-chart round-t
 in three browser engines. An observed legacy volume-visibility regression is fixed.
 No user-facing named menu is claimed yet: staged live switching and catalog/UI
 tasks remain, followed by F2 and the production/release scope. No consumer changes.
+
+### Reference prepared workspace transitions
+
+The reference host now prepares both raw histories before publishing a workspace.
+Each source uses its own interval and timezone; expressions share cancellation
+across their legs. Source changes, pan/zoom, destruction and superseding opens
+cancel pending work. Unknown studies, invalid drawings and conflicting linked
+source settings are rejected before requesting data. Failed persistence leaves
+the original charts intact. Installation failure restores both previous charts
+from raw bars and configuration, with an optional storage rollback receipt.
+
+Alerts, autosave, replay entry and simulated order entry remain guarded during the
+switch. Actual browser checks verify anchored/triggered alert restoration without
+evaluating history, plus raw-history rollback of transformed charts. There are 17
+transition cases; all 346 reference tests/26 files, lint/typecheck and 112 browser
+cases pass. A final focused transition sweep covers the last receipt branch.
+Rendered installation evidence inspected in all three engines. The plan records
+an initial early-cancellation fixture failure and its final validation.
+
+Reference F1 Task 2 is complete. Named catalog persistence and its create/save/
+open/rename/duplicate/delete/recent/autosave/import/export controls remain Task 3.
+F2 and all remaining production/release requirements stay in scope. No consumer
+changes or publication; Charts 2.4.5 still publishes before remaining /trading work.

@@ -4,7 +4,7 @@ let app;
 export function initOrders(a) { app = a; }
 
 export function executionAllowed() {
-  if (!app.replay && !app.replayPicking && !app.replayLoading && !app.loading && !app.loadFailed) return true;
+  if (!app.workspaceLoading && !app.replay && !app.replayPicking && !app.replayLoading && !app.loading && !app.loadFailed) return true;
   el('status').textContent = 'Order entry is unavailable during replay or while chart data is unavailable.';
   return false;
 }

@@ -29,7 +29,7 @@ describe('orders and the net position', () => {
     expect(tradeColors().order).toBe('#123456');
   });
 
-  it.each(['replay', 'replayPicking', 'replayLoading', 'loading', 'loadFailed'])('refuses execution during %s', flag => {
+  it.each(['workspaceLoading', 'replay', 'replayPicking', 'replayLoading', 'loading', 'loadFailed'])('refuses execution during %s', flag => {
     app[flag] = true;
     placeOrder('BUY', 'LIMIT', 10);
     fillMarket('SELL', 1);

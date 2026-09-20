@@ -4,6 +4,121 @@ const ORIGIN = 'http://127.0.0.1:8124';
 const PAGE = ORIGIN + '/examples/yfinance/index.html?test=1';
 const PROBE = ORIGIN + '/api/history?symbol=AAPL&interval=1d&period=1mo';
 
+test('prepared workspace switches both sources only after every history and storage write are ready', async ({ page }, info) => {
+  await page.setViewportSize({ width: 1360, height: 900 });
+  await openDemo(page);
+  let releaseHistory!: () => void;
+  const gate = new Promise<void>(resolve => { releaseHistory = resolve; });
+  let waiting = false;
+  await page.route('**/api/history?**', async route => {
+    if (new URL(route.request().url()).searchParams.get('symbol') === 'TSLA') { waiting = true; await gate; }
+    await route.continue();
+  });
+  await page.evaluate(async () => {
+    const app = (window as any).__oac.app;
+    if (typeof app.openWorkspace !== 'function') throw new Error('Workspace switching is not installed');
+    const snapshotPath = '/examples/yfinance/src/persist.js', adapterPath = '/examples/yfinance/src/workspace-document.js';
+    const snapshot = (await import(snapshotPath)).layoutSnapshot();
+    snapshot.request = { symbol: 'TSLA', interval: '15m', period: '1mo' };
+    snapshot.chartType = 'line'; snapshot.timezone = 'America/New_York'; snapshot.focusPane = 2;
+    snapshot.secondary = { request: { symbol: 'MSFT', interval: '1h', period: '1mo' }, chartType: 't:point-figure', pfmode: 'percent',
+      width: 35, state: { version: 1, timezone: 'Asia/Kolkata', indicators: [] }, comparisons: [] };
+    const stored = new Promise(resolve => { app.releaseWorkspaceStorage = resolve; });
+    app.workspaceResult = app.openWorkspace((await import(adapterPath)).workspaceFromLayout(snapshot), () => stored)
+      .then(() => 'done', (error: Error) => error.message);
+  });
+  await expect.poll(() => waiting).toBe(true);
+  expect(await page.evaluate(() => { const app = (window as any).__oac.app; return [app.req.symbol, Boolean(app.chart2), app.workspaceLoading]; }))
+    .toEqual(['AAPL', false, true]);
+  releaseHistory();
+  await page.waitForTimeout(150);
+  expect(await page.evaluate(() => (window as any).__oac.app.req.symbol)).toBe('AAPL');
+  expect(await page.evaluate(async () => { const app = (window as any).__oac.app; app.releaseWorkspaceStorage(); return await app.workspaceResult; })).toBe('done');
+  expect(await page.evaluate(() => {
+    const app = (window as any).__oac.app;
+    return { primary: app.req, secondary: { symbol: app.p2.symbol, interval: app.p2.interval, period: app.p2.period },
+      types: [app.chart.primarySeriesInfo().type, app.chart2.primarySeriesInfo().type],
+      zones: [app.chart.timezone(), app.chart2.timezone()], focused: app.focusPane,
+      secondaryWidth: (document.getElementById('pane2') as HTMLElement).style.flexBasis, pending: app.workspaceLoading };
+  })).toEqual({ primary: { symbol: 'TSLA', interval: '15m', period: '1mo' }, secondary: { symbol: 'MSFT', interval: '1h', period: '1mo' },
+    types: ['line', 'point-figure'], zones: ['America/New_York', 'Asia/Kolkata'], focused: 2, secondaryWidth: '35%', pending: false });
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await page.screenshot({ path: info.outputPath('reference-prepared-workspace.png') });
+});
+
+test('failed workspace storage and source changes leave the current charts intact', async ({ page }) => {
+  await openDemo(page);
+  expect(await page.evaluate(async () => {
+    const app = (window as any).__oac.app;
+    if (typeof app.openWorkspace !== 'function') throw new Error('Workspace switching is not installed');
+    const snapshotPath = '/examples/yfinance/src/persist.js', adapterPath = '/examples/yfinance/src/workspace-document.js';
+    const snapshot = (await import(snapshotPath)).layoutSnapshot();
+    snapshot.request = { symbol: 'TSLA', interval: '15m', period: '1mo' };
+    const document = (await import(adapterPath)).workspaceFromLayout(snapshot);
+    const original = app.chart;
+    const failure = await app.openWorkspace(document, () => Promise.reject(new Error('Storage refused'))).then(() => '', (error: Error) => error.message);
+    let release: () => void = () => {};
+    const begun = new Promise<void>(resolve => { release = resolve; });
+    const pending = app.openWorkspace(document, () => { release(); return new Promise(() => {}); }).then(() => '', (error: Error) => error.message);
+    await begun;
+    app.chart.setDataContext({ ...app.chart.getDataContext(), symbol: 'CHANGED' });
+    const cancelled = await pending;
+    return { failure, cancelled, sameChart: app.chart === original, request: app.req.symbol, pending: app.workspaceLoading };
+  })).toMatchObject({ failure: 'Storage refused', cancelled: 'Workspace preparation was cancelled', sameChart: true, request: 'AAPL', pending: false });
+});
+
+test('workspace installation failure restores transformed charts from their original raw histories', async ({ page }) => {
+  await page.setViewportSize({ width: 1360, height: 900 });
+  await openDemo(page);
+  await page.getByRole('button', { name: /Open a second, linked chart/ }).click();
+  await page.waitForFunction(() => (window as any).__oac?.app.chart2?.primaryBars().length > 0 && !(window as any).__oac.app.loading2);
+  expect(await page.evaluate(async () => {
+    const app = (window as any).__oac.app;
+    (document.getElementById('ctype') as HTMLSelectElement).value = 't:heikin-ashi'; app.render();
+    app.p2.chartType = 't:heikin-ashi'; app.rebuildSecondary();
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const before = { primary: app.chart.primaryBars(), secondary: app.chart2.primaryBars(), request: { ...app.req }, p2: { ...app.p2 } };
+    const snapshotPath = '/examples/yfinance/src/persist.js', adapterPath = '/examples/yfinance/src/workspace-document.js';
+    const snapshot = (await import(snapshotPath)).layoutSnapshot(); snapshot.request.symbol = 'TSLA';
+    const documentValue = (await import(adapterPath)).workspaceFromLayout(snapshot);
+    const host = document.getElementById('chart')!, append = host.appendChild;
+    let fail = true, revertedStorage = false;
+    host.appendChild = function<T extends Node>(child: T): T {
+      if (fail) { fail = false; throw new Error('Chart installation refused'); }
+      return append.call(this, child) as T;
+    };
+    let error = '';
+    try { await app.openWorkspace(documentValue, async () => ({ rollback: async () => { revertedStorage = true; } })); }
+    catch (failure) { error = (failure as Error).message; }
+    finally { host.appendChild = append; }
+    return { error, revertedStorage, primary: JSON.stringify(app.chart.primaryBars()) === JSON.stringify(before.primary),
+      secondary: JSON.stringify(app.chart2.primaryBars()) === JSON.stringify(before.secondary),
+      request: app.req, expectedRequest: before.request, secondSymbol: app.p2.symbol, expectedSecondSymbol: before.p2.symbol,
+      pending: app.workspaceLoading };
+  })).toMatchObject({ error: 'Chart installation refused', revertedStorage: true, primary: true, secondary: true,
+    request: { symbol: 'AAPL' }, expectedRequest: { symbol: 'AAPL' }, secondSymbol: 'MSFT', expectedSecondSymbol: 'MSFT', pending: false });
+});
+
+test('workspace installation keeps drawing anchors and fired alerts without evaluating restored history', async ({ page }) => {
+  await openDemo(page);
+  expect(await page.evaluate(async () => {
+    const app = (window as any).__oac.app, tail = app.chart.primaryBars().at(-1);
+    const drawing = app.draw.add({ tool: 'horizontal-line', paneIndex: 0, points: [{ time: tail.time, price: 1 }], style: {} });
+    app.alerts.add({ id: 'workspace-armed', source: { kind: 'drawing', drawingId: drawing.id }, condition: 'greaterThan' });
+    app.alerts.add({ id: 'workspace-fired', source: { kind: 'price', price: 1 }, state: 'triggered', repeat: 'once' });
+    const snapshotPath = '/examples/yfinance/src/persist.js', adapterPath = '/examples/yfinance/src/workspace-document.js';
+    const snapshot = (await import(snapshotPath)).layoutSnapshot();
+    const prototype = Object.getPrototypeOf(app.chart), emit = prototype.emit;
+    let triggered = 0;
+    prototype.emit = function(type: string, value: unknown) { if (type === 'alert:triggered') triggered++; return emit.call(this, type, value); };
+    try { await app.openWorkspace((await import(adapterPath)).workspaceFromLayout(snapshot)); }
+    finally { prototype.emit = emit; }
+    return { triggered, anchored: Boolean(app.draw.get(drawing.id)), available: app.alerts.availability('workspace-armed').available,
+      alerts: app.alerts.list().map((alert: any) => [alert.id, alert.state]), pending: app.workspaceLoading };
+  })).toEqual({ triggered: 0, anchored: true, available: true,
+    alerts: [['workspace-armed', 'armed'], ['workspace-fired', 'triggered']], pending: false });
+});
+
 test('portable reference workspace captures both real charts without losing studies or source ownership', async ({ page }) => {
   await page.setViewportSize({ width: 1360, height: 900 });
   await openDemo(page);

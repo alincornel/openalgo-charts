@@ -237,7 +237,7 @@ describe('storage', () => {
     expect(setItem).not.toHaveBeenCalled();
   });
 
-  it.each(['loading2', 'loadFailed2', 'loadFailed', 'chartSettingsEditing'])('does not autosave transient state while %s is set', flag => {
+  it.each(['workspaceLoading', 'loading2', 'loadFailed2', 'loadFailed', 'chartSettingsEditing'])('does not autosave transient state while %s is set', flag => {
     const app = freshApp();
     initPersist(app);
     autosave();

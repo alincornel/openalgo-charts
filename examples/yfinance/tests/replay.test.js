@@ -5,7 +5,7 @@ vi.mock('../src/feed.js', () => ({ fetchBars: vi.fn(), abortFetch: vi.fn() }));
 vi.mock('../src/toolbar.js', () => ({ renderToolbar: vi.fn(), ticon: () => '' }));
 vi.mock('../src/status.js', () => ({ setLegend: vi.fn(), barStamp: () => '' }));
 import { fetchBars, abortFetch } from '../src/feed.js';
-import { initReplay, startReplayAt, exitReplay, loadReplaySubBars } from '../src/replay.js';
+import { initReplay, enterReplay, startReplayAt, exitReplay, loadReplaySubBars } from '../src/replay.js';
 
 describe('reference replay transitions', () => {
   let app;
@@ -20,6 +20,14 @@ describe('reference replay transitions', () => {
     vi.clearAllMocks();
   });
   afterEach(() => { delete globalThis.window; });
+
+  it('cannot enter or load replay while a workspace switch is pending', async () => {
+    app.workspaceLoading = true;
+    enterReplay();
+    await startReplayAt(0);
+    expect(app.replayPicking).toBe(false);
+    expect(fetchBars).not.toHaveBeenCalled();
+  });
 
   it('locks before loading and rejects a result after cancellation', async () => {
     let resolve;

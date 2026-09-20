@@ -66,24 +66,47 @@ and the existing inventory check now include the adapter.
 
 ## Task 2: Prepare and install complete workspaces
 
-Files: add `examples/yfinance/src/workspace-transition.js` and its tests; modify
+Files: add `examples/yfinance/src/workspace-transition.js`, `workspace-host.js` and tests; modify
 `main.js`, `split.js`, `persist.js` and reference browser tests.
 
-- [ ] Add failing tests for all-history preparation, distinct request timezones,
+- [x] Add failing tests for all-history preparation, distinct request timezones,
   expression cancellation, stale completions, missing source data and rejection
   before mutation. Capture current raw bars for rollback; transformed bars are
   not a valid input to rebuilding the old chart.
-- [ ] Add synchronous prepared-data installation paths for primary and secondary
+- [x] Add synchronous prepared-data installation paths for primary and secondary
   charts, retaining existing data loading defaults. Validate each restore report.
   Hold alert/save/order guards throughout publication; restore drawings before
   alerts and each source before its data context is made active.
-- [ ] Prepare all pane histories before publication. Keep the displayed workspace
+- [x] Prepare all pane histories before publication. Keep the displayed workspace
   intact during preparation. Check ownership/revision before persistence and
   publication. Cancel previous preparations and dispose their listeners/signals.
   Restore the captured old snapshot on a synchronous publication failure.
-- [ ] Verify source/type/zone and split geometry changes, failed fetch/write,
+- [x] Verify source/type/zone and split geometry changes, failed fetch/write,
   cancellation and context change, firing history silence and no future replay
   data saved. Run affected unit/browser tests and commit.
+
+Task 2 uses a separate workspace-host.js for current chart ownership and page
+guards. The installer establishes split geometry before constructing the primary,
+restores drawings before alerts, and captures raw feed bars for rollback so a
+transformed chart is never transformed twice. A storage callback can return a
+revision-checked rollback receipt for installation failure or a stale owner at
+the commit boundary. Linked source disagreements and unsupported/malformed drawing
+documents are rejected before requesting history. Catalog/UI actions remain Task 3.
+
+Validation: 17 transition cases, the full 346-test reference suite in 26 files,
+lint and typecheck pass. The full reference browser sweep passes 112 cases across
+three engines, including history/storage gating, context cancellation, actual
+transformed-chart rollback and restored-alert history silence. A final 12-case
+three-engine transition sweep covers the completed receipt handling. Successful
+installation screenshots were inspected in all three engines.
+
+The first full sweep passed 111 cases; one rollback fixture was stopped by the
+ownership guard before reaching its injected failure. Eight diagnostic repetitions
+passed without identifying a specific changed field. The fixture now waits for
+its initial transformed charts to render before capturing the rollback baseline;
+the production guard was not weakened. The final full sweep passed without retries.
+Logs and screenshots are under artifacts/candidate/reference-workspace-transition-*.
+No library bundle, consumer dependency or publication changes in these tasks.
 
 ## Task 3: Named catalog and host controls
 
