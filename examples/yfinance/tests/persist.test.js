@@ -332,7 +332,7 @@ describe('storage', () => {
 function layoutSnapshotFor(app) {
   return {
     schema: LAYOUT_SCHEMA, ...app.chart.getState(), dataset: datasetKey(app.req),
-    request: { ...app.req }, chartType: 'candlestick', pfmode: 'atr',
+    request: { ...app.req }, chartType: 'candlestick', pfmode: 'atr', legendIconSize: 16,
     comparisons: [], compareMode: app.cmpMode, volume: true, volumeSettings: { 'volume.visible': true }, focusPane: 1,
   };
 }
@@ -357,6 +357,24 @@ describe('applying a layout', () => {
     expect(snap.comparisons).toEqual([{ symbol: 'MSFT', color: '#f00', hidden: false }]);
     expect(snap.compareMode).toBe('indexed');
     expect(snap.dataset).toBe('AAPL|1d|1y');
+  });
+
+  it('saves both chart legend sizes and restores the primary without changing the secondary', () => {
+    let size = 24;
+    app.chart.legendIconSize = () => size;
+    app.chart.setLegendIconSize = value => { size = value; };
+    app.chart2 = { ...fakeChart(), legendIconSize: () => 12, setLegendIconSize: vi.fn() };
+    app.p2 = { symbol: 'MSFT', interval: '1d', period: '1y' };
+    const snap = layoutSnapshot();
+    expect(snap.legendIconSize).toBe(24);
+    expect(snap.secondary.legendIconSize).toBe(12);
+    size = 28;
+    expect(applyLayout(snap).applied).toBe(true);
+    expect(size).toBe(24);
+    expect(app.chart2.setLegendIconSize).not.toHaveBeenCalled();
+    const legacy = { ...snap }; delete legacy.legendIconSize;
+    expect(applyLayout(legacy).applied).toBe(true);
+    expect(size).toBe(16);
   });
 
   it('captures the primary request, transform and box mode without extra request fields', () => {

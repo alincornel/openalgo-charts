@@ -33,6 +33,21 @@ function layout() {
 }
 
 describe('reference workspace documents', () => {
+  it('round-trips independent legend button sizes and defaults legacy layouts', () => {
+    const original = layout();
+    original.legendIconSize = 24;
+    original.secondary.legendIconSize = 12;
+    const saved = workspaceFromLayout(original);
+    expect(saved.panes.map(pane => pane.settings['reference.legendIconSize'])).toEqual([24, 12]);
+    expect(layoutFromWorkspace(saved)).toMatchObject({ legendIconSize: 24, secondary: { legendIconSize: 12 } });
+    expect(layoutFromWorkspace(workspaceFromLayout(layout())).legendIconSize).toBe(16);
+  });
+
+  it.each([11, 29, '24', null])('rejects invalid named workspace legend sizes (%s)', value => {
+    const saved = workspaceFromLayout(layout());
+    saved.panes[0].settings['reference.legendIconSize'] = value;
+    expect(() => validateReferenceWorkspace(saved)).toThrow();
+  });
   it('round-trips both source selections, host settings, ownership and split geometry', () => {
     const original = layout();
     const document = workspaceFromLayout(original, { magnet: 'strong', stay: true });

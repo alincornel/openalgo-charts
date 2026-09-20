@@ -61,6 +61,10 @@ price scales and transparent legend readings. Existing studies keep plot anchori
 by default; hosts opt in to price anchoring and supply their own source editor.
 See the [2.4.6 changelog](./CHANGELOG.md#246).
 
+To try these controls locally, run the [yfinance reference host](./examples/yfinance/README.md)
+and add **Source signal sample** from Indicators. Its source button opens the
+host-owned code, and Readout settings include **Legend button size** for each chart.
+
 ```bash
 npm install openalgo-charts
 ```
@@ -501,7 +505,7 @@ See [Contributing](./CONTRIBUTING.md) for setup, targeted checks, documentation 
 npm install        # install dev toolchain
 npm run typecheck  # strict TypeScript check
 npm test           # engine unit tests (Vitest): 5771 across 245 files
-npm run test:demo  # reference-host tests: 389 across 30 files
+npm run test:demo  # reference-host tests: 401 across 31 files
 npm run test:endurance # node endurance-harness tests: 7 cases
 npm run build      # Rollup -> dist/ (minified ESM per tier + types)
 npm run size       # size-limit (Brotli) against the budget

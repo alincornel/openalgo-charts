@@ -10,6 +10,9 @@ Indicator source access, readable legend controls and reliable signal placement.
 
 ### Added
 
+- The yfinance reference host includes an opt-in Source signal sample study,
+  a read-only source viewer for each chart, and a chart-local legend button size
+  in Readout settings. Legend size survives chart rebuilds and saved layouts.
 - `IndicatorDescriptor.hasSource` adds a source button beside the legend's
   settings button. It emits `indicatorSource` with
   `{ instanceId, indicatorId, paneIndex }`. The host owns and displays the code;

@@ -10,6 +10,24 @@ stored through the optional workspace tier. Layout changes prepare history befor
 publication, retain visible storage errors and guard simulated order entry during
 replay or a pending workspace switch. It does not use the packaged widget shell.
 
+Choose **Indicators > Examples > Source signal sample** to add the host-owned
+2.4.6 demonstration to the focused chart. It alternates Up and Down labels every
+12 bars, including gaps in the first plot. Its `markerAnchor: 'price'` keeps those
+labels at the displayed price bars; the transparent helper plot contributes no
+legend reading. The sample is opt-in and the built-in indicators are unchanged.
+
+Hover its legend and click **Source** to read the exact descriptor factory the
+host registers. The dialog identifies the chart, symbol and indicator instance,
+including repeated copies on the second chart. `hasSource` enables the button;
+`indicatorSource` supplies identity, while the host supplies the text. The viewer
+uses `textContent` and offers no editing or execution. Removing its instance or
+rebuilding its chart closes the dialog.
+
+**Chart settings > Readout > Legend button size** changes all legend buttons on
+the selected chart from 12 to 28 pixels (default 16). Cancel restores the previous
+size. Each chart keeps its own choice across chart-type changes, reloads and saved
+layouts; named workspace documents store it as `reference.legendIconSize`.
+
 ## Run
 
 ```bash
@@ -179,6 +197,7 @@ examples/yfinance/
     bracket.js        the bracket panel: entry, target and stop pills
     orders.js         resting orders, market fills, the net position, trade state
     indicators.js     the indicator picker and the generated settings form
+    indicator-source.js the opt-in sample and chart-owned read-only source dialog
     chart-settings.js the chart settings dialog, built from chartSettingsSchema()
     compare.js        multi-symbol comparison
     replay.js         market replay: the bar picker and the transport
@@ -292,7 +311,8 @@ exists to show one engine surface carrying real use, not just being present.
 | `expression.js` | A symbol box holding arithmetic (`AAPL/MSFT`, `NSEIX:NIFTY1!/NSE:RELIANCE+NASDAQ:META`) charts the result. `parseExpression` names the legs before anything is fetched, so exactly those are loaded, in parallel, with the first failure winning: a ratio missing a leg is not a chart with a gap. `evaluateExpression` folds them onto the first leg's time grid, gapping any bar the others did not trade rather than carrying a stale price forward. Closes are exact; a high and low can be bounded by interval arithmetic, which is offered rather than assumed because the bound assumes each leg hit its extreme at the worst possible moment. |
 | `feed.js` | A `DataFeed` is one method. The bar cache wrapper (`withBarCache`) keys on symbol, exchange and interval, snaps `from` to the bar grid so a reload inside the same bar hits, stops `to` at the last seen bar while the venue is shut, and refetches only the forming bar. A 404, 429 or 5xx becomes a typed error (`NotFoundError`, `RateLimitedError`, `NetworkError`) with a deadline and one retry, so the readout can say "check the symbol" or "try again in a minute" rather than printing whatever the server wrote. A staleness badge says when the newest bar is older than the venue's clock allows. |
 | `intervals.js` | The interval registry accepts codes the built-in grammar does not (`1wk`, a calendar month, a quarter). Monthly and quarterly bars are folded from daily ones through `bucketStartOf`, so a month runs first-to-first in the chart's zone and February is 29 days long in 2024. Ranges are clamped to what the interval can serve. |
-| `indicators.js` | The picker is built from `registeredIndicators()`, not a hardcoded list, so anything registered shows up grouped by category, and the count is the tier's rather than the demo's. The gear opens a form generated from the descriptor's `inputs`; the same code renders MACD, Bollinger or your own indicator. |
+| `indicators.js` | The picker is built from `registeredIndicators()`, so built-ins and the host's opt-in example appear grouped by category. The gear opens a form generated from the descriptor's `inputs`; the same code renders MACD, Bollinger or your own indicator. |
+| `indicator-source.js` | Registers the Source signal sample and resolves source requests against the emitting chart and live instance. The read-only dialog shows the actual host factory and closes when its owner is removed or destroyed. |
 | `chart-settings.js` | The settings dialog is generated from `chartSettingsSchema()`, including the paired up and down colour control on one row, and a control the current context cannot back is drawn disabled with its state visible. |
 | `transforms.js` | Heikin Ashi, Renko, Range Bars, Line Break, Point and Figure and Kagi from the transform tier; P&F reveals its box-sizing mode (ATR, percent, fixed). |
 | `volume.js` | Volume rides an overlay price scale (`priceScaleId: ''`) inside the price pane, pinned to the bottom fifth, so the right-hand axis stays a clean price ladder. It hides and shows from the legend eye and the right-click menu, and the choice survives a reload and a chart-type switch. |
