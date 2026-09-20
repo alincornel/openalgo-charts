@@ -67,6 +67,10 @@ select:focus-visible, textarea:focus-visible {
 /* The plot itself can hold focus (the rail hands it back on Escape); a ring
    drawn inside its edge says so without fencing the whole page. */
 #chart:focus-visible, #chart2:focus-visible { outline-offset: -2px; }
+#chart[data-chart-focused="true"]::after, #chart2[data-chart-focused="true"]::after {
+  content: ''; position: absolute; inset: 0; z-index: 5;
+  border: 1px solid var(--ring); pointer-events: none;
+}
 /* Read by assistive technology, never drawn. */
 .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
   overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }

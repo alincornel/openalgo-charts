@@ -71,11 +71,7 @@ export function initDrawing(a) {
   el('drawclear').addEventListener('click', () => app.draw && app.draw.clear());
   // The legacy magnet checkbox is the rail's to follow (it owns the
   // three-way mode); nothing here reads it any more.
-  // Which plot the chords act on. The two charts have separate controllers
-  // and separate selections, so "the one the pointer is over" is the only
-  // answer that does not need a focus ring the canvas cannot draw.
-  el('chart').addEventListener('pointerenter', () => { app.focusPane = 1; });
-  el('chart2').addEventListener('pointerenter', () => { app.focusPane = 2; });
+  // The shared selection owner in rail.js chooses the controller for chords.
 
   // Keyboard. The rail claims the drawing chords (tool chords, undo and
   // redo, delete, nudges, placement keys) in the capture phase; what

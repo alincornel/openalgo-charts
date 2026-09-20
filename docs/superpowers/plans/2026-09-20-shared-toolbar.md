@@ -100,3 +100,32 @@ part of the broader responsive review before release.
 
 Task 2 and the full F1-F9/P1-P6, live-broker, endurance and release scope remain
 open. The package is still the local 2.4.0 candidate; final target is 2.4.5.
+
+## Task 2 selection and snapshot checkpoint
+
+The reference example now selects a chart by pointer press or keyboard focus.
+Hovering another plot does not change ownership. Drawing controls and snapshots
+use that selection. A captured snapshot menu keeps its original chart and request;
+chart replacement or a changed request invalidates it. The image filename also
+retains its original symbol and interval while asynchronous conversion finishes.
+Closing the second chart selects the surviving chart through the same owner.
+
+Four snapshot regressions and two selection failures were observed before the
+implementation. The browser exposed a duplicate hover listener in drawing.js,
+which was removed. Screenshot inspection then found the canvas covering the
+selected-chart outline. A failing pixel assertion reproduced this; a transparent,
+non-interactive border overlay now paints above the canvas in all three engines.
+Selected-chart screenshots from Chromium, Firefox and WebKit were inspected.
+
+Final checks pass: 255 example tests in 21 files, 40 reference browser tests,
+repository typecheck and lint. Example JavaScript is excluded by the repository's
+lint configuration; it is exercised by module, unit and actual browser tests.
+The runner's existing NO_COLOR/FORCE_COLOR warning remains. Artifacts are
+`reference-focus-final-{demo,browser,types,lint}.log` and the screenshots under
+`artifacts/candidate/reference-focus-final-browser/`. Earlier failing runs are
+retained as `reference-snapshot-red.log`, `reference-focus-red.log` and
+`reference-selection-ring-red.log`.
+
+Task 2 remains in progress: symbol, interval, chart type, studies, grid/readout,
+settings, comparisons and replay still need consistent reference-pane routing.
+This checkpoint changes no published library API or installed consumer package.

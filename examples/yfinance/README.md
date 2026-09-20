@@ -178,6 +178,7 @@ examples/yfinance/
     compare.js        multi-symbol comparison
     replay.js         market replay: the bar picker and the transport
     snapshot.js       save or copy the chart as a PNG
+    pane-target.js    selected chart and captured request ownership for host actions
     split.js          the linked second chart and its divider
     link.js           the link-group switches
     clipboard.js      the drawing clipboard and its chords
@@ -295,8 +296,15 @@ exists to show one engine surface carrying real use, not just being present.
 | `text-editor.js` | Inline text editing over the painted text, sized by the same rules the text tool paints with, with every pointer and key event stopped at the box so the chart under it does not pan. |
 | `menus.js`, `toolbar.js`, `hover.js` | Host chrome to the standard in `CLAUDE.md`: styled scrollbars, no native form controls on a dark panel, real tooltips that flip inside the window, and dialog furniture in one arrangement. |
 | `snapshot.js` | `chart.takeScreenshot()` saved as a PNG or copied to the clipboard, with chart branding, an enabled watermark and the replay mark in the image because they are on the canvas. |
+| `pane-target.js` | Captures the selected chart and request for host actions. A menu cannot act on a rebuilt chart or changed instrument, and asynchronous image export retains its original filename. |
 | `persist.js` | A versioned layout document with migrations, quarantine instead of deletion, memory-only degradation when storage refuses a write, and export and import as a file. See the next section. |
 | `alerts.js` | The Alerts toolbar button opens the focused chart's lifecycle list and source editor. Price, study plots, supported drawing levels and registered candle conditions use the same controls as the packaged widget. Local notices display fired events; the demo does not send notifications or orders for an alert. |
+
+Click or focus a chart to select it for drawing shortcuts, alert controls and
+snapshots. Hovering another chart leaves that selection unchanged. Snapshot
+menus retain the chart that opened them; snapshot keyboard shortcuts use the
+current selection. A filename retains the captured symbol and interval while
+the image is generated. Further shared-toolbar routing is still in development.
 
 Alerts default to confirmed bar closes. Intrabar touch can fire on a wick that
 the provider later removes from final history. Absent study readings remain

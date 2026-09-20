@@ -160,11 +160,21 @@ export const railPrefs = () => ({
 const lastOf = (g) => prefs.last[g.id] || toolsOf(g)[0] || null;
 
 // ── the controllers the rail drives ────────────────────────────────────
-// Which plot the chords act on: the two charts have separate controllers
-// and separate selections, so "the one the pointer is over" is the only
-// answer that needs no focus ring the canvas cannot draw.
+// Shared controls and drawing chords use the same explicitly selected chart.
 const activeDraw = () => (app.focusPane === 2 && app.draw2 ? app.draw2 : app.draw);
 const activeChart = () => (app.focusPane === 2 && app.chart2 ? app.chart2 : app.chart);
+
+/** Pointer or keyboard selection owns shared controls until another selection. */
+export function focusChart(pane) {
+  const selected = pane === 2 && app.chart2 ? 2 : 1;
+  const changed = app.focusPane !== selected;
+  app.focusPane = selected;
+  for (const [id, index] of [['chart', 1], ['chart2', 2]]) {
+    el(id)?.setAttribute('data-chart-focused', String(index === selected));
+  }
+  syncMobileControls(activeDraw()?.activeTool());
+  if (changed) app.onFocusPane?.(selected);
+}
 const eachDraw = (fn) => { for (const d of [app.draw, app.draw2]) if (d) fn(d); };
 const mobileObserved = new WeakSet();
 const selectionOf = (d) => {
@@ -910,11 +920,12 @@ export function initMobile(a) {
   el('mobilebar').addEventListener('pointerdown', (event) => event.stopPropagation());
   for (const [id, pane] of [['chart', 1], ['chart2', 2]]) {
     const node = el(id);
-    if (node) node.addEventListener('pointerenter', () => {
-      app.focusPane = pane;
-      syncMobileControls(activeDraw()?.activeTool());
-    });
+    if (!node) continue;
+    node.tabIndex = 0;
+    node.addEventListener('pointerdown', () => focusChart(pane));
+    node.addEventListener('focusin', () => focusChart(pane));
   }
+  focusChart(app.focusPane);
   observeMobileControls(app.chart, app.draw);
   observeMobileControls(app.chart2, app.draw2);
   syncMobileControls(activeDraw()?.activeTool());

@@ -4,6 +4,53 @@ const ORIGIN = 'http://127.0.0.1:8124';
 const PAGE = ORIGIN + '/examples/yfinance/index.html?test=1';
 const PROBE = ORIGIN + '/api/history?symbol=AAPL&interval=1d&period=1mo';
 
+test('reference selection survives hover and snapshot menus retain their chart owner', async ({ page }, info) => {
+  await page.setViewportSize({ width: 1360, height: 900 });
+  await openDemo(page);
+  await page.getByRole('button', { name: /Open a second, linked chart/ }).click();
+  await page.waitForFunction(() => (window as any).__oac.app.chart2?.primaryBars().length > 0);
+  const secondary = page.locator('#chart2');
+  const primary = page.locator('#chart');
+  const box = (await secondary.boundingBox())!;
+  await page.mouse.click(box.x + box.width * 0.4, box.y + box.height * 0.35);
+  await expect(secondary).toHaveAttribute('data-chart-focused', 'true');
+  const other = (await primary.boundingBox())!;
+  await page.mouse.move(other.x + other.width * 0.4, other.y + other.height * 0.35);
+  expect(await page.evaluate(() => (window as any).__oac.app.focusPane)).toBe(2);
+  const edge = await page.screenshot({ clip: { x: box.x, y: box.y + 80, width: 3, height: 12 } });
+  const visibleSelection = await page.evaluate(async (encoded) => {
+    const bytes = Uint8Array.from(atob(encoded), (value) => value.charCodeAt(0));
+    const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+    const canvas = document.createElement('canvas');
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext('2d')!;
+    context.drawImage(bitmap, 0, 0);
+    bitmap.close();
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    for (let index = 0; index < pixels.length; index += 4) {
+      if (pixels[index] === 45 && pixels[index + 1] === 212 && pixels[index + 2] === 191) return true;
+    }
+    return false;
+  }, edge.toString('base64'));
+  expect(visibleSelection, 'selected chart border must paint above its canvas').toBe(true);
+  await page.screenshot({ path: info.outputPath('reference-selected-chart.png') });
+  await page.getByRole('button', { name: 'Chart snapshot', exact: true }).click();
+  await primary.focus();
+  await expect(primary).toHaveAttribute('data-chart-focused', 'true');
+  const exported = page.waitForEvent('download');
+  await page.locator('#snap-save').click();
+  expect((await exported).suggestedFilename()).toMatch(/^MSFT-1h-.*\.png$/);
+  const primaryExport = page.waitForEvent('download');
+  await primary.focus();
+  await page.keyboard.press('Control+Alt+s');
+  expect((await primaryExport).suggestedFilename()).toMatch(/^AAPL-1d-.*\.png$/);
+  expect(await page.evaluate(() => ({
+    orders: (window as any).__oac.app.orders.length,
+    fills: (window as any).__oac.app.fills.length,
+  }))).toEqual({ orders: 0, fills: 0 });
+});
+
 for (const pane of [1, 2]) {
   test(`reference context alert creation stays on chart ${pane}`, async ({ page }, info) => {
     await page.setViewportSize({ width: 1360, height: 900 });

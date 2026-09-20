@@ -612,3 +612,19 @@ replay opt-in and preserve per-chart defaults. The source score remains frozen.
 Reference-example toolbar parity is next. Sustained endurance, authenticated broker
 checks and all remaining production/release requirements remain open. No release
 was published. Original checkout edits were preserved.
+
+### Reference selection and snapshot checkpoint
+
+The reference example now uses explicit pointer/keyboard chart selection and
+keeps snapshots bound to their captured chart, symbol and interval. Hover no
+longer switches the owner; stale menus are rejected after a rebuild or request
+change. The selected border paints above the canvas and is verified with actual
+pixels. Snapshot conversion cannot rename an image after the request changes.
+
+Final evidence: 255 example tests in 21 files and 40 reference browser tests pass,
+with repository types and lint. Red/green regressions and artifact locations are
+recorded in the shared toolbar plan. The existing runner color warning remains.
+Remaining reference toolbar routing, F8 shared replay, broader production gates,
+endurance, final broker validation and release work remain open. The library and
+installed consumer package are unchanged. This is a local development checkpoint;
+2.4.5 has not been published and the readiness score remains frozen.

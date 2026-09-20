@@ -133,7 +133,7 @@ const app = {
   volume2: null,
   draw2: null,
   p2: { symbol: 'MSFT', interval: '1h', period: '1mo', note: '' },
-  focusPane: 1,          // which plot the pointer is over, so a clipboard chord knows its target
+  focusPane: 1,          // selected chart for shared controls and clipboard shortcuts
   // The main chart's drawing controller, and the tool id -> chord table the
   // rail labels its rows from once the draw tier has answered.
   draw: null,
@@ -537,6 +537,7 @@ initPersist(app);
 // Escape is the overlay stack's (ui.js): one layer per press, each closed
 // through its own close control, so chart settings still revert.
 initToolbar(app);
+app.onFocusPane = () => renderToolbar();
 // The rail mounts the properties bar for the selected drawing on the stage,
 // so a bar docked to it comes along into chart-only full screen.
 initRail(app, { mountPropertiesBar });

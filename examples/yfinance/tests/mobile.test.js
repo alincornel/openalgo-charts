@@ -146,11 +146,24 @@ describe('compact controls', () => {
     doc.getElementById('mobile-zoom-in').click();
     expect(app.chart.setVisibleLogicalRange).toHaveBeenLastCalledWith({ from: 20, to: 100 });
 
-    chart2box.fire('pointerenter');
+    chart2box.fire('pointerdown');
     doc.getElementById('mobile-zoom-out').click();
     expect(app.chart2.setVisibleLogicalRange).toHaveBeenLastCalledWith({ from: 15, to: 65 });
     doc.getElementById('mobile-fit').click();
     expect(app.chart2.resetScale).toHaveBeenCalledOnce();
+  });
+
+  it('keeps explicit selection while another chart is only hovered and supports keyboard focus', () => {
+    const { document: doc, chart2box, app } = setup();
+    chart2box.fire('pointerdown');
+    expect(app.focusPane).toBe(2);
+    doc.getElementById('chart').fire('pointerenter');
+    expect(app.focusPane).toBe(2);
+    expect(chart2box.getAttribute('data-chart-focused')).toBe('true');
+    doc.getElementById('chart').fire('focusin');
+    expect(app.focusPane).toBe(1);
+    expect(chart2box.getAttribute('data-chart-focused')).toBe('false');
+    expect(doc.getElementById('chart').tabIndex).toBe(0);
   });
 
   it('keeps pointer presses on the controls out of the chart gesture path', () => {

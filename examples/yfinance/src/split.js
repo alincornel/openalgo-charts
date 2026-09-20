@@ -4,7 +4,7 @@ import { attachAlerts, detachAlerts } from './alerts.js';
 import { DrawingController } from '/dist/openalgo-charts.draw.mjs';
 import { el, esc, fmt, UP, DOWN, chartTheme, chartMotionOptions, toast } from './ui.js';
 import { clipboardPort } from './clipboard.js';
-import { armCursor, magnetMode, stayMode, syncMobileControls, observeMobileControls } from './rail.js';
+import { armCursor, magnetMode, stayMode, syncMobileControls, observeMobileControls, focusChart } from './rail.js';
 import { fetchBars, fetchNote, feedErrorState, abortFetch } from './feed.js';
 import { autosave } from './persist.js';
 import { INTERVALS, intervalLabel, intervalName, clampPeriod } from './intervals.js';
@@ -130,7 +130,7 @@ export function closeSplit() {
   el('splitbar').hidden = true;
   el('chart2').innerHTML = '';
   el('p2legend').innerHTML = '';
-  app.focusPane = 1;
+  focusChart(1);
   renderToolbar();
   autosave();
 }
