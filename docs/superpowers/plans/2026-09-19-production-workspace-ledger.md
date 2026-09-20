@@ -990,3 +990,22 @@ Reference F2 is complete. Chart-data download, remaining P1-P6 contracts, endura
 whole-branch review, version/docs/site updates and publication remain. Original
 OI edits and consumer work are preserved. Charts 2.4.5 still publishes before the
 remaining /trading implementation and final connected broker validation.
+
+### Reusable chart-data CSV snapshot
+
+The base package now exports exportChartDataCsv and ChartDataCsvOptions. It reads
+installed primary rows with UTC seconds and unrounded OHLC/volume/OI, configured
+study plots with instance identity, and eligible comparison closes in original
+price units. Missing/nonfinite readings stay blank, zero stays zero, and replay
+only exposes its installed prefix. Headers have safe fixed prefixes and CSV
+escaping; no trading/account data is serialized. Reading comparisons does not
+create a controller or subscribe to chart events. Explicit controllers can supply
+their own handles. The helper initiates no browser download or history request.
+
+Nine export cases and all 44 focused comparison/export cases pass. Full package
+verification passes 5600 engine tests/235 files, 379 reference tests/29 files,
+lint/types/build/declarations/size/tree-shaking. Base 89.40 kB, terminal 201.25 kB
+and all tiers 240.25 kB remain within existing budgets; chart-only stays 52.30 KiB.
+API generation is warning-free and skills coverage passes 920/920 after rebuilding.
+Task 1 of chart-data-export is complete; reference/widget download controls are
+still Task 2. P1-P6, endurance, final review and release work remain open.

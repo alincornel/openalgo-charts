@@ -22,6 +22,19 @@ chart.fitContent();
 
 `createChart(container, options?)` returns a `Chart`; `new Chart(container, options?)` is equivalent and also exported.
 
+**CSV data export.** `exportChartDataCsv(chart, options?: ChartDataCsvOptions)`
+returns all installed primary bars as `time,open,high,low,close,volume,oi`, followed
+by declared study plots and registered comparison closes. Time is UTC seconds;
+missing/nonfinite readings are blank, zero remains zero and OI is never summed.
+Repeated study columns include instance identity; hidden studies are included.
+`indicators: false` omits studies. `comparisons` overrides the registered handles,
+for example with an explicitly managed controller's `list()` or `[]` to omit them.
+Comparisons retain original price units and their existing calendar/replay gaps.
+Only the installed replay prefix is read; transforms retain installed OHLC and
+study values precede visual plot offsets. This helper is DOM-free and does not
+download, fetch or serialize trading state. See `docs/chart-data-export.md` for
+the complete format and captured-source host guards.
+
 **Rendering needs a measurable container.** A hidden chart may receive data before it has
 width or height. Since 2.1.3, its initial default fit remains pending until the first
 usable layout, including when `ResizeObserver` reveals the tab. Give the container a real

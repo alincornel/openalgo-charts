@@ -614,6 +614,11 @@ export class ComparisonController {
 /** One controller per chart, so `addComparison` can be called as a free function. */
 const controllers = new WeakMap<ComparisonChartHost, ComparisonController>();
 
+/** Exporting data must not create a controller or subscribe to chart events. */
+export function existingComparisonHandles(chart: ComparisonChartHost): readonly ComparisonHandle[] {
+  return controllers.get(chart)?.list() ?? [];
+}
+
 /**
  * The controller for a chart, created on first use. Use it to change the mode
  * for the whole chart, to list what is on it, or to clear it.
