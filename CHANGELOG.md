@@ -2,6 +2,42 @@
 
 All notable changes to OpenAlgo Charts.
 
+## Unreleased
+
+Legend and marker fixes, all reported from a live chart.
+
+### Added
+
+- `IndicatorDescriptor.hasSource` puts a braces button on that indicator's
+  legend row, beside the gear. Pressing it emits `indicatorSource` carrying
+  `{ instanceId, indicatorId, paneIndex }`, the same payload `indicatorSettings`
+  carries. The engine holds no code and no DOM: it says which indicator was
+  asked about and the host decides what to show. Absent or false draws no
+  button, which is every built-in study.
+- `PaneLegendOptions.iconSize` sets the square side of a legend action button in
+  media px, held to 12..28. The row grows to hold a larger button, so the rows
+  below it move down instead of being drawn through.
+  `ChartOptions.legendIconSize`, `applyOptions({ legendIconSize })` and
+  `setLegendIconSize` apply one size to every legend on the chart, which is what
+  keeps the rows on a pane stacking against a single height.
+
+### Fixed
+
+- A legend no longer prints the reading of a plot drawn in a fully transparent
+  colour. A study that draws a column at zero alpha so a marker has a gapless
+  series to anchor to is a normal thing to write, and the row was printing that
+  column's number in an invisible colour: nothing to see, the full width of a
+  price, sitting between the parameters and the first real value. A colour the
+  library cannot parse is not treated as invisible.
+- Legend action glyphs are sized from their button rather than from the row's
+  text, which had left a 9px drawing adrift in a 16px square. Each glyph is
+  about a quarter larger at the default size, and the stroke thickens with the
+  button. The default row height is unchanged.
+- A marker whose own series has no bar at that time is drawn against the source
+  bars instead of being dropped. A study that plots a signal only on the bars it
+  fires on has gaps by design, and its markers were silently absent from exactly
+  the bars they were about.
+
 ## 2.4.5
 
 2026-09-20
