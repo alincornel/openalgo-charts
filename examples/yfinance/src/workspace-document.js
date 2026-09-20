@@ -1,0 +1,140 @@
+import { parseWorkspacePayload, WorkspaceDocumentError } from '/dist/openalgo-charts.workspace.mjs';
+import { primaryLayoutSelection, datasetKey, LAYOUT_SCHEMA } from './persist.js';
+import { clampPeriod } from './intervals.js';
+import { VOLUME_DEFAULTS, volumeValues } from './volume.js';
+
+const CHART_FIELDS = ['version', 'timezone', 'navigation', 'canvas', 'statusLine', 'watermark',
+  'trading', 'events', 'axisChrome', 'viewport', 'barSpacing', 'grid', 'crosshairMode',
+  'crosshairSnapToBar', 'indicators', 'alerts', 'drawings', 'panes', 'series'];
+const COMPARISON_MODES = ['percentage', 'indexed-to-100', 'none'];
+const SCALE_MODES = ['linear', 'logarithmic', 'percentage', 'indexed-to-100'];
+const HOST_SETTINGS = ['reference.pfmode', 'reference.compareMode', 'reference.compareBaseMode', 'reference.whenMissing'];
+const fail = message => { throw new WorkspaceDocumentError(message); };
+
+function chartFields(state) {
+  return Object.fromEntries(CHART_FIELDS.filter(key => state[key] !== undefined).map(key => [key, state[key]]));
+}
+
+function paneFromLayout(saved, state, id, rail, whenMissing) {
+  const selection = primaryLayoutSelection({ ...saved, timezone: state.timezone });
+  if (!selection.request) fail('A named workspace needs an explicit chart source request');
+  const settings = { ...volumeValues({ 'volume.visible': saved.volume !== false, ...saved.volumeSettings }),
+    'reference.pfmode': selection.pfmode || 'atr', 'reference.compareMode': saved.compareMode || 'percentage',
+    'reference.whenMissing': whenMissing };
+  if (saved.compareBaseMode != null) settings['reference.compareBaseMode'] = saved.compareBaseMode;
+  const comparisons = (saved.comparisons || []).map((item, index) => ({
+    id: `${id}:comparison:${index}`, symbol: item.symbol, exchange: '', visible: item.hidden !== true,
+    ...(item.color === undefined ? {} : { color: item.color }),
+  }));
+  return { id, symbol: selection.request.symbol, interval: selection.request.interval,
+    historyPeriod: selection.request.period, exchange: '',
+    chartType: selection.chartType || 'candlestick', chart: chartFields(state), settings,
+    volume: settings['volume.visible'], magnet: rail.magnet, stay: rail.stay, comparisons,
+    comparisonMode: settings['reference.compareMode'] === 'none' ? 'price' : 'percent' };
+}
+
+/** Convert a trusted host snapshot, never the application's runtime or trading state. */
+export function workspaceFromLayout(layout, { magnet = layout.magnet || 'off', stay = layout.stay === true } = {}) {
+  const links = layout.linkOptions || {};
+  const whenMissing = links.whenMissing || 'nearest';
+  const panes = [paneFromLayout(layout, layout, 'primary', { magnet, stay }, whenMissing)];
+  if (layout.secondary) panes.push(paneFromLayout(layout.secondary, layout.secondary.state, 'secondary', { magnet, stay }, whenMissing));
+  const width = layout.secondary?.width ?? 50;
+  const payload = { panes, activePaneId: panes.length === 2 && layout.focusPane === 2 ? 'secondary' : 'primary',
+    layout: { rows: 1, columns: panes.length,
+      slots: panes.map((pane, column) => ({ paneId: pane.id, row: 0, column, rowSpan: 1, columnSpan: 1 })),
+      ...(panes.length === 2 ? { columnWeights: [100 - width, width] } : {}) },
+    sync: { crosshair: links.crosshair !== false, viewport: links.viewport !== false,
+      symbol: links.symbol === true, interval: links.interval === true } };
+  // getState() can contain absent optional fields. Normalize that trusted state
+  // before the portable boundary, which deliberately accepts only JSON values.
+  return validateReferenceWorkspace(JSON.parse(JSON.stringify(payload)));
+}
+
+function orderedPanes(payload) {
+  return [...payload.layout.slots].sort((a, b) => a.column - b.column)
+    .map(slot => payload.panes.find(pane => pane.id === slot.paneId));
+}
+
+function secondaryWidth(payload) {
+  const weights = payload.layout.columnWeights || [1, 1];
+  return 100 * weights[1] / (weights[0] + weights[1]);
+}
+
+/** Library validity does not imply the current host can honor every saved option. */
+export function validateReferenceWorkspace(input) {
+  const payload = parseWorkspacePayload(input);
+  const grid = payload.layout;
+  if (grid.rows !== 1 || grid.columns !== payload.panes.length || grid.columns > 2
+    || grid.slots.some(slot => slot.row !== 0 || slot.rowSpan !== 1 || slot.columnSpan !== 1)) {
+    fail('This host supports one chart or two horizontal charts; unsupported workspace geometry');
+  }
+  if (payload.panes.length === 2 && (secondaryWidth(payload) < 18 || secondaryWidth(payload) > 78)) {
+    fail('The second chart width must be between 18 and 78 percent');
+  }
+  const [first] = orderedPanes(payload);
+  for (const pane of payload.panes) {
+    if (pane.exchange) fail('This reference feed uses ticker symbols, not separate exchange identifiers');
+    const period = pane.historyPeriod ?? clampPeriod(pane.interval, '1y');
+    primaryLayoutSelection({ request: { symbol: pane.symbol, interval: pane.interval, period },
+      chartType: pane.chartType, pfmode: pane.settings['reference.pfmode'], timezone: pane.chart.timezone });
+    if (clampPeriod(pane.interval, period) !== period) fail('The saved history period is unavailable at this interval');
+    pane.historyPeriod = period;
+    for (const key of Object.keys(pane.settings)) {
+      if (!HOST_SETTINGS.includes(key) && !Object.prototype.hasOwnProperty.call(VOLUME_DEFAULTS, key)) {
+        fail(`Unsupported workspace setting: ${key}`);
+      }
+    }
+    const normalizedVolume = volumeValues(pane.settings);
+    for (const key of Object.keys(VOLUME_DEFAULTS)) {
+      if (pane.settings[key] !== undefined && pane.settings[key] !== normalizedVolume[key]) fail(`Invalid workspace setting: ${key}`);
+    }
+    if (pane.settings['volume.visible'] !== undefined && pane.volume !== pane.settings['volume.visible']) {
+      fail('Workspace volume visibility conflicts with its settings');
+    }
+    const mode = pane.settings['reference.compareMode'];
+    if (mode !== undefined && (!COMPARISON_MODES.includes(mode) || (mode === 'none') !== (pane.comparisonMode === 'price'))) {
+      fail('Unsupported or conflicting comparison mode');
+    }
+    const base = pane.settings['reference.compareBaseMode'];
+    if (base !== undefined && !SCALE_MODES.includes(base)) fail('Unsupported comparison base scale mode');
+    const missing = pane.settings['reference.whenMissing'] ?? 'nearest';
+    if (!['nearest', 'hide'].includes(missing) || missing !== (first.settings['reference.whenMissing'] ?? 'nearest')) {
+      fail('Unsupported or conflicting missing-crosshair behavior');
+    }
+    if (pane.magnet !== first.magnet || pane.stay !== first.stay) fail('This host uses a shared drawing rail');
+    const symbols = new Set();
+    for (const comparison of pane.comparisons) {
+      if (comparison.exchange) fail('This reference feed cannot resolve a separate comparison exchange');
+      const symbol = comparison.symbol.trim().toUpperCase();
+      if (symbols.has(symbol)) fail('Duplicate comparison symbol');
+      symbols.add(symbol);
+      if (comparison.color !== undefined && !/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(comparison.color)) {
+        fail('Unsupported comparison color');
+      }
+    }
+  }
+  return payload;
+}
+
+function paneToLayout(pane) {
+  const request = { symbol: pane.symbol, interval: pane.interval, period: pane.historyPeriod };
+  return { request, chartType: pane.chartType, pfmode: pane.settings['reference.pfmode'] || 'atr',
+    volume: pane.volume, volumeSettings: volumeValues({ 'volume.visible': pane.volume, ...pane.settings }),
+    comparisons: pane.comparisons.map(item => ({ symbol: item.symbol, hidden: !item.visible,
+      ...(item.color === undefined ? {} : { color: item.color }) })),
+    compareMode: pane.settings['reference.compareMode'] || (pane.comparisonMode === 'price' ? 'none' : 'percentage'),
+    ...(pane.settings['reference.compareBaseMode'] === undefined ? {} : { compareBaseMode: pane.settings['reference.compareBaseMode'] }) };
+}
+
+/** Validate the entire document before returning anything a live host can apply. */
+export function layoutFromWorkspace(input) {
+  const payload = validateReferenceWorkspace(input);
+  const [first, second] = orderedPanes(payload);
+  const primary = paneToLayout(first);
+  return { schema: LAYOUT_SCHEMA, ...first.chart, ...primary, dataset: datasetKey(primary.request),
+    magnet: first.magnet, stay: first.stay,
+    linkOptions: { ...payload.sync, whenMissing: first.settings['reference.whenMissing'] || 'nearest' },
+    focusPane: second && payload.activePaneId === second.id ? 2 : 1,
+    ...(second ? { secondary: { ...paneToLayout(second), state: second.chart, width: secondaryWidth(payload) } } : {}) };
+}

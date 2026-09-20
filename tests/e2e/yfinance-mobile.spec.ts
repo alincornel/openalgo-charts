@@ -4,6 +4,43 @@ const ORIGIN = 'http://127.0.0.1:8124';
 const PAGE = ORIGIN + '/examples/yfinance/index.html?test=1';
 const PROBE = ORIGIN + '/api/history?symbol=AAPL&interval=1d&period=1mo';
 
+test('portable reference workspace captures both real charts without losing studies or source ownership', async ({ page }) => {
+  await page.setViewportSize({ width: 1360, height: 900 });
+  await openDemo(page);
+  await page.getByRole('button', { name: /Open a second, linked chart/ }).click();
+  await page.waitForFunction(() => (window as any).__oac?.app.chart2?.primaryBars().length > 0 && !(window as any).__oac.app.loading2);
+  const result = await page.evaluate(async () => {
+    const app = (window as any).__oac.app;
+    app.chart.addIndicator('ema', { period: 9, 'plot.ema.color': '#ff0000' });
+    app.chart.addIndicator('ema', { period: 21, 'plot.ema.color': '#00ffff' });
+    app.chart.setTimezone('America/New_York');
+    app.focusPane = 2;
+    const snapshotPath = '/examples/yfinance/src/persist.js';
+    const documentPath = '/examples/yfinance/src/workspace-document.js';
+    const snapshot = (await import(snapshotPath)).layoutSnapshot();
+    const adapter = await import(documentPath);
+    const portable = adapter.workspaceFromLayout(snapshot, { magnet: 'weak', stay: true });
+    const restored = adapter.layoutFromWorkspace(portable);
+    const again = adapter.workspaceFromLayout(restored);
+    return { same: JSON.stringify(portable) === JSON.stringify(again),
+      primary: restored.request, secondary: restored.secondary.request, focus: restored.focusPane,
+      timezone: restored.timezone, studies: restored.indicators,
+      expectedStudies: snapshot.indicators, secondaryState: restored.secondary.state,
+      expectedSecondaryState: snapshot.secondary.state, chartFields: Object.keys(snapshot).filter(key => key in portable.panes[0].chart),
+      unexpectedFields: Object.keys(app.chart.getState()).filter(key => !(key in portable.panes[0].chart)),
+      containsHistory: JSON.stringify(portable).includes('currentBars') };
+  });
+  expect(result.same).toBe(true);
+  expect(result.primary.symbol).toBe('AAPL');
+  expect(result.secondary.symbol).toBe('MSFT');
+  expect(result.focus).toBe(2);
+  expect(result.timezone).toBe('America/New_York');
+  expect(result.studies).toEqual(result.expectedStudies);
+  expect(result.secondaryState).toEqual(result.expectedSecondaryState);
+  expect(result.unexpectedFields).toEqual([]);
+  expect(result.containsHistory).toBe(false);
+});
+
 test('primary layout selection is restored before the first history request', async ({ page }, info) => {
   await openDemo(page);
   await page.evaluate(async () => {

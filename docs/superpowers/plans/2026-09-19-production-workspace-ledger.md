@@ -856,3 +856,19 @@ This completes the primary restoration prerequisite. Reference F1 named catalogs
 and transactional switching, F2 templates, production contracts, endurance, final
 review and publication still remain. The user reconfirmed Charts 2.4.5 publication
 before remaining /trading work; the design now states that authorized order.
+
+### Reference portable workspace adapter
+
+The reference snapshot now maps to and from the library's validated workspace
+payload. Both source requests/types/timezones, study identities/styles/grouping,
+drawings and fired anchored alerts, volume/comparison preferences, selected chart,
+link options and horizontal split widths survive the round-trip. Slot ordering
+owns chart placement. Unsupported geometry, source periods, exchange identifiers,
+host settings and conflicting shared-rail preferences are rejected before restore.
+Configuration is projected without runtime history or trading/account state.
+
+Task 1 of the reference-named-workspaces plan is validated by 21 adapter cases,
+all 324 reference tests in 25 files, lint/typecheck and actual two-chart round-trips
+in three browser engines. An observed legacy volume-visibility regression is fixed.
+No user-facing named menu is claimed yet: staged live switching and catalog/UI
+tasks remain, followed by F2 and the production/release scope. No consumer changes.

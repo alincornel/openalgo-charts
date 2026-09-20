@@ -192,6 +192,7 @@ examples/yfinance/
     text-editor.js    inline text editing for a drawing, laid over the painted text
     drawing.js        the drawing controller, the tool picker, the clipboard chords
     persist.js        the layout document, its schema and migrations, storage, export and import
+    workspace-document.js  portable named-layout snapshots and reference-host support validation
   tests/              vitest specs for the modules that can run without a browser
   vitest.config.ts    the config those specs run under (see Tests)
 ```
@@ -299,6 +300,7 @@ exists to show one engine surface carrying real use, not just being present.
 | `snapshot.js` | `chart.takeScreenshot()` saved as a PNG or copied to the clipboard, with chart branding, an enabled watermark and the replay mark in the image because they are on the canvas. |
 | `pane-target.js` | Captures the selected chart and request for host actions. A menu cannot act on a rebuilt chart or changed instrument, and asynchronous image export retains its original filename. |
 | `persist.js` | A versioned layout document with migrations, quarantine instead of deletion, memory-only degradation when storage refuses a write, and export and import as a file. See the next section. |
+| `workspace-document.js` | Converts the full reference snapshot to the optional workspace tier and back. Preserves source settings, study identities, anchored alert state, comparison settings and split geometry. Rejects settings or geometry this host cannot represent before any live restore. Named catalog controls are a separate host layer. |
 | `alerts.js` | The Alerts toolbar button opens the focused chart's lifecycle list and source editor. Price, study plots, supported drawing levels and registered candle conditions use the same controls as the packaged widget. Local notices display fired events; the demo does not send notifications or orders for an alert. |
 
 Click or focus a chart, or use the Chart selector, to select it for symbol,
