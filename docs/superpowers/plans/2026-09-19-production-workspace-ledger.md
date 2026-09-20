@@ -731,3 +731,23 @@ This is a local chart checkpoint. Broader F/P scope, sustained endurance, final
 review and publication remain open; remaining /trading implementation and final
 broker/deployment validation follow Charts 2.4.5 publication. No consumer package
 or source changed here, and the score remains frozen.
+
+### Reference replay and fullscreen ownership checkpoint
+
+Focused replay retains its captured chart across focus changes and unrelated
+chart rebuilds. Finer history and time formatting use its captured request and
+timezone. Picker/transport/exit UI stays with that chart, pending responses cannot
+survive owner closure, and direct chart destruction stops the playback clock.
+Both charts' alert evaluation and every order-entry route remain guarded.
+Fullscreen shows the selected chart while retaining shared controls and dialogs;
+switching its selected chart works, and removing that owner restores the workspace.
+Narrow transport wraps, and the toolbar's chart selector stays visible while scrolling.
+
+Final verification: 280 example tests/23 files, 85 reference browser cases in three
+engines, types and lint pass. Three additional fullscreen geometry checks pass.
+Screenshots were inspected and retained; the shared-toolbar plan records red/green
+evidence, resource review and browser capture limits. Compact canvas-readout polish
+remains, along with F8, reference F1/F2, remaining production gates, endurance,
+whole-branch review and publication. No library or consumer source changed.
+Charts 2.4.5 still publishes before the remaining /trading work and final broker
+validation. Nothing was pushed or published and the score remains frozen.

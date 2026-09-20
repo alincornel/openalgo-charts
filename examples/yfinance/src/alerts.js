@@ -10,9 +10,8 @@ export function attachAlerts(app, pane = 1) {
   const chart = app['chart' + suffix];
   const draw = app['draw' + suffix];
   const alerts = new AlertController(chart, { drawings: draw });
-  alerts.setPaused(Boolean(pane === 1
-    ? app.loading || app.loadFailed || app.replay || app.replayPicking || app.replayLoading
-    : app.loading2 || app.loadFailed2));
+  alerts.setPaused(Boolean(app.replay || app.replayPicking || app.replayLoading
+    || (pane === 1 ? app.loading || app.loadFailed : app.loading2 || app.loadFailed2)));
   // Dialogs use the workspace width even when their source chart is narrow.
   const ui = createAlertUi(el('split'), {
     chart, draw, alerts, theme: currentTheme(), chartTheme: chartTheme(),

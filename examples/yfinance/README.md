@@ -287,7 +287,7 @@ exists to show one engine surface carrying real use, not just being present.
 | `volume.js` | Volume rides an overlay price scale (`priceScaleId: ''`) inside the price pane, pinned to the bottom fifth, so the right-hand axis stays a clean price ladder. It hides and shows from the legend eye and the right-click menu, and the choice survives a reload and a chart-type switch. |
 | `status.js`, `axis-chrome.js`, `timezone.js` | The status line, the clock and the countdown are fed by the host: venue, session hours by IANA zone (never a fixed offset), and long names. The chart zone is a runtime setting the demo carries across a rebuild. |
 | `orders.js`, `bracket.js` | Chart trading: right-click for single orders, Buy and Sell brackets with OCO target and stop, drag any line to re-price it, and per-symbol trade state that survives a symbol switch. |
-| `replay.js` | Market replay picks a start bar with everything to its right greyed out across every pane, then walks forward. On an interval with a finer one below it the displayed bar forms rather than landing complete, the transport counts the steps, and a mark stays on the plot the whole time. |
+| `replay.js` | Market replay captures the selected chart, shades its panes while picking a start, then walks forward. The chart-labelled transport retains that owner through focus changes. Finer history uses the captured instrument, interval and timezone. Closing or changing its owner cancels pending work; exit restores its data and viewport. On intervals with finer history, candles form in steps and the replay mark stays on that chart. |
 | `compare.js`, `split.js`, `link.js` | Each selected chart owns its comparison symbols, scale mode, hidden rows and history requests. Each source has an independent scale, rebased at the first visible timestamp shared by all visible sources. Missing overlap shows "No common starting bar" and draws gaps. Replay readouts withhold forming comparison closes. The dialog retains its owner across focus changes; changing or closing a chart cancels stale loads. Source failures remain visible with Retry. The linked second chart has independent switches for crosshair, viewport, symbol and interval. Interval sync is off by default. |
 | `drawing.js`, `rail.js`, `rail-flyout.js` | The 2.0 drawing model from the host's side: the controller, the tool picker built from `BUILTIN_DRAWING_TOOLS` with the tier's own icon sprite and cursors, keyboard chords from `drawingShortcuts()`, and a rail whose flyouts and tooltips are host chrome built from the shipped glyphs. |
 | `properties.js` | The floating properties bar is generated from `drawingSettingsSchema`, which declares only the fields a tool's `draw` reads: a field in the schema is a control with something behind it, a field absent from it is a control not shown. With several drawings selected it edits the fields their schemas share, as one undo entry. |
@@ -332,8 +332,19 @@ disable these controls with a reason. Volume colours follow candle
 overrides, previous-close direction and theme changes. The daily-change readout
 also uses displayed bars during replay.
 
-Comparison, replay and fullscreen routing remain in development. Shared replay
-is a separate opt-in feature; existing per-chart library defaults are unchanged.
+Comparisons and replay follow the selected chart. Replay keeps its captured owner
+until exit; selecting another chart does not redirect its playhead. Both charts'
+alert evaluation and every order-entry route remain paused during selection,
+finer-history loading and playback. Changing an unrelated chart preserves the
+session. The transport and exit dialog stay inside the owning chart and wrap on
+narrow panes. Replay timestamps use that chart's timezone.
+
+Fullscreen expands the selected chart while retaining the shared toolbar,
+drawing controls and dialogs. Its chart selector switches the visible owner;
+closing that owner leaves fullscreen and restores the workspace. The selector
+stays visible when the toolbar scrolls on small screens. A grid-wide shared
+replay clock remains in development; existing per-chart library defaults are
+unchanged.
 
 Alerts default to confirmed bar closes. Intrabar touch can fire on a wick that
 the provider later removes from final history. Absent study readings remain

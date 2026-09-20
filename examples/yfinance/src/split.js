@@ -18,6 +18,7 @@ import { chartDecorationsForRebuild, restorePrimaryStyle } from './chart-setting
 import { openSettings, renderIndicatorChips } from './indicators.js';
 import { capturePaneTarget } from './pane-target.js';
 import { symbolStatus, exchangeOf, nameOf } from './status.js';
+import { attachReplay, exitReplay, syncReplayAlertPause } from './replay.js';
 
 // 1.3 surfaces: chart linking, the bar cache and the interval registry.
 // Same namespace read for the same reason: this page must still draw
@@ -140,6 +141,7 @@ export async function openSplit() {
 }
 
 export function closeSplit() {
+  exitReplay(2);
   pane2LoadRevision++;
   pane2Controller?.abort();
   pane2Controller = null;
@@ -210,6 +212,7 @@ export async function restoreSecondaryLayout(saved, selected = 1) {
 }
 
 export function buildChart2({ keepView = true, typeChanged = false, state } = {}) {
+  exitReplay(2);
   const previous = state || app.chart2?.getState();
   const saved = previous && (keepView ? previous : stripView(previous));
   const decorations = chartDecorationsForRebuild(app.chart2);
@@ -244,6 +247,7 @@ export function buildChart2({ keepView = true, typeChanged = false, state } = {}
   app.chart2.setPriceScaleOptions({ minMove: /\.(NS|BO)$/i.test(app.p2.symbol) ? 0.05 : 0.01 });
   attachVolume(2, !transformed || chartType === 't:heikin-ashi');
   app.chart2.subscribeCrosshairMove((e) => setPane2Legend(e.bar ?? app.chart2.primaryBars().at(-1)));
+  attachReplay(app.chart2, 2, setPane2Legend);
   setPane2Legend(app.chart2.primaryBars().at(-1));
   // A second drawing controller, so paste has somewhere else to land: the
   // in-memory clipboard is shared by every controller on the page, which is
@@ -283,6 +287,7 @@ export function buildChart2({ keepView = true, typeChanged = false, state } = {}
 
 export async function loadPane2() {
   if (!app.chart2) return false;
+  exitReplay(2);
   const revision = ++pane2LoadRevision;
   invalidateComparisons(2);
   const chart = app.chart2;
@@ -334,7 +339,7 @@ export async function loadPane2() {
     if (revision === pane2LoadRevision) {
       app.loading2 = false;
       if (pane2Controller === controller) pane2Controller = null;
-      app.alerts2?.setPaused(Boolean(app.loadFailed2));
+      syncReplayAlertPause();
       renderToolbar();
       if (!app.loadFailed2) autosave();
     }

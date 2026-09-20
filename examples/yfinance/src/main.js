@@ -29,7 +29,7 @@ import { initIndicators, fillIndicatorPicker, renderIndicatorChips, openSettings
 import { chartDecorationsForRebuild, initChartSettings, restorePrimaryStyle } from './chart-settings.js';
 import { initCompare, attachComparison, invalidateComparisons, syncComparisons } from './compare.js';
 import { initSnapshot } from './snapshot.js';
-import { initReplay, exitReplay, syncReplayBar, movePick, startReplayAt } from './replay.js';
+import { initReplay, exitReplay, attachReplay, syncReplayAlertPause } from './replay.js';
 import { initSplit, joinLink } from './split.js';
 import { initLink } from './link.js';
 import { initClipboard } from './clipboard.js';
@@ -123,10 +123,10 @@ const app = {
   // choosing the bar to start from. One shade per pane, because the future
   // has to be hidden on all of them.
   replay: null,
+  replayTarget: null,
+  replayLoading: false,
   replayPicking: false,
   replayPickIndex: null,
-  replayShades: [],
-  replayMark: null,
   // The link group and the second chart of the split view. A different
   // instrument AND a different timeframe from the main chart on purpose: an
   // hourly follower beside a daily leader is the only way to see that the
@@ -158,7 +158,7 @@ if (new URLSearchParams(location.search).get('test') === '1') {
 function render({ keepView = true } = {}) {
   // Leave replay first: stop() hands the driven series their real data back,
   // and it has to reach the chart that is about to be thrown away.
-  exitReplay();
+  exitReplay(1);
   const previousState = app.chart?.getState();
   const rebuildState = previousState && (keepView ? previousState : stripView(previousState));
   const decorations = chartDecorationsForRebuild(app.chart);
@@ -167,10 +167,6 @@ function render({ keepView = true } = {}) {
   detachAlerts(app);
   if (app.draw) { app.draw.destroy(); app.draw = null; }
   if (app.chart) app.chart.destroy();
-  // The primitives belonged to the destroyed chart; a stale handle would
-  // leave the next selection updating a shade nothing draws.
-  app.replayShades = [];
-  app.replayMark = null;
   el('chart').innerHTML = '';
   app.chart = createChart(el('chart'), {
     // DEFAULT_THEME is the light palette; the shell's switch decides which.
@@ -318,9 +314,7 @@ function render({ keepView = true } = {}) {
   // Replay is headless: the controller emits, the transport bar and the
   // legend follow. `replay:stop` is here too, so the bar is correct for the
   // instant between stop() and exitReplay() tearing it down.
-  for (const ev of ['replay:start', 'replay:frame', 'replay:play', 'replay:pause', 'replay:end', 'replay:stop']) {
-    app.chart.on(ev, (s) => { syncReplayBar(); if (s && s.bar) setLegend(s.bar); });
-  }
+  attachReplay(app.chart, 1, setLegend);
 
   // Right-click. The chart classifies what is under the pointer and hands
   // over the price, so one menu covers order entry, drawings and settings,
@@ -332,13 +326,6 @@ function render({ keepView = true } = {}) {
   // the LTP (the latest close here; with a live feed, update it on each tick).
   app.chart.subscribeCrosshairMove((e) => {
     setLegend(e.bar ?? app.chart.primaryBars().at(-1));
-    movePick(e.index);
-  });
-  // The pick is committed on a plain click. `subscribeClick` reports the
-  // primitive that was hit, which is the wrong question here: the shade
-  // deliberately reports no hit so the bar under it stays reachable.
-  el('chart').addEventListener('click', () => {
-    if (app.replayPicking && app.replayPickIndex !== null) startReplayAt(app.replayPickIndex);
   });
   setLegend(app.chart.primaryBars().at(-1));
   // Last, because the chart that just replaced the destroyed one has to be
@@ -356,7 +343,7 @@ function render({ keepView = true } = {}) {
 let loadRevision = 0;
 async function load(opts) {
   const revision = ++loadRevision;
-  exitReplay();
+  exitReplay(1);
   invalidateComparisons(1);
   app.loading = true;
   app.loadFailed = false;
@@ -436,7 +423,7 @@ async function load(opts) {
   } finally {
     if (revision === loadRevision) {
       app.loading = false;
-      app.alerts?.setPaused(Boolean(app.loadFailed || app.replay || app.replayPicking || app.replayLoading));
+      syncReplayAlertPause();
       renderToolbar();
       if (!app.loadFailed) autosave();
     }

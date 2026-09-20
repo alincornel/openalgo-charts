@@ -49,6 +49,29 @@ Files: discover the existing toolbar, split, indicator, snapshot and replay modu
 - [ ] Verify focus changes, pane removal, interval/symbol sync, OI absence, volume styles/MA, alerts and replay guards with example tests and actual pointer/keyboard browser tests.
 - [ ] Run the complete example/browser suites and update example documentation, ledger and local commit.
 
+### Replay and fullscreen ownership ruling
+
+Continue Task 2 from 12b547e. Capture chart, pane, primary series, request and
+timezone when replay selection begins. One reference transport owns that captured
+session even when toolbar focus changes. Keep the existing global replay activity
+flags so every order-entry route remains locked. Pause alert evaluation throughout
+selection/loading/playback; restore each chart's loading/failure pause on exit.
+Moving focus must not redirect the playhead, finer-history request or exit.
+Changing or closing the owner cancels pending work and restores its data before
+teardown. Unrelated chart changes must not cancel the captured session.
+
+Attach picker and replay-event subscriptions to each chart with chart-owned
+cleanup. Replay controls and the exit dialog live inside the captured chart's
+container so they remain usable in fullscreen. Fullscreen must select its captured
+chart and retain access to the shared controls and dialogs; cancellation and owner
+removal restore the ordinary workspace. This implements focused ownership only;
+F8 still requires an opt-in shared clock with focused/all-chart modes.
+
+Verify deferred loads, focus changes, chart replacement/closure, timezone cache
+keys, cross-chart alert/order guards, data restoration and actual pointer picking
+before the complete reference unit/browser sweep. No public replay default or
+consumer source changes are needed for this host ownership step.
+
 ## Execution record
 
 Pre-flight: consumer toolbar controls and dialogs already share ChartPane state; lifting that state would duplicate ownership. Portalling only the active control subtree preserves existing actions. Grid preparation already exposes an `active` flag, which must gate the portal in addition to CSS visibility. The original phase spec excluded publication; subsequent user instructions explicitly authorize the final release after the complete scope is verified.
@@ -291,3 +314,61 @@ Reference F1/F2, F8 and remaining chart production gates also remain open. Follo
 the revised release sequence above: publish the validated Charts 2.4.5 package
 first; complete remaining /trading integration and its final broker/deployment
 checks afterwards. Preserve existing consumer work. Score remains frozen.
+
+## Reference replay and fullscreen ownership checkpoint
+
+Replay now captures its selected chart, series, request and timezone. Its picker,
+shades, watermark, transport and exit dialog belong to that chart. Focus changes
+do not redirect it; an unrelated chart rebuild preserves it. Changing/closing
+the owner cancels finer-history requests and restores data before teardown.
+Chart-first destruction stops the playback clock and releases the transport.
+Native chart click/hover listeners replace the accumulating main-container click
+listener; linked hover does not choose a replay bar. Both charts' alerts and all
+order-entry routes remain paused through selection/loading/playback, including
+when the other chart is rebuilt. Replay time formatting and cache keys use the
+captured timezone. The chart 1 last-price helper never returns chart 2's replay bar.
+
+Fullscreen keeps the shared toolbar, drawing controls and dialogs in its subtree
+and shows the selected chart. Explicit chart selection switches the fullscreen
+owner; closing chart 2 exits fullscreen. Reparented rail/mobile controls return
+to their original container. The chart selector remains visible while the toolbar
+scrolls. The replay transport wraps inside a narrow pane with grouped navigation
+buttons, and retains an explicit chart label and accessible button labels.
+
+Evidence under artifacts/candidate:
+
+- reference-replay-owner-red.log: two regressions for selected request ownership
+  and timezone cache isolation failed before implementation.
+- reference-replay-owner-red-browser.log and reference-fullscreen-red-browser.log:
+  the old primary-only behavior failed actual-browser assertions.
+- reference-replay-compact-red-browser.log: transport overflow reproduced at 390px.
+- reference-replay-final-demo.log: 280 example tests in 23 files pass.
+- reference-replay-final-browser.log: 85 reference cases pass across Chromium,
+  Firefox and WebKit. Pointer picking, both-chart alert/order guards, owner load
+  cancellation, unrelated rebuild, direct destruction, data restoration,
+  fullscreen owner switching/closure and sticky selection are covered.
+- reference-fullscreen-final-geometry.log: three final browser checks verify the
+  fullscreen body fills the browser-reported viewport. Firefox's virtual screen
+  can be shorter than the requested screenshot; that capture difference is not
+  an unfilled browser viewport.
+- reference-replay-fullscreen-types.log and reference-replay-fullscreen-lint.log:
+  types and lint pass. Root lint excludes example JavaScript; import, unit and
+  browser execution validate it. The existing runner colour warning remains.
+
+Final screenshots are retained under reference-replay-final-browser/ and
+reference-fullscreen-final-geometry/. Fullscreen dialogs and narrow transport
+images were inspected in all three engines. The narrow split still needs compact
+canvas-readout polish; this checkpoint does not claim that remaining F9 work done.
+
+Resource review: one replay listener group per chart, removed on destruction;
+owned primitives removed on exit; one existing playback clock stopped on exit or
+destruction; one bounded finer-history cache; no added window listener. Fullscreen
+moves existing controls instead of recreating their state. No sustained endurance
+claim. No library, package or consumer source changed, so no repack was required.
+
+Remaining chart work includes compact readouts, shared-clock replay (F8), reference
+workspace/template restoration (F1/F2), remaining production gates, endurance,
+whole-branch review and release/publication. The 12b547e comparison engine checkpoint
+supersedes the earlier F7 baseline-gap note above. Publish Charts 2.4.5 before the
+remaining /trading implementation and final connected-broker/deployment tests.
+No push or publication occurred here; the score remains frozen.

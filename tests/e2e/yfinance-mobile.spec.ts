@@ -4,6 +4,160 @@ const ORIGIN = 'http://127.0.0.1:8124';
 const PAGE = ORIGIN + '/examples/yfinance/index.html?test=1';
 const PROBE = ORIGIN + '/api/history?symbol=AAPL&interval=1d&period=1mo';
 
+test('fullscreen follows the selected chart and retains shared controls and dialogs', async ({ page }, info) => {
+  await page.setViewportSize({ width: 1360, height: 900 });
+  await openDemo(page);
+  await page.getByRole('button', { name: /Open a second, linked chart/ }).click();
+  await page.waitForFunction(() => (window as any).__oac?.app.chart2?.primaryBars().length > 30 && !(window as any).__oac.app.loading2);
+  await page.locator('#chart2').focus();
+  await page.getByRole('button', { name: 'Full screen chart', exact: true }).click();
+  await expect(page.locator('body')).toHaveAttribute('data-fullscreen-pane', '2');
+  expect(await page.evaluate(() => document.fullscreenElement === document.body)).toBe(true);
+  const geometry = await page.evaluate(() => ({ height: document.body.getBoundingClientRect().height, viewport: window.innerHeight }));
+  expect(geometry.height).toBeGreaterThanOrEqual(geometry.viewport - 1);
+  await expect(page.locator('#chart')).toBeHidden();
+  await expect(page.locator('#chart2')).toBeVisible();
+  await expect(page.locator('#shellbar')).toBeVisible();
+  await page.getByRole('button', { name: 'Chart settings (or right-click the chart)', exact: true }).click();
+  await expect(page.locator('#chartset')).toBeVisible();
+  await page.screenshot({ path: info.outputPath('reference-fullscreen-settings.png') });
+  await page.locator('#cset-x').click();
+  await page.getByRole('button', { name: 'Selected chart', exact: true }).click();
+  await page.getByRole('button', { name: 'Chart 1', exact: true }).click();
+  await expect(page.locator('body')).toHaveAttribute('data-fullscreen-pane', '1');
+  await expect(page.locator('#chart')).toBeVisible();
+  await expect(page.locator('#chart2')).toBeHidden();
+  await page.getByRole('button', { name: 'Exit full screen (Esc)', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);
+  await expect(page.locator('#chart2')).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator('#shellbar').evaluate(node => { node.scrollLeft = node.scrollWidth; });
+  const selector = await page.getByRole('button', { name: 'Selected chart', exact: true }).boundingBox();
+  expect(selector?.x).toBeGreaterThanOrEqual(0);
+  expect((selector?.x || 0) + (selector?.width || 0)).toBeLessThanOrEqual(390);
+  await page.screenshot({ path: info.outputPath('reference-sticky-chart-selector.png') });
+  await page.setViewportSize({ width: 1360, height: 900 });
+  await page.locator('#chart2').focus();
+  await page.getByRole('button', { name: 'Full screen chart', exact: true }).click();
+  await expect(page.locator('body')).toHaveAttribute('data-fullscreen-pane', '2');
+  await page.getByRole('button', { name: 'Close the second chart', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);
+  expect(await page.locator('#rail').evaluate(node => node.parentElement?.matches('main.stage'))).toBe(true);
+  expect(await page.locator('#mobilebar').evaluate(node => node.parentElement?.matches('main.stage'))).toBe(true);
+});
+
+test('shared replay keeps its selected chart owner through focus changes and exit', async ({ page }, info) => {
+  await page.setViewportSize({ width: 1360, height: 900 });
+  await openDemo(page);
+  await page.getByRole('button', { name: /Open a second, linked chart/ }).click();
+  await page.waitForFunction(() => (window as any).__oac?.app.chart2?.primaryBars().length > 30 && !(window as any).__oac.app.loading2);
+  const before = await page.evaluate(() => {
+    const app = (window as any).__oac.app;
+    return [app.chart.primaryBars().length, app.chart2.primaryBars().length];
+  });
+  await page.locator('#chart2').focus();
+  await page.getByRole('button', { name: 'Replay this session bar by bar', exact: true }).click();
+  await expect(page.locator('#chart2')).toHaveClass(/is-picking/);
+  await expect(page.locator('#chart')).not.toHaveClass(/is-picking/);
+  await page.locator('#chart').focus();
+  await page.evaluate(async () => {
+    const source = '/examples/yfinance/src/replay.js';
+    await (await import(source)).startReplayAt(20);
+  });
+  await expect(page.locator('#replaybar')).toBeVisible();
+  await expect(page.locator('#rp-owner')).toHaveText(/Chart 2/);
+  const during = await page.evaluate(() => {
+    const app = (window as any).__oac.app;
+    return [app.chart.primaryBars().length, app.chart2.primaryBars().length, app.replayTarget.pane];
+  });
+  expect(during).toEqual([before[0], 21, 2]);
+  await page.locator('#rp-scrub').fill('25');
+  await page.locator('#rp-scrub').dispatchEvent('input');
+  expect(await page.evaluate(() => (window as any).__oac.app.chart2.primaryBars().length)).toBe(26);
+  await page.screenshot({ path: info.outputPath('reference-owned-replay.png') });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.locator('#replaybar').evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+  await page.screenshot({ path: info.outputPath('reference-owned-replay-narrow.png') });
+  await page.setViewportSize({ width: 1360, height: 900 });
+  await page.getByRole('button', { name: 'Exit replay', exact: true }).click();
+  await page.locator('#rp-leave-go').click();
+  expect(await page.evaluate(() => {
+    const app = (window as any).__oac.app;
+    return [app.chart.primaryBars().length, app.chart2.primaryBars().length];
+  })).toEqual(before);
+  await expect(page.locator('#replaybar')).toBeHidden();
+});
+
+test('pointer replay selection locks both charts and closing its owner cancels pending history', async ({ page }) => {
+  await page.setViewportSize({ width: 1360, height: 900 });
+  await openDemo(page);
+  await page.getByRole('button', { name: /Open a second, linked chart/ }).click();
+  await page.waitForFunction(() => (window as any).__oac?.app.chart2?.primaryBars().length > 30 && !(window as any).__oac.app.loading2);
+  let release!: () => void;
+  let started!: () => void;
+  const waiting = new Promise<void>(resolve => { started = resolve; });
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/history?**', async route => {
+    if (new URL(route.request().url()).searchParams.get('interval') !== '15m') { await route.continue(); return; }
+    started();
+    await gate;
+    await route.fulfill({ json: [] }).catch(() => {});
+  });
+  await page.evaluate(() => {
+    const app = (window as any).__oac.app;
+    app.replayDeliveries = [];
+    for (const pane of [1, 2]) {
+      const chart = pane === 1 ? app.chart : app.chart2;
+      chart.on('alert:triggered', (event: any) => app.replayDeliveries.push(event));
+      (pane === 1 ? app.alerts : app.alerts2).add({ source: { kind: 'price', price: 1 }, condition: 'greaterThan', policy: 'onTouch' });
+    }
+  });
+  await page.locator('#chart2').focus();
+  await page.getByRole('button', { name: 'Replay this session bar by bar', exact: true }).click();
+  const box = (await page.locator('#chart2').boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 3);
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 3);
+  await waiting;
+  expect(await page.evaluate(async () => {
+    const app = (window as any).__oac.app;
+    for (const chart of [app.chart, app.chart2]) {
+      const tail = chart.primaryBars().at(-1);
+      chart.primarySeries().update({ ...tail, close: tail.close + 1, high: tail.high + 1 });
+    }
+    const source = '/examples/yfinance/src/orders.js';
+    (await import(source)).placeOrder('BUY', 'MARKET', 100);
+    return { pane: app.replayTarget.pane, loading: app.replayLoading, orders: app.orders.length, fired: app.replayDeliveries.length };
+  })).toEqual({ pane: 2, loading: true, orders: 0, fired: 0 });
+  await page.locator('#chart').focus();
+  await page.getByRole('button', { name: 'Chart type', exact: true }).click();
+  await page.getByRole('button', { name: 'Line', exact: true }).click();
+  expect(await page.evaluate(() => (window as any).__oac.app.replayLoading)).toBe(true);
+  await page.getByRole('button', { name: 'Close the second chart', exact: true }).click();
+  release();
+  await page.unrouteAll({ behavior: 'wait' });
+  expect(await page.evaluate(() => {
+    const app = (window as any).__oac.app;
+    return { chart: app.chart2, replay: app.replay, owner: app.replayTarget, loading: app.replayLoading };
+  })).toEqual({ chart: null, replay: null, owner: null, loading: false });
+});
+
+test('destroying a chart during active replay releases the transport and clock', async ({ page }) => {
+  await openDemo(page);
+  await page.getByRole('button', { name: /Open a second, linked chart/ }).click();
+  await page.waitForFunction(() => (window as any).__oac?.app.chart2?.primaryBars().length > 30 && !(window as any).__oac.app.loading2);
+  await page.locator('#chart2').focus();
+  expect(await page.evaluate(async () => {
+    const app = (window as any).__oac.app;
+    const source = '/examples/yfinance/src/replay.js';
+    await (await import(source)).startReplayAt(20);
+    const replay = app.replay;
+    replay.play();
+    app.chart2.destroy();
+    return { playing: replay.state().playing, replay: app.replay, owner: app.replayTarget };
+  })).toEqual({ playing: false, replay: null, owner: null });
+  await expect(page.locator('#replaybar')).toBeHidden();
+});
+
 test('comparison charts use independent scales with a common start and honest missing overlap', async ({ page }, info) => {
   await page.setViewportSize({ width: 1360, height: 900 });
   await openDemo(page);

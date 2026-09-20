@@ -108,21 +108,23 @@ export function brandingLink(chart) {
 }
 
 /* ── chart-only full screen ────────────────────────────────────────────
-   Full-screens the stage (rail + chart + legend) rather than the page, so
-   the toolbar and the hint strip drop away and the plot gets the whole
-   display. The chart's own ResizeObserver picks up the new box, so there is
-   nothing to re-measure by hand. */
+   Keep the toolbar and dialogs in the fullscreen subtree while only the
+   selected plot is shown. Its ResizeObserver measures the new chart box. */
 export const stageEl = () => document.querySelector('main.stage');
-export const isChartFull = () => document.fullscreenElement === stageEl();
+export const isChartFull = () => document.fullscreenElement === document.body;
+let fullscreenControlHomes = [];
 
 export function toggleChartFullscreen() {
-  const stage = stageEl();
-  if (!stage) return;
   if (document.fullscreenElement) {
-    document.exitFullscreen();
-  } else if (stage.requestFullscreen) {
+    document.exitFullscreen().catch(error => { el('status').textContent = error.message; });
+  } else if (document.body.requestFullscreen) {
+    const target = capturePaneTarget(app);
+    if (!target?.current()) return;
+    app.fullscreenPane = target.pane;
     // Fullscreen is user-gesture gated and blocked outright in some embeds.
-    stage.requestFullscreen().catch((e) => {
+    document.body.requestFullscreen().catch((e) => {
+      app.fullscreenPane = null;
+      syncFullscreenChrome();
       el('status').textContent = 'full screen unavailable: ' + (e && e.message ? e.message : e);
     });
   } else {
@@ -130,24 +132,24 @@ export function toggleChartFullscreen() {
   }
 }
 
-// The toolbar goes with the page, so the only way back would be Esc. Put a
-// matching exit chip inside the stage, which is the part still on screen.
+// Moving existing drawing controls preserves their state and listeners.
 export function syncFullscreenChrome() {
-  const stage = stageEl();
-  if (!stage) return;
-  let chip = el('fsexit');
-  if (isChartFull()) {
-    if (!chip) {
-      chip = document.createElement('button');
-      chip.id = 'fsexit';
-      chip.className = 'fsexit';
-      chip.innerHTML = ticon('fullscreenExit');
-      attachTip(chip, { title: 'Exit full screen', chord: 'Esc', side: 'bottom' });
-      chip.addEventListener('click', toggleChartFullscreen);
-      stage.appendChild(chip);
-    }
-  } else if (chip) {
-    chip.remove();
+  if (!fullscreenControlHomes.length) {
+    fullscreenControlHomes = ['rail', 'mobilebar'].map(id => { const node = el(id); return [node, node?.parentNode]; });
+  }
+  if (isChartFull() && app.fullscreenPane === 2 && !app.chart2) {
+    app.fullscreenPane = null;
+    document.exitFullscreen().catch(() => {});
+  }
+  const pane = isChartFull() ? app.fullscreenPane : null;
+  if (pane) document.body.dataset.fullscreenPane = String(pane);
+  else {
+    delete document.body.dataset.fullscreenPane;
+  }
+  const secondary = pane === 2 ? el('chart2')?.parentElement : null;
+  for (const [node, home] of fullscreenControlHomes) {
+    const parent = secondary || home;
+    if (node && parent && node.parentNode !== parent) parent.appendChild(node);
   }
 }
 
@@ -191,6 +193,7 @@ function changeType(target, chartType, pfmode) {
 
 /** Rebuild shared controls from their explicitly selected chart. */
 export function renderToolbar() {
+  syncFullscreenChrome();
   const bar = el('shellbar');
   const pane = selectedPane(app);
   const target = capturePaneTarget(app, pane);
@@ -226,9 +229,14 @@ export function renderToolbar() {
 
   if (isSplit()) {
     const selection = tbtn('Chart ' + pane, 'Selected chart');
+    selection.classList.add('tbtn--chart');
     selection.addEventListener('click', () => popupMenu(selection, [1, 2].map(index => ({
       label: 'Chart ' + index, on: pane === index,
-      onSelect: () => { focusChart(index); el(index === 2 ? 'chart2' : 'chart').focus(); },
+      onSelect: () => {
+        if (isChartFull()) { app.fullscreenPane = index; syncFullscreenChrome(); }
+        focusChart(index);
+        el(index === 2 ? 'chart2' : 'chart').focus();
+      },
     }))));
     bar.appendChild(selection);
   }
@@ -322,6 +330,8 @@ export function renderToolbar() {
   const rp = tbtn(ticon('replay') + '<span>Replay</span>',
     app.replay ? 'Exit replay' : app.replayLoading ? 'Cancel replay loading' : app.replayPicking ? 'Cancel bar selection' : 'Replay this session bar by bar');
   if (app.replay || app.replayPicking || app.replayLoading) rp.classList.add('is-on');
+  rp.disabled = !app.replay && !app.replayPicking && !app.replayLoading
+    && (!target?.current() || Boolean(app[pane === 2 ? 'loading2' : 'loading'] || app[pane === 2 ? 'loadFailed2' : 'loadFailed']));
   rp.addEventListener('click', () => ((app.replay || app.replayPicking || app.replayLoading) ? askExitReplay() : enterReplay()));
   bar.appendChild(rp);
 
@@ -455,5 +465,8 @@ export function divider() {
 
 export function initToolbar(a) {
   app = a;
-  document.addEventListener('fullscreenchange', () => { hideTip(); syncFullscreenChrome(); renderToolbar(); });
+  document.addEventListener('fullscreenchange', () => {
+    if (!isChartFull()) app.fullscreenPane = null;
+    hideTip(); syncFullscreenChrome(); renderToolbar();
+  });
 }

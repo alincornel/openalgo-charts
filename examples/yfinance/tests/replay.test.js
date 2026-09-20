@@ -47,4 +47,34 @@ describe('reference replay transitions', () => {
       ['FIRST', '60m', '1mo'], ['SECOND', '60m', '1mo'], ['SECOND', '60m', '3mo'],
     ]);
   });
+
+  it('captures the selected chart request while focus changes during loading', async () => {
+    let resolve;
+    fetchBars.mockReturnValue(new Promise(done => { resolve = done; }));
+    app.chart2 = { panes: () => [], primarySeries: () => app.price, timezone: () => 'UTC' };
+    app.p2 = { symbol: 'SECOND', interval: '1h', period: '1mo' };
+    app.focusPane = 2;
+    app.alerts2 = { setPaused: vi.fn() };
+    const start = startReplayAt(0);
+    app.focusPane = 1;
+    expect(fetchBars).toHaveBeenCalledWith('SECOND', '15m', '1mo', expect.objectContaining({ timezone: 'UTC' }));
+    expect(app.alerts2.setPaused).toHaveBeenLastCalledWith(true);
+    exitReplay(1);
+    expect(app.replayLoading).toBe(true);
+    exitReplay(2);
+    resolve([]);
+    await start;
+    expect(app.replay).toBeNull();
+    expect(app.alerts2.setPaused).toHaveBeenLastCalledWith(false);
+  });
+
+  it('keys finer history by the captured timezone as well as request', async () => {
+    let timezone = 'UTC';
+    app.chart.timezone = () => timezone;
+    fetchBars.mockResolvedValue([flatBar(1, 10)]);
+    await loadReplaySubBars();
+    timezone = 'Asia/Kolkata';
+    await loadReplaySubBars();
+    expect(fetchBars.mock.calls.map(call => call[3]?.timezone)).toEqual(['UTC', 'Asia/Kolkata']);
+  });
 });
