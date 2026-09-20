@@ -3,7 +3,7 @@ import { registerIndicator } from '../src/index';
 import {
   createWidget, widgetText, controlsFromInputs, mountAlertEditor, mountIndicatorPicker,
   mountIndicatorSettings, mountDrawingProperties, mountLevelEditor, openShortcutsPanel,
-  type Widget, type WidgetOptions, type WidgetTranslator,
+  type Widget, type WidgetMessageKey, type WidgetOptions, type WidgetTranslator,
 } from '../src/widget/index';
 import { ensureWindowGlobal, fakeContainer, fakeWidgetDocument, fire, type FakeElement } from './helpers/fake-dom-widget';
 
@@ -30,6 +30,41 @@ function make(options: WidgetOptions = {}) {
 }
 
 describe('widget translation contract', () => {
+  it('keeps published alert message keys valid in typed host catalogs', () => {
+    const messages: Partial<Record<WidgetMessageKey, string>> = {
+      'Enter a valid expiry date and time in UTC': 'Fecha UTC no valida',
+      'Enter an expiry date and time in UTC': 'Introduzca una fecha UTC',
+      'Expires {time} UTC': 'Caduca {time} UTC',
+      'Last fired {time} UTC': 'Activada {time} UTC',
+    };
+    const translate: WidgetTranslator = key => messages[key];
+    expect(widgetText({ translate }, 'Expires {time} UTC', { time: '2099-01-02 03:04' })).toBe('Caduca 2099-01-02 03:04 UTC');
+    expect(widgetText({ translate }, 'Last fired {time} UTC', { time: '2099-01-01 03:04' })).toBe('Activada 2099-01-01 03:04 UTC');
+  });
+
+  it.each(['Asia/Kolkata', 'UTC'])('preserves the translated expiry label and accessible help in %s', timezone => {
+    const { widget, root } = make({ timezone, translate: (key, fallback) => {
+      if (key === 'schema.alert.expiresAt.label') return 'Caduca <b>';
+      if (key === 'schema.alert.expiresAt.tooltip') return 'Vacio para no caducar';
+      return fallback;
+    } });
+    mountAlertEditor(widget.context, undefined, { source: { kind: 'price', price: 100 } });
+    const check = (): void => {
+      const label = root.querySelector('[data-key="expiresAt"] .oac-row__label')!;
+      expect(label.textContent).toContain(`Caduca <b> (${timezone})`);
+      expect(label.querySelector('b')).toBeNull();
+      const help = label.querySelector('.oac-help');
+      expect(help?.getAttribute('aria-label')).toBe('Vacio para no caducar');
+      expect(help?.tabIndex).toBe(0);
+      expect(help?.title).toBe('Vacio para no caducar');
+    };
+    check();
+    const condition = root.querySelector('[data-key="condition"] select')!;
+    condition.value = 'enteringRange';
+    fire(condition, 'change');
+    check();
+  });
+
   it('translates chrome, accessible names and late dialogs without changing identifiers', () => {
     const seen: string[] = [];
     const { widget, root } = make({ symbol: 'BHEL', interval: '5m', translate: (key, fallback) => {

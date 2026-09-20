@@ -10,16 +10,16 @@ The full, authoritative changelog lives in
 
 ## 2.4.6
 
-2026-09-20
+2026-09-21
 
-The yfinance reference host also includes the Source signal sample study,
-a read-only source viewer and a chart-local legend button size in Readout
-settings. The setting survives rebuilds and saved layouts.
-
-Indicator source access, readable legend controls and reliable signal placement.
+Indicator source access, readable legend controls, reliable signal placement
+and consistent dialog fields.
 
 ### Added
 
+- The yfinance reference host includes an opt-in Source signal sample study,
+  a read-only source viewer for each chart, and a chart-local legend button size
+  in Readout settings. Legend size survives chart rebuilds and saved layouts.
 - `IndicatorDescriptor.hasSource` adds a source button beside the legend's
   settings button. It emits `indicatorSource` with
   `{ instanceId, indicatorId, paneIndex }`. The host owns and displays the code;
@@ -34,6 +34,15 @@ Indicator source access, readable legend controls and reliable signal placement.
   `PaneLegendOptions.iconSize` defaults to 16 media pixels and draws within
   12..28; larger controls increase the row height. Nonfinite chart sizes are
   ignored, and an explicit chart size takes precedence over individual rows.
+
+### Changed
+
+- The alert editor labels expiry with the chart timezone captured when it opens.
+  That zone remains fixed for the draft, preserving the instant if the host
+  changes the chart timezone. New drafts default to two chart calendar months
+  ahead, clamped at month end. Clearing expiry still creates an indefinite
+  alert, and editing other fields preserves an existing expiry and its seconds.
+  Programmatic alert defaults and stored UTC timestamps are unchanged.
 
 ### Fixed
 
@@ -51,6 +60,13 @@ Indicator source access, readable legend controls and reliable signal placement.
   replaced, and fallback checks use the current primary series.
 - Each signal label starts its own canvas path, so a later label cannot recolor
   an earlier label's tail.
+- Dialog inputs and buttons respect `--oac-radius` and `--oac-ctl-h`, including
+  the date field. Text, number, date and select fields share one control column.
+- Select chevrons overlay their own field instead of consuming row width.
+- Expiry labels preserve schema translations and keyboard-accessible help.
+  Existing typed translation catalogs remain compatible.
+- An open alert list refreshes its timestamp readings when the chart timezone
+  changes, without altering the stored expiry instant.
 
 ## 2.4.5
 

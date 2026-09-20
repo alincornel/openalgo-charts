@@ -4,12 +4,12 @@
 
 **A from-scratch, dependency-free HTML5-canvas charting engine for OpenAlgo.**
 
-Professional interactive charts, 105 built-in indicators plus your own custom ones, 85 drawing tools, order flow, market replay, linked chart grids, on-chart trading, vector SVG export and an optional WebGL2 backend. Nine lazy-loaded tiers, zero runtime dependencies, 91.57 kB Brotli for the base engine, and a one-call widget tier that adds the toolbar, drawing rail, dialogs and shortcuts.
+Professional interactive charts, 105 built-in indicators plus your own custom ones, 85 drawing tools, order flow, market replay, linked chart grids, on-chart trading, vector SVG export and an optional WebGL2 backend. Nine lazy-loaded tiers, zero runtime dependencies, 91.55 kB Brotli for the base engine, and a one-call widget tier that adds the toolbar, drawing rail, dialogs and shortcuts.
 
 [![npm version](https://img.shields.io/npm/v/openalgo-charts.svg?color=cb3837&label=npm)](https://www.npmjs.com/package/openalgo-charts)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
-[![bundle](https://img.shields.io/badge/brotli-91.57%20kB%20base%20%C2%B7%20244.53%20kB%20all%20tiers-brightgreen.svg)](#size-budget)
-[![tests](https://img.shields.io/badge/engine%20tests-5771%20passing-brightgreen.svg)](#develop)
+[![bundle](https://img.shields.io/badge/brotli-91.55%20kB%20base%20%C2%B7%20245.21%20kB%20all%20tiers-brightgreen.svg)](#size-budget)
+[![tests](https://img.shields.io/badge/engine%20tests-5804%20passing-brightgreen.svg)](#develop)
 [![dependencies](https://img.shields.io/badge/runtime%20deps-0-brightgreen.svg)](#principles)
 
 [**Documentation**](https://marketcalls.github.io/openalgo-charts/) &nbsp;·&nbsp; [**Live examples**](https://marketcalls.github.io/openalgo-charts/examples) &nbsp;·&nbsp; [**Getting started**](./docs/getting-started.md) &nbsp;·&nbsp; [**Migrating to 2.0**](./docs/migrating-to-2.md) &nbsp;·&nbsp; [**Architecture**](./ARCHITECTURE.md)
@@ -134,17 +134,17 @@ Import only what you use. Each tier is a separate bundle that registers into the
 
 | Import | Contents | Brotli |
 |---|---|---|
-| `openalgo-charts` | Engine, 13 chart types, panes &amp; scales, primitives, registries, chart state, chart linking, bar cache, interval registry, trading overlay, SVG export, render backend port, OpenAlgo feeds | 91.57 kB |
+| `openalgo-charts` | Engine, 13 chart types, panes &amp; scales, primitives, registries, chart state, chart linking, bar cache, interval registry, trading overlay, SVG export, render backend port, OpenAlgo feeds | 91.55 kB |
 | `openalgo-charts/indicators` | 105 built-in indicators, the `registerIndicator` contract for your own, and the Tier-2 (external-data) contract | 29.84 kB |
 | `openalgo-charts/draw` | 85 drawing tools + a headless drawing controller, clipboard, settings schema, level palette, freehand geometry and SVG icons | 35.43 kB |
 | `openalgo-charts/transform` | Heikin Ashi, Renko, Range bars, Line Break, Point &amp; Figure, Kagi, and symbol arithmetic (`AAPL/MSFT`) | 4.50 kB |
 | `openalgo-charts/profile` | Volume Profile, Market Profile (TPO) with compact pixel letters, Footprint, order flow | 14.96 kB |
 | `openalgo-charts/trade` | Order / position / bracket tools + DOM ladder | 8.01 kB |
 | `openalgo-charts/webgl` | WebGL2 series backend: batched, analytically anti-aliased GPU rendering of the standard chart types behind `renderer: 'auto'`, with a session-long fallback to the 2D path | 6.39 kB |
-| `openalgo-charts/widget` | The chart with its chrome in one call: `createWidget` adds a top bar, the drawing rail, a status line, the settings and indicator dialogs, drawing properties, a right-click menu, a keymap with a `?` panel and optional layout persistence. The only tier that ships DOM | 48.30 kB |
+| `openalgo-charts/widget` | The chart with its chrome in one call: `createWidget` adds a top bar, the drawing rail, a status line, the settings and indicator dialogs, drawing properties, a right-click menu, a keymap with a `?` panel and optional layout persistence. The only tier that ships DOM | 49.00 kB |
 | `openalgo-charts/workspace` | Validated workspace and indicator-template documents, named catalogs with revision checks, asynchronous storage and an IndexedDB adapter; no DOM | 5.52 kB |
 
-Everything together is **244.53 kB Brotli**; a widget terminal with built-in indicators (base + draw + indicators + widget) is 205.15 kB. Figures are measured from the 2.4.6 release build. The trade tier is 8.01 kB on its own; base + trade costs 99.58 kB. Sizes use decimal kB.
+Everything together is **245.21 kB Brotli**; a widget terminal with built-in indicators (base + draw + indicators + widget) is 205.83 kB. Figures are measured from the 2.4.6 release build. The trade tier is 8.01 kB on its own; base + trade costs 99.56 kB. Sizes use decimal kB.
 
 ## What's built
 
@@ -449,17 +449,17 @@ Enforced in CI by [`size-limit`](./.size-limit.json). Nothing is excluded, becau
 
 | Bundle | Limit | Actual |
 |---|---|---|
-| Base engine | 92 kB | 91.57 kB |
-| Base + trade | 100 kB | 99.58 kB |
+| Base engine | 92 kB | 91.55 kB |
+| Base + trade | 100 kB | 99.56 kB |
 | Indicators tier | 30 kB | 29.84 kB |
 | Draw tier | 36 kB | 35.43 kB |
 | Transform tier | 6 kB | 4.50 kB |
 | Profile tier | 15 kB | 14.96 kB |
 | WebGL2 tier | 7 kB | 6.39 kB |
-| Widget tier | 48.75 kB | 48.30 kB |
-| Widget terminal (base + draw + indicators + widget) | 205.5 kB | 205.15 kB |
+| Widget tier | 49.25 kB | 49.00 kB |
+| Widget terminal (base + draw + indicators + widget) | 206 kB | 205.83 kB |
 | Workspace tier | 6 kB | 5.52 kB |
-| **Everything** | 245 kB | 244.53 kB |
+| **Everything** | 245.5 kB | 245.21 kB |
 
 ## Documentation
 
@@ -504,7 +504,7 @@ See [Contributing](./CONTRIBUTING.md) for setup, targeted checks, documentation 
 ```bash
 npm install        # install dev toolchain
 npm run typecheck  # strict TypeScript check
-npm test           # engine unit tests (Vitest): 5771 across 245 files
+npm test           # engine unit tests (Vitest): 5804 across 246 files
 npm run test:demo  # reference-host tests: 401 across 31 files
 npm run test:endurance # node endurance-harness tests: 7 cases
 npm run build      # Rollup -> dist/ (minified ESM per tier + types)

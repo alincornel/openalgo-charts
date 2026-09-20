@@ -17,6 +17,13 @@ the source. Use `legendIconSize` or `chart.setLegendIconSize()` to set a common
 button size across existing and future legend rows. See the
 [indicator guide](/docs/indicators) and [release notes](/docs/release-notes#246).
 
+The 2.4.6 alert editor uses its opening chart timezone for expiry and prefills
+new drafts two calendar months ahead. Clearing the field keeps an alert
+indefinite. Existing saved alerts and programmatic defaults are unchanged.
+Hosts with translation catalogs should add the new zone-neutral expiry
+messages; previous typed keys remain accepted. Dialog fields also respect
+`--oac-ctl-h` and `--oac-radius` and share a consistent control column.
+
 ## Adopting the 2.4.5 host contracts
 
 Existing chart options keep their defaults. Update the package and lockfile,

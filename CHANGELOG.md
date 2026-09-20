@@ -4,9 +4,10 @@ All notable changes to OpenAlgo Charts.
 
 ## 2.4.6
 
-2026-09-20
+2026-09-21
 
-Indicator source access, readable legend controls and reliable signal placement.
+Indicator source access, readable legend controls, reliable signal placement
+and consistent dialog fields.
 
 ### Added
 
@@ -30,11 +31,12 @@ Indicator source access, readable legend controls and reliable signal placement.
 
 ### Changed
 
-- A dialog's expiry field reads the chart's own timezone rather than UTC, and
-  is labelled with it. An alert is set against candles the chart has already
-  labelled in its zone, so an expiry written in another one was hours out and
-  left the reader to do the arithmetic. A new alert now opens with an expiry
-  two months out instead of empty.
+- The alert editor labels expiry with the chart timezone captured when it opens.
+  That zone remains fixed for the draft, preserving the instant if the host
+  changes the chart timezone. New drafts default to two chart calendar months
+  ahead, clamped at month end. Clearing expiry still creates an indefinite
+  alert, and editing other fields preserves an existing expiry and its seconds.
+  Programmatic alert defaults and stored UTC timestamps are unchanged.
 
 ### Fixed
 
@@ -52,19 +54,13 @@ Indicator source access, readable legend controls and reliable signal placement.
   replaced, and fallback checks use the current primary series.
 - Each signal label starts its own canvas path, so a later label cannot recolor
   an earlier label's tail.
-- Form controls in the dialogs take their corner from `--oac-radius` and their
-  height from `--oac-ctl-h` rather than from numbers written into each rule, so
-  a host that sets those tokens reaches the fields and not only the panel
-  around them. The date field, which had its own height and corner, included.
-- Every row in a generated form shares one control column. A select filled it, a
-  lone number sat at 72px against its right edge, and the expiry row widened the
-  column for itself, so the left edge of the controls stepped in and out by
-  ninety pixels down the form.
-- The chevron on a select overlays it instead of taking a place in the row. The
-  rule positioned `.oac-select > svg` and the markup has always wrapped the
-  glyph in a span, so the rule matched nothing: the span stayed an ordinary flex
-  item, took eleven pixels, and left every select short of the inputs beside it
-  with its arrow outside its own box.
+- Dialog inputs and buttons respect `--oac-radius` and `--oac-ctl-h`, including
+  the date field. Text, number, date and select fields share one control column.
+- Select chevrons overlay their own field instead of consuming row width.
+- Expiry labels preserve schema translations and keyboard-accessible help.
+  Existing typed translation catalogs remain compatible.
+- An open alert list refreshes its timestamp readings when the chart timezone
+  changes, without altering the stored expiry instant.
 
 ## 2.4.5
 

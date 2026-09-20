@@ -28,6 +28,11 @@ the selected chart from 12 to 28 pixels (default 16). Cancel restores the previo
 size. Each chart keeps its own choice across chart-type changes, reloads and saved
 layouts; named workspace documents store it as `reference.legendIconSize`.
 
+The shared alert editor also uses the selected chart's labelled timezone for
+expiry. New drafts start two calendar months ahead; clear the expiry for an
+indefinite alert. Saving another field preserves an existing alert's expiry.
+The editor keeps its opening timezone throughout the draft.
+
 ## Run
 
 ```bash
@@ -408,7 +413,8 @@ Alerts default to confirmed bar closes. Intrabar touch can fire on a wick that
 the provider later removes from final history. Absent study readings remain
 unavailable, including OI on this OHLCV-only provider. Alerts keep their symbol,
 exchange and interval scope, and loading history never evaluates past signals.
-Expiry uses UTC and progresses while the page is open, even without ticks.
+Expiry is entered in the labelled chart timezone, stored as UTC epoch seconds,
+and progresses while the page is open, even without ticks.
 Triggered once alerts remain visible after a reload. Evaluation stops during
 replay selection, finer-history loading and playback, then resumes from a fresh
 baseline. This browser demo cannot deliver alerts while its page is closed.
