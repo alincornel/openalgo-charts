@@ -631,7 +631,8 @@ select.field { cursor: pointer; padding-right: 24px; }
 .cmp-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; color: var(--mut); }
 .cmp-row .sw { width: 9px; height: 9px; border-radius: 50%; flex: none; }
 .cmp-row b { color: var(--tx); font-weight: 600; }
-.cmp-row .cmp-cov { margin-left: auto; color: var(--faint); font-size: 11px; }
+.cmp-row .cmp-cov { margin-left: auto; min-width: 0; overflow-wrap: anywhere; color: var(--faint); font-size: 11px; }
+.cmp-row .btn { flex-shrink: 0; }
 .cmp-row .cmp-del { border: 0; background: transparent; color: var(--faint); font-size: 14px;
   line-height: 1; cursor: pointer; padding: 2px 5px; border-radius: 4px; }
 .cmp-row .cmp-del:hover { background: var(--elev-3); color: var(--danger-tx); }

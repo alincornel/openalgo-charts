@@ -681,3 +681,32 @@ secondary restore tested here, including primary request/type and initial calend
 timezone handling. F8, P1-P6, sustained endurance, final authenticated read-only
 broker validation, whole-branch review and release/publication remain open.
 The consumer stays at 3972843f7 with the 0939bcc candidate; 2.4.5 is unpublished.
+
+## Release sequencing correction, 2026-09-20
+
+The user explicitly requests publishing Charts 2.4.5 before completing the
+remaining OpenAlgo /trading changes. This supersedes the earlier candidate-first
+consumer release gate. Finish the chart package scope, reference example checks,
+package/API compatibility checks, documentation and chart release review; then
+publish npm, website and GitHub release. Complete and validate the remaining
+/trading implementation against the published package afterwards. Do not make
+new consumer feature work or its final connected-broker/deployment validation a
+prerequisite for publishing Charts. Preserve the existing consumer worktree.
+This changes sequencing, not an authorization to publish known chart defects or
+a statement that the unfinished chart scope is complete. The previous 20-30
+working-hour estimate covered both projects. No new release-time estimate has
+been verified for the chart-only scope.
+
+### Reference comparison checkpoint
+
+Both reference charts retain their own comparison sources, hidden state and
+scale modes through focus changes, type rebuilds and reload. Requests capture
+their chart/interval/range/timezone and stale or removed results are discarded.
+Source errors clear old prices and provide Retry. Removing the last comparison
+restores the pre-comparison mode after rebuild. 278 example tests, 70 reference
+browser cases, types and lint pass; a final style follow-up passes six focused
+three-engine cases with a narrow error/retry layout. Screenshots were inspected.
+Artifacts and remaining work are in the shared toolbar plan. F7 baseline/live/
+replay engine work is still open; this checkpoint only completes host ownership.
+No engine API or consumer dependency changed, and 2.4.5 remains unpublished.
+The updated sequence is Charts publication first, remaining /trading work after.

@@ -6,6 +6,7 @@ import { el, fmt, fmtVol, UP, DOWN, chartTheme, chartMotionOptions, toast } from
 import { clipboardPort } from './clipboard.js';
 import { armCursor, magnetMode, stayMode, syncMobileControls, observeMobileControls, focusChart } from './rail.js';
 import { fetchBars, fetchNote, feedErrorState } from './feed.js';
+import { attachComparison, comparisonState, invalidateComparisons, restoreComparisons, syncComparisons } from './compare.js';
 import { autosave, stripView } from './persist.js';
 import { intervalLabel, clampPeriod, INTERVALS } from './intervals.js';
 import { tbtn, renderToolbar, CHART_TYPES } from './toolbar.js';
@@ -152,6 +153,8 @@ export function closeSplit() {
     app.chart2 = null; price2 = null; app.volume2 = null;
     app.symbolLegend2 = null; app.volLegend2 = null; app.volumeMA2 = null;
     app.volumeReadings2 = null;
+    app.comparisons2 = [];
+    app.cmpBaseMode2 = null;
   }
   bars2 = [];
   el('pane2').hidden = true;
@@ -183,6 +186,7 @@ export async function restoreSecondaryLayout(saved, selected = 1) {
     if (Number.isFinite(saved.width)) el('pane2').style.flexBasis = Math.max(18, Math.min(78, saved.width)) + '%';
     const legacyVisible = saved.state?.series?.find(series => series.type === 'histogram')?.style?.visible !== false;
     applyVolumeSettings(2, volumeValues(saved.volumeSettings || { 'volume.visible': legacyVisible }));
+    restoreComparisons(saved, 2);
     const loaded = await openSplit();
     const restoredChart = app.chart2;
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -193,6 +197,7 @@ export async function restoreSecondaryLayout(saved, selected = 1) {
     if (!report.applied) throw new Error('The second chart layout could not be restored');
     restorePrimaryStyle(app.chart2, saved.state);
     refreshVolume(2);
+    for (const spec of comparisonState(2).items) attachComparison(spec, 2);
     focusChart(selected);
     renderToolbar();
     return true;
@@ -256,6 +261,7 @@ export function buildChart2({ keepView = true, typeChanged = false, state } = {}
   if (saved) app.chart2.restoreState(typeChanged ? { ...saved, series: [] } : saved);
   restorePrimaryStyle(app.chart2, saved);
   refreshVolume(2);
+  for (const spec of comparisonState(2).items) attachComparison(spec, 2);
   if (app.focusPane === 2) renderIndicatorChips();
   app.chart2.on('draw:tool', ({ tool }) => {
     armCursor(el('chart2'), tool);
@@ -278,6 +284,7 @@ export function buildChart2({ keepView = true, typeChanged = false, state } = {}
 export async function loadPane2() {
   if (!app.chart2) return false;
   const revision = ++pane2LoadRevision;
+  invalidateComparisons(2);
   const chart = app.chart2;
   const state = chart.getState();
   const before = chart.getDataContext();
@@ -308,10 +315,13 @@ export async function loadPane2() {
     bars2 = loaded;
     const note = `${bars2.length} bars${fetchNote()}`;
     buildChart2({ state, keepView });
+    const loadedChart = app.chart2;
     if (!keepView || !state.viewport) placePane2View();
     setPane2Legend(app.chart2.primaryBars().at(-1));
     setPane2Note(note);
     renderPane2Bar();
+    await syncComparisons(2);
+    if (revision !== pane2LoadRevision || app.chart2 !== loadedChart) return false;
     return true;
   } catch (e) {
     if (revision !== pane2LoadRevision) return false;

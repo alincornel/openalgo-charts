@@ -288,7 +288,7 @@ exists to show one engine surface carrying real use, not just being present.
 | `status.js`, `axis-chrome.js`, `timezone.js` | The status line, the clock and the countdown are fed by the host: venue, session hours by IANA zone (never a fixed offset), and long names. The chart zone is a runtime setting the demo carries across a rebuild. |
 | `orders.js`, `bracket.js` | Chart trading: right-click for single orders, Buy and Sell brackets with OCO target and stop, drag any line to re-price it, and per-symbol trade state that survives a symbol switch. |
 | `replay.js` | Market replay picks a start bar with everything to its right greyed out across every pane, then walks forward. On an interval with a finer one below it the displayed bar forms rather than landing complete, the transport counts the steps, and a mark stays on the plot the whole time. |
-| `compare.js`, `split.js`, `link.js` | Comparison overlays and their scale mode, a linked second chart, and independent link-group switches for crosshair, viewport, symbol and interval. Interval sync is off by default. |
+| `compare.js`, `split.js`, `link.js` | Each selected chart owns its comparison symbols, scale mode, hidden rows and history requests. The dialog retains its owner across focus changes; changing or closing a chart cancels stale loads. Source failures remain visible with Retry. The linked second chart has independent switches for crosshair, viewport, symbol and interval. Interval sync is off by default. |
 | `drawing.js`, `rail.js`, `rail-flyout.js` | The 2.0 drawing model from the host's side: the controller, the tool picker built from `BUILTIN_DRAWING_TOOLS` with the tier's own icon sprite and cursors, keyboard chords from `drawingShortcuts()`, and a rail whose flyouts and tooltips are host chrome built from the shipped glyphs. |
 | `properties.js` | The floating properties bar is generated from `drawingSettingsSchema`, which declares only the fields a tool's `draw` reads: a field in the schema is a control with something behind it, a field absent from it is a control not shown. With several drawings selected it edits the fields their schemas share, as one undo entry. |
 | `clipboard.js` | One in-memory clipboard shared by both charts' controllers, so copy here and paste there works even when the browser refuses the OS clipboard; the OS read is bounded so a paste never hangs on a permission popup. |
@@ -371,10 +371,21 @@ the engine's numbers say what shape the parts are.
   version: <CHART_STATE_VERSION>,   ...chart.getState(): viewport, panes, price scales, indicators
   drawings: { version: <DRAWING_STATE_VERSION>, drawings: [...] },
   dataset: "AAPL|1d|1y",            what the view was captured on
-  comparisons: [{ symbol, color }],
-  compareMode, volume
+  comparisons: [{ symbol, color, hidden }],
+  compareMode, compareBaseMode, volume, volumeSettings,
+  focusPane, linkOptions,
+  secondary: { request, chartType, pfmode, width, state, volumeSettings,
+               comparisons: [{ symbol, color, hidden }], compareMode, compareBaseMode }
 }
 ```
+
+The comparison fields contain source identity and display preferences. History,
+handles and credentials are not saved. Each chart refetches comparisons at its own
+interval, range and timezone. A missing `hidden` field means visible. The optional
+`compareBaseMode` preserves the mode to return to when the last comparison leaves,
+including after a chart type change or reload; older documents retain their saved
+axis mode. An unavailable source stays in the list with its error so it can be
+retried or removed, without showing prices fetched for the previous interval.
 
 **Where migrations live.** `MIGRATIONS` in `src/persist.js`, one step per
 schema version keyed by the version it upgrades from; `upgradeLayout()` runs

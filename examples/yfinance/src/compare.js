@@ -4,179 +4,307 @@ import { el, esc, fmt, UP, DOWN } from './ui.js';
 import { fetchBars } from './feed.js';
 import { renderToolbar } from './toolbar.js';
 import { autosave } from './persist.js';
+import { capturePaneTarget, selectedPane } from './pane-target.js';
 
-// Read off the namespace rather than named above on purpose: a missing named
-// import fails the whole module at link time, and a demo served against a
-// dist/ built before comparison shipped should still draw a chart and simply
-// report the feature as unavailable.
 const { addComparison, comparisonController } = engine;
-
-let app;
-
-// ── multi-symbol comparison ────────────────────────────────────────────
-// addComparison() is headless like the drawing and replay controllers: it
-// owns the series, the timestamp alignment and the rebasing scales. What
-// lives here is the symbol list, the legend rows and the scale choice.
 export const CMP_COLORS = ['#e6b53c', '#7e57c2', '#29b6f6', '#ec407a', '#8bc34a'];
+const MODES = ['percentage', 'indexed-to-100', 'none'];
+const SCALE_MODES = ['linear', 'logarithmic', 'percentage', 'indexed-to-100'];
+const runtimes = new WeakMap();
+let app;
+let dialogTarget = null;
 
-/** time -> { close, prevClose }, for the legend row under the crosshair. */
+export function comparisonState(pane = selectedPane(app)) {
+  const key = pane === 2 ? 'comparisons2' : 'comparisons';
+  return { items: app[key] ||= [], mode: app[pane === 2 ? 'cmpMode2' : 'cmpMode'] || 'percentage' };
+}
+
+function captureComparisonTarget(pane) {
+  const target = capturePaneTarget(app, pane);
+  if (!target) return null;
+  const timezone = target.chart.timezone();
+  return { ...target, timezone, current: () => target.current() && target.chart.timezone() === timezone };
+}
+const actionTarget = () => dialogTarget || captureComparisonTarget();
+const sourceKey = target => JSON.stringify([target.request.interval, target.request.period, target.timezone]);
+const available = target => target?.current() && target.chart.primaryBars().length > 0
+  && !app[target.pane === 2 ? 'loading2' : 'loading'] && !app[target.pane === 2 ? 'loadFailed2' : 'loadFailed'];
+
+/** Subscriptions and pending requests belong to a chart, never to current focus. */
+function runtime(target) {
+  let state = runtimes.get(target.chart);
+  if (state) return state;
+  state = { pending: new Map() };
+  runtimes.set(target.chart, state);
+  target.chart.on('destroy', () => {
+    for (const request of state.pending.values()) request.abort();
+    state.pending.clear();
+    for (const spec of comparisonState(target.pane).items) {
+      if (spec.chart === target.chart) { spec.handle = null; spec.legend = null; spec.chart = null; }
+    }
+    if (dialogTarget?.chart === target.chart) closeCompare();
+  });
+  target.chart.on('click', ({ id }) => {
+    if (!id) return;
+    const spec = comparisonState(target.pane).items.find(item => id.startsWith('cmp:' + item.symbol + '::'));
+    if (!spec || spec.chart !== target.chart) return;
+    if (id.endsWith('::close')) removeComparison(spec, target.pane);
+    if (id.endsWith('::hide')) {
+      spec.hidden = !spec.hidden;
+      spec.handle.series.applyOptions({ visible: !spec.hidden });
+      spec.legend.setOptions({ hidden: spec.hidden });
+      autosave();
+    }
+  });
+  target.chart.on('crosshair:move', event => setCompareLegends(event.bar ?? target.chart.primaryBars().at(-1), target.pane));
+  target.chart.on('data:update', () => setCompareLegends(target.chart.primaryBars().at(-1), target.pane));
+  return state;
+}
+
+function clearComparisonData(spec) {
+  spec.bars = [];
+  spec.dataKey = null;
+  spec.error = null;
+  indexCompare(spec);
+  spec.handle?.setBars([]);
+  spec.legend?.setValues([]);
+}
+
+export function invalidateComparisons(pane) {
+  const chart = pane === 2 ? app.chart2 : app.chart;
+  const state = chart && runtimes.get(chart);
+  for (const request of state?.pending.values() || []) request.abort();
+  state?.pending.clear();
+  for (const spec of comparisonState(pane).items) clearComparisonData(spec);
+}
+
 export function indexCompare(spec) {
   spec.byTime = new Map();
   let prevClose = null;
-  for (const b of spec.bars || []) {
-    spec.byTime.set(b.time, { close: b.close, prevClose: prevClose === null ? b.open : prevClose });
-    prevClose = b.close;
+  for (const bar of spec.bars || []) {
+    if (!Number.isFinite(bar.close)) continue;
+    spec.byTime.set(bar.time, { close: bar.close, prevClose: prevClose ?? bar.open });
+    prevClose = bar.close;
   }
 }
 
-/** Put one instrument on the live chart, with a legend row of its own. */
-export function attachComparison(spec) {
-  if (!app.chart || !addComparison || !spec.bars || !spec.bars.length) return;
-  // Settle the mode before the first add, so the pane is never briefly
-  // rebased one way and then the other.
-  if (comparisonController) comparisonController(app.chart, { mode: app.cmpMode }).setMode(app.cmpMode);
+export function attachComparison(spec, pane = 1) {
+  const target = captureComparisonTarget(pane);
+  if (!target?.current() || !addComparison || !spec.bars?.length) return;
+  if (spec.dataKey && spec.dataKey !== sourceKey(target)) return;
+  runtime(target);
+  const mode = comparisonState(pane).mode;
+  const controller = comparisonController?.(target.chart, { mode });
+  if (controller && !controller.list().length) {
+    // Rebuilding a chart restores its comparison mode too. Carry the mode it
+    // had before comparing so removing the final source can still put it back.
+    const key = pane === 2 ? 'cmpBaseMode2' : 'cmpBaseMode';
+    const scale = target.chart.panes()[0].priceScale;
+    app[key] ||= scale.options.mode;
+    scale.setOptions({ mode: app[key] });
+  }
+  controller?.setMode(mode);
+  if (spec.handle && spec.chart === target.chart) { spec.handle.setBars(spec.bars); return; }
   try {
-    spec.handle = addComparison(app.chart, {
+    spec.handle = addComparison(target.chart, {
       symbol: spec.symbol, bars: spec.bars, color: spec.color, style: { lineWidth: 1.5 },
     });
-  } catch (e) {
-    console.warn('[demo] compare failed:', spec.symbol, e.message);
-    return;
-  }
-  // A PaneLegend, exactly like the symbol and volume rows: the comparison is
-  // another source on this pane, so it reads as one.
-  spec.legend = new PaneLegend({
-    id: 'cmp:' + spec.symbol, title: spec.symbol, params: '',
-    color: spec.color, actions: ['hide', 'close'], hidden: spec.hidden === true,
-  });
-  app.chart.addPrimitive(spec.legend, 0);
-  if (spec.hidden) spec.handle.series.applyOptions({ visible: false });
+    spec.chart = target.chart;
+    spec.legend = new PaneLegend({ id: 'cmp:' + spec.symbol, title: spec.symbol,
+      params: '', color: spec.color, actions: ['hide', 'close'], hidden: spec.hidden === true });
+    target.chart.addPrimitive(spec.legend, 0);
+    if (spec.hidden) spec.handle.series.applyOptions({ visible: false });
+    spec.error = null;
+    setCompareLegends(target.chart.primaryBars().at(-1), pane);
+  } catch (error) { spec.error = error.message; }
 }
 
-/** Comparison readings for the hovered bar, in the instrument's own prices. */
-export function setCompareLegends(bar) {
-  for (const c of app.comparisons) {
-    if (!c.legend) continue;
-    const hit = bar && c.byTime ? c.byTime.get(bar.time) : null;
-    if (!hit) { c.legend.setValues([]); continue; }
-    const chg = hit.prevClose ? ((hit.close - hit.prevClose) / hit.prevClose) * 100 : 0;
-    c.legend.setValues([
-      { text: fmt(hit.close), color: c.color, field: 'ohlc' },
-      { text: `${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%`, color: chg >= 0 ? UP : DOWN, field: 'change' },
+/** Legend values always use the displayed bar, including during replay. */
+export function setCompareLegends(bar, pane = 1) {
+  for (const spec of comparisonState(pane).items) {
+    if (!spec.legend) continue;
+    const hit = bar && spec.byTime?.get(bar.time);
+    if (!hit) { spec.legend.setValues([]); continue; }
+    const change = hit.prevClose ? ((hit.close - hit.prevClose) / hit.prevClose) * 100 : null;
+    spec.legend.setValues([
+      { text: fmt(hit.close), color: spec.color, field: 'ohlc' },
+      ...(change === null ? [] : [{ text: `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`,
+        color: change >= 0 ? UP : DOWN, field: 'change' }]),
     ]);
   }
 }
 
-export function removeComparison(spec) {
-  if (spec.handle) spec.handle.remove();
-  if (spec.legend && app.chart) app.chart.removePrimitive(spec.legend);
-  spec.handle = null; spec.legend = null;
-  app.comparisons = app.comparisons.filter((c) => c !== spec);
-  renderCompareList();
-  autosave();
-}
-
-/** Fetch what is missing and (re)attach every comparison to the live chart. */
-export async function syncComparisons() {
-  for (const c of app.comparisons) {
-    if (!c.bars || !c.bars.length) {
-      try {
-        c.bars = await fetchBars(c.symbol, app.req.interval, app.req.period);
-      } catch (e) {
-        console.warn('[demo] compare fetch failed:', c.symbol, e.message);
-        c.bars = [];
-      }
-    }
-    indexCompare(c);
-    if (c.handle) c.handle.setBars(c.bars);
-    else attachComparison(c);
-  }
-  renderCompareList();
-}
-
-export async function addCompareSymbol(symbol) {
-  const sym = String(symbol || '').trim();
-  if (!sym || !app.chart) return;
-  if (!addComparison) { el('status').textContent = 'compare is not in this build of dist/'; return; }
-  if (app.comparisons.some((c) => c.symbol === sym.toUpperCase())) {
-    el('status').textContent = `${sym.toUpperCase()} is already on the chart`;
-    return;
-  }
-  el('status').textContent = `loading ${sym}...`;
-  let bars;
-  try {
-    bars = await fetchBars(sym, app.req.interval, app.req.period);
-  } catch (e) {
-    el('status').textContent = 'compare failed: ' + e.message;
-    return;
-  }
-  const spec = { symbol: sym.toUpperCase(), color: CMP_COLORS[app.comparisons.length % CMP_COLORS.length], bars };
-  indexCompare(spec);
-  app.comparisons.push(spec);
-  attachComparison(spec);
+export function removeComparison(spec, pane = comparisonState(2).items.includes(spec) ? 2 : 1) {
+  const items = comparisonState(pane).items;
+  if (!items.includes(spec)) return;
+  const chart = pane === 2 ? app.chart2 : app.chart;
+  const pending = chart && runtimes.get(chart)?.pending;
+  pending?.get(spec.symbol)?.abort();
+  pending?.delete(spec.symbol);
+  spec.handle?.remove();
+  if (spec.legend && spec.chart) spec.chart.removePrimitive(spec.legend);
+  spec.handle = null; spec.legend = null; spec.chart = null;
+  items.splice(items.indexOf(spec), 1);
+  if (!items.length) app[pane === 2 ? 'cmpBaseMode2' : 'cmpBaseMode'] = null;
   renderCompareList();
   renderToolbar();
   autosave();
-  // Coverage is worth saying out loud: a comparison on a different holiday
-  // calendar silently loses prints, and `alignment()` is how you find out.
-  const a = spec.handle ? spec.handle.alignment() : null;
-  el('status').textContent = a
-    ? `${spec.symbol} · ${a.matched} matched · ${a.gaps} gap(s) · ${a.dropped} dropped`
-    : `${spec.symbol} could not be added`;
 }
 
-export function setCompareMode(mode) {
-  app.cmpMode = mode;
-  if (app.chart && comparisonController) comparisonController(app.chart).setMode(mode);
+async function loadComparison(spec, target, stillWanted) {
+  const state = runtime(target);
+  clearComparisonData(spec);
+  const controller = new AbortController();
+  state.pending.set(spec.symbol, controller);
+  const current = () => !controller.signal.aborted && target.current() && stillWanted();
+  try {
+    const bars = await fetchBars(spec.symbol, target.request.interval, target.request.period,
+      { signal: controller.signal, timezone: target.timezone });
+    if (!current()) return false;
+    spec.bars = bars;
+    spec.dataKey = sourceKey(target);
+    spec.error = bars.length ? null : 'No data for this interval';
+    indexCompare(spec);
+    return true;
+  } catch (error) {
+    if (current()) spec.error = error.message || 'History unavailable';
+    return false;
+  } finally {
+    if (state.pending.get(spec.symbol) === controller) state.pending.delete(spec.symbol);
+  }
+}
+
+export async function syncComparisons(pane = 1) {
+  const target = captureComparisonTarget(pane);
+  if (!target?.current()) return;
+  const items = comparisonState(pane).items;
+  await Promise.all(items.map(async spec => {
+    const wanted = () => comparisonState(pane).items === items && items.includes(spec);
+    if (runtime(target).pending.has(spec.symbol)) return;
+    if (!spec.bars?.length || spec.dataKey !== sourceKey(target)) {
+      if (!await loadComparison(spec, target, wanted)) return;
+    }
+    if (target.current() && wanted()) attachComparison(spec, pane);
+  }));
+  if (target.current()) renderCompareList();
+}
+
+export async function addCompareSymbol(symbol, target = actionTarget()) {
+  const sym = String(symbol || '').trim().toUpperCase();
+  if (!sym || !available(target)) return;
+  if (!addComparison) { el('status').textContent = 'Comparison is unavailable in this build'; return; }
+  const items = comparisonState(target.pane).items;
+  if (items.some(spec => spec.symbol === sym) || runtime(target).pending.has(sym)) {
+    el('status').textContent = `${sym} is already added or loading on chart ${target.pane}`;
+    return;
+  }
+  el('status').textContent = `Chart ${target.pane}: loading ${sym}...`;
+  const spec = { symbol: sym, color: CMP_COLORS[items.length % CMP_COLORS.length], bars: [] };
+  const loaded = await loadComparison(spec, target, () => comparisonState(target.pane).items === items);
+  if (!target.current()) return;
+  if (!loaded || !spec.bars.length) {
+    if (spec.error) el('status').textContent = `${sym}: ${spec.error}`;
+    return;
+  }
+  items.push(spec);
+  attachComparison(spec, target.pane);
+  renderCompareList();
+  renderToolbar();
+  autosave();
+  const coverage = spec.handle?.alignment();
+  el('status').textContent = coverage
+    ? `Chart ${target.pane}: ${sym}, ${coverage.matched} matched, ${coverage.gaps} gaps, ${coverage.dropped} dropped`
+    : `${sym}: ${spec.error || 'Could not be added'}`;
+}
+
+export function setCompareMode(mode, target = actionTarget()) {
+  if (!target?.current() || !MODES.includes(mode)) return;
+  app[target.pane === 2 ? 'cmpMode2' : 'cmpMode'] = mode;
+  comparisonController?.(target.chart).setMode(mode);
   autosave();
 }
 
-export function renderCompareList() {
-  const host = el('cmp-list');
-  if (!host) return;
-  host.innerHTML = '';
-  if (!app.comparisons.length) {
-    const none = document.createElement('div');
-    none.className = 'hint';
-    none.textContent = 'nothing yet';
-    host.appendChild(none);
-  }
-  for (const c of app.comparisons) {
-    const a = c.handle ? c.handle.alignment() : null;
-    const row = document.createElement('div');
-    row.className = 'cmp-row';
-    row.innerHTML =
-      '<span class="sw" style="background:' + esc(c.color) + '"></span>' +
-      '<b>' + esc(c.symbol) + '</b>' +
-      '<span class="cmp-cov">' + (a ? `${a.matched} of ${a.bars}` + (a.dropped ? ` · ${a.dropped} dropped` : '') : 'not on the chart') + '</span>';
-    const x = document.createElement('button');
-    x.className = 'cmp-del';
-    x.textContent = '×';
-    x.title = 'remove';
-    x.addEventListener('click', () => removeComparison(c));
-    row.appendChild(x);
-    host.appendChild(row);
-  }
-  el('cmp-mode').value = app.cmpMode;
+export function comparisonSnapshot(pane) {
+  const state = comparisonState(pane);
+  return { comparisons: state.items.map(spec => ({ symbol: spec.symbol, color: spec.color, hidden: spec.hidden === true })),
+    compareMode: state.mode,
+    ...(state.items.length ? { compareBaseMode: app[pane === 2 ? 'cmpBaseMode2' : 'cmpBaseMode'] } : {}) };
 }
 
-export function openCompare() {
-  if (!addComparison) { el('status').textContent = 'compare is not in this build of dist/'; return; }
+export function restoreComparisons(saved, pane, replace = true) {
+  const state = comparisonState(pane);
+  if (replace || !state.items.length) {
+    invalidateComparisons(pane);
+    for (const spec of state.items.slice()) removeComparison(spec, pane);
+    const seen = new Set();
+    const items = [];
+    for (const value of Array.isArray(saved.comparisons) ? saved.comparisons : []) {
+      if (!value || typeof value.symbol !== 'string') continue;
+      const symbol = value.symbol.trim().toUpperCase();
+      if (!symbol || seen.has(symbol)) continue;
+      seen.add(symbol);
+      items.push({ symbol, hidden: value.hidden === true, bars: [],
+        color: /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(value.color) ? value.color : CMP_COLORS[items.length % CMP_COLORS.length] });
+    }
+    app[pane === 2 ? 'comparisons2' : 'comparisons'] = items;
+    app[pane === 2 ? 'cmpBaseMode2' : 'cmpBaseMode'] = SCALE_MODES.includes(saved.compareBaseMode) ? saved.compareBaseMode : null;
+  }
+  app[pane === 2 ? 'cmpMode2' : 'cmpMode'] = MODES.includes(saved.compareMode) ? saved.compareMode : 'percentage';
+}
+
+export function renderCompareList() {
+  const target = dialogTarget;
+  const host = el('cmp-list');
+  if (!host || !target?.current()) return;
+  const state = comparisonState(target.pane);
+  host.innerHTML = '';
+  if (!state.items.length) {
+    const none = document.createElement('div');
+    none.className = 'hint'; none.textContent = 'No comparison symbols'; host.appendChild(none);
+  }
+  for (const spec of state.items) {
+    const coverage = spec.handle?.alignment();
+    const row = document.createElement('div');
+    row.className = 'cmp-row';
+    row.innerHTML = '<span class="sw" style="background:' + esc(spec.color) + '"></span><b>' + esc(spec.symbol) + '</b>'
+      + '<span class="cmp-cov">' + esc(spec.error || (coverage
+        ? `${coverage.matched} matched, ${coverage.gaps} gaps, ${coverage.dropped} dropped` : 'Loading')) + '</span>';
+    if (spec.error) {
+      const retry = document.createElement('button');
+      retry.className = 'btn btn--ghost';
+      retry.textContent = 'Retry'; retry.addEventListener('click', () => { if (available(target)) syncComparisons(target.pane); });
+      row.appendChild(retry);
+    }
+    const remove = document.createElement('button');
+    remove.className = 'btn btn--ghost cmp-del'; remove.textContent = 'Remove';
+    remove.setAttribute('aria-label', 'Remove ' + spec.symbol);
+    remove.addEventListener('click', () => { if (target.current()) removeComparison(spec, target.pane); });
+    row.appendChild(remove); host.appendChild(row);
+  }
+  el('cmp-mode').value = state.mode;
+}
+
+export function openCompare(target = captureComparisonTarget()) {
+  if (!available(target) || !addComparison) return;
+  dialogTarget = captureComparisonTarget(target.pane);
+  runtime(dialogTarget);
+  el('cmp-title').textContent = `Compare symbols: chart ${target.pane}`;
   renderCompareList();
   el('cmpmodal').hidden = false;
   el('cmp-sym').value = '';
   el('cmp-sym').focus();
 }
-export const closeCompare = () => { el('cmpmodal').hidden = true; };
+export function closeCompare() { el('cmpmodal').hidden = true; dialogTarget = null; }
 
-export function initCompare(a) {
-  app = a;
+export function initCompare(value) {
+  app = value;
+  dialogTarget = null;
   el('cmp-add').addEventListener('click', () => addCompareSymbol(el('cmp-sym').value));
-  el('cmp-sym').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); addCompareSymbol(el('cmp-sym').value); }
+  el('cmp-sym').addEventListener('keydown', event => {
+    if (event.key === 'Enter') { event.preventDefault(); addCompareSymbol(el('cmp-sym').value); }
   });
   el('cmp-mode').addEventListener('change', () => setCompareMode(el('cmp-mode').value));
   el('cmp-x').addEventListener('click', closeCompare);
   el('cmp-close').addEventListener('click', closeCompare);
-  el('cmpmodal').addEventListener('click', (e) => { if (e.target.id === 'cmpmodal') closeCompare(); });
+  el('cmpmodal').addEventListener('click', event => { if (event.target.id === 'cmpmodal') closeCompare(); });
 }

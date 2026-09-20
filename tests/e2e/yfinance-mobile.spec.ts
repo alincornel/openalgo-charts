@@ -4,6 +4,101 @@ const ORIGIN = 'http://127.0.0.1:8124';
 const PAGE = ORIGIN + '/examples/yfinance/index.html?test=1';
 const PROBE = ORIGIN + '/api/history?symbol=AAPL&interval=1d&period=1mo';
 
+test('comparison controls retain chart ownership and saved visibility through reload', async ({ page }, info) => {
+  const faults: string[] = [];
+  page.on('pageerror', error => faults.push(error.message));
+  await page.setViewportSize({ width: 1360, height: 900 });
+  await openDemo(page);
+  await page.getByRole('button', { name: /Open a second, linked chart/ }).click();
+  await page.waitForFunction(() => (window as any).__oac?.app.chart2?.primaryBars().length > 0 && !(window as any).__oac.app.loading2);
+  await page.locator('#chart2').focus();
+  await page.getByRole('button', { name: 'Compare a second symbol', exact: true }).click();
+  await expect(page.locator('#cmp-title')).toHaveText('Compare symbols: chart 2');
+  await page.locator('#cmp-sym').fill('TSLA');
+  await page.locator('#cmp-add').click();
+  await expect(page.locator('#cmp-list')).toContainText('TSLA');
+  await expect(page.locator('#cmp-list')).toContainText('matched');
+  await page.locator('#cmp-mode').selectOption('indexed-to-100');
+  await page.locator('#chart').focus();
+  await page.locator('#cmp-sym').fill('NVDA');
+  await page.locator('#cmp-add').click();
+  await expect(page.locator('#cmp-list')).toContainText('NVDA');
+  expect(await page.evaluate(() => {
+    const app = (window as any).__oac.app;
+    return { first: app.comparisons.map((item: any) => item.symbol), second: app.comparisons2.map((item: any) => item.symbol),
+      mode: app.cmpMode2, source: app.comparisons2[0].dataKey };
+  })).toEqual({ first: [], second: ['TSLA', 'NVDA'], mode: 'indexed-to-100', source: expect.stringContaining('1h') });
+  await page.screenshot({ path: info.outputPath('reference-owned-comparisons.png') });
+  await page.getByRole('button', { name: 'Remove NVDA', exact: true }).click();
+  await page.locator('#cmp-close').click();
+  await page.evaluate(() => {
+    const app = (window as any).__oac.app;
+    app.chart2.emit('click', { id: 'cmp:TSLA::hide' });
+  });
+  await page.getByRole('button', { name: 'Save layout', exact: true }).click();
+  await page.reload();
+  await page.waitForFunction(() => {
+    const app = (window as any).__oac?.app;
+    return app?.comparisons2?.[0]?.handle && !app.loading && !app.loading2 && !app.restoringSecondary;
+  });
+  expect(await page.evaluate(() => {
+    const app = (window as any).__oac.app;
+    return { first: app.comparisons.length, symbol: app.comparisons2[0].symbol, hidden: app.comparisons2[0].hidden,
+      visible: app.chart2.panes()[0].series().find((series: any) => series.style.color === app.comparisons2[0].color)?.style.visible, mode: app.cmpMode2 };
+  })).toEqual({ first: 0, symbol: 'TSLA', hidden: true, visible: false, mode: 'indexed-to-100' });
+  await page.locator('#chart2').focus();
+  await page.getByRole('button', { name: 'Chart type', exact: true }).click();
+  await page.getByRole('button', { name: 'Line', exact: true }).click();
+  expect(faults).toEqual([]);
+  await page.getByRole('button', { name: 'Comparing TSLA', exact: true }).click();
+  await page.getByRole('button', { name: 'Remove TSLA', exact: true }).click();
+  expect(await page.evaluate(() => (window as any).__oac.app.comparisons2.length)).toBe(0);
+  expect(await page.evaluate(() => (window as any).__oac.app.chart2.panes()[0].priceScale.options.mode)).toBe('linear');
+});
+
+test('comparison history failures remain visible and retry uses its own chart interval', async ({ page }, info) => {
+  await page.setViewportSize({ width: 1360, height: 900 });
+  await openDemo(page);
+  await page.getByRole('button', { name: /Open a second, linked chart/ }).click();
+  await page.waitForFunction(() => (window as any).__oac?.app.chart2?.primaryBars().length > 0 && !(window as any).__oac.app.loading2);
+  await page.locator('#chart2').focus();
+  await page.getByRole('button', { name: 'Compare a second symbol', exact: true }).click();
+  await page.locator('#cmp-sym').fill('TSLA');
+  await page.locator('#cmp-add').click();
+  await expect(page.locator('#cmp-list')).toContainText('matched');
+  await page.locator('#cmp-close').click();
+  const history = '**/api/history?**';
+  await page.route(history, route => {
+    const url = new URL(route.request().url());
+    return url.searchParams.get('symbol') === 'TSLA' && url.searchParams.get('interval') === '15m'
+      ? route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Comparison source unavailable' }) })
+      : route.continue();
+  });
+  await page.locator('#shellbar .pills').getByRole('button', { name: '15M', exact: true }).click();
+  await page.waitForFunction(() => {
+    const app = (window as any).__oac.app;
+    return app.p2.interval === '15m' && !app.loading2 && app.comparisons2[0].error;
+  });
+  await page.getByRole('button', { name: 'Comparing TSLA', exact: true }).click();
+  await expect(page.locator('#cmp-list')).toContainText('Comparison source unavailable');
+  await expect(page.locator('#cmp-list').getByRole('button', { name: 'Retry', exact: true })).toBeVisible();
+  expect(await page.evaluate(() => {
+    const app = (window as any).__oac.app;
+    return { primary: app.req.interval, bars: app.comparisons2[0].bars.length, handle: Boolean(app.comparisons2[0].handle) };
+  })).toEqual({ primary: '1d', bars: 0, handle: false });
+  await page.screenshot({ path: info.outputPath('reference-comparison-source-error.png') });
+  await page.setViewportSize({ width: 390, height: 844 });
+  const modal = (await page.locator('#cmpmodal .set-card').boundingBox())!;
+  const remove = (await page.getByRole('button', { name: 'Remove TSLA', exact: true }).boundingBox())!;
+  expect(remove.x + remove.width).toBeLessThanOrEqual(modal.x + modal.width);
+  await page.screenshot({ path: info.outputPath('reference-comparison-source-error-narrow.png') });
+  await page.unroute(history);
+  await page.locator('#cmp-list').getByRole('button', { name: 'Retry', exact: true }).click();
+  await expect(page.locator('#cmp-list')).toContainText('matched');
+  await expect(page.locator('#cmp-list').getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).__oac.app.comparisons2[0].dataKey)).toContain('15m');
+});
+
 test('reference selection survives hover and snapshot menus retain their chart owner', async ({ page }, info) => {
   await page.setViewportSize({ width: 1360, height: 900 });
   await openDemo(page);

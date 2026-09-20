@@ -3,7 +3,7 @@ import { attachTip, hideTip } from './hover.js';
 import { cycleMagnet, magnetMode, focusChart } from './rail.js';
 import { INTERVALS, intervalLabel, intervalName, periodsFor, clampPeriod } from './intervals.js';
 import { popupMenu } from './menus.js';
-import { openCompare } from './compare.js';
+import { openCompare, comparisonState } from './compare.js';
 import { enterReplay, askExitReplay } from './replay.js';
 import { openSnapMenu, downloadSnapshot } from './snapshot.js';
 import { isSplit, openSplit, closeSplit } from './split.js';
@@ -306,10 +306,12 @@ export function renderToolbar() {
   bar.appendChild(ind);
 
   // compare: a second instrument on the price pane
+  const comparisons = comparisonState(target?.pane).items;
   const cmp = tbtn(ticon('compare') + '<span>Compare</span>',
-    app.comparisons.length ? `Comparing ${app.comparisons.map((c) => c.symbol).join(', ')}` : 'Compare a second symbol');
-  if (app.comparisons.length) cmp.classList.add('is-on');
-  cmp.addEventListener('click', openCompare);
+    comparisons.length ? `Comparing ${comparisons.map((c) => c.symbol).join(', ')}` : 'Compare a second symbol');
+  if (comparisons.length) cmp.classList.add('is-on');
+  cmp.disabled = !target?.current() || Boolean(app[pane === 2 ? 'loading2' : 'loading'] || app[pane === 2 ? 'loadFailed2' : 'loadFailed']);
+  cmp.addEventListener('click', () => openCompare(target));
   bar.appendChild(cmp);
 
   const alerts = tbtn('<span>Alerts</span>', 'Alerts');

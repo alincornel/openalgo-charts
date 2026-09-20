@@ -7,7 +7,7 @@ import { fakeDom, fakeStorage } from './helpers.js';
 vi.mock('../src/volume.js', () => ({ volumeShown: vi.fn(() => true), setVolumeShown: vi.fn(),
   volumeSettings: vi.fn(() => ({ 'volume.visible': true })), applyVolumeSettings: vi.fn() }));
 vi.mock('../src/timezone.js', () => ({ DEFAULT_TZ: 'Asia/Kolkata', syncTimezoneFromChart: vi.fn() }));
-vi.mock('../src/compare.js', () => ({ removeComparison: vi.fn(), syncComparisons: vi.fn() }));
+vi.mock('../src/compare.js', async importOriginal => ({ ...await importOriginal(), syncComparisons: vi.fn() }));
 vi.mock('../src/indicators.js', () => ({ renderIndicatorChips: vi.fn() }));
 vi.mock('../src/toolbar.js', () => ({ renderToolbar: vi.fn() }));
 
@@ -19,7 +19,7 @@ import {
   exportLayout, parseLayoutFile, importLayoutFile, initPersist, datasetKey,
 } from '../src/persist.js';
 import { setVolumeShown } from '../src/volume.js';
-import { removeComparison, syncComparisons } from '../src/compare.js';
+import { initCompare, syncComparisons } from '../src/compare.js';
 
 /** A storage the quarantine can enumerate: `fakeStorage` has no `length` or `key`. */
 function storageWithKeys() {
@@ -64,10 +64,12 @@ function fakeChart() {
 }
 
 function freshApp() {
-  return {
+  const app = {
     chart: fakeChart(), req: { symbol: 'AAPL', interval: '1d', period: '1y' },
     comparisons: [], cmpMode: 'percentage', activeIndicators: [], draw: { fromJSON: vi.fn() }, replay: null,
   };
+  initCompare(app);
+  return app;
 }
 
 const toastsShown = (dom) => dom.get('toasts').children.map((n) => n.textContent);
@@ -313,7 +315,7 @@ describe('applying a layout', () => {
     const snap = layoutSnapshot();
     expect(snap.schema).toBe(LAYOUT_SCHEMA);
     expect(snap.version).toBe(CHART_STATE_VERSION);
-    expect(snap.comparisons).toEqual([{ symbol: 'MSFT', color: '#f00' }]);
+    expect(snap.comparisons).toEqual([{ symbol: 'MSFT', color: '#f00', hidden: false }]);
     expect(snap.compareMode).toBe('indexed');
     expect(snap.dataset).toBe('AAPL|1d|1y');
   });
@@ -352,8 +354,7 @@ describe('applying a layout', () => {
     expect(app.activeIndicators).toEqual([{ indicatorId: 'rsi', settings: { length: 14 } }]);
     expect(app.draw.fromJSON).not.toHaveBeenCalled();
     expect(setVolumeShown).toHaveBeenCalledWith(false, 1);
-    expect(removeComparison).toHaveBeenCalledWith(live);
-    expect(app.comparisons).toEqual([{ symbol: 'MSFT', color: '#f00', bars: [] }]);
+    expect(app.comparisons).toEqual([{ symbol: 'MSFT', color: '#f00', bars: [], hidden: false }]);
     expect(syncComparisons).toHaveBeenCalledTimes(1);
   });
 
@@ -364,11 +365,10 @@ describe('applying a layout', () => {
     applyLayout(doc, { keepView: true, replaceComparisons: false });
     expect(app.chart.restored[0].viewport).toEqual({ from: 10, to: 90 });
     expect(app.comparisons).toEqual([live]);
-    expect(removeComparison).not.toHaveBeenCalled();
     expect(syncComparisons).not.toHaveBeenCalled();
     app.comparisons = [];
     applyLayout(doc, { keepView: true, replaceComparisons: false });
-    expect(app.comparisons).toEqual([{ symbol: 'MSFT', color: '#f00', bars: [] }]);
+    expect(app.comparisons).toEqual([{ symbol: 'MSFT', color: '#f00', bars: [], hidden: false }]);
     expect(syncComparisons).not.toHaveBeenCalled();
   });
 

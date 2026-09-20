@@ -3,7 +3,7 @@ import * as drawTier from '/dist/openalgo-charts.draw.mjs';
 import { el, toast } from './ui.js';
 import { volumeShown, setVolumeShown, volumeSettings, applyVolumeSettings } from './volume.js';
 import { syncTimezoneFromChart } from './timezone.js';
-import { removeComparison, syncComparisons } from './compare.js';
+import { comparisonSnapshot, restoreComparisons, syncComparisons } from './compare.js';
 import { renderIndicatorChips } from './indicators.js';
 import { renderToolbar } from './toolbar.js';
 import { withoutViewportSync } from './split.js';
@@ -270,8 +270,7 @@ export function layoutSnapshot() {
     schema: LAYOUT_SCHEMA,
     ...app.chart.getState(),
     dataset: datasetKey(app.req),
-    comparisons: app.comparisons.map((c) => ({ symbol: c.symbol, color: c.color })),
-    compareMode: app.cmpMode,
+    ...comparisonSnapshot(1),
     // Demo-owned like the comparisons: `render()` builds the histogram from
     // this flag, so without it a hidden volume comes back on a reload.
     volume: volumeShown(1),
@@ -283,6 +282,7 @@ export function layoutSnapshot() {
       chartType: app.p2.chartType || 'candlestick',
       pfmode: app.p2.pfmode || 'atr',
       volumeSettings: volumeSettings(2),
+      ...comparisonSnapshot(2),
       state: app.chart2.getState(),
       width: parseFloat(el('pane2').style.flexBasis) || (Number.isFinite(measuredWidth) && measuredWidth > 0 ? measuredWidth : 50),
     } : undefined,
@@ -335,15 +335,7 @@ export function applyLayout(doc, { keepView = true, replaceComparisons = true } 
   restorePrimaryStyle(app.chart, state);
   // The engine restores drawings before alerts. A second drawing restore
   // would remove the anchors underneath the alerts that just returned.
-  if (replaceComparisons) {
-    // Comparisons are ours to swap: take the live ones off, put the saved set
-    // on, and let syncComparisons() fetch the bars in the background.
-    for (const c of app.comparisons.slice()) removeComparison(c);
-    app.comparisons = (state.comparisons || []).map((c) => ({ symbol: c.symbol, color: c.color, bars: [] }));
-  } else if (!app.comparisons.length && Array.isArray(state.comparisons)) {
-    app.comparisons = state.comparisons.map((c) => ({ symbol: c.symbol, color: c.color, bars: [] }));
-  }
-  if (state.compareMode) app.cmpMode = state.compareMode;
+  restoreComparisons(state, 1, replaceComparisons);
   if (state.volume !== undefined) setVolumeShown(state.volume !== false, 1);
   if (state.volumeSettings) applyVolumeSettings(1, state.volumeSettings);
   if (replaceComparisons) syncComparisons();

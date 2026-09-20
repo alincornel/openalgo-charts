@@ -237,3 +237,57 @@ toolbar/readout polish. Reference primary request/type and named workspace/templ
 restoration, including the initial folded-timezone path, still need the broader
 F1/F2 work. Shared replay is still F8 and opt-in. Full production gates, endurance,
 final authenticated read-only broker validation and 2.4.5 publication remain open.
+
+## Release sequencing correction, 2026-09-20
+
+The user explicitly requests publishing Charts 2.4.5 before completing the
+remaining OpenAlgo /trading changes. This supersedes the earlier candidate-first
+consumer release gate. Finish the chart package scope, reference example checks,
+package/API compatibility checks, documentation and chart release review; then
+publish npm, website and GitHub release. Complete and validate the remaining
+/trading implementation against the published package afterwards. Do not make
+new consumer feature work or its final connected-broker/deployment validation a
+prerequisite for publishing Charts. Preserve the existing consumer worktree.
+This changes sequencing, not an authorization to publish known chart defects or
+a statement that the unfinished chart scope is complete. The previous 20-30
+working-hour estimate covered both projects. No new release-time estimate has
+been verified for the chart-only scope.
+
+## Reference comparison ownership checkpoint
+
+Comparisons now retain separate per-chart symbols, colours, hidden state and scale
+modes through focus changes, type rebuilds and saved split reloads. The dialog
+captures chart/request/timezone. Pending loads are deduplicated and aborted on
+destruction or invalidation; removed or superseded sources cannot reappear.
+Changing interval clears old prices before fetching, and failed or empty history
+leaves a visible error with Retry. Additions/removals update the selected toolbar.
+The original price-scale mode is carried through chart rebuilds so removing the
+last source restores it. Saved colours accept the legacy three-digit hex form.
+
+Red/green evidence: eight original ownership regressions, two stale-data cases
+for empty/failed history, and the mode restoration failure after a type rebuild.
+Final checks: 278 example tests in 23 files; 70 reference browser tests across the
+four configured reference projects; types and lint pass. The final control-style
+follow-up passed six focused browser cases in Chromium, Firefox and WebKit,
+including a narrow error/retry layout. Final logs are reference-compare-final-
+{demo,browser,types,lint,controls}.log under artifacts/candidate. Owned-dialog
+images from all three engines and final WebKit wide/narrow retry images were
+inspected. The reload test now waits for layout restoration to settle before
+selecting a chart, avoiding a test action racing the saved focus restoration.
+Existing runner colour warning remains. Root lint excludes example JavaScript;
+imports, example unit tests and browser execution validate those modules.
+
+Resource audit: each chart owns one comparison listener group in a WeakMap;
+chart destroy clears requests and handles, and closing the split releases its
+source list. No global focus swap or new window listener. No measured endurance
+claim. No engine/package or consumer change, so no new engine sweep or consumer
+repack was needed. No active validation jobs remain.
+
+Task 2 still needs explicit replay/fullscreen ownership and compact selector/
+readout work. F7 is NOT complete: the engine currently shares one baseline among
+comparisons in a pane. The multi-source scale/common-time baseline, full live and
+replay isolation audit, and their engine tests remain chart release requirements.
+Reference F1/F2, F8 and remaining chart production gates also remain open. Follow
+the revised release sequence above: publish the validated Charts 2.4.5 package
+first; complete remaining /trading integration and its final broker/deployment
+checks afterwards. Preserve existing consumer work. Score remains frozen.

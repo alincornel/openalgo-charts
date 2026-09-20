@@ -27,7 +27,7 @@ import {
 import { initBracket, attachBracketLines, setBracketPrice, updateBracket, removeBracket } from './bracket.js';
 import { initIndicators, fillIndicatorPicker, renderIndicatorChips, openSettings } from './indicators.js';
 import { chartDecorationsForRebuild, initChartSettings, restorePrimaryStyle } from './chart-settings.js';
-import { initCompare, attachComparison, removeComparison, syncComparisons } from './compare.js';
+import { initCompare, attachComparison, invalidateComparisons, syncComparisons } from './compare.js';
 import { initSnapshot } from './snapshot.js';
 import { initReplay, exitReplay, syncReplayBar, movePick, startReplayAt } from './replay.js';
 import { initSplit, joinLink } from './split.js';
@@ -117,6 +117,8 @@ const app = {
   // a chart rebuild and a saved layout; the handle and legend do not.
   comparisons: [],
   cmpMode: 'percentage',
+  comparisons2: [],
+  cmpMode2: 'percentage',
   // Market replay: the controller, and the pick state while the user is
   // choosing the bar to start from. One shade per pane, because the future
   // has to be hidden on all of them.
@@ -169,8 +171,6 @@ function render({ keepView = true } = {}) {
   // leave the next selection updating a shade nothing draws.
   app.replayShades = [];
   app.replayMark = null;
-  // The handles belong to the destroyed chart; the specs outlive it.
-  for (const c of app.comparisons) { c.handle = null; c.legend = null; }
   el('chart').innerHTML = '';
   app.chart = createChart(el('chart'), {
     // DEFAULT_THEME is the light palette; the shell's switch decides which.
@@ -257,9 +257,6 @@ function render({ keepView = true } = {}) {
     }
   }
   renderIndicatorChips();
-  // Comparisons go on after the indicators, so their legend rows land under
-  // the indicator rows rather than in the middle of them.
-  for (const c of app.comparisons) attachComparison(c);
   attachDrawing();
   attachAlerts(app);
   if (rebuildState) {
@@ -270,6 +267,9 @@ function render({ keepView = true } = {}) {
     refreshVolume(1);
     renderIndicatorChips();
   }
+
+  // Restore the price pane before attaching comparisons, which own a temporary scale mode.
+  for (const c of app.comparisons) attachComparison(c, 1);
 
   // Chart trading: one drag handler routes both - drag a bracket leg -> move
   // that leg; drag a resting order line -> re-price that order. Both are redrawn
@@ -288,19 +288,8 @@ function render({ keepView = true } = {}) {
     // The volume row's eye. Ahead of the `::close` fallthrough below, which
     // reads any other `::close` as an order line's cancel box.
     if (id === 'volume::hide') return;
-    // A comparison's legend row carries the same hide/close buttons every
-    // other source's row does, so route them before the order lines.
-    if (id.startsWith('cmp:')) {
-      const spec = app.comparisons.find((c) => id.startsWith('cmp:' + c.symbol + '::'));
-      if (!spec) return;
-      if (id.endsWith('::close')) { removeComparison(spec); el('status').textContent = `removed ${spec.symbol}`; return; }
-      if (id.endsWith('::hide')) {
-        spec.hidden = spec.hidden !== true;
-        spec.handle.series.applyOptions({ visible: !spec.hidden });
-        spec.legend.setOptions({ hidden: spec.hidden });
-      }
-      return;
-    }
+    // Comparison legend actions are handled by their chart-owned event listener.
+    if (id.startsWith('cmp:')) return;
     if (id.endsWith('::close')) cancelOrder(id.slice(0, -'::close'.length));
   });
   attachOrderLines();
@@ -368,6 +357,7 @@ let loadRevision = 0;
 async function load(opts) {
   const revision = ++loadRevision;
   exitReplay();
+  invalidateComparisons(1);
   app.loading = true;
   app.loadFailed = false;
   app.alerts?.setPaused(true);
@@ -415,10 +405,6 @@ async function load(opts) {
     bars.forEach((b, i) => app.idxByTime.set(b.time, i));
     removeBracket(); removeAllOrders(); clearPosition(); // detach old chart's lines + reset vars
     restoreState(app.req.symbol);                            // repopulate this symbol's saved orders/bracket/position
-    // A comparison fetched at another interval has timestamps that cannot
-    // match these bars, so drop the cache and let syncComparisons() refetch
-    // rather than drawing a chart of pure whitespace on the way there.
-    for (const c of app.comparisons) c.bars = [];
     render({ keepView: !identityChanged });
     setChartState(bars.length ? 'ready' : 'empty', app.req);
     // Re-apply the saved layout now the series exists: a logical viewport
@@ -431,7 +417,8 @@ async function load(opts) {
       await report.secondaryReady;
     }
     // After the restore, so a comparison saved in the layout is fetched too.
-    await syncComparisons();
+    await syncComparisons(1);
+    if (revision !== loadRevision) return;
     renderToolbar();
     status.textContent = `${app.req.symbol} · ${bars.length} bars · ${app.req.interval}/${app.req.period}`
       + (period !== wanted ? `  (${wanted} unavailable at ${interval})` : '')
