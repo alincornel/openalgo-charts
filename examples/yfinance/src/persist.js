@@ -5,7 +5,8 @@ import { volumeShown, setVolumeShown, volumeSettings, applyVolumeSettings } from
 import { syncTimezoneFromChart } from './timezone.js';
 import { comparisonSnapshot, restoreComparisons, syncComparisons } from './compare.js';
 import { renderIndicatorChips } from './indicators.js';
-import { renderToolbar } from './toolbar.js';
+import { CHART_TYPES, renderToolbar } from './toolbar.js';
+import { INTERVALS, PERIODS } from './intervals.js';
 import { withoutViewportSync } from './split.js';
 import { restorePrimaryStyle } from './chart-settings.js';
 
@@ -66,6 +67,57 @@ export class LayoutError extends Error {
 
 const isRecord = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
 
+function layoutRequest(value) {
+  if (!isRecord(value) || typeof value.symbol !== 'string' || !value.symbol.trim()
+    || !INTERVALS.includes(value.interval) || !PERIODS.includes(value.period)) return null;
+  return { symbol: value.symbol.trim(), interval: value.interval, period: value.period };
+}
+
+function validTimezone(value) {
+  if (typeof value !== 'string' || !value) return false;
+  if (engine.isValidTimezone) return engine.isValidTimezone(value);
+  try { new Intl.DateTimeFormat('en', { timeZone: value }); return true; }
+  catch { return false; }
+}
+
+/** Read only host selection fields, before any controls or history are changed. */
+export function primaryLayoutSelection(doc) {
+  if (!isRecord(doc)) throw new LayoutError('not a layout document');
+  let request = null;
+  if (Object.prototype.hasOwnProperty.call(doc, 'request')) {
+    request = layoutRequest(doc.request);
+    if (!request) throw new LayoutError('invalid primary chart request');
+  } else if (typeof doc.dataset === 'string') {
+    // A separator in an expression makes the old key ambiguous. Keep its chart
+    // state usable, but do not guess which instrument the user intended.
+    const fields = doc.dataset.split('|');
+    if (fields.length === 3) request = layoutRequest({ symbol: fields[0], interval: fields[1], period: fields[2] });
+  }
+  const { chartType, pfmode, timezone } = doc;
+  if (chartType !== undefined && !CHART_TYPES.some(type => type.v === chartType)) {
+    throw new LayoutError('unsupported primary chart type');
+  }
+  if (pfmode !== undefined && !['atr', 'percent', 'fixed'].includes(pfmode)) {
+    throw new LayoutError('unsupported primary box mode');
+  }
+  if (timezone !== undefined && !validTimezone(timezone)) throw new LayoutError('unsupported chart timezone');
+  return { request, chartType, pfmode, timezone };
+}
+
+/** Initialize startup selection. Switching a live chart needs a staged load. */
+export function restorePrimarySelection(doc = readLayout()) {
+  if (!doc || app.chart) return false;
+  const { request, chartType, pfmode, timezone } = primaryLayoutSelection(doc);
+  if (request) {
+    app.req = request;
+    for (const [key, value] of Object.entries(request)) el(key).value = value;
+  }
+  if (chartType !== undefined) el('ctype').value = chartType;
+  if (pfmode !== undefined) el('pfmode').value = pfmode;
+  if (timezone !== undefined) app.chartTimezone = timezone;
+  return true;
+}
+
 /**
  * One step per schema version, keyed by the version it upgrades FROM. A
  * document at N runs `MIGRATIONS[N]`, then `MIGRATIONS[N + 1]`, until it is
@@ -113,6 +165,7 @@ export function upgradeLayout(input) {
   if (typeof CHART_STATE_VERSION === 'number' && typeof doc.version === 'number' && doc.version > CHART_STATE_VERSION) {
     throw new LayoutError(`chart state version ${doc.version} is newer than this engine (${CHART_STATE_VERSION})`);
   }
+  primaryLayoutSelection(doc);
   return doc;
 }
 
@@ -270,6 +323,9 @@ export function layoutSnapshot() {
     schema: LAYOUT_SCHEMA,
     ...app.chart.getState(),
     dataset: datasetKey(app.req),
+    request: { symbol: app.req.symbol, interval: app.req.interval, period: app.req.period },
+    chartType: el('ctype').value || 'candlestick',
+    pfmode: el('pfmode').value || 'atr',
     ...comparisonSnapshot(1),
     // Demo-owned like the comparisons: `render()` builds the histogram from
     // this flag, so without it a hidden volume comes back on a reload.

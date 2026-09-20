@@ -9,14 +9,14 @@ vi.mock('../src/volume.js', () => ({ volumeShown: vi.fn(() => true), setVolumeSh
 vi.mock('../src/timezone.js', () => ({ DEFAULT_TZ: 'Asia/Kolkata', syncTimezoneFromChart: vi.fn() }));
 vi.mock('../src/compare.js', async importOriginal => ({ ...await importOriginal(), syncComparisons: vi.fn() }));
 vi.mock('../src/indicators.js', () => ({ renderIndicatorChips: vi.fn() }));
-vi.mock('../src/toolbar.js', () => ({ renderToolbar: vi.fn() }));
+vi.mock('../src/toolbar.js', async importOriginal => ({ ...await importOriginal(), renderToolbar: vi.fn() }));
 
 import { CHART_STATE_VERSION } from '/dist/openalgo-charts.mjs';
 import {
   LAYOUT_KEY, LEGACY_LAYOUT_KEY, QUARANTINE_PREFIX, QUARANTINE_KEEP, LAYOUT_SCHEMA, SAVE_DEBOUNCE_MS,
   LayoutError, MIGRATIONS, schemaOf, upgradeLayout, quarantine, quarantinedKeys, readLayout, writeLayout,
   storageDegraded, migrateStorage, layoutSnapshot, stripView, applyLayout, persistLayoutNow, autosave, flushAutosave,
-  exportLayout, parseLayoutFile, importLayoutFile, initPersist, datasetKey,
+  exportLayout, parseLayoutFile, importLayoutFile, initPersist, datasetKey, primaryLayoutSelection, restorePrimarySelection,
 } from '../src/persist.js';
 import { setVolumeShown } from '../src/volume.js';
 import { initCompare, syncComparisons } from '../src/compare.js';
@@ -294,6 +294,7 @@ describe('storage', () => {
 function layoutSnapshotFor(app) {
   return {
     schema: LAYOUT_SCHEMA, ...app.chart.getState(), dataset: datasetKey(app.req),
+    request: { ...app.req }, chartType: 'candlestick', pfmode: 'atr',
     comparisons: [], compareMode: app.cmpMode, volume: true, volumeSettings: { 'volume.visible': true }, focusPane: 1,
   };
 }
@@ -318,6 +319,51 @@ describe('applying a layout', () => {
     expect(snap.comparisons).toEqual([{ symbol: 'MSFT', color: '#f00', hidden: false }]);
     expect(snap.compareMode).toBe('indexed');
     expect(snap.dataset).toBe('AAPL|1d|1y');
+  });
+
+  it('captures the primary request, transform and box mode without extra request fields', () => {
+    app.req = { symbol: 'TSLA', interval: '15m', period: '1mo', account: 'private' };
+    dom.get('ctype').value = 't:point-figure'; dom.get('pfmode').value = 'percent';
+    expect(layoutSnapshot()).toMatchObject({ request: { symbol: 'TSLA', interval: '15m', period: '1mo' },
+      chartType: 't:point-figure', pfmode: 'percent' });
+    expect(layoutSnapshot().request).not.toHaveProperty('account');
+  });
+
+  it('recovers an unambiguous legacy request and keeps state-only layouts usable', () => {
+    expect(primaryLayoutSelection(V1_DOC).request).toEqual({ symbol: 'AAPL', interval: '1d', period: '1y' });
+    expect(primaryLayoutSelection({ version: 1 }).request).toBeNull();
+    expect(primaryLayoutSelection({ dataset: 'A|B|1d|1y' }).request).toBeNull();
+    expect(primaryLayoutSelection({ dataset: 'AAPL|unsupported|1y' }).request).toBeNull();
+  });
+
+  it('rejects invalid explicit selection instead of falling back to an old dataset key', () => {
+    const doc = { ...V1_DOC, request: { symbol: 'TSLA', interval: '15m', period: '1mo' } };
+    for (const patch of [{ request: null }, { request: { ...doc.request, symbol: '' } },
+      { request: { ...doc.request, interval: 'unknown' } }, { chartType: 'unknown' },
+      { pfmode: 'unknown' }, { timezone: 'Invalid/Zone' }]) {
+      expect(() => upgradeLayout({ ...doc, ...patch })).toThrow(LayoutError);
+    }
+  });
+
+  it('initializes every primary control and the folding timezone before a chart exists', () => {
+    app.chart = null;
+    const request = { symbol: 'TSLA', interval: '15m', period: '1mo' };
+    expect(restorePrimarySelection({ schema: 2, version: 1, request, chartType: 't:point-figure',
+      pfmode: 'percent', timezone: 'America/New_York' })).toBe(true);
+    expect(app.req).toEqual(request);
+    expect(app.chartTimezone).toBe('America/New_York');
+    expect(['symbol', 'interval', 'period', 'ctype', 'pfmode'].map(id => dom.get(id).value))
+      .toEqual(['TSLA', '15m', '1mo', 't:point-figure', 'percent']);
+  });
+
+  it('validates the complete selection before writing any controls and refuses to redirect a live chart', () => {
+    const doc = { request: { symbol: 'TSLA', interval: '15m', period: '1mo' }, chartType: 'line' };
+    expect(restorePrimarySelection(doc)).toBe(false);
+    app.chart = null;
+    const before = ['symbol', 'interval', 'period', 'ctype', 'pfmode'].map(id => dom.get(id).value);
+    expect(() => restorePrimarySelection({ ...doc, timezone: 'Invalid/Zone' })).toThrow(LayoutError);
+    expect(['symbol', 'interval', 'period', 'ctype', 'pfmode'].map(id => dom.get(id).value)).toEqual(before);
+    expect(app.req.symbol).toBe('AAPL');
   });
 
   it('captures independent secondary chart controls and explicit selection', () => {

@@ -34,7 +34,7 @@ import { initSplit, joinLink } from './split.js';
 import { initLink } from './link.js';
 import { initClipboard } from './clipboard.js';
 import { initMenus, openContextMenu } from './menus.js';
-import { initPersist, datasetKey, readLayout, applyLayout, stripView, autosave } from './persist.js';
+import { initPersist, datasetKey, readLayout, applyLayout, stripView, autosave, restorePrimarySelection } from './persist.js';
 import { attachAlerts, detachAlerts } from './alerts.js';
 import { initToolbar, renderToolbar } from './toolbar.js';
 import { initRail, buildRail, initMobile } from './rail.js';
@@ -497,6 +497,7 @@ initRail(app, { mountPropertiesBar });
 initDrawing(app);
 initMobile(app);
 fillIntervalSelect();
+restorePrimarySelection();
 
 buildRail();
 fillIndicatorPicker();

@@ -405,6 +405,8 @@ the engine's numbers say what shape the parts are.
   version: <CHART_STATE_VERSION>,   ...chart.getState(): viewport, panes, price scales, indicators
   drawings: { version: <DRAWING_STATE_VERSION>, drawings: [...] },
   dataset: "AAPL|1d|1y",            what the view was captured on
+  request: { symbol, interval, period },
+  chartType, pfmode,
   comparisons: [{ symbol, color, hidden }],
   compareMode, compareBaseMode, volume, volumeSettings,
   focusPane, linkOptions,
@@ -412,6 +414,14 @@ the engine's numbers say what shape the parts are.
                comparisons: [{ symbol, color, hidden }], compareMode, compareBaseMode }
 }
 ```
+
+On startup, the primary request, chart type, box mode and timezone are restored
+before the first history request. Calendar month and quarter bars therefore fold
+in the saved timezone on their first load. These fields are optional additions to
+schema 2. Older documents can recover a request from an unambiguous, supported
+`symbol|interval|period` key; state-only documents keep the default source. Invalid
+explicit selection fields are quarantined with the document, before changing any
+controls. The startup helper does not switch an already running chart.
 
 The comparison fields contain source identity and display preferences. History,
 handles and credentials are not saved. Each chart refetches comparisons at its own

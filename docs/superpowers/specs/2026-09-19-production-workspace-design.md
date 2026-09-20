@@ -7,8 +7,10 @@ reference host, and the actual OpenAlgo `/trading` consumer. Preserve the broade
 production-readiness work requested in the conversation: instrument metadata,
 adapter conformance, browser endurance, persistence/localization, capability-aware
 trading integration and documented maintenance. The user authorized continuous
-implementation, validation and local commits. Publishing, pushing and live orders
-are outside this execution.
+implementation, validation, commits, push and publication of Charts 2.4.5. The
+release order is Charts first, then the remaining `/trading` implementation and
+final connected-broker/deployment validation. Those consumer tasks remain in
+scope but do not gate the Charts publication. Live orders remain outside scope.
 
 Source: https://github.com/marketcalls/openalgo/issues/2078
 

@@ -4,6 +4,62 @@ const ORIGIN = 'http://127.0.0.1:8124';
 const PAGE = ORIGIN + '/examples/yfinance/index.html?test=1';
 const PROBE = ORIGIN + '/api/history?symbol=AAPL&interval=1d&period=1mo';
 
+test('primary layout selection is restored before the first history request', async ({ page }, info) => {
+  await openDemo(page);
+  await page.evaluate(async () => {
+    const app = (window as any).__oac.app;
+    for (const [id, value] of Object.entries({ symbol: 'TSLA', interval: '15m', period: '1mo', ctype: 't:point-figure', pfmode: 'percent' })) {
+      (document.getElementById(id) as HTMLInputElement).value = value;
+    }
+    await app.load();
+    app.chart.setTimezone('America/New_York');
+    const source = '/examples/yfinance/src/persist.js'; (await import(source)).persistLayoutNow();
+  });
+  const requests: string[] = [];
+  page.on('request', request => {
+    const url = new URL(request.url());
+    if (url.pathname === '/api/history') requests.push(['symbol', 'interval', 'period'].map(key => url.searchParams.get(key)).join('/'));
+  });
+  await page.reload();
+  await page.waitForFunction(() => (window as any).__oac?.app.chart && !(window as any).__oac.app.loading);
+  expect(requests[0]).toBe('TSLA/15m/1mo');
+  expect(await page.evaluate(() => {
+    const app = (window as any).__oac.app;
+    return { request: app.req, timezone: app.chart.timezone(), type: app.chart.getState().series[0].type,
+      selection: (document.getElementById('ctype') as HTMLSelectElement).value,
+      pfmode: (document.getElementById('pfmode') as HTMLSelectElement).value };
+  })).toEqual({ request: { symbol: 'TSLA', interval: '15m', period: '1mo' }, timezone: 'America/New_York',
+    type: 'point-figure', selection: 't:point-figure', pfmode: 'percent' });
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await page.screenshot({ path: info.outputPath('reference-primary-layout-restored.png') });
+});
+
+test('saved calendar timezone is used for the first fold after reload', async ({ page }) => {
+  await page.addInitScript(() => {
+    Date.now = () => Date.UTC(2026, 2, 2, 12);
+    localStorage.setItem('oa-charts:layout', JSON.stringify({ schema: 2, version: 1,
+      dataset: 'TSLA|1mo|5y', request: { symbol: 'TSLA', interval: '1mo', period: '5y' },
+      chartType: 'line', pfmode: 'atr', timezone: 'America/New_York', indicators: [] }));
+  });
+  const requests: string[] = [];
+  await page.route('**/api/history?**', async route => {
+    const query = new URL(route.request().url()).searchParams;
+    requests.push(query.get('symbol') + '/' + query.get('interval') + '/' + query.get('period'));
+    await route.fulfill({ json: ['2026-01-31T18:00:00Z', '2026-02-01T02:00:00Z', '2026-02-01T14:00:00Z'].map((time, i) => ({
+      time: Date.parse(time) / 1000, open: 10 * (i + 1), high: 10 * (i + 1), low: 10 * (i + 1), close: 10 * (i + 1), volume: i + 1,
+    })) });
+  });
+  await openDemo(page);
+  expect(requests[0]).toBe('TSLA/1d/5y');
+  expect(await page.evaluate(() => {
+    const app = (window as any).__oac.app;
+    return { timezone: app.chart.timezone(), bars: app.chart.primaryBars().map((bar: any) => ({ time: bar.time, close: bar.close, volume: bar.volume })) };
+  })).toEqual({ timezone: 'America/New_York', bars: [
+    { time: Date.parse('2026-01-01T05:00:00Z') / 1000, close: 20, volume: 3 },
+    { time: Date.parse('2026-02-01T05:00:00Z') / 1000, close: 30, volume: 3 },
+  ] });
+});
+
 test('all-chart replay shares time, scope and restoration through its controls', async ({ page }, info) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));

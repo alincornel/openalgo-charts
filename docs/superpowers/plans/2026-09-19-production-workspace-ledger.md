@@ -835,3 +835,24 @@ Charts/reference F8 is complete. Reference F1/F2, remaining production contracts
 endurance, final whole-branch review and release facts/version/publication remain.
 Charts2.4.5 publishes first; remaining /trading implementation and final broker/
 deployment validation follow. Nothing pushed or published; score remains frozen.
+
+### Reference primary layout startup checkpoint
+
+The saved primary symbol, interval, history period, chart type, box mode and
+timezone now initialize the reference host before its first history request.
+Calendar folding therefore starts in the saved timezone. The schema-2 snapshot
+contains an allowlisted request; unsupported explicit metadata is rejected before
+control writes, while unambiguous legacy dataset keys remain recoverable. A live
+chart cannot be redirected through this startup helper.
+
+Five new persistence cases and two browser regressions failed before the fix.
+All 302 reference tests in 24 files, lint, typecheck and the full 97-case reference
+browser sweep pass. Restored chart screenshots were inspected in all three engines.
+An initial Chromium startup timeout passed on a trace-enabled isolated rerun and
+the complete sweep, without further changes; the original failure remains recorded
+in the plan. No library runtime, size or consumer changes. Original OI edits remain.
+
+This completes the primary restoration prerequisite. Reference F1 named catalogs
+and transactional switching, F2 templates, production contracts, endurance, final
+review and publication still remain. The user reconfirmed Charts 2.4.5 publication
+before remaining /trading work; the design now states that authorized order.
