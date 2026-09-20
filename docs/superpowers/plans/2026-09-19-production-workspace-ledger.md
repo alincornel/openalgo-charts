@@ -813,3 +813,25 @@ This completes F8 Task 2, not its reference transport (Task 3). Reference F1/F2,
 remaining production contracts, endurance, final review and publication stay
 open. No consumer changes, push or publication. Charts 2.4.5 publishes first;
 remaining /trading implementation and final broker/deployment checks follow.
+
+### Reference shared replay and F8 chart checkpoint
+
+The yfinance host now drives captured charts with ReplayGroup and one transport.
+Focused/all controls preserve UTC time, appear during picking and playback, and
+remain available across fullscreen and narrow layouts. Separate history slots
+cancel independently; partial volume/OI and empty readouts stay chart-specific.
+Source changes and active participant closure restore survivors. Invalid inactive
+histories preserve focused replay; restoration errors release the UI with feedback.
+
+Full package verification passes: 5575 engine tests/233 files and 297 example
+tests/24 files, types/lint/build/declarations/size/shake. The final host placement
+fix passes the 297 examples and all 91 reference browser cases. Three strengthened
+legend/paint cases also pass. API generation,918-entry skills coverage and the
+static website build pass. The site required a serial retry after heap allocation
+failure during concurrent browser work. Screenshots and resource limits are recorded
+in the shared-replay plan. No library size or consumer changes in this checkpoint.
+
+Charts/reference F8 is complete. Reference F1/F2, remaining production contracts,
+endurance, final whole-branch review and release facts/version/publication remain.
+Charts2.4.5 publishes first; remaining /trading implementation and final broker/
+deployment validation follow. Nothing pushed or published; score remains frozen.

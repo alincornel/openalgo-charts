@@ -246,7 +246,7 @@ test('the theme switch flips the shell and keeps the choice, without throwing', 
   expect(errors).toEqual([]);
 });
 
-test('replay opens on a picked bar and steps forward one bar', async ({ page }) => {
+test('replay opens on a picked bar and steps forward one observation', async ({ page }) => {
   const errors = watchErrors(page);
   await openDemo(page);
   await page.locator('#shellbar button', { hasText: 'Replay' }).click();
@@ -261,20 +261,22 @@ test('replay opens on a picked bar and steps forward one bar', async ({ page }) 
 
   const state = () => page.evaluate(() => {
     const r = (window as any).__oac.app.replay;
-    return r ? (r.state() as { index: number; total: number; subIndex: number; subSteps: number }) : null;
+    return r ? (r.state() as { index: number; total: number; time: number;
+      members: { state: { index: number; bar: { time: number } } }[] }) : null;
   });
   const s0 = await state();
   expect(s0).not.toBeNull();
   expect(s0!.total).toBeGreaterThan(s0!.index + 1);
   await expect(page.locator('#rp-count')).toHaveText(`${s0!.index + 1} / ${s0!.total}`);
 
-  // The playhead opens on a complete bar, so one step forward is the next bar.
+  // An observation can be a finer update within the next displayed candle.
   await page.locator('#rp-fwd').click();
   const s1 = await state();
   expect(s1!.index).toBe(s0!.index + 1);
   await expect(page.locator('#rp-count')).toHaveText(`${s1!.index + 1} / ${s1!.total}`);
   // The series shows the session so far and nothing past the playhead.
-  expect(await page.evaluate(() => (window as any).__oac.app.price.getData().length as number)).toBe(s1!.index + 1);
+  expect(await page.evaluate(() => (window as any).__oac.app.price.getData().length as number)).toBe(s1!.members[0].state.index + 1);
+  expect(s1!.members[0].state.bar.time).toBeLessThanOrEqual(s1!.time);
   expect(errors).toEqual([]);
 });
 

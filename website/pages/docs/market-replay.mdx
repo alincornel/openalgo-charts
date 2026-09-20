@@ -74,6 +74,19 @@ The host must pause live feed writes, alert evaluation and trading during replay
 
 ## One clock across charts
 
+The yfinance reference host demonstrates this with a scope button in both the
+bar picker and the replay transport. Choose its captured chart or all charts.
+Playback starts at the selected candle's close, and the slider advances through
+available observations. Both scopes' controls span the workspace and remain visible
+when either chart enters fullscreen. Each chart retains its own volume and
+readout; a later history stays empty until its first observation.
+
+The host captures request identities and timezones, cancels each history request
+on exit, and keeps trading and alerts paused throughout selection, loading and
+playback. Scope changes preserve UTC time. Missing finer history visibly falls
+back to completed candles. Closing or changing an active chart ends the session
+and restores survivors; an inactive chart can change without ending focused replay.
+
 `ReplayGroup` coordinates explicit availability times across a set of charts.
 Different histories and intervals advance by UTC time. A chart with no available
 observation remains empty; a coarse candle waits for its final data or forms from

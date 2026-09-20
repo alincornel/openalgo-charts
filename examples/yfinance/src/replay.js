@@ -5,12 +5,14 @@ import { renderToolbar, ticon } from './toolbar.js';
 import { attachTip } from './hover.js';
 import { setLegend } from './volume.js';
 import { capturePaneTarget } from './pane-target.js';
+import { replayBarEndTime } from './replay-timing.js';
+export { replayBarEndTime } from './replay-timing.js';
 
 // Read off the namespace rather than named above on purpose: a missing named
 // import fails the whole module at link time, and a demo served against a
 // dist/ built before replay shipped should still draw a chart and simply
 // report the feature as unavailable.
-const { ReplayController, TextWatermark, ReplayShade } = engine;
+const { ReplayController, ReplayGroup, TextWatermark, ReplayShade } = engine;
 
 let app;
 
@@ -21,7 +23,7 @@ let app;
 export const REPLAY_SPEEDS = [0.5, 1, 2, 5, 10];
 let replaySpeed = 1;
 /** Base-interval bars under the displayed ones, for intra-bar replay. */
-let replaySubBars = null;
+let replaySubBars = new Map();
 let replayLoadRevision = 0;
 const requestKey = req => JSON.stringify([req.symbol, req.interval, req.period]);
 const readouts = new WeakMap();
@@ -32,32 +34,82 @@ export function syncReplayAlertPause() {
   app.alerts2?.setPaused(active || Boolean(app.loading2 || app.loadFailed2));
 }
 
-function captureReplayTarget() {
-  const target = capturePaneTarget(app);
+function captureReplayTarget(pane) {
+  const target = capturePaneTarget(app, pane);
   if (!target) return null;
   const timezone = target.chart.timezone?.() || app.chartTimezone;
-  return { ...target, timezone, series: target.chart.primarySeries?.() || (target.pane === 1 ? app.price : null),
+  return { ...target, timezone, chartType: target.pane === 2 ? app.p2.chartType : el('ctype')?.value,
+    series: target.chart.primarySeries?.() || (target.pane === 1 ? app.price : null),
     node: el(target.pane === 2 ? 'chart2' : 'chart'), shades: [], mark: null,
     current: () => target.current() && (target.chart.timezone?.() || app.chartTimezone) === timezone };
 }
-const ready = target => target?.current() && target.series
+const ready = target => target?.current() && !target.chart.isDestroyed && target.series
   && !app[target.pane === 2 ? 'loading2' : 'loading'] && !app[target.pane === 2 ? 'loadFailed2' : 'loadFailed'];
 const owner = () => app.replayTarget || captureReplayTarget();
+const targets = () => app.replayTargets || [];
+const activeTargets = () => app.replayScope === 'all' ? targets() : targets().filter(target => target === app.replayTarget);
+const memberState = chart => app.replay?.state().members.find(member => targets().some(target => target.chart === chart && String(target.pane) === member.id));
+
+function captureSession(target) {
+  app.replayTarget = target;
+  app.replayTargets = [target, captureReplayTarget(target.pane === 1 ? 2 : 1)].filter(Boolean);
+  app.replayScope = 'focused';
+}
+
+function validateAllTargets() {
+  const visible = [app.chart, app.chart2].filter(chart => chart && !chart.isDestroyed);
+  const ids = app.replay && new Set(app.replay.state().members.map(member => member.id));
+  for (const chart of visible) {
+    const target = targets().find(item => item.chart === chart);
+    if (target?.unavailable) throw new Error(target.unavailable);
+    if (!ready(target) || (ids && !ids.has(String(target.pane)))) {
+      throw new Error('Wait for chart history, then start a new replay to include all charts');
+    }
+  }
+}
+
+function syncScopeControls() {
+  const label = app.replayScope === 'all' ? 'All charts' : `Chart ${app.replayTarget?.pane || 1}`;
+  for (const id of ['rp-pick-scope', 'rp-scope']) {
+    const button = el(id);
+    if (!button) continue;
+    button.textContent = label;
+    button.setAttribute('aria-label', 'Replay scope: ' + label);
+    button.setAttribute('aria-pressed', String(app.replayScope === 'all'));
+    button.disabled = Boolean(app.replayLoading);
+  }
+}
+
+export function setReplayScope(scope) {
+  if (app.replayLoading || !app.replayTarget) return;
+  if (scope !== 'focused' && scope !== 'all') return;
+  try {
+    if (scope === 'all') validateAllTargets();
+    app.replay?.setScope(scope, String(app.replayTarget.pane));
+    app.replayScope = scope;
+    mountControls(app.replayTarget);
+    if (app.replayPicking) setShadeIndex(app.replayPickIndex);
+    showReplayMark(Boolean(app.replay));
+    syncScopeControls(); syncReplayBar();
+  } catch (error) { el('status').textContent = error.message; }
+}
+const toggleScope = () => setReplayScope(app.replayScope === 'all' ? 'focused' : 'all');
 
 function mountControls(target) {
-  const parent = target.node.parentElement || target.node.parentNode;
+  // Either chart can occupy fullscreen while replay retains its captured owner.
+  const parent = el('split') || target.node.parentElement || target.node.parentNode;
   if (parent) for (const [node] of controlHomes) parent.appendChild(node);
 }
 
-function releaseTarget(destroyed = false) {
-  const target = app.replayTarget;
-  if (target) {
+function releaseTarget(destroyedPane) {
+  for (const target of targets()) {
     target.node.classList.remove('is-picking');
-    if (!destroyed) {
+    if (!target.chart.isDestroyed && target.pane !== destroyedPane) {
       for (const primitive of [...target.shades, target.mark].filter(Boolean)) target.chart.removePrimitive?.(primitive);
     }
   }
   app.replayTarget = null;
+  app.replayTargets = [];
   app.replayPickIndex = null;
   for (const [node, home] of controlHomes) if (home) home.appendChild(node);
 }
@@ -68,9 +120,9 @@ export function attachReplay(chart, pane, readout) {
   const off = [];
   for (const event of ['replay:start', 'replay:frame', 'replay:play', 'replay:pause', 'replay:end', 'replay:stop']) {
     off.push(chart.on(event, state => {
-      if (app.replayTarget?.chart !== chart) return;
+      if (!targets().some(target => target.chart === chart)) return;
       syncReplayBar();
-      if (state?.bar) readout?.(state.bar);
+      readout?.(event === 'replay:stop' ? chart.primarySeries()?.getData().at(-1) : state?.bar ?? null);
     }));
   }
   off.push(chart.on('crosshair:move', event => {
@@ -79,8 +131,12 @@ export function attachReplay(chart, pane, readout) {
   off.push(chart.on('click', () => {
     if (app.replayTarget?.chart === chart && app.replayPicking && app.replayPickIndex !== null) startReplayAt(app.replayPickIndex);
   }));
+  off.push(chart.on('data:context', () => {
+    const target = targets().find(item => item.chart === chart);
+    if (target && !target.current()) exitReplay(pane);
+  }));
   off.push(chart.on('destroy', () => {
-    if (app.replayTarget?.chart === chart) exitReplay(pane, true);
+    exitReplay(pane, true);
     for (const dispose of off.splice(0)) dispose();
     readouts.delete(chart);
   }));
@@ -97,11 +153,14 @@ export function attachReplay(chart, pane, readout) {
  */
 export const REPLAY_SUB_INTERVAL = {
   '5m': '1m', '15m': '5m', '30m': '15m', '60m': '15m', '1h': '15m',
-  '1d': '60m', '1wk': '1d', '1mo': '1d',
+  '1d': '60m', '1wk': '1d', '1mo': '1d', '1q': '1d',
 };
 
 /** Where the newest bar sits while replay is running (or the real one). */
-export const lastBar = () => (app.replay && app.replayTarget?.pane !== 2 ? app.replay.state().bar : null) || app.currentBars[app.currentBars.length - 1];
+export const lastBar = () => {
+  const member = memberState(app.chart);
+  return member?.active ? member.state.bar : app.currentBars[app.currentBars.length - 1];
+};
 
 /**
  * Open at the left edge of what the user is looking at, so replay starts
@@ -129,10 +188,10 @@ export function enterReplay() {
   if (app.replay || app.replayPicking || app.replayLoading) return;
   const target = captureReplayTarget();
   if (!ready(target)) return;
-  if (!ReplayController) { el('status').textContent = 'replay is not in this build of dist/'; return; }
+  if (!ReplayGroup) { el('status').textContent = 'shared replay is not in this build of dist/'; return; }
   const bars = target.series.getData();
   if (bars.length < 2) { el('status').textContent = 'replay needs bars'; return; }
-  app.replayTarget = target;
+  captureSession(target);
   mountControls(target);
   app.replayPicking = true;
   syncReplayAlertPause();
@@ -141,8 +200,9 @@ export function enterReplay() {
   target.node.classList.add('is-picking');
   el('replaypick').hidden = false;
   syncPickHint();
+  syncScopeControls();
   renderToolbar();
-  el('status').textContent = `Chart ${target.pane}: click a bar to replay from (Esc to cancel)`;
+  el('status').textContent = `Chart ${target.pane}: choose a bar; replay starts at its close (Esc to cancel)`;
 }
 
 /**
@@ -153,15 +213,36 @@ export function enterReplay() {
  * right of the cut shows exactly what the shade is hiding on the one above.
  */
 export function setShadeIndex(index) {
-  const target = app.replayTarget;
-  if (!ReplayShade || !target) return;
-  const panes = target.chart.panes ? target.chart.panes() : [];
-  for (let i = target.shades.length; i < panes.length; i++) {
-    const shade = new ReplayShade({ index: null, lineVisible: i === 0 });
-    target.chart.addPrimitive(shade, i);
-    target.shades.push(shade);
+  const owner = app.replayTarget;
+  if (!ReplayShade || !owner) return;
+  const picked = owner.series.getData()[index];
+  const time = picked && replayBarEndTime(owner.request.interval, owner.timezone)(picked);
+  for (const target of targets()) {
+    const active = index !== null && activeTargets().includes(target);
+    target.node.classList.toggle('is-picking', active);
+    if (target.chart.isDestroyed) continue;
+    const panes = target.chart.panes ? target.chart.panes() : [];
+    for (let i = target.shades.length; i < panes.length; i++) {
+      const shade = new ReplayShade({ index: null, lineVisible: i === 0 });
+      target.chart.addPrimitive(shade, i);
+      target.shades.push(shade);
+    }
+    let cut = null;
+    if (active) {
+      const bars = target.series.getData(), end = replayBarEndTime(target.request.interval, target.timezone);
+      if (target === owner) cut = index;
+      else {
+        let from = 0, to = bars.length;
+        while (from < to) {
+          const mid = (from + to) >>> 1;
+          if (end(bars[mid]) <= time) from = mid + 1;
+          else to = mid;
+        }
+        cut = from - 1;
+      }
+    }
+    for (const shade of target.shades) shade.setOptions({ index: cut });
   }
-  for (const shade of target.shades) shade.setOptions({ index });
 }
 
 /** The hovered bar, while the picker is open. */
@@ -182,16 +263,16 @@ export function syncPickHint() {
   const bars = app.replayTarget?.series.getData() || [];
   const b = bars[app.replayPickIndex];
   const hint = el('rp-picked');
-  if (hint) hint.textContent = b ? barStamp(b.time) : '';
+  if (hint) hint.textContent = b ? barStamp(replayBarEndTime(owner().request.interval, owner().timezone)(b), true) : '';
 }
 
-export function cancelPick(destroyed = false) {
+export function cancelPick(destroyedPane) {
   if (!app.replayPicking && !app.replayLoading) return;
   replayLoadRevision++;
-  abortFetch('replay');
+  for (const target of targets()) abortFetch('replay:' + target.pane);
   app.replayLoading = false;
   app.replayPicking = false;
-  releaseTarget(destroyed);
+  releaseTarget(destroyedPane);
   syncReplayAlertPause();
   el('replaypick').hidden = true;
   renderToolbar();
@@ -211,49 +292,77 @@ export async function startReplayAt(index) {
   if (!ready(target)) return;
   const bars = target.series.getData();
   if (bars.length < 2) return;
-  app.replayTarget = target;
+  if (!app.replayTarget) captureSession(target);
   mountControls(target);
   const revision = ++replayLoadRevision;
   app.replayLoading = true;
   app.replayPicking = false;
   syncReplayAlertPause();
-  target.node.classList.remove('is-picking');
   el('replaypick').hidden = true;
   setShadeIndex(null);
-
+  syncScopeControls();
   renderToolbar();
-  const sub = await loadReplaySubBars(target);
-  if (revision !== replayLoadRevision) return;
-  if (!target.current()) { cancelPick(); return; }
-  // Volume and its average derive from the displayed primary bars. Driving
-  // only the price lets them follow forming bars without replaying a final
-  // history volume into an unfinished candle.
-  app.replay = new ReplayController(target.chart, {
-    series: [target.series],
-    startIndex: Math.max(0, Math.min(bars.length - 1, index)),
-    subBars: sub || undefined,
-    barMs: 1000,
-    speed: replaySpeed,
-  });
-  app.replayLoading = false;
-  showReplayMark(true);
-  buildReplayBar();
-  el('replaybar').hidden = false;
-  syncReplayBar();
-  renderToolbar();
-  const steps = app.replay.state().subSteps;
-  el('status').textContent = steps > 1
-    ? `Chart ${target.pane}: each ${target.request.interval} bar forms in ${steps} steps of ${REPLAY_SUB_INTERVAL[target.request.interval]}`
-    : 'replay: press play, or scrub / step through the session';
+  try {
+    if (!ReplayGroup) throw new Error('shared replay is not in this build');
+    if (app.replayScope === 'all') validateAllTargets();
+    const captured = targets().filter(ready);
+    const loaded = await Promise.all(captured.map(async item => ({ target: item, sub: await loadReplaySubBars(item) })));
+    if (revision !== replayLoadRevision) return;
+    if (!target.current() || (app.replayScope === 'all' && captured.some(item => !ready(item)))) { cancelPick(); return; }
+    const fallback = [];
+    const members = loaded.filter(item => ready(item.target)).map(({ target: item, sub }) => {
+      const timing = { barEndTime: replayBarEndTime(item.request.interval, item.timezone),
+        subBarEndTime: replayBarEndTime(REPLAY_SUB_INTERVAL[item.request.interval], item.timezone) };
+      const options = { series: [item.series], timing };
+      try { new ReplayController(item.chart, { ...options, autoStart: false }); }
+      catch {
+        item.unavailable = `Chart ${item.pane} has overlapping or unordered candle times. Use time-based chart data.`;
+        if (app.replayScope === 'all' || item === target) throw new Error(item.unavailable);
+        return null;
+      }
+      // Finer history may fall back. The group still validates every primary
+      // snapshot before entry, so a bad primary is never hidden by fallback.
+      if (sub?.length) {
+        try {
+          new ReplayController(item.chart, { ...options, subBars: sub, autoStart: false });
+          options.subBars = sub;
+        } catch { sub = null; }
+      }
+      if (REPLAY_SUB_INTERVAL[item.request.interval] && !sub?.length) fallback.push(`Chart ${item.pane}`);
+      return { id: String(item.pane), chart: item.chart, options };
+    }).filter(Boolean);
+    const picked = bars[Math.max(0, Math.min(bars.length - 1, Math.floor(index)))];
+    app.replay = new ReplayGroup(members, {
+      scope: app.replayScope, focusedId: String(target.pane),
+      startTime: replayBarEndTime(target.request.interval, target.timezone)(picked),
+      barMs: 1000, speed: replaySpeed,
+      onChange: state => {
+        if (state.destroyed && app.replay) { exitReplay(); return; }
+        syncReplayBar();
+      },
+    });
+    app.replayLoading = false;
+    showReplayMark(true); buildReplayBar();
+    el('replaybar').hidden = false;
+    syncScopeControls(); syncReplayBar(); renderToolbar();
+    el('status').textContent = fallback.length
+      ? `${fallback.join(', ')}: finer history unavailable; replay uses completed candles`
+      : 'Replay advances by available observations; history gaps use completed candles';
+  } catch (error) {
+    if (revision !== replayLoadRevision) return;
+    if (app.replay) exitReplay();
+    else cancelPick();
+    const reason = error.message.includes('replay time')
+      ? 'Candle times overlap or are unordered. Check the intervals or use time-based chart data.' : error.message;
+    el('status').textContent = 'Replay could not start: ' + reason;
+  }
 }
 
 /**
  * The base-interval session under the displayed one.
  *
- * Fetched once per interval and kept, because it is history: closed bars do
- * not change. A failure is not an error the user needs to see -- replay
- * simply falls back to whole-bar steps -- so it is swallowed rather than
- * blocking the mode on a second network call.
+ * Each participant owns its request slot. Failures return no finer data so
+ * the caller can identify the completed-candle fallback in the status line.
  */
 export async function loadReplaySubBars(target = owner()) {
   if (!target) return null;
@@ -261,11 +370,17 @@ export async function loadReplaySubBars(target = owner()) {
   const key = requestKey(req) + ':' + target.timezone;
   const finer = REPLAY_SUB_INTERVAL[req.interval];
   if (!finer) return null;
-  if (replaySubBars && replaySubBars.key === key) return replaySubBars.bars;
+  // Derived candles are already transformed. Raw finer OHLC cannot replace
+  // their forming values without applying that same transform to each frame.
+  if (target.chartType?.startsWith('t:')) return null;
+  if (replaySubBars.has(key)) return replaySubBars.get(key);
+  const revision = replayLoadRevision;
   try {
-    const bars = await fetchBars(req.symbol, finer, req.period, { slot: 'replay', timezone: target.timezone });
+    const bars = await fetchBars(req.symbol, finer, req.period, { slot: 'replay:' + target.pane, timezone: target.timezone });
     if (!bars || bars.length === 0) return null;
-    replaySubBars = { key, bars };
+    if (revision !== replayLoadRevision || !target.current()) return null;
+    replaySubBars.set(key, bars);
+    if (replaySubBars.size > 2) replaySubBars.delete(replaySubBars.keys().next().value);
     return bars;
   } catch (_) {
     return null;
@@ -278,17 +393,13 @@ export async function loadReplaySubBars(target = owner()) {
  * exists to prevent, so it goes on while replay is on and comes off with it.
  */
 export function showReplayMark(on) {
-  const target = app.replayTarget;
-  if (!TextWatermark || !target) return;
-  if (on) {
-    if (!target.mark) {
-      target.mark = new TextWatermark({ text: 'Replay' });
-      target.chart.addPrimitive(target.mark, 0);
-    } else {
-      target.mark.setOptions({ text: 'Replay' });
-    }
-  } else if (target.mark) {
-    target.mark.setOptions({ text: '' });
+  if (!TextWatermark) return;
+  for (const target of targets()) {
+    if (target.chart.isDestroyed) continue;
+    const active = on && memberState(target.chart)?.active;
+    if (active && !target.mark) {
+      target.mark = new TextWatermark({ text: 'Replay' }); target.chart.addPrimitive(target.mark, 0);
+    } else target.mark?.setOptions({ text: active ? 'Replay' : '' });
   }
 }
 
@@ -298,24 +409,29 @@ export function showReplayMark(on) {
  * prompt would be asking permission for something already decided.
  */
 export function exitReplay(pane, destroyed = false) {
-  if (pane !== undefined && pane !== app.replayTarget?.pane) return;
-  cancelPick(destroyed);
+  if (!app) return;
+  if (pane !== undefined && !activeTargets().some(target => target.pane === pane)) return;
+  cancelPick(destroyed ? pane : undefined);
   if (!app.replay) return;
-  const target = app.replayTarget;
-  if (destroyed) app.replay.pause();
-  else app.replay.stop();
+  const controller = app.replay, captured = targets();
+  // Keep the workspace guarded while restoration writes real histories.
+  app.replayLoading = true;
   app.replay = null;
-  releaseTarget(destroyed);
+  let failure;
+  try { controller.destroy(); } catch (error) { failure = error; }
+  releaseTarget(destroyed ? pane : undefined);
+  app.replayLoading = false;
   syncReplayAlertPause();
   el('replaybar').hidden = true;
   el('replaybar').innerHTML = '';
   el('replayleave').hidden = true;
-  if (!destroyed && target) {
+  for (const target of captured) if (!target.chart.isDestroyed && !(destroyed && target.pane === pane)) {
     const tail = target.series.getData().at(-1);
     const readout = readouts.get(target.chart) || (target.pane === 1 ? setLegend : null);
     readout?.(tail);
   }
   renderToolbar();
+  if (failure) el('status').textContent = 'Replay ended with a restoration error: ' + failure.message;
 }
 
 /**
@@ -345,12 +461,12 @@ export function cycleReplaySpeed() {
 }
 
 /** Replay's clock: the bar time, with the clock only where the interval has one. */
-export function barStamp(t) {
+export function barStamp(t, withTime = false) {
   const d = new Date(t * 1000);
   const target = owner();
   const timeZone = target?.timezone;
   const date = d.toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: '2-digit', timeZone });
-  if (!/[mh]$/.test(target?.request.interval || '')) return date;
+  if (!withTime && !/[mh]$/.test(target?.request.interval || '')) return date;
   return date + ' ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone });
 }
 
@@ -378,6 +494,8 @@ export function buildReplayBar() {
   label.className = 'rcount';
   label.textContent = `Chart ${app.replayTarget?.pane || 1}`;
   bar.appendChild(label);
+  const scope = document.createElement('button');
+  scope.id = 'rp-scope'; scope.addEventListener('click', toggleScope); bar.appendChild(scope);
   btn('exit', 'Exit replay (puts the chart back)', askExitReplay);
   const actions = document.createElement('div');
   actions.className = 'rp-actions';
@@ -419,6 +537,7 @@ export function buildReplayBar() {
 export function syncReplayBar() {
   if (!app.replay) return;
   const s = app.replay.state();
+  const focused = s.members.find(member => member.id === s.focusedId)?.state;
   const scrub = el('rp-scrub');
   if (scrub) {
     scrub.max = String(Math.max(0, s.total - 1));
@@ -429,14 +548,14 @@ export function syncReplayBar() {
   // Only shown when a bar actually takes more than one step, so a plain
   // whole-bar replay does not carry a permanent "1/1".
   const sub = el('rp-sub');
-  if (sub) sub.textContent = s.subSteps > 1 ? `·  ${s.subIndex + 1}/${s.subSteps}` : '';
+  if (sub) sub.textContent = focused?.subSteps > 1 ? `${focused.subIndex + 1}/${focused.subSteps}` : '';
   const back = el('rp-back');
   const fwd = el('rp-fwd');
-  const unit = s.subSteps > 1 ? 'one step of the forming bar' : 'one bar';
+  const unit = 'one observation';
   if (back) { back.dataset.tip = 'Step back ' + unit; back.setAttribute('aria-label', back.dataset.tip); }
   if (fwd) { fwd.dataset.tip = 'Step forward ' + unit; fwd.setAttribute('aria-label', fwd.dataset.tip); }
   const clock = el('rp-clock');
-  if (clock) clock.textContent = s.bar ? barStamp(s.bar.time) : '';
+  if (clock) clock.textContent = s.time === null ? '' : barStamp(s.time, true);
   const play = el('rp-play');
   if (play) {
     play.innerHTML = ticon(s.playing ? 'pause' : 'play');
@@ -445,15 +564,19 @@ export function syncReplayBar() {
     play.classList.toggle('is-on', s.playing);
   }
   const speed = el('rp-speed');
-  if (speed) speed.textContent = s.speed + 'x';
+  if (speed) speed.textContent = replaySpeed + 'x';
 }
 
 export function initReplay(a) {
   app = a;
   replayLoadRevision++;
-  replaySubBars = null;
+  replaySubBars = new Map();
+  replaySpeed = 1;
+  app.replayTargets = [];
+  app.replayScope = 'focused';
   controlHomes = ['replaybar', 'replaypick', 'replayleave'].map(id => { const node = el(id); return [node, node.parentNode]; });
   el('rp-pick-cancel').addEventListener('click', () => cancelPick());
+  el('rp-pick-scope')?.addEventListener('click', toggleScope);
   el('rp-leave-stay').addEventListener('click', () => { el('replayleave').hidden = true; });
   el('rp-leave-go').addEventListener('click', () => exitReplay());
   onEscape(() => {

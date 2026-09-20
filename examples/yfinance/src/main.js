@@ -124,6 +124,8 @@ const app = {
   // has to be hidden on all of them.
   replay: null,
   replayTarget: null,
+  replayTargets: [],
+  replayScope: 'focused',
   replayLoading: false,
   replayPicking: false,
   replayPickIndex: null,

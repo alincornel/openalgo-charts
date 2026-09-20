@@ -3,6 +3,7 @@ import { el, esc } from './ui.js';
 import { renderInputRows } from './indicators.js';
 import { descriptionOf, exchangeOf, marketStatusReading, previousSessionClose } from './status.js';
 import { syncTimezoneFromChart } from './timezone.js';
+import { exitReplay } from './replay.js';
 import { syncAxisChromeFromChart, syncStatusLineFromChart, syncTradeChoiceFromChart } from './axis-chrome.js';
 import { foldedInterval } from './intervals.js';
 import { restyleTradeChrome } from './orders.js';
@@ -66,6 +67,7 @@ const cseticon = (id) => '<svg viewBox="0 0 20 20">' + (CSET_ICON[id] || '') + '
 const settingsTabs = chart => [...chartSettingsSchema(chart), VOLUME_TAB];
 const settingsValues = target => ({ ...readChartSettings(target.chart), ...volumeSettings(target.pane) });
 function writeSettings(target, patch) {
+  if (patch['time.timezone'] !== undefined && patch['time.timezone'] !== target.chart.timezone()) exitReplay(target.pane);
   const chartPatch = Object.fromEntries(Object.entries(patch).filter(([key]) => !key.startsWith('volume.')));
   if (Object.keys(chartPatch).length) applyChartSettings(target.chart, chartPatch);
   applyVolumeSettings(target.pane, patch);

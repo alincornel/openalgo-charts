@@ -575,6 +575,8 @@ body[data-fullscreen-pane="2"] #chart2 { left: 42px; }
   box-shadow: var(--shadow); backdrop-filter: blur(8px); }
 #replaybar[hidden] { display: none; }
 #replaybar .rp-actions { display: flex; flex: none; gap: 2px; }
+#rp-scope, #rp-pick-scope { white-space: nowrap; }
+#replaybar button[aria-pressed=true], #replaypick button[aria-pressed=true] { background: var(--on-bg); border-color: var(--on-bd); color: var(--acc-2); }
 #replaybar svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6;
   stroke-linecap: round; stroke-linejoin: round; flex: none; }
 #replaybar button { height: 26px; min-width: 26px; display: inline-flex; align-items: center;
@@ -602,7 +604,7 @@ body[data-fullscreen-pane="2"] #chart2 { left: 42px; }
   background: var(--elev-2); border: 1px solid var(--bd); color: var(--tx); font: inherit; font-size: 12px; }
 #replaypick button:hover { background: var(--elev-3); }
 /* The pick cursor says "click to choose", not "drag the chart". */
-#chart.is-picking canvas { cursor: crosshair; }
+#chart.is-picking canvas, #chart2.is-picking canvas { cursor: crosshair; }
 
 /* ── leave-replay confirm ─────────────────────────────────────── */
 #replayleave { position: absolute; inset: 0; z-index: 40; display: flex; align-items: center;

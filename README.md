@@ -247,6 +247,12 @@ replay.play({ speed: 2 });          // emits replay:frame per bar
 
 Headless: the controller owns the playhead and ships no DOM, so the transport bar is yours to draw from `state()` and the `replay:*` events. Each step hands the series a prefix of the session through the ordinary `setData` path, which is what makes every indicator, level, fill, marker and legend row reconstruct itself as it stood at that bar. `stop()` puts the full history and the exact viewport back.
 
+For a grid, `ReplayGroup` drives captured charts with one availability-time clock.
+Focused/all scope changes preserve UTC time; coarse candles wait for their declared
+close or form from available finer bars. The [yfinance reference host](examples/yfinance/)
+demonstrates shared scope controls, per-chart readouts, cancellation and restoration.
+Existing standalone replay defaults remain unchanged.
+
 ### Symbol comparison
 
 ```ts

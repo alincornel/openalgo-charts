@@ -165,22 +165,32 @@ expect(clock.timers).toBe(0);
 
 ## Task 3: Reference shared transport
 
+Execution rulings: capture each chart's loaded primary history and request/zone
+identity, with separate finer-history request slots. Begin at the selected
+candle's close; the transport addresses observation indices. Daily/weekly ends
+use the captured local calendar, including daylight changes. Finer history must
+not replace already transformed OHLC; such charts use completed values, and
+unordered/overlapping primary times cannot join. An ineligible inactive chart
+does not block focused replay. Controls live at workspace level in both scopes:
+keeping them inside their captured chart hid them when another chart occupied
+fullscreen. The label, not DOM placement, retains the captured focused owner.
+
 Files: `examples/yfinance/src/replay.js`, `main.js`, `split.js`, `index.html`,
 `styles.css`, `README.md`; example unit tests and `tests/e2e/yfinance-mobile.spec.ts`.
 
-- [ ] Add failing example/browser cases for all-chart selection, different
+- [x] Add failing example/browser cases for all-chart selection, different
   intervals, focus changes, delayed/failed history, cancellation, scope changes,
   participant closure, reload guards and data/viewport restoration.
-- [ ] Add a plain scope control to picking and transport. Capture all participants
+- [x] Add a plain scope control to picking and transport. Capture all participants
   and request/timezone identities; allocate a request slot per participant and
   abort all slots on cancellation. Load required primary history before group
   creation; unavailable finer history visibly falls back to completed candles.
-- [ ] Supply explicit interval/calendar end times from the reference feed. Route
+- [x] Supply explicit interval/calendar end times from the reference feed. Route
   each chart's legend and volume from its own replay frame. Mark every active
   chart and retain the global order and alert guards through all transitions.
-- [ ] Run complete example and three-engine browser suites with four workers;
+- [x] Run complete example and three-engine browser suites with four workers;
   inspect wide/narrow/fullscreen screenshots and verify keyboard controls.
-- [ ] Update example docs and ledger, run package/API/skills/site checks and commit.
+- [x] Update example docs and ledger, run package/API/skills/site checks and commit.
   Defer remaining /trading implementation until after Charts publication.
 
 ## Completion evidence
@@ -273,3 +283,56 @@ entry replaces stale inactive snapshots. No DOM in the engine and no sustained
 performance claim. Consumer work and original OI edits remain untouched. Task 3
 and the remaining chart release scope are still open; Charts publication comes
 before remaining /trading integration and final connected-broker validation.
+
+## Task 3 verification checkpoint
+
+The reference host now uses ReplayGroup for focused/all replay. It captures
+already loaded primary histories and identities before finer-history loading;
+each participant has its own cancellable slot. Daily/weekly ends respect local
+daylight changes; calendar intervals use the registry. Playback starts at the
+selected candle's close. The slider counts observations, not primary bar indices.
+Each chart owns its volume, empty/partial readout and replay marker. Both scopes
+share workspace-level controls, remaining usable in either fullscreen chart.
+Scope changes preserve time; exit restores data and viewports. Source changes,
+chart closure, invalid timing and restoration failure have defined cleanup.
+
+Evidence in artifacts/candidate:
+
+- reference-group-red.log: initial host cases fail before implementation.
+  reference-group-cleanup-red.log catches an invalid inactive chart blocking
+  focused replay and a restoration error leaving the host guarded. Sixteen new
+  host/timing cases now pass, including finer volume/OI and absent readings.
+- reference-group-scope-red.log and reference-group-fullscreen-red.log catch
+  controls confined to a chart and disappearing on a fullscreen scope change.
+  Controls now live at workspace level while retaining the captured owner label.
+- reference-group-verify.log: full package verification exits zero, with 5575
+  engine tests/233 files and 297 example tests/24 files, lint, types, build,
+  declarations, size and shake. The final host-only placement correction then
+  passes all 297 examples again in reference-group-demo-final.log. Library source
+  and bundles did not change after the full package check.
+- reference-group-browser-final.log: all 91 reference cases pass in three
+  engines with four workers. The three shared cases pass again in
+  reference-group-readout-final.log with direct legend-write observation, then
+  reference-group-pixels-final.log waits for paint before screenshots. Wide,
+  narrow and fullscreen evidence was inspected across all three engines.
+  The old scrub test assumed bar indices; its fixture now explicitly tests
+  completed-candle fallback. Another test verifies observation and member indices
+  separately. A WebKit capture before paint was corrected with two animation frames.
+- reference-group-api.log has no warnings; all 918 skill entries pass. Final
+  lint passes. The concurrent website build failed with heap allocation exhaustion;
+  the serial retry passes in reference-group-website-retry.log, without changing
+  memory settings or source. Existing runner colour and website workspace/lint
+  configuration warnings remain. Firefox fullscreen screenshots retain the
+  existing headless viewport/capture-size limitation; controls remain usable.
+
+No new library bundle cost: base89.19 KiB, base+trade96.80, terminal201.04,
+all239.78, chart-only52.30. Host resources are bounded by captured members and
+two cached finer histories; requests abort on cancellation, one group clock owns
+playback, chart subscriptions leave on destruction, and replay primitives leave
+on exit. Picker alignment uses binary search. No endurance claim.
+
+This completes the Charts/reference F8 implementation. The remaining consumer
+F8 migration and final connected-broker validation follow Charts2.4.5 publication.
+Reference F1/F2, remaining P contracts/endurance, whole-branch review, measured
+release facts/version and actual publication remain open. Original OI work and
+the consumer checkout remain preserved. Score stays frozen.

@@ -4,6 +4,94 @@ const ORIGIN = 'http://127.0.0.1:8124';
 const PAGE = ORIGIN + '/examples/yfinance/index.html?test=1';
 const PROBE = ORIGIN + '/api/history?symbol=AAPL&interval=1d&period=1mo';
 
+test('all-chart replay shares time, scope and restoration through its controls', async ({ page }, info) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.setViewportSize({ width: 1360, height: 900 });
+  await openDemo(page);
+  await page.getByRole('button', { name: /Open a second, linked chart/ }).click();
+  await page.waitForFunction(() => (window as any).__oac?.app.chart2?.primaryBars().length > 30 && !(window as any).__oac.app.loading2);
+  await page.route('**/api/history?**', route => route.fulfill({ json: [] }));
+  const seed = await page.evaluate(() => {
+    const app = (window as any).__oac.app, start = Date.UTC(2024, 0, 2) / 1000;
+    const bars = (step: number, count: number) => Array.from({ length: count }, (_, i) => ({
+      time: start + i * step, open: 100 + i, high: 102 + i, low: 99 + i, close: 101 + i, volume: 100 + i,
+    }));
+    app.req.interval = '5m'; app.chart.setDataContext({ ...app.chart.getDataContext(), interval: '5m' });
+    app.currentBars = bars(300, 20); app.chart.primarySeries().setData(app.currentBars);
+    app.chart2.primarySeries().setData(bars(3600, 5));
+    app.replayReadoutValues = null;
+    const setValues = app.symbolLegend2.setValues.bind(app.symbolLegend2);
+    app.symbolLegend2.setValues = (values: any[]) => {
+      app.replayReadoutValues = values.map(value => ({ ...value })); setValues(values);
+    };
+    return { time: start, views: [app.chart, app.chart2].map(chart => ({
+      barSpacing: chart.timeScale.barSpacing, rightOffset: chart.timeScale.rightOffset,
+    })) };
+  });
+  const time = seed.time;
+  await page.locator('#chart').focus();
+  await page.getByRole('button', { name: 'Replay this session bar by bar', exact: true }).click();
+  await page.locator('#rp-pick-scope').click();
+  await expect(page.locator('#rp-pick-scope')).toHaveText('All charts');
+  await expect(page.locator('#chart2')).toHaveClass(/is-picking/);
+  await page.evaluate(async () => {
+    const path = '/examples/yfinance/src/replay.js'; await (await import(path)).startReplayAt(1);
+  });
+  const snapshot = () => page.evaluate(() => {
+    const app = (window as any).__oac.app;
+    return { time: app.replay.state().time, scope: app.replay.state().scope,
+      counts: [app.chart.primaryBars().length, app.chart2.primaryBars().length],
+      volume: [app.volume.getData().length, app.volume2.getData().length],
+      secondaryReadout: app.replayReadoutValues,
+      secondaryClose: Number(app.replayReadoutValues?.find((value: any) => value.label === 'C')?.text) };
+  });
+  expect(await snapshot()).toMatchObject({ time: time + 600, scope: 'all', counts: [2, 0], volume: [2, 0], secondaryReadout: [] });
+  expect(await page.locator('#replaybar').evaluate(node => node.parentElement?.id)).toBe('split');
+  await page.locator('#rp-fwd').focus(); await page.keyboard.press('Enter');
+  expect(await snapshot()).toMatchObject({ time: time + 900, counts: [3, 0] });
+  await page.locator('#chart2').focus();
+  await page.locator('#rp-scope').click();
+  expect(await snapshot()).toMatchObject({ time: time + 900, scope: 'focused', counts: [3, 5] });
+  expect(await page.evaluate(() => {
+    const scale = (window as any).__oac.app.chart2.timeScale;
+    return { barSpacing: scale.barSpacing, rightOffset: scale.rightOffset };
+  })).toEqual(seed.views[1]);
+  await page.locator('#rp-scope').click();
+  expect(await snapshot()).toMatchObject({ time: time + 900, scope: 'all', counts: [3, 0] });
+  await page.evaluate(start => (window as any).__oac.app.replay.seekTime(start + 3600), time);
+  expect(await snapshot()).toMatchObject({ time: time + 3600, counts: [12, 1], volume: [12, 1], secondaryClose: 101 });
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await page.screenshot({ path: info.outputPath('reference-all-replay.png') });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.locator('#replaybar').evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await page.screenshot({ path: info.outputPath('reference-all-replay-narrow.png') });
+  await page.setViewportSize({ width: 1360, height: 900 });
+  await page.locator('#chart2').focus();
+  await page.getByRole('button', { name: 'Full screen chart', exact: true }).click();
+  await expect(page.locator('body')).toHaveAttribute('data-fullscreen-pane', '2');
+  await expect(page.locator('#replaybar')).toBeVisible();
+  await page.locator('#rp-fwd').click();
+  expect(await snapshot()).toMatchObject({ time: time + 3900, counts: [13, 1] });
+  await page.locator('#rp-scope').click();
+  await expect(page.locator('#replaybar')).toBeVisible();
+  expect(await snapshot()).toMatchObject({ time: time + 3900, scope: 'focused', counts: [13, 5] });
+  await page.locator('#rp-scope').click();
+  expect(await snapshot()).toMatchObject({ time: time + 3900, scope: 'all', counts: [13, 1] });
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await page.screenshot({ path: info.outputPath('reference-all-replay-fullscreen.png') });
+  await page.getByRole('button', { name: 'Exit full screen (Esc)', exact: true }).click();
+  await page.getByRole('button', { name: 'Close the second chart', exact: true }).click();
+  await expect(page.locator('#replaybar')).toBeHidden();
+  expect(await page.evaluate(() => (window as any).__oac.app.chart.primaryBars().length)).toBe(20);
+  expect(await page.evaluate(() => {
+    const scale = (window as any).__oac.app.chart.timeScale;
+    return { barSpacing: scale.barSpacing, rightOffset: scale.rightOffset };
+  })).toEqual(seed.views[0]);
+  expect(errors).toEqual([]);
+});
+
 test('narrow chart legends keep whole close readings inside the plot', async ({ page }, info) => {
   await page.setViewportSize({ width: 1360, height: 900 });
   await openDemo(page);
@@ -80,6 +168,8 @@ test('shared replay keeps its selected chart owner through focus changes and exi
   await openDemo(page);
   await page.getByRole('button', { name: /Open a second, linked chart/ }).click();
   await page.waitForFunction(() => (window as any).__oac?.app.chart2?.primaryBars().length > 30 && !(window as any).__oac.app.loading2);
+  await page.route('**/api/history?**', route => new URL(route.request().url()).searchParams.get('interval') === '15m'
+    ? route.fulfill({ json: [] }) : route.continue());
   const before = await page.evaluate(() => {
     const app = (window as any).__oac.app;
     return [app.chart.primaryBars().length, app.chart2.primaryBars().length];
@@ -100,6 +190,7 @@ test('shared replay keeps its selected chart owner through focus changes and exi
     return [app.chart.primaryBars().length, app.chart2.primaryBars().length, app.replayTarget.pane];
   });
   expect(during).toEqual([before[0], 21, 2]);
+  // With finer history unavailable, each observation is a completed candle.
   await page.locator('#rp-scrub').fill('25');
   await page.locator('#rp-scrub').dispatchEvent('input');
   expect(await page.evaluate(() => (window as any).__oac.app.chart2.primaryBars().length)).toBe(26);

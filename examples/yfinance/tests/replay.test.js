@@ -29,7 +29,7 @@ describe('reference replay transitions', () => {
     expect(app.alerts.setPaused).toHaveBeenLastCalledWith(true);
     exitReplay();
     expect(app.replayLoading).toBe(false);
-    expect(abortFetch).toHaveBeenCalledWith('replay');
+    expect(abortFetch).toHaveBeenCalledWith('replay:1');
     resolve([flatBar(1, 10), flatBar(2, 11)]);
     await start;
     expect(app.replay).toBeNull();
