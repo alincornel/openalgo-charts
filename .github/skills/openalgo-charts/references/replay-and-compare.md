@@ -120,17 +120,33 @@ bn.remove();
 | `type` | `SeriesType` | `'line'` | Any registered series type. |
 | `paneIndex` | `number` | `0` | The price pane by default. |
 
-`ComparisonHandle`: `symbol`, `series`, `paneIndex`, `priceScale()`, `alignment()`, `setBars(bars)`, `remove()`, `list()`.
+`ComparisonHandle`: `symbol`, `series`, `paneIndex`, `priceScale()`, `alignment()`, `barAt(time)`, `setBars(bars)`, `remove()`, `list()`.
 
-`ComparisonController`: `add(options)`, `remove(handle)`, `list()`, `clear()`, `setMode(mode)`, `mode`, `realign()`, `sync()`, `destroy()`. `ComparisonMode` is `'percentage'` (default), `'indexed-to-100'` or `'none'`.
+Use `barAt(time)` for host readouts. It returns the eligible aligned bar in the
+instrument's own prices, or null for a gap, an unavailable common baseline, a
+forming replay candle or a removed handle. Reading the original history cache
+instead can reveal a completed candle while replay is still forming it.
+
+`ComparisonController`: `add(options)`, `remove(handle)`, `list()`, `clear()`, `setMode(mode)`, `mode`, `setBaseline(policy)`, `baseline`, `baselineTime(paneIndex?)`, `realign()`, `sync()`, `destroy()`. `ComparisonMode` is `'percentage'` (default), `'indexed-to-100'` or `'none'`. `ComparisonBaseline` is `'first-visible'` (default) or `'common'`; `ComparisonControllerOptions` accepts both `mode` and `baseline`.
+
+`baseline: 'common'` chooses the first visible timestamp with positive finite
+closes on the primary and all visible comparisons. `baselineTime()` returns that
+timestamp, or null when no shared start is available. Comparisons then draw gaps;
+prices are never carried forward. Hiding a source removes it from the anchor
+requirement. Panning and data changes recompute the anchor. Common mode expands
+an automatic primary range to fit relative moves; a manually set range is kept.
 
 ### How the two lines become comparable
 
-1. **The comparison never touches the primary's axis.** It goes on the pane's hidden overlay scale (`priceScaleId: ''`), which autoscales alone and draws no ticks, so a 46,000 instrument cannot compress a 22,000 one's candles.
+1. **Each comparison has its own scale.** The first uses a free legacy overlay or left axis; further sources use independent named hidden scales. An occupied volume or left scale is never taken over.
 2. **Comparability comes from the scale, not the data.** Bars stay the instrument's real prices, so the legend and crosshair still read in prices; the pane switches to `percentage` or `indexed-to-100` while a comparison is on it.
 3. **A per-frame pass mirrors the range**, giving the overlay the primary's range scaled by `baselineOverlay / baselinePrimary`, so equal ratios land on equal pixels. Without it each scale autoscales to its own data and a 1% mover looks exactly like a 10% mover.
 
-The hook is a `bottom` z-order primitive that paints nothing, because that is the only window between the pane's autoscale pass (where a rebasing scale gets its baseline) and the series draw. It also does an O(1) `dataLayer.length` check and re-aligns when the shared axis moves underneath (live bars, history paging, replay).
+The hook runs after autoscaling and before painting. It checks primary history
+identity, length and boundary timestamps as well as the shared axis. Primary data
+events also re-align immediately. Comparison replay data follows the completed
+candle boundary, including sources added while replay is active, so a forming
+candle cannot reveal its completed comparison close. Stop restores full data.
 
 ### Alignment (`alignToPrimary`)
 
@@ -145,11 +161,12 @@ Matching is on the **exact** timestamp; two instruments on the same interval agr
 
 ### Gotchas
 
-- **A pane has exactly one hidden overlay scale**, so every comparison on a pane shares one baseline. Right for the common single comparison; a second one is quoted against the first instrument's price. Put further instruments on their own pane with `paneIndex`.
-- **The volume histogram usually owns that overlay already.** When `priceScaleId: ''` is taken the comparison falls back to the **left** axis rather than autoscaling price and volume together.
+- **The legacy empty overlay is still shared by its users.** Named overlays give comparisons independent baselines; each handle's `priceScale()` is distinct.
+- **The volume histogram usually owns the empty overlay.** A first comparison uses the left axis only when it is free; otherwise it uses a named hidden scale.
 - **Use the handle, not the series, for data and teardown.** `series.setData` skips alignment; `series.remove()` leaves the pane rebased with nothing on it.
 - **A user's own mode change is respected.** The pane's saved mode is only restored if it is still the one the controller applied, so switching the pane to log while comparing keeps that choice.
-- `realign()` is only needed by hand after replacing the primary's data with a *different* set of the same length, which the O(1) length check cannot see.
+- `Chart` handles same-length primary replacement automatically. Custom structural hosts without primary history identity or data events may call `realign()` after replacing their timestamps.
+- Chart destruction drops subscriptions and comparison history. Explicit `destroy()` removes the live series and restores the pane; create a new controller for later use.
 
 ## Related
 

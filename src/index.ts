@@ -143,7 +143,7 @@ export type {
 // headless multi-symbol comparison (host renders its own symbol chips)
 export { addComparison, comparisonController, ComparisonController } from './compare/controller';
 export type {
-  ComparisonOptions, ComparisonHandle, ComparisonMode,
+  ComparisonOptions, ComparisonHandle, ComparisonMode, ComparisonBaseline,
   ComparisonControllerOptions, ComparisonChartHost, ComparisonPane,
 } from './compare/controller';
 export { alignToPrimary } from './compare/align';

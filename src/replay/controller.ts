@@ -18,6 +18,7 @@
 import type { Bar } from '../model/bar';
 import type { SeriesApi } from '../model/series';
 import { clamp } from '../helpers/math';
+import { setReplayWindow } from '../model/replay-window';
 
 /** Schedules a repeating callback and returns its canceller. Inject in tests. */
 export type ReplayScheduler = (cb: () => void, intervalMs: number) => () => void;
@@ -387,6 +388,7 @@ export class ReplayController {
     this._active = false;
     this._index = this._startIndex;
     this._sub = 0;
+    setReplayWindow(this._chart);
     for (let i = 0; i < this._series.length; i++) this._series[i].setData(this._restore[i]);
     // Bar spacing and right offset *are* the viewport: the visible logical
     // range is (baseIndex + rightOffset) back by width / barSpacing, and
@@ -447,6 +449,10 @@ export class ReplayController {
       const from = this._subStart[next];
       shown[next] = mergeSubBars(this._subBars, from, from + nextSub, this._bars[next].time);
     }
+    const forming = this._intra && nextSub < steps - 1;
+    // Other data owners must know the boundary before the primary write can
+    // paint or notify a host. A comparison added later reads the same boundary.
+    setReplayWindow(this._chart, { time: shown[next].time, forming });
     this._series[0].setData(shown);
     // Followers cut by time, not by count: a volume series may be shorter than
     // the price series, or start later. Under intra-bar replay they stop at the
@@ -454,7 +460,6 @@ export class ReplayController {
     // candle are not the same operation and the controller is not told which it
     // has. A host that wants its follower to grow with the forming bar writes it
     // from `ReplayState.bar`, which `onFrame` hands over below.
-    const forming = this._intra && nextSub < steps - 1;
     const cutoff = forming
       ? (next > 0 ? this._bars[next - 1].time : Number.NEGATIVE_INFINITY)
       : this._bars[next].time;

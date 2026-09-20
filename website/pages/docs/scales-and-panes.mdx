@@ -330,6 +330,11 @@ Assign a series to a price axis with `priceScaleId`:
   independently: spot price on one side, a premium or spread on the other.
 - **`''`** (empty string) is a hidden overlay scale with no axis, autoscaled on its own:
   the standard way to pin a volume histogram inside the price pane.
+- **`'overlay:name'`** creates an independent hidden scale. Series with the same
+  name share its range and baseline; different names keep separate price units.
+  The scale is released when its last series is removed. Named overlays are
+  included in pane-wide scale operations, excluded from axis-only operations,
+  and reserve no visible axis column.
 
 Reach a series' scale with `series.priceScale()` and tune it via `.setOptions(...)`.
 

@@ -31,13 +31,13 @@ bn.remove();             // off the chart, pane restored
 A 46,000 instrument next to a 22,000 one is the whole problem. Three things solve it, and
 none of them touch your data:
 
-1. **The comparison never lands on the primary's axis.** It goes on the pane's hidden
-   overlay scale (`priceScaleId: ''`), which draws no ticks and autoscales on its own, so it
-   cannot compress the primary's candles or relabel its ladder.
+1. **Each comparison has an independent scale.** The first uses a free legacy overlay or
+   left axis. Further sources use named hidden scales, so different price units cannot
+   change another instrument's baseline. Occupied volume and left scales keep their data.
 2. **The pane rebases.** While any comparison is on it, the pane switches to
    [`percentage`](/docs/scales-and-panes#percent-and-indexed-to-100) (the default) or
-   `indexed-to-100`. Each scale gets its own baseline, the close of its own first visible
-   bar, so both lines are quoted as change from the left edge of what is on screen.
+   `indexed-to-100`. Each scale gets its own baseline price. The default uses its own first
+   visible close; the optional common-start policy uses one timestamp across all sources.
 3. **The overlay mirrors the primary's band of percent.** Once a frame, the overlay's range
    is set to the primary's range times `baseline_overlay / baseline_primary`. Without that
    step each scale would autoscale to its own data and a 1% mover would look exactly like a
@@ -112,6 +112,7 @@ yourself, for a coverage report or a data-quality check.
 | `paneIndex` | The pane it is on. |
 | `priceScale()` | The hidden scale it maps to. Never the pane's own price axis. |
 | `alignment()` | How the last projection went: `bars`, `matched`, `gaps`, `dropped`. |
+| `barAt(time)` | Eligible aligned bar in its own prices, or null for a gap, unavailable common baseline, forming replay candle or removed handle. Use this for host readouts. |
 | `setBars(bars)` | Replace the instrument's bars and re-align. |
 | `remove()` | Take it off the chart. Safe to call twice. |
 | `list()` | Every comparison on this chart, in the order they were added. |
@@ -141,6 +142,8 @@ import { comparisonController } from 'openalgo-charts';
 
 const cc = comparisonController(chart);
 cc.setMode('indexed-to-100');   // or 'percentage', or 'none'
+cc.setBaseline('common');      // or the default 'first-visible'
+cc.baselineTime();             // shared timestamp, or null when unavailable
 cc.list();                       // every comparison
 cc.realign();                    // re-project onto the primary's current bars
 cc.clear();                      // remove them all, panes restored
@@ -151,29 +154,51 @@ cc.destroy();                    // clear, and forget the chart
 instruments each filling the pane, comparable in shape only. Use it when the pane is
 already log and you want it kept that way.
 
+### One common starting timestamp
+
+The default `baseline: 'first-visible'` preserves existing integrations: each source
+uses its own first visible close. For performance comparisons across different calendars,
+choose `comparisonController(chart, { baseline: 'common' })` before adding sources, or
+call `cc.setBaseline('common')` on an existing controller.
+
+Common mode selects the first visible timestamp with a positive finite close on the
+primary and every visible comparison. Hidden sources do not constrain the start. Pan,
+hide a source or replace its history and the controller recomputes that timestamp.
+`cc.baselineTime(paneIndex?)` reports it, or null when it is unavailable, the mode is
+`'none'`, the user has overridden the primary scale mode, or independent baselines are
+selected. With no common start, comparison series draw gaps. Prices are never carried
+forward to manufacture an overlap.
+
+Each instrument retains its raw prices. Equal relative moves have equal coordinates,
+including an inverted primary scale. An automatic range expands to fit the visible
+relative moves; a manually set primary range stays under the user's control. The
+yfinance reference host uses common mode and shows "No common starting bar" when
+histories cannot be compared in the visible window.
+
 ### Re-alignment is automatic
 
-The controller watches `dataLayer.length`, which changes exactly when the shared time axis
-does, and re-projects every instrument when it moves. Live bars, history paged in through
-`prependData`, and replay steps are all covered with no call from you. `realign()` is only
-needed after replacing the primary's data with a **different** set of the same length,
-which the length check cannot see.
+The controller observes primary data changes, history identity and boundary timestamps
+as well as the shared time axis. Live bars, history prepends and replacement with a
+different set of the same length re-align automatically on `Chart`. A custom structural
+host without data events or primary history identity can call `realign()` explicitly.
+
+Replay truncates comparisons to the displayed primary history and withholds a forming
+candle's completed comparison close. This also applies to a source added during replay.
+Use `handle.barAt(time)` for readouts instead of the original history cache, which may
+contain future values. Stopping replay restores full comparison history.
 
 ## Two accommodations worth knowing
 
-**The volume histogram usually owns the hidden overlay.** A pane has exactly one, and
-`priceScaleId: ''` is best known as where a volume histogram goes. Sharing it would
-autoscale price and volume together and flatten both, so when it is taken the comparison
-falls back to the **left axis** instead. A visible second ladder is a far smaller surprise
-than an invisible line pinned to the bottom of the pane.
+**The volume histogram usually owns the legacy hidden overlay.** Sharing that
+`priceScaleId: ''` would mix price and volume units. The first comparison uses the left
+axis when it is free, otherwise a named hidden scale. Additional comparisons always
+receive independent scales. Put multiple instruments on the same pane without sharing
+their price baselines.
 
 **Your scale-mode choice survives.** The saved mode is only restored when the last
 comparison leaves if it is still the one the controller applied. A user who switches the
 pane to logarithmic mid-comparison keeps that choice instead of having it silently undone.
 
-<Callout type="info">
-**One baseline per pane.** Because a pane has a single hidden overlay, every comparison on
-a pane shares one scale, so a second instrument on the same pane is quoted against the
-first one's baseline. That is exactly right for one comparison, which is the common case.
-For further instruments, give each its own pane with `paneIndex`.
-</Callout>
+Chart destruction releases comparison subscriptions and history automatically.
+`cc.destroy()` on a live chart removes its comparisons and restores the pane's mode;
+it is safe to call again during host cleanup.

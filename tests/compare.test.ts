@@ -10,6 +10,7 @@ import { fakeDocument } from './helpers/fake-dom';
 import { alignToPrimary } from '../src/compare/align';
 import { addComparison, comparisonController, type ComparisonHandle } from '../src/compare/controller';
 import type { Bar, SeriesDataItem } from '../src/model/bar';
+import { ReplayController } from '../src/replay/controller';
 
 const DAY = 86400;
 const T0 = 1700000000;
@@ -182,6 +183,37 @@ describe('comparable coordinates', () => {
     return [handle.priceScale().priceToY(value), pane.priceScale.priceToY(close)];
   }
 
+  it('gives multiple instruments independent baselines on the same percentage ladder', () => {
+    const { chart, pane } = loaded(ramp(100, 11, 110));
+    const a = addComparison(chart, { symbol: 'A', bars: ramp(1000, 11, 1100) });
+    const b = addComparison(chart, { symbol: 'B', bars: ramp(50000, 11, 55000) });
+    expect(a.priceScale()).not.toBe(b.priceScale());
+    for (const [handle, start, end] of [[a, 1000, 1100], [b, 50000, 55000]] as const) {
+      expect(handle.priceScale().priceToY(start)).toBeCloseTo(pane.priceScale.priceToY(100), 6);
+      expect(handle.priceScale().priceToY(end)).toBeCloseTo(pane.priceScale.priceToY(110), 6);
+    }
+    a.remove();
+    expect(b.priceScale().priceToY(55000)).toBeCloseTo(pane.priceScale.priceToY(110), 6);
+    b.remove();
+    expect(pane.priceScale.options.mode).toBe('linear');
+    expect(pane.scales()).toHaveLength(2); // primary and the retained legacy empty overlay
+  });
+
+  it('does not take a left axis or volume scale occupied by another source', () => {
+    const { chart, pane } = loaded(ramp(100, 11, 110));
+    const volume = chart.addSeries('histogram', { priceScaleId: '' });
+    volume.setData(ramp(100000, 11, 120000));
+    const left = chart.addSeries('line', { priceScaleId: 'left' });
+    left.setData(ramp(200, 11, 220));
+    const before = left.priceScale().priceRange();
+    const handle = addComparison(chart, { symbol: 'A', bars: ramp(50000, 11, 55000) });
+    expect(handle.priceScale()).not.toBe(left.priceScale());
+    expect(handle.priceScale()).not.toBe(volume.priceScale());
+    expect(left.priceScale().priceRange()).toEqual(before);
+    expect(left.priceScale().options.mode).toBe('linear');
+    expect(handle.priceScale().priceToY(55000)).toBeCloseTo(pane.priceScale.priceToY(110), 6);
+  });
+
   it('lands two instruments with different absolute prices on the same pixel for the same move', () => {
     const { chart, pane } = loaded(ramp(100, 11, 110)); // primary +10%
     const handle = addComparison(chart, { symbol: 'BANKNIFTY', bars: ramp(45000, 11, 49500) }); // +10%
@@ -215,6 +247,60 @@ describe('comparable coordinates', () => {
 });
 
 describe('keeping up with the primary series', () => {
+  it('replaces aligned timestamps when a same-length primary history changes', () => {
+    const { chart } = loaded(ramp(100, 3, 102));
+    // Another source keeps the global axis unchanged during the replacement.
+    chart.addSeries('line', { priceScaleId: 'left' }).setData(ramp(10, 6, 15));
+    const handle = addComparison(chart, { symbol: 'A', bars: ramp(1000, 6, 1050) });
+    expect(chart.dataLayer.length).toBe(6);
+    chart.primarySeries()!.setData(ramp(103, 3, 105, 3));
+    expect(handle.series.getData().map(item => item.time)).toEqual([at(3), at(4), at(5)]);
+    expect(chart.dataLayer.length).toBe(6);
+  });
+
+  it('admits a live comparison close only when its primary timestamp arrives', () => {
+    const { chart } = loaded(ramp(100, 3, 102));
+    const handle = addComparison(chart, { symbol: 'A', bars: ramp(1000, 4, 1030) });
+    expect(handle.barAt(at(3))).toBeNull();
+    chart.primarySeries()!.update(bar(3, 103));
+    expect(handle.barAt(at(3))?.close).toBe(1030);
+    handle.setBars(ramp(1000, 4, 1035));
+    expect(handle.barAt(at(3))?.close).toBe(1035);
+    expect(handle.series.getData()).toHaveLength(4);
+    expect(chart.dataLayer.length).toBe(4);
+  });
+
+  it('releases future timestamps when replay truncates the primary', () => {
+    const { chart } = loaded(ramp(100, 6, 105));
+    const handle = addComparison(chart, { symbol: 'A', bars: ramp(1000, 6, 1050) });
+    const replay = new ReplayController(chart, { startIndex: 2 });
+    expect(handle.series.getData().map(item => item.time)).toEqual([at(0), at(1), at(2)]);
+    expect(chart.dataLayer.length).toBe(3);
+    replay.seek(0);
+    expect(chart.dataLayer.length).toBe(1);
+    replay.stop();
+    expect(handle.series.getData()).toHaveLength(6);
+  });
+
+  it('withholds a forming replay candle close, including comparisons added during replay', () => {
+    const { chart } = loaded(ramp(100, 3, 102));
+    const handle = addComparison(chart, { symbol: 'A', bars: ramp(1000, 3, 1020) });
+    const subBars = Array.from({ length: 6 }, (_, index) => ({ ...bar(0, 100 + index), time: T0 + index * DAY / 2 }));
+    let disclosed = false;
+    const replay = new ReplayController(chart, { startIndex: 0, subBars, onFrame: state => {
+      if (state.subIndex < state.subSteps - 1) {
+        disclosed ||= handle.series.getData().some(item => item.time === state.bar?.time && Number.isFinite(item.close));
+      }
+    } });
+    replay.step();
+    expect(disclosed).toBe(false);
+    const during = addComparison(chart, { symbol: 'B', bars: ramp(5000, 3, 5100) });
+    expect(during.series.getData().find(item => item.time === at(1))?.close).toBeNaN();
+    replay.step();
+    expect(handle.series.getData().find(item => item.time === at(1))?.close).toBe(1010);
+    replay.stop();
+    expect(during.series.getData()).toHaveLength(3);
+  });
   it('re-aligns when the primary gains bars', () => {
     const chart = makeChart();
     const primary = chart.addSeries('candlestick');
@@ -234,6 +320,108 @@ describe('keeping up with the primary series', () => {
     handle.setBars(ramp(45000, 5, 45400));
     expect(handle.alignment()).toEqual({ bars: 5, matched: 5, gaps: 0, dropped: 0 });
     expect(handle.series.getData()).toHaveLength(5);
+  });
+});
+
+describe('common comparison baseline', () => {
+  it('anchors every visible instrument to the same available timestamp', () => {
+    const { chart, pane } = loaded(ramp(100, 4, 130));
+    const controller = comparisonController(chart, { baseline: 'common' });
+    const a = controller.add({ symbol: 'A', bars: [bar(0, 200), bar(2, 300), bar(3, 330)] });
+    const b = controller.add({ symbol: 'B', bars: [bar(1, 900), bar(2, 1000), bar(3, 1100)] });
+    expect(controller.baselineTime()).toBe(at(2));
+    expect(pane.priceScale.baseline).toBe(120);
+    expect(a.priceScale().baseline).toBe(300);
+    expect(b.priceScale().baseline).toBe(1000);
+    expect(a.priceScale().priceToY(330)).toBeCloseTo(b.priceScale().priceToY(1100), 6);
+    expect(a.priceScale().priceToY(330)).toBeCloseTo(pane.priceScale.priceToY(132), 6);
+    controller.setMode('indexed-to-100');
+    expect(a.priceScale().priceToY(300)).toBeCloseTo(pane.priceScale.priceToY(120), 6);
+  });
+
+  it('keeps the old first-visible policy unless a host opts into a shared timestamp', () => {
+    const { chart, pane } = loaded(ramp(100, 4, 130));
+    const controller = comparisonController(chart);
+    const source = controller.add({ symbol: 'A', bars: [bar(2, 300), bar(3, 330)] });
+    expect(pane.priceScale.baseline).toBe(100);
+    controller.setBaseline('common');
+    expect(pane.priceScale.baseline).toBe(120);
+    controller.setBaseline('first-visible');
+    expect(pane.priceScale.baseline).toBe(100);
+    expect(source.priceScale().baseline).toBe(300);
+  });
+
+  it('shows gaps without a shared start and recovers as visibility or data changes', () => {
+    const { chart } = loaded(ramp(100, 2, 110));
+    const controller = comparisonController(chart, { baseline: 'common' });
+    const a = controller.add({ symbol: 'A', bars: [bar(0, 200)] });
+    const b = controller.add({ symbol: 'B', bars: [bar(1, 900)] });
+    expect(controller.baselineTime()).toBeNull();
+    expect(a.barAt?.(at(0))).toBeNull();
+    expect(a.series.getData().every(item => !Number.isFinite(item.close))).toBe(true);
+    expect(b.series.getData().every(item => !Number.isFinite(item.close))).toBe(true);
+    b.series.applyOptions({ visible: false });
+    expect(controller.baselineTime()).toBe(at(0));
+    expect(a.series.getData()[0].close).toBe(200);
+    expect(a.barAt?.(at(0))?.close).toBe(200);
+    b.series.applyOptions({ visible: true });
+    expect(controller.baselineTime()).toBeNull();
+    b.setBars([bar(0, 800), bar(1, 900)]);
+    expect(controller.baselineTime()).toBe(at(0));
+    expect(a.series.getData()[0].close).toBe(200);
+  });
+
+  it('recomputes the common start when the visible window moves', () => {
+    const { chart } = loaded(ramp(100, 6, 150));
+    const controller = comparisonController(chart, { baseline: 'common' });
+    const a = controller.add({ symbol: 'A', bars: [bar(0, 200), bar(4, 300), bar(5, 330)] });
+    controller.add({ symbol: 'B', bars: [bar(1, 900), bar(4, 1000), bar(5, 1100)] });
+    chart.setVisibleLogicalRange({ from: 0, to: 2 });
+    expect(controller.baselineTime()).toBeNull();
+    expect(a.series.getData().every(item => !Number.isFinite(item.close))).toBe(true);
+    chart.setVisibleLogicalRange({ from: 3, to: 5 });
+    expect(controller.baselineTime()).toBe(at(4));
+    expect(a.series.getData().find(item => item.time === at(4))?.close).toBe(300);
+  });
+
+  it('fits larger percentage moves while preserving a manually set primary range', () => {
+    const { chart, pane } = loaded(ramp(100, 4, 103));
+    const controller = comparisonController(chart, { baseline: 'common' });
+    const a = controller.add({ symbol: 'A', bars: ramp(1000, 4, 1500) });
+    const y = a.priceScale().priceToY(1500);
+    expect(y).toBeGreaterThan(0);
+    expect(y).toBeLessThan(a.priceScale().height);
+    pane.priceScale.setAutoScale(false);
+    pane.priceScale.setPriceRange({ min: 90, max: 110 });
+    a.setBars(ramp(1000, 4, 2000));
+    expect(pane.priceScale.priceRange()).toEqual({ min: 90, max: 110 });
+  });
+
+  it('fits relative moves across missing prints without contaminating the range', () => {
+    const { chart } = loaded(ramp(100, 3, 102));
+    const controller = comparisonController(chart, { baseline: 'common' });
+    const source = controller.add({ symbol: 'A', bars: [bar(0, 1000), bar(2, 1500)] });
+    expect(source.priceScale().priceToY(1500)).toBeGreaterThan(0);
+  });
+
+  it('keeps equal returns on equal pixels when the primary axis is inverted', () => {
+    const { chart, pane } = loaded(ramp(100, 3, 110));
+    const controller = comparisonController(chart, { baseline: 'common' });
+    const source = controller.add({ symbol: 'A', bars: ramp(1000, 3, 1100) });
+    chart.setPriceScaleOptions({ inverted: true });
+    expect(source.priceScale().priceToY(1100)).toBeCloseTo(pane.priceScale.priceToY(110), 6);
+    controller.setMode('none');
+    expect(source.priceScale().options.inverted).toBe(false);
+  });
+
+  it('uses positive finite anchor prices and releases suppressed data in mode none', () => {
+    const { chart } = loaded(ramp(100, 2, 110));
+    const controller = comparisonController(chart, { baseline: 'common' });
+    const source = controller.add({ symbol: 'A', bars: [bar(0, 0), bar(1, -10)] });
+    expect(controller.baselineTime()).toBeNull();
+    expect(source.series.getData().every(item => !Number.isFinite(item.close))).toBe(true);
+    controller.setMode('none');
+    expect(source.series.getData().map(item => item.close)).toEqual([0, -10]);
   });
 });
 
@@ -264,6 +452,24 @@ describe('controller bookkeeping', () => {
     controller.destroy();
     expect(controller.list()).toHaveLength(0);
     expect(comparisonController(chart)).not.toBe(controller);
+  });
+
+  it('releases handles when the chart is destroyed before the host controller', () => {
+    const { chart } = loaded(ramp(100, 5, 104));
+    const controller = comparisonController(chart, { baseline: 'common' });
+    const handle = controller.add({ symbol: 'A', bars: ramp(1000, 5, 1040) });
+    expect(handle.barAt(at(0))?.close).toBe(1000);
+    chart.destroy();
+    expect(controller.list()).toEqual([]);
+    expect(handle.barAt(at(0))).toBeNull();
+    expect(() => {
+      handle.setBars(ramp(2000, 5, 2040));
+      handle.remove();
+      controller.realign();
+      controller.sync();
+      controller.destroy();
+    }).not.toThrow();
+    expect(() => controller.add({ symbol: 'B', bars: [] })).toThrow(/destroyed/);
   });
 });
 

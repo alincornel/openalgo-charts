@@ -4,6 +4,78 @@ const ORIGIN = 'http://127.0.0.1:8124';
 const PAGE = ORIGIN + '/examples/yfinance/index.html?test=1';
 const PROBE = ORIGIN + '/api/history?symbol=AAPL&interval=1d&period=1mo';
 
+test('comparison charts use independent scales with a common start and honest missing overlap', async ({ page }, info) => {
+  await page.setViewportSize({ width: 1360, height: 900 });
+  await openDemo(page);
+  await page.getByRole('button', { name: 'Compare a second symbol', exact: true }).click();
+  for (const symbol of ['TSLA', 'NVDA']) {
+    await page.locator('#cmp-sym').fill(symbol);
+    await page.locator('#cmp-add').click();
+    await expect(page.locator('#cmp-list')).toContainText(symbol);
+  }
+  expect(await page.evaluate(async () => {
+    const source = '/dist/openalgo-charts.mjs';
+    const lib = await import(source);
+    return lib.comparisonController((window as any).__oac.chart).baseline;
+  })).toBe('common');
+  await page.locator('#cmp-close').click();
+  await page.evaluate(async () => {
+    const app = (window as any).__oac.app;
+    const primary = app.chart.primaryBars();
+    const source = '/examples/yfinance/src/compare.js';
+    const { indexCompare } = await import(source);
+    app.comparisons.forEach((spec: any, offset: number) => {
+      const base = offset ? 50000 : 1000;
+      spec.bars = primary.slice(0, 9).filter((_: any, index: number) => index !== (offset ? 0 : 1))
+        .map((bar: any) => {
+          const price = base * (1 + primary.indexOf(bar) * 0.02);
+          return { time: bar.time, open: price, high: price, low: price, close: price };
+        });
+      indexCompare(spec);
+      spec.handle.setBars(spec.bars);
+    });
+    app.chart.setVisibleLogicalRange({ from: 0, to: 8 });
+  });
+  await page.waitForFunction(() => (window as any).__oac.app.comparisons[0].handle.priceScale().baseline === 1040);
+  const coordinates = await page.evaluate(async () => {
+    const app = (window as any).__oac.app;
+    const [a, b] = app.comparisons.map((spec: any) => spec.handle);
+    const primary = app.chart.panes()[0].priceScale;
+    const source = '/dist/openalgo-charts.mjs';
+    const lib = await import(source);
+    return { independent: a.priceScale() !== b.priceScale(),
+      sameStart: lib.comparisonController(app.chart).baselineTime() === app.chart.primaryBars()[2].time,
+      difference: Math.abs(a.priceScale().priceToY(1160) - b.priceScale().priceToY(58000)),
+      primaryDifference: Math.abs(a.priceScale().priceToY(1160) - primary.priceToY(primary.baseline * 1160 / 1040)) };
+  });
+  expect(coordinates.independent).toBe(true);
+  expect(coordinates.sameStart).toBe(true);
+  expect(coordinates.difference).toBeLessThan(0.001);
+  expect(coordinates.primaryDifference).toBeLessThan(0.001);
+  await page.evaluate(async () => {
+    const app = (window as any).__oac.app;
+    app.comparisonReadings = [];
+    app.comparisons.forEach((spec: any, index: number) => {
+      const update = spec.legend.setValues.bind(spec.legend);
+      spec.legend.setValues = (values: any[]) => { app.comparisonReadings[index] = values; update(values); };
+    });
+    const source = '/examples/yfinance/src/compare.js';
+    (await import(source)).setCompareLegends(app.chart.primaryBars()[8]);
+  });
+  expect(await page.evaluate(() => (window as any).__oac.app.comparisonReadings.every((values: any[]) => values.length > 0))).toBe(true);
+  await page.screenshot({ path: info.outputPath('reference-common-comparison.png') });
+  await page.evaluate(() => {
+    const app = (window as any).__oac.app;
+    app.comparisons.forEach((spec: any, index: number) => spec.handle.setBars([spec.bars[index]]));
+  });
+  await page.getByRole('button', { name: 'Comparing TSLA, NVDA', exact: true }).click();
+  await expect(page.locator('#cmp-list')).toContainText('No common starting bar');
+  expect(await page.evaluate(() => (window as any).__oac.app.comparisons.every((spec: any) =>
+    spec.handle.series.getData().every((bar: any) => !Number.isFinite(bar.close))))).toBe(true);
+  expect(await page.evaluate(() => (window as any).__oac.app.comparisonReadings.every((values: any[]) => values.length === 0))).toBe(true);
+  await page.screenshot({ path: info.outputPath('reference-no-common-comparison.png') });
+});
+
 test('comparison controls retain chart ownership and saved visibility through reload', async ({ page }, info) => {
   const faults: string[] = [];
   page.on('pageerror', error => faults.push(error.message));

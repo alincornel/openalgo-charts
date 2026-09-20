@@ -18,8 +18,10 @@ export type { SeriesType };
  * Which price axis a series maps to. 'right' (default) and 'left' each draw an
  * axis and autoscale independently; '' is a hidden overlay scale (no axis, its
  * own autoscale) used to pin a volume histogram inside the price pane.
+ * `overlay:name` creates an independent hidden scale, shared only by series
+ * using that same name on this pane.
  */
-export type PriceScaleId = 'right' | 'left' | '';
+export type PriceScaleId = 'right' | 'left' | '' | `overlay:${string}`;
 
 /**
  * Value formatting for a price scale (its axis labels and crosshair tag):

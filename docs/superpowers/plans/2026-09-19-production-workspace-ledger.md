@@ -710,3 +710,24 @@ Artifacts and remaining work are in the shared toolbar plan. F7 baseline/live/
 replay engine work is still open; this checkpoint only completes host ownership.
 No engine API or consumer dependency changed, and 2.4.5 remains unpublished.
 The updated sequence is Charts publication first, remaining /trading work after.
+
+### Comparison engine and common-start checkpoint
+
+Comparisons now own independent scales and an optional common visible timestamp.
+The legacy first-visible default remains; the reference host opts into common
+mode and clears lines and legend readings when no shared start exists. The new
+barAt readout withholds forming replay closes. History replacement with a fixed
+global axis, live updates, replay start/seek/stop, sources added during replay,
+inversion, manual ranges and chart-first cleanup are covered. Named hidden scales
+release after their last series. Public docs and examples describe the contracts.
+
+Package verification passes: 5531 engine tests/230 files, 278 example tests/23
+files, types, lint, build, declarations, size and shake. The final host correction
+passes the 278 example tests and 73 reference browser cases. API generation,
+917-entry skills coverage and website build pass. The comparison-scales plan
+records regressions, screenshot review, bundle impact and resource limits.
+
+This is a local chart checkpoint. Broader F/P scope, sustained endurance, final
+review and publication remain open; remaining /trading implementation and final
+broker/deployment validation follow Charts 2.4.5 publication. No consumer package
+or source changed here, and the score remains frozen.

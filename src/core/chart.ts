@@ -2129,7 +2129,7 @@ export class Chart {
       mode: scale.options.mode,
       scaled: scale.scaled,
       lockRatio: pane.ratioLocked(scaleId),
-      movable: scaleId !== '' && pane.usesScale(scaleId) && !pane.usesScale(other),
+      movable: (scaleId === 'right' || scaleId === 'left') && pane.usesScale(scaleId) && !pane.usesScale(other),
     };
   }
 

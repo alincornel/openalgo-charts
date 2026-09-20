@@ -52,7 +52,10 @@ const BUNDLE = new URL('../dist/openalgo-charts.mjs', import.meta.url).pathname.
 // Alert documents also round-trip on charts without a controller. Atomic input
 // validation, JSON-safe payloads and stable study identities add 1.56 KiB:
 // 50.26 to 51.82 KiB. The controller, registry, UI and drawing tier stay optional.
-const LIMIT_BYTES = 51.9 * 1024;
+// Independent named overlays belong to chart-only hosts, including multiple
+// price units in one pane. Measured 51.89 to 51.96 KiB (0.07 KiB); allow 52.10.
+// Common-start comparison and replay alignment remain optional and must shake.
+const LIMIT_BYTES = 52.1 * 1024;
 
 // Absent from a chart-only build. Each is a string that appears in the adapter
 // source and nowhere in the rendering core.
@@ -71,6 +74,7 @@ const MUST_BE_SHAKEN = [
   ['widget tier', 'oac-widget'],
   ['trader alert controller', 'An alert controller already owns this chart'],
   ['bar condition registry', 'Bar condition id already registered'],
+  ['comparison controller', 'a comparison needs a primary series to align against'],
 ];
 
 const virtual = {

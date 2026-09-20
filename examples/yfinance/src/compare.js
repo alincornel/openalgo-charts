@@ -34,7 +34,7 @@ const available = target => target?.current() && target.chart.primaryBars().leng
 function runtime(target) {
   let state = runtimes.get(target.chart);
   if (state) return state;
-  state = { pending: new Map() };
+  state = { pending: new Map(), readoutTime: null };
   runtimes.set(target.chart, state);
   target.chart.on('destroy', () => {
     for (const request of state.pending.values()) request.abort();
@@ -94,7 +94,8 @@ export function attachComparison(spec, pane = 1) {
   if (spec.dataKey && spec.dataKey !== sourceKey(target)) return;
   runtime(target);
   const mode = comparisonState(pane).mode;
-  const controller = comparisonController?.(target.chart, { mode });
+  const controller = comparisonController?.(target.chart, { mode, baseline: 'common' });
+  controller?.setBaseline?.('common');
   if (controller && !controller.list().length) {
     // Rebuilding a chart restores its comparison mode too. Carry the mode it
     // had before comparing so removing the final source can still put it back.
@@ -104,7 +105,11 @@ export function attachComparison(spec, pane = 1) {
     scale.setOptions({ mode: app[key] });
   }
   controller?.setMode(mode);
-  if (spec.handle && spec.chart === target.chart) { spec.handle.setBars(spec.bars); return; }
+  if (spec.handle && spec.chart === target.chart) {
+    spec.handle.setBars(spec.bars);
+    setCompareLegends(target.chart.primaryBars().at(-1), pane);
+    return;
+  }
   try {
     spec.handle = addComparison(target.chart, {
       symbol: spec.symbol, bars: spec.bars, color: spec.color, style: { lineWidth: 1.5 },
@@ -112,6 +117,12 @@ export function attachComparison(spec, pane = 1) {
     spec.chart = target.chart;
     spec.legend = new PaneLegend({ id: 'cmp:' + spec.symbol, title: spec.symbol,
       params: '', color: spec.color, actions: ['hide', 'close'], hidden: spec.hidden === true });
+    // Baselines settle during autoscale. Refresh after the controller's hook so
+    // a pan or replay frame cannot leave a price for a now-suppressed source.
+    spec.legend.afterAutoscale = () => {
+      const time = runtimes.get(target.chart)?.readoutTime;
+      setComparisonLegend(spec, time == null ? target.chart.primaryBars().at(-1) : { time });
+    };
     target.chart.addPrimitive(spec.legend, 0);
     if (spec.hidden) spec.handle.series.applyOptions({ visible: false });
     spec.error = null;
@@ -121,17 +132,23 @@ export function attachComparison(spec, pane = 1) {
 
 /** Legend values always use the displayed bar, including during replay. */
 export function setCompareLegends(bar, pane = 1) {
-  for (const spec of comparisonState(pane).items) {
-    if (!spec.legend) continue;
-    const hit = bar && spec.byTime?.get(bar.time);
-    if (!hit) { spec.legend.setValues([]); continue; }
-    const change = hit.prevClose ? ((hit.close - hit.prevClose) / hit.prevClose) * 100 : null;
-    spec.legend.setValues([
-      { text: fmt(hit.close), color: spec.color, field: 'ohlc' },
-      ...(change === null ? [] : [{ text: `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`,
-        color: change >= 0 ? UP : DOWN, field: 'change' }]),
-    ]);
-  }
+  const state = runtimes.get(pane === 2 ? app.chart2 : app.chart);
+  if (state) state.readoutTime = bar?.time ?? null;
+  for (const spec of comparisonState(pane).items) setComparisonLegend(spec, bar);
+}
+
+function setComparisonLegend(spec, bar) {
+  if (!spec.legend) return;
+  const hit = bar && spec.byTime?.get(bar.time);
+  const aligned = bar && spec.handle?.barAt?.(bar.time);
+  if (!hit || aligned === null) { spec.legend.setValues([]); return; }
+  const close = aligned?.close ?? hit.close;
+  const change = hit.prevClose ? ((close - hit.prevClose) / hit.prevClose) * 100 : null;
+  spec.legend.setValues([
+    { text: fmt(close), color: spec.color, field: 'ohlc' },
+    ...(change === null ? [] : [{ text: `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`,
+      color: change >= 0 ? UP : DOWN, field: 'change' }]),
+  ]);
 }
 
 export function removeComparison(spec, pane = comparisonState(2).items.includes(spec) ? 2 : 1) {
@@ -257,6 +274,8 @@ export function renderCompareList() {
   const host = el('cmp-list');
   if (!host || !target?.current()) return;
   const state = comparisonState(target.pane);
+  const controller = comparisonController?.(target.chart);
+  const noCommonStart = state.mode !== 'none' && controller?.baseline === 'common' && controller.baselineTime() === null;
   host.innerHTML = '';
   if (!state.items.length) {
     const none = document.createElement('div');
@@ -267,7 +286,7 @@ export function renderCompareList() {
     const row = document.createElement('div');
     row.className = 'cmp-row';
     row.innerHTML = '<span class="sw" style="background:' + esc(spec.color) + '"></span><b>' + esc(spec.symbol) + '</b>'
-      + '<span class="cmp-cov">' + esc(spec.error || (coverage
+      + '<span class="cmp-cov">' + esc(spec.error || (noCommonStart ? 'No common starting bar' : coverage
         ? `${coverage.matched} matched, ${coverage.gaps} gaps, ${coverage.dropped} dropped` : 'Loading')) + '</span>';
     if (spec.error) {
       const retry = document.createElement('button');
