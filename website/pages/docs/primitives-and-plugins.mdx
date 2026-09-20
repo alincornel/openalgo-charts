@@ -164,6 +164,28 @@ swapping it under a live drag would strand the gesture.
 See [PriceLineOptions](/docs/types) for the full option set including `badge`, `qty`,
 `extentFromRight`, `closeButton`, and `label`.
 
+## Responsive legend rows
+
+`PaneLegend` keeps text, hover actions and pointer hit areas inside the plot.
+On narrow charts it shortens the title and omits whole readings, so a clipped
+number cannot look like a different price. Widening the chart restores the
+original fields.
+
+Set an optional `LegendValue.priority` to retain a useful reading before others:
+
+```ts
+legend.setValues([
+  { label: 'O', text: '120.00', field: 'ohlc' },
+  { label: 'C', text: '123.45', field: 'ohlc', priority: 10 },
+]);
+```
+
+Higher values win space; displayed readings keep their original order. Series
+readings default to 1 and status metadata ranks lower. Field switches still
+apply before fitting. Hover controls reserve space inside the row; when only
+some configured `actions` fit, the end of that list stays visible. Wide rows
+retain the same content as before.
+
 ## Tables
 
 `ChartTable` is a grid pinned to a corner of a pane. Like the watermark and the pane

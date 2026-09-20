@@ -41,6 +41,8 @@ export interface LegendValue {
    * source's own last value, governed by `statusLine.lastValueLabel`.
    */
   field?: LegendField;
+  /** Higher values retain this whole reading on narrow rows. Series readings default to 1; status metadata ranks lower. */
+  priority?: number;
 }
 
 /**
@@ -148,6 +150,7 @@ export interface PaneLegendOptions {
    *  - `maximize`    — expand this pane to fill the chart (`::maximize`)
    *  - `close`       — remove the source, and its pane if it empties (`::close`)
    *
+   * When only some actions fit, the end of this list stays visible.
    * Defaults to `['up', 'down', 'hide', 'maximize', 'close']` for pane sources
    * and `['hide', 'close']` for overlays (pass explicitly to override).
    */
@@ -189,6 +192,40 @@ type Seg =
   | { k: 'logo'; img: CanvasImageSource; w: number; gap: number }
   | { k: 'dot'; color: string; w: number; gap: number }
   | { k: 'text'; text: string; color: string; bold: boolean; w: number; gap: number };
+
+interface SegmentGroup { parts: Seg[]; priority: number; reading?: boolean }
+const groupWidth = (group: SegmentGroup): number => group.parts.reduce((sum, part) => sum + part.w + part.gap, 0);
+
+/** Fit whole readings; a clipped numeric suffix can look like a different price. */
+function fitGroups(ctx: CanvasRenderingContext2D, groups: SegmentGroup[], title: Seg | undefined, width: number): Seg[] {
+  if (groups.reduce((sum, group) => sum + groupWidth(group), 0) <= width) return groups.flatMap(group => group.parts);
+  const ranked = groups.filter(group => !group.parts.includes(title!)).sort((a, b) => b.priority - a.priority);
+  if (title?.k === 'text') {
+    const preferred = ranked.find(group => group.reading);
+    const readingWidth = preferred ? groupWidth(preferred) : 0;
+    const reserved = readingWidth <= width * 0.75 ? readingWidth : 0;
+    const budget = Math.max(0, width - reserved - title.gap);
+    if (title.w > budget) {
+      const chars = Array.from(title.text);
+      let from = 0, to = chars.length;
+      while (from < to) {
+        const mid = Math.ceil((from + to) / 2);
+        if (ctx.measureText(chars.slice(0, mid).join('') + '...').width <= budget) from = mid;
+        else to = mid - 1;
+      }
+      title.text = ctx.measureText('...').width <= budget ? chars.slice(0, from).join('') + '...' : '';
+      title.w = ctx.measureText(title.text).width;
+      if (!title.text) title.gap = 0;
+    }
+    width -= title.w + title.gap;
+  }
+  const kept = new Set<SegmentGroup>();
+  for (const group of ranked) {
+    const size = groupWidth(group);
+    if (size <= width) { kept.add(group); width -= size; }
+  }
+  return groups.filter(group => group.parts.includes(title!) || kept.has(group)).flatMap(group => group.parts);
+}
 
 /** Each group follows its own default and the instrument's capability. */
 function fieldOn(s: LegendStatusLineOptions, field: LegendField | undefined, hasOpenInterest?: boolean): boolean {
@@ -298,6 +335,8 @@ export class PaneLegend implements IPrimitive {
   private _buttons: { id: string; x: number; y: number }[] = [];
   /** Right edge of the drawn row, in media px. */
   private _width = 0;
+  private _plotWidth = 0;
+  private _plotHeight = 0;
 
   public constructor(opts: PaneLegendOptions) {
     this._opts = { font: 11, left: 8, top: 6, row: 0, ...opts };
@@ -318,7 +357,7 @@ export class PaneLegend implements IPrimitive {
     const same = values.length === this._values.length
       && values.every((v, i) => v.text === this._values[i].text
         && v.label === this._values[i].label && v.color === this._values[i].color
-        && v.field === this._values[i].field);
+        && v.field === this._values[i].field && v.priority === this._values[i].priority);
     if (same) return;
     this._values = values.map((v) => ({ ...v }));
     this._host?.requestUpdate();
@@ -358,36 +397,50 @@ export class PaneLegend implements IPrimitive {
     const s = o.statusLine ?? NO_SWITCHES;
     const data = this._status();
     const dimText = withAlpha(rc.theme.axisText, 0.55);
+    this._plotWidth = Math.max(0, rc.plotWidth);
+    this._plotHeight = Math.max(0, rc.plotHeight);
+    const available = Math.max(0, (this._plotWidth - 4) * dpr - x0);
+    const active = typeof rc.hoverId === 'string' && rc.hoverId.startsWith(`${o.id}::`);
+    const capacity = Math.max(0, Math.floor((available / dpr - 6) / (BTN + 2)));
+    const actions = active && capacity > 0 ? (o.actions ?? DEFAULT_ACTIONS).slice(-capacity) : [];
+    const actionWidth = actions.length ? (actions.length * (BTN + 2) + 6) * dpr : 0;
 
     ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, this._plotWidth * dpr, rc.plotHeight * dpr);
+    ctx.clip();
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
     ctx.globalAlpha = dim ? 0.45 : 1;
 
-    const segs: Seg[] = [];
-    const text = (t: string, color: string, bold: boolean, gap: number): void => {
+    const groups: SegmentGroup[] = [];
+    const text = (t: string, color: string, bold: boolean, gap: number): Seg => {
       ctx.font = `${bold ? '600 ' : ''}${f}px ${FONT}`;
-      segs.push({ k: 'text', text: t, color, bold, w: ctx.measureText(t).width, gap: gap * dpr });
+      return { k: 'text', text: t, color, bold, w: ctx.measureText(t).width, gap: gap * dpr };
     };
     // Label plus number, the shape every reading takes: the crosshair values,
     // the market state and the day change all render through this.
-    const reading = (v: LegendValue, fallback: string): void => {
-      if (v.label !== undefined && v.label !== '') text(v.label, dimText, false, 3);
-      text(v.text, v.color ?? fallback, false, GAP);
+    const reading = (v: LegendValue, fallback: string, priority = 1): void => {
+      const parts: Seg[] = [];
+      if (v.label !== undefined && v.label !== '') parts.push(text(v.label, dimText, false, 3));
+      parts.push(text(v.text, v.color ?? fallback, false, GAP));
+      groups.push({ parts, priority: Number.isFinite(v.priority) ? v.priority! : priority, reading: priority > 0 });
     };
 
     if (data.logo !== undefined && s.logo !== false) {
-      segs.push({ k: 'logo', img: data.logo, w: LOGO * dpr, gap: 5 * dpr });
+      groups.push({ parts: [{ k: 'logo', img: data.logo, w: LOGO * dpr, gap: 5 * dpr }], priority: -1 });
     }
-    if (o.color !== undefined) segs.push({ k: 'dot', color: o.color, w: 6 * dpr, gap: 5 * dpr });
+    if (o.color !== undefined) groups.push({ parts: [{ k: 'dot', color: o.color, w: 6 * dpr, gap: 5 * dpr }], priority: -1 });
+    let title: Seg | undefined;
     if (s.title !== false) {
       const mode = s.titleMode ?? 'symbol';
       const alt = mode === 'description' ? data.description : mode === 'ticker' ? data.ticker : undefined;
-      text(alt ?? o.title, rc.theme.axisText, true, GAP);
+      title = text(alt ?? o.title, rc.theme.axisText, true, GAP);
+      groups.push({ parts: [title], priority: 0 });
     }
-    if (o.params !== undefined && o.params !== '') text(o.params, dimText, false, GAP);
+    if (o.params !== undefined && o.params !== '') groups.push({ parts: [text(o.params, dimText, false, GAP)], priority: -3 });
     if (data.marketStatus !== undefined && s.marketStatus !== false) {
-      reading(data.marketStatus, dimText);
+      reading(data.marketStatus, dimText, -4);
     }
     // Readings: one per plot, each in its plot's color, with a dimmed label.
     const valueColor = o.valueColor ?? o.color ?? rc.theme.axisText;
@@ -395,8 +448,10 @@ export class PaneLegend implements IPrimitive {
       if (fieldOn(s, v.field, o.hasOpenInterest)) reading(v, valueColor);
     }
     if (data.lastDayChange !== undefined && s.lastDayChange !== false) {
-      reading(data.lastDayChange, valueColor);
+      reading(data.lastDayChange, valueColor, -2);
     }
+    ctx.font = `600 ${f}px ${FONT}`;
+    const segs = fitGroups(ctx, groups, title, Math.max(0, available - actionWidth));
 
     // The plate goes down before a single glyph does, which is the whole point
     // of measuring first: text over plate, never plate over text.
@@ -432,9 +487,7 @@ export class PaneLegend implements IPrimitive {
     // until you approach one. The row itself hit-tests (as `::row`), which is
     // what makes the pointer "arrive" and reveal them.
     this._buttons = [];
-    const active = typeof rc.hoverId === 'string' && rc.hoverId.startsWith(`${o.id}::`);
-    const actions = o.actions ?? DEFAULT_ACTIONS;
-    if (active && actions.length > 0) {
+    if (actions.length > 0) {
       // Soft plate behind the controls, so glyphs stay legible over candles.
       const plateW = (actions.length * (BTN + 2) + 6) * dpr;
       ctx.globalAlpha = 1;
@@ -467,6 +520,7 @@ export class PaneLegend implements IPrimitive {
   }
 
   public hitTest(x: number, y: number): PrimitiveHit | null {
+    if (x < 0 || x >= this._plotWidth || y < 0 || y >= this._plotHeight) return null;
     const o = this._opts;
     const top = (o.top ?? 6) + (o.row ?? 0) * ROW_H;
     if (y < top || y > top + ROW_H) return null;

@@ -155,6 +155,16 @@ series.createMarkers();                                                     // r
 chart.tradeHost(paneIndex = 0);                                             // { addPrimitive, removePrimitive } for the trade tier
 ```
 
+`PaneLegend` fits its row inside the plot, including hover actions and hit areas.
+On narrow plots it shortens the title and omits whole label/value pairs; widening
+the plot restores the original readings. `LegendValue.priority` selects which
+readings survive first without changing their order. Series readings default to
+1 and status metadata ranks lower. For example, give the close reading
+`{ label: 'C', text: '123.45', field: 'ohlc', priority: 10 }` to retain it before
+other prices. Status-line switches still apply before fitting. If only some
+configured `actions` fit, the end of that list stays visible. Full-width rows keep
+their existing content and ordering.
+
 **`id` on `PriceLine` is not patchable.** `setOptions` accepts `Partial<Omit<PriceLineOptions, 'id'>>`, because swapping the routing handle mid-drag would strand the gesture.
 
 ## `PriceLevels`: the reference-level family

@@ -44,10 +44,10 @@ Interfaces: optional `toolbarHost?: HTMLElement | null`, `focused?: boolean`, `p
 
 Files: discover the existing toolbar, split, indicator, snapshot and replay modules under `examples/yfinance/src`, and their unit/browser tests before editing.
 
-- [ ] Audit every shared toolbar action against the focused chart; record primary-only behavior as failing regressions.
-- [ ] Route symbol/interval/type/studies/snapshot/replay and relevant readouts through the selected pane while retaining independent state and source restoration.
-- [ ] Verify focus changes, pane removal, interval/symbol sync, OI absence, volume styles/MA, alerts and replay guards with example tests and actual pointer/keyboard browser tests.
-- [ ] Run the complete example/browser suites and update example documentation, ledger and local commit.
+- [x] Audit every shared toolbar action against the focused chart; record primary-only behavior as failing regressions.
+- [x] Route symbol/interval/type/studies/snapshot/replay and relevant readouts through the selected pane while retaining independent state and source restoration.
+- [x] Verify focus changes, pane removal, interval/symbol sync, OI absence, volume styles/MA, alerts and replay guards with example tests and actual pointer/keyboard browser tests.
+- [x] Run the complete example/browser suites and update example documentation, ledger and local commit.
 
 ### Replay and fullscreen ownership ruling
 
@@ -372,3 +372,79 @@ whole-branch review and release/publication. The 12b547e comparison engine check
 supersedes the earlier F7 baseline-gap note above. Publish Charts 2.4.5 before the
 remaining /trading implementation and final connected-broker/deployment tests.
 No push or publication occurred here; the score remains frozen.
+
+## Compact canvas readout ruling
+
+Continue from 7330cca. PaneLegend currently draws unbounded text and hit areas
+across the price axis on narrow plots. Bound its drawing and hit testing to the
+plot, preserve whole label/value groups, and reserve room for hover actions.
+When the full row cannot fit, shorten the source title and omit lower-priority
+groups instead of drawing partial numeric readings. Add an optional LegendValue
+priority for hosts to retain the most useful reading; the reference gives its
+close reading priority. Full-width rows retain their existing ordering and text.
+Keep the original values so resize restores omitted fields. Verify canvas bounds,
+atomic readings, action hits, resize, status switches, export and actual narrow
+reference charts, then rebuild and measure package impact before committing.
+
+## Compact readout and focused toolbar checkpoint
+
+PaneLegend fits whole readings inside the plot and reserves room for hover
+actions. Long titles shorten; lower-priority fields disappear without modifying
+the stored readings. Resize restores them. Optional LegendValue.priority lets
+the reference retain its close price first. Status switches apply before fitting.
+Partial action rows preserve the end of the configured list. Both horizontal and
+vertical hit bounds match the plot, including rows clipped below a short pane.
+The engine, reference example, public reference and website docs describe this
+behavior. Existing method signatures and host ownership remain compatible.
+
+Final toolbar audit:
+
+| Actions | Ownership |
+| --- | --- |
+| Symbol, interval, range, chart type, transform settings | Captured selected chart and request; stale menus refuse changes. |
+| Studies, volume and MA, OI, comparisons, alerts, grid and chart settings | Per-chart state and scoped asynchronous work. |
+| Snapshot and fullscreen | Captured chart; shared controls and dialogs remain reachable. |
+| Replay | Captured selected chart; focus cannot redirect it; all-chart clock remains F8. |
+| Drawing tools, magnet, reset | Selected chart through the existing rail and chart APIs. |
+| Split, links, cache, theme and layout file controls | Workspace controls; named workspace/template expansion remains F1/F2. |
+| Simulated Buy/Sell | Explicitly available on chart 1 only, guarded throughout replay. |
+
+The preceding checkpoints plus the final compact checks complete Task 2/F9.
+This is not completion of F8 or of the overall release.
+
+Evidence under artifacts/candidate:
+
+- legend-responsive-red-unit.log and legend-responsive-red-browser.log record
+  unbounded canvas text and action hits before the fix. Seven focused regressions
+  cover preferred whole readings, resize, status switches, both pixel ratios,
+  action truncation and clipped-row hits. The vertical hit regression first failed
+  in legend-responsive-height-red.log.
+- legend-responsive-final-verify.log: lint, types, 5538 engine tests/231 files,
+  build, 280 example tests/23 files, declarations, size and tree-shaking pass.
+- legend-responsive-reviewed-browser.log: 90 cases pass with four workers,
+  comprising 88 reference cases in three engines and two SVG raster comparisons
+  at wide/narrow widths. Final compact screenshots in the matching output folder
+  were inspected in Chromium, Firefox and WebKit.
+- The first full browser run found an older assertion expecting every status
+  field on a narrow plot. Its replay/day-change assertion now uses a wide viewport;
+  dedicated compact tests verify omission and plot bounds. Two Firefox navigation
+  timeouts under the default worker count did not recur in the complete four-worker
+  run; no alert implementation or navigation timeout was changed.
+- legend-responsive-final-api.log and legend-responsive-skills.log: API generation
+  has no warnings and all 917 reference entries pass coverage.
+- legend-responsive-website.log: static website build passes. Existing workspace
+  root inference, build-tool lint configuration and runner colour warnings remain.
+
+Measured base size is 86.44 KiB, up 0.39 KiB from 12b547e. Base plus trade is
+94.05 KiB, terminal 198.29 KiB, all tiers 237.03 KiB and chart-only 52.32 KiB
+(up 0.36 KiB). Whole-reading measurement and plot-bounded actions belong in raw
+chart hosts; tier isolation still passes. The base/combined budgets increase by
+0.5 KiB and chart-only to 52.50 KiB, with all unrelated budgets retained.
+Measure release facts again after the remaining phases and version change.
+
+Resource review: only per-frame text groups and measurements, with two stored
+plot bounds. No new timer, event subscription, retained history or DOM tree.
+No sustained performance claim. The consumer package is unchanged; remaining
+/trading implementation and final broker/deployment checks follow Charts 2.4.5
+publication. F8, reference F1/F2, remaining P scope, endurance, whole-branch review
+and publication are still open. The score stays frozen.

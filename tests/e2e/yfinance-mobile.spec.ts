@@ -4,6 +4,35 @@ const ORIGIN = 'http://127.0.0.1:8124';
 const PAGE = ORIGIN + '/examples/yfinance/index.html?test=1';
 const PROBE = ORIGIN + '/api/history?symbol=AAPL&interval=1d&period=1mo';
 
+test('narrow chart legends keep whole close readings inside the plot', async ({ page }, info) => {
+  await page.setViewportSize({ width: 1360, height: 900 });
+  await openDemo(page);
+  await page.getByRole('button', { name: /Open a second, linked chart/ }).click();
+  await page.waitForFunction(() => (window as any).__oac?.app.chart2?.primaryBars().length > 30 && !(window as any).__oac.app.loading2);
+  await page.evaluate(async () => {
+    const source = '/dist/openalgo-charts.mjs';
+    const { PaneLegend } = await import(source);
+    const draw = PaneLegend.prototype.draw;
+    (window as any).__legendReadings = [];
+    PaneLegend.prototype.draw = function(ctx: CanvasRenderingContext2D, rc: any) {
+      const fill = ctx.fillText;
+      ctx.fillText = (text: string, x: number, y: number) => {
+        (window as any).__legendReadings.push({ text, right: x + ctx.measureText(text).width, limit: rc.plotWidth * rc.dpr });
+        fill.call(ctx, text, x, y);
+      };
+      try { draw.call(this, ctx, rc); } finally { ctx.fillText = fill; }
+    };
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.mouse.move(5, 835);
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const readings = await page.evaluate(() => (window as any).__legendReadings as { text: string; right: number; limit: number }[]);
+  expect(readings.length).toBeGreaterThan(0);
+  expect(readings.filter(reading => reading.right > reading.limit + 0.1)).toEqual([]);
+  expect(readings.some(reading => reading.text === 'C')).toBe(true);
+  await page.screenshot({ path: info.outputPath('reference-compact-readouts.png') });
+});
+
 test('fullscreen follows the selected chart and retains shared controls and dialogs', async ({ page }, info) => {
   await page.setViewportSize({ width: 1360, height: 900 });
   await openDemo(page);
@@ -682,6 +711,8 @@ test('calendar timezone settings refold only their owner after confirmation', as
 });
 
 test('volume and daily readout follow the replay prefix without future readings', async ({ page }) => {
+  // Keep every status field visible; compact fitting is covered separately.
+  await page.setViewportSize({ width: 1360, height: 900 });
   await openDemo(page);
   const evidence = await page.evaluate(async () => {
     const { app } = (window as any).__oac;

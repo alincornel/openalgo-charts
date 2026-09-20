@@ -23,10 +23,10 @@ function rc(hoverId?: string): PrimitiveRenderContext {
   const priceScale = new PriceScale();
   priceScale.setHeight(300);
   const timeScale = new TimeScale();
-  timeScale.setWidth(600);
+  timeScale.setWidth(800);
   return {
     timeScale, priceScale, dataLayer: new DataLayer(),
-    plotWidth: 600, plotHeight: 300, priceAxisWidth: 56, dpr: 1,
+    plotWidth: 800, plotHeight: 300, priceAxisWidth: 56, dpr: 1,
     theme: darkTheme, hoverId,
   };
 }
@@ -115,11 +115,11 @@ describe('defaults reproduce the row as it drew before the switches existed', ()
       [{ label: 'C', text: '101.50' }],
     );
     expect(rec.ops.map((o) => o.type)).toEqual([
-      'save', 'beginPath', 'arc', 'fill', 'fillText', 'fillText', 'fillText', 'fillText', 'restore',
+      'save', 'beginPath', 'rect', 'clip', 'beginPath', 'arc', 'fill', 'fillText', 'fillText', 'fillText', 'fillText', 'restore',
     ]);
     expect(texts).toEqual(['EMA', '20 close', 'C', '101.50']);
     // left 8, swatch centre 8+3, advance 11; then width + 6 (3 before a value).
-    expect(rec.ops[2].args).toEqual([11, 15, 3]);
+    expect(rec.ops.find(op => op.type === 'arc')?.args).toEqual([11, 15, 3]);
     expect(textXs(rec)).toEqual([19, 43, 97, 106]);
     expect(rec.ops.every((o) => o.type !== 'fillText' || o.args[1] === 15)).toBe(true);
   });

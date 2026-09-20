@@ -26,12 +26,23 @@ const paintedPixels = (): number => {
   return n;
 };
 
-test('the SVG export rasterises to the live chart, with the axis labels as text', async ({ page }) => {
+for (const width of [1000, 240]) {
+test(`the SVG export rasterises to the live chart and fits legend readings at width ${width}`, async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e)));
 
+  await page.setViewportSize({ width, height: 700 });
   await page.goto('/');
   await page.waitForFunction(() => (window as any).__ready === true);
+  await page.evaluate(async () => {
+    const source = '/dist/openalgo-charts.mjs';
+    const { PaneLegend } = await import(source);
+    const legend = new PaneLegend({ id: 'export-legend', title: 'A long instrument description', actions: [] });
+    legend.setValues([{ label: 'O', text: '999999.99', field: 'ohlc' },
+      { label: 'C', text: '123456.78', field: 'ohlc', priority: 10 }]);
+    (window as any).__api.chart.addPrimitive(legend);
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
   // The first frame lands after `__ready`; wait for the pixels themselves.
   await page.waitForFunction(
     (fn) => new Function('return (' + fn + ')()')() > 2000,
@@ -105,6 +116,8 @@ test('the SVG export rasterises to the live chart, with the axis labels as text'
       total,
       texts: (svg.match(/<text\b/g) ?? []).length,
       hasPriceLabel: svg.includes('>' + lastLabel + '</text>'),
+      hasClose: svg.includes('>123456.78</text>'),
+      hasOpen: svg.includes('>999999.99</text>'),
       oneRoot: (svg.match(/<svg\b/g) ?? []).length === 1 && svg.endsWith('</svg>'),
     };
   }, { tolerance: CHANNEL_TOLERANCE });
@@ -117,4 +130,7 @@ test('the SVG export rasterises to the live chart, with the axis labels as text'
   // The ladder, the time strip and the tags are text elements, not outlines.
   expect(report.texts).toBeGreaterThan(10);
   expect(report.hasPriceLabel).toBe(true);
+  expect(report.hasClose).toBe(true);
+  expect(report.hasOpen).toBe(width === 1000);
 });
+}

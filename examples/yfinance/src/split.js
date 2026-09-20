@@ -394,7 +394,7 @@ export function setPane2Legend(bar) {
     { label: 'O', text: fmt(bar.open), color, field: 'ohlc' },
     { label: 'H', text: fmt(bar.high), color, field: 'ohlc' },
     { label: 'L', text: fmt(bar.low), color, field: 'ohlc' },
-    { label: 'C', text: fmt(bar.close), color, field: 'ohlc' },
+    { label: 'C', text: fmt(bar.close), color, field: 'ohlc', priority: 10 },
     { text: `${sign}${fmt(change)} (${sign}${percent.toFixed(2)}%)`, color: change >= 0 ? UP : DOWN, field: 'change' },
     ...(app.chart2.hasOpenInterest !== false && Number.isFinite(bar.oi)
       ? [{ label: 'OI', text: fmtVol(bar.oi), color, field: 'openInterest' }] : []),

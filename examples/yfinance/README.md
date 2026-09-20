@@ -346,6 +346,11 @@ stays visible when the toolbar scrolls on small screens. A grid-wide shared
 replay clock remains in development; existing per-chart library defaults are
 unchanged.
 
+Canvas legends fit inside each plot on small screens. The close reading has
+priority over other prices, lower-priority fields disappear as whole readings,
+and long source names shorten. Hover actions stay out of the price axis. Widening
+the pane restores its full readout.
+
 Alerts default to confirmed bar closes. Intrabar touch can fire on a wick that
 the provider later removes from final history. Absent study readings remain
 unavailable, including OI on this OHLCV-only provider. Alerts keep their symbol,

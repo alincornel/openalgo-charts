@@ -751,3 +751,24 @@ remains, along with F8, reference F1/F2, remaining production gates, endurance,
 whole-branch review and publication. No library or consumer source changed.
 Charts 2.4.5 still publishes before the remaining /trading work and final broker
 validation. Nothing was pushed or published and the score remains frozen.
+
+### Compact readouts and F9 checkpoint
+
+Canvas legends now fit whole readings and hover actions inside their plots.
+Long titles shorten, optional priority retains useful readings first, and resize
+restores all stored fields. The reference gives close prices priority. Clipped
+rows cannot intercept axis clicks. Public and example docs describe the behavior.
+The focused toolbar audit and compact browser evidence complete Task 2/F9;
+shared-clock replay is still the separate F8 requirement.
+
+Final package verification passes: 5538 engine tests/231 files, 280 example
+tests/23 files, lint/types/build/declarations/size/shake. All 90 reference and SVG
+browser cases pass; compact screenshots were inspected in three engines. API
+generation, 917-entry skills coverage and the website build pass. The shared-toolbar plan records
+regression evidence, corrected test assumptions, Firefox navigation limits,
+resource review and the measured 0.39 KiB base-bundle increase.
+
+Remaining chart work: F8, reference F1/F2, remaining production contracts,
+endurance, whole-branch review and release facts/version/publication. Existing
+consumer work remains preserved and its remaining implementation and final
+connected-broker/deployment checks follow Charts 2.4.5 publication. Score frozen.

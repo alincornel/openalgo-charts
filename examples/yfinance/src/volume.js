@@ -192,7 +192,7 @@ export function setLegend(bar) {
     { label: 'O', text: fmt(bar.open), color: col, field: 'ohlc' },
     { label: 'H', text: fmt(bar.high), color: col, field: 'ohlc' },
     { label: 'L', text: fmt(bar.low), color: col, field: 'ohlc' },
-    { label: 'C', text: fmt(bar.close), color: col, field: 'ohlc' },
+    { label: 'C', text: fmt(bar.close), color: col, field: 'ohlc', priority: 10 },
     { text: `${sign}${fmt(chg)} (${sign}${pct.toFixed(2)}%)`, color: chg >= 0 ? UP : DOWN, field: 'change' },
     ...(app.chart?.hasOpenInterest !== false && Number.isFinite(bar.oi)
       ? [{ label: 'OI', text: fmtVol(bar.oi), color: col, field: 'openInterest' }] : []),

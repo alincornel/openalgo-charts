@@ -55,7 +55,9 @@ const BUNDLE = new URL('../dist/openalgo-charts.mjs', import.meta.url).pathname.
 // Independent named overlays belong to chart-only hosts, including multiple
 // price units in one pane. Measured 51.89 to 51.96 KiB (0.07 KiB); allow 52.10.
 // Common-start comparison and replay alignment remain optional and must shake.
-const LIMIT_BYTES = 52.1 * 1024;
+// Whole-reading legend fitting and plot-bounded actions serve raw chart hosts.
+// Measured 51.96 to 52.32 KiB (0.36 KiB); optional tiers still must shake below.
+const LIMIT_BYTES = 52.5 * 1024;
 
 // Absent from a chart-only build. Each is a string that appears in the adapter
 // source and nowhere in the rendering core.
