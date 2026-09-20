@@ -1009,3 +1009,27 @@ and all tiers 240.25 kB remain within existing budgets; chart-only stays 52.30 K
 API generation is warning-free and skills coverage passes 920/920 after rebuilding.
 Task 1 of chart-data-export is complete; reference/widget download controls are
 still Task 2. P1-P6, endurance, final review and release work remain open.
+
+
+### Reference and widget chart-data downloads complete
+
+The yfinance Layouts dialog and snapshot menu now download CSV from the captured
+selected chart. The widget Capture menu uses the same serializer and rejects
+loading, changed sources and browser file failures. The file includes loaded
+bars, OI, studies and aligned comparisons, with a transform/replay-aware reference
+filename and no future replay rows. Download resources are released on failures.
+
+Validation: 5601 engine tests/235 files, 387 reference tests/30 files, lint/types,
+build/declarations, warning-free API generation, skills 920/920 and tree-shaking.
+The full affected browser sweep passes 175 cases; final CSV tests pass all 12 in
+three engines after fixing the transform filename and clipped widget label.
+Screenshots inspected. Widget budget is now 47 kB (actual 46.83), combined budget
+241 kB (actual 240.504); size checks pass after recording the feature cost. The
+verify pipeline stopped at the former size limit; its remaining gates passed
+separately. See the chart-data-export plan for initial failures and corrections.
+
+The dedicated browser on CDP 9227 confirms an authenticated broker-connected
+session at /trading. That server's checkout still declares Charts 2.4.0; this is
+access evidence, not candidate validation. No orders or consumer changes were
+made. Original eight OI edits remain. P1-P6, endurance, final whole-branch review
+and release work remain; Charts 2.4.5 precedes remaining consumer integration.
