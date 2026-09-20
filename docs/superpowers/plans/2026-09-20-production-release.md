@@ -62,7 +62,7 @@ builds or runs broad checks. Dedicated endurance snapshots isolate their inputs.
   trusted publishing/provenance. Publish matching GitHub release and Pages site.
 - [x] Compare registry package contents with the tested candidate, inspect deployed
   website assets/examples and report immutable source/version/release agreement.
-- [ ] Install published Charts in isolated OpenAlgo consumer, finish remaining
+- [x] Install published Charts in isolated OpenAlgo consumer, finish remaining
   /trading workspace/replay/toolbar integration and validate its production build,
   browser interactions and authenticated broker history. No real orders.
 
@@ -316,3 +316,42 @@ OI equality and final GitHub/actual-checkout rollout are still pending. The test
 session uses real broker history and the installation's 502 custom indicators;
 routed browser timings are not uninstrumented host performance evidence. No live
 orders were placed, saved chart state is preserved and the score remains frozen.
+
+
+### Consumer rollout complete
+
+OpenAlgo PR https://github.com/marketcalls/openalgo/pull/2083 passed all CI jobs
+(run 35517952000) and merged as 621eaab62. Its tree matches verified consumer
+commit 6e914b354. Main CI run 35518540216 passed all jobs, including the frontend
+matrix, browser checks, production assets and both container architectures.
+The generated-assets commit is 1c3d11cbd. Issue 2077 closed with the merge.
+
+The final broker check matches every one of 1309 futures OI readings by timestamp
+against fresh broker history; plotted and exported readings agree, while three
+forming/live gaps remain blank. Cash instruments retain blank OI and their explicit
+unavailable message. Comparisons, alert bar-close defaults and shared replay/live
+restoration pass. The corrected runner captures CSV in memory with no downloads.
+The market was closed, so this is historical-data/UI evidence, not full-day
+open-market endurance. No live orders were placed.
+
+The original OpenAlgo checkout fast-forwarded cleanly to 1c3d11cbd, installed
+registry Charts 2.4.5 and refreshed asset compression. Actual served-page checks,
+without any asset overlay, pass with zero page/module errors, execution attempts
+or browser downloads. Chart storage is preserved and validation databases/pages
+are removed. Served HTML matches tracked dist exactly. Broker evidence is in
+D:/OpenAlgo-Voice/artifacts/consumer-245-broker-recovered-2026-09-20T15-01-10-800Z
+and consumer-245-broker-2026-09-20T15-16-28-877Z.
+
+The user's refreshed /trading page now shows candle-colored volume. The reported
+screen-width issue came from the test browser's fixed viewport. Relaunching that
+browser with viewport=null preserved authentication and restored 1920-pixel width
+through reload and new-tab creation, with 1822-pixel chart canvases. No application
+patch was needed. Screenshots and dimensions are preserved as
+consumer-245-original-final-colored-volume.png and
+consumer-245-original-final-viewport.json under the artifacts directory.
+
+Charts follow-up harness commit c54626d also passed its complete CI run
+35518044292. Package source/tag db8bcce and the published 2.4.5 archive are unchanged.
+The original Charts checkout's eight OI edits remain preserved. User guide,
+changelog, indicator references and the consumer verification plan are updated.
+All requested release and /trading delivery work is complete; the score stays frozen.
