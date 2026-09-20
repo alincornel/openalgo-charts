@@ -8,6 +8,46 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 2.4.6
+
+2026-09-20
+
+Indicator source access, readable legend controls and reliable signal placement.
+
+### Added
+
+- `IndicatorDescriptor.hasSource` adds a source button beside the legend's
+  settings button. It emits `indicatorSource` with
+  `{ instanceId, indicatorId, paneIndex }`. The host owns and displays the code;
+  descriptors without the flag, including built-ins, have no source button.
+- `IndicatorDescriptor.markerAnchor: 'price'` anchors overlay signals to the
+  primary series' candles. `aboveBar` uses the high and `belowBar` the low.
+  The default `'plot'` continues to use the first plot. Indicators outside
+  pane 0 and charts without a primary series fall back to the first plot.
+- `ChartOptions.legendIconSize`, `applyOptions({ legendIconSize })` and
+  `setLegendIconSize(size)` apply one button size to existing and later legends,
+  including host-added rows. `legendIconSize()` reads the configured value.
+  `PaneLegendOptions.iconSize` defaults to 16 media pixels and draws within
+  12..28; larger controls increase the row height. Nonfinite chart sizes are
+  ignored, and an explicit chart size takes precedence over individual rows.
+
+### Fixed
+
+- Fully transparent plot colors no longer leave invisible numbers and blank
+  gaps in legend readings, including CSS `transparent` and supported zero-alpha
+  hex and `rgba()` forms. Unknown color syntax retains its reading.
+- Legend glyphs scale with their buttons instead of their text. The default
+  glyphs are larger while the default row height stays unchanged.
+- Gap markers recognize null plot values represented as NaN points. Instrument
+  bars supply a missing anchor only on pane 0 when the plot and primary series
+  share a price scale. Finite plot anchors still win, and oscillator panes or
+  independent scales never receive instrument-price fallback.
+- Series markers use their bound series' scale, including left or moved axes.
+  Indicator marker layers rebind when the selected plot or primary series is
+  replaced, and fallback checks use the current primary series.
+- Each signal label starts its own canvas path, so a later label cannot recolor
+  an earlier label's tail.
+
 ## 2.4.5
 
 2026-09-20

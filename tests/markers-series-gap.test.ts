@@ -13,7 +13,10 @@
  * a study appeared and the sell mark never did, because only one of the two
  * flips fell on a bar the first plot happened to cover.
  */
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect } from 'vitest';
+import { Chart } from '../src/core/chart';
+import { registerIndicator } from '../src/model/indicator-registry';
+import { fakeDocument } from './helpers/fake-dom';
 import { SeriesMarkers } from '../src/primitives/markers';
 import { makeCtx, type Op } from './helpers/fake-ctx';
 import { DataLayer } from '../src/model/data-layer';
@@ -54,6 +57,88 @@ function makeRc(seriesBars: Bar[]): { rc: PrimitiveRenderContext; seriesId: numb
 
 const drawn = (ops: Op[]): string[] =>
   ops.filter((o) => o.type === 'fillText').map((o) => String(o.text));
+
+describe('registered studies with real null plot gaps and independent scales', () => {
+  const charts: Chart[] = [];
+  afterEach(() => { for (const chart of charts.splice(0)) chart.destroy(); });
+  let nextId = 0;
+  function setup(anchor?: 'price', placement: 'onchart' | 'pane' = 'onchart', left = false) {
+    const doc = fakeDocument();
+    const chart = new Chart(doc.createElement('div'), {
+      document: doc, pixelRatio: () => 1, shortcuts: false, raf: { schedule: () => 0 },
+    });
+    charts.push(chart);
+    chart.applySize(800, 600);
+    const primary = chart.addSeries('candlestick', { priceScaleId: left ? 'left' : 'right' });
+    primary.setData(INSTRUMENT);
+    const id = `registered-gap-${++nextId}`;
+    registerIndicator({
+      id, name: id, placement, inputs: [], markerAnchor: anchor,
+      plots: [{ key: 'up', type: 'line', title: 'Up' }, { key: 'down', type: 'line', title: 'Down' }],
+      calc: () => ({ up: [10, 20, null, null], down: [null, null, 30, 40] }),
+      markers: () => [{ time: 400, position: 'aboveBar', shape: 'text', size: 'medium', color: '#fff', text: 'SELL' }],
+    });
+    const instance = chart.addIndicator(id);
+    const pane = chart.panes()[instance.paneIndex];
+    const { rc } = makeRc([]);
+    rc.dataLayer = chart.dataLayer;
+    rc.timeScale = chart.timeScale;
+    rc.priceScale = pane.priceScale;
+    rc.priceScale.setHeight(400);
+    rc.priceScale.setPriceRange({ min: 0, max: 60 });
+    primary.priceScale().setHeight(400);
+    primary.priceScale().setPriceRange({ min: 40, max: 60 });
+    const paint = () => {
+      const { ctx, rec } = makeCtx();
+      for (const p of pane.primitives()) if (p instanceof SeriesMarkers) p.draw(ctx, rc);
+      return rec.ops.filter((o) => o.type === 'fillText');
+    };
+    return { chart, primary, instance, paint };
+  }
+
+  it('uses instrument bars through null columns on the price scale', () => {
+    const { primary, paint } = setup();
+    const marks = paint();
+    expect(marks).toHaveLength(1);
+    expect(marks[0].args[1]).toBe(primary.priceScale().priceToY(48) - 24);
+  });
+
+  it('uses the primary series scale when price is on the left', () => {
+    const { primary, paint } = setup('price', 'onchart', true);
+    expect(paint()[0].args[1]).toBe(primary.priceScale().priceToY(48) - 24);
+  });
+
+  it('does not substitute instrument prices into oscillator gaps', () => {
+    expect(setup(undefined, 'pane').paint()).toEqual([]);
+  });
+
+  it('rebinds to a replacement primary series and its scale', () => {
+    const { chart, primary, instance, paint } = setup('price');
+    primary.remove();
+    const replacement = chart.addSeries('candlestick', { priceScaleId: 'left' });
+    replacement.setData(INSTRUMENT);
+    replacement.priceScale().setHeight(400);
+    replacement.priceScale().setPriceRange({ min: 40, max: 60 });
+    instance.setSettings({});
+    expect(paint()[0].args[1]).toBe(replacement.priceScale().priceToY(48) - 24);
+  });
+
+  it('follows the bound series when its price axis moves', () => {
+    const { chart, primary, paint } = setup('price');
+    chart.movePriceAxis(0, 'right', 'left');
+    primary.priceScale().setPriceRange({ min: 40, max: 60 });
+    expect(paint()[0].args[1]).toBe(primary.priceScale().priceToY(48) - 24);
+  });
+
+  it('stops price fallback when a replacement instrument uses another scale', () => {
+    const { chart, primary, instance, paint } = setup();
+    expect(paint()).toHaveLength(1);
+    primary.remove();
+    chart.addSeries('candlestick', { priceScaleId: 'left' }).setData(INSTRUMENT);
+    instance.setSettings({});
+    expect(paint()).toEqual([]);
+  });
+});
 
 describe('a marker whose own series has no point at that time', () => {
   it('is dropped when nothing else can say where the bar is', () => {

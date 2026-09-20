@@ -147,7 +147,7 @@ export interface PaneLegendOptions {
    * `${id}::<action>`:
    *  - `up` / `down` — move this pane one slot (`::up` / `::down`)
    *  - `hide`        — toggle visibility (`::hide`)
-   *  - `source`      — show the code this source was written from (`::source`)
+   *  - `source`: show the code this source was written from (`::source`)
    *  - `maximize`    — expand this pane to fill the chart (`::maximize`)
    *  - `close`       — remove the source, and its pane if it empties (`::close`)
    *

@@ -4,6 +4,7 @@
  */
 import type { Bar } from '../model/bar';
 import type { SeriesId } from '../model/data-layer';
+import type { PriceScale } from '../scale/price-scale';
 import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, PrimitiveHit, ZOrder } from './primitive';
 import { roundRectPath, contrastText } from '../render/pill';
 
@@ -152,6 +153,7 @@ export function drawLabel(
   const top = up ? anchorY + tail : anchorY - tail - h;
 
   ctx.fillStyle = color;
+  ctx.beginPath();
   roundRectPath(ctx, cx - w / 2, top, w, h, Math.min(fontPx * 0.3, h / 2));
   ctx.fill();
   // The tail overlaps the plate edge by a pixel so the two fills read as one
@@ -178,6 +180,7 @@ export function drawLabel(
 export class SeriesMarkers implements IPrimitive {
   private readonly _seriesId: SeriesId;
   private readonly _fallbackBars: (() => readonly Bar[]) | undefined;
+  private readonly _priceScale: (() => PriceScale) | undefined;
   private _markers: SeriesMarker[] = [];
   private _host: PrimitiveHost | null = null;
   private _lastPositions: { id: string; x: number; y: number }[] = [];
@@ -193,9 +196,10 @@ export class SeriesMarkers implements IPrimitive {
    * had no bar to measure from and was dropped without a word. The caller
    * passes the instrument's own bars, which have no gaps.
    */
-  public constructor(seriesId: SeriesId, fallbackBars?: () => readonly Bar[]) {
+  public constructor(seriesId: SeriesId, fallbackBars?: () => readonly Bar[], priceScale?: () => PriceScale) {
     this._seriesId = seriesId;
     this._fallbackBars = fallbackBars;
+    this._priceScale = priceScale;
   }
 
   public attached(host: PrimitiveHost): void { this._host = host; }
@@ -217,7 +221,11 @@ export class SeriesMarkers implements IPrimitive {
     if (this._fallbackBars !== undefined) {
       for (const bar of this._fallbackBars()) barByTime.set(bar.time, bar);
     }
-    for (const ib of rc.dataLayer.indexedBars(this._seriesId)) barByTime.set(ib.bar.time, ib.bar);
+    for (const { bar } of rc.dataLayer.indexedBars(this._seriesId)) {
+      // Indicator null columns retain their timestamp as NaN points.
+      if (Number.isFinite(bar.close)) barByTime.set(bar.time, bar);
+    }
+    const priceScale = this._priceScale?.() ?? rc.priceScale;
     const range = rc.timeScale.visibleRange();
     const stackByTime = new Map<number, number>();
 
@@ -238,16 +246,17 @@ export class SeriesMarkers implements IPrimitive {
       } else if (m.position === 'paneBottom') {
         y = rc.plotHeight * rc.dpr - px / 2 - 4 * rc.dpr - gap;
       } else if (m.position === 'atPrice' && m.price !== undefined) {
-        y = rc.priceScale.priceToY(m.price) * rc.dpr;
+        y = priceScale.priceToY(m.price) * rc.dpr;
       } else if (bar !== undefined && m.position === 'aboveBar') {
-        y = rc.priceScale.priceToY(bar.high) * rc.dpr - px - gap;
+        y = priceScale.priceToY(bar.high) * rc.dpr - px - gap;
       } else if (bar !== undefined && m.position === 'belowBar') {
-        y = rc.priceScale.priceToY(bar.low) * rc.dpr + px + gap;
+        y = priceScale.priceToY(bar.low) * rc.dpr + px + gap;
       } else if (bar !== undefined) {
-        y = rc.priceScale.priceToY((bar.open + bar.close) / 2) * rc.dpr;
+        y = priceScale.priceToY((bar.open + bar.close) / 2) * rc.dpr;
       } else {
         continue;
       }
+      if (!Number.isFinite(y)) continue;
       stackByTime.set(m.time, stack + 1);
       if (m.shape === 'labelUp' || m.shape === 'labelDown') {
         if (m.text !== undefined) {

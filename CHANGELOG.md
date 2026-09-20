@@ -2,48 +2,45 @@
 
 All notable changes to OpenAlgo Charts.
 
-## Unreleased
+## 2.4.6
 
-Legend and marker fixes, all reported from a live chart.
+2026-09-20
+
+Indicator source access, readable legend controls and reliable signal placement.
 
 ### Added
 
-- `IndicatorDescriptor.hasSource` puts a braces button on that indicator's
-  legend row, beside the gear. Pressing it emits `indicatorSource` carrying
-  `{ instanceId, indicatorId, paneIndex }`, the same payload `indicatorSettings`
-  carries. The engine holds no code and no DOM: it says which indicator was
-  asked about and the host decides what to show. Absent or false draws no
-  button, which is every built-in study.
-- `IndicatorDescriptor.markerAnchor: 'price'` measures a marker's `aboveBar`
-  and `belowBar` against the instrument's candles rather than the study's own
-  first plot, so above is above the high and below is below the low. That is
-  what a buy or sell signal on an overlay study means; a mark that belongs to a
-  line keeps the default `'plot'`. Ignored by a study that owns a pane and when
-  there is no primary series yet, both of which fall back to the plot rather
-  than dropping the marker.
-- `PaneLegendOptions.iconSize` sets the square side of a legend action button in
-  media px, held to 12..28. The row grows to hold a larger button, so the rows
-  below it move down instead of being drawn through.
-  `ChartOptions.legendIconSize`, `applyOptions({ legendIconSize })` and
-  `setLegendIconSize` apply one size to every legend on the chart, which is what
-  keeps the rows on a pane stacking against a single height.
+- `IndicatorDescriptor.hasSource` adds a source button beside the legend's
+  settings button. It emits `indicatorSource` with
+  `{ instanceId, indicatorId, paneIndex }`. The host owns and displays the code;
+  descriptors without the flag, including built-ins, have no source button.
+- `IndicatorDescriptor.markerAnchor: 'price'` anchors overlay signals to the
+  primary series' candles. `aboveBar` uses the high and `belowBar` the low.
+  The default `'plot'` continues to use the first plot. Indicators outside
+  pane 0 and charts without a primary series fall back to the first plot.
+- `ChartOptions.legendIconSize`, `applyOptions({ legendIconSize })` and
+  `setLegendIconSize(size)` apply one button size to existing and later legends,
+  including host-added rows. `legendIconSize()` reads the configured value.
+  `PaneLegendOptions.iconSize` defaults to 16 media pixels and draws within
+  12..28; larger controls increase the row height. Nonfinite chart sizes are
+  ignored, and an explicit chart size takes precedence over individual rows.
 
 ### Fixed
 
-- A legend no longer prints the reading of a plot drawn in a fully transparent
-  colour. A study that draws a column at zero alpha so a marker has a gapless
-  series to anchor to is a normal thing to write, and the row was printing that
-  column's number in an invisible colour: nothing to see, the full width of a
-  price, sitting between the parameters and the first real value. A colour the
-  library cannot parse is not treated as invisible.
-- Legend action glyphs are sized from their button rather than from the row's
-  text, which had left a 9px drawing adrift in a 16px square. Each glyph is
-  about a quarter larger at the default size, and the stroke thickens with the
-  button. The default row height is unchanged.
-- A marker whose own series has no bar at that time is drawn against the source
-  bars instead of being dropped. A study that plots a signal only on the bars it
-  fires on has gaps by design, and its markers were silently absent from exactly
-  the bars they were about.
+- Fully transparent plot colors no longer leave invisible numbers and blank
+  gaps in legend readings, including CSS `transparent` and supported zero-alpha
+  hex and `rgba()` forms. Unknown color syntax retains its reading.
+- Legend glyphs scale with their buttons instead of their text. The default
+  glyphs are larger while the default row height stays unchanged.
+- Gap markers recognize null plot values represented as NaN points. Instrument
+  bars supply a missing anchor only on pane 0 when the plot and primary series
+  share a price scale. Finite plot anchors still win, and oscillator panes or
+  independent scales never receive instrument-price fallback.
+- Series markers use their bound series' scale, including left or moved axes.
+  Indicator marker layers rebind when the selected plot or primary series is
+  replaced, and fallback checks use the current primary series.
+- Each signal label starts its own canvas path, so a later label cannot recolor
+  an earlier label's tail.
 
 ## 2.4.5
 

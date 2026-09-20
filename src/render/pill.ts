@@ -54,14 +54,15 @@ export function withAlpha(color: string, alpha: number): string {
 }
 
 /**
- * Whether a color paints nothing: fully transparent, by any spelling.
+ * Whether a supported color is fully transparent.
  *
- * An unparseable string is NOT invisible. A named color, a `color-mix()`, a
- * custom property — `parseColor` returns null for all of them, and treating
+ * An unparseable string is NOT invisible. An opaque named color, a `color-mix()`,
+ * a custom property: `parseColor` returns null for all of them, and treating
  * null as "draws nothing" would quietly hide whatever the caller guards with
  * this. Erring the other way only ever leaves something visible.
  */
 export function isInvisible(color: string): boolean {
+  if (color.trim().toLowerCase() === 'transparent') return true;
   const c = parseColor(color);
   return c !== null && c.a <= 0;
 }

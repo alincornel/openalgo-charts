@@ -307,10 +307,10 @@ describe('a descriptor that says it has source gets a button that reaches the ho
   const charts: Chart[] = [];
   afterEach(() => { for (const chart of charts.splice(0)) chart.destroy(); });
 
-  const makeChart = (): Chart => {
+  const makeChart = (legendIconSize?: number): Chart => {
     const doc = fakeDocument();
     const chart = new Chart(doc.createElement('div'), {
-      document: doc, pixelRatio: () => 1, shortcuts: false, raf: { schedule: () => 0 },
+      document: doc, pixelRatio: () => 1, shortcuts: false, raf: { schedule: () => 0 }, legendIconSize,
     });
     chart.applySize(800, 600);
     chart.addSeries('candlestick').setData(Array.from({ length: 60 }, (_, i) => ({
@@ -336,6 +336,37 @@ describe('a descriptor that says it has source gets a button that reaches the ho
       .find((p) => p instanceof PaneLegend && p.options().id === `indicator:${instance.id}`) as PaneLegend;
     return legend.options().actions ?? [];
   };
+
+  it.each(['transparent', ' TRANSPARENT '])('omits a reading painted with %s', (color) => {
+    const id = `css-transparent-${color.length}`;
+    registerIndicator(twoPlots(id, [color, '#ef5350']));
+    const chart = makeChart();
+    const legend = chart.addIndicator(id).legend()!;
+    const text = paint(legend, 800).ops.filter((op) => op.type === 'fillText').map((op) => op.text);
+    expect(text).toContain('99.00');
+    expect(text).not.toContain('101.00');
+  });
+
+  it.each(['constructor', 'setter'])('keeps later host rows clear of the %s button size', (via) => {
+    const chart = makeChart(via === 'constructor' ? 28 : undefined);
+    const first = new PaneLegend({ id: 'first-row', title: 'First' });
+    chart.addPrimitive(first);
+    if (via === 'setter') chart.setLegendIconSize(28);
+    const second = new PaneLegend({ id: 'second-row', title: 'Second', iconSize: 16 });
+    chart.addPrimitive(second);
+    const firstY = paint(first, 800).ops.find((op) => op.type === 'fillText')!.args[1];
+    const secondY = paint(second, 800).ops.find((op) => op.type === 'fillText')!.args[1];
+    expect(secondY - firstY).toBeGreaterThanOrEqual(28);
+    expect(first.hitTest(10, secondY)).toBeNull();
+  });
+
+  it.each([NaN, Infinity, -Infinity])('ignores a nonfinite initial button size: %s', (size) => {
+    const chart = makeChart(size);
+    const legend = new PaneLegend({ id: 'host-sized-row', title: 'Host', iconSize: 24 });
+    chart.addPrimitive(legend);
+    expect(chart.legendIconSize()).toBeUndefined();
+    expect(legend.options().iconSize).toBe(24);
+  });
 
   it('puts the button next to the gear, and only on a descriptor that asked', () => {
     register('has-source-study', true);

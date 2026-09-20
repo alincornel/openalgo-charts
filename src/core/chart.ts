@@ -927,7 +927,7 @@ export class Chart {
     Object.assign(this._canvas, options.canvas);
     if (options.grid) this._canvas.grid = { ...this._canvas.grid, ...options.grid };
     Object.assign(this._statusLine, options.statusLine);
-    if (typeof options.legendIconSize === 'number') this._legendIconSize = options.legendIconSize;
+    if (typeof options.legendIconSize === 'number' && Number.isFinite(options.legendIconSize)) this._legendIconSize = options.legendIconSize;
     // Margins are the price scale's own state in fraction units; the canvas
     // block only carries the dialog's percentages. Fold them in before the
     // first pane exists, so `_addPane` applies both together.
@@ -1223,7 +1223,7 @@ export class Chart {
       },
       priceScale: (): PriceScale => pane.scaleOf(record),
       createMarkers: (fallbackBars?: () => readonly Bar[]): SeriesMarkers => {
-        const m = new SeriesMarkers(dataId, fallbackBars);
+        const m = new SeriesMarkers(dataId, fallbackBars, () => pane.scaleOf(record));
         // Resolved now, not at creation: primitives are addressed by slot, and
         // this series' slot may have shifted since.
         this._addPrimitive(this._panes.indexOf(pane), m);
@@ -2443,9 +2443,8 @@ export class Chart {
         const own = primitive.options().statusLine;
         primitive.setOptions({ statusLine: { ...this._statusLine, ...own } });
       }
-      // Same rule for the button size, and the same reason for the guard: a
-      // chart that never set one must not repaint to say so.
-      if (this._legendIconSize !== undefined && primitive.options().iconSize === undefined) {
+      // A chart-wide size also governs host rows so their row heights agree.
+      if (this._legendIconSize !== undefined) {
         primitive.setOptions({ iconSize: this._legendIconSize });
       }
       this._restackLegends();

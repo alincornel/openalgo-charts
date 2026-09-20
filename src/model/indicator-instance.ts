@@ -294,6 +294,7 @@ export class IndicatorInstance implements IndicatorApi {
   private readonly _dataListeners = new Set<(status: Readonly<IndicatorDataStatus>) => void>();
   private _legend: PaneLegend | null = null;
   private _markers: SeriesMarkers | null = null;
+  private _markerSeries: SeriesApi | undefined;
   private _table: ChartTable | null = null;
   private _draws: IndicatorDrawings | null = null;
   private _background: IndicatorBackground | null = null;
@@ -539,24 +540,24 @@ export class IndicatorInstance implements IndicatorApi {
     const markers = this._visible
       ? this._d.markers({ bars, values: this._values, settings: this._descriptorSettings() })
       : [];
+    const primary = this._host.primarySeries?.() ?? undefined;
+    const first = (this._d.markerAnchor === 'price' && this.paneIndex === 0 ? primary : undefined)
+      ?? this._series.get(this._d.plots[0]?.key ?? '');
+    if (this._markers !== null && first !== this._markerSeries) {
+      this._host.removeIndicatorMarkers(this._markers);
+      this._markers = null;
+    }
     if (this._markers === null) {
       if (markers.length === 0) return;
-      // A descriptor that anchors to price measures above and below against the
-      // instrument's candles rather than its own column. Only on the price
-      // pane, and only once there is a primary series: a study in its own pane
-      // has no candles under it, and falling back to the first plot draws the
-      // mark somewhere rather than nowhere.
-      const anchored =
-        this._d.markerAnchor === 'price' && this.paneIndex === 0
-          ? (this._host.primarySeries?.() ?? undefined)
-          : undefined;
-      const first = anchored ?? this._series.get(this._d.plots[0]?.key ?? '');
       if (first === undefined) return;
-      // The instrument's bars, so a mark on a bar where this plot happens to
-      // be absent is still drawn. A study that splits one line into an up
-      // column and a down column has a gap in each of them by construction,
-      // and its flip marks land exactly in those gaps.
-      this._markers = first.createMarkers(() => this._host.sourceBars());
+      this._markerSeries = first;
+      // Only substitute instrument bars when both series share price units.
+      // Resolve scales lazily so moving an axis keeps the same guarantee.
+      this._markers = first.createMarkers(() => {
+        const current = this._host.primarySeries?.();
+        return this.paneIndex === 0 && current != null && first.priceScale() === current.priceScale()
+          ? this._host.sourceBars() : [];
+      });
     }
     this._markers.setMarkers(markers);
   }
