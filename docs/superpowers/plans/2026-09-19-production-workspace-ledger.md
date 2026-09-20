@@ -588,3 +588,27 @@ screenshots across all three engines were inspected. Repository lint/types and
 website build pass, with the existing runner/root warning retained. This change
 does not alter the packed library or consumer checkpoint. Sustained endurance,
 connected broker, F1-F9/P1-P6 and final release requirements remain in scope.
+
+### Shared consumer toolbar checkpoint
+
+Consumer commit `3972843f7` replaces duplicated pane controls with one workspace
+row following the selected chart. Panes retain their terminal and dialog state;
+keyboard focus and the chart selector select the same owner. Staging grids never
+publish controls, pending controls are inert, fullscreen relocates the selected
+controls, and layout changes preserve surviving focus or select a surviving pane.
+The selector stays visible during horizontal scrolling. The user guide is updated.
+
+Six new unit regressions and duplicate-toolbar/hidden-selector browser failures
+were observed first. Final consumer tests: 2299 in 142 files; build/types and lint
+pass with existing notices. Combined browser validation: 59 checks per engine,
+177 total. The final selector improvement passes 21 toolbar/baseline checks per
+engine, 63 total, with another full consumer test/build run. Screenshots across
+all engines were inspected. Detailed evidence and warnings are in the shared
+toolbar plan at `2026-09-20-shared-toolbar.md`.
+
+The installed chart package remains `0939bcc`; no published chart API or default
+changed. The user confirmed concern for existing portal compatibility: keep shared
+replay opt-in and preserve per-chart defaults. The source score remains frozen.
+Reference-example toolbar parity is next. Sustained endurance, authenticated broker
+checks and all remaining production/release requirements remain open. No release
+was published. Original checkout edits were preserved.

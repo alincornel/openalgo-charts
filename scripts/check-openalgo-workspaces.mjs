@@ -138,6 +138,8 @@ export async function checkWorkspaces({ page, check, reload, screenshot, orderCo
     await page.getByRole('button', { name: 'Open', exact: true }).click();
     await ready(3);
     await close();
+    await expect(page.locator('[data-toolbar-pane]')).toHaveCount(1);
+    await expect(page.locator('[data-toolbar-pane]')).toHaveAttribute('data-toolbar-pane', saved.activePaneId);
     equivalent(await capture(), saved.panes);
     await expect(page.getByRole('switch', { name: 'One-Click', exact: true })).not.toBeChecked();
     const geometry = await page.locator('[data-workspace-active="true"]').evaluate(el => ({
@@ -148,6 +150,8 @@ export async function checkWorkspaces({ page, check, reload, screenshot, orderCo
     await reload();
     await ready(3);
     await page.waitForFunction(() => document.querySelector('[data-workspace-active="true"]'));
+    await expect(page.locator('[data-toolbar-pane]')).toHaveCount(1);
+    await expect(page.locator('[data-toolbar-pane]')).toHaveAttribute('data-toolbar-pane', saved.activePaneId);
     equivalent(await capture(), saved.panes);
     if (screenshot) await page.screenshot({ path: resolve(screenshot.replace(/\.png$/, '-workspace.png')), fullPage: true });
     assert.equal(orderCount(), ordersBefore);
@@ -259,6 +263,7 @@ export async function checkWorkspaces({ page, check, reload, screenshot, orderCo
 
   await check('workspace cancellation destroys staged charts and keeps all order routes locked while loading', async () => {
     const stored = await catalog();
+    const toolbarPane = await page.locator('[data-toolbar-pane]').getAttribute('data-toolbar-pane');
     await menu();
     await page.getByRole('button', { name: 'Refresh', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Open', exact: true })).toBeEnabled();
@@ -271,6 +276,9 @@ export async function checkWorkspaces({ page, check, reload, screenshot, orderCo
       await page.getByRole('button', { name: 'Open', exact: true }).click();
       await started;
       assert(await page.locator('[data-workspace-active="false"]').count() > 0);
+      await expect(page.locator('[data-toolbar-pane]')).toHaveCount(1);
+      await expect(page.locator('[data-toolbar-pane]')).toHaveAttribute('data-toolbar-pane', toolbarPane);
+      await expect(page.locator('[data-toolbar-pane]')).toHaveAttribute('inert');
       const refused = await page.evaluate(async () => Promise.all(window.__compatTerminals.filter(t => !t.destroyed).map(async t => {
         try { await t.placeTicket({ symbol: 'BHEL', exchange: 'NSE', action: 'BUY', quantity: 1, product: 'MIS', pricetype: 'MARKET' }); return false; }
         catch (error) { return /workspace|loading/i.test(error.message); }
@@ -278,6 +286,7 @@ export async function checkWorkspaces({ page, check, reload, screenshot, orderCo
       assert(refused.every(Boolean));
       await page.getByRole('button', { name: 'Cancel workspace loading', exact: true }).click();
       await ready(3);
+      await expect(page.locator('[data-toolbar-pane]')).not.toHaveAttribute('inert');
       assert.equal(await page.locator('[data-workspace-active="false"]').count(), 0);
       assert.deepEqual(await catalog(), stored);
     } finally {
@@ -323,6 +332,26 @@ export async function checkWorkspaces({ page, check, reload, screenshot, orderCo
     if (screenshot) await page.screenshot({ path: resolve(screenshot.replace(/\.png$/, '-workspace-mobile.png')), fullPage: true, animations: 'disabled' });
     await close();
     await page.setViewportSize({ width: 1440, height: 1000 });
+    assert.equal(orderCount(), ordersBefore);
+  });
+
+  await check('named layout changes preserve a surviving selection and replace a removed one', async () => {
+    await page.locator('[data-workspace-active="true"] [data-chart-pane="p1"]').focus();
+    await expect(page.locator('[data-toolbar-pane]')).toHaveAttribute('data-toolbar-pane', 'p1');
+    await page.getByRole('button', { name: /^Chart layout:/ }).click();
+    await page.getByTitle('2 columns', { exact: true }).click();
+    await ready(2);
+    await expect(page.locator('[data-toolbar-pane]')).toHaveCount(1);
+    await expect(page.locator('[data-toolbar-pane]')).toHaveAttribute('data-toolbar-pane', 'p1');
+    await page.getByRole('button', { name: 'Chart layout: 2 columns', exact: true }).click();
+    await page.getByTitle('1 + 2', { exact: true }).click();
+    await ready(3);
+    await expect(page.locator('[data-toolbar-pane]')).toHaveAttribute('data-toolbar-pane', 'p1');
+    await page.locator('[data-workspace-active="true"] [data-chart-pane="p2"]').focus();
+    await page.getByRole('button', { name: /^Chart layout:/ }).click();
+    await page.getByTitle('2 columns', { exact: true }).click();
+    await ready(2);
+    await expect(page.locator('[data-toolbar-pane]')).toHaveAttribute('data-toolbar-pane', 'p0');
     assert.equal(orderCount(), ordersBefore);
   });
 }

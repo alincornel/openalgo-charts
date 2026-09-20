@@ -22,6 +22,7 @@ import { checkChartCorrectness } from './check-openalgo-correctness.mjs';
 import { checkWorkspaces } from './check-openalgo-workspaces.mjs';
 import { checkOpenInterest } from './check-openalgo-open-interest.mjs';
 import { checkAlerts } from './check-openalgo-alerts.mjs';
+import { checkToolbar } from './check-openalgo-toolbar.mjs';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile, lstat } from 'node:fs/promises';
@@ -269,6 +270,7 @@ try {
     assert.equal(await terminal((t) => t.sym.symbol), 'BHEL');
     assert(report.requests.some((r) => r.path === '/api/v1/history' && r.body.interval === '5m'));
   });
+  if (args.toolbar === 'true') await checkToolbar({ page, check, screenshot: args.screenshot, orderCount: () => orderCounter });
   if (args.branding === 'true') {
     await check('host branding links follow disabled and custom chart branding', async () => {
       const mark = await terminal(t => t.chart.brandingOptions());
@@ -565,9 +567,7 @@ try {
       await page.getByRole('complementary', { name: 'Objects' }).getByText(/Pane 1/).waitFor();
       await page.evaluate(() => {
         const pane = window.__compatTerminals.find((t) => !t.destroyed && t.sk === 'oa-trading-p1');
-        pane.container.closest('section').querySelector('button').dispatchEvent(
-          new PointerEvent('pointerdown', { bubbles: true })
-        );
+        pane.container.closest('section').focus();
       });
       await page.getByRole('complementary', { name: 'Objects' }).getByText(/Pane 2/).waitFor();
     });
@@ -591,7 +591,8 @@ try {
       await page.waitForFunction((oldId) => {
         const pane = window.__compatTerminals.find((t) => !t.destroyed && t.sk === 'oa-trading-p1');
         const row = pane?.objects?.list().find((object) => object.kind === 'indicator');
-        return row && row.id !== oldId && row.visible === false;
+        return row && row.id === oldId && row.visible === false
+          && !pane.dataUnavailable() && pane.chart.getDataContext()?.interval === '15m';
       }, details.id);
       await panel.getByRole('button', { name: `Settings for ${details.name}` }).click();
       await page.getByRole('heading', { name: details.name }).waitFor();
