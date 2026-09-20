@@ -65,6 +65,61 @@ absent OI is not filled from the completed candle. Followers and comparisons
 withhold forming closes. Hosts retain feed ownership and must pause live writes,
 alert evaluation and trading while replay owns the chart.
 
+## One clock for several charts
+
+`ReplayGroup` is an opt-in coordinator over prepared `ReplayController` instances.
+It drives the union of active observation times with one timer. Ordinary charts
+and standalone replay keep their defaults.
+
+```ts
+const group = new ReplayGroup([
+  { id: 'minute', chart: minuteChart, options: { timing: { barEndTime: bar => bar.time + 60 } } },
+  { id: 'five', chart: fiveMinuteChart, options: { timing: { barEndTime: bar => bar.time + 300 } } },
+], { scope: 'all', startTime: selectedUtcSeconds, onChange: renderTransport });
+group.play({ speed: 2 });
+group.setScope('focused', 'five');
+group.setScope('all');
+group.destroy();
+```
+
+Public contracts: `ReplayScope` is `'focused' | 'all'`. `ReplayGroupMember` supplies
+unique `id`, `chart: ReplayGroupChartHost`, and `options` containing `timing` plus
+optional `series`, `bars`, `subBars`, `onFrame`. `ReplayGroupChartHost` extends
+`ReplayChartHost` with optional `isDestroyed` and `on('destroy', callback)`; Chart
+provides both. Custom hosts without lifecycle hooks must call `destroy()` themselves.
+
+`ReplayGroupOptions` accepts `scope` (focused), `focusedId` (first member),
+`startTime` (first active observation), `barMs` (1000), `speed` (1), `now`,
+`scheduler`, and `onChange`. The native timer interval is clamped to its supported
+range while the logical clock retains the requested cadence and caps catch-up
+at ten observations per tick. Clock parameters must be finite and positive.
+
+`ReplayGroupState` contains `active`, `destroyed`, `scope`, `focusedId`, `time`,
+`index`, `total`, `playing`, `speed`, and `members: { id, active, state: ReplayState }[]`.
+The group index/total address observation times, not a member's bar indices.
+An empty active history has time null; before the first observation index is -1.
+Methods: `state()`, `seek(index)`, `seekTime(time)`, `step(n?)`, `stepBack(n?)`,
+`play({speed?}?)`, `pause()`, `setScope(scope, focusedId?)`, `stop()`, `destroy()`.
+
+Scope changes preserve UTC time and restore charts leaving replay. Entering charts
+capture fresh data, including bars received while inactive. Preparation/validation
+failure preserves the running session. `stop()` restores active charts and retains
+the captured initial time for re-entry; `destroy()` also releases membership,
+snapshots and lifecycle listeners. Ownership remains reserved until destruction,
+so another group cannot overwrite the same chart. Destroying an active chart ends
+the group and restores survivors; an inactive chart is simply removed.
+
+Member `onFrame` and group `onChange` callbacks run after all active charts reach
+the frame. Member replay events report the shared speed/playing state. A runtime
+projection or callback failure cancels the timer, attempts restoration on every
+survivor, releases ownership and rethrows the error. Invalid control arguments
+leave the current session intact. Stop/destroy can interrupt a frame; recursive
+transport changes from a chart's own frame event are rejected. Use `onChange` for
+transport decisions after a complete group update. The host still owns history
+loading, pausing live writes on active members, and workspace-wide trading/alert
+guards, including loading and scope transitions. Source changes require a fresh
+member capture rather than replaying a different instrument under an old identity.
+
 ## Intra-bar replay
 
 Without `subBars` a step lands a finished candle, so the moment a trader is

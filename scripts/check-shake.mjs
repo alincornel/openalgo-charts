@@ -79,6 +79,7 @@ const MUST_BE_SHAKEN = [
   ['comparison controller', 'a comparison needs a primary series to align against'],
   ['replay controller', 'replay needs a series to drive'],
   ['replay availability timeline', 'replay timing needs subBarEndTime'],
+  ['replay group', 'openalgo-charts: replay group '],
 ];
 
 const virtual = {

@@ -792,3 +792,24 @@ inspected. API generation, 917-entry skills coverage and the website build pass.
 Detailed command outcomes, budgets and resource limits are in the shared-replay
 plan. No new timer/listener or consumer change. F8 Tasks 2/3 and the remaining
 release scope stay open; Charts publication still precedes /trading integration.
+
+### Shared replay coordinator checkpoint
+
+The opt-in ReplayGroup drives captured charts from one UTC observation clock.
+Focused/all changes preserve time, inactive charts capture fresh data on entry,
+and exit restores data and viewports. Preparation, validation rollback, callback
+failure, reentrant stop, chart destruction and ownership cleanup have regression
+coverage. Defaults of ordinary charts and standalone replay remain unchanged.
+
+All 22 new group cases and 108 affected cases pass. Package checks pass through
+declarations with 5575 engine tests/233 files and 280 reference tests/23 files.
+Measured full-base cost is 1.81 KiB; revised size budgets pass, and chart-only
+imports remain within the unchanged budget at 52.30 KiB. All 94 built/reference
+browser cases pass in three engines, and the new screenshots were inspected.
+API generation, 918-entry skills coverage and the static website build pass.
+The shared-replay plan records exact command outcomes and resource limits.
+
+This completes F8 Task 2, not its reference transport (Task 3). Reference F1/F2,
+remaining production contracts, endurance, final review and publication stay
+open. No consumer changes, push or publication. Charts 2.4.5 publishes first;
+remaining /trading implementation and final broker/deployment checks follow.

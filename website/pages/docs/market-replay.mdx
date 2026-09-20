@@ -72,6 +72,68 @@ without changing the chart, for a host coordinating several participants. Invali
 timing fails before mutation. Existing index-based replay keeps its defaults.
 The host must pause live feed writes, alert evaluation and trading during replay.
 
+## One clock across charts
+
+`ReplayGroup` coordinates explicit availability times across a set of charts.
+Different histories and intervals advance by UTC time. A chart with no available
+observation remains empty; a coarse candle waits for its final data or forms from
+known finer observations.
+
+```ts
+import { ReplayGroup } from 'openalgo-charts';
+
+const replay = new ReplayGroup([
+  { id: 'left', chart: leftChart, options: {
+    timing: { barEndTime: bar => bar.time + 60 },
+  } },
+  { id: 'right', chart: rightChart, options: {
+    timing: { barEndTime: bar => bar.time + 300 },
+  } },
+], {
+  scope: 'all',
+  startTime: selectedUtcSeconds,
+  onChange: state => renderTransport(state),
+});
+
+replay.play({ speed: 2 });
+replay.setScope('focused', 'right');
+replay.setScope('all');
+replay.destroy();
+```
+
+These callbacks assume fixed one-minute and five-minute buckets. Use your feed's
+calendar-aware end times for session exceptions or variable-duration buckets.
+The default scope is `focused`, on the first member unless `focusedId` is supplied.
+Moving toolbar focus alone does not redirect a captured replay. Explicit scope
+changes preserve the playhead time and restore charts leaving replay. A chart
+entering replay captures its current data, preserving bars received while inactive.
+
+The group owns one timer. `barMs` defaults to 1000 and speed to 1; `now` and
+`scheduler` can be injected. `state()` reports the UTC time, index/total in the
+union of active observations, scope, focused member, playing/speed, active/destroyed
+flags and each member's ReplayState. Use `seek(index)` for the group scrubber,
+`seekTime(utcSeconds)` for an absolute jump, and `step()`, `stepBack()`, `play()` or
+`pause()` for transport. Empty histories have a null time and index -1.
+
+`stop()` restores data and viewports, retaining the initial time for re-entry.
+`destroy()` also releases snapshots, ownership and listeners. Call it during host
+teardown. Chart destruction is observed automatically: an active participant
+ending tears down the group and restores survivors; an inactive participant is
+removed. Membership stays reserved until destruction, preventing two groups from
+owning the same chart.
+
+Preparation failures and invalid control arguments leave the running session
+intact. Runtime projection/callback failures stop playback, attempt restoration
+on every surviving chart, release ownership and rethrow. Group `onChange` and
+member `onFrame` callbacks run after the full frame reaches all active members;
+use those callbacks for transport decisions. Stop/destroy may interrupt a chart
+frame, while other recursive transport changes there are rejected.
+
+The group ships no UI or feed transport. Hosts load history first, pause live
+writes on active charts, and keep trading and alert evaluation guarded throughout
+selection, loading and replay. Recapture participants when their source identity
+changes. Existing standalone replay remains available with its original defaults.
+
 ## Indicators come along for free
 
 Replay does not fake a moment in time. It feeds the chart a **prefix** of the bar array

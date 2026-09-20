@@ -140,6 +140,8 @@ export type {
   ReplayOptions, ReplayState, ReplayScheduler, ReplayChartHost, ReplayViewport,
 } from './replay/controller';
 export type { ReplayTiming, ReplayBarEndTime } from './replay/timeline';
+export { ReplayGroup } from './replay/group';
+export type { ReplayScope, ReplayGroupChartHost, ReplayGroupMember, ReplayGroupOptions, ReplayGroupState } from './replay/group';
 
 // headless multi-symbol comparison (host renders its own symbol chips)
 export { addComparison, comparisonController, ComparisonController } from './compare/controller';

@@ -96,6 +96,27 @@ expect(chart.primaryBars()).toEqual([data[0]]);
 
 ## Task 2: One group clock
 
+Execution rulings: require at least one uniquely named chart and explicit timing
+per member. Default scope is focused, on the first member unless focusedId is
+provided. Group ownership lasts until destroy, including while stopped; reject
+overlapping group/active standalone replay before mutation. Member options carry
+only series, bars, subBars, timing and onFrame; timing/transport options belong to
+the group. Add ReplayGroupChartHost with optional destroy subscription and
+isDestroyed flag, leaving the existing ReplayChartHost contract untouched.
+
+Prepare every controller before entry. Child playback state reflects the group,
+but only the group starts a timer. Deliver member onFrame callbacks and group
+onChange after every active chart has reached the frame. Stop/destroy may cancel
+an in-flight notification; stale work must not resume afterwards. Invalid user
+arguments preserve the session. A runtime projection/callback failure terminates
+it, cancels the timer, releases ownership/listeners and restores surviving charts.
+Destroying an inactive member removes it; destroying an active member ends the
+group. Empty histories are legal, with a null clock when no timestamp exists.
+Ruling: inactive members can receive live bars. Revalidate and capture current
+data before entry or re-entry, preserving the captured UTC start time. A failed
+new snapshot leaves the existing session intact. This prevents restoration from
+discarding bars received while another chart was the focused replay participant.
+
 Files: new `src/replay/group.ts`, `tests/replay-group.test.ts`; modify
 `src/index.ts`, `scripts/check-shake.mjs`, replay references and browser coverage.
 
@@ -105,8 +126,8 @@ Interfaces:
 type ReplayScope = 'focused' | 'all';
 interface ReplayGroupMember {
   id: string;
-  chart: ReplayChartHost;
-  options: ReplayOptions & { timing: ReplayTiming };
+  chart: ReplayGroupChartHost;
+  options: Pick<ReplayOptions, 'series' | 'bars' | 'subBars' | 'onFrame'> & { timing: ReplayTiming };
 }
 interface ReplayGroupOptions {
   scope?: ReplayScope;
@@ -125,7 +146,7 @@ interface ReplayGroupOptions {
 // play({speed?}?), pause(), setScope(scope, focusedId?), stop(), destroy().
 ```
 
-- [ ] Pin unequal histories/intervals, empty members, scope changes, one timer,
+- [x] Pin unequal histories/intervals, empty members, scope changes, one timer,
   bounded catch-up, speed changes, validation rollback and destruction in tests.
 
 ```ts
@@ -136,10 +157,10 @@ group.pause();
 expect(clock.timers).toBe(0);
 ```
 
-- [ ] Run the new suite and observe failures before implementing group ownership.
-- [ ] Drive each active controller with seekTime; restore members leaving scope;
+- [x] Run the new suite and observe failures before implementing group ownership.
+- [x] Drive each active controller with seekTime; restore members leaving scope;
   emit the group change only after the frame has reached all active members.
-- [ ] Verify chart destruction and callback failure cleanup, public exports,
+- [x] Verify chart destruction and callback failure cleanup, public exports,
   tree-shaking, built browser behavior and the package suite before committing.
 
 ## Task 3: Reference shared transport
@@ -209,3 +230,46 @@ timer, listener, host DOM or retained global history. No sustained performance
 claim. The first typecheck caught array.at requiring a newer library target;
 indexed access preserves the existing target. Consumer and original OI edits
 remain untouched. Continue Tasks 2 and 3 before declaring F8 complete.
+
+## Task 2 verification checkpoint
+
+ReplayGroup now owns one clock over captured members, with explicit focused/all
+scope and UTC projection. It prepares every member before mutation, snapshots
+fresh data when an inactive member enters, and restores data/viewports on exit.
+Callbacks run after the group frame; invalid controls retain the session, while
+runtime failures terminate it and attempt cleanup on every surviving member.
+Active chart destruction ends the group; inactive destruction removes that member.
+The new host interface keeps lifecycle hooks optional for existing custom hosts.
+
+Evidence in artifacts/candidate:
+
+- replay-group-red.log: missing group before implementation. Scope and lifecycle
+  regression logs then caught stale restoration, late history validation,
+  unrepresentable clock intervals and inactive destruction interrupting a frame.
+- replay-group-unit.log: 108 affected tests in six files, including 22 new group
+  cases. replay-group-verify.log: lint/types, 5575 engine tests/233 files, build,
+  280 example tests/23 files and declarations pass. The command stopped at size;
+  revised budgets pass separately in replay-group-size.log. Do not describe this
+  invocation of the full pipeline as an exit-zero result.
+- replay-group-shake.log: chart-only import is 52.30 KiB, within its unchanged
+  52.50 KiB budget. New group and existing replay/timeline exclusion checks pass.
+- replay-group-red-browser.log: the built group API was absent before the build.
+  replay-group-browser.log: 94 cases pass with four workers, including the new
+  group transport harness in three engines and all 88 reference cases. All three
+  common-clock screenshots were inspected. The harness is not the reference UI.
+- replay-group-api.log: API generation passes without warnings. All 918 skills
+  entries pass. replay-group-website.log: the static website builds successfully.
+  Existing runner colour and website workspace/lint configuration warnings remain.
+
+The coordinator adds 1.81 KiB to the full base bundle: base 89.19 KiB, base plus
+trade 96.80 KiB, terminal 201.04 KiB and all tiers 239.78 KiB. Raise those budgets
+by 2 KiB to 89.75, 97.50, 201.75 and 240.50; retain unrelated budgets and measure
+all release facts again on the versioned candidate. Chart-only cost did not grow.
+
+Resource review: one union of observation times plus prepared member snapshots,
+one active timer and one optional destroy listener per member. Stop clears the
+clock and restores charts; destroy also releases listeners and ownership. Scope
+entry replaces stale inactive snapshots. No DOM in the engine and no sustained
+performance claim. Consumer work and original OI edits remain untouched. Task 3
+and the remaining chart release scope are still open; Charts publication comes
+before remaining /trading integration and final connected-broker validation.
