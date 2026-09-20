@@ -16,7 +16,7 @@ chart.on('replay:frame', (p) => renderTransport(p as ReplayState));
 replay.play({ speed: 2 });
 ```
 
-**Constructing the controller enters replay.** It snapshots each driven series' data plus `barSpacing` and `rightOffset`, then shows `startIndex` immediately. The snapshot is taken before anything moves, which is what lets `stop()` put the user back exactly where they were.
+**By default, constructing the controller enters replay.** It snapshots each driven series' data plus `barSpacing` and `rightOffset`, then shows `startIndex` immediately. The snapshot is taken before anything moves, which is what lets `stop()` put the user back exactly where they were. Pass `autoStart: false` to prepare the snapshot without entering yet.
 
 ### ReplayOptions
 
@@ -31,6 +31,9 @@ replay.play({ speed: 2 });
 | `onFrame` | `(state: ReplayState) => void` | none | Called after the chart is updated, alongside the event. |
 | `now` | `() => number` | `performance.now` | Injectable clock. |
 | `scheduler` | `(cb, ms) => () => void` | `setInterval` | Injectable timer; returns its canceller. |
+| `timing` | `ReplayTiming` | none | Explicit candle availability for time-aligned replay. `barEndTime: ReplayBarEndTime` returns UTC seconds; `subBarEndTime` is required with finer bars. |
+| `startTime` | `number` | selected candle's end | Requires `timing`. Before the first observation the chart is empty, `index` is -1 and `bar` is null. |
+| `autoStart` | `boolean` | `true` | False validates and captures data/viewport without changing the chart; seek or play enters later. |
 
 ### Transport
 
@@ -43,6 +46,24 @@ replay.play({ speed: 2 });
 | `pause` | `() => void` | Leaves the playhead where it is. |
 | `stop` | `() => void` | Restores data **and** viewport. Safe twice; a later `seek`/`step`/`play` re-enters from `startIndex`. |
 | `state` | `() => ReplayState` | `{ index, total, playing, speed, bar, subIndex, subSteps }`: everything a transport bar and a clock need. |
+| `seekTime` | `(utcSeconds: number) => void` | Requires `timing`; projects only observations available by that time. |
+| `time` | `() => number \| null` | Availability clock with `timing`; displayed bar timestamp otherwise. |
+| `timePoints` | `() => readonly number[]` | Requires `timing`; a copy of observation timestamps for an external shared clock. |
+
+`ReplayBarEndTime` is `(bar: Bar, index: number) => number`. The host supplies
+calendar-aware candle availability; replay does not infer a close from the next
+recorded bar across a session gap. Times must be finite, ordered and at or after
+the candle opening, without overlapping the next candle. Close-stamped data may
+explicitly return `bar.time`. Invalid timing fails before chart mutation.
+
+In timed mode, `seek(index)` still selects a completed primary candle. Step and
+play advance observation times. Partial candles use only a contiguous finer
+prefix starting at the primary opening; after a missing/straddling finer bar,
+the last known prefix remains until the declared close. The exact recorded
+primary candle replaces it at that close. OI takes the last reading, never a sum;
+absent OI is not filled from the completed candle. Followers and comparisons
+withhold forming closes. Hosts retain feed ownership and must pause live writes,
+alert evaluation and trading while replay owns the chart.
 
 ## Intra-bar replay
 

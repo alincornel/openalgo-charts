@@ -772,3 +772,23 @@ Remaining chart work: F8, reference F1/F2, remaining production contracts,
 endurance, whole-branch review and release facts/version/publication. Existing
 consumer work remains preserved and its remaining implementation and final
 connected-broker/deployment checks follow Charts 2.4.5 publication. Score frozen.
+
+### Shared replay availability prerequisite
+
+ReplayController now accepts explicit primary/finer candle availability times.
+Time seeks leave a later history empty, withhold coarse final values until close,
+and form only a contiguous observed prefix. OI stays a last reading, missing OI
+stays absent, and the recorded final candle replaces the aggregate at its end.
+Preparation without entry lets a coordinator validate every participant before
+mutation. Existing replay defaults remain unchanged. This is Task 1 of the new
+shared-replay plan, not completion of the F8 group clock or reference transport.
+
+Fifteen new cases pass; the affected replay/comparison sweep passes 86 tests.
+Package checks pass through declarations with 5553 engine tests/232 files and
+280 example tests/23 files. The measured 0.94 KiB base increase required a budget
+adjustment; size and shake then pass, with chart-only size unchanged. All 91
+built/reference browser cases pass in three engines, and rendered evidence was
+inspected. API generation, 917-entry skills coverage and the website build pass.
+Detailed command outcomes, budgets and resource limits are in the shared-replay
+plan. No new timer/listener or consumer change. F8 Tasks 2/3 and the remaining
+release scope stay open; Charts publication still precedes /trading integration.

@@ -32,6 +32,46 @@ replay.seek(240);
 replay.stop();               // leave replay, put the chart back
 ```
 
+## Replay by availability time
+
+An opening timestamp does not make a candle's final high, low, close or volume
+available. Pass `timing` when aligning replay across different histories or
+intervals:
+
+```ts
+const replay = new ReplayController(chart, {
+  timing: {
+    barEndTime: bar => bar.time + 300,
+    subBarEndTime: bar => bar.time + 60,
+  },
+  subBars: oneMinuteBars,
+  startTime: selectedUtcSeconds,
+});
+replay.seekTime(nextUtcSeconds);
+```
+
+This example assumes fixed five-minute and one-minute buckets. Supply end times
+from your feed/calendar for session exceptions or variable-duration buckets;
+replay does not infer closure from the next recorded opening. `ReplayTiming`
+uses `ReplayBarEndTime`, a `(bar, index) => utcSeconds` callback. End times must be
+finite, ordered, at or after the opening and no later than the next opening.
+Explicitly close-stamped data can return `bar.time`.
+
+Before the first available observation, the chart is empty and `state()` returns
+`index: -1` and `bar: null`. Finer bars build a partial candle only while they
+cover a contiguous prefix. A missing or straddling finer bar leaves the last
+known prefix until the full candle becomes available. At its declared end, the
+original candle replaces the aggregate exactly. OI retains the last available
+reading and is never summed or copied early from the final candle. Comparisons
+and independent followers withhold forming closes.
+
+`seek(index)` still selects a complete primary candle. Step/play move through
+available observations. `time()` reports the UTC playhead; `timePoints()` returns
+a copy of the observation times. `autoStart: false` prepares a validated snapshot
+without changing the chart, for a host coordinating several participants. Invalid
+timing fails before mutation. Existing index-based replay keeps its defaults.
+The host must pause live feed writes, alert evaluation and trading during replay.
+
 ## Indicators come along for free
 
 Replay does not fake a moment in time. It feeds the chart a **prefix** of the bar array

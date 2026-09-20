@@ -139,6 +139,7 @@ export { ReplayController } from './replay/controller';
 export type {
   ReplayOptions, ReplayState, ReplayScheduler, ReplayChartHost, ReplayViewport,
 } from './replay/controller';
+export type { ReplayTiming, ReplayBarEndTime } from './replay/timeline';
 
 // headless multi-symbol comparison (host renders its own symbol chips)
 export { addComparison, comparisonController, ComparisonController } from './compare/controller';

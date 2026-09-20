@@ -77,6 +77,8 @@ const MUST_BE_SHAKEN = [
   ['trader alert controller', 'An alert controller already owns this chart'],
   ['bar condition registry', 'Bar condition id already registered'],
   ['comparison controller', 'a comparison needs a primary series to align against'],
+  ['replay controller', 'replay needs a series to drive'],
+  ['replay availability timeline', 'replay timing needs subBarEndTime'],
 ];
 
 const virtual = {
