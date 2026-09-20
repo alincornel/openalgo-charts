@@ -34,11 +34,12 @@ import { initSplit, joinLink, installSecondaryWorkspace } from './split.js';
 import { initLink } from './link.js';
 import { initClipboard } from './clipboard.js';
 import { initMenus, openContextMenu } from './menus.js';
-import { initPersist, datasetKey, readLayout, applyLayout, stripView, autosave, restorePrimarySelection, primaryLayoutSelection } from './persist.js';
+import { initPersist, datasetKey, applyLayout, stripView, autosave, restorePrimarySelection, primaryLayoutSelection } from './persist.js';
 import { attachAlerts, detachAlerts } from './alerts.js';
 import { initToolbar, renderToolbar } from './toolbar.js';
 import { initRail, buildRail, initMobile, focusChart, setMagnetMode, setStayMode } from './rail.js';
 import { initWorkspaceHost } from './workspace-host.js';
+import { initWorkspaces } from './workspaces.js';
 import { mountPropertiesBar } from './properties.js';
 import { initDrawing, attachDrawing } from './drawing.js';
 import { capturePaneTarget } from './pane-target.js';
@@ -439,13 +440,14 @@ async function load(opts) {
     setChartState(bars.length ? 'ready' : 'empty', app.req);
     // Re-apply the saved layout now the series exists: a logical viewport
     // means nothing on an empty chart, and the drawing controller reads its
-    // model back out of the restored state. readLayout() upgrades an old
-    // document and sets a corrupt one aside, so nothing here can throw.
-    const saved = hadChart ? null : readLayout();
+    // model back out of the restored state. Startup already selected the
+    // saved named document or the validated session recovery snapshot.
+    const saved = hadChart ? null : app.startupLayout;
     if (saved) {
       const report = applyLayout(saved, { keepView: saved.dataset === datasetKey(app.req), replaceComparisons: false });
       await report.secondaryReady;
     }
+    app.startupLayout = null;
     // After the restore, so a comparison saved in the layout is fetched too.
     await syncComparisons(1);
     if (revision !== loadRevision) return;
@@ -538,8 +540,11 @@ initRail(app, { mountPropertiesBar });
 initDrawing(app);
 initMobile(app);
 fillIntervalSelect();
-restorePrimarySelection();
 initWorkspaceHost(app, installWorkspace);
+app.startupLayout = await initWorkspaces(app);
+restorePrimarySelection(app.startupLayout);
+if (app.startupLayout?.magnet) setMagnetMode(app.startupLayout.magnet);
+if (typeof app.startupLayout?.stay === 'boolean') setStayMode(app.startupLayout.stay);
 
 buildRail();
 fillIndicatorPicker();

@@ -35,6 +35,7 @@ const INIT = {
   'timezone.js': 'initTimezone',
   'toolbar.js': 'initToolbar',
   'volume.js': 'initVolume',
+  'workspaces.js': 'initWorkspaces',
 };
 
 describe('demo modules', () => {
@@ -44,7 +45,7 @@ describe('demo modules', () => {
       'drawing.js', 'expression.js', 'feed.js', 'hover.js', 'indicators.js', 'intervals.js', 'level-editor.js',
       'link.js', 'menus.js', 'orders.js', 'pane-target.js', 'persist.js', 'properties.js', 'rail-flyout.js',
       'rail.js', 'replay-timing.js', 'replay.js', 'snapshot.js', 'split.js', 'status.js', 'text-editor.js',
-      'timezone.js', 'toolbar.js', 'transforms.js', 'ui.js', 'volume.js', 'workspace-catalog.js', 'workspace-document.js', 'workspace-host.js', 'workspace-transition.js',
+      'timezone.js', 'toolbar.js', 'transforms.js', 'ui.js', 'volume.js', 'workspace-catalog.js', 'workspace-document.js', 'workspace-host.js', 'workspace-transition.js', 'workspaces.js',
     ]);
   });
 

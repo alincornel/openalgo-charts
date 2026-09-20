@@ -114,22 +114,22 @@ Files: add `examples/yfinance/src/workspaces.js` with reference tests; modify
 `toolbar.js`, `main.js`, `persist.js`, `index.html`, `styles.css`, reference README
 and browser tests. Keep UI separate from document and transition logic.
 
-- [ ] Add failing cases for create, save, open, rename, duplicate, delete, recent
+- [x] Add failing cases for create, save, open, rename, duplicate, delete, recent
   ordering, autosave and import/export. Exercise failed storage, catalog conflict,
   reload with autosave off, replay guards and pending-operation cancellation.
-- [ ] Initialize WorkspaceRepository with an explicit reference namespace and
+- [x] Initialize WorkspaceRepository with an explicit reference namespace and
   IndexedDB storage. Retain the legacy snapshot as recovery; migrate once without
   deleting it. Surface storage failures and retries. Do not claim a failed write
   was saved, and do not silently swap to another storage backend.
-- [ ] Add compact, accessible named-layout controls to the existing toolbar using
+- [x] Add compact, accessible named-layout controls to the existing toolbar using
   plain labels and the existing dialog/focus/fullscreen patterns. Expose all CRUD,
   recent, autosave and portable JSON actions. Route open through Task 2 and keep
   file errors visible. Export a validated snapshot, not runtime objects.
-- [ ] Connect autosave only to the active named layout when enabled, with captured
+- [x] Connect autosave only to the active named layout when enabled, with captured
   ownership and serialized writes. A session recovery snapshot must not overwrite
   a disabled named autosave. Restore the active named layout on reload using its
   source metadata before requesting history.
-- [ ] Run full reference tests and three-engine browser CRUD/restore/failure checks;
+- [x] Run full reference tests and three-engine browser CRUD/restore/failure checks;
   inspect desktop and narrow screenshots. Run lint/types, update example docs and
   the main ledger, and commit. Then continue F2 and remaining release requirements.
 
@@ -158,3 +158,34 @@ Task 3 controller checkpoint:
 - Logs: `artifacts/candidate/reference-workspace-catalog-*`. No new DOM chrome in
   this checkpoint. The toolbar dialog, main startup/autosave wiring, file controls
   and their complete browser validation remain before Task 3 is finished.
+
+Task 3 final UI evidence:
+- `workspaces.js` connects the Layouts dialog, named selection before the first
+  history request, durable saves and active-owner autosave. The existing quick-save
+  button saves the named owner when one exists; unnamed recovery stays compatible.
+  The dedicated IndexedDB database and reference namespace are explicit. Failed
+  startup and write attempts remain visible and can be retried without fallback.
+- New/open/save/rename/duplicate/delete/recent/autosave/import/export work from the
+  toolbar. Deletion has inline confirmation. The dialog joins the overlay focus
+  stack, works in fullscreen, fits narrow screens and exposes disabled states.
+  Closing a pending import cancels its preparation. Replay disables source changes.
+- Named startup restores magnet/stay preferences as well as chart source metadata.
+  Availability checks are shared with prepared switching. An unavailable saved
+  custom study blocks named autosave and leaves its stored document intact.
+- Import accepts portable workspaces and older wrapped/bare reference snapshots
+  with unambiguous sources. Four compatibility cases fail before the adapter and
+  pass after it. Full examples pass 371 tests/28 files. Typecheck and lint pass.
+- Full reference browser suite passes 136 cases in three engines, log
+  `reference-workspace-ui-browser-full.log`. Final strengthened autosave enable
+  coverage and all 21 named-layout browser cases pass after the last change, log
+  `reference-workspace-ui-browser-final.log`. Wide/narrow pixels inspected across
+  three engines; fullscreen and keyboard focus are exercised in the browser.
+- Observed failures and fixes: an initial DOM/document-name shadow stopped list
+  rendering; a pending checkbox write visually reverted its click; WebKit needed
+  explicit opener focus; startup omitted saved rail preferences; missing studies
+  were silently dropped; enabling autosave did not capture an already-edited chart.
+  The invalid-file fixture now waits for the preceding manual save to finish.
+  All relevant regressions are green; no production guard was weakened.
+- No engine bundle or consumer changes. All tasks in this plan are complete.
+  Continue F2, the source-image chart-data download requirement, and remaining
+  production/release work. This plan is not the release completion criterion.

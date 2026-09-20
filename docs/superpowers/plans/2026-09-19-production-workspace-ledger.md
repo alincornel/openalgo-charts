@@ -917,3 +917,31 @@ Task 3 is still in progress: toolbar dialog, startup/autosave wiring and portabl
 file controls are not connected yet. F2, remaining production checks, endurance,
 whole-branch review, version/docs updates and publication remain. No consumer
 changes or publication; Charts 2.4.5 precedes remaining /trading integration.
+
+### Reference named-layout controls and startup complete
+
+The shared toolbar now opens a Layouts dialog with create/save/open/rename/
+duplicate/delete, recent entries, autosave and portable import/export. The existing
+quick-save button saves the displayed named layout. Startup initializes the catalog
+before requesting history and restores its saved source and rail preferences.
+Autosave off preserves the saved document across reloads; enabling it captures
+already-edited chart state. Legacy recovery is retained and migrated once.
+
+Browser storage failures and revision conflicts remain visible and support explicit
+retry. Missing custom studies at startup preserve the stored document and block
+automatic replacement. Import also accepts older reference files with unambiguous
+source metadata. Closing a pending import cancels the switch; replay disables
+source-changing actions. Keyboard focus, fullscreen and narrow layout are covered.
+
+The named-workspaces plan is complete. Verification: 371 reference tests/28 files,
+lint/typecheck, the full 136-case reference browser suite and a final 21-case
+three-engine named-layout sweep after strengthening autosave-enable coverage.
+Rendered wide/narrow dialogs inspected. Initial failures and fixes are recorded
+in the task plan. No library bundle, consumer dependency or publication changes.
+
+Reference F2 remains, followed by production contracts/endurance, whole-branch
+review and release documentation/version/publication. The design also names chart
+data download from the source images; no reference-host or widget data-download
+handler was found in the current audit, so keep that explicit artifact open.
+Charts 2.4.5 still publishes before remaining /trading integration and final broker
+validation. Frozen score unchanged; no new release time commitment.

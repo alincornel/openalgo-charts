@@ -196,6 +196,7 @@ examples/yfinance/
     workspace-transition.js  cancellable history preparation and guarded publication
     workspace-host.js  reference chart ownership, pending guards and transition wiring
     workspace-catalog.js  named saves, revision conflicts, autosave ownership and storage recovery
+    workspaces.js     named-layout dialog, startup selection, autosave and portable files
   tests/              vitest specs for the modules that can run without a browser
   vitest.config.ts    the config those specs run under (see Tests)
 ```
@@ -305,7 +306,7 @@ exists to show one engine surface carrying real use, not just being present.
 | `persist.js` | A versioned layout document with migrations, quarantine instead of deletion, memory-only degradation when storage refuses a write, and export and import as a file. See the next section. |
 | `workspace-document.js` | Converts the full reference snapshot to the optional workspace tier and back. Preserves source settings, study identities, anchored alert state, comparison settings and split geometry. Rejects settings or geometry this host cannot represent before any live restore. Named catalog controls are a separate host layer. |
 | `workspace-transition.js`, `workspace-host.js` | Prepare every chart's raw history before changing the displayed workspace. Source changes, cancellation and failed writes leave the current charts intact. Synchronous installation failures restore the previous raw histories and configuration, including transformed charts. Pending switches pause alerts, replay entry, autosave and simulated order entry. |
-| `workspace-catalog.js` | Binds the existing workspace repository to prepared chart publication. Serializes named saves, retains recent ordering, coalesces active-layout autosaves, and rejects unacknowledged catalog revisions from another session. Selection failures compensate storage with a new atomic revision. Legacy migration runs once; recovery does not overwrite a named layout with autosave disabled. The toolbar dialog and startup/autosave wiring are still pending. |
+| `workspace-catalog.js`, `workspaces.js` | Bind the workspace repository to prepared chart publication and the Layouts dialog. Serialize named saves, retain recent ordering, coalesce active-layout autosaves, and reject unacknowledged revisions from another session. Selection failures compensate storage with a new atomic revision. Startup restores the saved named document; recovery does not overwrite it with autosave disabled. |
 | `alerts.js` | The Alerts toolbar button opens the focused chart's lifecycle list and source editor. Price, study plots, supported drawing levels and registered candle conditions use the same controls as the packaged widget. Local notices display fired events; the demo does not send notifications or orders for an alert. |
 
 Click or focus a chart, or use the Chart selector, to select it for symbol,
@@ -394,10 +395,35 @@ actions at oscillator values.
 
 ## Persistence
 
-The layout is one JSON document under the key `oa-charts:layout` (every key
-the page writes starts with `oa-charts:`, so another host on the same origin
-cannot collide with it). A 1.x page kept it under `oa-charts-layout`; that
-key is read once on boot, upgraded, moved, and removed.
+Open **Layouts** in the shared toolbar to create a named save from the current
+charts, save changes, open a selection or recent layout, rename, duplicate, delete,
+import or export. The selection controls act on the selected saved document;
+**Save current** and the toolbar's **Save layout** act on the displayed named layout.
+Duplicate keeps the current charts; import validates and opens the imported copy.
+Delete asks for confirmation. Deleting the displayed layout leaves the charts
+unnamed, so autosave cannot write them into another entry.
+
+Named documents use WorkspaceRepository with the IndexedDB database
+`openalgo-reference-workspaces` and namespace `yfinance:reference`. New catalogs
+start with autosave off. With **Autosave current layout** off, reloading restores
+the last saved version, including its sources, chart settings and drawing-rail
+preferences. Enabled autosave coalesces changes to the current named owner. A
+storage error stays visible; a failed save is not reported as durable and does not
+switch storage backends. Another session's newer revision requires **Reload saved
+layouts** before an explicit retry. Exporting does not clear a failed-save warning.
+
+Opening prepares every chart history before changing the display. Closing the
+dialog during preparation cancels the switch. Replay, pending history and settings
+edits disable source-changing layout actions. Missing custom studies or drawing
+tools at startup leave the named document intact and block automatic replacement;
+restore the missing extension or explicitly save a new layout from the current chart.
+
+The session recovery snapshot remains under the local-storage key `oa-charts:layout`.
+It does not override a saved named document. On the first successful catalog boot,
+an existing snapshot becomes **Previous layout** with autosave enabled; the original
+snapshot is retained. An empty catalog after deliberate deletion is not remigrated.
+The sections below describe this recovery format and its compatibility helpers.
+A 1.x page used `oa-charts-layout`; that key is upgraded, moved, and removed on boot.
 
 **Schema version.** The document carries `schema: 2` (`LAYOUT_SCHEMA` in
 `src/persist.js`). Inside it ride two versions the demo does not own: the
@@ -456,7 +482,7 @@ kept), the page says so in a notice that outlives the status line, and the
 session starts clean. The layout is the user's own work, and the fault may be
 in the reader.
 
-**When storage refuses a write** (quota, a private window), the layout is
+**When recovery storage refuses a write** (quota, a private window), the snapshot is
 kept in memory for the session, the user is told once, and Save tries storage
 again. Autosave is debounced 250 ms, skipped during replay (a viewport over a
 truncated session would restore the user into a truncated chart), and flushed
@@ -464,10 +490,15 @@ on `pagehide`. Restoring onto a different dataset keeps the workspace
 (indicators, drawings, pane sizes, styles) and drops the view (viewport and
 pinned price ranges), because a bar-index range means nothing on other bars.
 
-**Files.** `exportLayout()` wraps the document with what wrote it and when;
-`parseLayoutFile()` accepts that wrapper or a bare document and upgrades
-either. The page's Export and Import buttons are optional markup: a page
-without them still saves.
+**Files.** The Layouts dialog exports portable workspace documents and imports each
+with a fresh identity. It also accepts older wrapped or bare reference snapshots
+when their source request can be recovered unambiguously; invalid or unsupported
+files leave both the live charts and saved catalog intact. The compatibility
+helpers `exportLayout()` and `parseLayoutFile()` still write/read the recovery
+wrapper and its older forms. Legacy hidden controls remain available to embedders.
+The synchronous recovery snapshot can flush on `pagehide`; an asynchronous named
+write is not guaranteed to finish after the page closes. Use **Save current** and
+wait for its confirmation when saving before leaving with autosave disabled.
 
 ## Tests
 

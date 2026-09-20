@@ -436,7 +436,9 @@ let saveTimer = 0;
 /** Write the current layout now. Returns what `writeLayout` did. */
 export function persistLayoutNow(opts) {
   if (!app.chart || app.workspaceLoading) return 'unchanged';
-  return writeLayout(layoutSnapshot(), opts);
+  const result = writeLayout(layoutSnapshot(), opts);
+  app.onLayoutPersisted?.();
+  return result;
 }
 
 export function autosave() {
@@ -531,6 +533,7 @@ export function initPersist(a) {
   try { lastWritten = localStorage.getItem(LAYOUT_KEY); } catch (_) {}
   el('lsave').addEventListener('click', () => {
     if (!app.chart) return;
+    if (app.workspaceCatalog?.currentId && app.saveNamedLayout) { app.saveNamedLayout(); return; }
     const did = persistLayoutNow({ retryStorage: true });
     el('status').textContent = did === 'memory'
       ? 'layout kept in memory only (storage refused the write)'

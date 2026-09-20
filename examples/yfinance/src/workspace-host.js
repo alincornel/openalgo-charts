@@ -7,7 +7,7 @@ import { syncReplayAlertPause } from './replay.js';
 import { syncComparisons } from './compare.js';
 import { el } from './ui.js';
 
-function unavailable(app) {
+export function workspaceUnavailable(app) {
   return !app.chart || app.replay || app.replayPicking || app.replayLoading || app.loading || app.loadFailed
     || app.loading2 || app.loadFailed2 || app.restoringSecondary || app.chartSettingsEditing;
 }
@@ -20,13 +20,13 @@ function snapshot() {
 export function initWorkspaceHost(app, install) {
   const transition = new ReferenceWorkspaceTransition({
     capture() {
-      if (unavailable(app)) throw new Error('Finish loading, replay or settings changes before switching layouts');
+      if (workspaceUnavailable(app)) throw new Error('Finish loading, replay or settings changes before switching layouts');
       const layout = snapshot();
       return { layout, bars: [app.currentBars.map(bar => ({ ...bar })), ...(app.chart2 ? [secondaryRawBars()] : [])],
         charts: [app.chart, app.chart2], fingerprint: JSON.stringify(layout) };
     },
     current(before) {
-      return !unavailable(app) && app.chart === before.charts[0] && app.chart2 === before.charts[1]
+      return !workspaceUnavailable(app) && app.chart === before.charts[0] && app.chart2 === before.charts[1]
         && JSON.stringify(snapshot()) === before.fingerprint;
     },
     watch(cancel) {

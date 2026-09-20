@@ -424,12 +424,12 @@ export function renderToolbar() {
   bar.appendChild(divider());
   bar.appendChild(iconBtn('gear', 'Chart settings (or right-click the chart)', () => openChartSettings(undefined, target)));
   bar.appendChild(iconBtn('save', 'Save layout', () => el('lsave').click()));
-  bar.appendChild(iconBtn('restore', 'Restore layout', () => el('lload').click()));
-  // The layout as a file, both ways. The legacy buttons own the work
-  // (persist.js wires them); these only reach them, since the legacy bar
-  // is display:none and a hidden button is one nobody can click.
-  bar.appendChild(iconBtn('download', 'Export layout file', () => el('lexport').click()));
-  bar.appendChild(iconBtn('upload', 'Import layout file', () => el('limport').click()));
+  const layouts = tbtn('Layouts', 'Named layouts');
+  layouts.setAttribute('aria-label', 'Layouts');
+  layouts.setAttribute('aria-haspopup', 'dialog');
+  layouts.setAttribute('aria-controls', 'workspacemodal');
+  layouts.addEventListener('click', () => { layouts.focus(); app.openLayouts?.(); });
+  bar.appendChild(layouts);
 
   const status = document.createElement('div');
   status.className = 'status';
@@ -440,6 +440,7 @@ export function renderToolbar() {
   // assign to #status directly and every one of them would have to remember.
   status.addEventListener('pointerenter', () => { status.title = statusText.textContent; });
   bar.appendChild(status);
+  app.refreshWorkspaceControls?.();
 }
 
 export function tbtn(html, title, sub) {

@@ -41,9 +41,8 @@ async function sourceBars(request, options) {
     : fetchBars(request.symbol, request.interval, request.period, options);
 }
 
-/** Stage raw histories without changing controls, live charts or their request slots. */
-export async function prepareReferenceWorkspace(input, { signal, fetch = sourceBars } = {}) {
-  const layout = layoutFromWorkspace(input);
+/** Use the same availability checks for startup and prepared live switching. */
+export function validateReferenceLayout(layout) {
   for (const key of ['symbol', 'interval']) {
     if (layout.secondary && layout.linkOptions[key] && layout.request[key] !== layout.secondary.request[key]) {
       throw new Error(`Linked workspace ${key} settings conflict between charts`);
@@ -51,6 +50,12 @@ export async function prepareReferenceWorkspace(input, { signal, fetch = sourceB
   }
   validateStudiesAndDrawings(layout);
   if (layout.secondary) validateStudiesAndDrawings(layout.secondary.state);
+}
+
+/** Stage raw histories without changing controls, live charts or their request slots. */
+export async function prepareReferenceWorkspace(input, { signal, fetch = sourceBars } = {}) {
+  const layout = layoutFromWorkspace(input);
+  validateReferenceLayout(layout);
   const controller = new AbortController();
   const cancel = () => controller.abort(signal.reason);
   if (signal?.aborted) cancel();

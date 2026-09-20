@@ -4,6 +4,233 @@ const ORIGIN = 'http://127.0.0.1:8124';
 const PAGE = ORIGIN + '/examples/yfinance/index.html?test=1';
 const PROBE = ORIGIN + '/api/history?symbol=AAPL&interval=1d&period=1mo';
 
+test('named layout controls create rename duplicate export import and delete saved configurations', async ({ page }) => {
+  await openDemo(page);
+  await page.getByRole('button', { name: 'Layouts', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Layouts', exact: true });
+  await dialog.getByLabel('Layout name', { exact: true }).fill('Morning');
+  await dialog.getByRole('button', { name: 'New from current', exact: true }).click();
+  await expect(dialog.locator('#ws-current')).toHaveText('Current: Morning');
+  await dialog.getByLabel('Layout name', { exact: true }).fill('Desk');
+  await dialog.getByRole('button', { name: 'Rename', exact: true }).click();
+  await expect(dialog.locator('#ws-current')).toHaveText('Current: Desk');
+  await dialog.getByLabel('Layout name', { exact: true }).fill('Desk copy');
+  await dialog.getByRole('button', { name: 'Duplicate', exact: true }).click();
+  await expect(dialog.locator('#ws-select option')).toHaveCount(2);
+  const downloadPending = page.waitForEvent('download');
+  await dialog.getByRole('button', { name: 'Export selected', exact: true }).click();
+  const download = await downloadPending;
+  expect(download.suggestedFilename()).toMatch(/\.json$/);
+  const file = await download.path();
+  if (!file) throw new Error('Export did not create a file');
+  await dialog.locator('#ws-file').setInputFiles(file);
+  await expect(dialog.locator('#ws-select option')).toHaveCount(3);
+  await expect(dialog.locator('#ws-current')).toHaveText('Current: Desk copy');
+  await dialog.getByRole('button', { name: 'Delete selected', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Confirm delete', exact: true }).click();
+  await expect(dialog.locator('#ws-select option')).toHaveCount(2);
+  await expect(dialog.locator('#ws-current')).toHaveText('Current: Unnamed');
+  await dialog.getByLabel('Saved layouts', { exact: true }).selectOption({ label: 'Desk' });
+  await dialog.getByRole('button', { name: 'Open selected', exact: true }).click();
+  await expect(dialog.locator('#ws-current')).toHaveText('Current: Desk');
+  await expect(dialog.locator('#ws-recent button').first()).toHaveText('Desk');
+});
+
+test('named autosave off preserves the saved source on reload and explicit or enabled saves persist changes', async ({ page }) => {
+  await openDemo(page);
+  await page.evaluate(async () => {
+    const path = '/examples/yfinance/src/rail.js', rail = await import(path);
+    rail.setMagnetMode('strong'); rail.setStayMode(true);
+  });
+  await page.getByRole('button', { name: 'Layouts', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Layouts', exact: true });
+  await dialog.getByLabel('Layout name', { exact: true }).fill('Saved source');
+  await dialog.getByRole('button', { name: 'New from current', exact: true }).click();
+  await expect(dialog.locator('#ws-current')).toHaveText('Current: Saved source');
+  await expect(dialog.getByLabel('Autosave current layout', { exact: true })).not.toBeChecked();
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.evaluate(async () => {
+    (document.getElementById('symbol') as HTMLInputElement).value = 'TSLA';
+    await (window as any).__oac.app.load();
+    const railPath = '/examples/yfinance/src/rail.js', rail = await import(railPath);
+    rail.setMagnetMode('off'); rail.setStayMode(false);
+    const path = '/examples/yfinance/src/persist.js'; (await import(path)).persistLayoutNow();
+  });
+  await page.reload();
+  await page.waitForFunction(() => (window as any).__oac?.app.chart && !(window as any).__oac.app.loading);
+  expect(await page.evaluate(() => (window as any).__oac.app.req.symbol)).toBe('AAPL');
+  expect(await page.evaluate(async () => {
+    const path = '/examples/yfinance/src/rail.js', rail = await import(path); return [rail.magnetMode(), rail.stayMode()];
+  })).toEqual(['strong', true]);
+  await page.evaluate(async () => {
+    (document.getElementById('symbol') as HTMLInputElement).value = 'MSFT'; await (window as any).__oac.app.load();
+  });
+  await page.getByRole('button', { name: 'Save layout', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__oac.app.workspaceCatalog.catalog.workspaces[0].panes[0].symbol)).toBe('MSFT');
+  await page.evaluate(async () => {
+    (document.getElementById('symbol') as HTMLInputElement).value = 'AMZN'; await (window as any).__oac.app.load();
+    const path = '/examples/yfinance/src/persist.js'; (await import(path)).flushAutosave();
+  });
+  await page.getByRole('button', { name: 'Layouts', exact: true }).click();
+  await dialog.getByLabel('Autosave current layout', { exact: true }).check();
+  await expect.poll(() => page.evaluate(() => (window as any).__oac.app.workspaceCatalog.catalog.autosave)).toBe(true);
+  await expect.poll(() => page.evaluate(() => (window as any).__oac.app.workspaceCatalog.catalog.workspaces[0].panes[0].symbol)).toBe('AMZN');
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.evaluate(async () => {
+    (document.getElementById('symbol') as HTMLInputElement).value = 'NVDA'; await (window as any).__oac.app.load();
+  });
+  await expect.poll(() => page.evaluate(() => (window as any).__oac.app.workspaceCatalog.catalog.workspaces[0].panes[0].symbol)).toBe('NVDA');
+  await page.reload();
+  await page.waitForFunction(() => (window as any).__oac?.app.chart && !(window as any).__oac.app.loading);
+  expect(await page.evaluate(() => (window as any).__oac.app.req.symbol)).toBe('NVDA');
+});
+
+test('named layout storage failures stay visible and can be retried without a fallback catalog', async ({ page }) => {
+  await page.addInitScript(() => {
+    const original = window.indexedDB;
+    (window as any).workspaceStorageDenied = true;
+    Object.defineProperty(window, 'indexedDB', { configurable: true, get() {
+      if ((window as any).workspaceStorageDenied) throw new Error('Workspace storage unavailable');
+      return original;
+    } });
+  });
+  await openDemo(page);
+  await page.getByRole('button', { name: 'Layouts', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Layouts', exact: true });
+  await expect(dialog.locator('#ws-error')).toContainText('Workspace storage unavailable');
+  await dialog.getByLabel('Layout name', { exact: true }).fill('Retry');
+  await expect(dialog.getByRole('button', { name: 'New from current', exact: true })).toBeDisabled();
+  await page.evaluate(() => { (window as any).workspaceStorageDenied = false; });
+  await dialog.getByRole('button', { name: 'Reload saved layouts', exact: true }).click();
+  await expect(dialog.locator('#ws-error')).toBeHidden();
+  await page.evaluate(() => {
+    const catalog = (window as any).__oac.app.workspaceCatalog;
+    const write = catalog.storage.write;
+    catalog.storage.write = async (...args: unknown[]) => {
+      catalog.storage.write = write;
+      throw new Error(`Workspace quota refused revision ${args[2]}`);
+    };
+  });
+  await dialog.getByRole('button', { name: 'New from current', exact: true }).click();
+  await expect(dialog.locator('#ws-error')).toContainText('Workspace quota refused');
+  await expect(dialog.locator('#ws-select option')).toHaveCount(0);
+  await expect(dialog.locator('#ws-current')).toHaveText('Current: Unnamed');
+  await dialog.getByRole('button', { name: 'New from current', exact: true }).click();
+  await expect(dialog.locator('#ws-current')).toHaveText('Current: Retry');
+  await expect(dialog.locator('#ws-error')).toBeHidden();
+});
+
+test('named layout startup preserves an unavailable saved study and blocks automatic replacement', async ({ page }) => {
+  await openDemo(page);
+  await page.getByRole('button', { name: 'Layouts', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Layouts', exact: true });
+  await dialog.getByLabel('Layout name', { exact: true }).fill('Custom study');
+  await dialog.getByRole('button', { name: 'New from current', exact: true }).click();
+  await expect(dialog.locator('#ws-current')).toHaveText('Current: Custom study');
+  await page.evaluate(async () => {
+    const catalog = (window as any).__oac.app.workspaceCatalog;
+    await catalog.setAutosave(true);
+    const document = structuredClone(catalog.catalog.workspaces[0]);
+    document.panes[0].chart.indicators[0].indicatorId = 'unavailable-saved-study';
+    await catalog.repository.saveWorkspace(catalog.currentId, document);
+  });
+  await page.reload();
+  await page.waitForFunction(() => (window as any).__oac?.app.chart && !(window as any).__oac.app.loading);
+  await page.getByRole('button', { name: 'Layouts', exact: true }).click();
+  await expect(dialog.locator('#ws-error')).toContainText('unavailable-saved-study');
+  expect(await page.evaluate(async () => {
+    const app = (window as any).__oac.app, path = '/examples/yfinance/src/persist.js';
+    (await import(path)).persistLayoutNow(); await app.workspaceCatalog.flushAutosave();
+    const stored = await app.workspaceCatalog.storage.read(app.workspaceCatalog.namespace);
+    return { blocked: app.workspaceCatalog.autosaveBlocked, owner: app.workspaceCatalog.currentId,
+      retained: stored.workspaces[0].panes[0].chart.indicators.some((item: any) => item.indicatorId === 'unavailable-saved-study') };
+  })).toEqual({ blocked: true, owner: null, retained: true });
+});
+
+test('closing a pending named import cancels it and replay disables source-changing layout actions', async ({ page }) => {
+  await openDemo(page);
+  await page.getByRole('button', { name: 'Layouts', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Layouts', exact: true });
+  await dialog.getByLabel('Layout name', { exact: true }).fill('Original');
+  await dialog.getByRole('button', { name: 'New from current', exact: true }).click();
+  await expect(dialog.locator('#ws-current')).toHaveText('Current: Original');
+  const text = await page.evaluate(async () => {
+    const catalog = (window as any).__oac.app.workspaceCatalog;
+    const source = JSON.parse(await catalog.export(catalog.currentId)); source.panes[0].symbol = 'TSLA';
+    return JSON.stringify(source);
+  });
+  let release!: () => void, waiting = false;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/history?**', async route => {
+    if (new URL(route.request().url()).searchParams.get('symbol') === 'TSLA') { waiting = true; await gate; }
+    await route.continue();
+  });
+  await dialog.locator('#ws-file').setInputFiles({ name: 'pending.json', mimeType: 'application/json', buffer: Buffer.from(text) });
+  await expect.poll(() => waiting).toBe(true);
+  await expect(dialog.getByRole('button', { name: 'Save current', exact: true })).toBeDisabled();
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click(); release();
+  await expect.poll(() => page.evaluate(() => (window as any).__oac.app.workspaceCatalog.busy)).toBe(false);
+  expect(await page.evaluate(() => {
+    const app = (window as any).__oac.app;
+    return [app.req.symbol, app.workspaceCatalog.catalog.workspaces.length, app.workspaceLoading];
+  })).toEqual(['AAPL', 1, false]);
+  await page.evaluate(async () => { const path = '/examples/yfinance/src/replay.js'; (await import(path)).enterReplay(); });
+  await page.getByRole('button', { name: 'Layouts', exact: true }).click();
+  for (const name of ['Save current', 'New from current', 'Open selected', 'Import file']) {
+    await expect(dialog.getByRole('button', { name, exact: true })).toBeDisabled();
+  }
+});
+
+test('named layout controls retain errors and require refresh before overwriting a remote revision', async ({ page }) => {
+  await openDemo(page);
+  await page.getByRole('button', { name: 'Layouts', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Layouts', exact: true });
+  await dialog.getByLabel('Layout name', { exact: true }).fill('Desk');
+  await dialog.getByRole('button', { name: 'New from current', exact: true }).click();
+  await expect(dialog.locator('#ws-current')).toHaveText('Current: Desk');
+  await page.evaluate(async () => {
+    const catalog = (window as any).__oac.app.workspaceCatalog, path = '/dist/openalgo-charts.workspace.mjs';
+    const { WorkspaceRepository } = await import(path);
+    await new WorkspaceRepository(catalog.storage, catalog.namespace).rename('workspace', catalog.currentId, 'Remote name');
+  });
+  await dialog.getByRole('button', { name: 'Save current', exact: true }).click();
+  await expect(dialog.locator('#ws-error')).toContainText('another session');
+  await dialog.getByRole('button', { name: 'Reload saved layouts', exact: true }).click();
+  await expect(dialog.locator('#ws-current')).toHaveText('Current: Remote name');
+  await dialog.getByRole('button', { name: 'Save current', exact: true }).click();
+  await expect(dialog.locator('#ws-error')).toBeHidden();
+  await expect(dialog.getByRole('button', { name: 'Import file', exact: true })).toBeEnabled();
+  await dialog.locator('#ws-file').setInputFiles({ name: 'invalid.json', mimeType: 'application/json', buffer: Buffer.from('{invalid') });
+  await expect(dialog.locator('#ws-error')).toContainText(/JSON|property|position|syntax/i);
+  await expect(dialog.locator('#ws-select option')).toHaveCount(1);
+});
+
+test('named layout dialog fits narrow and wide screens and restores keyboard focus', async ({ page }, info) => {
+  await page.setViewportSize({ width: 1360, height: 900 });
+  await openDemo(page);
+  const opener = page.getByRole('button', { name: 'Layouts', exact: true });
+  await opener.click();
+  const dialog = page.getByRole('dialog', { name: 'Layouts', exact: true });
+  await expect(dialog.getByLabel('Layout name', { exact: true })).toBeFocused();
+  await page.screenshot({ path: info.outputPath('named-layouts-wide.png') });
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden(); await expect(opener).toBeFocused();
+  await page.getByRole('button', { name: 'Full screen chart', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement === document.body)).toBe(true);
+  await opener.click(); await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.evaluate(() => document.exitFullscreen());
+  await page.setViewportSize({ width: 390, height: 740 });
+  await opener.click();
+  await expect(dialog).toBeVisible();
+  const box = await dialog.boundingBox();
+  expect(box).not.toBeNull(); expect(box!.x).toBeGreaterThanOrEqual(0); expect(box!.width).toBeLessThanOrEqual(390);
+  expect(box!.y + box!.height).toBeLessThanOrEqual(740);
+  await page.screenshot({ path: info.outputPath('named-layouts-narrow.png') });
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(dialog).toBeHidden();
+});
+
 test('named workspace catalog publishes through real browser storage and retains saved startup ownership', async ({ page }) => {
   await openDemo(page);
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));

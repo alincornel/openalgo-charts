@@ -236,6 +236,26 @@
     </div>
   </div>
 
+  <div id="workspacemodal" hidden>
+    <div class="set-card ws-card" role="dialog" aria-modal="true" aria-labelledby="ws-title">
+      <div class="set-head"><span id="ws-title">Layouts</span><button id="ws-close" type="button">Close</button></div>
+      <div class="set-body ws-body">
+        <p id="ws-current">Current: Unnamed</p>
+        <div class="set-row"><label for="ws-select">Saved layouts</label><div class="set-ctl"><select id="ws-select"></select></div></div>
+        <div class="set-row"><label for="ws-name">Layout name</label><div class="set-ctl"><input id="ws-name" type="text" maxlength="120" autocomplete="off" /></div></div>
+        <div class="ws-actions"><button id="ws-new" class="btn" type="button">New from current</button><button id="ws-save" class="btn" type="button">Save current</button><button id="ws-rename" class="btn" type="button">Rename</button><button id="ws-duplicate" class="btn" type="button">Duplicate</button></div>
+        <div id="ws-recent-row"><p class="set-group">Recent layouts</p><div id="ws-recent" class="ws-actions"></div></div>
+        <label class="ws-autosave"><input id="ws-autosave" type="checkbox" /> Autosave current layout</label>
+        <p class="ws-hint">With autosave off, reload restores the last saved version. Session recovery is kept separately.</p>
+        <div class="ws-actions"><button id="ws-import" class="btn btn--ghost" type="button">Import file</button><button id="ws-export" class="btn btn--ghost" type="button">Export selected</button><button id="ws-delete" class="btn btn--ghost" type="button">Delete selected</button></div>
+        <input id="ws-file" type="file" accept="application/json,.json" hidden />
+        <div id="ws-confirm" hidden><p id="ws-delete-name"></p><div class="ws-actions"><button id="ws-keep" class="btn" type="button">Keep layout</button><button id="ws-confirm-delete" class="btn" type="button">Confirm delete</button></div></div>
+        <p id="ws-error" role="alert" hidden></p><p id="ws-notice" role="status" aria-live="polite"></p>
+      </div>
+      <div class="set-foot"><button id="ws-refresh" class="btn btn--ghost set-lead" type="button">Reload saved layouts</button><button id="ws-open" class="btn btn--primary" type="button">Open selected</button></div>
+    </div>
+  </div>
+
   <!-- Compare: a second instrument on the primary's pane. The engine aligns it
        by timestamp and rebases the pane; the symbol list and the scale choice
        are ours. -->
