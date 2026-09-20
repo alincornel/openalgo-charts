@@ -132,3 +132,29 @@ and browser tests. Keep UI separate from document and transition logic.
 - [ ] Run full reference tests and three-engine browser CRUD/restore/failure checks;
   inspect desktop and narrow screenshots. Run lint/types, update example docs and
   the main ledger, and commit. Then continue F2 and remaining release requirements.
+
+Task 3 controller checkpoint:
+- `workspace-catalog.js` reuses WorkspaceRepository and the existing storage
+  contract. It keeps the displayed chart owner separate from the recent active ID,
+  rejects writes against an unacknowledged revision, and compensates partial
+  create/import/selection writes without rewinding the revision.
+- Create/save/open/rename/duplicate/delete/export/import and legacy migration are
+  covered by 18 controller cases. Autosave coalesces updates, skips unchanged
+  documents, captures ownership and stays blocked after a failed write until an
+  explicit recovery action. Opening suspends queued autosaves, including reopening
+  the same document. An unrelated export preserves failed-save feedback.
+- The storage commit boundary exposed a transition defect: racing cancellation
+  against the persistence promise could discard a committed rollback receipt.
+  Publication now awaits storage settlement and compensates after cancellation.
+  Storage fixtures honor the abort signal instead of returning an unresolved
+  promise after cancellation. Preparation remains promptly cancellable.
+- Full reference verification: 366 tests/27 files, lint and typecheck pass.
+  Eighteen focused workspace browser cases pass across three engines, including
+  actual IndexedDB create/import, saved startup selection with autosave disabled,
+  and a closed-storage rejection that preserves the displayed chart.
+- The first full unit sweep required adding the module to its documented inventory.
+  Lint initially raced browser output-directory cleanup (ENOENT test-results);
+  after browser completion it passed. No source workaround for that tool race.
+- Logs: `artifacts/candidate/reference-workspace-catalog-*`. No new DOM chrome in
+  this checkpoint. The toolbar dialog, main startup/autosave wiring, file controls
+  and their complete browser validation remain before Task 3 is finished.

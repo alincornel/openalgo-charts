@@ -4,6 +4,37 @@ const ORIGIN = 'http://127.0.0.1:8124';
 const PAGE = ORIGIN + '/examples/yfinance/index.html?test=1';
 const PROBE = ORIGIN + '/api/history?symbol=AAPL&interval=1d&period=1mo';
 
+test('named workspace catalog publishes through real browser storage and retains saved startup ownership', async ({ page }) => {
+  await openDemo(page);
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  expect(await page.evaluate(async () => {
+    const app = (window as any).__oac.app;
+    const catalogPath = '/examples/yfinance/src/workspace-catalog.js', storagePath = '/dist/openalgo-charts.workspace.mjs';
+    const persistPath = '/examples/yfinance/src/persist.js', adapterPath = '/examples/yfinance/src/workspace-document.js';
+    const { ReferenceWorkspaceCatalog } = await import(catalogPath);
+    const { createIndexedDbWorkspaceStorage } = await import(storagePath);
+    const { workspaceFromLayout } = await import(adapterPath);
+    const { layoutSnapshot } = await import(persistPath);
+    const storage = createIndexedDbWorkspaceStorage(indexedDB, 'reference-catalog-browser-test');
+    const options = { storage, namespace: 'demo', snapshot: () => workspaceFromLayout(layoutSnapshot()), open: app.openWorkspace };
+    const catalog = new ReferenceWorkspaceCatalog(options);
+    await catalog.initialize();
+    const initial = await catalog.create('Original');
+    const source = JSON.parse(await catalog.export(initial.id));
+    source.name = 'Saved source'; source.panes[0].symbol = 'TSLA';
+    const imported = await catalog.import(JSON.stringify(source));
+    const stored = await storage.read('demo');
+    const startup = await new ReferenceWorkspaceCatalog(options).initialize({ schema: 2, version: 1, dataset: 'MSFT|1d|1y' });
+    const chart = app.chart;
+    await storage.close();
+    const error = await catalog.open(initial.id).then(() => '', (failure: Error) => failure.message);
+    return { symbol: app.req.symbol, savedSymbol: stored.workspaces.find((item: any) => item.id === imported.id).panes[0].symbol,
+      currentMatches: catalog.currentId === imported.id, recentMatches: stored.recentWorkspaceIds[0] === imported.id,
+      startupSymbol: startup.request.symbol, autosave: stored.autosave, unchangedAfterFailure: app.chart === chart, error };
+  })).toMatchObject({ symbol: 'TSLA', savedSymbol: 'TSLA', currentMatches: true, recentMatches: true,
+    startupSymbol: 'TSLA', autosave: false, unchangedAfterFailure: true, error: expect.stringMatching(/closed/) });
+});
+
 test('prepared workspace switches both sources only after every history and storage write are ready', async ({ page }, info) => {
   await page.setViewportSize({ width: 1360, height: 900 });
   await openDemo(page);
@@ -59,7 +90,10 @@ test('failed workspace storage and source changes leave the current charts intac
     const failure = await app.openWorkspace(document, () => Promise.reject(new Error('Storage refused'))).then(() => '', (error: Error) => error.message);
     let release: () => void = () => {};
     const begun = new Promise<void>(resolve => { release = resolve; });
-    const pending = app.openWorkspace(document, () => { release(); return new Promise(() => {}); }).then(() => '', (error: Error) => error.message);
+    const pending = app.openWorkspace(document, (signal: AbortSignal) => {
+      release();
+      return new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+    }).then(() => '', (error: Error) => error.message);
     await begun;
     app.chart.setDataContext({ ...app.chart.getDataContext(), symbol: 'CHANGED' });
     const cancelled = await pending;

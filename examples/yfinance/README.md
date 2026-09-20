@@ -195,6 +195,7 @@ examples/yfinance/
     workspace-document.js  portable named-layout snapshots and reference-host support validation
     workspace-transition.js  cancellable history preparation and guarded publication
     workspace-host.js  reference chart ownership, pending guards and transition wiring
+    workspace-catalog.js  named saves, revision conflicts, autosave ownership and storage recovery
   tests/              vitest specs for the modules that can run without a browser
   vitest.config.ts    the config those specs run under (see Tests)
 ```
@@ -304,6 +305,7 @@ exists to show one engine surface carrying real use, not just being present.
 | `persist.js` | A versioned layout document with migrations, quarantine instead of deletion, memory-only degradation when storage refuses a write, and export and import as a file. See the next section. |
 | `workspace-document.js` | Converts the full reference snapshot to the optional workspace tier and back. Preserves source settings, study identities, anchored alert state, comparison settings and split geometry. Rejects settings or geometry this host cannot represent before any live restore. Named catalog controls are a separate host layer. |
 | `workspace-transition.js`, `workspace-host.js` | Prepare every chart's raw history before changing the displayed workspace. Source changes, cancellation and failed writes leave the current charts intact. Synchronous installation failures restore the previous raw histories and configuration, including transformed charts. Pending switches pause alerts, replay entry, autosave and simulated order entry. |
+| `workspace-catalog.js` | Binds the existing workspace repository to prepared chart publication. Serializes named saves, retains recent ordering, coalesces active-layout autosaves, and rejects unacknowledged catalog revisions from another session. Selection failures compensate storage with a new atomic revision. Legacy migration runs once; recovery does not overwrite a named layout with autosave disabled. The toolbar dialog and startup/autosave wiring are still pending. |
 | `alerts.js` | The Alerts toolbar button opens the focused chart's lifecycle list and source editor. Price, study plots, supported drawing levels and registered candle conditions use the same controls as the packaged widget. Local notices display fired events; the demo does not send notifications or orders for an alert. |
 
 Click or focus a chart, or use the Chart selector, to select it for symbol,

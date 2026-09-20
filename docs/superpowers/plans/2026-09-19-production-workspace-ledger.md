@@ -895,3 +895,25 @@ Reference F1 Task 2 is complete. Named catalog persistence and its create/save/
 open/rename/duplicate/delete/recent/autosave/import/export controls remain Task 3.
 F2 and all remaining production/release requirements stay in scope. No consumer
 changes or publication; Charts 2.4.5 still publishes before remaining /trading work.
+
+### Reference named catalog controller checkpoint
+
+The named catalog controller now serializes repository operations, captures the
+active chart owner for autosave, rejects another session's unacknowledged revision,
+and restores catalog selection after a failed publication. Autosave coalesces
+changes and cannot write into the fallback recent entry after deleting its owner.
+Legacy recovery migrates once and does not overwrite a saved layout with autosave
+off. Reopening a layout drops queued snapshots from the previous displayed state.
+Failed-save feedback survives unrelated export actions.
+
+Integration testing exposed a cancellation race after storage commit. Transition
+publication now receives the committed receipt before handling cancellation, so
+compensation cannot be skipped. The regression fails before that fix. The full
+reference suite passes 366 tests/27 files; lint/typecheck and 18 relevant browser
+cases across three engines pass. Browser cases include the real IndexedDB adapter
+and prepared source publication. Tooling retries are recorded in the task plan.
+
+Task 3 is still in progress: toolbar dialog, startup/autosave wiring and portable
+file controls are not connected yet. F2, remaining production checks, endurance,
+whole-branch review, version/docs updates and publication remain. No consumer
+changes or publication; Charts 2.4.5 precedes remaining /trading integration.

@@ -145,7 +145,12 @@ describe('reference workspace publication', () => {
     let invalidate, signal;
     const callbacks = host({ watch: fn => { invalidate = fn; return vi.fn(); } });
     const transition = new ReferenceWorkspaceTransition(callbacks);
-    const pending = transition.open(fixture(), value => { signal = value; return new Promise(() => {}); });
+    const pending = transition.open(fixture(), value => {
+      signal = value;
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      });
+    });
     await vi.waitFor(() => expect(signal).toBeDefined());
     invalidate();
     await expect(pending).rejects.toThrow(/cancel/i);
@@ -176,6 +181,19 @@ describe('reference workspace publication', () => {
     const callbacks = host({ current: () => current });
     const transition = new ReferenceWorkspaceTransition(callbacks);
     await expect(transition.open(fixture(), async () => { current = false; return { rollback }; })).rejects.toThrow(/changed|cancel/i);
+    expect(rollback).toHaveBeenCalledTimes(1);
+    expect(callbacks.install).not.toHaveBeenCalled();
+  });
+
+  it('receives and compensates storage committed just before a watched cancellation', async () => {
+    let invalidate;
+    const rollback = vi.fn();
+    const callbacks = host({ watch: fn => { invalidate = fn; return vi.fn(); } });
+    const transition = new ReferenceWorkspaceTransition(callbacks);
+    await expect(transition.open(fixture(), async () => {
+      invalidate();
+      return { rollback };
+    })).rejects.toThrow(/cancel/i);
     expect(rollback).toHaveBeenCalledTimes(1);
     expect(callbacks.install).not.toHaveBeenCalled();
   });

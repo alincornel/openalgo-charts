@@ -96,9 +96,9 @@ export class ReferenceWorkspaceTransition {
       operation.unwatch = this.callbacks.watch?.(() => this.cancel());
       const prepared = await owned((this.callbacks.prepare || prepareReferenceWorkspace)(payload, { signal }), signal);
       this.assertCurrent(operation, before);
-      // Storage must honor cancellation until its atomic commit. The host's
-      // watch aborts this same signal when the captured workspace changes.
-      const receipt = await owned(persist(signal), signal);
+      // Storage honors cancellation until commit. Once committed, await its
+      // receipt so a simultaneous cancellation cannot bypass compensation.
+      const receipt = await persist(signal);
       try { this.assertCurrent(operation, before); }
       catch (error) {
         try { await receipt?.rollback?.(); }
