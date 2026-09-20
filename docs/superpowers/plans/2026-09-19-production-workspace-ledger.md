@@ -577,3 +577,14 @@ consumer 2293 tests, build/types, lint and API coverage pass. The consumer passe
 alert screenshots. Detailed evidence and warnings are in the alert plan. This
 is progress toward the existing full scope; reference context parity, endurance,
 connected broker and the remaining production/release gates remain open.
+
+Reference context checkpoint: yfinance now offers price, exact study-plot,
+drawing and alert-list actions for both charts, with chart/scope ownership
+guards. The primary menu also excludes order actions from oscillator panes;
+a regression exposed and corrected hidden menu rows being displayed by flex
+styling. Five unit and nine cross-browser pointer regressions pass; complete
+reference suites pass 249 unit tests and 37 browser tests. Selected editor
+screenshots across all three engines were inspected. Repository lint/types and
+website build pass, with the existing runner/root warning retained. This change
+does not alter the packed library or consumer checkpoint. Sustained endurance,
+connected broker, F1-F9/P1-P6 and final release requirements remain in scope.

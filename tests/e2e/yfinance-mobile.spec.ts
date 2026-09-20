@@ -4,6 +4,68 @@ const ORIGIN = 'http://127.0.0.1:8124';
 const PAGE = ORIGIN + '/examples/yfinance/index.html?test=1';
 const PROBE = ORIGIN + '/api/history?symbol=AAPL&interval=1d&period=1mo';
 
+for (const pane of [1, 2]) {
+  test(`reference context alert creation stays on chart ${pane}`, async ({ page }, info) => {
+    await page.setViewportSize({ width: 1360, height: 900 });
+    await openDemo(page);
+    if (pane === 2) {
+      await page.getByRole('button', { name: /Open a second, linked chart/ }).click();
+      await page.waitForFunction(() => (window as any).__oac.app.chart2?.primaryBars().length > 0);
+    }
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const point = await page.evaluate(pane => {
+      const app = (window as any).__oac.app;
+      const chart = pane === 1 ? app.chart : app.chart2;
+      const draw = pane === 1 ? app.draw : app.draw2;
+      const box = document.querySelector(pane === 1 ? '#chart' : '#chart2')!.getBoundingClientRect();
+      chart.panes()[0].priceScale.setAutoScale(false);
+      chart.panes()[0].priceScale.setPriceRange({ min: 80, max: 160 });
+      draw.add({ id: 'clicked-context', tool: 'horizontal-line', paneIndex: 0,
+        points: [{ time: chart.primaryBars().at(-1).time, price: 120 }], style: {} });
+      return { x: box.left + box.width * 0.45, y: box.top + chart.priceToCoordinate(120, 0) };
+    }, pane);
+    await page.mouse.click(point.x, point.y, { button: 'right' });
+    await page.evaluate(pane => { (window as any).__oac.app.focusPane = pane === 1 ? 2 : 1; }, pane);
+    await page.getByRole('menuitem', { name: 'Create drawing alert', exact: true }).click();
+    const editor = page.getByRole('dialog', { name: 'Create alert', exact: true });
+    await expect(editor.getByLabel('Source', { exact: true })).toHaveValue('drawing');
+    await expect(editor.getByLabel('Drawing', { exact: true })).toHaveValue('clicked-context');
+    await editor.getByLabel('Name', { exact: true }).fill(`Chart ${pane} context`);
+    await page.screenshot({ path: info.outputPath(`reference-context-${pane}.png`) });
+    await editor.getByRole('button', { name: 'Save', exact: true }).click();
+    const result = await page.evaluate(() => {
+      const app = (window as any).__oac.app;
+      return { primary: app.alerts.list(), secondary: app.alerts2?.list() ?? [], orders: app.orders.length };
+    });
+    expect(pane === 1 ? result.primary : result.secondary).toMatchObject([{ title: `Chart ${pane} context`,
+      source: { kind: 'drawing', drawingId: 'clicked-context' }, scope: { symbol: pane === 1 ? 'AAPL' : 'MSFT' } }]);
+    expect(pane === 1 ? result.secondary : result.primary).toEqual([]);
+    expect(result.orders).toBe(0);
+  });
+}
+
+test('reference oscillator context offers its study alert without price order actions', async ({ page }) => {
+  await page.setViewportSize({ width: 1360, height: 900 });
+  await openDemo(page);
+  const point = await page.evaluate(() => {
+    const { chart } = (window as any).__oac;
+    const study = chart.indicators().find((item: any) => item.indicatorId === 'rsi');
+    const values = study.values().rsi;
+    const range = chart.getVisibleLogicalRange();
+    let index = Math.max(20, Math.ceil(range.from));
+    while (index < Math.min(values.length - 1, range.to) && !(values[index] > 10 && values[index] < 90
+      && [30, 50, 70].every(level => Math.abs(values[index] - level) > 8))) index++;
+    const box = document.querySelector('#chart')!.getBoundingClientRect();
+    return { x: box.left + chart.timeToCoordinate(chart.primaryBars()[index].time),
+      y: box.top + chart.priceToCoordinate(values[index], study.paneIndex), id: study.id };
+  });
+  await page.mouse.click(point.x, point.y, { button: 'right' });
+  await expect(page.getByRole('menuitem', { name: /Buy|Sell/ })).toHaveCount(0);
+  await page.getByRole('menuitem', { name: 'Create study alert', exact: true }).click();
+  await expect(page.getByLabel('Study', { exact: true })).toHaveValue(point.id);
+  await expect(page.getByLabel('Plot', { exact: true })).toHaveValue('rsi');
+});
+
 test('reference alerts retain drawing anchors through rebuild and reload', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1280, height: 850 });
   await openDemo(page);

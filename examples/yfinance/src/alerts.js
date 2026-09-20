@@ -1,4 +1,4 @@
-import { AlertController } from '/dist/openalgo-charts.mjs';
+import { AlertController, getIndicator } from '/dist/openalgo-charts.mjs';
 import { createAlertUi } from '/dist/openalgo-charts.widget.mjs';
 import { el, currentTheme, chartTheme, toast } from './ui.js';
 import { autosave } from './persist.js';
@@ -47,4 +47,37 @@ export function detachAlerts(app, pane = 1) {
 export function openAlerts(app) {
   const ui = app.focusPane === 2 && app.chart2 ? app.alertUi2 : app.alertUi;
   return ui?.openList() ?? false;
+}
+
+/** A context action belongs to its source chart even if focus moves before selection. */
+export function alertContextEntries(app, event, pane = 1) {
+  const suffix = pane === 2 ? '2' : '';
+  const chart = app['chart' + suffix];
+  const draw = app['draw' + suffix];
+  const ui = app['alertUi' + suffix];
+  if (!chart || !ui) return [];
+  const scope = () => {
+    const context = chart.getDataContext();
+    return JSON.stringify([context?.symbol, context?.exchange, context?.interval]);
+  };
+  const initialScope = scope();
+  const current = () => app['chart' + suffix] === chart && app['alertUi' + suffix] === ui && scope() === initialScope;
+  const rows = [];
+  const add = (label, source, info = {}) => rows.push({ label, disabled: info.available === false,
+    reason: info.reason, onSelect: () => current() && info.available !== false && ui.openEditor({ source }) });
+  const target = event.target || { kind: 'empty' };
+  if (target.kind === 'drawing') {
+    const id = target.id?.startsWith('draw:') ? target.id.slice(5).split('#')[0] : null;
+    if (id && draw?.get(id)) add('Create drawing alert', { kind: 'drawing', drawingId: id }, draw.alertInfo(id));
+  } else if (target.kind === 'indicator' && target.instanceId) {
+    const instance = chart.indicators().find(item => item.id === target.instanceId);
+    const plot = instance && getIndicator(instance.indicatorId).plots.find(item =>
+      (item.overlay ? 0 : instance.paneIndex) === event.paneIndex && (target.plotKey === undefined || item.key === target.plotKey));
+    if (instance && plot) add('Create study alert', { kind: 'indicator', instanceId: instance.id, plotKey: plot.key,
+      value: instance.values()[plot.key]?.[event.index ?? chart.primaryBars().length - 1] ?? NaN });
+  } else if (event.paneIndex === 0 && event.price !== null && Number.isFinite(event.price)) {
+    add('Create price alert', { kind: 'price', price: event.price });
+  }
+  rows.push({ label: 'Alerts', onSelect: () => current() && ui.openList() });
+  return rows;
 }

@@ -307,6 +307,13 @@ Triggered once alerts remain visible after a reload. Evaluation stops during
 replay selection, finer-history loading and playback, then resumes from a fresh
 baseline. This browser demo cannot deliver alerts while its page is closed.
 
+Right-click either chart to create an alert from the clicked price, study plot
+or supported drawing, or open that chart's Alerts list. The action stays bound
+to the clicked chart if focus moves. A chart rebuild or symbol/interval change
+invalidates an old menu action. Unsupported drawing levels show a disabled
+action with an explanation. Oscillator context menus do not offer price-order
+actions at oscillator values.
+
 ## Persistence
 
 The layout is one JSON document under the key `oa-charts:layout` (every key

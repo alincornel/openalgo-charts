@@ -9,7 +9,7 @@ import { fetchBars, fetchNote, feedErrorState, abortFetch } from './feed.js';
 import { autosave } from './persist.js';
 import { INTERVALS, intervalLabel, intervalName, clampPeriod } from './intervals.js';
 import { tbtn, ticon, renderToolbar } from './toolbar.js';
-import { popupMenu } from './menus.js';
+import { popupMenu, openContextMenu, closeMenu } from './menus.js';
 import { LONG_NAMES } from './status.js';
 import { volumeShown } from './volume.js';
 import { referenceDataContext } from './expression.js';
@@ -196,6 +196,8 @@ export function buildChart2() {
   app.draw2 = new DrawingController(app.chart2, { magnet: magnetMode(), stayInDrawingMode: stayMode(), clipboard: clipboardPort });
   observeMobileControls(app.chart2, app.draw2);
   attachAlerts(app, 2);
+  app.chart2.on('contextmenu', event => { event.preventDefault(); openContextMenu(event, 2); });
+  app.chart2.on('destroy', closeMenu);
   if (saved) app.chart2.restoreState(saved);
   app.chart2.on('draw:tool', ({ tool }) => {
     armCursor(el('chart2'), tool);

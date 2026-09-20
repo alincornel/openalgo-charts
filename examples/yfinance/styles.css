@@ -381,6 +381,7 @@ select.field { cursor: pointer; padding-right: 24px; }
   background: transparent; border: 0; border-radius: 6px; color: var(--tx);
   font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
 .menu button:hover { background: var(--elev-2); }
+.menu button:disabled { opacity: .45; cursor: not-allowed; }
 .menu button:focus-visible { outline-offset: -2px; }
 .menu button em { margin-left: auto; color: var(--acc-2); font-style: normal; }
 .menu-find { position: sticky; top: 0; z-index: 1; background: var(--panel); padding: 6px; }
@@ -542,6 +543,8 @@ select.field { cursor: pointer; padding-right: 24px; }
   border: 0; border-radius: 7px; color: var(--tx); padding: 7px 10px; cursor: pointer; transition: background .12s, color .12s;
 }
 #ctxmenu button:hover { background: var(--elev-2); }
+#ctxmenu [hidden] { display: none; }
+#ctxmenu button:disabled { opacity: .45; cursor: not-allowed; }
 #ctxmenu button:focus-visible { outline-offset: -2px; }
 /* The chord, right-aligned. The engine binds no keys, so a menu row is the
    only place a user can find out that Ctrl+C means anything here. */

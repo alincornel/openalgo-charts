@@ -8,6 +8,7 @@ import { placeOrder, removeAllOrders, clearPosition, saveState } from './orders.
 import { removeBracket } from './bracket.js';
 import { clipboardAction } from './clipboard.js';
 import { autosave } from './persist.js';
+import { alertContextEntries } from './alerts.js';
 
 // Price-level family (previous close, session extremes, extended hours,
 // bid/ask). Read off the namespace for the same reason as the block above:
@@ -28,9 +29,18 @@ let axSub = null;
 // the indicator row below knows which instance was under the pointer.
 let ctxPrice = 0;
 let ctxIndicator = null;   // instance id when the pointer was over an indicator
+let ctxAlerts = [];
 export const hideCtx = () => { ctxMenu.hidden = true; };
 
-export function openContextMenu(e) {
+export function openContextMenu(e, pane = 1) {
+  if (pane === 2) {
+    hideCtx(); closeAxisMenu();
+    const rect = el('chart2').getBoundingClientRect();
+    const rows = alertContextEntries(app, e, 2);
+    if (rows.length) popupMenu({ getBoundingClientRect: () => ({ left: rect.left + e.point.x, bottom: rect.top + e.point.y }) }, rows, { role: 'menu' });
+    return;
+  }
+  closeMenu();
   const rect = el('chart').getBoundingClientRect();
   const target = e.target || { kind: 'empty' };
   // A price ladder gets its own menu. The chart is what knows a click landed
@@ -40,7 +50,7 @@ export function openContextMenu(e) {
   closeAxisMenu();
   // Off the plot (on a scale) there is no price, so the order rows would be
   // offering to trade at nothing.
-  const tradable = e.price != null && app.currentBars.length > 0;
+  const tradable = e.paneIndex === 0 && e.price != null && app.currentBars.length > 0;
   ctxPrice = tradable ? round2(e.price) : 0;
   for (const b of ctxMenu.querySelectorAll('button[data-type]')) {
     b.hidden = !tradable;
@@ -51,6 +61,16 @@ export function openContextMenu(e) {
       : `${verb} Stop (SL) @ ${fmt(ctxPrice)}`;
   }
   for (const hr of ctxMenu.querySelectorAll('hr[data-sec="order"]')) hr.hidden = !tradable;
+
+  ctxAlerts = alertContextEntries(app, e);
+  const create = ctxAlerts.length > 1 ? ctxAlerts[0] : null;
+  const createRow = ctxMenu.querySelector('[data-act="alert-create"]');
+  createRow.hidden = !create;
+  createRow.disabled = create?.disabled === true;
+  createRow.title = create?.reason || '';
+  createRow.textContent = create?.label || 'Create alert';
+  ctxMenu.querySelector('[data-act="alert-list"]').hidden = ctxAlerts.length === 0;
+  ctxMenu.querySelector('hr[data-sec="alerts"]').hidden = ctxAlerts.length === 0;
 
   // Hide the drawing rows when there is nothing to act on, so the menu
   // never offers a dead option.
@@ -462,6 +482,7 @@ export function popupMenu(anchor, rows, opts) {
   closeMenu();
   const m = document.createElement('div');
   m.className = 'menu';
+  if (opts?.role) m.setAttribute('role', opts.role);
   const find = opts && opts.find
     ? Object.assign(document.createElement('input'), { type: 'text', placeholder: opts.find })
     : null;
@@ -492,9 +513,12 @@ export function popupMenu(anchor, rows, opts) {
         pending = null;
       }
       const b = document.createElement('button');
+      if (opts?.role === 'menu') b.setAttribute('role', 'menuitem');
+      b.disabled = r.disabled === true;
+      b.title = r.reason || '';
       b.innerHTML = (r.icon ? ticon(r.icon) : '<span style="width:20px"></span>') +
         '<span>' + esc(r.label) + '</span>' + (r.on ? '<em>&#10003;</em>' : '');
-      b.addEventListener('click', () => { closeMenu(); r.onSelect(); });
+      b.addEventListener('click', () => { if (!b.disabled) { closeMenu(); r.onSelect(); } });
       body.appendChild(b);
       shown += 1;
     }
@@ -519,7 +543,7 @@ export function popupMenu(anchor, rows, opts) {
   document.body.appendChild(m);
   const r = anchor.getBoundingClientRect();
   m.style.left = Math.min(r.left, window.innerWidth - m.offsetWidth - 8) + 'px';
-  m.style.top = (r.bottom + 4) + 'px';
+  m.style.top = Math.max(4, Math.min(r.bottom + 4, window.innerHeight - m.offsetHeight - 8)) + 'px';
   openMenu = m;
   if (find) find.focus();
 }
@@ -536,10 +560,12 @@ export function initMenus(a) {
   el('chart').addEventListener('wheel', hideCtx, { passive: true });
   ctxMenu.addEventListener('click', (e) => {
     const btn = e.target.closest('button');
-    if (!btn) return;
+    if (!btn || btn.disabled || btn.hidden) return;
     e.stopPropagation();
     hideCtx();
     const act = btn.getAttribute('data-act');
+    if (act === 'alert-create') { ctxAlerts[0]?.onSelect(); return; }
+    if (act === 'alert-list') { ctxAlerts.at(-1)?.onSelect(); return; }
     if (act === 'cancelall') {
       removeAllOrders(); removeBracket(); clearPosition(); saveState(); el('status').textContent = 'all orders cancelled / flat'; return;
     }
