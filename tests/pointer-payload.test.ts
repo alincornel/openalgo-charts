@@ -29,6 +29,8 @@ interface Handlers {
   _onPointerMove(e: unknown): void;
   _onPointerUp(e: unknown): void;
   _onPointerLeave(): void;
+  _onPointerCancel(e: unknown): void;
+  _onKeyDown(e: unknown): void;
   _paneLayout(): { top: number; height: number }[];
 }
 
@@ -366,5 +368,88 @@ describe('drag pointer payload', () => {
     expect(moves[0][0]).toBe('grip');
     expect(ends).toHaveLength(1);
     expect(ends[0]).toHaveLength(3);
+  });
+});
+
+
+describe('primitive drag lifecycle', () => {
+  it('announces the press before the first move without requiring a drag callback', () => {
+    const { chart, h } = makeChart();
+    chart.addPrimitive(grip, 0);
+    const starts: ChartDragEndEvent[] = [];
+    chart.on('drag:start', (p) => starts.push(p as ChartDragEndEvent));
+    h._onPointerDown(press(400, 300, { pointerType: 'pen', pressure: 0.7 }));
+    expect(starts).toHaveLength(1);
+    expect(starts[0]).toMatchObject({ id: 'grip', paneIndex: 0, point: { x: 400, y: 300 }, pointerType: 'pen', pressure: 0.7 });
+    expect(starts[0].price).toBeCloseTo(chart.coordinateToPrice(300) as number, 9);
+  });
+
+  it('cancels before the legacy release notification and suppresses a cancelled click', () => {
+    const { chart, h } = makeChart();
+    chart.addPrimitive(grip, 0);
+    const events: string[] = [];
+    chart.on('drag:cancel', (p) => { expect(p).toEqual({ id: 'grip', paneIndex: 0, reason: 'pointercancel' }); events.push('cancel'); });
+    chart.on('drag:end', () => events.push('end'));
+    chart.on('click', () => events.push('click'));
+    h._onPointerDown(press(400, 300));
+    h._onPointerCancel(release(400, 300));
+    expect(events).toEqual(['cancel', 'end']);
+  });
+
+  it('cancels a single-pointer drag when a second finger starts a pinch', () => {
+    const { chart, h } = makeChart();
+    chart.addPrimitive(grip, 0);
+    const cancelled: unknown[] = [];
+    chart.on('drag:cancel', (p) => cancelled.push(p));
+    h._onPointerDown(press(400, 300, { pointerType: 'touch', pointerId: 1 }));
+    h._onPointerDown(press(500, 300, { pointerType: 'touch', pointerId: 2 }));
+    expect(cancelled).toEqual([{ id: 'grip', paneIndex: 0, reason: 'pinch' }]);
+  });
+
+  it('Escape cancels an active drag even with shortcuts disabled and consumes its release', () => {
+    const { chart, h } = makeChart();
+    chart.addPrimitive({ ...grip, hitTest: () => ({ ...grip.hitTest!(0, 0, {} as never)!, cancelOnEscape: true }) }, 0);
+    const events: string[] = [];
+    chart.on('drag:cancel', () => events.push('cancel'));
+    chart.on('drag:end', () => events.push('end'));
+    chart.on('click', () => events.push('click'));
+    h._onPointerDown(press(400, 300));
+    h._onKeyDown({ key: 'Escape', target: null, preventDefault() {} });
+    h._onPointerUp(release(400, 300));
+    expect(events).toEqual(['cancel']);
+    h._onPointerDown(press(400, 300));
+    h._onPointerUp(release(400, 300));
+    expect(events).toEqual(['cancel', 'end', 'click']);
+  });
+
+  it('preserves release notifications for primitives that did not opt into Escape cancellation', () => {
+    const { chart, h } = makeChart();
+    chart.addPrimitive(grip, 0);
+    const events: string[] = [];
+    chart.on('drag:cancel', () => events.push('cancel'));
+    chart.on('drag:end', () => events.push('end'));
+    h._onPointerDown(press(400, 300));
+    h._onPointerMove(press(400, 320));
+    h._onKeyDown({ key: 'Escape', target: null, preventDefault() {} });
+    h._onPointerUp(release(400, 320));
+    expect(events).toEqual(['end']);
+  });
+
+  it('keeps points, coalesced samples and release in the grabbed pane across pane boundaries', () => {
+    const { chart, h } = makeChart();
+    chart.addSeries('histogram', { paneIndex: 1 }).setData([{ time: 1735689600, open: 0, high: 5, low: 0, close: 5 }]);
+    chart.addPrimitive(grip, 1);
+    const top = h._paneLayout()[1].top;
+    const drags: ChartDragEvent[] = [];
+    const ends: ChartDragEndEvent[] = [];
+    chart.on('drag', (p) => drags.push(p as ChartDragEvent));
+    chart.on('drag:end', (p) => ends.push(p as ChartDragEndEvent));
+    h._onPointerDown(press(400, top + 40));
+    h._onPointerMove(press(420, top - 20, { getCoalescedEvents: () => [press(410, top - 10), press(420, top - 20)] }));
+    h._onPointerUp(release(420, top - 20));
+    expect(drags[0].point.y).toBe(-20);
+    expect(drags[0].samples.map((p) => p.y)).toEqual([-10, -20]);
+    expect(ends[0].point.y).toBe(-20);
+    expect(ends[0].price).toBeCloseTo(chart.coordinateToPrice(top - 20, 1) as number, 9);
   });
 });

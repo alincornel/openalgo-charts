@@ -1,9 +1,29 @@
 ---
-title: Upgrading to 2.4.6
+title: Upgrading to 2.4.7
 description: Adopt workspace, open-interest, alert and host contracts while preserving existing integrations.
 ---
 
-# Upgrading to 2.4.6
+# Upgrading to 2.4.7
+
+Price and study-threshold alerts now support dragging through the existing alert
+controller. No additional drag callback is required. Preview only moves the line;
+`alert:updated` and saved state change once on release. Cancel with Escape or a
+touch cancellation. Pause, replay, source changes and restoring or updating an
+alert discard an unfinished gesture. Drawing-anchored levels still move with
+their drawing. An armed badge reads "Alert"; persisted state is still `armed`.
+
+If your host consumes raw primitive gestures, `drag:start` uses the same payload
+shape as `drag:end`. `drag:cancel` carries `{ id, paneIndex, reason }`, with reason
+`pointercancel`, `pinch` or `escape`. For compatibility, pointer cancellation
+still delivers the existing end notification after cancellation; discard your
+draft on `drag:cancel` before considering a later release. Custom primitives
+opt into Escape rollback with `PrimitiveHit.cancelOnEscape: true` and must
+handle cancellation without requiring an end notification.
+
+See the [alert example](/examples#alert-threshold-dragging) and
+[2.4.7 release notes](/docs/release-notes#247).
+
+## Existing 2.4.6 integrations
 
 Version 2.4.6 preserves default plot anchoring. To place an overlay's signals
 outside candle highs and lows, set `markerAnchor: 'price'` on its descriptor.

@@ -506,6 +506,20 @@ armed, disabled, expired and triggered records, with their last delivery and any
 availability reason. Right-click a price, study or supported drawing to seed an
 editor from that target.
 
+Armed price and study threshold lines can be dragged by their line or **Alert** badge.
+Movement previews the new level; release commits the threshold once. Saved state
+and evaluation keep the original threshold during the preview. Escape, touch
+cancellation, a pinch, instrument-context changes, host pause and replay entry
+cancel an unfinished drag. Paused alerts cannot be dragged; triggered, disabled
+and expired levels are read-only until rearmed.
+
+Each range boundary stops at the other boundary without moving it. Study levels
+use the selected plot's axis and units, including an independent or left scale.
+When a plot uses a different scale, its alert does not put that number on the
+primary right axis; read the source value in the alert editor.
+Drawing-owned levels remain attached to their drawing; move the drawing instead.
+Try the [live alert-line demo](/examples#alert-threshold-dragging).
+
 ```ts
 const widget = createWidget(container, {
   symbol: 'CONTRACT', exchange: 'DERIVATIVES', interval: '1m',

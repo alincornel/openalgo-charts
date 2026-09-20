@@ -23,6 +23,14 @@ appears in the page title.
 | A depth ladder | [Depth of market](/openalgo-charts/api/classes/trade.DomLadder.html) | [Simulated live demo](/openalgo-charts/docs/depth-of-market/) |
 | Daily TPO profiles | [Market profile](/openalgo-charts/api/classes/profile.MarketProfile.html) | [Profile demo and themes](/openalgo-charts/docs/market-profile-examples/) |
 
+### Alert dragging in 2.4.7
+
+`AlertController` supplies draggable price and study-threshold lines.
+Pointer movement is visual preview; release commits one `alert:updated` event.
+Drawing-owned levels remain tied to the drawing. The
+[live example](/openalgo-charts/examples/#alert-threshold-dragging) demonstrates
+preview, release and cancellation without a trading connection.
+
 ### Indicator controls in 2.4.6
 
 Set `IndicatorDescriptor.hasSource` to show the source action and handle

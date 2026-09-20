@@ -1,5 +1,5 @@
 import { widgetText } from '../localization';
-import { alertSettingsSchema, getBarCondition, utcSecondsToZonedParts, zoneOffsetSeconds, type Alert, type AlertCondition, type AlertInput, type AlertPatch, type AlertSource } from 'openalgo-charts';
+import { alertSettingsSchema, getBarCondition, utcSecondsToZonedParts, zoneOffsetSeconds, zonedWallClockToUtcSeconds, type Alert, type AlertCondition, type AlertInput, type AlertPatch, type AlertSource } from 'openalgo-charts';
 import type { WidgetContext } from '../context';
 import { button, controlsFromInputs, dialogFrame, el, openPanel, renderForm, type FormHandle, type PanelHandle } from '../form';
 import { alertSourceFields } from './alert-source';
@@ -40,21 +40,20 @@ function expiryText(value: number | undefined, zone: string): string {
 /**
  * The instant a wall-clock reading names in that zone.
  *
- * Read as though it were UTC first, then moved by the zone's offset AT that
- * instant. Offsets are a function of the instant, not of the reading, so a zone
- * that changes offset in the year has two answers near the change: the first
- * pass gives an instant close enough to pick the right offset, and the second
- * uses it. Overlaps follow the same two-pass choice as the shared timezone
- * helper. An unchanged existing reading skips parsing, preserving either
- * occurrence. A skipped reading has no matching instant and is rejected.
+ * `zonedWallClockToUtcSeconds` already owns this, including what to do with a
+ * wall time a spring-forward skipped, so this parses the field into its parts
+ * and hands them over rather than doing the offset arithmetic a second time.
+ * The round-trip check rejects skipped readings. Unchanged existing readings
+ * skip parsing, preserving either occurrence of an overlap and its seconds.
  */
 function expiryValue(ctx: WidgetContext, value: unknown, zone: string): number | undefined {
   if (value === '') return undefined;
   const wrong = widgetText(ctx, 'Enter an expiry date and time');
   if (typeof value !== 'string' || !EXPIRY_SHAPE.test(value)) throw new Error(wrong);
-  const asUtc = Date.parse(`${value}:00Z`) / 1000;
-  if (!Number.isFinite(asUtc)) throw new Error(wrong);
-  const seconds = asUtc - zoneOffsetSeconds(asUtc - zoneOffsetSeconds(asUtc, zone), zone);
+  const [date, time] = value.split('T');
+  const [year, month, day] = date.split('-').map(Number);
+  const [hour, minute] = time.split(':').map(Number);
+  const seconds = zonedWallClockToUtcSeconds(year, month, day, hour, minute, 0, zone);
   if (!Number.isFinite(seconds) || expiryText(seconds, zone) !== value) throw new Error(wrong);
   return seconds;
 }

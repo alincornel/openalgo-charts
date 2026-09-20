@@ -2,7 +2,7 @@ import type { Bar } from '../model/bar';
 import { getIndicator, hasIndicator } from '../model/indicator-registry';
 import { numericMatch, touchMatch } from './conditions';
 import { getBarCondition } from './bar-conditions';
-import { AlertVisuals } from './visuals';
+import { AlertVisuals, parseAlertLineId } from './visuals';
 import { copyAlert as copy, parseAlertsDocument, validateAlert as validate } from './document';
 import type {
   Alert, AlertChartHost, AlertControllerOptions, AlertInput, AlertPatch, AlertScope,
@@ -16,6 +16,23 @@ interface RecordState {
   value?: number;
   errorTime?: number;
   plotPane?: number;
+}
+
+interface AlertDragEvent {
+  id?: unknown;
+  price?: unknown;
+  point?: { y?: unknown };
+  paneIndex?: unknown;
+}
+
+interface AlertDrag {
+  externalId: string;
+  record: RecordState;
+  index: number;
+  paneIndex: number;
+  startPrice: number;
+  startY?: number;
+  moved: boolean;
 }
 
 const owners = new WeakSet<AlertChartHost>();
@@ -41,6 +58,7 @@ export class AlertController {
   private _replay = false;
   private _destroyed = false;
   private _revision = 0;
+  private _drag: AlertDrag | undefined;
 
   public constructor(private readonly _chart: AlertChartHost, options: AlertControllerOptions = {}) {
     if (owners.has(_chart)) throw new Error('An alert controller already owns this chart');
@@ -53,17 +71,89 @@ export class AlertController {
       _chart.on('data:context', () => this._seedAll()),
       _chart.on('objects:change', () => this._onObjects()),
       _chart.on('paneMoved', () => this._onObjects()),
-      _chart.on('state:restore:start', () => { this._restoring = true; this._revision++; }),
+      _chart.on('state:restore:start', () => { this._cancelDrag(); this._restoring = true; this._revision++; }),
       _chart.on('state:restore:end', () => { this._restoring = false; this._seedAll(); }),
       _chart.on('alerts:restore', document => this.fromJSON(document)),
       _chart.on('replay:start', () => { this._replay = true; this._seedAll(); }),
       _chart.on('replay:stop', () => { this._replay = false; this._seedAll(); }),
       _chart.on('destroy', () => this.destroy()),
+      _chart.on('drag:start', payload => this._startDrag(payload as AlertDragEvent)),
+      _chart.on('drag', payload => this._onDrag(payload as AlertDragEvent, false)),
+      _chart.on('drag:end', payload => this._onDrag(payload as AlertDragEvent, true)),
+      _chart.on('drag:cancel', payload => {
+        if ((payload as AlertDragEvent).id === this._drag?.externalId) this._cancelDrag();
+      }),
     ];
     try {
       const saved = _chart.alertState?.();
       if (saved !== undefined) this.fromJSON(saved);
     } catch (error) { this.destroy(); throw error; }
+  }
+
+  private _dragAvailability(record: RecordState, index: number): AlertAvailability {
+    const source = record.alert.source;
+    if (this._destroyed || this._restoring || record.alert.state !== 'armed' || this._records.get(record.alert.id) !== record
+      || (source.kind !== 'price' && source.kind !== 'indicator')
+      || (index !== 0 && (index !== 1 || (source.kind === 'price' ? source.upperPrice : source.upperValue) === undefined))) {
+      return { available: false };
+    }
+    return this.availability(record.alert.id);
+  }
+
+  private _dragPrice(payload: AlertDragEvent, externalId: string): number | undefined {
+    const y = payload.point?.y;
+    const converted = typeof y === 'number' && Number.isFinite(y) ? this._visuals?.coordinateToPrice(externalId, y) : undefined;
+    const price = converted ?? payload.price;
+    return typeof price === 'number' && Number.isFinite(price) ? price : undefined;
+  }
+
+  private _startDrag(payload: AlertDragEvent): void {
+    this._cancelDrag();
+    if (typeof payload.id !== 'string') return;
+    const parsed = parseAlertLineId(payload.id);
+    const record = parsed && this._records.get(parsed.id);
+    if (!parsed || !record) return;
+    const available = this._dragAvailability(record, parsed.index);
+    const price = this._dragPrice(payload, payload.id);
+    if (!available.available || available.paneIndex === undefined || price === undefined
+      || (payload.paneIndex !== undefined && payload.paneIndex !== available.paneIndex)) return;
+    this._drag = { externalId: payload.id, record, index: parsed.index, paneIndex: available.paneIndex,
+      startPrice: price, startY: typeof payload.point?.y === 'number' ? payload.point.y : undefined, moved: false };
+  }
+
+  private _cancelDrag(id?: string): void {
+    const drag = this._drag;
+    if (!drag || (id !== undefined && drag.record.alert.id !== id)) return;
+    this._drag = undefined;
+    const record = this._records.get(drag.record.alert.id);
+    if (record) this._syncVisual(record);
+  }
+
+  /** Market evaluation keeps the committed source until a moved, owned gesture ends. */
+  private _onDrag(payload: AlertDragEvent, done: boolean): void {
+    this._expireDue();
+    const drag = this._drag;
+    if (!drag || payload.id !== drag.externalId) return;
+    const available = this._dragAvailability(drag.record, drag.index);
+    if (!available.available || available.paneIndex !== drag.paneIndex
+      || (payload.paneIndex !== undefined && payload.paneIndex !== drag.paneIndex)) { this._cancelDrag(); return; }
+    const proposed = this._dragPrice(payload, drag.externalId);
+    if (proposed === undefined) { if (done) this._cancelDrag(); return; }
+    const y = payload.point?.y;
+    drag.moved ||= drag.startY !== undefined && typeof y === 'number' ? y !== drag.startY : proposed !== drag.startPrice;
+    const source = drag.record.alert.source;
+    if (source.kind !== 'price' && source.kind !== 'indicator') { this._cancelDrag(); return; }
+    const lower = source.kind === 'price' ? source.price : source.value;
+    const upper = source.kind === 'price' ? source.upperPrice : source.upperValue;
+    const price = drag.index === 0 ? Math.min(proposed, upper ?? Infinity) : Math.max(proposed, lower);
+    if (!done) { if (drag.moved) this._visuals?.preview(drag.externalId, price); return; }
+    this._cancelDrag();
+    if (!drag.moved || price === (drag.index === 0 ? lower : upper)) return;
+    const next = source.kind === 'price'
+      ? { ...source, ...(drag.index === 0 ? { price } : { upperPrice: price }) }
+      : { ...source, ...(drag.index === 0 ? { value: price } : { upperValue: price }) };
+    this.update(drag.record.alert.id, { source: next });
+    this._chart.emit('alerts:changed', { id: drag.record.alert.id, reason: 'dragged' });
   }
 
   public add(input: AlertInput): Alert {
@@ -96,6 +186,7 @@ export class AlertController {
     const alert: Alert = { ...previous.alert, ...patch, id, source: { ...(patch.source ?? previous.alert.source) } };
     validate(alert);
     alert.source = copy(alert).source;
+    this._cancelDrag(id);
     if (alert.state === 'armed' && alert.expiresAt !== undefined && this._now() >= alert.expiresAt) alert.state = 'expired';
     const record: RecordState = { ...previous, alert };
     this._seed(record);
@@ -114,6 +205,7 @@ export class AlertController {
   private _remove(id: string, reason: string): boolean {
     const record = this._records.get(id);
     if (!record) return false;
+    this._cancelDrag(id);
     this._records.delete(id);
     this._visuals?.remove(id);
     this._scheduleExpiry();
@@ -152,6 +244,7 @@ export class AlertController {
       this._seed(record);
       next.set(alert.id, record);
     }
+    this._cancelDrag();
     this._revision++;
     this._visuals?.destroy();
     this._records.clear();
@@ -209,6 +302,7 @@ export class AlertController {
   public destroy(): void {
     if (this._destroyed) return;
     this._destroyed = true;
+    this._drag = undefined;
     this._revision++;
     for (const off of this._off) off();
     this._clearTimer();
@@ -238,6 +332,7 @@ export class AlertController {
   }
 
   private _seedAll(): void {
+    this._cancelDrag();
     this._revision++;
     for (const record of this._records.values()) { this._seed(record); this._syncVisual(record); }
     if (!this._restoring) {
@@ -248,6 +343,7 @@ export class AlertController {
 
   private _onObjects(): void {
     if (this._destroyed || this._restoring) return;
+    this._cancelDrag();
     const revision = ++this._revision;
     for (const record of [...this._records.values()]) {
       if (this._destroyed || this._revision !== revision) break;
@@ -283,6 +379,7 @@ export class AlertController {
     if (this._destroyed || this._restoring) return;
     const revision = ++this._revision;
     this._expireDue();
+    if (this._drag && !this._dragAvailability(this._drag.record, this._drag.index).available) this._cancelDrag();
     if (this._destroyed || revision !== this._revision) return;
     if (this._paused || this._replay) return;
     if (update.kind !== 'update') { this._seedAll(); return; }
@@ -440,6 +537,7 @@ export class AlertController {
     const now = this._now();
     if (alert.expiresAt !== undefined && now >= alert.expiresAt) { this._expireDue(); return; }
     if (alert.lastTriggeredAt !== undefined && now - alert.lastTriggeredAt < alert.cooldownSeconds) return;
+    this._cancelDrag(alert.id);
     alert.lastTriggeredAt = now;
     alert.lastTriggeredTime = bar.time;
     if (alert.repeat === 'once') alert.state = 'triggered';
@@ -458,6 +556,7 @@ export class AlertController {
     for (const record of this._records.values()) {
       const { alert } = record;
       if (alert.state === 'armed' && alert.expiresAt !== undefined && now >= alert.expiresAt) {
+        this._cancelDrag(alert.id);
         alert.state = 'expired';
         this._syncVisual(record);
         expired.push(record);
