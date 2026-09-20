@@ -565,3 +565,15 @@ harness passes 43 cases each in Chromium, Firefox and WebKit, with inspected
 desktop/mobile alert screenshots. No real orders were sent. The detailed alert
 plan records warnings, resource review and remaining consumer gates. This is
 another development checkpoint, not completion of Task 6 or the release.
+
+Alert lifecycle/context checkpoint: charts `0939bcc` adds exact plotted-study
+identity to the public context event and widget editor. Consumer `5846d7ae9`
+installs that exact 33-file package, adds actual price/drawing/study context
+actions, persists fired once-only alerts across named workspace reload with
+autosave off, and aborts cancelled replay history without accepting late cache
+results. Library 5513 tests and example 244 tests pass with full verification;
+consumer 2293 tests, build/types, lint and API coverage pass. The consumer passes
+46 combined browser checks per engine, 138 total, with inspected desktop/mobile
+alert screenshots. Detailed evidence and warnings are in the alert plan. This
+is progress toward the existing full scope; reference context parity, endurance,
+connected broker and the remaining production/release gates remain open.
