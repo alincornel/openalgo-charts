@@ -112,6 +112,44 @@ describe('workspace repository', () => {
     expect((await repo.load()).templates.map(item => item.name)).toEqual(['Renamed copy', 'Clear']);
   });
 
+  it('updates a template in place with detached settings and reusable identities', async () => {
+    const { repo } = memory();
+    const original = await repo.createTemplate('Studies', []);
+    const untouched = await repo.createTemplate('Other', []);
+    const incoming = workspaceFixture().panes[0].chart.indicators.map((item, index) => ({ ...item, instanceId: `chart-${index}` }));
+    const pending = repo.saveTemplate(original.id, incoming);
+    incoming[0].settings.period = 99;
+    const updated = await pending;
+    expect(updated).toMatchObject({ id: original.id, name: original.name, createdAt: original.createdAt });
+    expect(updated.updatedAt).toBeGreaterThan(original.updatedAt);
+    expect(updated.indicators.map(item => item.instanceId)).toEqual([undefined, undefined]);
+    expect(updated.indicators[0].settings.period).toBe(9);
+    expect((await repo.load()).templates[1]).toEqual(untouched);
+    await repo.saveTemplate(original.id, []);
+    expect((await repo.load()).templates[0].indicators).toEqual([]);
+  });
+
+  it('preserves the old template and queue after a failed update', async () => {
+    const { repo, failNext } = memory();
+    const original = await repo.createTemplate('Studies', []);
+    const before = await repo.load();
+    failNext();
+    await expect(repo.saveTemplate(original.id, workspaceFixture().panes[0].chart.indicators)).rejects.toThrow('quota');
+    expect(await repo.load()).toEqual(before);
+    await repo.saveTemplate(original.id, workspaceFixture().panes[0].chart.indicators);
+    expect((await repo.load()).templates[0].indicators).toHaveLength(2);
+    await expect(repo.saveTemplate('missing', [])).rejects.toThrow(/does not exist/);
+  });
+
+  it('rejects malformed template updates before reading or writing storage', async () => {
+    const { repo, calls } = memory();
+    const original = await repo.createTemplate('Studies', []);
+    calls.length = 0;
+    await expect(repo.saveTemplate(original.id, [{ indicatorId: 'ema', settings: {}, paneIndex: 32 }])).rejects.toThrow(/paneIndex/);
+    expect(calls).toEqual([]);
+    expect((await repo.load()).templates[0]).toEqual(original);
+  });
+
   it('maintains a unique bounded recent list and repairs active selection after deletion', async () => {
     const { repo } = memory();
     for (let i = 0; i < 12; i++) {

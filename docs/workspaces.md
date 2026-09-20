@@ -36,7 +36,8 @@ await repository.saveWorkspace(saved.id, {
   ...payload,
   panes: [{ ...payload.panes[0], chart: chart.getState() }],
 });
-await repository.createTemplate('My studies', chart.getState().indicators ?? []);
+const template = await repository.createTemplate('My studies', chart.getState().indicators ?? []);
+await repository.saveTemplate(template.id, chart.getState().indicators ?? []);
 
 const exported = await repository.exportDocument('workspace', saved.id);
 const checked = parseWorkspaceDocument(exported);
@@ -84,6 +85,28 @@ The applying host must load/register required studies, check availability and
 report missing studies before replacing the current set. The repository does not
 apply a template to a chart or choose append versus replace.
 
+`planIndicatorTemplate(current, incoming, mode, available, nextPaneIndex)` prepares
+a detached `IndicatorState[]` before the host changes its chart. `mode` uses the
+`IndicatorTemplateMode` type: `replace` or `append`. Supply the registered descriptor
+IDs as a `ReadonlySet<string>` and the current `chart.panes().length` as the append
+boundary. The planner rejects missing descriptors, overlapping append boundaries,
+more than 256 studies and pane indices above 31 before returning a plan.
+
+Replacement preserves incoming pane grouping and accepts an empty study list.
+Append retains current studies and their instance identities, keeps incoming
+overlays on pane zero, and maps each positive incoming pane group to a separate
+new pane. Repeated studies remain separate even when their settings match.
+Incoming instance identities are discarded so reusable templates cannot claim
+existing alert anchors. Settings, plot styles and visibility are detached copies.
+
+Apply the plan to the chart owner captured when the user opened the template
+controls. Validate that owner again after asynchronous work. A `restoreState`
+application must also supply the current drawings and alert document to retain
+them; omitted fields clear those slots. Verify the restore report and indicator
+count, and restore the previous studies/drawings/alerts if application fails.
+Template application does not require reloading source bars or restoring a
+different symbol, price series, viewport or trading state.
+
 ### Limits and excluded data
 
 - Up to 16 charts, grid dimensions up to 8 by 8, exactly one non-overlapping slot
@@ -108,10 +131,16 @@ a sandbox for hostile JavaScript objects such as proxies.
 ## Catalog transactions and storage
 
 `WorkspaceRepository` supports `load`, `createWorkspace`, `saveWorkspace`,
-`createTemplate`, `rename`, `duplicate`, `remove`, `openWorkspace`, `setAutosave`,
+`createTemplate`, `saveTemplate`, `rename`, `duplicate`, `remove`, `openWorkspace`, `setAutosave`,
 `importDocument` and `exportDocument`. The `namespace` getter is immutable.
 Constructor options can supply `now` and `id` factories; the defaults are
 `Date.now` and `crypto.randomUUID`.
+
+`saveTemplate(id, indicators)` updates an existing template while preserving its
+ID, name and creation time. It strips reusable study instance identities, captures
+detached inputs when called and advances the update timestamp monotonically.
+Empty updates are valid. Missing template IDs, invalid input and failed atomic
+writes reject without replacing the stored template.
 
 The catalog permits 100 workspaces, 100 templates and 10 unique recent workspace
 IDs. Creating or importing does not open a workspace. `openWorkspace` records

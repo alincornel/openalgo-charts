@@ -119,6 +119,17 @@ export class WorkspaceRepository {
     });
   }
 
+  /** Update reusable study settings without changing the saved template identity. */
+  async saveTemplate(id: string, input: IndicatorState[]): Promise<IndicatorTemplateDocument> {
+    const indicators = parseIndicatorStates(input);
+    return this._transact(catalog => {
+      const existing = this._find(catalog, 'indicator-template', id) as IndicatorTemplateDocument;
+      const doc = parseIndicatorTemplate({ ...existing, indicators, updatedAt: this._updatedAt(existing) });
+      catalog.templates[catalog.templates.indexOf(existing)] = doc;
+      return doc;
+    });
+  }
+
   async rename(kind: WorkspaceKind, id: string, name: string): Promise<void> {
     const title = string(name, 'name', 120);
     return this._transact(catalog => {

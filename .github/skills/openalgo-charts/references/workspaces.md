@@ -16,13 +16,21 @@ Runtime exports:
   settings, visibility, pane placement and unavailable custom IDs. Empty is valid.
   Chart states retain unique instanceId values for alert anchors. Templates omit
   them so applying a reusable study set creates fresh instance identities.
+- `planIndicatorTemplate(current, incoming, mode, available, nextPaneIndex)`:
+  prepare detached studies before mutation. `replace` uses the incoming groups;
+  `append` retains current identities and places incoming positive pane groups
+  after the current pane count. Overlays stay on pane zero; incoming instance IDs
+  are omitted. Repeated studies remain separate. Validate missing descriptors,
+  append overlap, the 256-study limit and pane indices 0 through 31 before apply.
 - `migrateWidgetWorkspace`: explicit single-widget version-1 migration; metadata
   is supplied by the host, bars and execution state are excluded.
 - `WorkspaceDocumentError`: malformed/unsupported/oversized input.
 - `parseWorkspaceCatalog`: validate the entire persisted catalog before mutation.
 - `WorkspaceRepository`: asynchronous `load`, `createWorkspace`, `saveWorkspace`,
-  `createTemplate`, `rename`, `duplicate`, `remove`, `openWorkspace`, `setAutosave`,
+  `createTemplate`, `saveTemplate`, `rename`, `duplicate`, `remove`, `openWorkspace`, `setAutosave`,
   `importDocument`, `exportDocument`; immutable `namespace`; optional `now`/`id`.
+  `saveTemplate` retains metadata identity, captures detached inputs and strips
+  study instance IDs. Empty updates are valid; failed writes preserve old content.
 - `WorkspaceConflictError`: a saved revision changed; reload before retrying.
 - `createIndexedDbWorkspaceStorage`: explicit `IDBFactory`, optional database name,
   atomic revision checks across tabs. `close()` releases the connection. Database
@@ -32,7 +40,7 @@ Types: `WorkspaceKind`, `WorkspaceSettings`, `WorkspaceChartState`,
 `WorkspaceComparison`, `WorkspaceSlot`, `WorkspacePane`, `WorkspacePayload`,
 `WorkspaceDocument`, `IndicatorTemplateDocument`, `WorkspaceCatalog`,
 `WorkspaceStorage`, `WorkspaceRepositoryOptions`, `WorkspaceOperationOptions`, `WorkspaceOpenOptions`,
-`IndexedDbWorkspaceStorage`.
+`IndexedDbWorkspaceStorage`, `IndicatorTemplateMode`.
 
 `WorkspaceStorage.write(namespace, catalog, expectedRevision, options?)` MUST compare and
 write atomically. A read/then-write localStorage adapter does not meet this
@@ -53,6 +61,12 @@ selection and returns a document; it does not load charts. `setAutosave` saves a
 preference, not a timer. Template application must check custom-study availability
 before replacement. Use a new repository per account and keep completion callbacks
 bound to their original owner. Show a save error when storage rejects.
+
+When applying a planned study list with `restoreState`, explicitly retain the
+current drawings and alerts: omitted state slots clear them. Check the restore
+report and applied study count; recover the previous list and decorations after
+failure. Do not reload market data or change the captured chart's source to apply
+a study template.
 
 Metadata is epoch milliseconds; chart/drawing times stay UTC seconds. Import
 always creates a fresh document ID. Never include credentials or trading execution

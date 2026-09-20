@@ -7,6 +7,8 @@ export { WorkspaceRepository, WorkspaceConflictError, parseWorkspaceCatalog } fr
 export type { WorkspaceCatalog, WorkspaceStorage, WorkspaceRepositoryOptions, WorkspaceOperationOptions, WorkspaceOpenOptions } from './repository';
 export { createIndexedDbWorkspaceStorage } from './indexed-db';
 export type { IndexedDbWorkspaceStorage } from './indexed-db';
+export { planIndicatorTemplate } from './templates';
+export type { IndicatorTemplateMode } from './templates';
 export type {
   WorkspaceKind, WorkspaceSettings, WorkspaceChartState, WorkspaceComparison, WorkspaceSlot, WorkspacePane,
   WorkspacePayload, WorkspaceDocument, IndicatorTemplateDocument,

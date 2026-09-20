@@ -945,3 +945,22 @@ data download from the source images; no reference-host or widget data-download
 handler was found in the current audit, so keep that explicit artifact open.
 Charts 2.4.5 still publishes before remaining /trading integration and final broker
 validation. Frozen score unchanged; no new release time commitment.
+
+### Shared indicator-template planning and saved-template updates
+
+The optional workspace tier now exports planIndicatorTemplate and its mode type.
+Planning preserves existing identities on append, discards incoming identities,
+retains repeated studies and pane grouping, rejects missing descriptors before
+mutation and validates append boundaries/limits. WorkspaceRepository.saveTemplate
+updates a saved template in place with detached settings and atomic revision checks.
+The consumer's existing host-local policy informed this shared implementation;
+consumer imports will migrate after Charts publication.
+
+All 66 focused workspace cases and the complete package verification pass:
+5591 engine tests/234 files, 371 reference tests/28 files, lint/types/build/dts/size/
+tree-shaking. Workspace is 5.53 kB Brotli (6 kB budget); all tiers are 240.03 kB
+(240.5 kB budget). Base, terminal and chart-only sizes are unchanged. API generation
+is warning-free and skills coverage is 919/919. Documentation covers both APIs.
+
+This is Task 1 of the reference-indicator-templates plan. Reference application,
+dialog and browser validation remain Task 2. No consumer changes or publication.
