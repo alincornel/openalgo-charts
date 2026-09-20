@@ -65,8 +65,14 @@ export interface SeriesApi {
   remove(): void;
   /** The price scale this series maps to (call `.setOptions({ marginTop, marginBottom })` on it). */
   priceScale(): PriceScale;
-  /** Create a markers layer (buy/sell signals, shapes) bound to this series. */
-  createMarkers(): SeriesMarkers;
+  /**
+   * Create a markers layer (buy/sell signals, shapes) bound to this series.
+   *
+   * `fallbackBars` positions a mark whose time this series has no point for,
+   * which happens whenever the series is drawn with gaps. Without it such a
+   * mark is dropped silently.
+   */
+  createMarkers(fallbackBars?: () => readonly Bar[]): SeriesMarkers;
 }
 
 export function createSeriesRecord(dataId: SeriesId, type: SeriesType, style?: SeriesStyle, scaleId: PriceScaleId = 'right'): SeriesRecord {

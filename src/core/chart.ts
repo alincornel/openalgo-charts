@@ -1214,8 +1214,8 @@ export class Chart {
         }
       },
       priceScale: (): PriceScale => pane.scaleOf(record),
-      createMarkers: (): SeriesMarkers => {
-        const m = new SeriesMarkers(dataId);
+      createMarkers: (fallbackBars?: () => readonly Bar[]): SeriesMarkers => {
+        const m = new SeriesMarkers(dataId, fallbackBars);
         // Resolved now, not at creation: primitives are addressed by slot, and
         // this series' slot may have shifted since.
         this._addPrimitive(this._panes.indexOf(pane), m);

@@ -530,7 +530,11 @@ export class IndicatorInstance implements IndicatorApi {
       if (markers.length === 0) return;
       const first = this._series.get(this._d.plots[0]?.key ?? '');
       if (first === undefined) return;
-      this._markers = first.createMarkers();
+      // The instrument's bars, so a mark on a bar where this plot happens to
+      // be absent is still drawn. A study that splits one line into an up
+      // column and a down column has a gap in each of them by construction,
+      // and its flip marks land exactly in those gaps.
+      this._markers = first.createMarkers(() => this._host.sourceBars());
     }
     this._markers.setMarkers(markers);
   }

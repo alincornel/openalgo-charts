@@ -177,12 +177,25 @@ export function drawLabel(
 
 export class SeriesMarkers implements IPrimitive {
   private readonly _seriesId: SeriesId;
+  private readonly _fallbackBars: (() => readonly Bar[]) | undefined;
   private _markers: SeriesMarker[] = [];
   private _host: PrimitiveHost | null = null;
   private _lastPositions: { id: string; x: number; y: number }[] = [];
 
-  public constructor(seriesId: SeriesId) {
+  /**
+   * @param seriesId The series whose pane and price scale the marks live on.
+   * @param fallbackBars Bars to position against where that series has none.
+   *
+   * The second argument exists because a marker's series decides *where* it is
+   * drawn while the bar under it decides *how high*, and those are not always
+   * the same row of data. An indicator that draws one line in an uptrend and
+   * another in a downtrend has a gap in each, and a mark that lands in a gap
+   * had no bar to measure from and was dropped without a word. The caller
+   * passes the instrument's own bars, which have no gaps.
+   */
+  public constructor(seriesId: SeriesId, fallbackBars?: () => readonly Bar[]) {
     this._seriesId = seriesId;
+    this._fallbackBars = fallbackBars;
   }
 
   public attached(host: PrimitiveHost): void { this._host = host; }
@@ -198,6 +211,12 @@ export class SeriesMarkers implements IPrimitive {
     this._lastPositions = [];
     if (this._markers.length === 0) return;
     const barByTime = new Map<number, Bar>();
+    // The fallback goes in first so a real point on the marker's own series
+    // still wins. Where that series has a gap the instrument's bar is left
+    // standing, which is the whole point: the mark is drawn rather than lost.
+    if (this._fallbackBars !== undefined) {
+      for (const bar of this._fallbackBars()) barByTime.set(bar.time, bar);
+    }
     for (const ib of rc.dataLayer.indexedBars(this._seriesId)) barByTime.set(ib.bar.time, ib.bar);
     const range = rc.timeScale.visibleRange();
     const stackByTime = new Map<number, number>();
