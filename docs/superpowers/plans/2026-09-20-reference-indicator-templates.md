@@ -68,30 +68,55 @@ tests; modify `main.js`, `indicators.js`, `persist.js`, `toolbar.js`, `ui.js`,
 `workspaces.js`, `index.html`, `styles.css`, module inventory, README and browser
 tests. Reuse the existing `ReferenceWorkspaceCatalog.run` for template writes.
 
-- [ ] Add failing host cases for captured owner, repeated instances/grouping,
+- [x] Add failing host cases for captured owner, repeated instances/grouping,
   empty replace/append, unsupported descriptors, partial restore and rollback,
   preserved drawings/alerts and source/viewport isolation. Observe RED.
-- [ ] Capture complete study records from the actual chart. Apply the shared
+- [x] Capture complete study records from the actual chart. Apply the shared
   plan to the captured current chart using restoreState with retained drawings
   and alerts. Verify restored count, recover prior studies on failure and surface
   recovery failures. Keep source/history/series settings out of the template.
-- [ ] Preserve complete primary indicator records wherever the reference mirrors
+- [x] Preserve complete primary indicator records wherever the reference mirrors
   chart state. Synchronize after template application; suppress intermediate
   persistence so rebuild/reload cannot retain a partially applied study list.
-- [ ] Add a plain-label Templates toolbar control and dialog using the existing
+- [x] Add a plain-label Templates toolbar control and dialog using the existing
   overlay/focus/fullscreen patterns. Show its captured chart owner. Provide saved
   selection, create from current, overwrite selected, rename, duplicate, delete
   with confirmation, import/export and explicit Replace/Append actions. Import
   stores a fresh template; applying is a separate action with owner validation.
-- [ ] Reuse the existing catalog namespace and revision guard. Show failures and
+- [x] Reuse the existing catalog namespace and revision guard. Show failures and
   an explicit reload action; do not silently substitute storage. Metadata actions
   must not clear a failed named-layout save warning. File-picker completion does
   not retarget a changed chart.
-- [ ] Browser-test both charts, repeated/custom/empty templates, append/replace,
+- [x] Browser-test both charts, repeated/custom/empty templates, append/replace,
   style/visibility/grouping retention through symbol/type changes and reload,
   drawing/alert retention, history silence, stale owners, storage errors and
   narrow/fullscreen/keyboard flows. Inspect rendered screenshots.
-- [ ] Run complete reference tests, affected three-engine browser coverage and
+- [x] Run complete reference tests, affected three-engine browser coverage and
   required package checks after any additional engine changes. Update README,
   main ledger and external handover, then commit. Continue chart-data download,
   P1-P6 and release work; this plan does not redefine goal completion.
+
+Task 2 evidence: the new host tests failed before the module existed, then all six
+passed. The first UI test failed before the Templates control existed. The complete
+reference suite now passes 379 tests/29 files, and lint/typecheck pass. All 151
+reference browser cases pass. A final 18-case template/layout sweep passes in
+Chromium, Firefox and WebKit after correcting primary-button hover contrast found
+in screenshot review. Wide and narrow rendered dialogs inspected.
+
+The first expanded run had five browser failures: an invalid EMA plot key in a
+fixture caused its alert to be dropped correctly in all three engines; Firefox
+and WebKit consume Escape to exit fullscreen before sending another Escape to the
+page. A standalone event probe confirmed that behavior. Fixtures now use actual
+descriptor input/style keys and exercise keyboard dismissal both outside and after
+fullscreen. One older unit assertion was updated to require the complete mirrored
+study record, including pane placement and detached settings. These initial failed
+runs remain recorded in the candidate artifacts.
+
+Drawings and valid study/drawing/price alerts survive append; an empty replacement
+drops removed-study anchors without firing history. Browser cases cover custom
+descriptor availability, write failures, CRUD/files, stale owners, replay prefixes,
+second-chart rebuild/reload, shared panes and visibility. No engine changes were
+needed after Task 1, whose full package verification remains the library evidence.
+Original eight OI edits and the consumer checkout are preserved. The plan is
+complete; chart-data download, remaining production contracts/endurance, final
+review and release publication remain in the overall scope.

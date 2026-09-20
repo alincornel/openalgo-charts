@@ -25,7 +25,7 @@ import {
   updatePositionLine, restyleTradeChrome, clearPosition, executionAllowed,
 } from './orders.js';
 import { initBracket, attachBracketLines, setBracketPrice, updateBracket, removeBracket } from './bracket.js';
-import { initIndicators, fillIndicatorPicker, renderIndicatorChips, openSettings } from './indicators.js';
+import { initIndicators, fillIndicatorPicker, renderIndicatorChips, openSettings, rememberIndicators } from './indicators.js';
 import { chartDecorationsForRebuild, initChartSettings, restorePrimaryStyle } from './chart-settings.js';
 import { initCompare, attachComparison, invalidateComparisons, syncComparisons, restoreComparisons } from './compare.js';
 import { initSnapshot } from './snapshot.js';
@@ -40,6 +40,7 @@ import { initToolbar, renderToolbar } from './toolbar.js';
 import { initRail, buildRail, initMobile, focusChart, setMagnetMode, setStayMode } from './rail.js';
 import { initWorkspaceHost } from './workspace-host.js';
 import { initWorkspaces } from './workspaces.js';
+import { initTemplates } from './templates.js';
 import { mountPropertiesBar } from './properties.js';
 import { initDrawing, attachDrawing } from './drawing.js';
 import { capturePaneTarget } from './pane-target.js';
@@ -252,7 +253,10 @@ function render({ keepView = true, state } = {}) {
   // (RSI 0..100), and recomputes on every data change.
   if (!isTransform) {
     for (const spec of rebuildState ? [] : app.activeIndicators) {
-      try { app.chart.addIndicator(spec.indicatorId, spec.settings); }
+      try {
+        const instance = app.chart.addIndicator(spec.indicatorId, spec.settings, { paneIndex: spec.paneIndex });
+        if (spec.visible === false) instance.setVisible(false);
+      }
       catch (e) { console.warn('indicator', spec.indicatorId, e.message); }
     }
   }
@@ -311,7 +315,8 @@ function render({ keepView = true, state } = {}) {
   // The close and trash buttons on a legend removes the indicator inside the chart, so
   // mirror that into our own spec list and refresh the chips.
   app.chart.on('indicatorRemoved', () => {
-    app.activeIndicators = app.chart.indicators().map(inst => ({ instanceId: inst.id, indicatorId: inst.indicatorId, settings: inst.settings() }));
+    if (app.applyingTemplate) return;
+    rememberIndicators();
     renderIndicatorChips();
   });
   // Any change to the pane stack moves which pane is the bottom one.
@@ -542,6 +547,7 @@ initMobile(app);
 fillIntervalSelect();
 initWorkspaceHost(app, installWorkspace);
 app.startupLayout = await initWorkspaces(app);
+initTemplates(app);
 restorePrimarySelection(app.startupLayout);
 if (app.startupLayout?.magnet) setMagnetMode(app.startupLayout.magnet);
 if (typeof app.startupLayout?.stay === 'boolean') setStayMode(app.startupLayout.stay);

@@ -307,6 +307,7 @@ exists to show one engine surface carrying real use, not just being present.
 | `workspace-document.js` | Converts the full reference snapshot to the optional workspace tier and back. Preserves source settings, study identities, anchored alert state, comparison settings and split geometry. Rejects settings or geometry this host cannot represent before any live restore. Named catalog controls are a separate host layer. |
 | `workspace-transition.js`, `workspace-host.js` | Prepare every chart's raw history before changing the displayed workspace. Source changes, cancellation and failed writes leave the current charts intact. Synchronous installation failures restore the previous raw histories and configuration, including transformed charts. Pending switches pause alerts, replay entry, autosave and simulated order entry. |
 | `workspace-catalog.js`, `workspaces.js` | Bind the workspace repository to prepared chart publication and the Layouts dialog. Serialize named saves, retain recent ordering, coalesce active-layout autosaves, and reject unacknowledged revisions from another session. Selection failures compensate storage with a new atomic revision. Startup restores the saved named document; recovery does not overwrite it with autosave disabled. |
+| `indicator-templates.js`, `templates.js` | Capture repeated studies with parameters, styles, visibility and pane grouping. Apply shared replace/append planning to the captured chart while preserving drawings and valid alert anchors. Save named templates in the same revision-aware catalog as layouts, with explicit application after import. |
 | `alerts.js` | The Alerts toolbar button opens the focused chart's lifecycle list and source editor. Price, study plots, supported drawing levels and registered candle conditions use the same controls as the packaged widget. Local notices display fired events; the demo does not send notifications or orders for an alert. |
 
 Click or focus a chart, or use the Chart selector, to select it for symbol,
@@ -392,6 +393,32 @@ to the clicked chart if focus moves. A chart rebuild or symbol/interval change
 invalidates an old menu action. Unsupported drawing levels show a disabled
 action with an explanation. Oscillator context menus do not offer price-order
 actions at oscillator values.
+
+## Indicator templates
+
+Open **Templates** in the shared toolbar. The dialog names the chart and source it
+captured when opened. Enter a name and choose **Save new template** to capture that
+chart's studies. **Update selected** replaces the studies in the selected saved
+template; rename, duplicate, delete and portable JSON import/export use the same
+catalog and storage revision guard as Layouts. Import creates a saved copy and
+leaves the displayed chart unchanged until an apply action is chosen.
+
+**Replace studies** removes the captured chart's current studies before installing
+the template. **Append studies** retains their identities and adds separate copies,
+placing imported pane groups after the existing panes. Both preserve parameters,
+plot styles, visibility and repeated instances. An empty replacement clears the
+studies; an empty append does nothing. Custom descriptors must be registered before
+application. A failed restore attempts to recover the previous study state and
+reports an unsuccessful recovery explicitly.
+
+Templates retain drawings and price/drawing alerts. Alerts attached to retained
+study identities survive append; replacing their study drops those alerts through
+the engine's normal lifecycle. Triggered alerts remain visible and restoring a
+template does not evaluate history. Applying during active replay uses its current
+data prefix. Loading, replay selection and settings previews block application.
+If the captured chart or its source changes, reopen Templates to select its current
+owner. Storage errors remain visible and **Reload templates** explicitly refreshes
+the shared catalog after a conflict.
 
 ## Persistence
 

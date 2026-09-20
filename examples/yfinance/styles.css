@@ -181,7 +181,7 @@ select.field { cursor: pointer; padding-right: 24px; }
 }
 .btn:hover { border-color: var(--bd-hover); background: var(--elev-2); }
 .btn:active { transform: translateY(1px); }
-.btn--primary { background: linear-gradient(180deg, var(--acc-2), var(--acc)); color: var(--acc-tx); border-color: transparent; }
+.btn--primary, .btn--primary:hover { background: linear-gradient(180deg, var(--acc-2), var(--acc)); color: var(--acc-tx); border-color: transparent; }
 .btn--primary:hover { filter: brightness(1.08); }
 .btn--ghost { color: var(--mut); }
 .btn--buy { background: linear-gradient(180deg, #2fbfa4, #1f9e88); color: #04231d; border-color: transparent; }
@@ -217,11 +217,11 @@ select.field { cursor: pointer; padding-right: 24px; }
    One card, one head, one foot, shared by the indicator, compare, text and
    chart-settings dialogs: title left, close top right, actions bottom right
    with the confirming one last, and any secondary control bottom left. */
-#setmodal, #workspacemodal { position: fixed; inset: 0; z-index: 60; background: var(--scrim);
+#setmodal, #workspacemodal, #templatemodal { position: fixed; inset: 0; z-index: 60; background: var(--scrim);
   display: flex; align-items: center; justify-content: center; }
-#setmodal[hidden], #workspacemodal[hidden] { display: none; }
+#setmodal[hidden], #workspacemodal[hidden], #templatemodal[hidden] { display: none; }
 .set-card.ws-card { width: min(480px, calc(100vw - 24px)); }
-.ws-card #ws-close { width: auto; padding: 0 8px; font: inherit; font-size: 12px; }
+.ws-card .set-head button { width: auto; padding: 0 8px; font: inherit; font-size: 12px; }
 .ws-body { gap: 10px; }
 .ws-body p { margin: 0; overflow-wrap: anywhere; }
 .ws-body .set-row { grid-template-columns: 0 100px minmax(0, 1fr); }
@@ -232,9 +232,9 @@ select.field { cursor: pointer; padding-right: 24px; }
 .ws-autosave { display: flex; align-items: center; gap: 8px; font-size: 12px; }
 .ws-hint, #ws-notice { color: var(--mut); font-size: 12px; line-height: 1.5; }
 #ws-current { color: var(--tx); font-size: 12px; }
-#ws-error { color: var(--danger-tx); font-size: 12px; line-height: 1.5; }
-#ws-confirm { padding: 8px; border: 1px solid var(--bd); border-radius: 6px; }
-#ws-confirm p { margin-bottom: 8px; font-size: 12px; }
+#ws-error, .ws-error { color: var(--danger-tx); font-size: 12px; line-height: 1.5; }
+#ws-confirm, .ws-confirm { padding: 8px; border: 1px solid var(--bd); border-radius: 6px; }
+#ws-confirm p, .ws-confirm p { margin-bottom: 8px; font-size: 12px; }
 .set-card { width: 366px; max-height: 78vh; display: flex; flex-direction: column;
   background: var(--panel); border: 1px solid var(--bd); border-radius: 12px;
   box-shadow: var(--shadow-lg); overflow: hidden; }
@@ -748,7 +748,7 @@ body[data-fullscreen-pane="2"] #chart2 { left: 42px; }
   #symbol.is-live { left: 8px; width: calc(100vw - 16px); }
   /* The field spans the viewport on a phone, so the keys anchor to its right. */
   #symbol.is-live + #symkeys { left: auto; right: 12px; }
-  #setmodal, #cmpmodal, #chartset, #workspacemodal { align-items: stretch; justify-content: stretch; }
+  #setmodal, #cmpmodal, #chartset, #workspacemodal, #templatemodal { align-items: stretch; justify-content: stretch; }
   .set-card, .cset-card { width: 100%; max-width: none; max-height: none; height: 100%;
     border-radius: 0; border: 0; }
   .set-card.ws-card { width: 100%; }

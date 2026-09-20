@@ -312,6 +312,11 @@ export function renderToolbar() {
     popupMenu(ind, rows, { find: 'Search ' + (rows.length - new Set(rows.filter((r) => r.group).map((r) => r.group)).size) + ' indicators' });
   });
   bar.appendChild(ind);
+  const templates = tbtn('Templates', 'Indicator templates');
+  templates.setAttribute('aria-label', 'Templates'); templates.setAttribute('aria-haspopup', 'dialog');
+  templates.setAttribute('aria-controls', 'templatemodal');
+  templates.addEventListener('click', () => { templates.focus(); app.openTemplates?.(); });
+  bar.appendChild(templates);
 
   // compare: a second instrument on the price pane
   const comparisons = comparisonState(target?.pane).items;

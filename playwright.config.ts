@@ -63,7 +63,7 @@ export default defineConfig({
   projects: [
     // The engine suite, against the static server. The demo spec is not in
     // it: that page needs /api/history, which serve.cjs does not answer.
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] }, testIgnore: /(?:yfinance(?:-mobile)?|widget-data-loading)\.spec\.ts/ },
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] }, testIgnore: /(?:yfinance(?:-(?:mobile|templates))?|widget-data-loading)\.spec\.ts/ },
     ...(['chromium', 'firefox', 'webkit'] as const).map(browserName => ({
       name: `widget-loading-${browserName}`,
       testMatch: /(?:widget-data-loading|drawing-future|drawing-catalog|widget-objects|navigation-wheel|widget-mobile|branding-watermark|crosshair-snap|workspace-storage|open-interest|alerts|replay-time)\.spec\.ts/,
@@ -74,7 +74,7 @@ export default defineConfig({
     { name: 'yfinance-demo', testMatch: /yfinance\.spec\.ts/, use: { ...devices['Desktop Chrome'], baseURL: DEMO_URL } },
     ...(['chromium', 'firefox', 'webkit'] as const).map(browserName => ({
       name: `yfinance-mobile-${browserName}`,
-      testMatch: /yfinance-mobile\.spec\.ts/,
+      testMatch: /yfinance-(?:mobile|templates)\.spec\.ts/,
       use: { browserName, baseURL: DEMO_URL },
     })),
   ],

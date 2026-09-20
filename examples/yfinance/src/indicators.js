@@ -65,7 +65,7 @@ export function addIndicator(id, target = capturePaneTarget(app)) {
   if ((target.pane === 2 ? app.loading2 || app.loadFailed2 : app.loading || app.loadFailed)
     || !target.chart.primaryBars().length) { el('status').textContent = 'load chart history before adding a study'; return; }
   const inst = target.chart.addIndicator(id);
-  if (target.pane === 1) app.activeIndicators.push({ instanceId: inst.id, indicatorId: id, settings: inst.settings() });
+  if (target.pane === 1) rememberIndicators();
   renderIndicatorChips();
   autosave();
   el('status').textContent = `added ${inst.name} on chart ${target.pane}`;
@@ -304,12 +304,13 @@ function currentSettings() {
   return false;
 }
 
+export function rememberIndicators() {
+  if (!app.applyingTemplate && app.chart) app.activeIndicators = (app.chart.getState().indicators || [])
+    .map(study => ({ ...study, settings: { ...study.settings } }));
+}
+
 function rememberSettings() {
-  if (settingsTarget?.pane === 1) {
-    app.activeIndicators = app.chart.indicators().map(inst => ({
-      instanceId: inst.id, indicatorId: inst.indicatorId, settings: inst.settings(),
-    }));
-  }
+  if (settingsTarget?.pane === 1) rememberIndicators();
   autosave();
 }
 

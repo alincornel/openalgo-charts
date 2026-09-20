@@ -8,7 +8,7 @@ import { syncComparisons } from './compare.js';
 import { el } from './ui.js';
 
 export function workspaceUnavailable(app) {
-  return !app.chart || app.replay || app.replayPicking || app.replayLoading || app.loading || app.loadFailed
+  return !app.chart || app.applyingTemplate || app.replay || app.replayPicking || app.replayLoading || app.loading || app.loadFailed
     || app.loading2 || app.loadFailed2 || app.restoringSecondary || app.chartSettingsEditing;
 }
 

@@ -236,6 +236,25 @@
     </div>
   </div>
 
+  <div id="templatemodal" hidden>
+    <div class="set-card ws-card" role="dialog" aria-modal="true" aria-labelledby="tp-title">
+      <div class="set-head"><span id="tp-title">Indicator templates</span><button id="tp-close" type="button">Close</button></div>
+      <div class="set-body ws-body">
+        <p id="tp-owner" class="ws-hint"></p>
+        <div class="set-row"><label for="tp-select">Saved templates</label><div class="set-ctl"><select id="tp-select"></select></div></div>
+        <div class="set-row"><label for="tp-name">Template name</label><div class="set-ctl"><input id="tp-name" type="text" maxlength="120" autocomplete="off" /></div></div>
+        <p id="tp-summary" class="ws-hint"></p>
+        <div class="ws-actions"><button id="tp-new" class="btn" type="button">Save new template</button><button id="tp-update" class="btn" type="button">Update selected</button><button id="tp-rename" class="btn" type="button">Rename</button><button id="tp-duplicate" class="btn" type="button">Duplicate</button></div>
+        <p class="ws-hint">Replace changes this chart's studies. Append keeps existing studies and adds separate copies.</p>
+        <div class="ws-actions"><button id="tp-import" class="btn btn--ghost" type="button">Import file</button><button id="tp-export" class="btn btn--ghost" type="button">Export selected</button><button id="tp-delete" class="btn btn--ghost" type="button">Delete selected</button></div>
+        <input id="tp-file" type="file" accept="application/json,.json" hidden />
+        <div id="tp-confirm" class="ws-confirm" hidden><p id="tp-delete-name"></p><div class="ws-actions"><button id="tp-keep" class="btn" type="button">Keep template</button><button id="tp-confirm-delete" class="btn" type="button">Confirm delete</button></div></div>
+        <p id="tp-error" class="ws-error" role="alert" hidden></p><p id="tp-notice" class="ws-hint" role="status" aria-live="polite"></p>
+      </div>
+      <div class="set-foot"><button id="tp-refresh" class="btn btn--ghost set-lead" type="button">Reload templates</button><button id="tp-append" class="btn" type="button">Append studies</button><button id="tp-replace" class="btn btn--primary" type="button">Replace studies</button></div>
+    </div>
+  </div>
+
   <div id="workspacemodal" hidden>
     <div class="set-card ws-card" role="dialog" aria-modal="true" aria-labelledby="ws-title">
       <div class="set-head"><span id="ws-title">Layouts</span><button id="ws-close" type="button">Close</button></div>

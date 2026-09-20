@@ -397,7 +397,9 @@ describe('applying a layout', () => {
     expect(report.applied).toBe(true);
     expect(app.chart.restored).toHaveLength(1);
     expect(app.chart.restored[0].viewport).toBeUndefined();
-    expect(app.activeIndicators).toEqual([{ indicatorId: 'rsi', settings: { length: 14 } }]);
+    expect(app.activeIndicators).toEqual(doc.indicators);
+    expect(app.activeIndicators[0]).not.toBe(doc.indicators[0]);
+    expect(app.activeIndicators[0].settings).not.toBe(doc.indicators[0].settings);
     expect(app.draw.fromJSON).not.toHaveBeenCalled();
     expect(setVolumeShown).toHaveBeenCalledWith(false, 1);
     expect(app.comparisons).toEqual([{ symbol: 'MSFT', color: '#f00', bars: [], hidden: false }]);

@@ -381,7 +381,7 @@ export function applyLayout(doc, { keepView = true, replaceComparisons = true } 
   const state = keepView ? doc : stripView(doc);
   // Mirror the restored indicators into our own spec list so a later chart
   // rebuild (type switch / reload) keeps them.
-  app.activeIndicators = (state.indicators || []).map((i) => ({ indicatorId: i.indicatorId, settings: i.settings }));
+  app.activeIndicators = (state.indicators || []).map(study => ({ ...study, settings: { ...study.settings } }));
   const report = app.chart.restoreState(state);
   if (!report.applied) {
     toast('error', 'The layout could not be restored: ' + report.reason);
@@ -435,7 +435,7 @@ let saveTimer = 0;
 
 /** Write the current layout now. Returns what `writeLayout` did. */
 export function persistLayoutNow(opts) {
-  if (!app.chart || app.workspaceLoading) return 'unchanged';
+  if (!app.chart || app.workspaceLoading || app.applyingTemplate) return 'unchanged';
   const result = writeLayout(layoutSnapshot(), opts);
   app.onLayoutPersisted?.();
   return result;
@@ -444,7 +444,7 @@ export function persistLayoutNow(opts) {
 export function autosave() {
   // Not while replaying: the chart is showing a prefix of the session and a
   // viewport captured over it would restore the user into a truncated chart.
-  if (!app.chart || app.workspaceLoading || app.replay || app.replayLoading || app.loading || app.loadFailed || app.loading2 || app.loadFailed2 || app.restoringSecondary || app.chartSettingsEditing) return;
+  if (!app.chart || app.workspaceLoading || app.applyingTemplate || app.replay || app.replayLoading || app.loading || app.loadFailed || app.loading2 || app.loadFailed2 || app.restoringSecondary || app.chartSettingsEditing) return;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(flushAutosave, SAVE_DEBOUNCE_MS);
 }
@@ -454,7 +454,7 @@ export function flushAutosave() {
   if (!saveTimer) return;
   clearTimeout(saveTimer);
   saveTimer = 0;
-  if (app.chart && !app.workspaceLoading && !app.replay && !app.replayLoading && !app.loading && !app.loadFailed && !app.loading2 && !app.loadFailed2 && !app.restoringSecondary && !app.chartSettingsEditing) persistLayoutNow();
+  if (app.chart && !app.workspaceLoading && !app.applyingTemplate && !app.replay && !app.replayLoading && !app.loading && !app.loadFailed && !app.loading2 && !app.loadFailed2 && !app.restoringSecondary && !app.chartSettingsEditing) persistLayoutNow();
 }
 
 // ── files ──────────────────────────────────────────────────────────────

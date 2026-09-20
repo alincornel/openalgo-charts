@@ -85,6 +85,7 @@ export async function initWorkspaces(app) {
       ? 'Finish loading, replay or settings changes to save or open a layout.' : notice;
     if (error && error !== lastError) { toast('error', error); el('status').textContent = error; }
     lastError = error;
+    app.refreshTemplateControls?.();
   }
 
   async function action(work, message) {

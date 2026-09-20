@@ -964,3 +964,29 @@ is warning-free and skills coverage is 919/919. Documentation covers both APIs.
 
 This is Task 1 of the reference-indicator-templates plan. Reference application,
 dialog and browser validation remain Task 2. No consumer changes or publication.
+
+### Reference indicator-template controls complete
+
+The shared toolbar now opens Templates for its captured selected chart. Named
+capture/update/rename/duplicate/delete and JSON import/export share the layout
+catalog and revision guard. Import stores a new copy; explicit replace/append
+applies its studies. Settings, plot styles, visibility, repeated studies and pane
+groups survive chart rebuilds and reloads. Stale owners and missing descriptors
+reject before mutation. Partial restore attempts recovery and reports failure.
+
+Drawings and valid retained alert anchors survive append; replacing a study drops
+its anchor through the normal lifecycle. Fired alerts remain and history fires
+nothing. Replay application retains the displayed prefix. Primary mirrors retain
+complete study records and skip intermediate restoration events. Storage failures
+stay visible. Keyboard, fullscreen and narrow dialog behavior are covered.
+
+Verification: 379 reference tests/29 files, lint/typecheck, all 151 reference browser
+cases and a final 18-case dialog sweep in three engines after a hover-contrast fix.
+Rendered wide/narrow screenshots inspected. Invalid initial fixture plot/settings
+keys and native fullscreen Escape behavior are documented in the task plan. No
+engine changes followed the already verified shared-planner commit 6f4ac1d.
+
+Reference F2 is complete. Chart-data download, remaining P1-P6 contracts, endurance,
+whole-branch review, version/docs/site updates and publication remain. Original
+OI edits and consumer work are preserved. Charts 2.4.5 still publishes before the
+remaining /trading implementation and final connected broker validation.
