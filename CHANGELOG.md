@@ -28,6 +28,14 @@ Indicator source access, readable legend controls and reliable signal placement.
   12..28; larger controls increase the row height. Nonfinite chart sizes are
   ignored, and an explicit chart size takes precedence over individual rows.
 
+### Changed
+
+- A dialog's expiry field reads the chart's own timezone rather than UTC, and
+  is labelled with it. An alert is set against candles the chart has already
+  labelled in its zone, so an expiry written in another one was hours out and
+  left the reader to do the arithmetic. A new alert now opens with an expiry
+  two months out instead of empty.
+
 ### Fixed
 
 - Fully transparent plot colors no longer leave invisible numbers and blank
@@ -44,6 +52,19 @@ Indicator source access, readable legend controls and reliable signal placement.
   replaced, and fallback checks use the current primary series.
 - Each signal label starts its own canvas path, so a later label cannot recolor
   an earlier label's tail.
+- Form controls in the dialogs take their corner from `--oac-radius` and their
+  height from `--oac-ctl-h` rather than from numbers written into each rule, so
+  a host that sets those tokens reaches the fields and not only the panel
+  around them. The date field, which had its own height and corner, included.
+- Every row in a generated form shares one control column. A select filled it, a
+  lone number sat at 72px against its right edge, and the expiry row widened the
+  column for itself, so the left edge of the controls stepped in and out by
+  ninety pixels down the form.
+- The chevron on a select overlays it instead of taking a place in the row. The
+  rule positioned `.oac-select > svg` and the markup has always wrapped the
+  glyph in a span, so the rule matched nothing: the span stayed an ordinary flex
+  item, took eleven pixels, and left every select short of the inputs beside it
+  with its arrow outside its own box.
 
 ## 2.4.5
 

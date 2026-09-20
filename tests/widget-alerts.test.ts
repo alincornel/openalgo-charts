@@ -2,6 +2,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import * as engine from '../src/index';
 import * as widget from '../src/widget/index';
 import type { AlertSource, ContextMenuEvent } from '../src/index';
+import { zoneOffsetSeconds } from '../src/index';
 import type { Widget } from '../src/widget/index';
 import { ensureWindowGlobal, fakeContainer, fakeWidgetDocument, fire, type FakeElement } from './helpers/fake-dom-widget';
 
@@ -164,7 +165,7 @@ describe('widget alert editor', () => {
     expect(w.alerts.list()[0].title).toBe('Original');
   });
 
-  it('accepts zero bounds, explicit touch timing, cooldown and a UTC expiry', () => {
+  it('accepts zero bounds, explicit touch timing, cooldown and an expiry on the chart clock', () => {
     const { w, root } = make();
     widget.mountAlertEditor(w.context, undefined, { source: { kind: 'price', price: 0 } });
     change(root, 'condition', 'enteringRange');
@@ -175,11 +176,52 @@ describe('widget alert editor', () => {
     change(root, 'expiresAt', '2099-01-02T03:04');
     change(root, 'enabled', false);
     click(root, 'save-alert');
+    // The reading is on the CHART's clock, not UTC. An alert is set against
+    // candles the chart has already labelled in its timezone, so an expiry
+    // read in another one is five and a half hours out on this chart's default
+    // and asks the reader to do that arithmetic themselves. The stored instant
+    // is therefore the wall clock minus the zone's offset.
+    const zone = w.context.chart.timezone();
+    const wallClockAsUtc = Date.parse('2099-01-02T03:04:00Z') / 1000;
     expect(w.alerts.list()).toMatchObject([{
       source: { kind: 'price', price: 0, upperPrice: 10 }, condition: 'enteringRange',
       policy: 'onTouch', repeat: 'everyTime', cooldownSeconds: 45, state: 'disabled',
-      expiresAt: Date.parse('2099-01-02T03:04:00Z') / 1000,
+      expiresAt: wallClockAsUtc - zoneOffsetSeconds(wallClockAsUtc, zone),
     }]);
+    // And the offset is not zero on the default zone, so the line above is
+    // asserting something: written against UTC this test passed either way.
+    expect(zoneOffsetSeconds(wallClockAsUtc, zone)).not.toBe(0);
+  });
+
+  it('opens a new alert with an expiry two months out, on the chart clock', () => {
+    // An alert with no expiry never stops asking and one that expires this
+    // week is gone before the setup arrives. The field is prefilled so that
+    // neither is the default, and it is prefilled in the zone the field is
+    // labelled with.
+    const { w, root } = make();
+    widget.mountAlertEditor(w.context, undefined, { source: { kind: 'price', price: 100 } });
+    const value = field(root, 'expiresAt').value;
+    expect(value).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+
+    const zone = w.context.chart.timezone();
+    const asUtc = Date.parse(`${value}:00Z`) / 1000;
+    const instant = asUtc - zoneOffsetSeconds(asUtc, zone);
+    const months = (instant - Date.now() / 1000) / (30 * 24 * 3600);
+    // Two calendar months is between 59 and 62 days, so the window is wide
+    // enough for any starting date and far too narrow for a week or a year.
+    expect(months).toBeGreaterThan(1.9);
+    expect(months).toBeLessThan(2.1);
+  });
+
+  it('labels the expiry field with the zone it is read in', () => {
+    // A field reading a time in one zone under a label naming another is
+    // worse than an unlabelled one, and the schema's label is a fixed string
+    // that cannot know the chart's zone.
+    const { w, root } = make();
+    widget.mountAlertEditor(w.context, undefined, { source: { kind: 'price', price: 100 } });
+    const label = root.querySelector('[data-key="expiresAt"] .oac-row__label');
+    expect(label?.textContent).toContain(w.context.chart.timezone());
+    expect(label?.textContent).not.toContain('UTC');
   });
 
   it('rejects an empty threshold instead of retaining a stale numeric draft', () => {

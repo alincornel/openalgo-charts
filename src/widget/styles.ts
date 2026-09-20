@@ -59,13 +59,20 @@ export const WIDGET_CSS = `
   border: solid ${v('bg')}; border-width: 0 2px 2px 0; transform: rotate(45deg); }
 .oac-widget input[type=checkbox]:disabled { opacity: .4; cursor: not-allowed; }
 .oac-widget select { appearance: none; -webkit-appearance: none; height: ${v('ctl-h')}; padding: 0 24px 0 8px;
-  background: ${v('elev')}; border: 1px solid ${v('bd')}; border-radius: 6px; cursor: pointer; }
+  background: ${v('elev')}; border: 1px solid ${v('bd')}; border-radius: ${v('radius')}; cursor: pointer; }
 .oac-widget .oac-select { position: relative; display: inline-flex; }
-.oac-widget .oac-select > svg { position: absolute; right: 7px; top: 50%; width: 11px; height: 11px;
-  transform: translateY(-50%); pointer-events: none; color: ${v('mut')}; fill: none; stroke: currentColor; stroke-width: 1.5; }
+/* The chevron overlays the select rather than sitting beside it. selectBox
+   wraps the glyph in an oac-chev span, and this rule used to name
+   .oac-select > svg, which that markup has never had: the span stayed an
+   ordinary flex item, so it took eleven pixels of the row and left the select
+   eleven pixels short of every input beside it, with its arrow outside its own
+   box. Sized here rather than left to .oac-chev, whose inline-grid is right
+   where a chevron follows a word, as it does in the top bar. */
+.oac-widget .oac-select > .oac-chev { position: absolute; right: 7px; top: 50%; width: 11px; height: 11px;
+  transform: translateY(-50%); pointer-events: none; display: block; color: ${v('mut')}; }
 .oac-widget select option, .oac-widget select optgroup { background: ${v('panel')}; color: ${v('tx')}; }
 .oac-widget input[type=color] { width: 26px; height: 26px; padding: 0; flex: none; cursor: pointer; appearance: none;
-  -webkit-appearance: none; background-color: ${v('elev')}; border: 1px solid ${v('bd')}; border-radius: 6px; }
+  -webkit-appearance: none; background-color: ${v('elev')}; border: 1px solid ${v('bd')}; border-radius: ${v('radius')}; }
 .oac-widget input[type=color]:hover { border-color: ${v('bd-hover')}; }
 .oac-widget input[type=color]::-webkit-color-swatch-wrapper { padding: 3px; }
 .oac-widget input[type=color]::-webkit-color-swatch { border: 1px solid rgba(0,0,0,.35); border-radius: 4px; }
@@ -75,7 +82,7 @@ export const WIDGET_CSS = `
 .oac-widget input[type=number]::-webkit-inner-spin-button, .oac-widget input[type=number]::-webkit-outer-spin-button {
   -webkit-appearance: none; margin: 0; }
 .oac-widget input[type=text], .oac-widget input[type=number], .oac-widget input[type=search], .oac-widget textarea {
-  height: ${v('ctl-h')}; padding: 0 8px; background: ${v('elev')}; border: 1px solid ${v('bd')}; border-radius: 6px;
+  height: ${v('ctl-h')}; padding: 0 8px; background: ${v('elev')}; border: 1px solid ${v('bd')}; border-radius: ${v('radius')};
   transition: border-color .15s, box-shadow .15s; }
 .oac-widget textarea { height: auto; padding: 6px 8px; }
 .oac-widget input::placeholder { color: ${v('faint')}; }
@@ -107,7 +114,7 @@ export const WIDGET_CSS = `
 /* Buttons: flat, 28px tall, a tint when pressed or armed. */
 .oac-widget .oac-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   height: ${v('ctl-h')}; padding: 0 9px; background: transparent; border: 1px solid transparent;
-  border-radius: 6px; color: ${v('tx')}; white-space: nowrap; transition: background .1s, border-color .1s, color .1s; }
+  border-radius: ${v('radius')}; color: ${v('tx')}; white-space: nowrap; transition: background .1s, border-color .1s, color .1s; }
 .oac-widget .oac-btn:hover { background: ${v('elev')}; border-color: ${v('bd-soft')}; }
 .oac-widget .oac-btn.is-on, .oac-widget .oac-btn[aria-pressed="true"], .oac-widget .oac-btn[aria-expanded="true"] {
   background: ${v('on-bg')}; border-color: ${v('on-bd')}; color: ${v('acc-2')}; }
