@@ -53,6 +53,19 @@ export function withAlpha(color: string, alpha: number): string {
   return `rgba(${c.r},${c.g},${c.b},${alpha})`;
 }
 
+/**
+ * Whether a color paints nothing: fully transparent, by any spelling.
+ *
+ * An unparseable string is NOT invisible. A named color, a `color-mix()`, a
+ * custom property — `parseColor` returns null for all of them, and treating
+ * null as "draws nothing" would quietly hide whatever the caller guards with
+ * this. Erring the other way only ever leaves something visible.
+ */
+export function isInvisible(color: string): boolean {
+  const c = parseColor(color);
+  return c !== null && c.a <= 0;
+}
+
 /** Mix a color toward white (t>0) or black (t<0) by |t| (0..1) — hover states. */
 export function shade(color: string, t: number): string {
   const c = parseColor(color);

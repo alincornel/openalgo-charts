@@ -19,7 +19,7 @@ import { IndicatorFill as IndicatorFillPrimitive } from '../primitives/indicator
 import { IndicatorDrawings } from '../primitives/indicator-draws';
 import { IndicatorBackground } from '../primitives/indicator-background';
 
-import { withAlpha } from '../render/pill';
+import { isInvisible, withAlpha } from '../render/pill';
 import { DEFAULT_TIMEZONE } from '../feed/time';
 import { precisionForStep } from '../scale/ticks';
 import {
@@ -83,6 +83,8 @@ export interface IndicatorHost {
   /** Add the pane-legend row (name + inline up/down/hide/maximize/close). */
   addIndicatorLegend(opts: {
     id: string; title: string; params: string; color?: string; row: number; paneIndex: number;
+    /** The descriptor's `hasSource`, so the row can offer a source button. */
+    hasSource?: boolean;
   }): PaneLegend;
   removeIndicatorLegend(legend: PaneLegend): void;
   /** How many legends already sit on this pane, so rows stack. */
@@ -369,6 +371,7 @@ export class IndicatorInstance implements IndicatorApi {
       color: this._legendColor(),
       row: host.legendRowsOn(this.paneIndex),
       paneIndex: this.paneIndex,
+      hasSource: descriptor.hasSource === true,
     });
 
     this._applyRange();
@@ -473,9 +476,17 @@ export class IndicatorInstance implements IndicatorApi {
       // The pane this plot draws in, so a plot on its own pane is written the
       // way that pane's axis writes it and not the price pane's.
       const pane = this._plotPane(plot);
+      // A plot drawn in a fully transparent colour is on the chart only to be
+      // measured against: the invisible mid-body line a marker anchors to, a
+      // column a band is filled from. It draws nothing, so it has no number to
+      // read, and reading one anyway left a blank the width of a price sitting
+      // between the parameters and the first real value. That reads as a
+      // broken legend, because from the outside it is one.
+      const color = this._plotColor(plot);
+      if (color !== undefined && isInvisible(color)) continue;
       const text = this._host.formatPrice?.(pane, v)
         ?? formatValue(v, this._host.tickSize?.(pane));
-      out.push({ text, color: this._plotColor(plot) });
+      out.push({ text, color });
     }
     this._legend.setValues(out);
   }

@@ -613,6 +613,20 @@ export interface IndicatorDescriptor {
   category?: string;
   /** `'onchart'` overlays the price pane; `'pane'` gets its own pane. */
   placement: 'onchart' | 'pane';
+  /**
+   * This indicator was written from code the host can show the user.
+   *
+   * Its legend row then carries a source button beside the gear, and pressing
+   * it emits `indicatorSource` with the same payload `indicatorSettings`
+   * carries. The engine does not hold the code and does not want to: a
+   * descriptor may be compiled from a script, generated, or written by hand in
+   * the host's own bundle, and only the host knows which of those it can put in
+   * front of somebody. So this says a button is worth offering, and the host
+   * decides what the button opens.
+   *
+   * Absent or false draws no button, which is every built-in study.
+   */
+  hasSource?: boolean;
   inputs: readonly IndicatorInput[];
   plots: readonly IndicatorPlot[];
   /**
