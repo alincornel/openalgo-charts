@@ -89,6 +89,8 @@ export interface IndicatorHost {
   removeIndicatorLegend(legend: PaneLegend): void;
   /** How many legends already sit on this pane, so rows stack. */
   legendRowsOn(paneIndex: number): number;
+  /** The instrument's own series, for a descriptor anchoring marks to price. */
+  primarySeries?(): SeriesApi | null;
   addIndicatorSeries(
     type: string,
     paneIndex: number,
@@ -539,7 +541,16 @@ export class IndicatorInstance implements IndicatorApi {
       : [];
     if (this._markers === null) {
       if (markers.length === 0) return;
-      const first = this._series.get(this._d.plots[0]?.key ?? '');
+      // A descriptor that anchors to price measures above and below against the
+      // instrument's candles rather than its own column. Only on the price
+      // pane, and only once there is a primary series: a study in its own pane
+      // has no candles under it, and falling back to the first plot draws the
+      // mark somewhere rather than nowhere.
+      const anchored =
+        this._d.markerAnchor === 'price' && this.paneIndex === 0
+          ? (this._host.primarySeries?.() ?? undefined)
+          : undefined;
+      const first = anchored ?? this._series.get(this._d.plots[0]?.key ?? '');
       if (first === undefined) return;
       // The instrument's bars, so a mark on a bar where this plot happens to
       // be absent is still drawn. A study that splits one line into an up

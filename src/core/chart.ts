@@ -1541,6 +1541,7 @@ export class Chart {
         this._restackLegends();
       },
       legendRowsOn: (paneIndex): number => this._legends.filter((l) => l.paneIndex === paneIndex).length,
+      primarySeries: (): SeriesApi | null => this.primarySeries(),
       addIndicatorSeries: (type, paneIndex, style, priceScaleId, priceFormat): SeriesApi =>
         this._createSeries(
           type as SeriesType,

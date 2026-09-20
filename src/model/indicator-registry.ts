@@ -693,6 +693,24 @@ export interface IndicatorDescriptor {
     settings: Readonly<IndicatorSettings>;
   }): readonly SeriesMarker[];
   /**
+   * What `aboveBar` and `belowBar` are measured against.
+   *
+   * `'plot'`, the default, is this study's own first plot, which is right for a
+   * mark that belongs to the line: an arrow on a moving average sits against
+   * the average.
+   *
+   * `'price'` is the instrument's candles, so above is above the high and below
+   * is below the low. That is what a buy or sell signal on an overlay study
+   * means, and anchoring one to the study's own column instead puts it wherever
+   * that column happens to sit: a study that anchors its marks to a mid-body
+   * line draws every "below" mark through the middle of the candle.
+   *
+   * Ignored by a study in its own pane, which has no candles to measure
+   * against, and ignored when the chart has no primary series yet. Both fall
+   * back to the first plot rather than dropping the marker.
+   */
+  markerAnchor?: 'plot' | 'price';
+  /**
    * Optional summary grid pinned to a corner of the pane.
    *
    * Some studies are not a value per bar at all: a seasonality heatmap is a

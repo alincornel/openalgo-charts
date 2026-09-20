@@ -14,6 +14,13 @@ Legend and marker fixes, all reported from a live chart.
   carries. The engine holds no code and no DOM: it says which indicator was
   asked about and the host decides what to show. Absent or false draws no
   button, which is every built-in study.
+- `IndicatorDescriptor.markerAnchor: 'price'` measures a marker's `aboveBar`
+  and `belowBar` against the instrument's candles rather than the study's own
+  first plot, so above is above the high and below is below the low. That is
+  what a buy or sell signal on an overlay study means; a mark that belongs to a
+  line keeps the default `'plot'`. Ignored by a study that owns a pane and when
+  there is no primary series yet, both of which fall back to the plot rather
+  than dropping the marker.
 - `PaneLegendOptions.iconSize` sets the square side of a legend action button in
   media px, held to 12..28. The row grows to hold a larger button, so the rows
   below it move down instead of being drawn through.
