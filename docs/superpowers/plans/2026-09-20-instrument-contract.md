@@ -57,7 +57,7 @@ tests/instrument.test.ts, docs/instruments.md, data/time and trading skill docs.
 - [x] Verify browser output for both profiles in all three engines, source changes,
   a session exception and unsupported interval feedback. Preserve the existing
   reference market provider's unknown OI capability.
-- [ ] Record evidence and commit locally. P2-P6 and publication remain separate.
+- [x] Record evidence and commit locally. P2-P6 and publication remain separate.
 
 Pre-flight: root owns base/trade exports. Widget translation edits are isolated.
 Adapter conformance uses existing production feed paths. Browser endurance serves

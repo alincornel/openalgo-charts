@@ -1075,3 +1075,19 @@ without skips, the website and generated API rebuild successfully, and the final
 loaded base/indicator bytes match the final package. The corrected package and
 33-file archive are recorded in the production-release plan. Charts publication
 and the subsequent consumer work remain open; no new rating is assigned.
+
+### Charts 2.4.5 published
+
+Source db8bcce was pushed to master, passed all GitHub CI jobs and is tagged
+v2.4.5. npm trusted publication succeeded with verified signature and provenance;
+latest is 2.4.5. All 33 registry archive files and its full SHA-512 match the
+tested package. GitHub release and Pages deployment are public and verified.
+The deployed runtime files match the build and its OI/instrument examples pass
+three-engine browser checks. Full evidence is in the production-release plan.
+
+The Charts release is complete. Remaining work continues in the isolated OpenAlgo
+consumer after installing the published package: comparison capture/restoration,
+shared replay and autosave recovery, selected-chart CSV, applicable shared-contract
+wiring, updated integration documentation/skills and final connected-feed checks.
+Existing OI, alert, named-layout, template and shared-toolbar implementations are
+preserved. Original main-checkout edits remain untouched. Score remains frozen.

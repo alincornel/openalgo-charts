@@ -55,12 +55,12 @@ builds or runs broad checks. Dedicated endurance snapshots isolate their inputs.
   reference example docs and skills, by row label rather than old numeric text.
 - [x] Warning-free API generation, skills coverage, website production build,
   runtime dependency audit and local release artifact checks.
-- [ ] Required remote CI and registry artifact comparison.
-- [ ] Commit locally, integrate/push authorized release source without disturbing
+- [x] Required remote CI and registry artifact comparison.
+- [x] Commit locally, integrate/push authorized release source without disturbing
   original eight OI edits or other consumer work. Verify remote branch state first.
-- [ ] Push immutable v2.4.5 tag, dispatch existing Release workflow and wait for npm
+- [x] Push immutable v2.4.5 tag, dispatch existing Release workflow and wait for npm
   trusted publishing/provenance. Publish matching GitHub release and Pages site.
-- [ ] Compare registry package contents with the tested candidate, inspect deployed
+- [x] Compare registry package contents with the tested candidate, inspect deployed
   website assets/examples and report immutable source/version/release agreement.
 - [ ] Install published Charts in isolated OpenAlgo consumer, finish remaining
   /trading workspace/replay/toolbar integration and validate its production build,
@@ -255,3 +255,32 @@ concurrent host work. Sampling pauses totaled 6565.2 ms and remain included in
 wall/frame measurements. Start/end pixels were inspected. This is the declared
 Chromium Canvas2D synthetic workload on Ryzen 7 7700, not live-broker or full-day
 evidence. Both earlier and final reports remain preserved externally.
+
+### Publication complete
+
+Verified source db8bcce6a8d2237113d78561cad1161f8ae3b070 was committed and pushed
+as a fast-forward to master without changing the original checkout. CI run
+35506378753 passed every job, including Linux package verification, browser
+checks, website interaction checks, code analysis and supply-chain checks.
+Pages run 35506378723 succeeded. The immutable v2.4.5 tag resolves to that source.
+
+Release run 35506904073 completed verification, version agreement, runtime audit,
+SBOM generation and npm trusted publication with provenance. npm initially
+reported processing and returned 404 for the version. No second publication was
+attempted. Once available, npm latest resolved to 2.4.5 and its gitHead matched
+the verified source. All 33 downloaded archive files match the tested candidate
+byte-for-byte, including the same full archive SHA-512 integrity recorded above.
+A fresh isolated registry installation loads all nine entries and passes the
+runtime version/registry-count/shared-error checks. npm audit signatures verifies
+one registry signature and one provenance attestation.
+
+GitHub release https://github.com/marketcalls/openalgo-charts/releases/tag/v2.4.5
+is public, final and carries the matching changelog. The deployed site at
+https://marketcalls.github.io/openalgo-charts/ serves ten runtime bundles and the
+architecture diagram byte-identical to the local build. Its changed pages and
+OI/instrument examples pass Chromium, Firefox and WebKit checks; deployed pixels
+were inspected. No site or package publication work remains for Charts 2.4.5.
+
+Remaining goal work is the published-package OpenAlgo consumer migration,
+comparisons/shared replay/CSV integration and final connected-broker validation.
+The score remains frozen and no live orders were placed.
