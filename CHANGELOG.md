@@ -2,6 +2,24 @@
 
 All notable changes to OpenAlgo Charts.
 
+## Unreleased
+
+### Added
+
+- `ChartTableOptions.cellWidth` accepts `'auto'`, which measures each column
+  against its own widest cell at the size that cell is drawn at. A grid whose
+  cells are sentences rather than numbers cannot be sized by a caller that has
+  not measured the text, and a caller that guesses is the one that has to be
+  edited every time a label changes.
+
+### Fixed
+
+- A table cell is clipped to its own cell. The automatic font size shrinks text
+  until it fits, but a fixed size had nothing stopping it, so a reading wider
+  than its column was painted across the column beside it: two numbers on top of
+  each other, both unreadable, with nothing in the grid to say which belonged
+  where.
+
 ## 2.4.8
 
 2026-09-21
