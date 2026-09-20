@@ -35,7 +35,10 @@ export function alertSettingsSchema(source: AlertSource, condition?: AlertCondit
       { value: 'once', label: 'Once' }, { value: 'everyTime', label: 'Every match' },
     ] },
     { key: 'cooldownSeconds', type: 'number', label: 'Cooldown (seconds)', default: 0, min: 0, step: 1 },
-    { key: 'expiresAt', type: 'text', label: 'Expires (UTC)', default: '', tooltip: 'Leave empty for no expiry.' },
+    // The zone belongs to the chart, so the editor appends it. A fixed one
+    // here was UTC, while every candle the alert is set against is labelled in
+    // the chart's own.
+    { key: 'expiresAt', type: 'text', label: 'Expires', default: '', tooltip: 'Leave empty for no expiry.' },
     { key: 'message', type: 'text', label: 'Message', default: '' },
     { key: 'enabled', type: 'boolean', label: 'Enabled', default: true },
   );
