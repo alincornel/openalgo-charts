@@ -2,6 +2,8 @@ export default {
   '-- intro': { type: 'separator', title: 'Introduction' },
   'getting-started': 'Getting Started',
   'migrating-to-2': 'Migrating to 2.0',
+  upgrading: 'Upgrading to 2.4.5',
+  compatibility: 'Compatibility & Maintenance',
   cdn: 'Use from a CDN',
   'core-concepts': 'Core Concepts',
   architecture: 'Architecture',
@@ -45,6 +47,7 @@ export default {
   'depth-of-market': 'Depth of Market Demo',
 
   '-- data': { type: 'separator', title: 'Data & Feeds' },
+  instruments: 'Instrument Metadata',
   'data-loading': 'Data Loading',
   'live-data': 'Live Data (OpenAlgo)',
   'openalgo-compatibility': 'OpenAlgo Compatibility',

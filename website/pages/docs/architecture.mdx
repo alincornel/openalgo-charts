@@ -1,13 +1,13 @@
 ---
 title: Architecture
-description: How OpenAlgo Charts is put together - seven layers from the public API down to feeds and data, and eight independently loadable bundle tiers.
+description: How OpenAlgo Charts is put together - seven layers from the public API down to feeds and data, and nine independently loadable bundle tiers.
 ---
 
 # Architecture
 
 import ArchitectureDiagram from '../../components/ArchitectureDiagram'
 
-OpenAlgo Charts 2.4.0 is a browser charting engine with no runtime dependencies.
+OpenAlgo Charts 2.4.5 is a browser charting engine with no runtime dependencies.
 Each pane has a base canvas for chart content and an overlay canvas for transient
 interaction. You can build your own interface or use the optional widget tier.
 
@@ -17,6 +17,10 @@ interaction. You can build your own interface or use the optional widget tier.
 
 | Area | Current architecture |
 |---|---|
+| Instruments | Version 2.4.5 adds validated metadata for price precision, sessions, quantity steps and order constraints. Hosts retain ownership of instrument lookup and credentials. |
+| Workspaces | The optional workspace tier provides validated portable documents, indicator templates, revisioned named catalogs and asynchronous storage adapters. |
+| Widget language | Version 2.4.5 adds a typed translation callback with English fallback for controls and accessible labels. User content and instrument identifiers remain literal. |
+| Trading capabilities | Version 2.4.5 checks declared operation, order-type and mode support before writes and rechecks after asynchronous confirmation. |
 | Navigation | Version 2.1.8 normalizes wheel units, routes gestures by axis and eases automatic price projections. The widget adds touch controls that follow container width and pointer type. |
 | Data loading | Version 2.1.6 shares request scheduling, cache snapshots, history paging, stream repair and loading states across widget and custom hosts. |
 | Object management | Version 2.1.7 shares inventory and supported object actions across widgets and custom terminals. The Objects panel adapts to the chart's container size. |
@@ -27,7 +31,7 @@ interaction. You can build your own interface or use the optional widget tier.
 | Depth integration | Version 2.0.1 corrected the requested depth subscription field. The current ladder supports tick grouping, demonstrated in the new [depth guide](/docs/depth-of-market). |
 
 The diagram is a capability map. The seven rows describe responsibilities;
-the eight bundle tiers describe what an application imports.
+the nine bundle tiers describe what an application imports.
 
 ## The layers
 
@@ -57,7 +61,9 @@ turn bars into Renko, Range, Point and Figure, Kagi, Line Break or Heikin Ashi.
 
 **Session.** [Replay](/docs/market-replay), [comparison](/docs/symbol-comparison),
 [chart linking](/docs/chart-linking), [keyboard shortcuts](/docs/keyboard-shortcuts)
-and the [drawing controller](/docs/drawing-clipboard).
+and the [drawing controller](/docs/drawing-clipboard). The optional
+[workspace tier](https://github.com/marketcalls/openalgo-charts/blob/master/docs/workspaces.md) adds validated layout documents, indicator
+templates and asynchronous persistence without adding interface controls.
 
 **Trade layer.** Order engine with a state machine and OCO, a depth-of-market
 ladder with configurable tick grouping, and drag-to-modify. Grouping combines
@@ -90,19 +96,20 @@ tiers stay outside the base bundle.
 
 | Tier | Brotli | Contents |
 |---|--:|---|
-| `openalgo-charts` | 78.07 KB | Engine, 13 chart types, panes and scales, primitives, registries, chart state, linking, bar cache, trading overlay, SVG export, render backend port, feeds |
-| `openalgo-charts/widget` | 42.49 KB | Packaged interface controls through `createWidget`: top bar, drawing rail, mobile controls, status line, dialogs, right-click menu, keymap and persistence |
-| `openalgo-charts/indicators` | 29.05 KB | 102 built-ins, shared TA helpers, and the Tier-2 external-data contract |
-| `openalgo-charts/draw` | 34.53 KB | 85 drawing tools, headless controller, clipboard, settings schema |
-| `openalgo-charts/profile` | 14.96 KB | Volume Profile, Market Profile (TPO), Footprint, order flow |
-| `openalgo-charts/trade` | 7.61 KB | Order, position and bracket tools, DOM ladder |
-| `openalgo-charts/webgl` | 6.39 KB | WebGL2 series backend, composited into the pane's canvas, 2D fallback for the session on context loss |
-| `openalgo-charts/transform` | 4.44 KB | Heikin Ashi, Renko, Range, Line Break, Point and Figure, Kagi, symbol arithmetic |
+| `openalgo-charts` | 91.00 kB | Engine, 13 chart types, panes and scales, primitives, registries, chart state, linking, bar cache, trading overlay, SVG export, render backend port, feeds |
+| `openalgo-charts/widget` | 48.30 kB | Packaged interface controls through `createWidget`: top bar, drawing rail, mobile controls, status line, dialogs, right-click menu, keymap and persistence |
+| `openalgo-charts/indicators` | 29.84 kB | 105 built-ins, shared TA helpers, and the Tier-2 external-data contract |
+| `openalgo-charts/draw` | 35.43 kB | 85 drawing tools, headless controller, clipboard, settings schema |
+| `openalgo-charts/profile` | 14.96 kB | Volume Profile, Market Profile (TPO), Footprint, order flow |
+| `openalgo-charts/trade` | 8.01 kB | Order, position and bracket tools, DOM ladder |
+| `openalgo-charts/webgl` | 6.39 kB | WebGL2 series backend, composited into the pane's canvas, 2D fallback for the session on context loss |
+| `openalgo-charts/transform` | 4.50 kB | Heikin Ashi, Renko, Range, Line Break, Point and Figure, Kagi, symbol arithmetic |
+| `openalgo-charts/workspace` | 5.52 kB | Validated workspace and template documents, revisioned named catalogs, asynchronous storage and IndexedDB adapter |
 
-**217.54 KB Brotli** for every tier at once; a widget terminal (base + draw +
-indicators + widget, what one `createWidget` call loads) is 184.14 KB. Figures are
-the measured `size-limit` output and are enforced in CI, so a change that grows a
-bundle past its budget fails the build.
+**243.96 kB Brotli** for every tier at once; a widget terminal with built-in
+indicators (base + draw + indicators + widget) is 204.58 kB. Figures are decimal
+kB from the 2.4.5 build, measured by `size-limit`. CI enforces the budgets and
+fails a build when a bundle exceeds its limit.
 
 The widget is a packaged host that drives the seven capability layers through the
 same public API as your own interface. The base engine creates its canvas and
@@ -111,7 +118,7 @@ controls. See [The Widget Tier](/docs/widget).
 
 ## Custom indicators
 
-The 102 built-ins are not special-cased. Each one is a descriptor: inputs, plots and
+The 105 built-ins are not special-cased. Each one is a descriptor: inputs, plots and
 a `calc` function, optionally with `markers`, `draws`, `levels`, `background`,
 `barColors`, `fills`, `alerts` and a `table`. Anything you register through
 `registerIndicator` uses exactly the same contract and gets the same treatment,

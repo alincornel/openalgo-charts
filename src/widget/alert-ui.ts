@@ -9,8 +9,9 @@ import { Keymap } from './keymap';
 import { injectWidgetStyles } from './styles';
 import { mountToasts } from './toast';
 import { applyTokens, widgetTokens, type WidgetThemeName } from './tokens';
+import type { WidgetTranslationOptions } from './localization';
 
-export interface AlertUiOptions {
+export interface AlertUiOptions extends WidgetTranslationOptions {
   chart: Chart;
   draw: DrawingController;
   alerts: AlertController;
@@ -43,7 +44,7 @@ export function createAlertUi(container: HTMLElement, options: AlertUiOptions): 
   const tips = createTipController(root, overlays.layer, doc);
   const toastRoot = h(doc, 'div', 'oac-toasts');
   root.appendChild(toastRoot);
-  const toasts = mountToasts(toastRoot, doc);
+  const toasts = mountToasts(toastRoot, doc, options);
   let theme = options.theme ?? 'dark';
   let chartTheme = options.chartTheme ?? (theme === 'light' ? lightTheme : darkTheme);
   let destroyed = false;
@@ -59,7 +60,7 @@ export function createAlertUi(container: HTMLElement, options: AlertUiOptions): 
     chart: options.chart, draw: options.draw, alerts: options.alerts, root, document: doc,
     get theme() { return theme; }, get chartTheme() { return chartTheme; },
     keymap: new Keymap(), bus: new WidgetBus(), storage: new WidgetStorage('alert-ui', null),
-    locale: options.locale, tips, overlays,
+    locale: options.locale, translate: options.translate, tips, overlays,
     toast: (message, kind) => toasts.toast(message, kind),
     status: (message, kind) => { toasts.toast(message, kind); },
     symbol: () => ({ symbol: options.chart.getDataContext()?.symbol ?? '', exchange: options.chart.getDataContext()?.exchange ?? '' }),

@@ -98,7 +98,7 @@ export function list(input: Json | undefined, label: string, max: number): Json[
 
 export function string(input: Json | undefined, label: string, max = 200, empty = false): string {
   if (typeof input !== 'string' || (!empty && input.trim().length === 0) || input.length > max || Array.from(input).some(char => char.charCodeAt(0) < 32)) {
-    throw new WorkspaceDocumentError(`${label} must be ${empty ? '0' : '1'}–${max} characters`);
+    throw new WorkspaceDocumentError(`${label} must be ${empty ? '0' : '1'}-${max} characters`);
   }
   return input.trim();
 }

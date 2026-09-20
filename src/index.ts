@@ -138,6 +138,7 @@ export type {
 
 // headless market replay (host renders its own transport bar)
 export { ReplayController } from './replay/controller';
+export { isReplaying } from './model/replay-window';
 export type {
   ReplayOptions, ReplayState, ReplayScheduler, ReplayChartHost, ReplayViewport,
 } from './replay/controller';
@@ -228,6 +229,10 @@ export type { Bar, LinePoint, Whitespace, SeriesDataItem, UTCSeconds, OriginalTi
 export { isWhitespace, toBar } from './model/bar';
 
 export type { DataFeed, TradeFeed, BarsRequest, BarsPageRequest, BarsPage, BarSubscriptionOptions, LiveBarMeta, MarketDepth, DepthLevel, OrderSide, OrderType, PlaceOrder, UnsubscribeFn } from './feed/types';
+export { Instrument } from './feed/instrument';
+export type { InstrumentMetadata, InstrumentCalendar, InstrumentSession } from './feed/instrument';
+export { checkTradingCapability, assertTradingCapability, TradingCapabilityError } from './feed/trading-capabilities';
+export type { TradingOperation, TradingCapabilities, TradingCapabilityRequest, TradingCapabilitySource, TradingCapabilityResult } from './feed/trading-capabilities';
 export { HistoryRequestPool, sharedHistoryRequests } from './feed/request-pool';
 export type { HistoryRequestPoolOptions } from './feed/request-pool';
 export { DataLoadingController } from './feed/data-controller';

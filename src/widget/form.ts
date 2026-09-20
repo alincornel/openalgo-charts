@@ -21,6 +21,7 @@ import type { ChartSettingsInput } from 'openalgo-charts';
 import { chromeIconSvg } from 'openalgo-charts/draw';
 import type { SettingsField } from 'openalgo-charts/draw';
 import type { OverlayOptions } from './context';
+import { widgetText, type WidgetTranslationOptions } from './localization';
 
 // ── the unified control model ─────────────────────────────────────────────
 
@@ -54,7 +55,7 @@ export interface FormControl {
 
 export type FormValues = Readonly<Record<string, unknown>>;
 
-export interface FormOptions {
+export interface FormOptions extends WidgetTranslationOptions {
   values: FormValues;
   /** Every edit, with the value in the control's declared type. */
   onChange(key: string, value: unknown): void;
@@ -113,7 +114,7 @@ function intervalOptions(): { label: string; value: string }[] {
  * Chart-settings and indicator inputs. `source` becomes a select over the
  * canonical price sources; a `colorPair` keeps its two or three keys.
  */
-export function controlsFromInputs(inputs: readonly ChartSettingsInput[]): FormControl[] {
+export function controlsFromInputs(inputs: readonly ChartSettingsInput[], translation?: FormTranslationOptions): FormControl[] {
   const out: FormControl[] = [];
   for (const input of inputs) {
     const before = out.length;
@@ -163,7 +164,29 @@ export function controlsFromInputs(inputs: readonly ChartSettingsInput[]): FormC
     // field, and a branch that forgot it would drop the help text silently.
     if (input.tooltip !== undefined && out.length > before) out[before].tooltip = input.tooltip;
   }
-  return out;
+  return localizeControls(out, translation);
+}
+
+export interface FormTranslationOptions extends WidgetTranslationOptions {
+  /** Stable descriptor scope, for example settings or indicator.ema. */
+  scope: string;
+}
+
+function localizeControls(controls: FormControl[], translation?: FormTranslationOptions): FormControl[] {
+  if (translation?.translate === undefined) return controls;
+  const label = (key: string, fallback: string): string => widgetText(translation, `schema.${translation.scope}.${key}`, {}, fallback);
+  return controls.map(control => ({
+    ...control,
+    label: label(`${control.key}.label`, control.label),
+    group: control.group === undefined ? undefined : label(`group.${control.group}`, control.group),
+    tooltip: control.tooltip === undefined ? undefined : label(`${control.key}.tooltip`, control.tooltip),
+    options: control.options?.map(option => ({ ...option, label: option.label === option.value ? option.label : label(`${control.key}.option.${option.value}`, option.label) })),
+    pair: control.pair === undefined ? undefined : {
+      ...control.pair,
+      up: { ...control.pair.up, label: label(`${control.pair.up.key}.label`, control.pair.up.label) },
+      down: { ...control.pair.down, label: label(`${control.pair.down.key}.label`, control.pair.down.label) },
+    },
+  }));
 }
 
 /** Our words for the draw tier's group ids. */
@@ -177,7 +200,7 @@ export const DRAWING_GROUP_LABELS: Readonly<Record<string, string>> = {
  * level editor is its own surface), and the text tool's content is the one
  * multi-line box.
  */
-export function controlsFromFields(fields: readonly SettingsField[]): FormControl[] {
+export function controlsFromFields(fields: readonly SettingsField[], translation?: FormTranslationOptions): FormControl[] {
   const out: FormControl[] = [];
   for (const f of fields) {
     const group = f.group === undefined ? undefined : (DRAWING_GROUP_LABELS[f.group] ?? f.group);
@@ -207,7 +230,7 @@ export function controlsFromFields(fields: readonly SettingsField[]): FormContro
         break;
     }
   }
-  return out;
+  return localizeControls(out, translation);
 }
 
 // ── value helpers ─────────────────────────────────────────────────────────
@@ -360,7 +383,7 @@ export interface DialogFrame {
   setTitle(title: string): void;
 }
 
-export interface DialogFrameSpec {
+export interface DialogFrameSpec extends WidgetTranslationOptions {
   title: string;
   /** Extra class on the card. */
   className?: string;
@@ -387,7 +410,7 @@ export function dialogFrame(doc: Document, spec: DialogFrameSpec): DialogFrame {
   const head = el(doc, 'div', 'oac-dialog__head');
   const title = el(doc, 'span', 'oac-dialog__title', spec.title);
   title.id = titleId;
-  const closeButton = button(doc, { label: 'Close', icon: 'close', iconOnly: true, onClick: () => spec.onClose() });
+  const closeButton = button(doc, { label: widgetText(spec, 'Close'), icon: 'close', iconOnly: true, onClick: () => spec.onClose() });
   head.appendChild(title);
   head.appendChild(closeButton);
 
@@ -743,7 +766,7 @@ export function renderForm(host: HTMLElement, controls: readonly FormControl[], 
           const cur = typeof v === 'string' ? v : v === undefined ? undefined : String(v);
           // A value outside the list (a font stack the user typed) stays
           // selectable as its own entry rather than snapping to the first.
-          if (cur !== undefined && cur !== '' && !list.some((o) => o.value === cur)) list.push({ value: cur, label: 'Custom' });
+          if (cur !== undefined && cur !== '' && !list.some((o) => o.value === cur)) list.push({ value: cur, label: widgetText(opts, 'Custom') });
           for (const o of list) {
             const opt = el(doc, 'option', undefined, o.label);
             opt.value = o.value;

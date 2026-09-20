@@ -1,3 +1,4 @@
+import { widgetText } from '../localization';
 /**
  * The indicator picker: everything the indicator registry holds, grouped by
  * category, with a search box that filters as you type. Built from
@@ -53,20 +54,20 @@ export function mountIndicatorPicker(
   const doc = ctx.document;
   const all = registeredIndicators();
 
-  const frame = dialogFrame(doc, { title: 'Indicators', className: 'oac-pick', onClose: () => handle.close() });
+  const frame = dialogFrame(doc, { translate: ctx.translate, title: widgetText(ctx, 'Indicators'), className: 'oac-pick', onClose: () => handle.close() });
   const find = el(doc, 'input', 'oac-pick__find');
   find.type = 'search';
-  find.placeholder = 'Search indicators';
-  find.setAttribute('aria-label', 'Search indicators');
+  find.placeholder = widgetText(ctx, 'Search indicators');
+  find.setAttribute('aria-label', widgetText(ctx, 'Search indicators'));
   find.setAttribute('spellcheck', 'false');
   const findWrap = el(doc, 'div', 'oac-pick__findwrap');
   findWrap.appendChild(find);
   const list = el(doc, 'div', 'oac-pick__list');
   list.setAttribute('role', 'listbox');
-  list.setAttribute('aria-label', 'Indicators');
+  list.setAttribute('aria-label', widgetText(ctx, 'Indicators'));
   frame.body.appendChild(findWrap);
   frame.body.appendChild(list);
-  frame.actions.appendChild(button(doc, { label: 'Done', variant: 'primary', onClick: () => handle.close() }));
+  frame.actions.appendChild(button(doc, { label: widgetText(ctx, 'Done'), variant: 'primary', onClick: () => handle.close() }));
 
   let rows: HTMLButtonElement[] = [];
   let active = -1;
@@ -84,7 +85,7 @@ export function mountIndicatorPicker(
 
   const add = (d: IndicatorDescriptor): void => {
     const inst = chart.addIndicator(d.id);
-    ctx.toast(`Added ${inst.name}`, 'success');
+    ctx.toast(widgetText(ctx, 'Added {name}', { name: inst.name }), 'success');
     opts.onAdd?.(inst);
     if (opts.closeOnAdd === true) { handle.close(); return; }
     paint();
@@ -97,16 +98,17 @@ export function mountIndicatorPicker(
     rows = [];
     if (all.length === 0) {
       list.appendChild(el(doc, 'div', 'oac-empty',
-        'No indicators are registered. Import the indicators tier to fill this list.'));
+        widgetText(ctx, 'No indicators are registered. Import the indicators tier to fill this list.')));
       return;
     }
-    const shown = filterIndicators(all, query);
+    const localized = all.map(descriptor => ({ ...descriptor, name: widgetText(ctx, `schema.indicator.${descriptor.id}.name`, {}, descriptor.name), category: descriptor.category === undefined ? undefined : widgetText(ctx, `schema.indicator.category.${descriptor.category}`, {}, descriptor.category) }));
+    const shown = filterIndicators(localized, query);
     if (shown.length === 0) {
-      list.appendChild(el(doc, 'div', 'oac-empty', 'No match'));
+      list.appendChild(el(doc, 'div', 'oac-empty', widgetText(ctx, 'No match')));
       return;
     }
     for (const [cat, items] of groupIndicators(shown)) {
-      list.appendChild(el(doc, 'div', 'oac-head', cat));
+      list.appendChild(el(doc, 'div', 'oac-head', cat === 'Other' ? widgetText(ctx, 'Other') : cat));
       for (const d of items) {
         const row = el(doc, 'button', 'oac-pick__row');
         row.type = 'button';
@@ -115,8 +117,8 @@ export function mountIndicatorPicker(
         row.appendChild(el(doc, 'span', 'oac-pick__name', d.name));
         const n = onChart(d.id);
         if (n > 0) {
-          const badge = el(doc, 'span', 'oac-pick__count', n === 1 ? 'on chart' : `on chart x${n}`);
-          badge.setAttribute('aria-label', n === 1 ? 'one instance on the chart' : `${n} instances on the chart`);
+          const badge = el(doc, 'span', 'oac-pick__count', n === 1 ? widgetText(ctx, 'on chart') : widgetText(ctx, 'on chart x{count}', { count: n }));
+          badge.setAttribute('aria-label', n === 1 ? widgetText(ctx, 'one instance on the chart') : widgetText(ctx, '{count} instances on the chart', { count: n }));
           row.appendChild(badge);
         }
         row.addEventListener('click', (e) => { e.stopPropagation(); add(d); });

@@ -1,3 +1,4 @@
+import { widgetText } from './localization';
 /**
  * The status line: one row under the chart with the engine's status-line
  * fields in HTML, so a host that turns the on-canvas legend off still has a
@@ -86,13 +87,13 @@ export function mountStatusline(ctx: WidgetContext, host: HTMLElement, opts: Sta
     host.appendChild(el);
     return { el, val: b };
   };
-  const open = field('O', 'oac-statusline__o');
-  const high = field('H', 'oac-statusline__h');
-  const low = field('L', 'oac-statusline__l');
-  const close = field('C', 'oac-statusline__c');
+  const open = field(widgetText(ctx, 'O'), 'oac-statusline__o');
+  const high = field(widgetText(ctx, 'H'), 'oac-statusline__h');
+  const low = field(widgetText(ctx, 'L'), 'oac-statusline__l');
+  const close = field(widgetText(ctx, 'C'), 'oac-statusline__c');
   const chg = field('', 'oac-statusline__chg');
-  const vol = field('Vol', 'oac-statusline__vol');
-  const oi = field('OI', 'oac-statusline__oi');
+  const vol = field(widgetText(ctx, 'Vol'), 'oac-statusline__vol');
+  const oi = field(widgetText(ctx, 'OI'), 'oac-statusline__oi');
   const time = h(doc, 'span', 'oac-statusline__time');
   host.appendChild(time);
   const msg = h(doc, 'span', 'oac-statusline__msg');

@@ -1,3 +1,4 @@
+import { widgetText } from '../localization';
 import { alertSettingsSchema, getBarCondition, type Alert, type AlertCondition, type AlertInput, type AlertPatch, type AlertSource } from 'openalgo-charts';
 import type { WidgetContext } from '../context';
 import { button, controlsFromInputs, dialogFrame, el, openPanel, renderForm, type FormHandle, type PanelHandle } from '../form';
@@ -21,11 +22,11 @@ function expiryText(value: number | undefined): string {
   return value === undefined ? '' : new Date(value * 1000).toISOString().slice(0, 16);
 }
 
-function expiryValue(value: unknown): number | undefined {
+function expiryValue(ctx: WidgetContext, value: unknown): number | undefined {
   if (value === '') return undefined;
-  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) throw new Error('Enter an expiry date and time in UTC');
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) throw new Error(widgetText(ctx, 'Enter an expiry date and time in UTC'));
   const seconds = Date.parse(value + ':00Z') / 1000;
-  if (!Number.isFinite(seconds) || expiryText(seconds) !== value) throw new Error('Enter a valid expiry date and time in UTC');
+  if (!Number.isFinite(seconds) || expiryText(seconds) !== value) throw new Error(widgetText(ctx, 'Enter a valid expiry date and time in UTC'));
   return seconds;
 }
 
@@ -57,26 +58,26 @@ export function mountAlertEditor(ctx: WidgetContext, anchor?: HTMLElement, opts:
     panel?.close();
     opts.onClose?.();
   }
-  const frame = dialogFrame(ctx.document, { title: existing ? 'Edit alert' : 'Create alert', className: 'oac-alert-editor', onClose: close });
-  frame.closeButton.textContent = 'Close';
+  const frame = dialogFrame(ctx.document, { translate: ctx.translate, title: existing ? widgetText(ctx, 'Edit alert') : widgetText(ctx, 'Create alert'), className: 'oac-alert-editor', onClose: close });
+  frame.closeButton.textContent = widgetText(ctx, 'Close');
   frame.closeButton.classList.remove('oac-btn--icon');
   const context = el(ctx.document, 'p', 'oac-alert-context', [initialContext?.symbol, initialContext?.exchange, initialContext?.interval].filter(Boolean).join(' / '));
   const fields = el(ctx.document, 'div');
   const availability = el(ctx.document, 'p', 'oac-alert-help');
-  const timing = el(ctx.document, 'p', 'oac-alert-help', 'Bar close evaluates confirmed values. Intrabar touch can fire on a wick that is absent from final history.');
+  const timing = el(ctx.document, 'p', 'oac-alert-help', widgetText(ctx, 'Bar close evaluates confirmed values. Intrabar touch can fire on a wick that is absent from final history.'));
   const error = el(ctx.document, 'p', 'oac-alert-error');
   error.setAttribute('role', 'status');
   frame.body.append(context, fields, availability, timing, error);
-  const save = button(ctx.document, { label: 'Save', variant: 'primary', onClick: commit });
+  const save = button(ctx.document, { label: widgetText(ctx, 'Save'), variant: 'primary', onClick: commit });
   save.dataset.action = 'save-alert';
-  const cancel = button(ctx.document, { label: 'Cancel', onClick: close });
+  const cancel = button(ctx.document, { label: widgetText(ctx, 'Cancel'), onClick: close });
   cancel.dataset.action = 'cancel-alert';
   frame.actions.append(cancel, save);
 
   function unavailable(): string | undefined {
-    if (!alerts) return 'Alerts are unavailable in this host';
-    if (opts.alertId && !alerts.list().some(alert => alert.id === opts.alertId)) return 'This alert was removed';
-    if (scope(ctx.chart.getDataContext()) !== initialScope || (existing && scope(existing.scope) !== initialScope)) return 'The instrument context changed. Reopen the editor for the intended instrument.';
+    if (!alerts) return widgetText(ctx, 'Alerts are unavailable in this host');
+    if (opts.alertId && !alerts.list().some(alert => alert.id === opts.alertId)) return widgetText(ctx, 'This alert was removed');
+    if (scope(ctx.chart.getDataContext()) !== initialScope || (existing && scope(existing.scope) !== initialScope)) return widgetText(ctx, 'The instrument context changed. Reopen the editor for the intended instrument.');
     return alertSourceFields(ctx, draft).reason;
   }
   function refreshAvailability(): void {
@@ -90,8 +91,8 @@ export function mountAlertEditor(ctx: WidgetContext, anchor?: HTMLElement, opts:
     const schema = alertSettingsSchema(selection.source, draft.condition as AlertCondition | undefined);
     for (const field of schema) if (!(field.key in draft)) draft[field.key] = field.default;
     draft.condition = schema.find(field => field.key === 'condition')!.default;
-    form = renderForm(fields, [...selection.controls, ...controlsFromInputs(schema)], {
-      idPrefix: formId, values: draft, preserveInvalidNumbers: true,
+    form = renderForm(fields, [...selection.controls, ...controlsFromInputs(schema, { translate: ctx.translate, scope: 'alert' })], {
+      idPrefix: formId, values: draft, translate: ctx.translate, preserveInvalidNumbers: true,
       onChange: (key, value) => {
         draft = { ...draft, ...form.values(), [key]: value };
         if (key === 'enabled') enabledChanged = true;
@@ -133,12 +134,12 @@ export function mountAlertEditor(ctx: WidgetContext, anchor?: HTMLElement, opts:
         policy: draft.policy as AlertInput['policy'], repeat: draft.repeat as AlertInput['repeat'],
         cooldownSeconds: draft.cooldownSeconds as number,
       };
-      if (!existing || draft.expiresAt !== expiryText(existing.expiresAt)) patch.expiresAt = expiryValue(draft.expiresAt);
+      if (!existing || draft.expiresAt !== expiryText(existing.expiresAt)) patch.expiresAt = expiryValue(ctx, draft.expiresAt);
       if (!existing || enabledChanged) patch.state = draft.enabled ? 'armed' : 'disabled';
       if (existing) alerts!.update(existing.id, patch);
       else alerts!.add(patch as AlertInput);
       close();
-    } catch (cause) { error.textContent = cause instanceof Error ? cause.message : 'Could not save this alert'; }
+    } catch (cause) { error.textContent = cause instanceof Error ? cause.message : widgetText(ctx, 'Could not save this alert'); }
   }
   render();
   refreshAvailability();
@@ -162,33 +163,33 @@ export function mountAlertsPanel(ctx: WidgetContext, anchor?: HTMLElement, opts:
     panel?.close();
     opts.onClose?.();
   }
-  const frame = dialogFrame(ctx.document, { title: 'Alerts', className: 'oac-alerts', onClose: close });
-  frame.closeButton.textContent = 'Close';
+  const frame = dialogFrame(ctx.document, { translate: ctx.translate, title: widgetText(ctx, 'Alerts'), className: 'oac-alerts', onClose: close });
+  frame.closeButton.textContent = widgetText(ctx, 'Close');
   frame.closeButton.classList.remove('oac-btn--icon');
   const list = el(ctx.document, 'div', 'oac-alerts__list');
   list.setAttribute('role', 'list');
-  list.setAttribute('aria-label', 'Chart alerts');
-  const empty = el(ctx.document, 'p', 'oac-empty', alerts ? 'No alerts. Create an alert for this chart.' : 'Alerts are unavailable in this host');
+  list.setAttribute('aria-label', widgetText(ctx, 'Chart alerts'));
+  const empty = el(ctx.document, 'p', 'oac-empty', alerts ? widgetText(ctx, 'No alerts. Create an alert for this chart.') : widgetText(ctx, 'Alerts are unavailable in this host'));
   const count = el(ctx.document, 'span', 'oac-alert-context');
   count.setAttribute('role', 'status');
-  const create = button(ctx.document, { label: 'Create alert', variant: 'primary', onClick: () => { mountAlertEditor(ctx); } });
+  const create = button(ctx.document, { label: widgetText(ctx, 'Create alert'), variant: 'primary', onClick: () => { mountAlertEditor(ctx); } });
   create.dataset.action = 'create-alert';
   create.disabled = !alerts;
   frame.body.append(list, empty);
   frame.lead.appendChild(count);
   frame.actions.appendChild(create);
-  const stateNames = { armed: 'Armed', triggered: 'Triggered', expired: 'Expired', disabled: 'Disabled' };
+  const stateNames = { armed: widgetText(ctx, 'Armed'), triggered: widgetText(ctx, 'Triggered'), expired: widgetText(ctx, 'Expired'), disabled: widgetText(ctx, 'Disabled') };
   function sourceText(alert: Alert): string {
     const source = alert.source;
-    if (source.kind === 'price') return `Price ${source.price}${source.upperPrice === undefined ? '' : ` to ${source.upperPrice}`}`;
-    if (source.kind === 'barCondition') return getBarCondition(source.id)?.title ?? 'Unavailable candle condition';
+    if (source.kind === 'price') return source.upperPrice === undefined ? widgetText(ctx, 'Price {price}', { price: source.price }) : widgetText(ctx, 'Price {price} to {upper}', { price: source.price, upper: source.upperPrice });
+    if (source.kind === 'barCondition') return getBarCondition(source.id)?.title ?? widgetText(ctx, 'Unavailable candle condition');
     if (source.kind === 'drawing') {
       const selection = alertSourceFields(ctx, { ...source, inputInstanceId: source.input?.instanceId, inputPlotKey: source.input?.plotKey });
       const drawing = selection.controls.find(control => control.key === 'drawingId')?.options?.find(option => option.value === source.drawingId)?.label;
-      return `${drawing ?? 'Unavailable drawing'} / ${source.level ?? 'Default level'}`;
+      return `${drawing ?? widgetText(ctx, 'Unavailable drawing')} / ${source.level ?? widgetText(ctx, 'Default level')}`;
     }
     const instance = ctx.chart.indicators().find(item => item.id === source.instanceId);
-    return `${instance?.name ?? 'Unavailable study'} / ${source.plotKey}: ${source.value}${source.upperValue === undefined ? '' : ` to ${source.upperValue}`}`;
+    return widgetText(ctx, source.upperValue === undefined ? '{name} / {plot}: {value}' : '{name} / {plot}: {value} to {upper}', { name: instance?.name ?? widgetText(ctx, 'Unavailable study'), plot: source.plotKey, value: source.value, upper: source.upperValue ?? '' });
   }
   function render(): void {
     if (closed || rendering) return;
@@ -206,15 +207,15 @@ export function mountAlertsPanel(ctx: WidgetContext, anchor?: HTMLElement, opts:
           const summary = el(ctx.document, 'div', 'oac-alerts__summary');
           const status = el(ctx.document, 'div', 'oac-alerts__status');
           const actions = el(ctx.document, 'div', 'oac-alerts__actions');
-          const edit = button(ctx.document, { label: 'Edit', onClick: () => { mountAlertEditor(ctx, undefined, { alertId: alert.id }); } });
+          const edit = button(ctx.document, { label: widgetText(ctx, 'Edit'), onClick: () => { mountAlertEditor(ctx, undefined, { alertId: alert.id }); } });
           edit.dataset.action = 'edit-alert';
-          const toggle = button(ctx.document, { label: 'Disable', onClick: () => {
+          const toggle = button(ctx.document, { label: widgetText(ctx, 'Disable'), onClick: () => {
             const current = alerts?.list().find(item => item.id === alert.id);
             if (current?.state === 'armed') alerts?.disable(alert.id);
             else alerts?.enable(alert.id);
           } });
           toggle.dataset.action = 'toggle-alert';
-          const remove = button(ctx.document, { label: 'Delete', onClick: () => { alerts?.remove(alert.id); } });
+          const remove = button(ctx.document, { label: widgetText(ctx, 'Delete'), onClick: () => { alerts?.remove(alert.id); } });
           remove.dataset.action = 'delete-alert';
           actions.append(edit, toggle, remove);
           node.append(summary, status, actions);
@@ -226,20 +227,20 @@ export function mountAlertsPanel(ctx: WidgetContext, anchor?: HTMLElement, opts:
         row.summary.textContent = `${alert.title}\n${scope}\n${sourceText(alert)}`;
         row.el.dataset.state = alert.state;
         const available = alerts!.availability(alert.id);
-        row.status.textContent = [stateNames[alert.state], alert.policy === 'onBarClose' ? 'Bar close' : 'Intrabar touch',
-          alert.repeat === 'once' ? 'Once' : 'Every match',
-          alert.cooldownSeconds ? `${alert.cooldownSeconds}s cooldown` : '',
-          alert.expiresAt === undefined ? '' : `Expires ${expiryText(alert.expiresAt).replace('T', ' ')} UTC`,
-          alert.lastTriggeredAt === undefined ? '' : `Last fired ${expiryText(alert.lastTriggeredAt).replace('T', ' ')} UTC`,
+        row.status.textContent = [stateNames[alert.state], alert.policy === 'onBarClose' ? widgetText(ctx, 'Bar close') : widgetText(ctx, 'Intrabar touch'),
+          alert.repeat === 'once' ? widgetText(ctx, 'Once') : widgetText(ctx, 'Every match'),
+          alert.cooldownSeconds ? widgetText(ctx, '{seconds}s cooldown', { seconds: alert.cooldownSeconds }) : '',
+          alert.expiresAt === undefined ? '' : widgetText(ctx, 'Expires {time} UTC', { time: expiryText(alert.expiresAt).replace('T', ' ') }),
+          alert.lastTriggeredAt === undefined ? '' : widgetText(ctx, 'Last fired {time} UTC', { time: expiryText(alert.lastTriggeredAt).replace('T', ' ') }),
           available.available ? '' : available.reason,
         ].filter(Boolean).join(' / ');
-        row.toggle.textContent = alert.state === 'armed' ? 'Disable' : 'Enable';
-        row.toggle.setAttribute('aria-label', `${alert.state === 'armed' ? 'Disable' : 'Enable'} ${alert.title}`);
+        row.toggle.textContent = alert.state === 'armed' ? widgetText(ctx, 'Disable') : widgetText(ctx, 'Enable');
+        row.toggle.setAttribute('aria-label', widgetText(ctx, alert.state === 'armed' ? 'Disable {name}' : 'Enable {name}', { name: alert.title }));
         row.toggle.disabled = alert.state !== 'armed' && alert.expiresAt !== undefined && alert.expiresAt <= Date.now() / 1000;
-        row.toggle.title = row.toggle.disabled ? 'Edit the expiry before enabling this alert' : '';
+        row.toggle.title = row.toggle.disabled ? widgetText(ctx, 'Edit the expiry before enabling this alert') : '';
       }
       empty.hidden = records.length > 0;
-      count.textContent = `${records.length} alert${records.length === 1 ? '' : 's'}`;
+      count.textContent = widgetText(ctx, records.length === 1 ? '{count} alert' : '{count} alerts', { count: records.length });
     } finally { rendering = false; }
   }
   for (const event of ['alert:created', 'alert:updated', 'alert:removed', 'alert:triggered', 'alert:expired', 'alerts:restored',

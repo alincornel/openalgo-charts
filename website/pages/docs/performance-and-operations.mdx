@@ -174,9 +174,35 @@ SOAK_TICKS=90000 npm run soak
 ```
 
 For browser verification, record a performance trace and heap snapshots with a
-constant bar count. A flat retained-data count with a steadily rising heap is a
-leak. A growing retained-data count is a retention policy issue. Check canvas
-memory separately, especially on high-DPR displays and charts with many panes.
+constant bar count. Rising collected heap while source data remains fixed calls
+for retained-object investigation. An uncollected reading can include temporary
+allocation, including a tick arriving between collection and measurement. A growing
+retained-data count also needs a retention policy. Check canvas memory separately,
+especially on high-DPR displays and charts with many panes.
+
+## Repeatable browser endurance
+
+The repository provides a real Chromium Canvas2D workload with two charts,
+2,000 bars per chart and ten forming-bar updates per second. It records frame
+and pointer timing, actual price-plot changes, collected heap, DOM counters and
+create/destroy retention. Fixed thresholds fail the process when a gate fails.
+
+```sh
+npm run build
+npm run endurance:browser -- --duration-seconds 1800 --sample-seconds 30
+```
+
+Each run serves an immutable bundle snapshot and records its hashes, runtime
+version, machine, browser, renderer, viewport and DPR. Retained-memory sampling
+briefly pauses synthetic ticks while pending rendering settles and collection
+finishes; those pauses remain included in elapsed time and frame statistics.
+Ordinary allocation pressure is recorded separately.
+
+Require a completed report and inspect its start/end screenshots before citing
+the result. A 30-minute synthetic run does not establish full-session, live-broker,
+mobile, WebGL or other-device performance. See the
+[harness, gates and limitations](https://github.com/marketcalls/openalgo-charts/blob/master/docs/browser-endurance.md)
+for extended workloads and interpretation.
 
 ## Current runtime tradeoff
 

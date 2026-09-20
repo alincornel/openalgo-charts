@@ -33,6 +33,36 @@ Importing the module touches no DOM; only `createWidget` does (it injects the st
 
 ## Exports
 
+### Translation contract (`localization.ts`)
+
+`widgetText(ctx, key, values?)` resolves typed English source messages, interpolates
+named values once and falls back for missing, blank, malformed or throwing host
+translations. `WidgetBuiltinMessage`, `WidgetMessageKey`, `WidgetMessageValues`,
+`WidgetMessageParameters`, `WidgetTranslator` and `WidgetTranslationOptions` are
+the exported types. `WidgetOptions.translate`, `WidgetContext.translate` and
+`AlertUiOptions.translate` share the optional synchronous callback. The callback
+receives `(key, fallback, values)` and returns a translated template or undefined.
+
+Generated metadata uses `schema.*` keys with descriptor text as fallback.
+`FormTranslationOptions` adds a stable `scope` for `controlsFromInputs` and
+`controlsFromFields`; `FormOptions.translate` localizes form furniture. Symbol and
+interval codes, user alert/drawing text, object names, configured branding and
+provider errors remain literal. `locale` independently formats status-line
+numbers. Recreate a widget to change every mounted control's language.
+See [widget localization](../../../../docs/widget-localization.md) for key shapes,
+fallback rules and async persistence guidance.
+
+The existing `WorkspaceRepository`/`WorkspaceStorage` API supplies asynchronous
+account persistence. Keep each repository's namespace fixed, create another for
+an account change, and fence stale restores in the host. Widget `persist` remains
+synchronous preference storage. Do not put credentials in portable documents.
+
+`WidgetOptions` and `ContextMenuHooks` also accept `tradingCapabilities?:
+TradingCapabilitySource`, `tradingMode` and `tradingLocked`. Unsupported order
+routes are hidden; replay and host selection locks disable placement. Callbacks
+recheck capabilities, replay and chart context immediately before `onOrder`.
+Throwing capability/lock providers refuse the action. Execution remains host-owned.
+
 Everything `src/widget/index.ts` exports at runtime. The shell (`createWidget` and the handle) is what a host uses; the rest is exported so a host that wants one piece of the chrome and its own for the rest can have it, or so a dialog module of the host's own can register with the shell.
 
 ### The shell (`widget.ts`)

@@ -66,15 +66,19 @@ export function withinPriceBand(price: number, band: PriceBand): boolean {
 }
 
 /**
- * True if `value` is not a whole multiple of `step`. Tolerance is relative
- * because an absolute slack is meaningless once quantity reaches six figures,
- * and because a fractional step (crypto) makes exact division unreliable:
- * 0.3 / 0.1 is 2.9999999999999996 in binary floating point.
+ * Decimal division needs rounding slack, but quantity growth must never turn
+ * half a lot into rounding noise. Cap slack in grid units and reject counts
+ * whose neighboring integers cannot be represented safely.
  */
 function offGrid(value: number, step: number): boolean {
   if (!Number.isFinite(step) || step <= 0) return false;
   const units = value / step;
-  return Math.abs(units - Math.round(units)) > 1e-6 * Math.max(1, Math.abs(units));
+  const nearest = Math.round(units);
+  if (!Number.isSafeInteger(nearest) || nearest < 1) return true;
+  // Large valid decimal multiples can divide imprecisely yet round-trip exactly.
+  if (nearest * step === value) return false;
+  const tolerance = Math.min(1e-7, 8 * Number.EPSILON * Math.max(1, Math.abs(units)));
+  return Math.abs(units - nearest) > tolerance;
 }
 
 /**

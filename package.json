@@ -1,6 +1,6 @@
 {
   "name": "openalgo-charts",
-  "version": "2.4.0",
+  "version": "2.4.5",
   "description": "From-scratch, dependency-free canvas charting engine for OpenAlgo: professional-grade interactive rendering, advanced on-chart trading, and a one-call widget tier that adds the toolbar, drawing rail, dialogs and shortcuts.",
   "license": "Apache-2.0",
   "author": "marketcalls",
@@ -103,10 +103,12 @@
     "size": "size-limit",
     "bench": "node scripts/bench-indicators.mjs",
     "soak": "node --expose-gc scripts/soak.mjs",
+    "endurance:browser": "node scripts/browser-endurance.mjs",
+    "test:endurance": "node --test scripts/browser-endurance.test.mjs",
     "skills:coverage": "node scripts/check-skills-coverage.mjs",
     "docs": "typedoc",
     "test:demo": "vitest run --config examples/yfinance/vitest.config.ts",
-    "verify": "npm run lint && npm run typecheck && npm run test && npm run build && npm run test:demo && npm run check:dts && npm run size && npm run shake",
+    "verify": "npm run lint && npm run typecheck && npm run test && npm run test:endurance && npm run build && npm run test:demo && npm run check:dts && npm run size && npm run shake",
     "prepublishOnly": "npm run verify",
     "check:dts": "node scripts/check-dts.mjs",
     "shake": "node scripts/check-shake.mjs"

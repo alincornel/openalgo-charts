@@ -4,22 +4,23 @@
 
 Source of truth: `package.json` (`exports`, `sideEffects`, `files`), `rollup.config.js`, `.size-limit.json`, `src/all.ts`.
 
-## The eight entry points
+## The nine entry points
 
-`exports` declares exactly eight specifiers, each with only `types` and `import` conditions. There is no `main`, no `require` condition and no CJS build: the package is ESM-only (`"type": "module"`, `module: dist/openalgo-charts.mjs`).
+`exports` declares exactly nine specifiers, each with only `types` and `import` conditions. There is no `main`, no `require` condition and no CJS build: the package is ESM-only (`"type": "module"`, `module: dist/openalgo-charts.mjs`).
 
 | Specifier | Emitted file | Contents | Brotli measured / limit | Import has side effects |
 |---|---|---|---|---|
-| `openalgo-charts` | `dist/openalgo-charts.mjs` | engine, 13 chart types, indicator + chart-type registries, primitives, feeds, trading controller, shortcuts, TimeNavigator, `ReplayController`, comparison controller, settings schema, chart timezone | 78.07 KB / 79 KB | no |
-| `openalgo-charts/trade` | `dist/openalgo-charts.trade.mjs` | order/position/bracket primitives, DOM ladder, `OrderEngine`, `TradeController`, `FakeBroker` | 7.61 KB standalone; 86 KB limit for base + trade | no |
-| `openalgo-charts/transform` | `dist/openalgo-charts.transform.mjs` | Renko, Range, Point & Figure, Kagi, Line Break, Heikin Ashi, `runTransform`, symbol arithmetic (`parseExpression`, `evaluateExpression`) | 4.44 KB / 6 KB | **yes**, registers the `point-figure` and `kagi` chart types |
-| `openalgo-charts/profile` | `dist/openalgo-charts.profile.mjs` | Volume Profile, TPO / Market Profile, Footprint, orderflow | 14.96 KB / 15 KB | no |
-| `openalgo-charts/indicators` | `dist/openalgo-charts.indicators.mjs` | 102 Tier-1 built-ins plus the Tier-2 contract | 29.05 KB / 30 KB | **yes**, registers all 102 descriptors |
-| `openalgo-charts/draw` | `dist/openalgo-charts.draw.mjs` | 85 drawing tools, `DrawingController`, `DrawingLayer` | 34.53 KB / 36 KB | **yes**, registers every built-in tool |
-| `openalgo-charts/webgl` | `dist/openalgo-charts.webgl.mjs` | the WebGL2 series backend, `createWebGL2Backend`, `isWebGL2Supported`, `WebGL2Backend`, `GlDevice` | 6.39 KB / 7 KB | **yes**, registers the `webgl2` render backend |
-| `openalgo-charts/widget` | `dist/openalgo-charts.widget.mjs` | `createWidget`, the chrome (top bar, rail, status line, toasts), the dialogs, the keymap, the tokens and stylesheet; the only tier that ships DOM. Imports `openalgo-charts/draw` itself | 42.49 KB / 43 KB | **yes**, registers the seven dialog mounts with the shell |
+| `openalgo-charts` | `dist/openalgo-charts.mjs` | engine, 13 chart types, indicator + chart-type registries, primitives, feeds, trading controller, shortcuts, TimeNavigator, `ReplayController`, comparison controller, settings schema, chart timezone | 91.00 kB / 91.5 kB | no |
+| `openalgo-charts/trade` | `dist/openalgo-charts.trade.mjs` | order/position/bracket primitives, DOM ladder, `OrderEngine`, `TradeController`, `FakeBroker` | 8.01 kB standalone; 100 kB limit for base + trade | no |
+| `openalgo-charts/transform` | `dist/openalgo-charts.transform.mjs` | Renko, Range, Point & Figure, Kagi, Line Break, Heikin Ashi, `runTransform`, symbol arithmetic (`parseExpression`, `evaluateExpression`) | 4.50 kB / 6 kB | **yes**, registers the `point-figure` and `kagi` chart types |
+| `openalgo-charts/profile` | `dist/openalgo-charts.profile.mjs` | Volume Profile, TPO / Market Profile, Footprint, orderflow | 14.96 kB / 15 kB | no |
+| `openalgo-charts/indicators` | `dist/openalgo-charts.indicators.mjs` | 105 Tier-1 built-ins plus the Tier-2 contract | 29.84 kB / 30 kB | **yes**, registers all 105 descriptors |
+| `openalgo-charts/draw` | `dist/openalgo-charts.draw.mjs` | 85 drawing tools, `DrawingController`, `DrawingLayer` | 35.43 kB / 36 kB | **yes**, registers every built-in tool |
+| `openalgo-charts/webgl` | `dist/openalgo-charts.webgl.mjs` | the WebGL2 series backend, `createWebGL2Backend`, `isWebGL2Supported`, `WebGL2Backend`, `GlDevice` | 6.39 kB / 7 kB | **yes**, registers the `webgl2` render backend |
+| `openalgo-charts/widget` | `dist/openalgo-charts.widget.mjs` | `createWidget`, the chrome (top bar, rail, status line, toasts), the dialogs, the keymap, the tokens and stylesheet; the only tier that ships DOM. Imports `openalgo-charts/draw` itself | 48.30 kB / 48.75 kB | **yes**, registers the seven dialog mounts with the shell |
+| `openalgo-charts/workspace` | `dist/openalgo-charts.workspace.mjs` | Validated workspace and template documents, `WorkspaceRepository`, revision conflicts and an IndexedDB adapter | 5.52 kB / 6 kB | no |
 
-Types resolve per tier: `dist/index.d.ts`, `dist/trade/index.d.ts`, `dist/transform/index.d.ts`, `dist/profile/index.d.ts`, `dist/indicators/index.d.ts`, `dist/draw/index.d.ts`, `dist/webgl/index.d.ts`, `dist/widget/index.d.ts`.
+Types resolve per tier: `dist/index.d.ts`, `dist/trade/index.d.ts`, `dist/transform/index.d.ts`, `dist/profile/index.d.ts`, `dist/indicators/index.d.ts`, `dist/draw/index.d.ts`, `dist/webgl/index.d.ts`, `dist/widget/index.d.ts`, `dist/workspace/index.d.ts`.
 
 ## Never deep-import into `dist/`
 
@@ -36,7 +37,7 @@ Every `openalgo-charts/<tier>` specifier is external too, and `output.paths` map
 
 Every registry (chart types, indicators, drawing tools) is a module-level `Map` inside exactly one module instance. `createChart` reads the base bundle's copy. A deep import creates a second module instance with a second, empty `Map`:
 
-- `import 'openalgo-charts/dist/openalgo-charts.indicators.mjs'` alongside `import { createChart } from 'openalgo-charts'` in a bundler that resolves the two to different graph nodes registers 102 descriptors into a Map nobody reads. `chart.addIndicator('macd')` then throws as if the tier were never loaded.
+- `import 'openalgo-charts/dist/openalgo-charts.indicators.mjs'` alongside `import { createChart } from 'openalgo-charts'` in a bundler that resolves the two to different graph nodes registers 105 descriptors into a Map nobody reads. `chart.addIndicator('macd')` then throws as if the tier were never loaded.
 - The same failure for `openalgo-charts/transform` shows up as `series type "point-figure" needs the transform tier, import 'openalgo-charts/transform' first`, on a page that plainly did import it.
 - For `openalgo-charts/draw` you get two `DrawingController` classes and two tool tables; `instanceof` checks and tool ids stop lining up across them.
 
@@ -48,8 +49,8 @@ Node and any bundler honouring `exports` will refuse a deep specifier outright, 
 
 Verified against the built output:
 
-- `dist/openalgo-charts.indicators.mjs` and `dist/openalgo-charts.transform.mjs` begin with `import{...}from"./openalgo-charts.mjs"`, a **relative** specifier, not the bare package name. Rollup rewrites it via `output.paths: { 'openalgo-charts': './openalgo-charts.mjs' }`.
-- `dist/openalgo-charts.draw.mjs`, `.trade.mjs` and `.profile.mjs` emit no base import at all: they take only *types* from `openalgo-charts`, which erase at compile time. Their registries and primitives are self-contained.
+- `dist/openalgo-charts.indicators.mjs`, `.transform.mjs`, `.trade.mjs` and `.workspace.mjs` import from `"./openalgo-charts.mjs"`, a **relative** specifier, not the bare package name. Rollup rewrites it via `output.paths: { 'openalgo-charts': './openalgo-charts.mjs' }`.
+- `dist/openalgo-charts.draw.mjs` and `.profile.mjs` emit no base import at all: they take only *types* from `openalgo-charts`, which erase at compile time. Their registries and primitives are self-contained.
 
 **Serving `dist/` directly over HTTP works with no import map.** A `<script type="module">` that loads `/dist/openalgo-charts.indicators.mjs` resolves `./openalgo-charts.mjs` as a sibling URL. Every example in `examples/` relies on this; none declares an import map. The `.d.ts` builds keep the bare specifier, which TypeScript resolves through `exports`.
 
@@ -66,7 +67,7 @@ Verified against the built output:
 ]
 ```
 
-An array, not `false`: the base, trade and profile bundles are declared side-effect-free and tree-shake normally; the five registering tiers are marked as having side effects so a bare `import 'openalgo-charts/indicators'` (or `'openalgo-charts/webgl'`, or the widget, whose import registers its dialogs) is never dropped.
+An array, not `false`: the base, trade, profile and workspace bundles are declared side-effect-free and tree-shake normally; the five registering tiers are marked as having side effects so a bare `import 'openalgo-charts/indicators'` (or `'openalgo-charts/webgl'`, or the widget, whose import registers its dialogs) is never dropped.
 
 Tree-shaking will remove unused named exports from any tier. It will **not** remove a registration that a bundler can see is reachable, the registration runs at module scope in the tier's `index.ts`.
 
@@ -133,20 +134,21 @@ An import map is optional here. Because the tier bundles reference `./openalgo-c
 
 ## Size budgets
 
-Enforced by `npm run size` (`size-limit`, Brotli, `@size-limit/file`), from `.size-limit.json`:
+Enforced by `npm run size` (`size-limit`, Brotli, `@size-limit/file`), from `.size-limit.json`. Current measurements are from 2.4.5 and use decimal kB:
 
 | Budget row | Files measured | Limit | Measured |
 |---|---|---|---|
-| Base engine | `openalgo-charts.mjs` | 79 KB | 78.07 KB |
-| Base + trade layer | base + `trade.mjs` | 86 KB | 85.68 KB |
-| Indicator tier | `indicators.mjs` | 30 KB | 29.05 KB |
-| Draw tier | `draw.mjs` | 36 KB | 34.53 KB |
-| Transform tier | `transform.mjs` | 6 KB | 4.44 KB |
-| Profile tier | `profile.mjs` | 15 KB | 14.96 KB |
-| WebGL2 tier | `webgl.mjs` | 7 KB | 6.39 KB |
-| Widget tier | `widget.mjs` | 43 KB | 42.49 KB |
-| Widget terminal | base + `draw.mjs` + `indicators.mjs` + `widget.mjs` | 185 KB | 184.14 KB |
-| Everything | all eight bundles | 218 KB | 217.54 KB |
+| Base engine | `openalgo-charts.mjs` | 91.5 kB | 91.00 kB |
+| Base + trade layer | base + `trade.mjs` | 100 kB | 99.01 kB |
+| Indicator tier | `indicators.mjs` | 30 kB | 29.84 kB |
+| Draw tier | `draw.mjs` | 36 kB | 35.43 kB |
+| Transform tier | `transform.mjs` | 6 kB | 4.50 kB |
+| Profile tier | `profile.mjs` | 15 kB | 14.96 kB |
+| WebGL2 tier | `webgl.mjs` | 7 kB | 6.39 kB |
+| Widget tier | `widget.mjs` | 48.75 kB | 48.30 kB |
+| Widget terminal | base + `draw.mjs` + `indicators.mjs` + `widget.mjs` | 205 kB | 204.58 kB |
+| Workspace tier | `workspace.mjs` | 6 kB | 5.52 kB |
+| Everything | all nine bundles | 245 kB | 243.96 kB |
 
 Version 2.1.2 raises the full-package budget from 187 KB to 188 KB for the feed, indicator lifecycle and recovery fixes. Version 2.1.3 raises base, widget and widget-terminal ceilings to 68 KB, 37 KB and 157 KB for navigation controls, and the chart-only tree-shaking ceiling to 45 KiB. Version 2.1.6 raises the base, base-plus-trade, widget-terminal and total ceilings
 to 73 KB, 81 KB, 165 KB and 197 KB for shared loading, resilient caching and
@@ -162,11 +164,11 @@ The chart-only tree-shaking ceiling is 46 KiB; widget controls remain excluded.
 
 **Nothing is excluded from these numbers.** The package has zero runtime dependencies (`dependencies` is absent; everything in `devDependencies` is build tooling), so the measured file *is* the shipped payload. There is no CSS to import, no peer dependency, no web-component registration.
 
-`npm run verify` runs lint, typecheck, unit tests, build, demo tests, declaration checks, size budgets and tree shaking, and is the `prepublishOnly` hook.
+`npm run verify` runs lint, typecheck, unit tests, endurance-harness tests, build, demo tests, declaration checks, size budgets and tree shaking, and is the `prepublishOnly` hook.
 
 ## `src/all.ts` is not an entry point
 
-`src/all.ts` re-exports the base plus transform, profile, indicators, draw and webgl into one module, built by the `allBundle` config with the `aliasSelf` plugin resolving `openalgo-charts` back to `src/index.ts`. Nothing is external, so every tier shares one registry instance.
+`src/all.ts` re-exports the base plus transform, profile, indicators, draw, webgl and workspace into one module, built by the `allBundle` config with the `aliasSelf` plugin resolving `openalgo-charts` back to `src/index.ts`. Nothing is external, so every tier shares one registry instance.
 
 It exists so the documentation site's live demos can run every tier from a single module. It is **not** published: `files` excludes it explicitly.
 
@@ -182,7 +184,7 @@ It has no `.d.ts` build and no `exports` entry. `openalgo-charts/all` does not r
 
 ## Tier identity constants
 
-Each opt-in tier exports a string constant naming itself, so feature detection does
+The registering and engine feature tiers export string constants naming themselves, so feature detection does
 not depend on a bare string literal that a rename would silently break:
 
 | Export | Value | From |
@@ -195,7 +197,9 @@ not depend on a bare string literal that a rename would silently break:
 | `WEBGL_TIER` | `'webgl'` | `openalgo-charts/webgl` |
 | `WIDGET_TIER` | `'widget'` | `openalgo-charts/widget` |
 
-They are exported from the tier's own entry point, not from the base bundle, so
+Workspace instead exports `WORKSPACE_VERSION`, the document schema version, not a tier identity constant.
+
+The tier constants are exported from each tier's own entry point, not from the base bundle, so
 importing one to test for it defeats the purpose. Track what your own code loaded.
 
 The 2.1.9 branding and optional watermark change uses 77 KB base, 85 KB
@@ -222,9 +226,8 @@ bars-provider threading, and the widget terminal from 183 KB to 185 KB
 and the Tier-2 combiner, within its unchanged 30 KB budget. Every other budget
 is unchanged.
 
-The production-workspace development branch adds `openalgo-charts/workspace`,
-a non-registering tier with a 6 KB budget (4.80 KB measured). The all-tier budget
-is 223 KB (222.92 KB measured), compared with the branch's previous 219 KB ceiling.
-Base-only and widget imports do not include workspace persistence. Their measured
-sizes remain 78.48 KB base, 184.71 KB widget terminal and 49.92 KiB for a tree-shaken
-chart-only import. See [workspaces](workspaces.md) for the storage contract.
+Version 2.4.5 ships `openalgo-charts/workspace` as a non-registering tier.
+Base-only and widget imports do not include workspace persistence. The current
+measurements and budgets are listed above. The chart-only import measures
+52.34 KiB against a 52.50 KiB tree-shaking ceiling (binary units). See [workspaces](workspaces.md) for the
+storage contract.

@@ -1,0 +1,78 @@
+# Instrument metadata
+
+Run the [instrument example](../examples/instruments.html) from the repository's
+static server to exercise synthetic cash, futures and crypto profiles, session
+exceptions, the OI pane and advisory quantity checks on a rendered chart.
+
+`Instrument` is an optional, DOM-free base API. Its `InstrumentMetadata` connects
+source identity, price display, quantity steps, interval support, trading sessions
+and OI capability. Existing chart and feed options keep their defaults when this
+API is not used. The host supplies current exchange rules; the library does not
+download a calendar or infer trading rules from observed candles.
+
+```ts
+import { Instrument, CandleBuilder } from 'openalgo-charts';
+import { orderConstraintsForInstrument, validateQuantity } from 'openalgo-charts/trade';
+
+const instrument = new Instrument({
+  symbol: 'CONTRACT', exchange: 'NFO', timezone: 'Asia/Kolkata',
+  priceTick: 0.05, pricePrecision: 2, quantityStep: 75,
+  intervals: ['1m', '5m', '1h', 'D'], hasOpenInterest: true,
+  calendar: {
+    sessions: ['0915-1530:23456'],
+    exceptions: { '2026-01-26': [], '2026-01-27': ['1000-1300'] },
+  },
+});
+instrument.applyTo(chart, '5m');
+const allowed = instrument.supportsInterval('5m');
+const advisory = validateQuantity(150, orderConstraintsForInstrument(instrument));
+const session = instrument.sessionAt(tick.time);
+if (session) {
+  const builder = new CandleBuilder({ intervalSec: 300, sessionAnchorSec: session.open });
+  builder.onTick(tick);
+}
+```
+
+The builder above illustrates one session. A streaming adapter retains its
+builder across ticks, rolls it at the next resolved session, seeds authoritative
+history when available, and retains its volume/reconnect policy. Do not construct
+a fresh builder per real tick. Calendar membership does not replace the provider's
+historical timestamps, and this API does not discard historical bars for you.
+
+`InstrumentCalendar` uses `HHMM-HHMM[:days]`, where Sunday is 1 and Saturday is 7.
+An end at or before the start crosses midnight; `0000-0000` means a continuous
+local day. Multiple windows represent breaks. `exceptions` replace windows for
+the local **opening date**. An empty array closes that opening date. A Monday
+overnight session can therefore continue into a Tuesday holiday, while a holiday
+on Monday prevents that Monday session from opening.
+
+`sessionAt(utcSeconds)` returns an `InstrumentSession` with a local opening
+`date` and inclusive `open`/exclusive `close` in UTC seconds, or null outside the
+windows. Each boundary resolves its actual timezone offset, so a continuous day
+may last 23 or 25 hours across daylight-saving changes. Repeated boundary times
+follow `zonedWallClockToUtcSeconds`; a nonexistent boundary throws instead of
+inventing an opening time. Supply a date exception for such a schedule. Overlapping
+active windows throw because there is no unambiguous session anchor.
+
+Construction validates and detaches metadata, freezes its nested arrays/objects
+and omits unrelated source fields. Empty identities, unknown timezones, invalid
+dates/windows, nonpositive ticks/quantity steps and unsupported intervals reject.
+Register custom interval codes before construction. Supported tokens match
+exactly: allowing `D` does not automatically permit a provider request for `1d`.
+Registration supplies bucketing semantics; the metadata list supplies venue support.
+
+`pricePrecision` accepts 0 through 12 and must be able to represent `priceTick`.
+`formatPrice` affects display only, preserving unrounded source values. `applyTo`
+sets chart timezone, the price tick, primary price-scale formatting and data
+context, including the independent `hasOpenInterest` capability. Oscillators and
+volume retain their own formatting. The chart must have a primary series. Clear
+old source bars before changing symbol, exchange or interval; an incompatible
+application rejects before mutating the chart. Reapply metadata after replacing
+the primary series or restoring user layout formatting. The host owns cancellation
+of obsolete metadata/history requests and applies only its current source.
+
+`quantityStep` is expressed in the order adapter's quantity units. The trade
+helper returns existing `OrderConstraints` with that grid and the price tick.
+It does not multiply units by a lot size. Hosts can add current price-band/freeze
+constraints. Client checks remain advisory; the broker retains execution authority.
+`hasOpenInterest` stays true, false or unknown independently of zero/missing bars.

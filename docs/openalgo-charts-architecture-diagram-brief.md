@@ -7,8 +7,8 @@ Written 2026-08-28 against openalgo-charts 1.8.2.
 > record of what was wrong, what the measured figures were, and why each change
 > was made, so the next redraw starts from evidence rather than memory.
 >
-> **Current release source of truth:** the SVG reports 78.07 KB base and 217.54 KB
-> for every tier, eight tier chips, 102 built-in indicators and 85 drawing tools.
+> **Current release source of truth:** the 2.4.5 SVG reports 91.00 kB base and
+> 243.96 kB for every tier, nine tier chips, 105 built-in indicators and 85 drawing tools.
 > Earlier measurements below remain the historical record of each redraw.
 
 Build brief for the replacement of `docs/architecture-diagram.png` in
@@ -453,3 +453,19 @@ indicators, 15 chart types, 85 drawing tools, unchanged.
 
 In the SVG: the subtitle's base figure, the base, widget, indicators, webgl
 and everything chips, and the `<desc>` version. Nothing else moved.
+
+## 2.4.5: workspace becomes the ninth tier
+
+The measured release has nine exported entry points. The legend adds workspace
+at 5.52 kB for validated documents, named catalogs and asynchronous storage.
+Every chip now uses decimal kB: base 91.00, widget 48.30, indicators 29.84,
+draw 35.43, profile 14.96, trade 8.01, webgl 6.39 and transform 4.50. Everything
+is 243.96 kB. Runtime registries report 105 indicators, 15 chart types after
+loading transform (13 in base) and 85 drawing tools.
+
+The SVG keeps its 1600 by 1100 view box. Nine tier chips plus Everything each
+use 146 px of width, on a 154 px pitch from x=36 to x=1422. The last chip ends
+at x=1568, matching the right edge of the capability rows. Existing text sizes
+and the footer stay unchanged. The visible subtitle, title, description and
+website image cache key all identify 2.4.5. Earlier sections remain release
+history and are not current measurements.

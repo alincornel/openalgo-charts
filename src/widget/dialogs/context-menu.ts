@@ -1,3 +1,4 @@
+import { widgetText } from '../localization';
 /**
  * The right-click menu, built from what the chart says was under the pointer.
  *
@@ -15,8 +16,8 @@
  * and the same rows serve the price ladder, a left-hand scale and an indicator
  * pane's.
  */
-import { getIndicator, PRICE_SCALE_MODES } from 'openalgo-charts';
-import type { Chart, ContextMenuEvent, ContextMenuTarget, PriceScaleId, PriceScaleMode } from 'openalgo-charts';
+import { checkTradingCapability, getIndicator, isReplaying, PRICE_SCALE_MODES } from 'openalgo-charts';
+import type { Chart, ContextMenuEvent, ContextMenuTarget, PriceScaleId, PriceScaleMode, TradingCapabilityRequest, TradingCapabilitySource } from 'openalgo-charts';
 import { drawingSettingsSchema } from 'openalgo-charts/draw';
 import type { Drawing } from 'openalgo-charts/draw';
 import type { WidgetContext } from '../context';
@@ -64,6 +65,12 @@ export type MenuEntry = MenuItem | { kind: 'separator' } | { kind: 'header'; lab
 export interface ContextMenuHooks {
   /** Order entry. Without it no trade rows are drawn: the engine places no orders itself. */
   onOrder?(order: OrderRequest): void;
+  /** Omitted capabilities preserve the host's existing supported order routes. */
+  tradingCapabilities?: TradingCapabilitySource;
+  /** Required when the capability declaration limits live or analyzer mode. */
+  tradingMode?: TradingCapabilityRequest['mode'];
+  /** Host replay selection or workspace transitions that also prevent order entry. */
+  tradingLocked?(): boolean;
   /** Extra rows a host appends, built per event. */
   items?(e: ContextMenuEvent): MenuEntry[];
 }
@@ -113,38 +120,37 @@ function drawingEntries(ctx: WidgetContext, primary: Drawing, ids: readonly stri
   const hidden = primary.visible === false;
   const behind = primary.zIndex < 0;
   const many = ids.length > 1;
-  const noun = many ? `${ids.length} drawings` : 'drawing';
-  out.push({ id: 'draw-props', label: many ? 'Properties of the selection...' : 'Properties...', icon: 'settings',
+  out.push({ id: 'draw-props', label: many ? widgetText(ctx, 'Properties of the selection...') : widgetText(ctx, 'Properties...'), icon: 'settings',
     run: () => { mountDrawingProperties(ctx, undefined, { ids }); } });
   if (!many && isTextContent(primary)) {
-    out.push({ id: 'draw-text', label: 'Edit text', icon: 'text', chord: 'Enter', run: () => { mountTextEditor(ctx, undefined, { id: primary.id }); } });
+    out.push({ id: 'draw-text', label: widgetText(ctx, 'Edit text'), icon: 'text', chord: 'Enter', run: () => { mountTextEditor(ctx, undefined, { id: primary.id }); } });
   }
   if (schema.fields.some((f) => f.kind === 'levels')) {
-    out.push({ id: 'draw-levels', label: 'Edit levels...', run: () => { mountLevelEditor(ctx, undefined, { ids }); } });
+    out.push({ id: 'draw-levels', label: widgetText(ctx, 'Edit levels...'), run: () => { mountLevelEditor(ctx, undefined, { ids }); } });
   }
   out.push(SEP);
-  out.push({ id: 'draw-copy', label: `Copy ${noun}`, icon: 'copy', chord: 'Ctrl+C', run: () => { void draw.copy(ids); } });
-  out.push({ id: 'draw-cut', label: `Cut ${noun}`, chord: 'Ctrl+X', disabled: locked, note: locked ? 'locked' : undefined,
+  out.push({ id: 'draw-copy', label: many ? widgetText(ctx, 'Copy {count} drawings', { count: ids.length }) : widgetText(ctx, 'Copy drawing'), icon: 'copy', chord: 'Ctrl+C', run: () => { void draw.copy(ids); } });
+  out.push({ id: 'draw-cut', label: many ? widgetText(ctx, 'Cut {count} drawings', { count: ids.length }) : widgetText(ctx, 'Cut drawing'), chord: 'Ctrl+X', disabled: locked, note: locked ? widgetText(ctx, 'locked') : undefined,
     run: () => { void draw.cut(ids); } });
-  out.push({ id: 'draw-duplicate', label: 'Duplicate', icon: 'duplicate', chord: 'Ctrl+D', run: () => { draw.duplicate(ids); } });
+  out.push({ id: 'draw-duplicate', label: widgetText(ctx, 'Duplicate'), icon: 'duplicate', chord: 'Ctrl+D', run: () => { draw.duplicate(ids); } });
   out.push(SEP);
-  out.push({ id: 'draw-lock', label: locked ? 'Unlock' : 'Lock', icon: locked ? 'lock' : 'unlock', mark: 'check', on: locked,
+  out.push({ id: 'draw-lock', label: locked ? widgetText(ctx, 'Unlock') : widgetText(ctx, 'Lock'), icon: locked ? 'lock' : 'unlock', mark: 'check', on: locked,
     run: () => { draw.updateMany(ids.map((id) => ({ id, patch: { locked: !locked } }))); } });
-  out.push({ id: 'draw-hide', label: hidden ? 'Show' : 'Hide', icon: hidden ? 'eye-off' : 'eye', mark: 'check', on: hidden,
+  out.push({ id: 'draw-hide', label: hidden ? widgetText(ctx, 'Show') : widgetText(ctx, 'Hide'), icon: hidden ? 'eye-off' : 'eye', mark: 'check', on: hidden,
     run: () => { draw.updateMany(ids.map((id) => ({ id, patch: { visible: hidden } }))); } });
   out.push(SEP);
-  out.push(header('Order'));
+  out.push(header(widgetText(ctx, 'Order')));
   // The controller reorders one drawing at a time (the list position is part
   // of the order), so a multi-selection is several calls.
-  out.push({ id: 'draw-front', label: 'Bring to front', icon: 'front', run: () => { for (const id of ids) draw.bringToFront(id); } });
-  out.push({ id: 'draw-back', label: 'Send to back', icon: 'back', run: () => { for (const id of ids) draw.sendToBack(id); } });
-  out.push({ id: 'draw-above', label: 'In front of the series', icon: glyphSvg(ABOVE_GLYPH), mark: 'radio', on: !behind,
+  out.push({ id: 'draw-front', label: widgetText(ctx, 'Bring to front'), icon: 'front', run: () => { for (const id of ids) draw.bringToFront(id); } });
+  out.push({ id: 'draw-back', label: widgetText(ctx, 'Send to back'), icon: 'back', run: () => { for (const id of ids) draw.sendToBack(id); } });
+  out.push({ id: 'draw-above', label: widgetText(ctx, 'In front of the series'), icon: glyphSvg(ABOVE_GLYPH), mark: 'radio', on: !behind,
     run: () => { for (const id of ids) draw.bringAboveSeries(id); } });
-  out.push({ id: 'draw-behind', label: 'Behind the series', icon: glyphSvg(BEHIND_GLYPH), mark: 'radio', on: behind,
+  out.push({ id: 'draw-behind', label: widgetText(ctx, 'Behind the series'), icon: glyphSvg(BEHIND_GLYPH), mark: 'radio', on: behind,
     run: () => { for (const id of ids) draw.sendBehindSeries(id); } });
   out.push(SEP);
-  out.push({ id: 'draw-delete', label: many ? `Delete ${noun}` : 'Delete', icon: 'trash', chord: 'Del', danger: true,
-    disabled: locked, note: locked ? 'locked' : undefined, run: () => { draw.removeMany(ids); } });
+  out.push({ id: 'draw-delete', label: many ? widgetText(ctx, 'Delete {count} drawings', { count: ids.length }) : widgetText(ctx, 'Delete'), icon: 'trash', chord: 'Del', danger: true,
+    disabled: locked, note: locked ? widgetText(ctx, 'locked') : undefined, run: () => { draw.removeMany(ids); } });
   return out;
 }
 
@@ -155,36 +161,36 @@ function axisEntries(ctx: WidgetContext, paneIndex: number, scaleId: PriceScaleI
   const s = state();
   if (s === null) return [];
   const out: MenuEntry[] = [];
-  out.push({ id: 'axis-autofit', label: 'Auto-fit to the data', mark: 'check', on: s.autoFit, keepOpen: true,
+  out.push({ id: 'axis-autofit', label: widgetText(ctx, 'Auto-fit to the data'), mark: 'check', on: s.autoFit, keepOpen: true,
     run: () => { const now = state(); if (now !== null) chart.setPriceAxisAutoFit(paneIndex, scaleId, !now.autoFit); } });
-  out.push({ id: 'axis-invert', label: 'Invert', mark: 'check', on: s.inverted, keepOpen: true,
+  out.push({ id: 'axis-invert', label: widgetText(ctx, 'Invert'), mark: 'check', on: s.inverted, keepOpen: true,
     run: () => { const now = state(); if (now !== null) chart.setPriceAxisOptions(paneIndex, scaleId, { inverted: !now.inverted }); } });
   // Holding the price-per-bar ratio while the time axis zooms needs a measured
   // scale. Nothing has been measured on an empty pane, so the row stays,
   // greyed, saying why.
-  out.push({ id: 'axis-lock', label: 'Pin price per bar', mark: 'check', on: s.lockRatio, keepOpen: true,
-    disabled: !s.scaled, note: s.scaled ? undefined : 'nothing measured',
+  out.push({ id: 'axis-lock', label: widgetText(ctx, 'Pin price per bar'), mark: 'check', on: s.lockRatio, keepOpen: true,
+    disabled: !s.scaled, note: s.scaled ? undefined : widgetText(ctx, 'nothing measured'),
     run: () => {
       const now = state();
       if (now === null) return;
-      if (!chart.setPriceAxisLockRatio(paneIndex, scaleId, !now.lockRatio)) ctx.toast('Nothing measured on this scale yet', 'info');
+      if (!chart.setPriceAxisLockRatio(paneIndex, scaleId, !now.lockRatio)) ctx.toast(widgetText(ctx, 'Nothing measured on this scale yet'), 'info');
     } });
   out.push(SEP);
-  out.push(header('Scale'));
+  out.push(header(widgetText(ctx, 'Scale')));
   for (const mode of PRICE_SCALE_MODES) {
-    out.push({ id: `axis-mode-${mode}`, label: SCALE_MODE_LABELS[mode], mark: 'radio', on: s.mode === mode, keepOpen: true,
+    out.push({ id: `axis-mode-${mode}`, label: widgetText(ctx, `schema.scaleMode.${mode}`, {}, SCALE_MODE_LABELS[mode]), mark: 'radio', on: s.mode === mode, keepOpen: true,
       run: () => { chart.setPriceAxisOptions(paneIndex, scaleId, { mode }); } });
   }
   out.push(SEP);
-  out.push({ id: 'axis-move', label: s.side === 'right' ? 'Move the scale to the left' : 'Move the scale to the right',
-    disabled: !s.movable, note: s.movable ? undefined : (s.active ? 'other side taken' : 'nothing on this side'),
+  out.push({ id: 'axis-move', label: s.side === 'right' ? widgetText(ctx, 'Move the scale to the left') : widgetText(ctx, 'Move the scale to the right'),
+    disabled: !s.movable, note: s.movable ? undefined : (s.active ? widgetText(ctx, 'other side taken') : widgetText(ctx, 'nothing on this side')),
     run: () => {
       const now = state();
       if (now === null) return;
-      if (!chart.movePriceAxis(paneIndex, now.side, now.side === 'right' ? 'left' : 'right')) ctx.toast('That side is already in use', 'info');
+      if (!chart.movePriceAxis(paneIndex, now.side, now.side === 'right' ? 'left' : 'right')) ctx.toast(widgetText(ctx, 'That side is already in use'), 'info');
     } });
   out.push(SEP);
-  out.push({ id: 'axis-settings', label: 'Axis settings...', icon: 'settings', run: () => { mountSettingsDialog(ctx, undefined, { tab: 'axes' }); } });
+  out.push({ id: 'axis-settings', label: widgetText(ctx, 'Axis settings...'), icon: 'settings', run: () => { mountSettingsDialog(ctx, undefined, { tab: 'axes' }); } });
   return out;
 }
 
@@ -209,17 +215,51 @@ export function contextMenuEntries(ctx: WidgetContext, e: ContextMenuEvent, hook
   const onOrder = hooks.onOrder;
   if (onOrder !== undefined && target.kind !== 'time-scale') {
     const price = e.price;
+    const source = { ...ctx.symbol(), interval: ctx.interval() };
+    const capability = (type: OrderRequest['type']): ReturnType<typeof checkTradingCapability> =>
+      checkTradingCapability(hooks.tradingCapabilities, { operation: 'place', type, mode: hooks.tradingMode, ...ctx.symbol() });
+    const locked = (): string | undefined => {
+      if (isReplaying(chart)) return widgetText(ctx, 'Order entry is locked during replay');
+      try {
+        if (hooks.tradingLocked?.()) return widgetText(ctx, 'Order entry is locked by the host');
+      } catch { return widgetText(ctx, 'Order entry is unavailable'); }
+      return undefined;
+    };
+    const lockReason = locked();
     const order = (side: OrderRequest['side'], type: OrderRequest['type']): MenuItem => ({
       id: `order-${side.toLowerCase()}-${type.toLowerCase()}`,
       label: type === 'MARKET'
-        ? `${side === 'BUY' ? 'Buy' : 'Sell'} market`
-        : `${side === 'BUY' ? 'Buy' : 'Sell'} ${type === 'LIMIT' ? 'limit' : 'stop'} at ${priceText(chart, e.paneIndex, price as number)}`,
-      run: () => onOrder({ side, type, price: type === 'MARKET' ? null : price, paneIndex: e.paneIndex }),
+        ? widgetText(ctx, side === 'BUY' ? 'Buy market' : 'Sell market')
+        : widgetText(ctx, side === 'BUY' ? (type === 'LIMIT' ? 'Buy limit at {price}' : 'Buy stop at {price}') : (type === 'LIMIT' ? 'Sell limit at {price}' : 'Sell stop at {price}'), { price: priceText(chart, e.paneIndex, price as number) }),
+      disabled: lockReason !== undefined,
+      note: lockReason,
+      run: () => {
+        if (chart.isDestroyed) return;
+        const current = ctx.symbol();
+        if (current.symbol !== source.symbol || current.exchange !== source.exchange || ctx.interval() !== source.interval) {
+          ctx.status(widgetText(ctx, 'The chart changed; reopen the menu before placing an order'), 'error');
+          return;
+        }
+        const reason = locked();
+        if (reason !== undefined) { ctx.status(reason, 'error'); return; }
+        const supported = capability(type);
+        if (!supported.supported) {
+          ctx.status(widgetText(ctx, 'Order entry is unavailable: {reason}', { reason: supported.reason }), 'error');
+          return;
+        }
+        onOrder({ side, type, price: type === 'MARKET' ? null : price, paneIndex: e.paneIndex });
+      },
     });
-    out.push(header('Trade'));
-    out.push(order('BUY', 'MARKET'), order('SELL', 'MARKET'));
-    if (price !== null) {
-      out.push(order('BUY', 'LIMIT'), order('SELL', 'LIMIT'), order('BUY', 'SL'), order('SELL', 'SL'));
+    const candidates = (price === null ? ['MARKET'] as const : ['MARKET', 'LIMIT', 'SL'] as const)
+      .map(type => ({ type, result: capability(type) }));
+    const supported = candidates.filter(candidate => candidate.result.supported);
+    if (supported.length > 0) {
+      out.push(header(widgetText(ctx, 'Trade')));
+      for (const { type } of supported) out.push(order('BUY', type), order('SELL', type));
+    } else {
+      const failure = candidates[0].result;
+      out.push({ id: 'trading-unavailable', label: widgetText(ctx, 'Order entry is unavailable'), disabled: true,
+        note: failure.supported ? undefined : failure.reason });
     }
   }
 
@@ -229,22 +269,22 @@ export function contextMenuEntries(ctx: WidgetContext, e: ContextMenuEvent, hook
     sep();
     if (hit) {
       const info = draw.alertInfo(hit.id);
-      out.push({ id: 'alert-drawing', label: 'Create drawing alert...', disabled: !info.available, note: info.reason,
+      out.push({ id: 'alert-drawing', label: widgetText(ctx, 'Create drawing alert...'), disabled: !info.available, note: info.reason,
         run: () => { mountAlertEditor(ctx, undefined, { source: { kind: 'drawing', drawingId: hit.id } }); } });
     } else if (target.kind === 'indicator' && target.instanceId) {
       const instance = chart.indicators().find(item => item.id === target.instanceId);
       const plot = instance && getIndicator(instance.indicatorId).plots.find(item =>
         (item.overlay ? 0 : instance.paneIndex) === e.paneIndex && (target.plotKey === undefined || item.key === target.plotKey));
-      if (instance && plot) out.push({ id: 'alert-indicator', label: 'Create study alert...', run: () => {
+      if (instance && plot) out.push({ id: 'alert-indicator', label: widgetText(ctx, 'Create study alert...'), run: () => {
         const values = instance.values()[plot.key];
         const value = values?.[e.index ?? chart.primaryBars().length - 1];
         mountAlertEditor(ctx, undefined, { source: { kind: 'indicator', instanceId: instance.id, plotKey: plot.key, value: value ?? NaN } });
       } });
     } else if (e.paneIndex === 0 && e.price !== null && Number.isFinite(e.price)) {
-      out.push({ id: 'alert-create', label: `Create alert at ${priceText(chart, 0, e.price)}...`,
+      out.push({ id: 'alert-create', label: widgetText(ctx, 'Create alert at {price}...', { price: priceText(chart, 0, e.price) }),
         run: () => { mountAlertEditor(ctx, undefined, { source: { kind: 'price', price: e.price! } }); } });
     }
-    out.push({ id: 'chart-alerts', label: 'Alerts...', run: () => { mountAlertsPanel(ctx); } });
+    out.push({ id: 'chart-alerts', label: widgetText(ctx, 'Alerts...'), run: () => { mountAlertsPanel(ctx); } });
   }
   if (hit !== undefined) {
     // A right-click picks the drawing the way a click does, so the actions
@@ -259,31 +299,31 @@ export function contextMenuEntries(ctx: WidgetContext, e: ContextMenuEvent, hook
     const inst = chart.indicators().find((i) => i.id === target.instanceId);
     if (inst !== undefined) {
       sep();
-      out.push({ id: 'ind-settings', label: `${inst.name} settings...`, icon: 'settings',
+      out.push({ id: 'ind-settings', label: widgetText(ctx, '{name} settings...', { name: inst.name }), icon: 'settings',
         run: () => { mountIndicatorSettings(ctx, undefined, { instanceId: inst.id }); } });
-      out.push({ id: 'ind-visible', label: inst.visible() ? `Hide ${inst.name}` : `Show ${inst.name}`, icon: inst.visible() ? 'eye' : 'eye-off',
+      out.push({ id: 'ind-visible', label: inst.visible() ? widgetText(ctx, 'Hide {name}', { name: inst.name }) : widgetText(ctx, 'Show {name}', { name: inst.name }), icon: inst.visible() ? 'eye' : 'eye-off',
         run: () => { inst.setVisible(!inst.visible()); } });
-      out.push({ id: 'ind-remove', label: `Remove ${inst.name}`, icon: 'trash', danger: true,
+      out.push({ id: 'ind-remove', label: widgetText(ctx, 'Remove {name}', { name: inst.name }), icon: 'trash', danger: true,
         run: () => { chart.removeIndicator(inst.id); } });
     }
   }
 
   if (target.kind !== 'time-scale') {
     sep();
-    out.push({ id: 'draw-paste', label: 'Paste', icon: 'paste', chord: 'Ctrl+V',
-      run: () => { void draw.paste().then((made) => { if (made.length === 0) ctx.toast('Nothing to paste', 'info'); }); } });
+    out.push({ id: 'draw-paste', label: widgetText(ctx, 'Paste'), icon: 'paste', chord: 'Ctrl+V',
+      run: () => { void draw.paste().then((made) => { if (made.length === 0) ctx.toast(widgetText(ctx, 'Nothing to paste'), 'info'); }); } });
     const n = draw.drawings().length;
     if (n > 0) {
-      out.push({ id: 'draw-clear', label: `Remove all drawings (${n})`, icon: 'trash', danger: true, run: () => { draw.clear(); } });
+      out.push({ id: 'draw-clear', label: widgetText(ctx, 'Remove all drawings ({count})', { count: n }), icon: 'trash', danger: true, run: () => { draw.clear(); } });
     }
   }
 
   sep();
-  out.push({ id: 'chart-fit', label: 'Fit all bars', icon: glyphSvg(FIT_GLYPH), run: () => { chart.fitContent(); } });
+  out.push({ id: 'chart-fit', label: widgetText(ctx, 'Fit all bars'), icon: glyphSvg(FIT_GLYPH), run: () => { chart.fitContent(); } });
   if (target.kind !== 'time-scale') {
-    out.push({ id: 'chart-indicators', label: 'Indicators...', run: () => { mountIndicatorPicker(ctx); } });
+    out.push({ id: 'chart-indicators', label: widgetText(ctx, 'Indicators...'), run: () => { mountIndicatorPicker(ctx); } });
   }
-  out.push({ id: 'chart-settings', label: 'Settings...', icon: 'settings', run: () => { mountSettingsDialog(ctx); } });
+  out.push({ id: 'chart-settings', label: widgetText(ctx, 'Settings...'), icon: 'settings', run: () => { mountSettingsDialog(ctx); } });
 
   const extra = hooks.items?.(e) ?? [];
   if (extra.length > 0) { sep(); out.push(...extra); }
@@ -313,7 +353,7 @@ export function mountContextMenu(ctx: WidgetContext, anchor?: HTMLElement, opts:
 
   const menu = el(doc, 'div', 'oac-panel oac-ctx');
   menu.setAttribute('role', 'menu');
-  menu.setAttribute('aria-label', 'Chart menu');
+  menu.setAttribute('aria-label', widgetText(ctx, 'Chart menu'));
   menu.tabIndex = -1;
   stopOwnKeys(menu);
 

@@ -9,7 +9,7 @@ import { Callout } from 'nextra/components'
 # Getting started
 
 **OpenAlgo Charts** is a dependency-free, canvas-based financial charting engine. The full
-package (every tier) is **217.54 KB Brotli**, the base engine alone is **78.07 KB**, and it
+package (every tier) is **243.96 kB Brotli**, the base engine alone is **91.00 kB**, and it
 has **zero runtime dependencies** - what
 you import is what ships.
 
@@ -81,18 +81,19 @@ ws.onTick(({ price, ltq, timeSec }) => {
 
 ## Loadable tiers
 
-Pay only for what you use - each tier is a separate entry point:
+Pay only for what you use: nine tiers, each with a separate entry point.
 
 | Import | Contents |
 |---|---|
-| `openalgo-charts` | base engine + all standard chart types + markers / events / EMA / RSI / ATR / Supertrend |
+| `openalgo-charts` | base engine, standard chart types, markers, events, indicator registry, feeds and instrument metadata |
 | `openalgo-charts/trade` | order / position / bracket lines, DOM ladder, order engine |
 | `openalgo-charts/transform` | Renko, Range, Point &amp; Figure, Kagi, Line Break, Heikin Ashi |
 | `openalgo-charts/profile` | Volume Profile, Market Profile (TPO), Footprint, order flow |
-| `openalgo-charts/indicators` | 102 built-in indicators (SMA/EMA/MACD/Bollinger/RSI/ADX/VWAP/Supertrend/HalfTrend/CPR/...) + the Tier-2 contract |
+| `openalgo-charts/indicators` | 105 built-in indicators (SMA/EMA/MACD/Bollinger/RSI/ADX/VWAP/Supertrend/HalfTrend/CPR/...) + the Tier-2 contract |
 | `openalgo-charts/draw` | 85 drawing tools + a headless drawing controller |
 | `openalgo-charts/webgl` | the WebGL2 series backend behind `renderer: 'auto'`, composited into the pane's canvas |
 | `openalgo-charts/widget` | the chart with its chrome in one `createWidget` call: top bar, drawing rail, status line, dialogs, right-click menu, shortcuts, persistence. The only tier that ships DOM |
+| `openalgo-charts/workspace` | validated named workspace and indicator-template documents, asynchronous catalog storage and an IndexedDB adapter; no DOM or registration side effects |
 
 ```ts
 import { createChart } from 'openalgo-charts';
@@ -104,6 +105,7 @@ import { runTransform, RenkoTransform } from 'openalgo-charts/transform';
 
 - [Core Concepts](/docs/core-concepts) - the data model, time/price scales, and panes.
 - [The Widget Tier](/docs/widget) - the chart with its chrome in one `createWidget` call.
+- [Workspaces](https://github.com/marketcalls/openalgo-charts/blob/master/docs/workspaces.md) - named layouts, templates, revisions and asynchronous storage.
 - [Render Backends & SVG Export](/docs/rendering) - `renderer: 'auto'`, the WebGL2 tier and `exportSVG`.
 - [Chart Types](/docs/chart-types) - a live gallery of every built-in style.
 - [On-Chart Trading](/docs/trading) - order lines, drag-to-modify, OCO, and the DOM ladder.

@@ -5,6 +5,9 @@ const listeners = new WeakMap<object, Set<() => void>>();
 
 export function replayWindow(chart: object): ReplayWindow | undefined { return windows.get(chart); }
 
+/** True while replay owns this chart, including when its playback clock is paused. */
+export function isReplaying(chart: object): boolean { return windows.has(chart); }
+
 export function setReplayWindow(chart: object, window?: ReplayWindow): void {
   if (window) windows.set(chart, window);
   else windows.delete(chart);

@@ -17,6 +17,7 @@ import type { DrawingController } from 'openalgo-charts/draw';
 import type { Keymap } from './keymap';
 import type { ToastHandle, ToastKind } from './toast';
 import type { WidgetThemeName } from './tokens';
+import type { WidgetTranslator } from './localization';
 
 // ── small DOM helpers ───────────────────────────────────────────────────
 
@@ -639,6 +640,7 @@ export interface WidgetContext {
   /** Per-widget persisted preferences; `enabled` is false when `persist` is off. */
   readonly storage: WidgetStorage;
   readonly locale: string | undefined;
+  readonly translate?: WidgetTranslator;
   toast(message: string, kind?: ToastKind): ToastHandle;
   /**
    * Show `el` over the widget: positioned from `opts.anchor` (or centred as a

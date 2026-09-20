@@ -2,10 +2,39 @@
 
 All notable changes to OpenAlgo Charts.
 
-## Unreleased
+## 2.4.5
+
+2026-09-20
+
+Chart workspaces, coordinated replay, open interest and trader alerts, with
+optional host contracts for instrument rules, localization and trading support.
+Existing hosts retain their defaults; the workspace tier is a separate import.
 
 ### Added
 
+- Versioned workspace and indicator-template documents in
+  `openalgo-charts/workspace`, with detached validation, atomic asynchronous
+  catalog storage, account namespaces, migration and revision conflict handling.
+  Documents exclude credentials and trading account state.
+- Named layouts and templates in the reference host: create, save, open, rename,
+  duplicate, delete, recent layouts, autosave and portable import/export. Layout
+  transitions stage source data before installation and recover failed changes.
+- One reference workspace toolbar targets the selected chart. Shared replay
+  offers focused/all-chart modes with a common clock, explicit candle availability
+  and guarded transitions. Replay does not expose future history or enable orders.
+- Optional candle-center crosshair snapping, independent interval synchronization,
+  a configurable volume moving average and multi-symbol percentage comparisons.
+- `exportChartDataCsv` exports installed primary bars, OI, configured study plots
+  and aligned comparisons. Missing values remain blank; replay exports only its
+  installed prefix. Reference and widget menus download the captured chart.
+- Immutable `Instrument` metadata for source identity, supported intervals, IANA
+  calendars and exceptions, price formatting, quantity steps and OI capability.
+  `orderConstraintsForInstrument` preserves the order adapter's quantity units.
+- Optional widget translation with typed keys, safe named interpolation, English
+  fallback and translated accessibility labels. Host content remains literal.
+- Shared trading capabilities for engine, adapter and widget integrations, with
+  explicit unknown/unsupported states, callback-time checks and replay guards.
+  `isReplaying(chart)` reports active replay, including paused sessions.
 - Trader alert evaluation for prices, study plots, drawing levels and named
   candle conditions, with explicit bar-close or intrabar timing, repeat,
   cooldown and expiry. Delivery is event-based and remains the host's job.
@@ -35,6 +64,43 @@ All notable changes to OpenAlgo Charts.
   interest. Live ticks without a reading clear the forming level. History repair
   preserves newer live observations, and partial replay exposes only readings
   already reached by the playhead.
+
+### Fixed
+
+- Candle readouts and volume direction remain consistent with their source bars,
+  including transforms and replay. Comparisons keep their own price units and
+  shared baselines; source changes and exports retain the selected chart owner.
+- Market event timestamps take precedence over quote delivery time. Cancelled
+  workspace and history requests cannot install data into a replacement source.
+- Alert restoration preserves stable drawing/study anchors and fired-once state.
+  Missing anchors produce removal events, and history loading sends no alerts.
+- Instrument ticks reach the primary series on right, left and hidden scales
+  while oscillator units remain independent.
+- Quantity validation rejects fractional off-grid values at large magnitudes
+  instead of letting a relative tolerance grow to half a lot or more.
+- Rejected trading preflight preserves existing broker state. Capability checks
+  run again after asynchronous mode selection and before queued modification.
+- Submitted requests are detached from caller and confirmation callback edits.
+  Late modify/cancel responses cannot replace newer broker settlement or
+  reconciliation state.
+- Base and trading imports share the same capability-error constructor, so a
+  host can catch refused operations consistently across package entries.
+- A comparison correction to whitespace removes its earlier reading and moves
+  the common percentage baseline to the next actual shared observation.
+- Entering replay selection pauses pending reference autosaves without blocking
+  later named-layout saves after selection is cancelled.
+
+### Integration and validation
+
+- Broker and crypto conformance fixtures exercise real production adapters with
+  deterministic transport, including repair, cancellation, failure and cleanup.
+  These fixtures are synthetic evidence, not certification against every venue.
+- A repeatable browser endurance harness records declared workloads, frame and
+  pointer timings, paint output, retained heap and teardown gates. Reports name
+  the browser, machine, renderer, bundle hashes and measurement limitations.
+- Added compatibility/deprecation and support boundaries in `COMPATIBILITY.md`.
+  Host delivery of alerts, account authentication and broker order authority
+  remain host responsibilities. See `docs/upgrading-to-2.4.5.md` for adoption.
 
 ## 2.4.0
 

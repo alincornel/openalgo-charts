@@ -4,7 +4,7 @@ import { fakeDom, fakeStorage } from './helpers.js';
 // Restoring a layout reaches into the modules that own the comparisons, the
 // volume flag, the zone and the chrome. None of them is under test here, and
 // each keeps its own `app`, so they are stood in for and their calls read back.
-vi.mock('../src/volume.js', () => ({ volumeShown: vi.fn(() => true), setVolumeShown: vi.fn(),
+vi.mock('../src/volume.js', async importOriginal => ({ ...await importOriginal(), volumeShown: vi.fn(() => true), setVolumeShown: vi.fn(),
   volumeSettings: vi.fn(() => ({ 'volume.visible': true })), applyVolumeSettings: vi.fn() }));
 vi.mock('../src/timezone.js', () => ({ DEFAULT_TZ: 'Asia/Kolkata', syncTimezoneFromChart: vi.fn() }));
 vi.mock('../src/compare.js', async importOriginal => ({ ...await importOriginal(), syncComparisons: vi.fn() }));
@@ -20,6 +20,9 @@ import {
 } from '../src/persist.js';
 import { setVolumeShown } from '../src/volume.js';
 import { initCompare, syncComparisons } from '../src/compare.js';
+import { ReferenceWorkspaceCatalog } from '../src/workspace-catalog.js';
+import { workspaceFromLayout } from '../src/workspace-document.js';
+import { workspaceUnavailable } from '../src/workspace-host.js';
 
 /** A storage the quarantine can enumerate: `fakeStorage` has no `length` or `key`. */
 function storageWithKeys() {
@@ -237,7 +240,7 @@ describe('storage', () => {
     expect(setItem).not.toHaveBeenCalled();
   });
 
-  it.each(['workspaceLoading', 'loading2', 'loadFailed2', 'loadFailed', 'chartSettingsEditing'])('does not autosave transient state while %s is set', flag => {
+  it.each(['workspaceLoading', 'loading2', 'loadFailed2', 'loadFailed', 'chartSettingsEditing', 'replayPicking'])('does not autosave transient state while %s is set', flag => {
     const app = freshApp();
     initPersist(app);
     autosave();
@@ -247,6 +250,41 @@ describe('storage', () => {
     autosave();
     vi.advanceTimersByTime(SAVE_DEBOUNCE_MS);
     expect(store.has(LAYOUT_KEY)).toBe(false);
+  });
+
+  it('keeps named autosave usable after replay selection interrupts a queued recovery save', async () => {
+    const app = freshApp();
+    initPersist(app);
+    let named = null;
+    const catalog = new ReferenceWorkspaceCatalog({
+      storage: { read: async () => structuredClone(named), write: async (_key, next) => { named = structuredClone(next); } },
+      namespace: 'reference-replay-test', id: () => 'saved-owner', now: () => 1,
+      snapshot: () => {
+        if (workspaceUnavailable(app)) throw new Error('Finish loading, replay or settings changes before saving layouts');
+        return workspaceFromLayout({ version: 1, request: { ...app.req }, chartType: 'candlestick' });
+      },
+      open: async () => {},
+    });
+    await catalog.initialize();
+    await catalog.create('Desk');
+    await catalog.setAutosave(true);
+    app.onLayoutPersisted = () => catalog.requestAutosave();
+
+    autosave();
+    app.replayPicking = true;
+    vi.advanceTimersByTime(SAVE_DEBOUNCE_MS);
+    await catalog.flushAutosave();
+    expect.soft(store.has(LAYOUT_KEY)).toBe(false);
+    expect.soft(catalog.autosaveBlocked).toBe(false);
+    expect.soft(catalog.error).toBe('');
+
+    app.replayPicking = false;
+    app.req.symbol = 'MSFT';
+    autosave();
+    vi.advanceTimersByTime(SAVE_DEBOUNCE_MS);
+    await catalog.flushAutosave();
+    expect(named.workspaces[0].panes[0].symbol).toBe('MSFT');
+    expect(catalog.autosaveBlocked).toBe(false);
   });
 
   it('flushes a pending save when the page goes away', () => {

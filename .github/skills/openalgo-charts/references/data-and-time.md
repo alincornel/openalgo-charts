@@ -1,5 +1,14 @@
 # Data and time
 
+`Instrument` validates and freezes `InstrumentMetadata`, including an
+`InstrumentCalendar` and optional OI capability. Its `supportsInterval` uses exact
+provider tokens, `formatPrice` formats without changing data, `sessionAt` returns
+an `InstrumentSession` (UTC open/close and local opening date), and `applyTo` applies
+timezone, tick, primary price formatting and source context after source guards.
+Date exceptions replace weekly sessions; overnight windows belong to their opening
+date. Crypto can use `0000-0000`. See [instrument rules](../../../../docs/instruments.md)
+for breaks, DST, validation, quantity units and safe host source transitions.
+
 `OpenAlgoConfig.hasOpenInterest(request)` optionally supplies instrument
 capability to the REST adapter. Explicit false removes the API's placeholder
 OI column before caching or calculation. True/undefined preserves finite

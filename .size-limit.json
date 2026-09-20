@@ -2,7 +2,7 @@
   {
     "name": "Base engine (chart types + indicator registry + watermark + shortcuts + trading API + alerts)",
     "path": "dist/openalgo-charts.mjs",
-    "limit": "89.75 kB",
+    "limit": "91.5 kB",
     "brotli": true
   },
   {
@@ -11,7 +11,7 @@
       "dist/openalgo-charts.mjs",
       "dist/openalgo-charts.trade.mjs"
     ],
-    "limit": "97.5 kB",
+    "limit": "100 kB",
     "brotli": true
   },
   {
@@ -47,18 +47,18 @@
   {
     "name": "Widget tier (shell, top bar, drawing rail, status line, dialogs, keymap, styles)",
     "path": "dist/openalgo-charts.widget.mjs",
-    "limit": "47 kB",
+    "limit": "48.75 kB",
     "brotli": true
   },
   {
-    "name": "Widget terminal (base + draw + indicators + widget: what one createWidget call loads)",
+    "name": "Widget terminal (base + draw + indicators + widget, including built-in studies)",
     "path": [
       "dist/openalgo-charts.mjs",
       "dist/openalgo-charts.draw.mjs",
       "dist/openalgo-charts.indicators.mjs",
       "dist/openalgo-charts.widget.mjs"
     ],
-    "limit": "201.75 kB",
+    "limit": "205 kB",
     "brotli": true
   },
   {
@@ -80,7 +80,7 @@
       "dist/openalgo-charts.widget.mjs",
       "dist/openalgo-charts.workspace.mjs"
     ],
-    "limit": "241 kB",
+    "limit": "245 kB",
     "brotli": true
   }
 ]

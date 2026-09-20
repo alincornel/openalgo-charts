@@ -23,6 +23,9 @@
  */
 export const WIDGET_TIER = 'widget' as const;
 
+export { widgetText } from './localization';
+export type { WidgetBuiltinMessage, WidgetMessageKey, WidgetMessageValues, WidgetMessageParameters, WidgetTranslator, WidgetTranslationOptions } from './localization';
+
 export { createWidget, stripView, resolveTheme, loadWindow, DEFAULT_INTERVALS, DEFAULT_LOOKBACK_BARS, SAVE_DEBOUNCE_MS, STATE_KEY, WIDGET_STATE_VERSION } from './widget';
 export type { Widget, WidgetOptions, WidgetState, WidgetChartState, WidgetRestoreReport, WidgetEventName } from './widget';
 export { mountObjectsPanel, OBJECTS_PANEL_CSS } from './objects-panel';
@@ -84,6 +87,6 @@ export type {
   AlertEditorOptions, AlertsPanelOptions,
 } from './dialogs/index';
 export { renderForm, controlsFromInputs, controlsFromFields } from './form';
-export type { FormControl, FormKind, FormOptions, FormHandle } from './form';
+export type { FormControl, FormKind, FormOptions, FormHandle, FormTranslationOptions } from './form';
 export { createAlertUi } from './alert-ui';
 export type { AlertUi, AlertUiOptions } from './alert-ui';

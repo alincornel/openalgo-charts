@@ -1244,6 +1244,29 @@ package root) is how you get the input array out of the bars in the first place.
 `ema`, `rsi`, `atr`, `trueRange` and `supertrend` are **not** here: they ship in the base
 bundle and the tier imports them from it, so they come from `openalgo-charts`.
 
+## Open interest studies
+
+Three built-ins read optional `Bar.oi` observations:
+
+| Indicator ID | Display |
+| --- | --- |
+| `open-interest` | A line in its own pane |
+| `open-interest-change` | Adjacent OI differences as a separate histogram |
+| `open-interest-buildup` | Price-candle colors for four adjacent price/OI regimes |
+
+Import `openalgo-charts/indicators`, supply observations on bars, and call
+`chart.addIndicator` with the desired ID. Missing OI leaves a gap. Change and
+buildup require both adjacent observations; they do not compare across a gap.
+Zero is a real reading. A tick without OI clears the forming bar's reading, so
+the live pane can have a gap even when its historical bars contain OI.
+
+Open interest is a level, not a flow. When aggregating bars, take the latest
+defined reading in each bucket and never add OI values. Declare instrument
+support through `ChartDataContext.hasOpenInterest`: supported with a missing
+reading, unsupported and unknown support are distinct states. See the
+[live OI example](/examples#open-interest-and-instrument-rules) and
+[data integration guide](https://github.com/marketcalls/openalgo-charts/blob/master/docs/open-interest.md).
+
 ## Tier 2: indicators with their own data
 
 Some series aren't derived from the chart's OHLCV at all: open interest, cumulative volume
@@ -1256,8 +1279,8 @@ import { registerIndicator } from 'openalgo-charts';
 import { createTier2Indicator } from 'openalgo-charts/indicators';
 
 registerIndicator(createTier2Indicator({
-  id: 'open-interest',
-  name: 'Open Interest',
+  id: 'provider-open-interest',
+  name: 'Provider Open Interest',
   placement: 'pane',
   inputs: [{ key: 'symbol', type: 'text', label: 'Symbol', default: 'NIFTY' }],
   plots: [{ key: 'oi', type: 'line', title: 'OI' }],
@@ -1274,6 +1297,8 @@ registerIndicator(createTier2Indicator({
 **Alignment rule.** External points carry their own timestamps, which rarely match bar
 times. Each bar takes the most recent point **at or before** it, last-known-value, never
 interpolated and never forward-looking. Bars before the first point are `null`.
+An external OI host carrying observations forward must expose their age or stale
+state. The built-in OI studies consume `Bar.oi` directly and preserve missing bars.
 
 **Combining with the chart's bars (2.4.0).** `series` names external columns to align
 besides the plots, and `calc(bars, external, settings, store, ctx)` folds them into the

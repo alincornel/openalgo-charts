@@ -1,0 +1,33 @@
+---
+title: Upgrading to 2.4.5
+description: Adopt workspace, open-interest, alert and host contracts while preserving existing integrations.
+---
+
+# Upgrading to 2.4.5
+
+Existing chart options keep their defaults. Update the package and lockfile,
+then run your host's source-switch, persistence, replay and trading guard checks.
+The optional APIs require explicit host wiring; a dependency update alone does
+not add workspace controls to an existing terminal.
+
+- Import named layout and template contracts from `openalgo-charts/workspace`.
+  Keep account namespaces separate and show rejected saves or revision conflicts.
+  Portable documents exclude credentials, live orders, positions and armed state.
+- Treat `Bar.oi` as a level: folds take the latest defined reading, never a sum.
+  Preserve missing observations and real zero separately. Declare instrument OI
+  support independently of whether the current bar has an observation.
+- Restore drawing and study identities before their alerts. Triggered once alerts
+  survive reloads, and restoration sends no historical notifications. Alert
+  delivery remains your host's responsibility.
+- Use [Instrument](/docs/instruments) for validated calendar, supported interval,
+  formatting and quantity rules. Keep request cancellation and quantity units at
+  your adapter boundary.
+- Supply optional [widget translation and trading capabilities](/docs/widget)
+  when needed. Capability checks complement server authorization and broker
+  authority. Keep order entry locked through replay selection and transitions,
+  as well as active or paused replay.
+
+The [complete integration guide](https://github.com/marketcalls/openalgo-charts/blob/master/docs/upgrading-to-2.4.5.md)
+includes data, persistence and validation details. Read the
+[compatibility policy](/docs/compatibility) for public API and support boundaries,
+and the [release notes](/docs/release-notes#245) for the full change list.

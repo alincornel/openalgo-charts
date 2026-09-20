@@ -23,6 +23,20 @@ appears in the page title.
 | A depth ladder | [Depth of market](/openalgo-charts/api/classes/trade.DomLadder.html) | [Simulated live demo](/openalgo-charts/docs/depth-of-market/) |
 | Daily TPO profiles | [Market profile](/openalgo-charts/api/classes/profile.MarketProfile.html) | [Profile demo and themes](/openalgo-charts/docs/market-profile-examples/) |
 
+### Host contracts in 2.4.5
+
+Use [Instrument](/openalgo-charts/api/classes/index.Instrument.html) for validated
+source, calendar and formatting rules. The optional workspace tier adds portable
+named layouts and indicator templates; the widget accepts per-instance translation
+and trading capabilities. Trader alerts use host-delivered events and restore
+their drawing/study anchors without firing on history. Open interest remains an
+optional level with explicit instrument support and missing-data gaps.
+
+Read the [instrument guide](/openalgo-charts/docs/instruments/),
+[widget guide](/openalgo-charts/docs/widget/) and
+[compatibility policy](/openalgo-charts/docs/compatibility/) before wiring these
+contracts into a trading host. The library does not assume broker order authority.
+
 ### Navigation and mobile controls in 2.1.8
 
 Wheel input respects pixel, line and page deltas. Horizontal input pans time; wheel input

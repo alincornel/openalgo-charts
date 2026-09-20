@@ -58,6 +58,51 @@ Importing the module touches no DOM either; only `createWidget` does. The module
 therefore be imported by code that also runs on a server, and called once a container
 exists.
 
+## Translations and host storage
+
+Pass `translate` to `createWidget` or `createAlertUi` to translate desktop/mobile
+controls, dialogs, tooltips, accessible names and widget feedback. `locale` remains
+the separate number-formatting setting. English is the default.
+
+```ts
+import { createWidget, type WidgetMessageKey } from 'openalgo-charts/widget';
+
+const messages: Partial<Record<WidgetMessageKey, string>> = {
+  'Chart settings': 'Configuracion del grafico',
+  'Close': 'Cerrar',
+  'Interval {code}': 'Intervalo {code}',
+  'schema.settings.tab.appearance': 'Apariencia',
+};
+const widget = createWidget(container, {
+  locale: 'es-ES', translate: key => messages[key],
+});
+```
+
+`WidgetTranslator` receives `(key, fallback, values)`. Return a template with the
+same named parameters; the widget interpolates their literal values once and
+renders plain text. Missing, blank, malformed or throwing translations fall back
+to English. `widgetText` exposes this resolver for custom panels, with typed
+parameters through `WidgetMessageParameters`. Generated field labels use
+`schema.settings.<fieldKey>.label`, `schema.indicator.<id>.<key>.label`,
+`schema.drawing.<toolId>.<path>.label` and `schema.alert.<key>.label`.
+
+Symbols, exchanges, interval codes, values, user alert/drawing text, search result
+names, object names, configured branding and engine/provider diagnostics remain
+literal. Canvas labels stay under the engine's formatting contracts. A translator
+belongs to its widget; recreate the widget for a complete language change.
+
+For asynchronous account storage use `WorkspaceRepository` and `WorkspaceStorage`
+from `openalgo-charts/workspace`. Failed writes reject and can be retried. Create
+a new repository when the account namespace changes, and fence stale restores in
+the host. `migrateWidgetWorkspace` imports validated legacy widget state. The
+widget's `persist` convenience remains synchronous local preference storage.
+Portable documents contain no credentials or trading account state.
+
+Order-entry hosts can also pass `tradingCapabilities`, `tradingMode` and
+`tradingLocked`. Unsupported routes are hidden; replay and host selection locks
+disable placement. The menu rechecks current capabilities and chart context when
+clicked. The existing `onOrder` callback remains the execution boundary.
+
 ## Install
 
 ```bash

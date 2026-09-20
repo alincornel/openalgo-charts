@@ -1,3 +1,4 @@
+import { widgetText } from '../localization';
 /**
  * Inline text editing for a drawing: a contentEditable box laid over the
  * painted text so its frame coincides with the frame on the canvas. The
@@ -175,16 +176,16 @@ export function mountTextEditor(ctx: WidgetContext, _anchor?: HTMLElement, opts:
   const sel = draw.selection();
   const id = opts.id ?? (sel.length === 1 ? sel[0] : undefined);
   const d = id === undefined ? undefined : draw.get(id);
-  if (!isTextContent(d)) return declined(ctx, 'Select a text drawing first', opts.onDone);
+  if (!isTextContent(d)) return declined(ctx, widgetText(ctx, 'Select a text drawing first'), opts.onDone);
   const tool = ((): { defaultText?: DrawingText } | null => { try { return getDrawingTool(d.tool); } catch { return null; } })();
-  const fallback = tool?.defaultText?.value !== undefined && tool.defaultText.value !== '' ? tool.defaultText.value : 'Text';
+  const fallback = tool?.defaultText?.value !== undefined && tool.defaultText.value !== '' ? tool.defaultText.value : widgetText(ctx, 'Text');
   const t: TextLike = d.text ?? { value: '' };
   const size = t.fontSize ?? TEXT_SIZE;
   const font = fontOf(t, size);
   const measure = measurer(doc, font, size);
   const frame = textFrame(chart, d, measure, fallback);
   const container = chartContainer(chart);
-  if (frame === null || container === null) return declined(ctx, 'That text is off the chart', opts.onDone);
+  if (frame === null || container === null) return declined(ctx, widgetText(ctx, 'That text is off the chart'), opts.onDone);
 
   // Chart coordinates are relative to the chart container; the box lives in
   // the overlay layer, which spans the widget root, and the chart starts
@@ -196,7 +197,7 @@ export function mountTextEditor(ctx: WidgetContext, _anchor?: HTMLElement, opts:
   box.setAttribute('spellcheck', 'false');
   box.setAttribute('role', 'textbox');
   box.setAttribute('aria-multiline', 'true');
-  box.setAttribute('aria-label', 'Drawing text');
+  box.setAttribute('aria-label', widgetText(ctx, 'Drawing text'));
   box.tabIndex = 0;
   const s = box.style;
   s.left = `${Math.round(frame.x + off.left)}px`;

@@ -1,3 +1,4 @@
+import { widgetText, type WidgetTranslationOptions } from './localization';
 /**
  * The top bar: symbol, interval, chart type, indicators, settings, capture
  * and theme, left to right.
@@ -161,7 +162,7 @@ export function openMenu(ctx: WidgetContext, anchor: HTMLElement, rows: Readonly
     }
     if (shown === 0) {
       const e = h(doc, 'div', 'oac-menu__empty');
-      e.textContent = 'No match';
+      e.textContent = widgetText(ctx, 'No match');
       body.appendChild(e);
     }
   };
@@ -233,14 +234,14 @@ interface BrandingLinkOptions {
 }
 
 /** Read safe link metadata from the chart's active branding. */
-export function brandingLink(chart: WidgetContext['chart']): { href: string; label: string } | null {
+export function brandingLink(chart: WidgetContext['chart'], translation: WidgetTranslationOptions = {}): { href: string; label: string } | null {
   const options = (chart as unknown as {
     brandingOptions?(): false | BrandingLinkOptions;
   }).brandingOptions?.();
   if (!options || typeof options.href !== 'string' || !/^https?:\/\//i.test(options.href)) return null;
   const label = typeof options.label === 'string' && options.label.trim() !== ''
     ? options.label.trim()
-    : 'Chart branding';
+    : widgetText(translation, 'Chart branding');
   return { href: options.href, label };
 }
 
@@ -273,7 +274,7 @@ export function mountTopbar(ctx: WidgetContext, host: HTMLElement, opts: TopbarO
   const doc = ctx.document;
   host.classList.add('oac-topbar');
   host.setAttribute('role', 'toolbar');
-  host.setAttribute('aria-label', 'Chart toolbar');
+  host.setAttribute('aria-label', widgetText(ctx, 'Chart toolbar'));
 
   const btn = (label: string, cls = ''): HTMLButtonElement => h(doc, 'button', 'oac-btn' + (cls ? ' ' + cls : ''), { type: 'button', 'aria-label': label });
   const chev = (): HTMLElement => {
@@ -291,7 +292,7 @@ export function mountTopbar(ctx: WidgetContext, host: HTMLElement, opts: TopbarO
   const symWrap = h(doc, 'div', 'oac-sym');
   symWrap.appendChild(glyph(doc, chromeIconSvg('search'), 'chrome'));
   const symInput = h(doc, 'input', 'oac-sym__input', {
-    type: 'text', 'aria-label': 'Symbol', placeholder: 'Symbol', autocomplete: 'off', spellcheck: 'false',
+    type: 'text', 'aria-label': widgetText(ctx, 'Symbol'), placeholder: widgetText(ctx, 'Symbol'), autocomplete: 'off', spellcheck: 'false',
   });
   symWrap.appendChild(symInput);
   const symEx = h(doc, 'span', 'oac-sym__ex');
@@ -313,7 +314,7 @@ export function mountTopbar(ctx: WidgetContext, host: HTMLElement, opts: TopbarO
   const showResults = (matches: readonly SymbolMatch[]): void => {
     closeResults();
     if (matches.length === 0) return;
-    const m = h(doc, 'div', 'oac-menu oac-sym__results', { role: 'listbox', 'aria-label': 'Symbols' });
+    const m = h(doc, 'div', 'oac-menu oac-sym__results', { role: 'listbox', 'aria-label': widgetText(ctx, 'Symbols') });
     const rows: HTMLElement[] = [];
     matches.forEach((hit, i) => {
       const b = h(doc, 'button', 'oac-menu__row' + (i === 0 ? ' is-active' : ''), { type: 'button', role: 'option' });
@@ -375,10 +376,10 @@ export function mountTopbar(ctx: WidgetContext, host: HTMLElement, opts: TopbarO
   symInput.addEventListener('blur', () => { if (results === null) refresh(); });
 
   // ── intervals ────────────────────────────────────────────────────────
-  const pills = h(doc, 'div', 'oac-pills', { role: 'radiogroup', 'aria-label': 'Interval' });
+  const pills = h(doc, 'div', 'oac-pills', { role: 'radiogroup', 'aria-label': widgetText(ctx, 'Interval') });
   const pillByCode = new Map<string, HTMLButtonElement>();
   for (const code of opts.intervals) {
-    const b = h(doc, 'button', undefined, { type: 'button', role: 'radio', 'aria-pressed': 'false', 'aria-label': `Interval ${code}` });
+    const b = h(doc, 'button', undefined, { type: 'button', role: 'radio', 'aria-pressed': 'false', 'aria-label': widgetText(ctx, 'Interval {code}', { code }) });
     b.textContent = intervalLabel(code);
     b.dataset.interval = code;
     b.addEventListener('click', () => opts.onInterval(code));
@@ -389,7 +390,7 @@ export function mountTopbar(ctx: WidgetContext, host: HTMLElement, opts: TopbarO
   host.appendChild(sep());
 
   // ── chart type ───────────────────────────────────────────────────────
-  const typeBtn = btn('Chart type', 'oac-topbar__type');
+  const typeBtn = btn(widgetText(ctx, 'Chart type'), 'oac-topbar__type');
   const typeLabel = h(doc, 'span');
   typeBtn.appendChild(typeLabel);
   typeBtn.appendChild(chev());
@@ -397,18 +398,18 @@ export function mountTopbar(ctx: WidgetContext, host: HTMLElement, opts: TopbarO
   typeBtn.addEventListener('click', () => {
     const cur = opts.state().chartType;
     openMenu(ctx, typeBtn, chartTypeChoices().map((id) => ({
-      label: chartTypeLabel(id), on: id === cur, onSelect: () => opts.onChartType(id),
-    })), { ariaLabel: 'Chart type' });
+      label: widgetText(ctx, `schema.chartType.${id}`, {}, chartTypeLabel(id)), on: id === cur, onSelect: () => opts.onChartType(id),
+    })), { ariaLabel: widgetText(ctx, 'Chart type') });
   });
   host.appendChild(typeBtn);
 
   // ── indicators ───────────────────────────────────────────────────────
   let indBtn: HTMLButtonElement | null = null;
   if (opts.indicators !== false) {
-    indBtn = btn('Indicators');
+    indBtn = btn(widgetText(ctx, 'Indicators'));
     indBtn.appendChild(glyph(doc, chromeIconSvg('plus'), 'chrome'));
     const t = h(doc, 'span');
-    t.textContent = 'Indicators';
+    t.textContent = widgetText(ctx, 'Indicators');
     indBtn.appendChild(t);
     indBtn.addEventListener('click', () => {
       if (indBtn !== null && indBtn.classList.contains('is-off')) return;
@@ -427,70 +428,70 @@ export function mountTopbar(ctx: WidgetContext, host: HTMLElement, opts: TopbarO
   host.appendChild(brandingSlot);
 
   if (opts.onObjects) {
-    const objects = btn('Objects', 'oac-topbar__objects');
-    objects.textContent = 'Objects';
+    const objects = btn(widgetText(ctx, 'Objects'), 'oac-topbar__objects');
+    objects.textContent = widgetText(ctx, 'Objects');
     objects.setAttribute('aria-haspopup', 'dialog');
     objects.addEventListener('click', () => { opts.onObjects?.(objects); });
     host.appendChild(objects);
   }
   if (opts.onAlerts) {
-    const alerts = btn('Alerts', 'oac-topbar__alerts');
-    alerts.textContent = 'Alerts';
+    const alerts = btn(widgetText(ctx, 'Alerts'), 'oac-topbar__alerts');
+    alerts.textContent = widgetText(ctx, 'Alerts');
     alerts.setAttribute('aria-haspopup', 'dialog');
     alerts.addEventListener('click', () => { opts.onAlerts?.(alerts); });
     host.appendChild(alerts);
   }
 
   // ── capture ──────────────────────────────────────────────────────────
-  const snapBtn = btn('Capture chart', 'oac-btn--icon');
+  const snapBtn = btn(widgetText(ctx, 'Capture chart'), 'oac-btn--icon');
   snapBtn.appendChild(glyph(doc, chromeIconSvg('camera'), 'chrome'));
   snapBtn.setAttribute('aria-haspopup', 'menu');
-  ctx.tips.attach(snapBtn, { title: 'Capture', sub: 'PNG, SVG, CSV or the clipboard', side: 'bottom' });
+  ctx.tips.attach(snapBtn, { title: widgetText(ctx, 'Capture'), sub: widgetText(ctx, 'PNG, SVG, CSV or the clipboard'), side: 'bottom' });
   snapBtn.addEventListener('click', () => {
     const s = { ...opts.state() };
     const dataAvailable = (): boolean => !ctx.chart.isDestroyed && opts.dataAvailable?.() !== false && ctx.chart.primaryBars().length > 0;
     const clip = (globalThis as { navigator?: { clipboard?: { write?: unknown } }; ClipboardItem?: unknown });
     const canCopy = clip.navigator?.clipboard?.write !== undefined && clip.ClipboardItem !== undefined;
     openMenu(ctx, snapBtn, [
-      { label: 'Download PNG', onSelect: () => {
+      { label: widgetText(ctx, 'Download PNG'), onSelect: () => {
         ctx.chart.downloadScreenshot(captureName(s.symbol, s.interval) + '.png');
-        ctx.status('Saved a PNG of the chart');
+        ctx.status(widgetText(ctx, 'Saved a PNG of the chart'));
       } },
-      { label: 'Download SVG', sub: 'text stays text', onSelect: () => {
+      { label: widgetText(ctx, 'Download SVG'), sub: widgetText(ctx, 'text stays text'), onSelect: () => {
         const ok = downloadText(doc, captureName(s.symbol, s.interval) + '.svg', ctx.chart.exportSVG(), 'image/svg+xml');
-        ctx.status(ok ? 'Saved an SVG of the chart' : 'This runtime cannot save files', ok ? 'info' : 'error');
+        ctx.status(ok ? widgetText(ctx, 'Saved an SVG of the chart') : widgetText(ctx, 'This runtime cannot save files'), ok ? 'info' : 'error');
       } },
-      { label: 'Copy image', sub: canCopy ? 'paste it anywhere' : 'needs https or localhost', disabled: !canCopy, onSelect: () => {
+      { label: widgetText(ctx, 'Copy image'), sub: canCopy ? widgetText(ctx, 'paste it anywhere') : widgetText(ctx, 'needs https or localhost'), disabled: !canCopy, onSelect: () => {
         const canvas = ctx.chart.takeScreenshot();
         canvas.toBlob((blob) => {
-          if (blob === null) { ctx.status('The canvas produced no image', 'error'); return; }
+          if (blob === null) { ctx.status(widgetText(ctx, 'The canvas produced no image'), 'error'); return; }
           const Item = (globalThis as { ClipboardItem: new (parts: Record<string, Blob>) => unknown }).ClipboardItem;
           (globalThis.navigator.clipboard as unknown as { write(items: unknown[]): Promise<void> })
             .write([new Item({ 'image/png': blob })])
-            .then(() => ctx.status('Chart copied'), (err: unknown) => ctx.status('Copy failed: ' + String((err as Error)?.message ?? err), 'error'));
+            .then(() => ctx.status(widgetText(ctx, 'Chart copied')), (err: unknown) => ctx.status(widgetText(ctx, 'Copy failed: {error}', { error: String((err as Error)?.message ?? err) }), 'error'));
         }, 'image/png');
       } },
-      { label: 'Download chart data (CSV)', disabled: !dataAvailable(), onSelect: () => {
+      { label: widgetText(ctx, 'Download chart data (CSV)'), disabled: !dataAvailable(), onSelect: () => {
         try {
           const current = opts.state();
           if (current.symbol !== s.symbol || current.exchange !== s.exchange || current.interval !== s.interval || current.chartType !== s.chartType) {
-            throw new Error('The chart changed; reopen Capture for its current source');
+            throw new Error(widgetText(ctx, 'The chart changed; reopen Capture for its current source'));
           }
-          if (!dataAvailable()) throw new Error('Wait for this chart to finish loading its data');
+          if (!dataAvailable()) throw new Error(widgetText(ctx, 'Wait for this chart to finish loading its data'));
           const ok = downloadText(doc, captureName(s.symbol, s.interval) + '.csv', exportChartDataCsv(ctx.chart), 'text/csv;charset=utf-8');
-          ctx.status(ok ? 'Chart data download started' : 'This runtime cannot save files', ok ? 'info' : 'error');
-        } catch (error) { ctx.status('Data export failed: ' + String((error as Error)?.message ?? error), 'error'); }
+          ctx.status(ok ? widgetText(ctx, 'Chart data download started') : widgetText(ctx, 'This runtime cannot save files'), ok ? 'info' : 'error');
+        } catch (error) { ctx.status(widgetText(ctx, 'Data export failed: {error}', { error: String((error as Error)?.message ?? error) }), 'error'); }
       } },
-    ], { ariaLabel: 'Capture' });
+    ], { ariaLabel: widgetText(ctx, 'Capture') });
   });
   host.appendChild(snapBtn);
 
   // ── settings ─────────────────────────────────────────────────────────
-  const setBtn = btn('Chart settings', 'oac-btn--icon');
+  const setBtn = btn(widgetText(ctx, 'Chart settings'), 'oac-btn--icon');
   setBtn.appendChild(glyph(doc, chromeIconSvg('settings'), 'chrome'));
   ctx.tips.attach(setBtn, () => ({
-    title: 'Chart settings',
-    sub: opts.settingsAvailable() ? undefined : 'The settings dialog is not in this build',
+    title: widgetText(ctx, 'Chart settings'),
+    sub: opts.settingsAvailable() ? undefined : widgetText(ctx, 'The settings dialog is not in this build'),
     side: 'bottom',
   }));
   setBtn.addEventListener('click', () => { if (!setBtn.classList.contains('is-off')) opts.onSettings(setBtn); });
@@ -499,17 +500,17 @@ export function mountTopbar(ctx: WidgetContext, host: HTMLElement, opts: TopbarO
   // ── theme ────────────────────────────────────────────────────────────
   // A word rather than a glyph: the chrome set has no sun or moon, and the
   // name of the theme the click would switch to says more than either.
-  const themeBtn = btn('Theme', 'oac-topbar__theme');
+  const themeBtn = btn(widgetText(ctx, 'Theme'), 'oac-topbar__theme');
   const themeLabel = h(doc, 'span');
   themeBtn.appendChild(themeLabel);
-  ctx.tips.attach(themeBtn, () => ({ title: opts.state().theme === 'dark' ? 'Switch to the light theme' : 'Switch to the dark theme', side: 'bottom' }));
+  ctx.tips.attach(themeBtn, () => ({ title: opts.state().theme === 'dark' ? widgetText(ctx, 'Switch to the light theme') : widgetText(ctx, 'Switch to the dark theme'), side: 'bottom' }));
   themeBtn.addEventListener('click', () => opts.onTheme(opts.state().theme === 'dark' ? 'light' : 'dark'));
   host.appendChild(themeBtn);
 
   if (indBtn !== null) {
     ctx.tips.attach(indBtn, () => ({
-      title: 'Indicators',
-      sub: opts.indicatorsAvailable() ? 'Add a study to the chart' : 'The indicator picker is not in this build',
+      title: widgetText(ctx, 'Indicators'),
+      sub: opts.indicatorsAvailable() ? widgetText(ctx, 'Add a study to the chart') : widgetText(ctx, 'The indicator picker is not in this build'),
       side: 'bottom',
     }));
   }
@@ -524,15 +525,15 @@ export function mountTopbar(ctx: WidgetContext, host: HTMLElement, opts: TopbarO
       b.setAttribute('aria-pressed', String(on));
       b.setAttribute('aria-checked', String(on));
     }
-    typeLabel.textContent = chartTypeLabel(s.chartType);
+    typeLabel.textContent = widgetText(ctx, `schema.chartType.${s.chartType}`, {}, chartTypeLabel(s.chartType));
     setOff(setBtn, !opts.settingsAvailable());
     if (indBtn !== null) setOff(indBtn, !opts.indicatorsAvailable());
     themeBtn.dataset.theme = s.theme;
-    themeLabel.textContent = s.theme === 'dark' ? 'Light' : 'Dark';
+    themeLabel.textContent = s.theme === 'dark' ? widgetText(ctx, 'Light') : widgetText(ctx, 'Dark');
     ctx.tips.refreshLabel(themeBtn);
     ctx.tips.refreshLabel(setBtn);
     if (indBtn !== null) ctx.tips.refreshLabel(indBtn);
-    const link = brandingLink(ctx.chart);
+    const link = brandingLink(ctx.chart, ctx);
     if (link === null) {
       brandingAnchor?.remove();
       brandingAnchor = null;

@@ -56,7 +56,7 @@ interface IndicatorTemplateDocument {
 }
 ```
 
-Each slot names one pane and its integer row/column/span. A layout permits up to 16 panes, dimensions up to 8 by 8, no overlapping cells, and exactly one slot per pane. Indicator lists permit up to 256 instances. Names trim to 1–120 characters. Documents permit at most 5 MB of serialized text, depth 32 and 100,000 JSON nodes. Unknown top-level fields are not copied. Nested reserved trading/credential keys are removed; arbitrary user text is data and must never be executed.
+Each slot names one pane and its integer row/column/span. A layout permits up to 16 panes, dimensions up to 8 by 8, no overlapping cells, and exactly one slot per pane. Indicator lists permit up to 256 instances. Names trim to 1-120 characters. Documents permit at most 5 MB of serialized text, depth 32 and 100,000 JSON nodes. Unknown top-level fields are not copied. Nested reserved trading/credential keys are removed; arbitrary user text is data and must never be executed.
 
 - [x] Write fixtures containing two independent panes and repeated EMA descriptors; assert exact round trips and no shared mutable references:
 
@@ -133,7 +133,7 @@ Files: `package.json`, `tsconfig.json`, `rollup.config.js`, `scripts/check-dts.m
 
 ## Preflight
 
-The spec covers F1–F9/P1–P6. This phase supplies only the reusable F1/F2/P4 contracts; host controls, autosave orchestration, template application, comparisons, replay and the remaining readiness work remain in the master ledger. No existing public API is renamed. The adapter owns atomic writes so the repository does not falsely promise cross-tab safety from a read/then-write localStorage sequence.
+The spec covers F1-F9/P1-P6. This phase supplies only the reusable F1/F2/P4 contracts; host controls, autosave orchestration, template application, comparisons, replay and the remaining readiness work remain in the master ledger. No existing public API is renamed. The adapter owns atomic writes so the repository does not falsely promise cross-tab safety from a read/then-write localStorage sequence.
 
 Task 1: Ruling: use the drawing tier's off/weak/strong magnet modes rather than a boolean. The existing widget can distinguish weak and strong; its migration must preserve that choice. Hosts with a boolean map false to off and true to weak.
 

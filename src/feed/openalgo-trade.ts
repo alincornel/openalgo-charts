@@ -20,6 +20,7 @@
 import type { OrderFeed, PlaceRequest, PreflightFailure, TradeMode } from '../trade/order-engine';
 import type { Order, OrderSide, OrderStatus, OrderType, Position } from '../trade/types';
 import { validateQuantity, type OrderConstraints } from '../trade/validation';
+import { assertTradingCapability, type TradingCapabilitySource } from './trading-capabilities';
 
 /**
  * An error that says the request PROVABLY never left this process.
@@ -40,6 +41,8 @@ export type ModeCheck = 'off' | 'auto' | 'always';
 export interface OpenAlgoTradeConfig {
   baseUrl: string;
   apiKey: string;
+  /** Optional host/broker restrictions; omitted preserves the existing OpenAlgo path. */
+  capabilities?: TradingCapabilitySource;
   /**
    * Instrument constraints for the advisory pre-trade check on `place`, looked
    * up per order. Return undefined when the instrument is unknown; the
@@ -94,7 +97,7 @@ interface OrderContext {
   symbol: string;
   exchange: string;
   action: string;
-  pricetype: string;
+  pricetype: OrderType;
   product: string;
   quantity: number;
   price: number;
@@ -290,11 +293,18 @@ export class OpenAlgoTradeFeed implements OrderFeed {
     return token;
   }
 
-  public async place(req: PlaceRequest & { mode: TradeMode }): Promise<{ orderId: string }> {
+  public get capabilities(): TradingCapabilitySource | undefined { return this._config.capabilities; }
+
+  public async place(request: PlaceRequest & { mode: TradeMode }): Promise<{ orderId: string }> {
+    const req = { ...request };
+    const capabilityRequest = { operation: 'place' as const, symbol: req.symbol,
+      exchange: req.exchange ?? 'NSE', type: req.type, mode: req.mode };
+    assertTradingCapability(this.capabilities, capabilityRequest);
     // `mode` is a guard, not a payload field: OpenAlgo routes on its own global
     // and would ignore a mode in the body, so putting one there would look like
     // a control while doing nothing.
     await this._assertMode(req.mode);
+    assertTradingCapability(this.capabilities, capabilityRequest);
     // Both throw pre-flight, so a refusal here provably sent nothing and the
     // caller may correct and retry without wondering whether an order is live.
     this._assertQuantity(req);
@@ -360,8 +370,11 @@ export class OpenAlgoTradeFeed implements OrderFeed {
     this._claimed.delete(token);
   }
 
-  public async modify(orderId: string, patch: { price?: number; triggerPrice?: number; qty?: number }): Promise<void> {
+  public async modify(orderId: string, changes: { price?: number; triggerPrice?: number; qty?: number }): Promise<void> {
+    const patch = { ...changes };
     const ctx = this._ctx.get(orderId);
+    assertTradingCapability(this.capabilities, { operation: 'modify', orderId,
+      symbol: ctx?.symbol, exchange: ctx?.exchange, type: ctx?.pricetype });
     if (ctx === undefined) {
       // Pre-flight: nothing can be built, so nothing is sent, so the order is
       // exactly where it was and the caller may retry once it has the book.
@@ -395,6 +408,9 @@ export class OpenAlgoTradeFeed implements OrderFeed {
   }
 
   public async cancel(orderId: string): Promise<void> {
+    const ctx = this._ctx.get(orderId);
+    assertTradingCapability(this.capabilities, { operation: 'cancel', orderId,
+      symbol: ctx?.symbol, exchange: ctx?.exchange, type: ctx?.pricetype });
     await this._post('/api/v1/cancelorder', { orderid: orderId, strategy: this._strategy });
   }
 

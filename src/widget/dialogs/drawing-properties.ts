@@ -1,3 +1,4 @@
+import { widgetText } from '../localization';
 /**
  * Properties of the selected drawing, generated from the tool's settings
  * schema (`drawingSettingsSchema`), which declares only the fields the tool's
@@ -111,14 +112,14 @@ export function mountDrawingProperties(ctx: WidgetContext, anchor?: HTMLElement,
   const drawingsOf = (): Drawing[] => ids.map((id) => draw.get(id)).filter((d): d is Drawing => d !== undefined);
   let live = drawingsOf();
   if (live.length === 0) {
-    ctx.toast('Select a drawing first', 'info');
+    ctx.toast(widgetText(ctx, 'Select a drawing first'), 'info');
     return { el: doc.createElement('div'), close: () => {}, isOpen: () => false };
   }
   let schema = commonSchema(live.map((d) => d.tool));
   let tool = toolOf(live[0].tool);
   let form: FormHandle | null = null;
 
-  const titleOf = (): string => (live.length === 1 ? (tool?.name ?? live[0].tool) : `${live.length} drawings`);
+  const titleOf = (): string => (live.length === 1 ? widgetText(ctx, `schema.drawing.${live[0].tool}.name`, {}, tool?.name ?? live[0].tool) : widgetText(ctx, '{count} drawings', { count: live.length }));
   const values = (): Record<string, unknown> => resolvedDrawingValues(live[0], schema, tool, ctx.chartTheme.lineColor);
 
   /** Write `{ path: value }` to every selected drawing as one undo entry. */
@@ -133,10 +134,10 @@ export function mountDrawingProperties(ctx: WidgetContext, anchor?: HTMLElement,
     if (patches.length > 0) draw.updateMany(patches);
   }
 
-  const frame = dialogFrame(doc, { title: titleOf(), className: 'oac-props', onClose: () => handle.close() });
+  const frame = dialogFrame(doc, { translate: ctx.translate, title: titleOf(), className: 'oac-props', onClose: () => handle.close() });
   const tools = el(doc, 'div', 'oac-props__tools');
   tools.setAttribute('role', 'toolbar');
-  tools.setAttribute('aria-label', 'Drawing actions');
+  tools.setAttribute('aria-label', widgetText(ctx, 'Drawing actions'));
   frame.el.insertBefore(tools, frame.body);
   const pane = el(doc, 'div', 'oac-props__pane');
   frame.body.appendChild(pane);
@@ -154,39 +155,39 @@ export function mountDrawingProperties(ctx: WidgetContext, anchor?: HTMLElement,
       tools.appendChild(b);
     };
     const sep = (): void => { tools.appendChild(el(doc, 'span', 'oac-sep')); };
-    add({ label: locked ? 'Unlock' : 'Lock', icon: locked ? 'lock' : 'unlock',
+    add({ label: locked ? widgetText(ctx, 'Unlock') : widgetText(ctx, 'Lock'), icon: locked ? 'lock' : 'unlock',
       onClick: () => { draw.updateMany(ids.map((id) => ({ id, patch: { locked: !locked } }))); } }, 'lock', locked);
-    add({ label: hidden ? 'Show' : 'Hide', icon: hidden ? 'eye-off' : 'eye',
+    add({ label: hidden ? widgetText(ctx, 'Show') : widgetText(ctx, 'Hide'), icon: hidden ? 'eye-off' : 'eye',
       onClick: () => { draw.updateMany(ids.map((id) => ({ id, patch: { visible: hidden } }))); } }, 'visible', hidden);
     sep();
     // The controller reorders one drawing at a time (the list position is part
     // of the order), so a multi-selection is several calls.
-    add({ label: 'Bring to front', icon: 'front', onClick: () => { for (const id of ids) draw.bringToFront(id); } }, 'front');
-    add({ label: 'Send to back', icon: 'back', onClick: () => { for (const id of ids) draw.sendToBack(id); } }, 'back');
-    add({ label: 'In front of the series', svg: glyphSvg(ABOVE_GLYPH),
+    add({ label: widgetText(ctx, 'Bring to front'), icon: 'front', onClick: () => { for (const id of ids) draw.bringToFront(id); } }, 'front');
+    add({ label: widgetText(ctx, 'Send to back'), icon: 'back', onClick: () => { for (const id of ids) draw.sendToBack(id); } }, 'back');
+    add({ label: widgetText(ctx, 'In front of the series'), svg: glyphSvg(ABOVE_GLYPH),
       onClick: () => { for (const id of ids) draw.bringAboveSeries(id); } }, 'above', !behind);
-    add({ label: 'Behind the series', svg: glyphSvg(BEHIND_GLYPH),
+    add({ label: widgetText(ctx, 'Behind the series'), svg: glyphSvg(BEHIND_GLYPH),
       onClick: () => { for (const id of ids) draw.sendBehindSeries(id); } }, 'behind', behind);
     sep();
-    add({ label: 'Duplicate', icon: 'duplicate', chord: 'Ctrl+D', onClick: () => { draw.duplicate(ids); } }, 'duplicate');
-    add({ label: 'Delete', icon: 'trash', chord: 'Del', variant: 'danger', onClick: () => { draw.removeMany(ids); } }, 'delete');
+    add({ label: widgetText(ctx, 'Duplicate'), icon: 'duplicate', chord: 'Ctrl+D', onClick: () => { draw.duplicate(ids); } }, 'duplicate');
+    add({ label: widgetText(ctx, 'Delete'), icon: 'trash', chord: 'Del', variant: 'danger', onClick: () => { draw.removeMany(ids); } }, 'delete');
   }
 
   function renderPane(): void {
     pane.innerHTML = '';
-    const controls = controlsFromFields(schema.fields);
+    const controls = controlsFromFields(schema.fields, { translate: ctx.translate, scope: `drawing.${live[0].tool}` });
     if (controls.length === 0) {
-      pane.appendChild(el(doc, 'div', 'oac-empty', 'These drawings share no settings.'));
+      pane.appendChild(el(doc, 'div', 'oac-empty', widgetText(ctx, 'These drawings share no settings.')));
       form = null;
       return;
     }
     form = renderForm(pane, controls, {
-      values: values(),
+      values: values(), translate: ctx.translate,
       idPrefix: 'oac-props',
       onChange: (key, value) => { apply({ [key]: value }); form?.sync(values()); },
       custom: (c) => {
         if (c.custom !== 'levels') return null;
-        const b = button(doc, { label: 'Edit levels...', onClick: (e) => { mountLevelEditor(ctx, e.currentTarget as HTMLElement, { ids }); } });
+        const b = button(doc, { label: widgetText(ctx, 'Edit levels...'), onClick: (e) => { mountLevelEditor(ctx, e.currentTarget as HTMLElement, { ids }); } });
         b.dataset.act = 'edit-levels';
         return b;
       },
@@ -196,7 +197,7 @@ export function mountDrawingProperties(ctx: WidgetContext, anchor?: HTMLElement,
     if (schema.textIsContent === true && live.length === 1) {
       const row = pane.querySelector('[data-key="text.value"]');
       if (row !== null) {
-        const b = button(doc, { label: 'Edit on chart', icon: 'text', onClick: () => { mountTextEditor(ctx, undefined, { id: live[0].id }); } });
+        const b = button(doc, { label: widgetText(ctx, 'Edit on chart'), icon: 'text', onClick: () => { mountTextEditor(ctx, undefined, { id: live[0].id }); } });
         b.dataset.act = 'edit-text';
         row.appendChild(b);
       }
@@ -207,7 +208,7 @@ export function mountDrawingProperties(ctx: WidgetContext, anchor?: HTMLElement,
   renderPane();
 
   frame.lead.appendChild(button(doc, {
-    label: 'Restore defaults',
+    label: widgetText(ctx, 'Restore defaults'),
     onClick: () => {
       // The tool's own defaults where it has them; a field it leaves unset is
       // removed, which puts the layer's fallback back.
@@ -224,7 +225,7 @@ export function mountDrawingProperties(ctx: WidgetContext, anchor?: HTMLElement,
       form?.sync(values());
     },
   }));
-  frame.actions.appendChild(button(doc, { label: 'Done', variant: 'primary', onClick: () => handle.close() }));
+  frame.actions.appendChild(button(doc, { label: widgetText(ctx, 'Done'), variant: 'primary', onClick: () => handle.close() }));
 
   /** Follow the selection: the same one refreshes in place, a new one rebuilds, none closes. */
   function refresh(): void {

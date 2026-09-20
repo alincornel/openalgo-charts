@@ -91,6 +91,20 @@ describe('alignToPrimary', () => {
     });
     expect(alignToPrimary([bar(0, 10)], []).alignment).toEqual({ bars: 1, matched: 0, gaps: 1, dropped: 0 });
   });
+
+  it('lets the latest duplicate retract a comparison reading to a gap', () => {
+    const primary = [bar(0, 100), bar(1, 101)];
+    const comparison: SeriesDataItem[] = [
+      bar(0, 10), bar(9, 90), { time: at(0) }, { time: at(9) },
+      { time: at(1) }, bar(1, 11),
+    ];
+    const snapshot = comparison.map(item => ({ ...item }));
+    expect(alignToPrimary(primary, comparison)).toEqual({
+      items: [{ time: at(0) }, bar(1, 11)],
+      alignment: { bars: 2, matched: 1, gaps: 1, dropped: 0 },
+    });
+    expect(comparison).toEqual(snapshot);
+  });
 });
 
 describe('comparison series placement', () => {
@@ -422,6 +436,18 @@ describe('common comparison baseline', () => {
     expect(source.series.getData().every(item => !Number.isFinite(item.close))).toBe(true);
     controller.setMode('none');
     expect(source.series.getData().map(item => item.close)).toEqual([0, -10]);
+  });
+
+  it('moves the common baseline when a duplicate correction retracts its reading', () => {
+    const { chart } = loaded(ramp(100, 3, 110));
+    const controller = comparisonController(chart, { baseline: 'common' });
+    const source = controller.add({ symbol: 'A', bars: ramp(1000, 3, 1100) });
+    expect(controller.baselineTime()).toBe(at(0));
+    source.setBars([...ramp(1000, 3, 1100), { time: at(0) }]);
+    expect(controller.baselineTime()).toBe(at(1));
+    expect(Number.isNaN(source.series.getData()[0].close)).toBe(true);
+    expect(source.alignment()).toEqual({ bars: 3, matched: 2, gaps: 1, dropped: 0 });
+    chart.destroy();
   });
 });
 

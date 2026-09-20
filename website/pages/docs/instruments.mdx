@@ -1,0 +1,62 @@
+---
+title: Instrument Metadata
+description: Share validated precision, quantity, interval and session rules across a chart host.
+---
+
+# Instrument metadata
+
+The optional base `Instrument` API connects price precision, quantity steps,
+supported intervals, source identity, trading sessions and OI capability. It
+validates and detaches host-supplied metadata without changing existing defaults
+or starting a feed. Providers remain responsible for current market rules.
+
+```ts
+import { Instrument } from 'openalgo-charts';
+import { orderConstraintsForInstrument, validateQuantity } from 'openalgo-charts/trade';
+
+const instrument = new Instrument({
+  symbol: 'CONTRACT', exchange: 'NFO', timezone: 'Asia/Kolkata',
+  priceTick: 0.05, pricePrecision: 2, quantityStep: 75,
+  intervals: ['1m', '5m', '1h', 'D'], hasOpenInterest: true,
+  calendar: {
+    sessions: ['0915-1530:23456'],
+    exceptions: { '2026-01-26': [], '2026-01-27': ['1000-1300'] },
+  },
+});
+instrument.applyTo(chart, '5m');
+const session = instrument.sessionAt(tick.time);
+const quantityCheck = validateQuantity(150, orderConstraintsForInstrument(instrument));
+```
+
+The chart must already have a primary series. Clear old bars before applying a
+different source or interval; unsupported intervals reject before chart mutation.
+`applyTo` updates the timezone, price tick, primary price-scale formatting and data
+context. Oscillators and volume keep their own units. Reapply after replacing the
+primary series or restoring its formatting. Hosts own stale-request cancellation.
+
+`InstrumentMetadata.pricePrecision` accepts 0 through 12 and must represent the
+declared tick. Display formatting leaves stored OHLC values unchanged.
+`quantityStep` is in the adapter's order units, with no implicit lot multiplication.
+Quantity validation is advisory; the broker remains authoritative.
+
+`InstrumentCalendar.sessions` uses `HHMM-HHMM[:days]`, Sunday 1 to Saturday 7.
+Multiple windows represent breaks. An end at or before the start crosses midnight;
+`0000-0000` represents continuous crypto trading. Exceptions replace windows by
+local opening date, and an empty list closes that date. Overnight sessions belong
+to their opening date even when they continue into the following holiday.
+
+`sessionAt` returns an `InstrumentSession` with UTC-second `open` and `close`,
+or null outside the session. The close is exclusive. IANA offsets resolve each
+boundary, including 23/25-hour days. A nonexistent daylight-saving boundary or
+overlapping active windows throws; provide an explicit date exception rather than
+guessing. Feed adapters can use the resolved open as their candle-builder anchor.
+
+`supportsInterval` matches exact provider tokens. Register custom interval codes
+before constructing the profile. OI support remains true, false or unknown,
+independently of zero or missing observations.
+
+The [standalone instrument example](/demos/instruments/) uses
+synthetic cash, futures and crypto profiles, a shortened session and an OI pane.
+It sends no orders. See the repository's
+[full integration guide](https://github.com/marketcalls/openalgo-charts/blob/master/docs/instruments.md)
+for streaming-builder lifetime and source-transition details.

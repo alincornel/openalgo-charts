@@ -1,3 +1,4 @@
+import { widgetText } from './localization';
 /**
  * The widget keymap: one place every chord the shell, the rail and the
  * dialogs answer to is registered, resolved and listed.
@@ -438,11 +439,11 @@ export class Keymap {
  */
 export function openShortcutsPanel(ctx: WidgetContext): () => void {
   const doc = ctx.document;
-  const el = h(doc, 'div', 'oac-keys-dialog', { 'aria-label': 'Keyboard shortcuts' });
+  const el = h(doc, 'div', 'oac-keys-dialog', { 'aria-label': widgetText(ctx, 'Keyboard shortcuts') });
   const head = h(doc, 'div', 'oac-dialog__head');
   const title = h(doc, 'div', 'oac-dialog__title');
-  title.textContent = 'Keyboard shortcuts';
-  const x = h(doc, 'button', 'oac-btn oac-btn--icon', { type: 'button', 'aria-label': 'Close' });
+  title.textContent = widgetText(ctx, 'Keyboard shortcuts');
+  const x = h(doc, 'button', 'oac-btn oac-btn--icon', { type: 'button', 'aria-label': widgetText(ctx, 'Close') });
   x.innerHTML = chromeIconSvg('close');
   head.appendChild(title);
   head.appendChild(x);
@@ -452,19 +453,19 @@ export function openShortcutsPanel(ctx: WidgetContext): () => void {
   for (const g of ctx.keymap.describe()) {
     const box = h(doc, 'div', 'oac-keys__group');
     const gh = h(doc, 'div', 'oac-head');
-    gh.textContent = g.group;
+    gh.textContent = widgetText(ctx, `schema.shortcuts.group.${g.group}`, {}, g.group);
     box.appendChild(gh);
     for (const r of g.rows) {
       const row = h(doc, 'div', 'oac-keys__row');
       const label = h(doc, 'span');
-      label.textContent = r.label;
+      label.textContent = widgetText(ctx, `schema.shortcuts.${g.group}.${r.combo}`, {}, r.label);
       const kbd = h(doc, 'kbd');
       kbd.textContent = r.display;
       row.appendChild(label);
       row.appendChild(kbd);
       if (r.shadowedBy !== undefined) {
         row.classList.add('is-shadowed');
-        row.title = `Claimed by ${r.shadowedBy}`;
+        row.title = widgetText(ctx, 'Claimed by {name}', { name: r.shadowedBy });
         shadowed++;
       }
       box.appendChild(row);
@@ -474,7 +475,7 @@ export function openShortcutsPanel(ctx: WidgetContext): () => void {
   body.appendChild(cols);
   if (shadowed > 0) {
     const note = h(doc, 'div', 'oac-keys__note');
-    note.textContent = `${shadowed} chart shortcut${shadowed === 1 ? '' : 's'} struck through: the same chord arms a drawing tool here and takes precedence.`;
+    note.textContent = widgetText(ctx, shadowed === 1 ? '{count} chart shortcut struck through: the same chord arms a drawing tool here and takes precedence.' : '{count} chart shortcuts struck through: the same chord arms a drawing tool here and takes precedence.', { count: shadowed });
     body.appendChild(note);
   }
   el.appendChild(head);

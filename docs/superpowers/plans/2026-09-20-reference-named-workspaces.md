@@ -1,5 +1,64 @@
 # Reference named workspaces implementation plan
 
+## Final release review follow-up: replay selection autosave
+
+Independent read-only review found that the recovery autosave scheduler and
+flush path omitted the replay-selection guard used by the named snapshot.
+A timer queued before entering selection could write recovery state, invoke
+the named snapshot while it was unavailable and permanently block subsequent
+named autosaves until an explicit save or refresh.
+
+The existing persistence suite now exercises selection entered after a timer
+was queued, using the real named catalog and document conversion. Before the
+fix, two tests failed: recovery was written, the catalog became blocked and a
+later source change did not reach the named document. Both autosave guards now
+include `replayPicking`; storage failure handling remains unchanged.
+
+| Command | Result | Artifact |
+| --- | --- | --- |
+| `npx vitest run --config examples/yfinance/vitest.config.ts examples/yfinance/tests/persist.test.js` before the fix | 2 failed, 31 passed | `artifacts/candidate/f1-replay-autosave-red.log` |
+| `npx vitest run --config examples/yfinance/vitest.config.ts` | 389 passed across 30 files | `artifacts/candidate/f1-replay-autosave-reference-green.log` |
+| `npx eslint tests/e2e/yfinance-mobile.spec.ts` | Exit 0 | `artifacts/candidate/f1-replay-autosave-browser-lint.log` |
+
+The browser case `pending named autosave survives replay selection without
+saving transient state or blocking recovery` uses the actual catalog and
+IndexedDB, enters selection with a queued save, cancels through the control
+and checks the subsequent durable save. Root ran it successfully in Chromium,
+Firefox and WebKit, three passed. An
+isolated strict typecheck of the whole existing browser spec still reports its
+preexisting Buffer globals and samples/callback annotations outside this new
+case; no new-case diagnostic was reported. Example files are excluded by the
+root ESLint configuration, so the ignored example-file lint invocation is not
+claimed as validation. Runtime edits were frozen again after the reference run.
+
+## Final WebKit startup diagnostic follow-up
+
+The reviewed full browser run recorded 427 passed, one existing baseline skip
+and one WebKit timeout while `openDemo` waited for the initial chart. The failed
+workspace alert case never reached its workspace assertions. Its preserved
+error context shows empty toolbar/chart shells but contains no trace or network
+diagnostics, so the originating failure cannot be identified from that artifact.
+
+Targeted runs of the unchanged workspace case passed six times with two workers
+and nine times at the original three-worker concurrency, with traces enabled.
+All 15 traces contain 765 completed resources in total, no failed resources and
+no page or console errors. This is a nonreproduced intermittent startup failure,
+not evidence that a production defect was fixed.
+
+The test-only `openDemo` helper now attaches pending/failed requests, HTTP errors,
+page/console errors and document-load milestones if startup fails. It retains
+the original wait, timeout and failure, and removes all diagnostic listeners on
+exit. A synthetic negative control confirmed failure attachment, preservation
+of the original error and complete listener cleanup. Focused ESLint passes.
+No production runtime was changed for this investigation.
+
+Evidence: `artifacts/candidate/f1-webkit-startup-probe.log`,
+`f1-webkit-startup-diagnostics.log`, `f1-webkit-startup-trace-summary.json`,
+`f1-webkit-startup-negative-control.log` and
+`f1-webkit-startup-diagnostics-lint.log`. Traces remain in the separate
+`f1-webkit-startup-probe/` and `f1-webkit-startup-diagnostics/` directories,
+preserving root's original `test-results` failure and screenshots.
+
 > **For agentic workers:** Use superpowers:executing-plans for continuous native implementation. One independent whole-branch review remains near release.
 
 **Goal:** Complete reference F1 with named, portable layouts and safe workspace switching, using the existing library document and repository contracts.

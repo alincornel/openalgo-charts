@@ -1,0 +1,46 @@
+---
+title: Compatibility and Maintenance
+description: Public API stability, host responsibilities, upgrade checks and release evidence.
+---
+
+# Compatibility and maintenance
+
+Use documented package entries and exported types. Source internals, demo globals
+and widget DOM/CSS structure are implementation details. Existing public defaults
+are preserved within a major version; additions are opt-in. A deprecated API needs
+a documented replacement and migration example before removal in a later major.
+Correctness and security fixes can change incorrect behavior in patch releases,
+with affected inputs explained in release notes.
+
+Saved chart, drawing, alert and workspace documents carry independent versions.
+Use the matching public validation/restore APIs, inspect partial failures and retain
+the last good document when a migration fails. Do not put credentials, orders,
+positions or armed state into portable layouts.
+
+The host owns authenticated transport, instrument/calendar metadata, provider
+timestamps, storage namespaces and execution authority. Chart alerts evaluate data
+while running; background scheduling and notification delivery belong to the host.
+Replay and replay selection must lock every host order-entry route. Client quantity
+and capability checks do not replace broker enforcement.
+
+Browser regression projects exercise Chromium, Firefox and WebKit. Release evidence
+must name actual browser/device/workload details; automated WebKit checks do not
+prove every Safari/device combination. The ESM package has no runtime dependencies.
+Its build toolchain requires Node.js 20 or later. Chart construction requires the
+browser canvas/DOM environment.
+
+Pin the package used by a production portal. Test source changes, reconnects,
+saved layouts, multiple panes, drawings, studies, replay and enabled trading routes
+in the real host before rollout. Preserve the prior application deployment for
+rollback; a published package version is immutable. Older hosts may not understand
+newer saved document formats.
+
+Synthetic adapter tests, browser fixtures, endurance workloads and connected-feed
+checks are separate evidence. None alone certifies a broker integration. Community
+maintenance does not provide a response SLA, continuous exchange coverage or
+indefinite support for older minor versions. The security policy governs security
+reporting and supported fix branches.
+
+See the repository's [complete compatibility policy](https://github.com/marketcalls/openalgo-charts/blob/master/COMPATIBILITY.md),
+[contributing and release gates](https://github.com/marketcalls/openalgo-charts/blob/master/CONTRIBUTING.md),
+and [private security reporting](https://github.com/marketcalls/openalgo-charts/security/advisories/new).

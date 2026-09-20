@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type ConsoleMessage, type Page, type Request, type Response } from '@playwright/test';
 
 const ORIGIN = 'http://127.0.0.1:8124';
 const PAGE = ORIGIN + '/examples/yfinance/index.html?test=1';
@@ -83,6 +83,37 @@ test('named autosave off preserves the saved source on reload and explicit or en
   await page.reload();
   await page.waitForFunction(() => (window as any).__oac?.app.chart && !(window as any).__oac.app.loading);
   expect(await page.evaluate(() => (window as any).__oac.app.req.symbol)).toBe('NVDA');
+});
+
+test('pending named autosave survives replay selection without saving transient state or blocking recovery', async ({ page }) => {
+  await openDemo(page);
+  await page.waitForFunction(() => !(window as any).__oac.app.loading);
+  const selected = await page.evaluate(async () => {
+    const app = (window as any).__oac.app, catalog = app.workspaceCatalog;
+    const persistPath = '/examples/yfinance/src/persist.js', replayPath = '/examples/yfinance/src/replay.js';
+    const persist = await import(persistPath), replay = await import(replayPath);
+    persist.flushAutosave(); await catalog.flushAutosave();
+    await catalog.create('Replay selection'); await catalog.setAutosave(true);
+    persist.persistLayoutNow(); await catalog.flushAutosave();
+    const previous = localStorage.getItem(persist.LAYOUT_KEY);
+    const nextGrid = !app.chart.getState().grid.vertLines;
+    app.chart.setGridOptions({ vertLines: nextGrid });
+    persist.autosave(); replay.enterReplay();
+    persist.flushAutosave(); await catalog.flushAutosave();
+    return { picking: app.replayPicking, unchanged: localStorage.getItem(persist.LAYOUT_KEY) === previous,
+      blocked: catalog.autosaveBlocked, error: catalog.error, nextGrid };
+  });
+  expect(selected).toMatchObject({ picking: true, unchanged: true, blocked: false, error: '' });
+  await page.locator('#rp-pick-cancel').click();
+  await expect(page.locator('#replaypick')).toBeHidden();
+  expect(await page.evaluate(async () => {
+    const app = (window as any).__oac.app, catalog = app.workspaceCatalog;
+    const persistPath = '/examples/yfinance/src/persist.js', persist = await import(persistPath);
+    persist.autosave(); persist.flushAutosave(); await catalog.flushAutosave();
+    const saved = await catalog.storage.read(catalog.namespace);
+    return { picking: app.replayPicking, blocked: catalog.autosaveBlocked, error: catalog.error,
+      savedGrid: saved.workspaces.find((item: any) => item.id === catalog.currentId).panes[0].chart.grid.vertLines };
+  })).toEqual({ picking: false, blocked: false, error: '', savedGrid: selected.nextGrid });
 });
 
 test('named layout storage failures stay visible and can be retried without a fallback catalog', async ({ page }) => {
@@ -1633,11 +1664,47 @@ test.beforeEach(async ({ request }) => {
 });
 
 async function openDemo(page: Page): Promise<void> {
-  await page.goto(PAGE);
-  await page.waitForFunction(() => {
-    const host = (window as any).__oac;
-    return Boolean(host && host.chart && host.draw && host.app.currentBars.length > 0);
-  });
+  const pending = new Set<Request>();
+  const failures: { url: string; error: string }[] = [];
+  const responses: { url: string; status: number }[] = [];
+  const pageErrors: string[] = [], consoleErrors: string[] = [];
+  const started = Date.now();
+  let domContentLoaded = false, loaded = false;
+  const requested = (request: Request) => pending.add(request);
+  const finished = (request: Request) => pending.delete(request);
+  const failed = (request: Request) => {
+    pending.delete(request);
+    failures.push({ url: request.url(), error: request.failure()?.errorText || 'Request failed' });
+  };
+  const responded = (response: Response) => {
+    if (response.status() >= 400) responses.push({ url: response.url(), status: response.status() });
+  };
+  const pageError = (error: Error) => { pageErrors.push(error.stack || error.message); };
+  const consoleError = (message: ConsoleMessage) => { if (message.type() === 'error') consoleErrors.push(message.text()); };
+  const domReady = () => { domContentLoaded = true; };
+  const load = () => { loaded = true; };
+  page.on('request', requested); page.on('requestfinished', finished); page.on('requestfailed', failed);
+  page.on('response', responded); page.on('pageerror', pageError); page.on('console', consoleError);
+  page.on('domcontentloaded', domReady); page.on('load', load);
+  try {
+    await page.goto(PAGE);
+    await page.waitForFunction(() => {
+      const host = (window as any).__oac;
+      return Boolean(host && host.chart && host.draw && host.app.currentBars.length > 0);
+    });
+  } catch (error) {
+    await test.info().attach('reference-boot-diagnostics', {
+      contentType: 'application/json',
+      body: JSON.stringify({ url: page.url(), elapsedMs: Date.now() - started, domContentLoaded, loaded,
+        pending: [...pending].map(request => ({ url: request.url(), type: request.resourceType() })),
+        failures, responses, pageErrors, consoleErrors }, null, 2),
+    });
+    throw error;
+  } finally {
+    page.off('request', requested); page.off('requestfinished', finished); page.off('requestfailed', failed);
+    page.off('response', responded); page.off('pageerror', pageError); page.off('console', consoleError);
+    page.off('domcontentloaded', domReady); page.off('load', load);
+  }
 }
 
 test('compact touch controls draw, undo and navigate in portrait and landscape', async ({ page }) => {

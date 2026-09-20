@@ -26,7 +26,7 @@
 import {
   AlertController, ChartObjects, DataLoadingController, createChart, darkTheme, lightTheme, registeredIntervals, registeredChartTypes, tryResolveInterval, resolveInterval, isKnownInterval,
   type Chart, type ChartOptions, type ChartTheme, type DataFeed, type Bar, type SeriesApi, type SeriesType,
-  type RestoreReport, type BarsRequest, type DataLoadingOptions, type DataLoadingSnapshot, type AlertTriggeredPayload,
+  type RestoreReport, type BarsRequest, type DataLoadingOptions, type DataLoadingSnapshot, type AlertTriggeredPayload, type TradingCapabilityRequest, type TradingCapabilitySource,
 } from 'openalgo-charts';
 import { DrawingController, drawingShortcuts, keyToDrawingAction, type DrawingKeyContext } from 'openalgo-charts/draw';
 import {
@@ -44,6 +44,7 @@ import { mountDataStatus, type DataStatusHandle } from './data-status';
 import { attachContextMenu, DIALOG_CSS, mountIndicatorSettings, mountDrawingProperties, mountAlertsPanel, type OrderRequest, type PanelHandle } from './dialogs/index';
 import { mountObjectsPanel, OBJECTS_PANEL_CSS } from './objects-panel';
 import { mountMobile, type MobileHandle, type MobileMode } from './mobile';
+import { widgetText, type WidgetTranslator } from './localization';
 
 /** The intervals offered when the host names none: the registry's codes are appended. */
 export const DEFAULT_INTERVALS: readonly string[] = ['1m', '5m', '15m', '1h', '1d', '1w'];
@@ -87,6 +88,8 @@ export interface WidgetOptions extends Omit<ChartOptions, 'theme'> {
   storage?: StorageLike | null;
   /** BCP 47 tag for the numbers on the status line. Default: the runtime's. */
   locale?: string;
+  /** Host translations for widget chrome and dialogs, with English fallback. */
+  translate?: WidgetTranslator;
   /** Show the Indicators button. Default true. */
   indicators?: boolean;
   /** Symbol lookup for the top bar's box, called as the user types. */
@@ -97,6 +100,12 @@ export interface WidgetOptions extends Omit<ChartOptions, 'theme'> {
   now?: () => number;
   /** Order entry from the right-click menu. Without it the menu draws no trade rows. */
   onOrder?: (order: OrderRequest) => void;
+  /** Supported host order routes, optionally resolved again for each request. */
+  tradingCapabilities?: TradingCapabilitySource;
+  /** The requested execution mode when the host capabilities constrain it. */
+  tradingMode?: TradingCapabilityRequest['mode'];
+  /** Locks order entry during host replay selection or workspace transitions. */
+  tradingLocked?: () => boolean;
   /** Host CSP nonce for the widget and dialog stylesheet, assigned before insertion. */
   styleNonce?: string;
 }
@@ -169,7 +178,8 @@ const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
 /** The options the shell consumes; the rest of `WidgetOptions` is the chart's. */
 const WIDGET_ONLY_KEYS: ReadonlyArray<keyof WidgetOptions> = [
   'feed', 'symbol', 'exchange', 'interval', 'intervals', 'chartType', 'theme', 'rail', 'topbar', 'statusline',
-  'mobile', 'loading', 'persist', 'storage', 'locale', 'indicators', 'symbolSearch', 'lookbackBars', 'now', 'onOrder', 'styleNonce',
+  'mobile', 'loading', 'persist', 'storage', 'locale', 'translate', 'indicators', 'symbolSearch', 'lookbackBars', 'now', 'onOrder', 'styleNonce',
+  'tradingCapabilities', 'tradingMode', 'tradingLocked',
 ];
 
 /**
@@ -231,6 +241,7 @@ class WidgetContextImpl implements WidgetContext {
   public readonly bus: WidgetBus<WidgetBusEvents>;
   public readonly storage: WidgetStorage;
   public readonly locale: string | undefined;
+  public readonly translate?: WidgetTranslator;
   public readonly toast: WidgetContext['toast'];
   public readonly openOverlay: WidgetContext['openOverlay'];
   public readonly status: WidgetContext['status'];
@@ -252,6 +263,7 @@ class WidgetContextImpl implements WidgetContext {
     this.bus = parts.bus;
     this.storage = parts.storage;
     this.locale = parts.locale;
+    this.translate = parts.translate;
     this.toast = parts.toast;
     this.openOverlay = parts.openOverlay;
     this.status = parts.status;
@@ -379,7 +391,7 @@ class WidgetImpl implements Widget {
     if (reducedMotion && chartOpts.animZoom === undefined) chartOpts.animZoom = false;
     if (reducedMotion && chartOpts.animAutoscale === undefined) chartOpts.animAutoscale = false;
     this.chart = createChart(chartEl, { ...(chartOpts as ChartOptions), theme: this._chartTheme, document: doc });
-    chartEl.setAttribute('aria-label', options.ariaLabel ?? 'Price chart');
+    chartEl.setAttribute('aria-label', options.ariaLabel ?? widgetText(options, 'Price chart'));
     this._series = this.chart.addSeries(this._chartType as SeriesType);
     this._publishDataContext();
     this.draw = new DrawingController(this.chart, {});
@@ -396,7 +408,7 @@ class WidgetImpl implements Widget {
     // ── shared furniture ───────────────────────────────────────────────
     const overlays = createOverlayStack(root, doc);
     const tips = createTipController(root, overlays.layer, doc);
-    this._toasts = mountToasts(toastEl, doc);
+    this._toasts = mountToasts(toastEl, doc, options);
     const sc = this.chart.shortcuts;
     this._keymap = new Keymap({ chart: sc === null ? null : { list: () => sc.list() }, scopes: () => this._scopes() });
     this._keymap.onConflict((c) => this._bus.emit('keymap:conflict', { combo: c.combo, kept: c.kept, shadowed: c.shadowed }));
@@ -412,6 +424,7 @@ class WidgetImpl implements Widget {
       bus: this._bus,
       storage: this._storage,
       locale: options.locale,
+      translate: options.translate,
       toast: (message: string, kind?: ToastKind): ToastHandle => this._toasts.toast(message, kind),
       openOverlay: (el: HTMLElement, o?: OverlayOptions): (() => void) => overlays.open(el, o),
       status: (text: string, kind: 'info' | 'error' = 'info'): void => {
@@ -427,7 +440,9 @@ class WidgetImpl implements Widget {
     this._dataStatus = mountDataStatus(this.context, stage, this.dataController, () => { void this.reload(); });
     // The right-click menu is the one dialog nothing in the chrome opens, so
     // the shell subscribes it to the chart itself.
-    this._cleanups.push(attachContextMenu(this.context, { onOrder: options.onOrder }));
+    this._cleanups.push(attachContextMenu(this.context, {
+      onOrder: options.onOrder, tradingCapabilities: options.tradingCapabilities, tradingMode: options.tradingMode, tradingLocked: options.tradingLocked,
+    }));
 
     // ── chrome ─────────────────────────────────────────────────────────
     if (options.rail !== false) {
@@ -493,7 +508,7 @@ class WidgetImpl implements Widget {
         this._keepView = same;
         this._pendingView = same ? saved.chart.viewport ?? null : null;
       } else {
-        this._toasts.toast(`The saved layout could not be restored: ${report.reason ?? 'unknown reason'}`, 'error');
+        this._toasts.toast(widgetText(this.context, 'The saved layout could not be restored: {error}', { error: report.reason ?? 'unknown reason' }), 'error');
       }
     }
     if (saved?.rail && this._rail !== null) this._rail.restorePrefs(saved.rail);
@@ -691,16 +706,16 @@ class WidgetImpl implements Widget {
       this._statusline?.refresh();
     }
     if (previous?.status === state.status && previous.error === state.error && !['load', 'refresh', 'prepend', 'resume'].includes(state.reason)) return;
-    if (state.status === 'loading') this.context.status(`Loading ${symbol} ${interval}`);
-    else if (state.status === 'refreshing') this.context.status(`History is stale. Refreshing ${symbol} ${interval}`);
+    if (state.status === 'loading') this.context.status(widgetText(this.context, 'Loading {symbol} {interval}', { symbol, interval }));
+    else if (state.status === 'refreshing') this.context.status(widgetText(this.context, 'History is stale. Refreshing {symbol} {interval}', { symbol, interval }));
     else if (state.status === 'error' || state.status === 'stale') {
-      this.context.status(state.status === 'stale' ? `History is stale for ${symbol} ${interval}. Reload to retry.` : `Could not load ${symbol} ${interval}`, 'error');
+      this.context.status(state.status === 'stale' ? widgetText(this.context, 'History is stale for {symbol} {interval}. Reload to retry.', { symbol, interval }) : widgetText(this.context, 'Could not load {symbol} {interval}', { symbol, interval }), 'error');
       if (state.error && state.error !== previous?.error) {
-        this._toasts.toast(`Could not load ${symbol} ${interval}: ${state.error.message}`, 'error');
+        this._toasts.toast(widgetText(this.context, 'Could not load {symbol} {interval}: {error}', { symbol, interval, error: state.error.message }), 'error');
         this._bus.emit('data', { symbol, interval, bars: 0, error: state.error.message });
       }
     } else if (state.status === 'ready' || state.status === 'empty') {
-      this.context.status(state.bars.length === 0 ? `No bars for ${symbol} ${interval}` : `${state.bars.length} bars`);
+      this.context.status(state.bars.length === 0 ? widgetText(this.context, 'No bars for {symbol} {interval}', { symbol, interval }) : widgetText(this.context, '{count} bars', { count: state.bars.length }));
       this._bus.emit('data', { symbol, interval, bars: state.bars.length });
     }
   }
@@ -791,9 +806,9 @@ class WidgetImpl implements Widget {
     if (!this._storage.enabled || this._destroyed) return;
     if (this._saveTimer !== 0) { clearTimeout(this._saveTimer); this._saveTimer = 0; }
     try {
-      if (!this._storage.set(STATE_KEY, this.getState())) this.context.status('The chart layout could not be saved', 'error');
+      if (!this._storage.set(STATE_KEY, this.getState())) this.context.status(widgetText(this.context, 'The chart layout could not be saved'), 'error');
     } catch (error) {
-      this.context.status(`The chart layout could not be saved: ${error instanceof Error ? error.message : 'invalid state'}`, 'error');
+      this.context.status(widgetText(this.context, 'The chart layout could not be saved: {error}', { error: error instanceof Error ? error.message : 'invalid state' }), 'error');
     }
   }
 

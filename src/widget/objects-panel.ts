@@ -1,3 +1,4 @@
+import { widgetText } from './localization';
 import type { ChartObjects, ChartObjectSnapshot } from 'openalgo-charts';
 import type { WidgetContext } from './context';
 import { button, dialogFrame, el, openPanel, type PanelHandle } from './form';
@@ -24,8 +25,8 @@ interface ObjectRow {
 const KINDS = { source: 'Source', indicator: 'Indicator', drawing: 'Drawing', profile: 'Profile' };
 const ACTIONS = ['visibility', 'lock', 'settings', 'focus', 'remove'] as const;
 const STATUS = { loading: 'Loading', ready: 'Ready', empty: 'No data', unsupported: 'Unsupported', error: 'Could not load' };
-const VERBS = { select: 'select', visibility: 'change visibility for', lock: 'change lock for', settings: 'open settings for', focus: 'focus', remove: 'remove' };
-const paneLabel = (row: ChartObjectSnapshot): string => `Pane ${row.paneIndex + 1}`;
+const FAILURES = { select: 'Could not select {name}', visibility: 'Could not change visibility for {name}', lock: 'Could not change lock for {name}', settings: 'Could not open settings for {name}', focus: 'Could not focus {name}', remove: 'Could not remove {name}' } as const;
+
 let rowSequence = 0;
 
 /** Open a searchable inventory backed by the host's live object model. */
@@ -33,31 +34,33 @@ export function mountObjectsPanel(
   ctx: WidgetContext, anchor?: HTMLElement, opts: ObjectsPanelOptions = {},
 ): PanelHandle {
   const resolved = opts.objects ?? ctx.objects;
-  if (resolved === undefined) throw new Error('Objects panel requires an object model');
+  if (resolved === undefined) throw new Error(widgetText(ctx, 'Objects panel requires an object model'));
   const objects = resolved;
+  const paneLabel = (row: ChartObjectSnapshot): string => widgetText(ctx, 'Pane {number}', { number: row.paneIndex + 1 });
+  const kindLabel = (row: ChartObjectSnapshot): string => widgetText(ctx, `schema.object.kind.${row.kind}`, {}, KINDS[row.kind]);
   const doc = ctx.document;
   let closed = false;
   let all: readonly ChartObjectSnapshot[] = [];
   const rows = new Map<string, ObjectRow>();
 
-  const frame = dialogFrame(doc, { title: 'Objects', className: 'oac-objects', onClose: () => handle.close() });
-  frame.closeButton.textContent = 'Close';
+  const frame = dialogFrame(doc, { translate: ctx.translate, title: widgetText(ctx, 'Objects'), className: 'oac-objects', onClose: () => handle.close() });
+  frame.closeButton.textContent = widgetText(ctx, 'Close');
   frame.closeButton.classList.remove('oac-btn--icon');
   const search = el(doc, 'input', 'oac-objects__find');
   search.type = 'search';
-  search.placeholder = 'Search name, type or pane';
-  search.setAttribute('aria-label', 'Search objects');
+  search.placeholder = widgetText(ctx, 'Search name, type or pane');
+  search.setAttribute('aria-label', widgetText(ctx, 'Search objects'));
   search.setAttribute('spellcheck', 'false');
   const list = el(doc, 'div', 'oac-objects__list');
   list.setAttribute('role', 'list');
-  list.setAttribute('aria-label', 'Chart objects');
+  list.setAttribute('aria-label', widgetText(ctx, 'Chart objects'));
   const empty = el(doc, 'div', 'oac-empty');
   empty.setAttribute('role', 'status');
   const count = el(doc, 'span', 'oac-objects__count');
   count.setAttribute('role', 'status');
   frame.body.append(search, list, empty);
   frame.lead.appendChild(count);
-  frame.actions.appendChild(button(doc, { label: 'Done', variant: 'primary', onClick: () => handle.close() }));
+  frame.actions.appendChild(button(doc, { label: widgetText(ctx, 'Done'), variant: 'primary', onClick: () => handle.close() }));
 
   function act(action: Action, id: string, event?: MouseEvent): void {
     if (closed) return;
@@ -75,7 +78,7 @@ export function mountObjectsPanel(
         }
       }
     } catch { /* A host provider can reject an action without changing its object. */ }
-    if (!success) ctx.toast(`Could not ${VERBS[action]} ${item?.name ?? 'object'}`, 'error');
+    if (!success) ctx.toast(widgetText(ctx, FAILURES[action], { name: item?.name ?? widgetText(ctx, 'object') }), 'error');
   }
 
   function makeRow(item: ChartObjectSnapshot): ObjectRow {
@@ -102,16 +105,16 @@ export function mountObjectsPanel(
 
   function updateRow(row: ObjectRow, item: ChartObjectSnapshot): void {
     row.name.textContent = item.name;
-    const meta = [KINDS[item.kind], paneLabel(item), item.visible ? 'Visible' : 'Hidden'];
-    if (item.locked !== undefined) meta.push(item.locked ? 'Locked' : 'Unlocked');
-    if (item.selected) meta.push('Selected');
+    const meta = [kindLabel(item), paneLabel(item), item.visible ? widgetText(ctx, 'Visible') : widgetText(ctx, 'Hidden')];
+    if (item.locked !== undefined) meta.push(item.locked ? widgetText(ctx, 'Locked') : widgetText(ctx, 'Unlocked'));
+    if (item.selected) meta.push(widgetText(ctx, 'Selected'));
     row.meta.textContent = meta.join(', ');
     row.el.classList.toggle('is-selected', item.selected);
     if (row.selectable) {
-      row.summary.setAttribute('aria-label', `Select ${item.name}`);
+      row.summary.setAttribute('aria-label', widgetText(ctx, 'Select {name}', { name: item.name }));
       row.summary.setAttribute('aria-pressed', String(item.selected));
     }
-    row.status.textContent = item.dataStatus === undefined ? '' : STATUS[item.dataStatus.state];
+    row.status.textContent = item.dataStatus === undefined ? '' : widgetText(ctx, `schema.dataStatus.${item.dataStatus.state}`, {}, STATUS[item.dataStatus.state]);
     row.status.hidden = item.dataStatus === undefined;
     row.status.dataset.state = item.dataStatus?.state ?? '';
 
@@ -128,11 +131,11 @@ export function mountObjectsPanel(
         control.dataset.action = action;
         row.buttons.set(action, control);
       }
-      const label = action === 'visibility' ? (item.visible ? 'Hide' : 'Show')
-        : action === 'lock' ? (item.locked ? 'Unlock' : 'Lock')
-          : action === 'settings' ? 'Settings' : action === 'focus' ? 'Focus' : 'Remove';
+      const label = action === 'visibility' ? (item.visible ? widgetText(ctx, 'Hide') : widgetText(ctx, 'Show'))
+        : action === 'lock' ? (item.locked ? widgetText(ctx, 'Unlock') : widgetText(ctx, 'Lock'))
+          : action === 'settings' ? widgetText(ctx, 'Settings') : action === 'focus' ? widgetText(ctx, 'Focus') : widgetText(ctx, 'Remove');
       control.textContent = label;
-      control.setAttribute('aria-label', `${label}${action === 'settings' ? ' for' : ''} ${item.name}`);
+      control.setAttribute('aria-label', widgetText(ctx, action === 'visibility' ? (item.visible ? 'Hide {name}' : 'Show {name}') : action === 'lock' ? (item.locked ? 'Unlock {name}' : 'Lock {name}') : action === 'settings' ? 'Settings for {name}' : action === 'focus' ? 'Focus {name}' : 'Remove {name}', { name: item.name }));
       if (row.actions.children[index] !== control) row.actions.insertBefore(control, row.actions.children[index] ?? null);
       index++;
     }
@@ -142,7 +145,7 @@ export function mountObjectsPanel(
   function paint(): void {
     if (closed) return;
     const query = search.value.trim().toLowerCase();
-    const shown = all.filter(item => `${item.name} ${KINDS[item.kind]} ${paneLabel(item)}`.toLowerCase().includes(query));
+    const shown = all.filter(item => `${item.name} ${kindLabel(item)} ${paneLabel(item)}`.toLowerCase().includes(query));
     const kept = new Set(shown.map(item => item.id));
     const focused = doc.activeElement as HTMLElement | null;
     const heldFocus = focused !== null && list.contains(focused);
@@ -164,8 +167,8 @@ export function mountObjectsPanel(
       if (list.children[index] !== row.el) list.insertBefore(row.el, list.children[index] ?? null);
     });
     empty.hidden = shown.length > 0;
-    empty.textContent = all.length === 0 ? 'No objects on this chart.' : 'No objects match your search.';
-    count.textContent = query === '' ? `${all.length} objects` : `${shown.length} of ${all.length} objects`;
+    empty.textContent = all.length === 0 ? widgetText(ctx, 'No objects on this chart.') : widgetText(ctx, 'No objects match your search.');
+    count.textContent = query === '' ? widgetText(ctx, '{count} objects', { count: all.length }) : widgetText(ctx, '{shown} of {count} objects', { shown: shown.length, count: all.length });
     if (heldFocus) {
       if (!list.contains(focused)) search.focus();
       else if (doc.activeElement !== focused) focused!.focus();

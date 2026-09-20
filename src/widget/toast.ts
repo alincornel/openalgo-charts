@@ -6,6 +6,7 @@
  * can be read at the reader's pace rather than the timer's.
  */
 import { chromeIconSvg } from 'openalgo-charts/draw';
+import { widgetText, type WidgetTranslationOptions } from './localization';
 
 export type ToastKind = 'info' | 'success' | 'error';
 
@@ -39,7 +40,7 @@ export interface Toaster {
  * Mount the toast stack into `host` (an empty element the shell positions
  * over the chart). `doc` is the host's document unless given, for a fake DOM.
  */
-export function mountToasts(host: HTMLElement, doc: Document = host.ownerDocument): Toaster {
+export function mountToasts(host: HTMLElement, doc: Document = host.ownerDocument, translation: WidgetTranslationOptions = {}): Toaster {
   host.classList.add('oac-toasts');
   host.setAttribute('role', 'status');
   host.setAttribute('aria-live', 'polite');
@@ -55,7 +56,7 @@ export function mountToasts(host: HTMLElement, doc: Document = host.ownerDocumen
     const x = doc.createElement('button');
     x.type = 'button';
     x.className = 'oac-toast__x';
-    x.setAttribute('aria-label', 'Dismiss');
+    x.setAttribute('aria-label', widgetText(translation, 'Dismiss'));
     x.innerHTML = chromeIconSvg('close');
     node.appendChild(msg);
     node.appendChild(x);

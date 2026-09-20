@@ -21,6 +21,27 @@ Jump to [depth of market](#depth-of-market), [drawing tools](#drawing-tools),
 [market profiles](#compact-market-profiles), [chart controls](#interactive),
 or [trading](#trading).
 
+## Open interest and instrument rules
+
+Open Interest draws a separate line pane; Open Interest Change draws a separate
+histogram. These synthetic readings deliberately contain gaps. Missing data stays
+absent, and aggregation takes the latest defined level instead of summing it.
+The [instrument rules example](/demos/instruments/) lets you switch
+cash, futures and crypto metadata, inspect shortened sessions and check quantity
+steps without sending orders. See [Instrument metadata](/docs/instruments).
+
+<RunnableExample height={440} tiers={['indicators']} code={`const chart = lib.createChart(el);
+const bars = lib.generateBars(1700000000, 120, 300).map((bar, index) => ({
+  ...bar,
+  ...(index % 30 < 3 ? {} : { oi: 5000 + Math.round(200 * Math.sin(index / 9)) + index * 3 }),
+}));
+chart.setDataContext({ symbol: 'SYNTHETIC', exchange: 'DEMO', interval: '5m', hasOpenInterest: true });
+chart.addSeries('candlestick').setData(bars);
+chart.addIndicator('open-interest');
+chart.addIndicator('open-interest-change');
+chart.fitContent();
+return chart;`} />
+
 ## Branding and optional watermarks
 
 The corner logo stays visible by default. The background symbol or custom text

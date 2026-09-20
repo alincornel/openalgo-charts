@@ -73,3 +73,8 @@ for (const name of ['index.html', 'gallery.js']) {
   writeFileSync(join(drawingOutput, name), source);
 }
 for (const name of wanted) copyFileSync(join(distDir, name), join(demoBundles, name));
+
+// Keep the metadata example on the same bundles as the generated API reference.
+const instrumentsOutput = resolve(demoOutput, '..', 'instruments');
+mkdirSync(instrumentsOutput, { recursive: true });
+copyFileSync(resolve(here, '..', '..', 'examples', 'instruments.html'), join(instrumentsOutput, 'index.html'));

@@ -3,6 +3,9 @@
 Report reproducible problems, improve examples and documentation, or send focused code
 changes. Use the existing public API and repository conventions as the starting point.
 
+Follow [compatibility and maintenance](COMPATIBILITY.md) for public API changes,
+deprecation, persistence migrations, host boundaries and release evidence.
+
 ## Set up a checkout
 
 Use an active LTS Node.js release satisfying the package's Node.js `>=20` engine,

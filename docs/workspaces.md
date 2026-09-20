@@ -113,7 +113,7 @@ different symbol, price series, viewport or trading state.
   per pane and a valid focused pane.
 - Up to 256 study instances, 32 comparison definitions per chart, 32 internal
   chart panes and 512 series style descriptors.
-- Document names of 1–120 characters; document IDs of 1–100 characters.
+- Document names of 1-120 characters; document IDs of 1-100 characters.
 - At most 5 MiB of UTF-8 JSON, depth 32 and 100,000 JSON nodes. The complete
   catalog is subject to the same total size limit.
 - No accessors, executable functions, cycles, class instances or non-finite

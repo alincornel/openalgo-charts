@@ -444,7 +444,7 @@ export function persistLayoutNow(opts) {
 export function autosave() {
   // Not while replaying: the chart is showing a prefix of the session and a
   // viewport captured over it would restore the user into a truncated chart.
-  if (!app.chart || app.workspaceLoading || app.applyingTemplate || app.replay || app.replayLoading || app.loading || app.loadFailed || app.loading2 || app.loadFailed2 || app.restoringSecondary || app.chartSettingsEditing) return;
+  if (!app.chart || app.workspaceLoading || app.applyingTemplate || app.replay || app.replayPicking || app.replayLoading || app.loading || app.loadFailed || app.loading2 || app.loadFailed2 || app.restoringSecondary || app.chartSettingsEditing) return;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(flushAutosave, SAVE_DEBOUNCE_MS);
 }
@@ -454,7 +454,7 @@ export function flushAutosave() {
   if (!saveTimer) return;
   clearTimeout(saveTimer);
   saveTimer = 0;
-  if (app.chart && !app.workspaceLoading && !app.applyingTemplate && !app.replay && !app.replayLoading && !app.loading && !app.loadFailed && !app.loading2 && !app.loadFailed2 && !app.restoringSecondary && !app.chartSettingsEditing) persistLayoutNow();
+  if (app.chart && !app.workspaceLoading && !app.applyingTemplate && !app.replay && !app.replayPicking && !app.replayLoading && !app.loading && !app.loadFailed && !app.loading2 && !app.loadFailed2 && !app.restoringSecondary && !app.chartSettingsEditing) persistLayoutNow();
 }
 
 // ── files ──────────────────────────────────────────────────────────────

@@ -5,6 +5,11 @@ renders it with OpenAlgo Charts (candles plus volume), showing how to wire any
 OHLCV source through a custom `DataFeed`. It is the reference host: the place a
 feature is proved usable, not just present.
 
+The custom host includes linked chart grids, named layouts and indicator templates
+stored through the optional workspace tier. Layout changes prepare history before
+publication, retain visible storage errors and guard simulated order entry during
+replay or a pending workspace switch. It does not use the packaged widget shell.
+
 ## Run
 
 ```bash

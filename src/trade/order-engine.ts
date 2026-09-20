@@ -25,6 +25,7 @@
 import { transition, isTerminal, type ClientOrderState, type OrderEvent } from './order-state-machine';
 import { validateOrder, type OrderConstraints, type ValidationResult } from './validation';
 import type { OrderSide, OrderStatus, OrderType } from './types';
+import { checkTradingCapability, type TradingCapabilityRequest, type TradingCapabilityResult, type TradingCapabilitySource } from 'openalgo-charts';
 
 export interface PlaceRequest {
   symbol: string;
@@ -54,6 +55,8 @@ export interface ModifyPatch {
  * implement `OrderFeed` for the engine's write path.
  */
 export interface OrderFeed {
+  /** Optional support declaration; a configured provider can report unavailable metadata. */
+  readonly capabilities?: TradingCapabilitySource;
   place(req: PlaceRequest & { mode: TradeMode }): Promise<{ orderId: string }>;
   modify(orderId: string, patch: ModifyPatch): Promise<void>;
   cancel(orderId: string): Promise<void>;
@@ -123,6 +126,8 @@ export interface ModifyOptions {
 
 export interface OrderEngineOptions {
   feed: OrderFeed;
+  /** Host restrictions combined with the feed's, rechecked before every write. */
+  capabilities?: TradingCapabilitySource;
   constraints: OrderConstraints;
   mode?: TradeMode;
   /** Armed = fire immediately; otherwise the gate must approve each order. */
@@ -131,7 +136,7 @@ export interface OrderEngineOptions {
   minModifyIntervalMs?: number;
   now?: () => number;
   idGen?: () => string;
-  /** Called when a drag-modify price fails validation (so the UI can snap back). */
+  /** Called for modify validation and unsupported modify/cancel operations. */
   onValidationError?: (reason: string) => void;
   /**
    * How many settled orders stay readable before the oldest are dropped. A
@@ -158,6 +163,8 @@ interface Tracked {
   brokerStatus?: OrderStatus;
   brokerId?: string;
   req: PlaceRequest;
+  /** New writes and broker reconciliation supersede older transport completions. */
+  writeRevision: number;
   ocoPeer?: string;
   /** Counted once into the settled ring, so a repeated terminal event cannot double-count. */
   pruned?: boolean;
@@ -181,6 +188,7 @@ const DEFAULT_MAX_SETTLED = 500;
 
 export class OrderEngine {
   private readonly _feed: OrderFeed;
+  private readonly _capabilities?: TradingCapabilitySource;
   private readonly _constraints: OrderConstraints;
   private readonly _mode: TradeMode;
   private readonly _armed: boolean;
@@ -202,6 +210,7 @@ export class OrderEngine {
 
   public constructor(opts: OrderEngineOptions) {
     this._feed = opts.feed;
+    this._capabilities = opts.capabilities;
     this._constraints = opts.constraints;
     this._mode = opts.mode ?? 'live';
     this._armed = opts.armed ?? false;
@@ -225,7 +234,18 @@ export class OrderEngine {
    */
   public brokerStatus(clientId: string): OrderStatus | undefined { return this._orders.get(clientId)?.brokerStatus; }
 
-  public async placeOrder(req: PlaceRequest): Promise<PlaceResult> {
+  private _capability(request: TradingCapabilityRequest): TradingCapabilityResult {
+    const feed = checkTradingCapability(this._feed.capabilities, request);
+    return feed.supported ? checkTradingCapability(this._capabilities, request) : feed;
+  }
+
+  private _orderCapability(operation: 'modify' | 'cancel', order: Tracked): TradingCapabilityResult {
+    return this._capability({ operation, symbol: order.req.symbol, exchange: order.req.exchange,
+      type: order.req.type, mode: this._mode, orderId: order.brokerId });
+  }
+
+  public async placeOrder(request: PlaceRequest): Promise<PlaceResult> {
+    const req = { ...request };
     // Quantity constraints (freeze, lot grid) bind on EVERY order type; only the
     // price checks are conditional, because a market order has no price. Gating
     // the whole validate call on `price !== undefined` left the market order, the
@@ -258,12 +278,17 @@ export class OrderEngine {
         intent: held?.intent,
       };
     }
+    const capabilityRequest: TradingCapabilityRequest = {
+      operation: 'place', symbol: req.symbol, exchange: req.exchange, type: req.type, mode: this._mode,
+    };
+    const capability = this._capability(capabilityRequest);
+    if (!capability.supported) return { ok: false, reason: capability.reason, intent: 'BLOCKED' };
     this._sentTokens.add(token);
 
     if (!this._armed) {
       let approved = false;
       try {
-        approved = await (this._gate ? this._gate(req) : Promise.resolve(false));
+        approved = await (this._gate ? this._gate({ ...req }) : Promise.resolve(false));
       } catch (err) {
         // The gate runs before any network call, so nothing can be live.
         this._sentTokens.delete(token);
@@ -277,8 +302,14 @@ export class OrderEngine {
       }
     }
 
+    const currentCapability = this._capability(capabilityRequest);
+    if (!currentCapability.supported) {
+      this._sentTokens.delete(token);
+      return { ok: false, reason: currentCapability.reason, intent: 'BLOCKED' };
+    }
+
     const finalReq: PlaceRequest = { ...req, price: snappedPrice, triggerPrice: snappedTrigger, clientToken: token };
-    const tracked: Tracked = { clientId: token, state: 'pending_place', intent: 'SUBMITTING', req: finalReq };
+    const tracked: Tracked = { clientId: token, state: 'pending_place', intent: 'SUBMITTING', req: finalReq, writeRevision: 0 };
     this._orders.set(token, tracked);
 
     try {
@@ -341,9 +372,16 @@ export class OrderEngine {
    * it surfaces via `onValidationError` so the UI can snap the line back.
    */
   public requestModify(clientId: string, price: number, opts?: ModifyOptions): void {
+    const triggerPrice = opts?.triggerPrice;
     const o = this._orders.get(clientId);
     if (o === undefined || isTerminal(o.state)) return;
-    const built = this._buildModifyPatch(o, price, opts?.triggerPrice);
+    const capability = this._orderCapability('modify', o);
+    if (!capability.supported) {
+      this._pendingModify.delete(clientId);
+      this._onValidationError?.(capability.reason);
+      return;
+    }
+    const built = this._buildModifyPatch(o, price, triggerPrice);
     if (!built.ok) {
       this._onValidationError?.(built.reason);
       return; // do NOT send an out-of-band modify to the broker
@@ -406,11 +444,20 @@ export class OrderEngine {
     const o = this._orders.get(clientId);
     if (patch === undefined || o === undefined || o.brokerId === undefined) return;
     this._pendingModify.delete(clientId);
+    const capability = this._orderCapability('modify', o);
+    if (!capability.supported) {
+      this._onValidationError?.(capability.reason);
+      return;
+    }
     this._lastModifyAt.set(clientId, this._now());
+    const previousState = o.state;
+    const previousIntent = o.intent;
+    const revision = ++o.writeRevision;
     o.state = transition(o.state, 'submitModify');
     o.intent = 'MODIFY_SUBMITTING';
     try {
-      await this._feed.modify(o.brokerId, patch);
+      await this._feed.modify(o.brokerId, { ...patch });
+      if (revision !== o.writeRevision) return;
       o.state = transition(o.state, 'ack');
       o.intent = 'ACKNOWLEDGED';
       // Track what we asked for, so the next drag derives its stop offset from
@@ -418,20 +465,35 @@ export class OrderEngine {
       if (patch.price !== undefined) o.req = { ...o.req, price: patch.price };
       if (patch.triggerPrice !== undefined) o.req = { ...o.req, triggerPrice: patch.triggerPrice };
     } catch (err) {
-      o.state = transition(o.state, 'reject');
+      if (revision !== o.writeRevision) return;
       // A failed modify may still have been applied; only a pre-flight failure
       // rules that out and leaves the order where we last knew it to be.
-      o.intent = isPreflightFailure(err) ? 'ACKNOWLEDGED' : 'AMBIGUOUS';
+      if (isPreflightFailure(err)) {
+        if (o.intent === 'MODIFY_SUBMITTING') { o.state = previousState; o.intent = previousIntent; }
+        this._onValidationError?.(String((err as Error).message ?? err));
+      } else {
+        o.state = transition(o.state, 'reject');
+        o.intent = 'AMBIGUOUS';
+      }
     }
   }
 
   public async cancelOrder(clientId: string): Promise<void> {
     const o = this._orders.get(clientId);
     if (o === undefined || o.brokerId === undefined || isTerminal(o.state)) return;
+    const capability = this._orderCapability('cancel', o);
+    if (!capability.supported) {
+      this._onValidationError?.(capability.reason);
+      return;
+    }
+    const previousState = o.state;
+    const previousIntent = o.intent;
+    const revision = ++o.writeRevision;
     o.state = transition(o.state, 'submitCancel');
     o.intent = 'CANCEL_SUBMITTING';
     try {
       await this._feed.cancel(o.brokerId);
+      if (revision !== o.writeRevision) return;
       o.state = transition(o.state, 'cancelled');
       // Transport-level only. The order line may stop drawing, but the broker
       // has not said the order is gone, so `brokerStatus` stays untouched.
@@ -439,8 +501,14 @@ export class OrderEngine {
       this._cancelOcoPeer(o);
       this._settle(o);
     } catch (err) {
-      o.state = transition(o.state, 'reject');
-      o.intent = isPreflightFailure(err) ? 'ACKNOWLEDGED' : 'AMBIGUOUS';
+      if (revision !== o.writeRevision) return;
+      if (isPreflightFailure(err)) {
+        if (o.intent === 'CANCEL_SUBMITTING') { o.state = previousState; o.intent = previousIntent; }
+        this._onValidationError?.(String((err as Error).message ?? err));
+      } else {
+        o.state = transition(o.state, 'reject');
+        o.intent = 'AMBIGUOUS';
+      }
     }
   }
 
@@ -459,6 +527,7 @@ export class OrderEngine {
     if (clientId === undefined) return;
     const o = this._orders.get(clientId);
     if (o === undefined) return;
+    o.writeRevision++;
     o.brokerStatus = status;
     const event = BROKER_EVENT[status];
     if (event !== undefined) o.state = transition(o.state, event);
@@ -482,6 +551,7 @@ export class OrderEngine {
   public beginReconcile(): void {
     for (const o of this._orders.values()) {
       if (isTerminal(o.state) || o.intent === 'AMBIGUOUS') continue;
+      o.writeRevision++;
       o.intent = 'RECONCILING';
     }
   }
@@ -496,6 +566,7 @@ export class OrderEngine {
   public onReconnect(presentBrokerIds: ReadonlySet<string>): void {
     for (const o of this._orders.values()) {
       if (isTerminal(o.state)) continue;
+      o.writeRevision++;
       if (o.brokerId !== undefined && presentBrokerIds.has(o.brokerId)) {
         o.intent = 'ACKNOWLEDGED';
         continue;

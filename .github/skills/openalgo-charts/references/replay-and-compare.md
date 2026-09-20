@@ -1,5 +1,10 @@
 # Replay and comparison
 
+`isReplaying(chart)` reports whether the shared replay boundary currently owns the
+chart, including paused playback. Hosts can combine it with their own selection
+or grid-transition lock before exposing or delivering trading actions. A false
+result does not grant broker permission or cover a host's pending replay picker.
+
 *When to read this: building a market-replay transport bar, or putting a second instrument on the chart to read against the primary one.*
 
 Source of truth: `src/replay/controller.ts`, `src/compare/controller.ts`, `src/compare/align.ts`. Both ship in the **base** bundle, so neither needs a tier import.

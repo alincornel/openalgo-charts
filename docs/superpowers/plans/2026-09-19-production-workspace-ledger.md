@@ -1033,3 +1033,45 @@ session at /trading. That server's checkout still declares Charts 2.4.0; this is
 access evidence, not candidate validation. No orders or consumer changes were
 made. Original eight OI edits remain. P1-P6, endurance, final whole-branch review
 and release work remain; Charts 2.4.5 precedes remaining consumer integration.
+
+### Parallel production-contract and release checkpoint
+
+The user explicitly requested parallel agents. Exclusive ownership separated
+instrument integration, adapter/trading contracts, widget translation and browser
+endurance. P1, P2, P4 and P5 implementation is complete in the Charts candidate;
+P6 policy, upgrade guidance, API/skill docs, changelog and website are prepared.
+P3 has a reusable real-browser harness and completed diagnostic runs; its reviewed
+30-minute candidate run is still active. The production-release plan records
+terminal checks and owns the publication gates.
+
+The reviewed package passed 5734 engine tests in 242 files, 389 reference tests
+in 30 files and seven harness tests, plus lint, types, build, declarations, sizes
+and tree-shaking. Public coverage is 930/930 and API generation is warning-free.
+The website build and all six existing website interaction checks pass. OI,
+instrument, release and upgrade pages also run in three actual browser engines.
+Runtime dependency audit is clean. Original eight OI edits remain preserved.
+
+Independent review corrected alternate primary-scale ticks, large quantity-grid
+tolerance, mutable trading requests, superseded broker completions, comparison
+whitespace retractions and replay-selection autosave. The final package review
+also found duplicated capability-error identity across the base/trade bundles;
+its minimal shared-import fix is undergoing complete package verification.
+Browser startup diagnostics distinguish a missing module caused by local network
+buffer exhaustion from an autosave failure; no runtime fix is claimed for that
+resource error. Failed reports remain available beside targeted passing reruns.
+
+All Charts F1-F9 reference functionality, OI and alerts are implemented. Named
+layouts, templates, shared controls/replay, comparison and CSV are usable in the
+reference host. Publication is still pending. Remaining OpenAlgo /trading
+integration and final connected-feed validation follow Charts 2.4.5 publication;
+the logged-in original server still uses 2.4.0. No live orders were placed and
+the score remains frozen. See the current production-release plan for the exact
+next gates rather than treating older checkpoint lists as current status.
+
+Final local release gates now pass. The corrected complete package verification
+retains 5734 engine/389 reference/seven harness passes. All 429 browser cases pass
+without skips, the website and generated API rebuild successfully, and the final
+30-minute endurance process exits 0 with all 24 declared gates passing. Its actual
+loaded base/indicator bytes match the final package. The corrected package and
+33-file archive are recorded in the production-release plan. Charts publication
+and the subsequent consumer work remain open; no new rating is assigned.
