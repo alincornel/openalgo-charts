@@ -1,6 +1,7 @@
 import { el } from './ui.js';
 import { ticon } from './toolbar.js';
 import { capturePaneTarget } from './pane-target.js';
+import { downloadChartData } from './chart-data.js';
 
 let app;
 let menuTarget = null;
@@ -74,10 +75,12 @@ export function openSnapMenu(anchor) {
       + '<button id="snap-save">' + ticon('download') + '<span>Download image</span>'
       + '<span class="key">Ctrl+Alt+S</span></button>'
       + '<button id="snap-copy">' + ticon('copy') + '<span>Copy image</span>'
-      + '<span class="key">Ctrl+Shift+S</span></button>';
+      + '<span class="key">Ctrl+Shift+S</span></button>'
+      + '<button id="snap-data">' + ticon('download') + '<span>Download chart data (CSV)</span></button>';
     document.body.appendChild(menu);
     el('snap-save').addEventListener('click', () => downloadSnapshot());
     el('snap-copy').addEventListener('click', () => copySnapshot());
+    el('snap-data').addEventListener('click', () => { const target = menuTarget; closeSnapMenu(); downloadChartData(app, target); });
   }
   const r = anchor.getBoundingClientRect();
   menu.hidden = false;

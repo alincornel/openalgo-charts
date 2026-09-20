@@ -122,6 +122,13 @@ The sprite is injected once per document on the body (`id="oac-rail-sprite"`), s
 | `SEARCH_DEBOUNCE_MS` | const `150` | Quiet before `symbolSearch` runs. |
 | `TopbarOptions`, `TopbarHandle`, `TopbarState`, `SymbolMatch`, `SymbolSearch`, `MenuRow`, `MenuOptions` | types | |
 
+The Capture menu includes **Download chart data (CSV)**, using the base
+`exportChartDataCsv` API. It captures source identity when opened and refuses a
+changed, empty or loading source. The widget supplies source readiness; custom
+`mountTopbar` hosts can supply `TopbarOptions.dataAvailable()` for their own loading
+boundary. Active replay exports only installed rows. File failures surface in
+the status line and download resources are released after handoff or failure.
+
 ### Status line, toasts, tokens, styles
 
 | Export | Kind | Purpose |

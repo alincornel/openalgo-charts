@@ -14,6 +14,14 @@ down the left, a status line, the dialogs behind each of those buttons, keyboard
 with a `?` panel that lists them, and optional persistence of the layout. It is the eighth
 loadable tier (**41.91 KB** Brotli), and it is the only one that builds DOM.
 
+The **Capture** menu offers **Download chart data (CSV)** alongside image export.
+CSV contains loaded OHLC, volume, OI, configured study plots and aligned comparison
+closes. Missing readings stay blank; time is UTC seconds. During replay, only the
+revealed data is exported. Loading or changing the source requires reopening the
+menu after the chart is ready. Applications with their own controls can call
+`exportChartDataCsv(chart)` from the base package and deliver the returned text as
+`text/csv;charset=utf-8`.
+
 <RunnableExample height={480} tiers={['widget']} caption="Pick a tool from the rail, open Indicators, change the chart type, right-click the chart, press ? for the shortcut list. No feed is wired here, so the bars go straight on widget.series." code={`const widget = lib.createWidget(el, {
   symbol: 'DEMO',
   exchange: 'NSE',

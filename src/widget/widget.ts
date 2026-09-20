@@ -454,6 +454,7 @@ class WidgetImpl implements Widget {
         onAlerts: (anchor) => this._openAlerts(anchor),
         settingsAvailable: () => widgetDialog('settings') !== null,
         indicatorsAvailable: () => widgetDialog('indicatorPicker') !== null,
+        dataAvailable: () => this.dataController === null || this._dataState?.status === 'ready' || this._dataState?.status === 'stale',
       });
     }
     this._mobile = mountMobile(this.context, {

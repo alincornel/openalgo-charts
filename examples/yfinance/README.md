@@ -308,6 +308,7 @@ exists to show one engine surface carrying real use, not just being present.
 | `workspace-transition.js`, `workspace-host.js` | Prepare every chart's raw history before changing the displayed workspace. Source changes, cancellation and failed writes leave the current charts intact. Synchronous installation failures restore the previous raw histories and configuration, including transformed charts. Pending switches pause alerts, replay entry, autosave and simulated order entry. |
 | `workspace-catalog.js`, `workspaces.js` | Bind the workspace repository to prepared chart publication and the Layouts dialog. Serialize named saves, retain recent ordering, coalesce active-layout autosaves, and reject unacknowledged revisions from another session. Selection failures compensate storage with a new atomic revision. Startup restores the saved named document; recovery does not overwrite it with autosave disabled. |
 | `indicator-templates.js`, `templates.js` | Capture repeated studies with parameters, styles, visibility and pane grouping. Apply shared replace/append planning to the captured chart while preserving drawings and valid alert anchors. Save named templates in the same revision-aware catalog as layouts, with explicit application after import. |
+| `chart-data.js` | Download the captured chart's loaded OHLC/volume/OI, study plots and eligible comparison closes through the shared CSV serializer. Reject obsolete/loading owners and release file resources on success or failure. |
 | `alerts.js` | The Alerts toolbar button opens the focused chart's lifecycle list and source editor. Price, study plots, supported drawing levels and registered candle conditions use the same controls as the packaged widget. Local notices display fired events; the demo does not send notifications or orders for an alert. |
 
 Click or focus a chart, or use the Chart selector, to select it for symbol,
@@ -393,6 +394,22 @@ to the clicked chart if focus moves. A chart rebuild or symbol/interval change
 invalidates an old menu action. Unsupported drawing levels show a disabled
 action with an explanation. Oscillator context menus do not offer price-order
 actions at oscillator values.
+
+## Chart data download
+
+Choose **Download chart data (CSV)** in Layouts or the chart snapshot menu. Layouts
+names the chart/source captured when it opened; changing focus does not retarget
+the download. If that chart is rebuilt or its source changes, reopen the controls.
+Loading, failed history and pending replay selection block export. The filename
+identifies the source, interval and chart type, with a replay marker for a chart
+participating in active replay.
+
+The file contains all installed bars, including only the revealed replay prefix,
+with UTC seconds and unrounded numeric values. OI and volume gaps remain blank,
+while zero remains zero. Configured study plots include repeated and hidden
+studies, before visual offsets. Comparison columns use eligible aligned closes in
+their original price units. There is no extra history fetch, aggregation or
+trading/account data in the file. See [the CSV format](../../docs/chart-data-export.md).
 
 ## Indicator templates
 

@@ -11,7 +11,7 @@
  * and settings buttons open the dialog tier's panels; without one registered
  * they render disabled, with their state visible, rather than dead.
  */
-import { registeredChartTypes, getChartType } from 'openalgo-charts';
+import { registeredChartTypes, getChartType, exportChartDataCsv } from 'openalgo-charts';
 import { chromeIconSvg } from 'openalgo-charts/draw';
 import { h, glyph, type WidgetContext } from './context';
 import type { WidgetThemeName } from './tokens';
@@ -214,6 +214,8 @@ export interface TopbarOptions {
   onAlerts?(anchor: HTMLElement): boolean;
   settingsAvailable(): boolean;
   indicatorsAvailable(): boolean;
+  /** Refuse CSV export while the host is replacing or recovering its data. */
+  dataAvailable?(): boolean;
 }
 
 export interface TopbarHandle {
@@ -246,16 +248,18 @@ export function brandingLink(chart: WidgetContext['chart']): { href: string; lab
 export function downloadText(doc: Document, filename: string, text: string, mime: string): boolean {
   const g = globalThis as { Blob?: typeof Blob; URL?: typeof URL };
   if (g.Blob === undefined || g.URL === undefined || typeof g.URL.createObjectURL !== 'function') return false;
-  const url = g.URL.createObjectURL(new g.Blob([text], { type: mime }));
   const a = doc.createElement('a');
-  a.href = url;
-  a.download = filename;
-  (doc.body ?? doc.documentElement).appendChild(a);
-  a.click();
-  a.remove();
-  // Revoked on the next turn: revoking synchronously races the download in
-  // some browsers, which then save an empty file.
-  setTimeout(() => g.URL?.revokeObjectURL(url), 0);
+  const url = g.URL.createObjectURL(new g.Blob([text], { type: mime }));
+  try {
+    a.href = url;
+    a.download = filename;
+    (doc.body ?? doc.documentElement).appendChild(a);
+    a.click();
+  } finally {
+    a.remove();
+    // Revoking synchronously races browser downloads, including successful handoff.
+    setTimeout(() => g.URL?.revokeObjectURL(url), 0);
+  }
   return true;
 }
 
@@ -441,9 +445,10 @@ export function mountTopbar(ctx: WidgetContext, host: HTMLElement, opts: TopbarO
   const snapBtn = btn('Capture chart', 'oac-btn--icon');
   snapBtn.appendChild(glyph(doc, chromeIconSvg('camera'), 'chrome'));
   snapBtn.setAttribute('aria-haspopup', 'menu');
-  ctx.tips.attach(snapBtn, { title: 'Capture', sub: 'PNG, SVG, or the clipboard', side: 'bottom' });
+  ctx.tips.attach(snapBtn, { title: 'Capture', sub: 'PNG, SVG, CSV or the clipboard', side: 'bottom' });
   snapBtn.addEventListener('click', () => {
-    const s = opts.state();
+    const s = { ...opts.state() };
+    const dataAvailable = (): boolean => !ctx.chart.isDestroyed && opts.dataAvailable?.() !== false && ctx.chart.primaryBars().length > 0;
     const clip = (globalThis as { navigator?: { clipboard?: { write?: unknown } }; ClipboardItem?: unknown });
     const canCopy = clip.navigator?.clipboard?.write !== undefined && clip.ClipboardItem !== undefined;
     openMenu(ctx, snapBtn, [
@@ -464,6 +469,17 @@ export function mountTopbar(ctx: WidgetContext, host: HTMLElement, opts: TopbarO
             .write([new Item({ 'image/png': blob })])
             .then(() => ctx.status('Chart copied'), (err: unknown) => ctx.status('Copy failed: ' + String((err as Error)?.message ?? err), 'error'));
         }, 'image/png');
+      } },
+      { label: 'Download chart data (CSV)', disabled: !dataAvailable(), onSelect: () => {
+        try {
+          const current = opts.state();
+          if (current.symbol !== s.symbol || current.exchange !== s.exchange || current.interval !== s.interval || current.chartType !== s.chartType) {
+            throw new Error('The chart changed; reopen Capture for its current source');
+          }
+          if (!dataAvailable()) throw new Error('Wait for this chart to finish loading its data');
+          const ok = downloadText(doc, captureName(s.symbol, s.interval) + '.csv', exportChartDataCsv(ctx.chart), 'text/csv;charset=utf-8');
+          ctx.status(ok ? 'Chart data download started' : 'This runtime cannot save files', ok ? 'info' : 'error');
+        } catch (error) { ctx.status('Data export failed: ' + String((error as Error)?.message ?? error), 'error'); }
       } },
     ], { ariaLabel: 'Capture' });
   });

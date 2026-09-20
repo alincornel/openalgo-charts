@@ -589,7 +589,7 @@ describe('dialogs and the toolbar', () => {
     const capture = root.querySelector('.oac-topbar .oac-btn[aria-label="Capture chart"]') as FakeElement;
     capture.click();
     const rows = root.querySelectorAll('.oac-menu .oac-menu__row');
-    expect(rows.map((r) => r.querySelector('.oac-menu__label')?.textContent)).toEqual(['Download PNG', 'Download SVG', 'Copy image']);
+    expect(rows.map((r) => r.querySelector('.oac-menu__label')?.textContent)).toEqual(['Download PNG', 'Download SVG', 'Copy image', 'Download chart data (CSV)']);
     // No clipboard in this runtime: the row says so and is disabled rather than dead.
     expect(rows[2].getAttribute('aria-disabled')).toBe('true');
     rows[0].click();
@@ -600,6 +600,15 @@ describe('dialogs and the toolbar', () => {
     expect(svg).toHaveBeenCalledTimes(1);
     // Node has Blob but no object URLs: the row reports rather than throws.
     expect(root.querySelector('.oac-statusline__msg')?.textContent).toMatch(/Saved an SVG|cannot save files/);
+  });
+
+  it('disables CSV while its managed source is loading even with retained bars', () => {
+    const { w, root } = make({ feed: { getBars: () => new Promise(() => {}) }, symbol: 'PENDING' });
+    w.series.setData(bars(3));
+    (root.querySelector('.oac-topbar .oac-btn[aria-label="Capture chart"]') as FakeElement).click();
+    const item = root.querySelectorAll('.oac-menu .oac-menu__row')
+      .find(row => row.querySelector('.oac-menu__label')?.textContent === 'Download chart data (CSV)');
+    expect(item?.getAttribute('aria-disabled')).toBe('true');
   });
 
   it('lists the price-series chart types in the menu and applies a pick', () => {

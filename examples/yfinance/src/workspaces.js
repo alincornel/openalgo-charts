@@ -6,6 +6,8 @@ import { validateReferenceLayout } from './workspace-transition.js';
 import { layoutSnapshot, readLayout, persistLayoutNow, parseLayoutFile } from './persist.js';
 import { magnetMode, stayMode } from './rail.js';
 import { el, openOverlay, toast } from './ui.js';
+import { capturePaneTarget } from './pane-target.js';
+import { chartDataUnavailableReason, downloadChartData } from './chart-data.js';
 
 /** Older exported snapshots become named saves without inferring a live source. */
 export function workspaceFileDocument(text, filename) {
@@ -25,6 +27,7 @@ export async function initWorkspaces(app) {
   const modal = el('workspacemodal'), picker = el('ws-select'), name = el('ws-name');
   let busy = false, selectionKey = '', pendingDelete = null, localError = '', notice = '', lastError = '';
   let pendingAutosavePreference;
+  let dataTarget = null;
   const snapshot = () => {
     if (workspaceUnavailable(app) || app.workspaceLoading) throw new Error('Finish loading, replay or settings changes before saving layouts');
     return workspaceFromLayout(layoutSnapshot(), { magnet: magnetMode(), stay: stayMode() });
@@ -50,6 +53,11 @@ export async function initWorkspaces(app) {
     const current = documents.find(item => item.id === catalog.currentId);
     el('ws-current').textContent = `Current: ${current?.name || 'Unnamed'}`;
     const locked = busy || catalog.busy, unavailable = workspaceUnavailable(app) || app.workspaceLoading;
+    const dataReason = chartDataUnavailableReason(app, dataTarget);
+    el('ws-data').disabled = Boolean(dataReason);
+    el('ws-data-source').textContent = dataTarget
+      ? `CSV for Chart ${dataTarget.pane}: ${dataTarget.request.symbol}, ${dataTarget.request.interval}. ${dataReason || 'All loaded bars, studies and comparisons.'}`
+      : 'Select a chart to download its data.';
     picker.disabled = locked || !documents.length;
     name.disabled = locked;
     el('ws-new').disabled = locked || unavailable || !saved || !name.value.trim();
@@ -108,6 +116,7 @@ export async function initWorkspaces(app) {
   }
 
   app.openLayouts = () => {
+    dataTarget = capturePaneTarget(app);
     render(); modal.hidden = false; openOverlay(modal, { initialFocus: name });
   };
   app.refreshWorkspaceControls = render;
@@ -119,6 +128,7 @@ export async function initWorkspaces(app) {
     }
   };
   el('ws-close').addEventListener('click', close);
+  el('ws-data').addEventListener('click', () => downloadChartData(app, dataTarget));
   modal.addEventListener('click', event => { if (event.target === modal) close(); });
   name.addEventListener('input', render);
   picker.addEventListener('change', () => { pendingDelete = null; render(); });

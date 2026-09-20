@@ -268,6 +268,8 @@
         <p class="ws-hint">With autosave off, reload restores the last saved version. Session recovery is kept separately.</p>
         <div class="ws-actions"><button id="ws-import" class="btn btn--ghost" type="button">Import file</button><button id="ws-export" class="btn btn--ghost" type="button">Export selected</button><button id="ws-delete" class="btn btn--ghost" type="button">Delete selected</button></div>
         <input id="ws-file" type="file" accept="application/json,.json" hidden />
+        <div class="ws-actions"><button id="ws-data" class="btn btn--ghost" type="button" aria-describedby="ws-data-source">Download chart data (CSV)</button></div>
+        <p id="ws-data-source" class="ws-hint"></p>
         <div id="ws-confirm" hidden><p id="ws-delete-name"></p><div class="ws-actions"><button id="ws-keep" class="btn" type="button">Keep layout</button><button id="ws-confirm-delete" class="btn" type="button">Confirm delete</button></div></div>
         <p id="ws-error" role="alert" hidden></p><p id="ws-notice" role="status" aria-live="polite"></p>
       </div>
