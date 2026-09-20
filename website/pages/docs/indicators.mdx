@@ -1,9 +1,10 @@
 ---
 title: Indicators
-description: 102 built-in indicators via chart.addIndicator, plus the registry for your own.
+description: 105 built-in indicators via chart.addIndicator, plus the registry for your own.
 ---
 
 import RunnableExample from '../../components/RunnableExample'
+import IndicatorSignalsDemo from '../../components/IndicatorSignalsDemo'
 import { Callout } from 'nextra/components'
 
 # Indicators
@@ -12,11 +13,11 @@ There are two ways to put an indicator on a chart, and they suit different jobs.
 
 **`chart.addIndicator(id)`** is the managed path: the chart creates the series, picks the
 pane, draws reference levels, recomputes on every data change, and cleans up on removal.
-The 102 built-ins live in the lazy `openalgo-charts/indicators` tier, about 27 KB Brotli.
+The 105 built-ins live in the lazy `openalgo-charts/indicators` tier, 29.84 kB Brotli.
 
 ```ts
 import { createChart } from 'openalgo-charts';
-import 'openalgo-charts/indicators';   // registers all 102 built-ins
+import 'openalgo-charts/indicators';   // registers all 105 built-ins
 
 const chart = createChart(el);
 chart.addSeries('candlestick').setData(bars);
@@ -51,8 +52,8 @@ chart.addIndicator('macd');
 chart.timeScale.fitContent(bars.length);
 return chart;`} />
 
-102 descriptors ship in the tier, split across the four categories a picker reads off
-`descriptor.category`: Trend (36), Momentum (29), Volatility (22), and Volume (15).
+105 descriptors ship in the tier, split across the four categories a picker reads off
+`descriptor.category`: Trend (36), Momentum (29), Volatility (22), and Volume (18).
 
 `onchart` indicators overlay the price pane; `pane` indicators create their own. Override
 with `chart.addIndicator('rsi', {}, { paneIndex: 2 })`.
@@ -165,7 +166,7 @@ with `hasIndicator(id)`.
 | Ulcer Index | `ulcer-index` | pane | `source=close`, `length=14` |
 | William VIX FIX | `williams-vix-fix` | pane | `pd=22`, `bbl=20`, `mult=2`, `lb=50`, `ph=0.85`, `pl=1.01`, `hp=false`, `sd=false` |
 
-### Volume (15)
+### Volume (18)
 
 | Indicator | `id` | Placement | Key settings |
 |---|---|---|---|
@@ -177,6 +178,9 @@ with `hasIndicator(id)`.
 | Klinger Oscillator | `klinger-oscillator` | pane | colours only |
 | Negative Volume Index | `nvi` | pane | `maLength=255` |
 | Net Volume | `net-volume` | pane | colours only |
+| Open Interest | `open-interest` | pane | colours only |
+| Open Interest Change | `open-interest-change` | pane | colours only |
+| Open Interest Buildup | `open-interest-buildup` | onchart | `unchanged=neutral` |
 | On-Balance Volume | `obv` | pane | `maType=None`, `maLength=9`, `bbMult=2` |
 | Percentage Volume Oscillator | `pvo` | pane | `fastLength=12`, `slowLength=26`, `signalLength=9`, `oscType=EMA`, `sigType=EMA` |
 | Positive Volume Index | `pvi` | pane | `maLength=255` |
@@ -278,26 +282,73 @@ registerIndicator({
 });
 ```
 
-The runtime creates the marker layer lazily on the first plot's series, so an indicator
-without the hook costs nothing. Marker `time` values must match a real bar time or
-`SeriesMarkers` drops them silently. Hiding the indicator clears its markers too.
+The runtime creates the marker layer lazily, so an indicator without the hook costs
+nothing. By default, `markerAnchor: 'plot'` binds it to the first plot. Set
+`markerAnchor: 'price'` on an overlay descriptor to measure `aboveBar` against the
+primary candle's high and `belowBar` against its low. The option applies to indicators
+on pane 0; a study on its own pane, or a chart without a primary series, uses the first
+plot instead. The marker follows the selected series' scale, including a moved axis,
+and rebinds when that series is replaced.
+
+A missing or `null` first-plot value can use the instrument's bar at the same time
+when the indicator is on pane 0 and both series share the same price scale. A finite
+plot value still wins. Instrument prices are never substituted into an oscillator
+pane or a different scale. An unanchored bar-relative marker is skipped; `atPrice`,
+`paneTop` and `paneBottom` can position themselves without a plot value. Every marker
+still needs a time present on the chart's shared time axis. Hiding the indicator
+clears its markers too.
 
 `text` may carry `\n`. A `labelUp` / `labelDown` plate stacks the rows and sizes itself to
 the widest one, staying centred on its anchor so the tail still points at the bar; a free
 `text` marker writes its rows outward from the anchor, so a block above a bar grows upward
 instead of back over the candle.
 
-Five built-ins use the hook:
+Six built-ins use the hook:
 
 | Indicator | What it marks |
 |---|---|
 | `halftrend` | A Buy or Sell plate at each trend flip, suppressed by `showLabels: false`. |
 | `williams-fractals` | An up or down triangle at each confirmed fractal, filtered by `showUp` / `showDown`. |
 | `rsi-divergence` | `Bull`, `Bear`, `H Bull`, and `H Bear` labels on the RSI line, one per enabled `plot*` input. |
+| `consolidation-breakout` | A triangle at a range breakout, suppressed by `markbreakout: false`. |
 | `alphatrend` | A Buy or Sell plate where the level crosses its own two-bar lag. |
 | `wavetrend` | A tinted dot at each signal-line cross, plus `R` and `H` plates for regular and hidden divergences, filtered by `showRegDiv` / `showHidDiv`. |
 
 See [markers](/docs/primitives-and-plugins#markers--event-badges) for the shape catalogue.
+
+## Source access and legend controls
+
+Set `IndicatorDescriptor.hasSource: true` when the host can show the indicator's code.
+Its legend then offers a source button beside settings. Clicking it emits
+`indicatorSource` with `{ instanceId, indicatorId, paneIndex }`; the engine stores no
+source code and opens no dialog. The host owns the source and the interface that
+displays it. Descriptors without the flag, including built-ins, have no source button.
+
+```ts
+chart.on('indicatorSource', ({ instanceId, indicatorId, paneIndex }) => {
+  showIndicatorSource({ instanceId, indicatorId, paneIndex });
+});
+
+chart.setLegendIconSize(24);
+// Equivalent at creation: createChart(el, { legendIconSize: 24 }).
+// Equivalent update: chart.applyOptions({ legendIconSize: 24 }).
+```
+
+`showIndicatorSource` above is an application callback. Button sizes default to 16
+media pixels and are clamped to 12..28 when drawn. A chart-wide size also applies to
+later host-added legends, so adjacent rows share one height; it overrides their
+individual `PaneLegendOptions.iconSize`. Nonfinite chart sizes are ignored.
+`chart.legendIconSize()` returns the configured value, or `undefined` when unset.
+
+Fully transparent plot colors, including `transparent`, zero-alpha hex and supported
+`rgba()` colors, contribute no blank reading to the legend. Unrecognized color syntax
+keeps its reading. The plot's data remains available to calculations and markers.
+
+<IndicatorSignalsDemo />
+
+The same [live example](/examples#indicator-source-and-marker-anchors) is on the
+examples page. Each signal label starts a fresh drawing path, so a later label cannot
+refill an earlier label's tail with its own color.
 
 ## Tables
 
@@ -674,7 +725,7 @@ typeInput.options;   // same list as INDICATOR_PLOT_STYLES
 import {
   registeredIndicators, hasIndicator, indicatorDefaults,
 } from 'openalgo-charts';
-import 'openalgo-charts/indicators';   // registers the 102 built-ins
+import 'openalgo-charts/indicators';   // registers the 105 built-ins
 
 // Group the catalog for a menu, with no per-indicator code.
 const byCategory = new Map<string, string[]>();
@@ -740,7 +791,7 @@ chart.addIndicator('momentum', { length: 14 });
 ### Shaded bands between plots
 
 A pair of lines is not the same picture as a filled region, so a descriptor can
-declare `fills`: the Ichimoku cloud, a Bollinger channel. 28 of the 102 built-ins
+declare `fills`: the Ichimoku cloud, a Bollinger channel. 28 of the 105 built-ins
 declare one or more, 38 fills in total.
 
 ```ts
@@ -919,7 +970,7 @@ calc: (bars) => ({
 
 The four columns live in the **same `IndicatorValues`** every other descriptor returns, so
 `calc` keeps one shape and every helper written against it keeps working. A second return
-type would have forked the contract for all 102 built-ins.
+type would have forked the contract for all 105 built-ins.
 
 - `key` stays the series identity, the thing `instance.series('ha')` resolves and the thing
   the style settings are keyed on. The legend reading falls back to the `close` column.
@@ -1126,12 +1177,14 @@ and put the message beside the study instead of in a console.
 | `name` | `string` | Display name. |
 | `category` | `string?` | Grouping for a picker UI. |
 | `placement` | `'onchart' \| 'pane'` | Overlay the price pane, or take a new one. |
+| `hasSource` | `boolean?` | Opt into a source button that emits `indicatorSource`; the host owns and displays the code. |
 | `inputs` | `IndicatorInput[]` | Tunable settings; `type` is what a settings UI renders. |
 | `plots` | `IndicatorPlot[]` | One per drawn series. `type` is any registered chart type; `overlay: true` puts that one plot on the price pane; [`ohlc`](#a-plot-drawn-as-candles) names four columns so the plot draws as bars; `offset` (2.4.0) paints the column that many bars to the right, the shifted tail landing in the right margin; `colorParts` (2.4.0) colours a candle plot's body, wick and border apart. |
 | `fills` | `IndicatorFillSpec[]?` | Optional shaded bands. `between` names two `calc` columns, which need not be plots. `overlay: true` (2.4.0) draws the band on the price pane beside `overlay` plots. |
 | `calc` | `(bars, settings, store, ctx?) => IndicatorValues` | Full recompute. `ctx` is the optional [calculation context](#the-calculation-context). |
 | `calcTail` | `(bars, settings, fromIndex, previous, store, ctx?) => IndicatorValues \| null` | Optional incremental path. |
 | `markers` | `({ bars, values, settings }) => SeriesMarker[]` | Optional bar-anchored signal markers, run after every `calc`. Shapes include `cross` and `xcross`, and `paneTop` / `paneBottom` pin a glyph to the plot edge (2.4.0). |
+| `markerAnchor` | `'plot' \| 'price'` | Defaults to the first plot. `'price'` selects the primary series for an indicator on pane 0 when one exists. |
 | `table` | `({ bars, values, settings }) => \{ rows, options \} \| null` | Optional corner-pinned summary grid, run after every `calc`. |
 | `draws` | `({ bars, values, settings }) => IndicatorDrawing[]` | Optional free-standing shapes anchored to time and price, run after every `calc`. A `label` or `box` with a `tooltip` or an `id` (2.4.0) is hit-testable: clicks reach `subscribeClick` and the tooltip paints on hover. |
 | `background` | `({ bars, values, settings }) => (string \| null)[]` | Optional [per-bar shading](#shading-the-pane-by-regime) behind the indicator's own pane, run after every `calc`. |
@@ -1196,7 +1249,7 @@ unreadable `session` throw `IndicatorInputError`.
 
 ## Calculation helpers
 
-The calculation helpers the 102 built-ins are made of are exported, so your own descriptor
+The calculation helpers the 105 built-ins are made of are exported, so your own descriptor
 can be written against the same primitives instead of re-deriving them. Each matches the
 published formula of the `ta.*` function of the same name, which is what makes a ported
 study agree with its source rather than being approximately right.

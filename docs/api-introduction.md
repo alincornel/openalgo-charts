@@ -23,6 +23,15 @@ appears in the page title.
 | A depth ladder | [Depth of market](/openalgo-charts/api/classes/trade.DomLadder.html) | [Simulated live demo](/openalgo-charts/docs/depth-of-market/) |
 | Daily TPO profiles | [Market profile](/openalgo-charts/api/classes/profile.MarketProfile.html) | [Profile demo and themes](/openalgo-charts/docs/market-profile-examples/) |
 
+### Indicator controls in 2.4.6
+
+Set `IndicatorDescriptor.hasSource` to show the source action and handle
+`indicatorSource` in your host. Use `markerAnchor: 'price'` for overlay signals
+measured against candle highs and lows; plot anchoring remains the default.
+`ChartOptions.legendIconSize` and `chart.setLegendIconSize()` size every legend
+row consistently. See the [indicator guide](/openalgo-charts/docs/indicators/)
+for a runnable source-button and signal example.
+
 ### Host contracts in 2.4.5
 
 Use [Instrument](/openalgo-charts/api/classes/index.Instrument.html) for validated

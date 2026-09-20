@@ -2,6 +2,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import * as engine from '../src/index';
 import * as widget from '../src/widget/index';
 import type { AlertSource, ContextMenuEvent } from '../src/index';
+import { zoneOffsetSeconds } from '../src/index';
 import type { Widget } from '../src/widget/index';
 import { ensureWindowGlobal, fakeContainer, fakeWidgetDocument, fire, type FakeElement } from './helpers/fake-dom-widget';
 
@@ -64,6 +65,105 @@ describe('alert settings schema', () => {
 });
 
 describe('widget alert editor', () => {
+  it.each([
+    ['UTC', '2030-07-31T12:15:59Z', '2030-09-30T12:15'],
+    ['UTC', '2031-12-31T12:15:59Z', '2032-02-29T12:15'],
+    ['UTC', '2032-12-31T12:15:59Z', '2033-02-28T12:15'],
+    ['Asia/Kolkata', '2030-07-30T20:00:00Z', '2030-09-30T01:30'],
+    ['America/New_York', '2030-01-10T17:00:00Z', '2030-03-10T12:00'],
+    ['America/New_York', '2030-01-10T07:30:00Z', '2030-03-10T03:30'],
+  ])('defaults two chart-calendar months from %s at %s', (zone, now, expected) => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(now));
+    const { w, root } = make();
+    w.chart.setTimezone(zone);
+    widget.mountAlertEditor(w.context);
+    expect(field(root, 'expiresAt').value).toBe(expected);
+    click(root, 'save-alert');
+    expect(w.alerts.list()).toHaveLength(1);
+    const editor = widget.mountAlertEditor(w.context, undefined, { alertId: w.alerts.list()[0].id });
+    expect(field(root, 'expiresAt').value).toBe(expected);
+    editor.close();
+  });
+
+  it.each([false, true])('pins an existing expiry zone across a chart zone change (rerender: %s)', rerender => {
+    const { w, root } = make();
+    w.chart.setTimezone('UTC');
+    const expiresAt = Date.parse('2040-01-15T12:34:25.500Z') / 1000;
+    const alert = w.alerts.add({ source: { kind: 'price', price: 105 }, expiresAt });
+    widget.mountAlertEditor(w.context, undefined, { alertId: alert.id });
+    w.chart.setTimezone('Asia/Kolkata');
+    change(root, rerender ? 'condition' : 'title', rerender ? 'greaterThan' : 'Rename only');
+    expect(root.querySelector('[data-key="expiresAt"] .oac-row__label')!.textContent).toContain('(UTC)');
+    expect(field(root, 'expiresAt').value).toBe('2040-01-15T12:34');
+    click(root, 'save-alert');
+    expect(w.alerts.list()[0].expiresAt).toBe(expiresAt);
+    widget.mountAlertEditor(w.context, undefined, { alertId: alert.id });
+    expect(root.querySelector('[data-key="expiresAt"] .oac-row__label')!.textContent).toContain('(Asia/Kolkata)');
+    expect(field(root, 'expiresAt').value).toBe('2040-01-15T18:04');
+  });
+
+  it('saves a new draft in the labelled zone even if the chart changes zone', () => {
+    const { w, root } = make();
+    w.chart.setTimezone('UTC');
+    widget.mountAlertEditor(w.context);
+    change(root, 'expiresAt', '2040-01-15T12:34');
+    w.chart.setTimezone('Asia/Kolkata');
+    change(root, 'condition', 'greaterThan');
+    expect(root.querySelector('[data-key="expiresAt"] .oac-row__label')!.textContent).toContain('(UTC)');
+    click(root, 'save-alert');
+    expect(w.alerts.list()[0].expiresAt).toBe(Date.parse('2040-01-15T12:34:00Z') / 1000);
+  });
+
+  it.each([
+    ['America/New_York', '2030-03-10T02:30'],
+    ['Europe/Berlin', '2030-03-31T02:30'],
+    ['UTC', '2030-02-30T12:00'],
+  ])('rejects a nonexistent local expiry in %s: %s', (zone, value) => {
+    const { w, root } = make();
+    w.chart.setTimezone(zone);
+    const editor = widget.mountAlertEditor(w.context);
+    change(root, 'expiresAt', value);
+    click(root, 'save-alert');
+    expect(w.alerts.list()).toHaveLength(0);
+    expect(editor.isOpen()).toBe(true);
+    expect(root.querySelector('.oac-alert-error')!.textContent).toContain('Enter an expiry date and time');
+  });
+
+  it.each([
+    ['America/New_York', '2030-11-03T01:30', '2030-11-03T05:30:00Z', '2030-11-03T06:30:25.500Z'],
+    ['Europe/Berlin', '2030-10-27T02:30', '2030-10-27T01:30:00Z', '2030-10-27T00:30:25.500Z'],
+  ])('resolves a new overlap consistently and preserves either existing instant in %s', (zone, value, expected, other) => {
+    const { w, root } = make();
+    w.chart.setTimezone(zone);
+    widget.mountAlertEditor(w.context);
+    change(root, 'expiresAt', value);
+    click(root, 'save-alert');
+    expect(w.alerts.list()[0].expiresAt).toBe(Date.parse(expected) / 1000);
+    const expiresAt = Date.parse(other) / 1000;
+    const alert = w.alerts.add({ source: { kind: 'price', price: 105 }, expiresAt });
+    widget.mountAlertEditor(w.context, undefined, { alertId: alert.id });
+    expect(field(root, 'expiresAt').value).toBe(value);
+    change(root, 'title', 'Rename only');
+    click(root, 'save-alert');
+    expect(w.alerts.list().find(item => item.id === alert.id)!.expiresAt).toBe(expiresAt);
+  });
+
+  it('keeps no expiry on existing alerts and accepts clearing the default on new alerts', () => {
+    const { w, root } = make();
+    const alert = w.alerts.add({ source: { kind: 'price', price: 105 } });
+    widget.mountAlertEditor(w.context, undefined, { alertId: alert.id });
+    expect(field(root, 'expiresAt').value).toBe('');
+    change(root, 'title', 'Rename only');
+    click(root, 'save-alert');
+    expect(w.alerts.list()[0].expiresAt).toBeUndefined();
+    widget.mountAlertEditor(w.context);
+    change(root, 'expiresAt', '');
+    click(root, 'save-alert');
+    expect(w.alerts.list()).toHaveLength(2);
+    expect(w.alerts.list()[1].expiresAt).toBeUndefined();
+  });
+
   it('keeps keyboard focus on a selector when its dependent fields change', () => {
     const { w, root } = make();
     widget.mountAlertEditor(w.context);
@@ -164,7 +264,7 @@ describe('widget alert editor', () => {
     expect(w.alerts.list()[0].title).toBe('Original');
   });
 
-  it('accepts zero bounds, explicit touch timing, cooldown and a UTC expiry', () => {
+  it('accepts zero bounds, explicit touch timing, cooldown and an expiry on the chart clock', () => {
     const { w, root } = make();
     widget.mountAlertEditor(w.context, undefined, { source: { kind: 'price', price: 0 } });
     change(root, 'condition', 'enteringRange');
@@ -175,11 +275,52 @@ describe('widget alert editor', () => {
     change(root, 'expiresAt', '2099-01-02T03:04');
     change(root, 'enabled', false);
     click(root, 'save-alert');
+    // The reading is on the CHART's clock, not UTC. An alert is set against
+    // candles the chart has already labelled in its timezone, so an expiry
+    // read in another one is five and a half hours out on this chart's default
+    // and asks the reader to do that arithmetic themselves. The stored instant
+    // is therefore the wall clock minus the zone's offset.
+    const zone = w.context.chart.timezone();
+    const wallClockAsUtc = Date.parse('2099-01-02T03:04:00Z') / 1000;
     expect(w.alerts.list()).toMatchObject([{
       source: { kind: 'price', price: 0, upperPrice: 10 }, condition: 'enteringRange',
       policy: 'onTouch', repeat: 'everyTime', cooldownSeconds: 45, state: 'disabled',
-      expiresAt: Date.parse('2099-01-02T03:04:00Z') / 1000,
+      expiresAt: wallClockAsUtc - zoneOffsetSeconds(wallClockAsUtc, zone),
     }]);
+    // And the offset is not zero on the default zone, so the line above is
+    // asserting something: written against UTC this test passed either way.
+    expect(zoneOffsetSeconds(wallClockAsUtc, zone)).not.toBe(0);
+  });
+
+  it('opens a new alert with an expiry two months out, on the chart clock', () => {
+    // An alert with no expiry never stops asking and one that expires this
+    // week is gone before the setup arrives. The field is prefilled so that
+    // neither is the default, and it is prefilled in the zone the field is
+    // labelled with.
+    const { w, root } = make();
+    widget.mountAlertEditor(w.context, undefined, { source: { kind: 'price', price: 100 } });
+    const value = field(root, 'expiresAt').value;
+    expect(value).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+
+    const zone = w.context.chart.timezone();
+    const asUtc = Date.parse(`${value}:00Z`) / 1000;
+    const instant = asUtc - zoneOffsetSeconds(asUtc, zone);
+    const months = (instant - Date.now() / 1000) / (30 * 24 * 3600);
+    // Two calendar months is between 59 and 62 days, so the window is wide
+    // enough for any starting date and far too narrow for a week or a year.
+    expect(months).toBeGreaterThan(1.9);
+    expect(months).toBeLessThan(2.1);
+  });
+
+  it('labels the expiry field with the zone it is read in', () => {
+    // A field reading a time in one zone under a label naming another is
+    // worse than an unlabelled one, and the schema's label is a fixed string
+    // that cannot know the chart's zone.
+    const { w, root } = make();
+    widget.mountAlertEditor(w.context, undefined, { source: { kind: 'price', price: 100 } });
+    const label = root.querySelector('[data-key="expiresAt"] .oac-row__label');
+    expect(label?.textContent).toContain(w.context.chart.timezone());
+    expect(label?.textContent).not.toContain('UTC');
   });
 
   it('rejects an empty threshold instead of retaining a stale numeric draft', () => {
@@ -241,6 +382,20 @@ describe('widget alert editor', () => {
 });
 
 describe('widget alert list', () => {
+  it('refreshes an open price-only list when the chart timezone changes without changing the expiry instant', () => {
+    const { w, root } = make();
+    w.chart.setTimezone('UTC');
+    expect(w.chart.indicators()).toEqual([]);
+    const expiresAt = Date.parse('2099-01-02T03:04:25.500Z') / 1000;
+    const record = w.alerts.add({ source: { kind: 'price', price: 105 }, expiresAt });
+    w.openAlerts();
+    const status = root.querySelector(`[data-alert-id="${record.id}"] .oac-alerts__status`)!;
+    expect(status.textContent).toContain('Expires 2099-01-02 03:04');
+    w.chart.setTimezone('Asia/Kolkata');
+    expect(status.textContent).toContain('Expires 2099-01-02 08:34');
+    expect(w.alerts.list()[0].expiresAt).toBe(expiresAt);
+  });
+
   it('saves a consumed touch even when cooldown suppresses its delivery', () => {
     vi.useFakeTimers();
     const store = new Map<string, string>();

@@ -23,7 +23,7 @@
 import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, PrimitiveHit, ZOrder } from './primitive';
 import { withAlpha } from '../render/pill';
 
-export type PaneLegendAction = 'hide' | 'settings' | 'up' | 'down' | 'maximize' | 'close';
+export type PaneLegendAction = 'hide' | 'settings' | 'source' | 'up' | 'down' | 'maximize' | 'close';
 
 /**
  * One reading on a legend row. Multi-plot sources show one per plot, each in
@@ -147,6 +147,7 @@ export interface PaneLegendOptions {
    * `${id}::<action>`:
    *  - `up` / `down` — move this pane one slot (`::up` / `::down`)
    *  - `hide`        — toggle visibility (`::hide`)
+   *  - `source`: show the code this source was written from (`::source`)
    *  - `maximize`    — expand this pane to fill the chart (`::maximize`)
    *  - `close`       — remove the source, and its pane if it empties (`::close`)
    *
@@ -161,6 +162,15 @@ export interface PaneLegendOptions {
   maximized?: boolean;
   /** Text size in media px. Default 11. */
   font?: number;
+  /**
+   * Square side of one action button in media px. Default 16.
+   *
+   * The row grows to hold it, so raising this moves every legend row below it
+   * down by the same amount and nothing overlaps. It is a chart-wide setting
+   * for that reason: two legends on one pane with different button sizes would
+   * stack against different row heights and collide.
+   */
+  iconSize?: number;
   /** Left inset from the plot edge in media px. Default 8. */
   left?: number;
   /** Top inset in media px. Default 6. */
@@ -173,7 +183,29 @@ export interface PaneLegendOptions {
 
 const ROW_H = 18;
 const GAP = 6;
+/** Default square side of an action button, in media px. */
 const BTN = 16;
+/** The range `iconSize` is held to: smaller is unhittable, larger is a toolbar. */
+const BTN_MIN = 12;
+const BTN_MAX = 28;
+/**
+ * Clearance above and below a button, in media px.
+ *
+ * One, because that is exactly what the default 16px button has always had
+ * inside an 18px row. Anything larger would raise the height of every row on
+ * every chart to gain nothing: the row only has to grow once a button asks for
+ * more than the default gives it.
+ */
+const BTN_MARGIN = 1;
+/**
+ * The glyph's half-extent as a fraction of its button.
+ *
+ * A fraction of the *button* rather than of the text, which is what it used to
+ * be: an icon lives in its box, not beside a word, so tying it to the font left
+ * a 9px drawing adrift in a 16px square and reading as an afterthought. At the
+ * default size this makes each glyph about a quarter larger than it was.
+ */
+const GLYPH = 0.36;
 /** Square side of the symbol logo, in media px: fits the row with margin. */
 const LOGO = 12;
 /** Extra hover width past the text, so the controls can appear without a gap. */
@@ -182,6 +214,23 @@ const FONT = 'ui-sans-serif, system-ui, sans-serif';
 /** Shared empties, so the common "no options, no data" path allocates nothing. */
 const NO_SWITCHES: LegendStatusLineOptions = {};
 const NO_STATUS: LegendStatusData = {};
+
+/** One button's side in media px, held inside the range the row can carry. */
+function buttonSize(o: PaneLegendOptions): number {
+  const wanted = o.iconSize;
+  if (typeof wanted !== 'number' || !Number.isFinite(wanted)) return BTN;
+  return Math.max(BTN_MIN, Math.min(BTN_MAX, wanted));
+}
+
+/**
+ * The row's height in media px: the default, or whatever the buttons need.
+ *
+ * Both the stacking offset and the hit box are measured from this, so a taller
+ * row moves the rows below it instead of drawing through them.
+ */
+function rowHeight(o: PaneLegendOptions): number {
+  return Math.max(ROW_H, buttonSize(o) + BTN_MARGIN * 2);
+}
 
 /**
  * One measured piece of the row. The whole row is measured before any of it is
@@ -253,12 +302,14 @@ function drawGlyph(
   action: PaneLegendAction,
   cx: number,
   cy: number,
-  font: number,
+  btn: number,
   dpr: number,
   o: PaneLegendOptions,
 ): void {
-  const r = font * 0.42;                 // half-extent of the icon box
-  const w = Math.max(1, Math.round(1.4 * dpr));
+  const r = btn * GLYPH * dpr;           // half-extent of the icon box
+  // The stroke thickens with the button, or a larger icon reads as a fainter
+  // one: the same hairline stretched over more area.
+  const w = Math.max(1, Math.round((1.4 * btn * dpr) / BTN));
   ctx.save();
   ctx.strokeStyle = ctx.fillStyle;
   ctx.lineWidth = w;
@@ -311,6 +362,29 @@ function drawGlyph(
         const dy = Math.sin(a);
         ctx.moveTo(cx + dx * r * 0.68, cy + dy * r * 0.68);
         ctx.lineTo(cx + dx * r, cy + dy * r);
+      }
+      break;
+    }
+    case 'source': {
+      // A pair of braces, the one mark that reads as "code" without a word.
+      // Each is three strokes: a top hook, a middle notch, a bottom hook, so
+      // the shape survives at eleven pixels where a curly outline would blur.
+      const x = r * 0.62;                // how far out each brace sits
+      const lip = r * 0.34;              // the horizontal reach of a hook
+      const notch = r * 0.28;            // how far the waist pinches inward
+      // `side` is which brace: -1 is the opening one on the left. Its hooks
+      // reach INWARD, toward what it encloses, and its waist pinches OUTWARD,
+      // away from it. Getting those two signs the same way round draws the
+      // pair mirrored, `} {`, which is a mark that means nothing.
+      for (const side of [-1, 1]) {
+        const ox = cx + side * x;
+        ctx.moveTo(ox - side * lip, cy - r);
+        ctx.quadraticCurveTo(ox, cy - r, ox, cy - r * 0.55);
+        ctx.lineTo(ox, cy - r * 0.2);
+        ctx.quadraticCurveTo(ox, cy, ox + side * notch, cy);
+        ctx.quadraticCurveTo(ox, cy, ox, cy + r * 0.2);
+        ctx.lineTo(ox, cy + r * 0.55);
+        ctx.quadraticCurveTo(ox, cy + r, ox - side * lip, cy + r);
       }
       break;
     }
@@ -389,8 +463,10 @@ export class PaneLegend implements IPrimitive {
     const o = this._opts;
     const dpr = rc.dpr;
     const f = (o.font ?? 11) * dpr;
-    const y = ((o.top ?? 6) + (o.row ?? 0) * ROW_H) * dpr;
-    const cy = y + (ROW_H * dpr) / 2;
+    const btn = buttonSize(o);
+    const rowH = rowHeight(o);
+    const y = ((o.top ?? 6) + (o.row ?? 0) * rowH) * dpr;
+    const cy = y + (rowH * dpr) / 2;
     const x0 = (o.left ?? 8) * dpr;
     let x = x0;
     const dim = o.hidden === true;
@@ -401,9 +477,9 @@ export class PaneLegend implements IPrimitive {
     this._plotHeight = Math.max(0, rc.plotHeight);
     const available = Math.max(0, (this._plotWidth - 4) * dpr - x0);
     const active = typeof rc.hoverId === 'string' && rc.hoverId.startsWith(`${o.id}::`);
-    const capacity = Math.max(0, Math.floor((available / dpr - 6) / (BTN + 2)));
+    const capacity = Math.max(0, Math.floor((available / dpr - 6) / (btn + 2)));
     const actions = active && capacity > 0 ? (o.actions ?? DEFAULT_ACTIONS).slice(-capacity) : [];
-    const actionWidth = actions.length ? (actions.length * (BTN + 2) + 6) * dpr : 0;
+    const actionWidth = actions.length ? (actions.length * (btn + 2) + 6) * dpr : 0;
 
     ctx.save();
     ctx.beginPath();
@@ -462,7 +538,7 @@ export class PaneLegend implements IPrimitive {
       ctx.globalAlpha = 1;
       ctx.fillStyle = withAlpha(s.backgroundColor ?? rc.theme.background, s.backgroundOpacity ?? 0.8);
       ctx.beginPath();
-      ctx.roundRect(x0 - pad, cy - (ROW_H / 2) * dpr, w, ROW_H * dpr, 4 * dpr);
+      ctx.roundRect(x0 - pad, cy - (rowH / 2) * dpr, w, rowH * dpr, 4 * dpr);
       ctx.fill();
       ctx.globalAlpha = dim ? 0.45 : 1;
     }
@@ -489,11 +565,11 @@ export class PaneLegend implements IPrimitive {
     this._buttons = [];
     if (actions.length > 0) {
       // Soft plate behind the controls, so glyphs stay legible over candles.
-      const plateW = (actions.length * (BTN + 2) + 6) * dpr;
+      const plateW = (actions.length * (btn + 2) + 6) * dpr;
       ctx.globalAlpha = 1;
       ctx.fillStyle = withAlpha(rc.theme.background, 0.82);
       ctx.beginPath();
-      ctx.roundRect(x - 3 * dpr, cy - (ROW_H / 2) * dpr, plateW, ROW_H * dpr, 5 * dpr);
+      ctx.roundRect(x - 3 * dpr, cy - (rowH / 2) * dpr, plateW, rowH * dpr, 5 * dpr);
       ctx.fill();
       x += 2 * dpr;
       for (const action of actions) {
@@ -504,14 +580,14 @@ export class PaneLegend implements IPrimitive {
         if (hovered) {
           ctx.fillStyle = withAlpha(rc.theme.axisText, 0.16);
           ctx.beginPath();
-          ctx.roundRect(bx, cy - (BTN / 2) * dpr, BTN * dpr, BTN * dpr, 4 * dpr);
+          ctx.roundRect(bx, cy - (btn / 2) * dpr, btn * dpr, btn * dpr, 4 * dpr);
           ctx.fill();
         }
         ctx.globalAlpha = dim ? 0.5 : hovered ? 1 : 0.75;
         ctx.fillStyle = action === 'close' && hovered ? '#ff6b6b' : rc.theme.axisText;
-        drawGlyph(ctx, action, bx + (BTN / 2) * dpr, cy, f, dpr, o);
+        drawGlyph(ctx, action, bx + (btn / 2) * dpr, cy, btn, dpr, o);
         ctx.globalAlpha = 1;
-        x += (BTN + 2) * dpr;
+        x += (btn + 2) * dpr;
       }
     }
 
@@ -522,10 +598,12 @@ export class PaneLegend implements IPrimitive {
   public hitTest(x: number, y: number): PrimitiveHit | null {
     if (x < 0 || x >= this._plotWidth || y < 0 || y >= this._plotHeight) return null;
     const o = this._opts;
-    const top = (o.top ?? 6) + (o.row ?? 0) * ROW_H;
-    if (y < top || y > top + ROW_H) return null;
+    const rowH = rowHeight(o);
+    const top = (o.top ?? 6) + (o.row ?? 0) * rowH;
+    if (y < top || y > top + rowH) return null;
+    const btn = buttonSize(o);
     for (const b of this._buttons) {
-      if (x >= b.x && x <= b.x + BTN) {
+      if (x >= b.x && x <= b.x + btn) {
         return { externalId: b.id, zOrder: 'top', distance: 0, cursor: 'pointer' };
       }
     }

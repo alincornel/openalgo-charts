@@ -2,6 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { chartDecorationsForRebuild } from '../src/chart-settings.js';
 
 describe('chart rebuild settings', () => {
+  it('carries each chart own legend button size through a rebuild', () => {
+    expect(chartDecorationsForRebuild({ legendIconSize: () => 24 })).toEqual({ legendIconSize: 24 });
+    expect(chartDecorationsForRebuild({ legendIconSize: () => 12 })).toEqual({ legendIconSize: 12 });
+    expect(chartDecorationsForRebuild({ legendIconSize: () => undefined })).toEqual({});
+  });
   it('carries disabled branding and customized watermark options to the replacement chart', () => {
     const watermark = {
       visible: true,

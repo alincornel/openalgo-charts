@@ -57,7 +57,14 @@ const BUNDLE = new URL('../dist/openalgo-charts.mjs', import.meta.url).pathname.
 // Common-start comparison and replay alignment remain optional and must shake.
 // Whole-reading legend fitting and plot-bounded actions serve raw chart hosts.
 // Measured 51.96 to 52.32 KiB (0.36 KiB); optional tiers still must shake below.
-const LIMIT_BYTES = 52.5 * 1024;
+// The legend row belongs to every chart host: a source button a descriptor can
+// ask for, a button size the row stacks against, and readings that skip a plot
+// drawn in a fully transparent colour. Measured 52.35 to 52.66 KiB (0.31 KiB);
+// The reviewed 2.4.6 renderer also resolves each marker's live series scale,
+// rebinds replaced anchors and rejects NaN gaps and invisible legend readings.
+// Final measurement is 52.75 KiB, 0.41 KiB above the 2.4.5 release's 52.34.
+// Allow 53 KiB while every optional tier still shakes out below.
+const LIMIT_BYTES = 53 * 1024;
 
 // Absent from a chart-only build. Each is a string that appears in the adapter
 // source and nowhere in the rendering core.

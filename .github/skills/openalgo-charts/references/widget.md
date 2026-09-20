@@ -198,7 +198,7 @@ Every mount takes the context and an optional anchor element (so it satisfies `D
 | `mountLevelEditor(ctx, anchor?, { ids? })` | function | Per-level ratio, colour and visibility for the fib and gann tools. |
 | `mountTextEditor(ctx, anchor?, { id?, onDone? })` | function | In-place editing laid over the painted text. Returns a `TextEditorHandle` with `commit()` and `cancel()`; an outside press commits, Escape cancels. |
 | `mountContextMenu(ctx, anchor?, { event?, hooks? })` | function | The right-click menu for the chart's `contextmenu` payload: trade rows when `onOrder` is given, drawing actions on a drawing, scale modes on a price axis, paste, fit, indicators, settings. |
-| `mountAlertEditor(ctx, anchor?, opts?: AlertEditorOptions)` | function | Draft editor seeded by `source` or editing `alertId`. Save validates source identities, finite bounds and UTC expiry. Cancel never arms an alert. |
+| `mountAlertEditor(ctx, anchor?, opts?: AlertEditorOptions)` | function | Draft editor seeded by `source` or editing `alertId`. Save validates source identities, finite bounds and expiry in the labelled chart timezone. Cancel never arms an alert. |
 | `mountAlertsPanel(ctx, anchor?, opts?: AlertsPanelOptions)` | function | Live alert list with lifecycle, scope, timing, availability, last delivery, edit, enable/disable and delete. Both options types accept `onClose`. |
 | `attachContextMenu(ctx, hooks?)` | function | Subscribe to the chart's `contextmenu`, `preventDefault`, mount the menu. Returns the unsubscriber. `createWidget` does this itself. |
 | `contextMenuEntries(ctx, event, hooks)` | function | The `MenuEntry[]` the menu is built from, for a host composing its own. |
@@ -215,8 +215,17 @@ Alert panels use optional `WidgetContext.alerts`, supplied automatically by
 Draft numeric forms set `FormOptions.preserveInvalidNumbers` so an empty field
 stays empty and Save can report it. Live settings forms retain their previous
 behavior of restoring the last valid numeric value. Alert expiry is entered in
-UTC; editing another field preserves the stored instant, including its seconds.
+the chart timezone captured and labelled when the editor opens; changing the
+chart timezone does not reinterpret the draft. New alerts default to two chart
+calendar months ahead, clamped to the last day of the target month. Clearing the
+field means no expiry. Editing another field preserves the stored UTC instant,
+including its seconds. Programmatically added alerts retain their existing
+defaults; the two-month prefill belongs to the editor.
 Context changes or removed anchors prevent stale drafts from being saved.
+
+Text, number, select and date fields share one control column. Their height
+uses `--oac-ctl-h`, and their outer corners and button corners use `--oac-radius`.
+Color swatches stay compact. Theme overrides should target these tokens.
 
 ## `WidgetOptions`
 

@@ -10,6 +10,7 @@ import DrawingToolsDemo from '../components/DrawingToolsDemo'
 import DataLoadingDemo from '../components/DataLoadingDemo'
 import ObjectsDemo from '../components/ObjectsDemo'
 import BrandingWatermarkDemo from '../components/BrandingWatermarkDemo'
+import IndicatorSignalsDemo from '../components/IndicatorSignalsDemo'
 import { RangeSwitcherCard, LegendCard, SeriesCompareCard, IndicatorsCard, ChartTypeCard, ThemeCard, DataTooltipCard, EventMarkersCard, PriceScaleCard, CustomTypesCard, ScalesFormatCard, ScalesConfigCard, DataCard, CustomPluginsCard, PositionsCard, TradeMarkersCard } from '../components/gallery'
 
 # Live examples
@@ -161,7 +162,18 @@ Every option, event and theming token is on [The Widget Tier](/docs/widget).
 
 ## Custom indicators
 
-The 102 built-ins are not special-cased. Each is a descriptor - inputs, plots and a
+### Indicator source and marker anchors
+
+This host supplies the code shown by the legend's source button. Switch between
+price and plot anchoring to compare signal placement, and enlarge the controls to
+see the legend row adapt. Gapped plots share the instrument's scale; a transparent
+helper stays out of the readings. See the [indicator guide](/docs/indicators#source-access-and-legend-controls).
+
+<IndicatorSignalsDemo />
+
+### A descriptor with several outputs
+
+The 105 built-ins are not special-cased. Each is a descriptor - inputs, plots and a
 `calc` - and anything you register with `registerIndicator` uses the same contract,
 so it gets generated settings, a legend entry and state persistence for free.
 

@@ -302,6 +302,11 @@ export interface ChartOptions {
   canvas?: CanvasOptions;
   /** Per-field status-line switches applied to every pane legend on the chart. */
   statusLine?: LegendStatusLineOptions;
+  /**
+   * Square side of a legend action button in media px. Default 16, held to
+   * 12..28. Applied to every pane legend, because the rows stack against it.
+   */
+  legendIconSize?: number;
   /** Accessible label for the chart container (screen readers). */
   ariaLabel?: string;
   /**
@@ -721,6 +726,8 @@ export class Chart {
   private readonly _canvas: CanvasOptions = {};
   /** Status-line switches pushed onto every pane legend, host-added ones included. */
   private readonly _statusLine: LegendStatusLineOptions = {};
+  /** Legend action-button side in media px; undefined leaves the primitive's default. */
+  private _legendIconSize: number | undefined;
   /** Axis-strip chrome switches. Empty is the shipped chart: neither drawn. */
   // Both switches explicitly off rather than absent: "off" is the shipped
   // default and a state capture should say so, so that turning one on and off
@@ -920,6 +927,7 @@ export class Chart {
     Object.assign(this._canvas, options.canvas);
     if (options.grid) this._canvas.grid = { ...this._canvas.grid, ...options.grid };
     Object.assign(this._statusLine, options.statusLine);
+    if (typeof options.legendIconSize === 'number' && Number.isFinite(options.legendIconSize)) this._legendIconSize = options.legendIconSize;
     // Margins are the price scale's own state in fraction units; the canvas
     // block only carries the dialog's percentages. Fold them in before the
     // first pane exists, so `_addPane` applies both together.
@@ -1214,8 +1222,8 @@ export class Chart {
         }
       },
       priceScale: (): PriceScale => pane.scaleOf(record),
-      createMarkers: (): SeriesMarkers => {
-        const m = new SeriesMarkers(dataId);
+      createMarkers: (fallbackBars?: () => readonly Bar[]): SeriesMarkers => {
+        const m = new SeriesMarkers(dataId, fallbackBars, () => pane.scaleOf(record));
         // Resolved now, not at creation: primitives are addressed by slot, and
         // this series' slot may have shifted since.
         this._addPrimitive(this._panes.indexOf(pane), m);
@@ -1518,6 +1526,10 @@ export class Chart {
           o.row === 0 && o.paneIndex > 0
             ? ['hide', 'settings', 'up', 'down', 'maximize', 'close']
             : ['hide', 'settings', 'close'];
+        // The source button sits next to the gear, because the two are the
+        // same errand at different depths: what this study is set to, and what
+        // it is. Only a descriptor that says it has source gets one.
+        if (o.hasSource === true) paneActions.splice(paneActions.indexOf('settings') + 1, 0, 'source');
         // _syncLegendOffsets decides which pane wears the offset, and runs on
         // every relayout; this is just the initial placement.
         const legend = new PaneLegend({ ...o, actions: paneActions });
@@ -1529,6 +1541,7 @@ export class Chart {
         this._restackLegends();
       },
       legendRowsOn: (paneIndex): number => this._legends.filter((l) => l.paneIndex === paneIndex).length,
+      primarySeries: (): SeriesApi | null => this.primarySeries(),
       addIndicatorSeries: (type, paneIndex, style, priceScaleId, priceFormat): SeriesApi =>
         this._createSeries(
           type as SeriesType,
@@ -1810,7 +1823,8 @@ export class Chart {
   // `subscribe*` helpers. Names emitted by the core: 'ready', 'crosshair:move',
   // 'click', 'dblclick', 'hover', 'drag', 'drag:end', 'pan', 'zoom', 'resize',
   // 'lazy-load', 'paneAdded', 'paneRemoved', 'paneMoved', 'paneMaximized', 'paneResized',
-  // 'priceAxisMoved', 'indicatorRemoved', 'indicatorSettings', 'renderer:fallback',
+  // 'priceAxisMoved', 'indicatorRemoved', 'indicatorSettings', 'indicatorSource',
+  // 'renderer:fallback',
   // 'branding:changed', 'destroy'. The
   // trading layer routes its 'trading:*' events through here too, and the draw
   // tier emits 'draw:*' plus the 2.0 pair 'drawing:select' and 'drawing:change'
@@ -2221,6 +2235,25 @@ export class Chart {
   }
 
   /**
+   * How large a legend's action buttons are drawn, in media px.
+   *
+   * Chart-wide rather than per legend: the rows stack against the height the
+   * buttons need, so two sizes on one pane would stack against two different
+   * heights and overlap. The primitive holds it to a range it can actually
+   * draw.
+   */
+  public setLegendIconSize(size: number): void {
+    if (!Number.isFinite(size)) return;
+    this._legendIconSize = size;
+    for (const entry of this._legends) entry.legend.setOptions({ iconSize: size });
+    this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
+  }
+
+  public legendIconSize(): number | undefined {
+    return this._legendIconSize;
+  }
+
+  /**
    * Turn the axis-strip chrome on or off, and hand it a clock. Merges field by
    * field, so switching the countdown on leaves the corner clock alone.
    */
@@ -2409,6 +2442,10 @@ export class Chart {
       if (Object.keys(this._statusLine).length > 0) {
         const own = primitive.options().statusLine;
         primitive.setOptions({ statusLine: { ...this._statusLine, ...own } });
+      }
+      // A chart-wide size also governs host rows so their row heights agree.
+      if (this._legendIconSize !== undefined) {
+        primitive.setOptions({ iconSize: this._legendIconSize });
       }
       this._restackLegends();
     }
@@ -2720,6 +2757,7 @@ export class Chart {
     grid?: Partial<GridOptions>;
     canvas?: CanvasOptions;
     statusLine?: LegendStatusLineOptions;
+    legendIconSize?: number;
     priceScale?: Partial<PriceScaleOptions>;
     priceFormatter?: ((price: number) => string) | null;
     timeFormatter?: ((utcSeconds: number, tickMark?: TickMarkType) => string) | undefined;
@@ -2731,6 +2769,7 @@ export class Chart {
     if (opts.grid) this.setGridOptions(opts.grid);
     if (opts.canvas) this.setCanvasOptions(opts.canvas);
     if (opts.statusLine) this.setStatusLineOptions(opts.statusLine);
+    if (opts.legendIconSize !== undefined) this.setLegendIconSize(opts.legendIconSize);
     if (opts.priceScale) this.setPriceScaleOptions(opts.priceScale);
     if (opts.priceFormatter !== undefined) this.setPriceFormatter(opts.priceFormatter);
     if ('timeFormatter' in opts) this.setTimeFormatter(opts.timeFormatter);
@@ -3315,6 +3354,12 @@ export class Chart {
       // (`inputs`), and applying it is `indicator.setSettings(patch)`.
       case 'settings':
         this.emit('indicatorSettings', { instanceId, indicatorId: indicator.indicatorId, paneIndex });
+        return true;
+      // Same payload as the gear, and for the same reason: the engine holds no
+      // code and no DOM, so it says which indicator was asked about and the
+      // host decides what to show.
+      case 'source':
+        this.emit('indicatorSource', { instanceId, indicatorId: indicator.indicatorId, paneIndex });
         return true;
       default: return false;
     }

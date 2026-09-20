@@ -26,7 +26,8 @@ import {
 } from './orders.js';
 import { initBracket, attachBracketLines, setBracketPrice, updateBracket, removeBracket } from './bracket.js';
 import { initIndicators, fillIndicatorPicker, renderIndicatorChips, openSettings, rememberIndicators } from './indicators.js';
-import { chartDecorationsForRebuild, initChartSettings, restorePrimaryStyle } from './chart-settings.js';
+import { chartDecorationsForRebuild, initChartSettings, normalizeLegendIconSize, restorePrimaryStyle } from './chart-settings.js';
+import { bindIndicatorSource, initIndicatorSource } from './indicator-source.js';
 import { initCompare, attachComparison, invalidateComparisons, syncComparisons, restoreComparisons } from './compare.js';
 import { initSnapshot } from './snapshot.js';
 import { initReplay, exitReplay, attachReplay, syncReplayAlertPause } from './replay.js';
@@ -167,6 +168,7 @@ function render({ keepView = true, state } = {}) {
   const previousState = state || app.chart?.getState();
   const rebuildState = previousState && (keepView ? previousState : stripView(previousState));
   const decorations = chartDecorationsForRebuild(app.chart);
+  if (state) decorations.legendIconSize = normalizeLegendIconSize(state.legendIconSize);
   const dataContext = referenceDataContext(app.req, app.chart?.getDataContext());
   if (app.offBranding) { app.offBranding(); app.offBranding = null; }
   detachAlerts(app);
@@ -177,6 +179,7 @@ function render({ keepView = true, state } = {}) {
     // DEFAULT_THEME is the light palette; the shell's switch decides which.
     theme: chartTheme(),
     priceAxisWidth: 72, // free crosshair (follows pointer)
+    legendIconSize: 16,
     grid: { vertLines: el('vgrid').checked, horzLines: el('hgrid').checked },
     // A chart-type switch builds a new chart; the zone the user picked is
     // the demo's to carry across, like activeIndicators.
@@ -312,6 +315,7 @@ function render({ keepView = true, state } = {}) {
   // The gear on a pane legend has no built-in dialog (the engine ships no
   // DOM), so it emits and we render the generated form.
   app.chart.on('indicatorSettings', ({ instanceId }) => openSettings(instanceId, capturePaneTarget(app, 1)));
+  bindIndicatorSource(app.chart, 1);
   // The close and trash buttons on a legend removes the indicator inside the chart, so
   // mirror that into our own spec list and refresh the chips.
   app.chart.on('indicatorRemoved', () => {
@@ -492,6 +496,7 @@ initVolume(app);
 initOrders(app);
 initBracket(app);
 initIndicators(app);
+initIndicatorSource();
 
 // The operator keypad lives beside the symbol field. Mounted once: it writes
 // into the field and the ordinary Enter handler does the loading, so nothing

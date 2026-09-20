@@ -217,11 +217,13 @@ select.field { cursor: pointer; padding-right: 24px; }
    One card, one head, one foot, shared by the indicator, compare, text and
    chart-settings dialogs: title left, close top right, actions bottom right
    with the confirming one last, and any secondary control bottom left. */
-#setmodal, #workspacemodal, #templatemodal { position: fixed; inset: 0; z-index: 60; background: var(--scrim);
+#setmodal, #workspacemodal, #templatemodal, #indsource { position: fixed; inset: 0; z-index: 60; background: var(--scrim);
   display: flex; align-items: center; justify-content: center; }
-#setmodal[hidden], #workspacemodal[hidden], #templatemodal[hidden] { display: none; }
+#setmodal[hidden], #workspacemodal[hidden], #templatemodal[hidden], #indsource[hidden] { display: none; }
+.set-card.source-card { width: min(720px, calc(100vw - 24px)); }
+#indsource-code { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.6 monospace; color: var(--tx); }
 .set-card.ws-card { width: min(480px, calc(100vw - 24px)); }
-.ws-card .set-head button { width: auto; padding: 0 8px; font: inherit; font-size: 12px; }
+.ws-card .set-head button, .source-card .set-head button { width: auto; padding: 0 8px; font: inherit; font-size: 12px; }
 .ws-body { gap: 10px; }
 .ws-body p { margin: 0; overflow-wrap: anywhere; }
 .ws-body .set-row { grid-template-columns: 0 100px minmax(0, 1fr); }
@@ -748,10 +750,11 @@ body[data-fullscreen-pane="2"] #chart2 { left: 42px; }
   #symbol.is-live { left: 8px; width: calc(100vw - 16px); }
   /* The field spans the viewport on a phone, so the keys anchor to its right. */
   #symbol.is-live + #symkeys { left: auto; right: 12px; }
-  #setmodal, #cmpmodal, #chartset, #workspacemodal, #templatemodal { align-items: stretch; justify-content: stretch; }
+  #setmodal, #cmpmodal, #chartset, #workspacemodal, #templatemodal, #indsource { align-items: stretch; justify-content: stretch; }
   .set-card, .cset-card { width: 100%; max-width: none; max-height: none; height: 100%;
     border-radius: 0; border: 0; }
   .set-card.ws-card { width: 100%; }
+  .set-card.source-card { width: 100%; }
   .set-body { flex: 1 1 auto; }
   .set-row { grid-template-columns: 15px 1fr minmax(150px, 46%); }
   .cset-main { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }

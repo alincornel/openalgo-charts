@@ -139,6 +139,7 @@ export const OVERLAY_CLOSE = {
   setmodal: '#set-x', cmpmodal: '#cmp-x', chartset: '#cset-x',
   workspacemodal: '#ws-close',
   templatemodal: '#tp-close',
+  indsource: '#indsource-close',
   replayleave: '#rp-leave-stay',
   snapmenu: 'hide', ctxmenu: 'hide', axmenu: 'hide',
 };

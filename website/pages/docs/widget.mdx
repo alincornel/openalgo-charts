@@ -344,6 +344,10 @@ outrank an inline declaration:
 }
 ```
 
+Text, number, select and date fields share the form's control column. Fields and
+buttons use `--oac-ctl-h` for height and `--oac-radius` for their outer corners;
+color swatches stay compact. Select chevrons stay inside their control.
+
 Override tokens, not controls: a rule written against an internal class name is a rule
 against an implementation detail.
 
@@ -489,7 +493,12 @@ not become zero. A zero threshold is valid.
 **Intrabar touch** can fire on a wick absent from the final candle, so the editor
 states that tradeoff beside the controls. Crossing conditions require movement
 beyond the threshold; equality alone is not a crossing. Range boundaries count
-as inside. Cooldown uses seconds, and expiry is entered as a UTC date and time.
+as inside. Cooldown uses seconds. Expiry uses the chart timezone shown beside
+the field when the editor opens. That timezone stays fixed for the draft even
+if the host changes the chart's timezone. New drafts start two calendar months
+ahead, clamped to the target month's last day. Clear the field for no expiry.
+Existing alerts keep their expiry, including seconds, when other fields change.
+Stored `expiresAt` values remain UTC epoch seconds.
 
 Save commits the draft; Cancel and Escape discard it. Editing a triggered alert
 preserves that state unless Enabled is explicitly changed. The list retains

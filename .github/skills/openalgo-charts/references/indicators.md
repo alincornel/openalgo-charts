@@ -244,6 +244,33 @@ One consequence for a descriptor author: **`calc` must be a pure function of `(b
 
 **Repeated instances get rotated colours.** The 2nd and later instances of the same descriptor id fill any *unset* plot colour key from `INSTANCE_PALETTE` (`#f5a623`, `#26a69a`, `#ab47bc`, `#ef5350`, `#26c6da`, `#8bc34a`, `#ff7043`, `#5c6bc0`), strided by plot count. An explicit colour in `settings` always wins, and the first instance is never touched. Three EMAs in one blue are indistinguishable on the chart and in the legend alike.
 
+## Source access and legend sizing (2.4.6)
+
+`IndicatorDescriptor.hasSource: true` adds a source button beside the legend's settings
+button. It emits `indicatorSource` with `{ instanceId, indicatorId, paneIndex }`.
+The host owns the code and must handle the event to display it; the engine neither
+stores code nor opens a dialog. Omit the flag when source is unavailable. Built-in
+descriptors omit it.
+
+```ts
+chart.on('indicatorSource', ({ instanceId, indicatorId, paneIndex }) => {
+  showIndicatorSource({ instanceId, indicatorId, paneIndex });
+});
+chart.setLegendIconSize(24);
+```
+
+`showIndicatorSource` is a host callback. `ChartOptions.legendIconSize`,
+`chart.applyOptions({ legendIconSize })` and `chart.setLegendIconSize(size)` apply one
+size to every existing and later legend, overriding an explicit per-primitive size.
+`chart.legendIconSize()` reads the configured value, or `undefined` if unset.
+Nonfinite chart values are ignored. `PaneLegendOptions.iconSize` defaults to 16 media
+pixels and is held to 12..28 when drawn; the row grows to fit it. Prefer the chart
+setting when several legends share a pane, since their row heights must agree.
+
+A fully transparent plot color contributes no legend reading: this covers
+`transparent`, zero-alpha hex and supported comma-separated `rgba()` syntax.
+Unknown color syntax is retained. The plot's data and marker anchors remain intact.
+
 ## Help text on an input (2.2.1)
 
 Every `IndicatorInput` variant takes an optional `tooltip`. A label has to stay
@@ -411,10 +438,15 @@ A plot cannot express this: a plot is a column of prices drawn as a line or a hi
 
 - Six built-ins use it: `halftrend` (Buy/Sell plates at flips, suppressed by `showLabels: false`), `williams-fractals` (up/down triangles at pivots), `rsi-divergence` (Bull / H Bull / Bear / H Bear plates at pivots), `alphatrend` (BUY/SELL plates at crossovers, suppressed by `showsignalsk: false`), `wavetrend` (circles at band crossings plus R / H divergence plates), `consolidation-breakout` (a `triangleUp` below the bar that breaks the range up, a `triangleDown` above the one that breaks it down, suppressed by `markbreakout: false`).
 - Returning `[]` clears the layer. That is how a `showLabels`-style boolean input turns markers off without a rebuild.
-- The layer comes from `series.createMarkers()` on the **first plot's** series and is created lazily, only once the descriptor actually returns a marker, so a no-marker indicator costs no extra primitive.
+- The layer is created lazily on the **first plot's** series by default (`markerAnchor: 'plot'`), so a no-marker indicator costs no extra primitive.
+- `markerAnchor: 'price'` selects the primary series for an indicator on pane 0. `aboveBar` uses its high, `belowBar` its low and `inBar` its body midpoint. A study on another pane or a chart without a primary series falls back to the first plot. The layer follows its series' own scale and is recreated when that selected series changes.
+- Missing or NaN plot values use the instrument bar at the same time only when the indicator is on pane 0 and its marker series shares the primary series' price scale. Finite plot points retain precedence. Own-pane oscillators and independent scales never receive instrument-price fallback; without an anchor their bar-relative marker is skipped.
+- `series.createMarkers(fallbackBars)` and `new SeriesMarkers(seriesId, fallbackBars, priceScale)` accept optional callbacks. `fallbackBars` returns current `readonly Bar[]`; the optional constructor `priceScale` returns the current `PriceScale`. Series-created layers supply that scale callback automatically, including after an axis move. Missing shared-axis times are skipped even when a fallback bar exists. `atPrice`, `paneTop` and `paneBottom` do not require a series bar.
 - **Markers are a separate primitive from the plots.** `setVisible(false)` hides both because the runtime re-runs the hook with an empty result, but a plot-level style patch does not touch them.
 
 `MarkerShape` includes two label shapes for named signals: `labelUp` and `labelDown` are rounded text plates with a tail that points **at** the anchor price, so the body sits clear of the bar. `labelUp`'s tail is on the top edge and its body hangs below the anchor; `labelDown` is the mirror. Both require `text`. The renderer is exported as `drawLabel(ctx, up, cx, anchorY, text, color, fontPx)` alongside `drawShape`, `markerSizePx` and `effectiveMarkerPx`, all in bitmap px with dpr already applied by the caller.
+
+Each label begins its own canvas path, so later plates do not refill earlier tails.
 
 ```ts
 { time: bar.time, position: 'atPrice', price, shape: 'labelUp', size: 'small', color: '#2962ff', text: 'Buy' }
@@ -575,7 +607,7 @@ registerIndicator({
 chart.addIndicator('my-momentum', { length: 14 });
 ```
 
-Optional descriptor members: `fills`, `markers`, `levels`, `range`, `attach`, `calcTail`, `table`, `draws` (1.7.1), and `background` / `barColors` / `alerts` (1.7.1), plus `colorBy` (per-bar colour), `priceScaleId` / `overlay`, and `ohlc` (1.8.1) on an individual plot.
+Optional descriptor members: `fills`, `markers`, `markerAnchor` / `hasSource` (2.4.6), `levels`, `range`, `attach`, `calcTail`, `table`, `draws` (1.7.1), and `background` / `barColors` / `alerts` (1.7.1), plus `colorBy` (per-bar colour), `priceScaleId` / `overlay`, and `ohlc` (1.8.1) on an individual plot.
 
 **`overlay: true` on a plot** (1.7.1) draws that one column on the price pane even when the descriptor is `placement: 'pane'`. An oscillator whose stop line belongs on the candles no longer has to ship as two indicators that duplicate the same inputs.
 
