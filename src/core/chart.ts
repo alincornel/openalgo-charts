@@ -469,7 +469,7 @@ export interface PointerSample {
 
 /**
  * What the engine reports about the physical pointer behind a gesture.
- * `crosshair:move`, `click`, `drag` and `drag:end` all carry these keys.
+ * `crosshair:move`, `click`, `drag:start`, `drag` and `drag:end` all carry these keys.
  */
 export interface PointerInfo {
   modifiers: PointerModifiers;
@@ -520,7 +520,7 @@ export interface ChartDragEvent extends PointerInfo {
   samples: PointerSample[];
 }
 
-/** Payload of the `drag:end` event: the release that finished a primitive drag. */
+/** Payload of `drag:start` (press) and `drag:end` (release) for a primitive drag. */
 export interface ChartDragEndEvent extends PointerInfo {
   id: string;
   price: number;
@@ -831,6 +831,7 @@ export class Chart {
   /** Pressure at the press; a click reports this, since its release always reads 0. */
   private _downPressure = 0;
   private _dragId: string | null = null; // externalId of the primitive being dragged
+  private _dragCancelOnEscape = false;
   private _hoverId: string | null = null; // externalId of the primitive under the pointer
   /** Whether that primitive draws below the overlay, so leaving it must repaint the base. */
   private _hoverOnBase = false;
@@ -1821,7 +1822,7 @@ export class Chart {
   // ── unified event bus ─────────────────────────────────────────────────────
   // One `on(name, cb)` surface for every chart event, complementing the typed
   // `subscribe*` helpers. Names emitted by the core: 'ready', 'crosshair:move',
-  // 'click', 'dblclick', 'hover', 'drag', 'drag:end', 'pan', 'zoom', 'resize',
+  // 'click', 'dblclick', 'hover', 'drag:start', 'drag', 'drag:end', 'drag:cancel', 'pan', 'zoom', 'resize',
   // 'lazy-load', 'paneAdded', 'paneRemoved', 'paneMoved', 'paneMaximized', 'paneResized',
   // 'priceAxisMoved', 'indicatorRemoved', 'indicatorSettings', 'indicatorSource',
   // 'renderer:fallback',
@@ -3758,7 +3759,7 @@ export class Chart {
     const out: PointerSample[] = [];
     for (const s of events) {
       const p = this._project(s.clientX - rect.left, s.clientY - rect.top, layout);
-      out.push({ x: p.x, y: p.localY, pressure: pointerPressure(s) });
+      out.push({ x: p.x, y: this._dragId === null ? p.localY : p.y - (layout[this._downPane]?.top ?? 0), pressure: pointerPressure(s) });
     }
     return out;
   }
@@ -3870,6 +3871,7 @@ export class Chart {
     // form is the original price-line path and still needs `subscribeDrag`.
     if (hit && (hit.draggable === true || (hit.cursor === 'ns-resize' && this._dragCb !== null))) {
       this._dragId = hit.externalId;
+      this._dragCancelOnEscape = hit.cancelOnEscape === true;
       this._dragMoved = false;
       this._ensureScaled(p.pane);
       this._dragFrom = {
@@ -3885,6 +3887,11 @@ export class Chart {
       this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Cursor));
       this._dragging = false;
       this._pointerMoved = false;
+      const start: ChartDragEndEvent = {
+        id: hit.externalId, ...this._dragFrom, paneIndex: this._downPane,
+        point: { x: p.x, y: p.localY }, ...pointerInfo(e),
+      };
+      this.emit('drag:start', start);
       return;
     }
 
@@ -3967,8 +3974,9 @@ export class Chart {
       this._pointerMoved = true;
     }
     if (this._dragId !== null) {
-      if (Math.abs(p.x - this._downX) > 3 || Math.abs(p.localY - this._downLocalY) > 3) this._dragMoved = true;
-      const price = this._panes[this._downPane].yToPrice(p.localY);
+      const localY = p.y - (this._paneLayout()[this._downPane]?.top ?? 0);
+      if (Math.abs(p.x - this._downX) > 3 || Math.abs(localY - this._downLocalY) > 3) this._dragMoved = true;
+      const price = this._panes[this._downPane].yToPrice(localY);
       const time = this._xToTime(p.x);
       this._dragCb?.(this._dragId, price, time);
       const drag: ChartDragEvent = {
@@ -3976,7 +3984,7 @@ export class Chart {
         // The grab origin, so a consumer's delta starts at the press instead of
         // the first move — otherwise the shape lags the cursor by one event.
         fromPrice: this._dragFrom.price, fromTime: this._dragFrom.time,
-        point: { x: p.x, y: p.localY },
+        point: { x: p.x, y: localY },
         samples: this._dragSamples(e),
         ...pointerInfo(e),
       };
@@ -4057,12 +4065,13 @@ export class Chart {
     }
     if (this._dragId !== null) {
       const p = this._localPoint(e);
-      const price = this._panes[this._downPane].yToPrice(p.localY);
+      const localY = p.y - (this._paneLayout()[this._downPane]?.top ?? 0);
+      const price = this._panes[this._downPane].yToPrice(localY);
       const time = this._xToTime(p.x);
       this._dragEndCb?.(this._dragId, price, time);
       const end: ChartDragEndEvent = {
         id: this._dragId, price, time, paneIndex: this._downPane,
-        point: { x: p.x, y: p.localY },
+        point: { x: p.x, y: localY },
         ...pointerInfo(e),
       };
       this.emit('drag:end', end);
@@ -4169,6 +4178,9 @@ export class Chart {
   };
 
   private readonly _onPointerCancel = (e: PointerEvent): void => {
+    // Existing hosts still receive their end notification; transactional consumers
+    // discard the draft first so cancellation can never become a saved edit.
+    this._cancelPrimitiveDrag('pointercancel');
     if (this._brandingPress?.pointerId === e.pointerId) this._brandingPress.moved = true;
     this._onPointerUp(e);
   };
@@ -4344,6 +4356,7 @@ export class Chart {
 
   // ── multi-touch pinch (zoom + two-finger pan) ─────────────────────────────
   private _beginPinch(): void {
+    this._cancelPrimitiveDrag('pinch');
     this._brandingPress = null;
     const pts = [...this._pointers.values()];
     this._pinch = pinchState(pts[0], pts[1]);
@@ -4368,8 +4381,27 @@ export class Chart {
   }
 
   // ── keyboard navigation (focus the chart, then arrows / +- / Home) ────────
+  private _cancelPrimitiveDrag(reason: 'pointercancel' | 'pinch' | 'escape'): void {
+    if (this._dragId === null) return;
+    this._dragMoved = true;
+    this.emit('drag:cancel', { id: this._dragId, paneIndex: this._downPane, reason });
+  }
+
   private readonly _onKeyDown = (e: KeyboardEvent): void => {
     this._unfreezeOverlay();
+    // Opt-in drafts own Escape without stranding legacy consumers that require a release.
+    if (e.key === 'Escape' && this._dragCancelOnEscape && this._dragId !== null && !ShortcutManager.shouldIgnore(e.target)) {
+      this._cancelPrimitiveDrag('escape');
+      this._dragId = null;
+      this._dragging = false;
+      this._pointerMoved = true;
+      for (const id of this._pointers.keys()) this._endedPointers.add(id);
+      this._pointers.clear();
+      this._setHover(null);
+      this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Light));
+      e.preventDefault();
+      return;
+    }
     const sc = this._shortcuts;
     if (sc === null || ShortcutManager.shouldIgnore(e.target) || !this._shortcutsActive()) return;
     const cmd = sc.resolve(e);

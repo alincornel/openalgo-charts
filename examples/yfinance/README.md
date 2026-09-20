@@ -426,6 +426,18 @@ invalidates an old menu action. Unsupported drawing levels show a disabled
 action with an explanation. Oscillator context menus do not offer price-order
 actions at oscillator values.
 
+To try line dragging, create a price alert from either chart's context menu, then
+drag its dashed line or **Alert** badge. The line previews the new value while the
+saved threshold stays unchanged; releasing commits once. Press Escape before
+release to cancel. Touch cancellation, starting a pinch, a symbol/interval change,
+alert pause or replay entry also discard an unfinished drag.
+
+Choose a range condition to drag its lower and upper boundaries independently;
+each stops at the other boundary. Create a study alert to move a threshold in that
+plot's own axis units, including an independent or left scale. A drawing-owned
+alert level follows its drawing and cannot be dragged separately. This uses the
+same alert controller as the packaged widget, on the chart that owns the alert.
+
 ## Chart data download
 
 Choose **Download chart data (CSV)** in Layouts or the chart snapshot menu. Layouts

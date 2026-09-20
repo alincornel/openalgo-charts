@@ -2,21 +2,43 @@
 
 All notable changes to OpenAlgo Charts.
 
-## Unreleased
+## 2.4.7
 
-### Changed
+2026-09-21
 
-- An armed alert's on-chart badge reads "Alert" rather than "Armed". It is the
-  state every alert is in almost all the time, and the engine's word for it
-  reads as jargon on a chart. Triggered, Expired, Disabled and Paused keep
-  their words, because each says something the line cannot.
+Move alert thresholds directly on the chart, with a live preview and one saved
+change on release.
 
 ### Added
 
-- An alert's line can be dragged to move its price, live while the pointer is
-  down and committed on release. Price and study-threshold sources only: a
-  drawing-sourced alert is anchored to its drawing and has no price of its own,
-  and its line still refuses the gesture so the drawing underneath gets it.
+- Price and study-threshold alert lines support mouse, pen and touch dragging.
+  Movement previews the selected bound; release commits it once. Preview values
+  do not change stored alerts or the thresholds used for live evaluation.
+- Range bounds move independently and stop at the other bound. Study thresholds
+  use their plot's scale, including separate panes and independent or left axes.
+- Primitive gestures announce `drag:start` and `drag:cancel`. Cancellation reports
+  `pointercancel`, `pinch` or `escape`; existing drag callbacks remain compatible.
+- A live alert-dragging example and reference-host instructions demonstrate
+  threshold edits, cancellation and saved-value feedback.
+
+### Changed
+
+- Armed alert badges read "Alert". Triggered, Expired, Disabled and Paused retain
+  their existing labels. Stored lifecycle state names remain unchanged.
+- Drawing-anchored alert lines let the drawing receive its own gestures.
+  Disabled, paused, expired and triggered lines do not accept threshold edits.
+
+### Fixed
+
+- Cancelled and obsolete gestures cannot overwrite alerts after pause, replay,
+  source or context changes, restore, update or removal. A click saves nothing.
+- Preview levels keep the committed autoscale bounds. Alerts on an independent
+  study scale never expand the candle scale, including on their first frame,
+  and omit the primary right-axis tag when its units differ.
+- Drag coordinates and coalesced samples remain relative to the grabbed pane
+  when the pointer crosses into another pane.
+- Alert expiry parsing shares the chart's timezone conversion helper while
+  preserving the editor's captured timezone and calendar-based default.
 
 ## 2.4.6
 

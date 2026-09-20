@@ -66,7 +66,7 @@ test('drawing alerts follow a real drag and render armed, triggered, disabled an
   });
   expect(await page.evaluate(() => window.__alertsDemo.alerts.list().find(alert => alert.id === window.__alertsDemo.ids.close)!.state)).toBe('armed');
   const svg = await page.evaluate(() => window.__alertsDemo.chart.exportSVG());
-  for (const label of ['Triggered', 'Armed', 'Disabled', 'Expired']) expect(svg).toContain(label);
+  for (const label of ['Triggered', 'Alert', 'Disabled', 'Expired']) expect(svg).toContain(label);
   const overdraw = await page.evaluate(() => {
     const { chart, draw, drawingId } = window.__alertsDemo;
     const price = draw.get(drawingId)!.points[0].price;
@@ -88,13 +88,13 @@ test('drawing alerts follow a real drag and render armed, triggered, disabled an
   expect(errors).toEqual([]);
 });
 
-test('alert levels preserve pane panning and teardown removes every overlay', async ({ page }) => {
+test('clear plot space preserves pane panning and alert teardown removes every overlay', async ({ page }) => {
   await page.goto('/tests/e2e/alerts-fixture.html');
   await page.waitForFunction(() => !!window.__alertsDemo);
   const point = await page.evaluate(() => {
     const { chart } = window.__alertsDemo;
     const rect = document.getElementById('chart')!.getBoundingClientRect();
-    return { x: rect.left + 500, y: rect.top + chart.priceToCoordinate(105)!, from: chart.getVisibleLogicalRange()!.from };
+    return { x: rect.left + 500, y: rect.top + chart.priceToCoordinate(101)!, from: chart.getVisibleLogicalRange()!.from };
   });
   await page.mouse.move(point.x, point.y);
   await page.mouse.down();

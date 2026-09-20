@@ -1,8 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AlertController, Chart, PriceLine, registerIndicator } from '../src/index';
+import { AlertController, Chart, PriceLine, PriceScale, registerIndicator } from '../src/index';
 import { DrawingController, type DrawingInput } from '../src/draw/index';
-import type { AlertTriggeredPayload, Bar } from '../src/index';
+import type { AlertControllerOptions, AlertTriggeredPayload, Bar, PrimitiveRenderContext } from '../src/index';
 import { fakeDocument } from './helpers/fake-dom';
+import { makeCtx } from './helpers/fake-ctx';
+import { DataLayer } from '../src/model/data-layer';
+import { TimeScale } from '../src/scale/time-scale';
+import { darkTheme } from '../src/theme';
 
 const cleanup: (() => void)[] = [];
 afterEach(() => { for (const destroy of cleanup.splice(0).reverse()) destroy(); });
@@ -162,9 +166,9 @@ describe('drawing alert values', () => {
   });
 });
 
-function alertSetup(times?: number[]) {
+function alertSetup(times?: number[], options: AlertControllerOptions = {}) {
   const rig = setup(times);
-  const alerts = new AlertController(rig.chart, { drawings: rig.draw });
+  const alerts = new AlertController(rig.chart, { drawings: rig.draw, ...options });
   cleanup.push(() => alerts.destroy());
   const fired: AlertTriggeredPayload[] = [];
   rig.chart.on('alert:triggered', event => fired.push(event as AlertTriggeredPayload));
@@ -319,85 +323,248 @@ describe('alert line visuals', () => {
 });
 
 describe('moving an alert by dragging its line', () => {
-  /** The `drag` payload the chart emits while a primitive is held. */
-  const drag = (chart: { emit(name: string, payload: unknown): void }, id: string, price: number, done = false) =>
-    chart.emit(done ? 'drag:end' : 'drag', { id, price });
+  const event = (chart: Chart, type: string, id: string, price: number, extra = {}) =>
+    chart.emit(type, { id, price, ...extra });
+  const lineFor = (chart: Chart, id: string, index = 0): PriceLine => chart.panes()
+    .flatMap(pane => [...pane.primitives()]).find(item => item instanceof PriceLine && item.options().id === `alert:${id}:${index}`) as PriceLine;
+  const renderContext = (priceScale: PriceScale, readoutPriceScale?: PriceScale): PrimitiveRenderContext => ({
+    priceScale, readoutPriceScale, timeScale: new TimeScale(), dataLayer: new DataLayer(),
+    plotWidth: 600, plotHeight: 400, priceAxisWidth: 60, dpr: 1, theme: darkTheme,
+  });
+  const begin = (chart: Chart, id: string, price: number, index = 0) => event(chart, 'drag:start', `alert:${id}:${index}`, price);
+  const move = (chart: Chart, id: string, price: number, index = 0) => event(chart, 'drag', `alert:${id}:${index}`, price);
+  const end = (chart: Chart, id: string, price: number, index = 0) => event(chart, 'drag:end', `alert:${id}:${index}`, price);
+  let studyId = 0;
+  function study(chart: Chart) {
+    const id = `alert-drag-study-${++studyId}`;
+    registerIndicator({ id, name: 'Reading', placement: 'pane', inputs: [],
+      plots: [{ key: 'v', title: 'Reading', type: 'line' }], calc: bars => ({ v: bars.map(() => 30) }) });
+    return chart.addIndicator(id);
+  }
 
-  it('moves a price alert to where the line was dropped', () => {
-    // The point of it: "not there, here" without opening a dialog and
-    // retyping a number.
-    const { chart, alerts } = alertSetup([60, 120]);
-    const alert = alerts.add({ source: { kind: 'price', price: 105 }, title: 'Breakout' });
-    drag(chart, `alert:${alert.id}:0`, 112, true);
-    expect(alerts.list()[0].source).toMatchObject({ kind: 'price', price: 112 });
+  it('previews only the visual, keeps evaluation and persistence unchanged, and commits once', () => {
+    const { chart, alerts, series, fired } = alertSetup([60, 120]);
+    const alert = alerts.add({ source: { kind: 'price', price: 105 }, condition: 'greaterThan', policy: 'onTouch' });
+    const updated = vi.fn(); chart.on('alert:updated', updated);
+    begin(chart, alert.id, 105);
+    move(chart, alert.id, 95);
+    expect(lineFor(chart, alert.id).price).toBe(95);
+    expect(alerts.list()[0].source).toEqual({ kind: 'price', price: 105 });
+    expect(chart.getState().alerts?.alerts[0].source).toEqual({ kind: 'price', price: 105 });
+    expect(updated).not.toHaveBeenCalled();
+    expect(lineFor(chart, alert.id).autoscaleInfo()).toEqual({ min: 105, max: 105 });
+    series.update(bar(120, 101));
+    expect(fired).toHaveLength(0);
+    end(chart, alert.id, 110);
+    expect(alerts.list()[0].source).toEqual({ kind: 'price', price: 110 });
+    expect(updated).toHaveBeenCalledTimes(1);
+    end(chart, alert.id, 115);
+    expect(updated).toHaveBeenCalledTimes(1);
+    expect(alerts.list()[0].source).toEqual({ kind: 'price', price: 110 });
   });
 
-  it('moves the bound the gesture has hold of, not the other one', () => {
-    // A range alert draws a line per bound and index 1 is the upper. Reading
-    // the index wrong swaps a channel's bounds on the first drag, which the
-    // engine would then accept as a channel inside out.
-    const { chart, alerts } = alertSetup([60, 120]);
-    const alert = alerts.add({
-      source: { kind: 'price', price: 100, upperPrice: 120 },
-      condition: 'enteringRange',
+  it('does not commit a click near the line or an unowned release', () => {
+    const { chart, alerts } = alertSetup();
+    const alert = alerts.add({ source: { kind: 'price', price: 105 } });
+    const updated = vi.fn(); chart.on('alert:updated', updated);
+    end(chart, alert.id, 200);
+    begin(chart, alert.id, 104);
+    end(chart, alert.id, 104);
+    expect(alerts.list()[0].source).toEqual({ kind: 'price', price: 105 });
+    expect(lineFor(chart, alert.id).price).toBe(105);
+    expect(updated).not.toHaveBeenCalled();
+  });
+
+  it('reverts a cancelled preview and ignores the old release', () => {
+    const { chart, alerts } = alertSetup();
+    const alert = alerts.add({ source: { kind: 'price', price: 105 } });
+    begin(chart, alert.id, 105); move(chart, alert.id, 110);
+    chart.emit('drag:cancel', { id: `alert:${alert.id}:0`, reason: 'pointercancel' });
+    expect(lineFor(chart, alert.id).price).toBe(105);
+    end(chart, alert.id, 115);
+    expect(alerts.list()[0].source).toEqual({ kind: 'price', price: 105 });
+  });
+
+  it.each([0, 1])('clamps range bound %s without moving the other bound', index => {
+    const { chart, alerts } = alertSetup();
+    const alert = alerts.add({ source: { kind: 'price', price: 100, upperPrice: 120 }, condition: 'enteringRange' });
+    begin(chart, alert.id, index ? 120 : 100, index);
+    move(chart, alert.id, index ? 90 : 130, index);
+    expect(lineFor(chart, alert.id, index).price).toBe(index ? 100 : 120);
+    expect(alerts.list()[0].source).toEqual({ kind: 'price', price: 100, upperPrice: 120 });
+    end(chart, alert.id, index ? 90 : 130, index);
+    expect(alerts.list()[0].source).toEqual({ kind: 'price', price: index ? 100 : 120, upperPrice: index ? 100 : 120 });
+  });
+
+  it.each([-1, 1, 2, 99])('ignores nonexistent single-line bound %s', index => {
+    const { chart, alerts } = alertSetup();
+    const alert = alerts.add({ source: { kind: 'price', price: 105 } });
+    begin(chart, alert.id, 105, index); move(chart, alert.id, 115, index); end(chart, alert.id, 115, index);
+    expect(alerts.list()[0].source).toEqual({ kind: 'price', price: 105 });
+  });
+
+  it.each(['pause', 'replay', 'context', 'restoring', 'reset'] as const)('cancels ownership on %s', guard => {
+    const { chart, alerts, series } = alertSetup();
+    chart.setDataContext({ symbol: 'ONE' });
+    const alert = alerts.add({ source: { kind: 'price', price: 105 } });
+    begin(chart, alert.id, 105); move(chart, alert.id, 110);
+    if (guard === 'pause') alerts.setPaused(true);
+    if (guard === 'replay') chart.emit('replay:start', {});
+    if (guard === 'context') chart.setDataContext({ symbol: 'TWO' });
+    if (guard === 'restoring') chart.emit('state:restore:start', {});
+    if (guard === 'reset') series.setData([bar(60, 100), bar(120, 100)]);
+    end(chart, alert.id, 115);
+    expect(alerts.list()[0].source).toEqual({ kind: 'price', price: 105 });
+  });
+
+  it.each(['update', 'restore', 'replace'] as const)('cannot overwrite a newer %s with a stale release', replace => {
+    const { chart, alerts } = alertSetup();
+    const alert = alerts.add({ source: { kind: 'price', price: 105 } });
+    begin(chart, alert.id, 105); move(chart, alert.id, 110);
+    if (replace === 'update') alerts.update(alert.id, { source: { kind: 'price', price: 200 } });
+    if (replace === 'restore') {
+      const document = alerts.toJSON(); document.alerts[0].source = { kind: 'price', price: 200 }; alerts.fromJSON(document);
+    }
+    if (replace === 'replace') { alerts.remove(alert.id); alerts.add({ id: alert.id, source: { kind: 'price', price: 200 } }); }
+    end(chart, alert.id, 115);
+    expect(alerts.list()[0].source).toEqual({ kind: 'price', price: 200 });
+  });
+
+  it('cancels when a study source is removed', () => {
+    const { chart, alerts } = alertSetup();
+    const instance = study(chart);
+    const alert = alerts.add({ source: { kind: 'indicator', instanceId: instance.id, plotKey: 'v', value: 30 } });
+    begin(chart, alert.id, 30); move(chart, alert.id, 40);
+    chart.removeIndicator(instance.id);
+    end(chart, alert.id, 50);
+    expect(alerts.list()[0].source).toMatchObject({ value: 30 });
+  });
+
+  it.each(['trigger', 'expiry', 'disable'] as const)('cancels a preview after lifecycle change %s', action => {
+    let now = 1000;
+    const { chart, alerts, series } = alertSetup([60, 120], { now: () => now });
+    const alert = alerts.add({ source: { kind: 'price', price: 105 }, policy: 'onTouch', expiresAt: 1001 });
+    begin(chart, alert.id, 105); move(chart, alert.id, 110);
+    if (action === 'trigger') series.update({ ...bar(120, 100), high: 106 });
+    if (action === 'expiry') { now = 1002; series.update(bar(120, 100)); }
+    if (action === 'disable') alerts.disable(alert.id);
+    end(chart, alert.id, 115);
+    expect(alerts.list()[0].source).toEqual({ kind: 'price', price: 105 });
+    expect(alerts.list()[0].state).toBe(action === 'trigger' ? 'triggered' : action === 'expiry' ? 'expired' : 'disabled');
+    expect(lineFor(chart, alert.id).price).toBe(105);
+  });
+
+  it.each([false, true])('updates hit testing when pause changes (initial: %s)', paused => {
+    const { chart, alerts } = alertSetup();
+    alerts.setPaused(paused);
+    const alert = alerts.add({ source: { kind: 'price', price: 105 } });
+    const line = lineFor(chart, alert.id);
+    const scale = new PriceScale(); scale.setHeight(400); scale.setPriceRange({ min: 90, max: 120 });
+    const rc = renderContext(scale);
+    expect(Boolean(line.hitTest(400, scale.priceToY(105), rc))).toBe(!paused);
+    alerts.setPaused(!paused);
+    const hit = line.hitTest(400, scale.priceToY(105), rc);
+    expect(Boolean(hit)).toBe(paused);
+    expect(line.options().cursor).toBe(paused ? 'ns-resize' : undefined);
+    if (hit) expect(hit.draggable).toBe(true);
+  });
+
+  it.each(['triggered', 'expired', 'disabled'] as const)('does not grab or edit an alert in state %s', state => {
+    const { chart, alerts } = alertSetup();
+    const alert = alerts.add({ source: { kind: 'price', price: 105 } });
+    const document = alerts.toJSON(); document.alerts[0].state = state; alerts.fromJSON(document);
+    const scale = new PriceScale(); scale.setHeight(400); scale.setPriceRange({ min: 90, max: 120 });
+    const line = lineFor(chart, alert.id);
+    expect(line.hitTest(400, scale.priceToY(105), renderContext(scale))).toBeNull();
+    expect(line.options().cursor).toBeUndefined();
+    begin(chart, alert.id, 105); move(chart, alert.id, 115); end(chart, alert.id, 115);
+    expect(alerts.list()[0].source).toEqual({ kind: 'price', price: 105 });
+    alerts.enable(alert.id);
+    expect(line.hitTest(400, scale.priceToY(105), renderContext(scale))?.draggable).toBe(true);
+  });
+
+  it('updates hit testing when a price alert becomes drawing-owned and back', () => {
+    const { chart, draw, alerts } = alertSetup();
+    const drawing = add(draw, { tool: 'horizontal-line', points: [point(120, 105)] });
+    const alert = alerts.add({ source: { kind: 'price', price: 105 } });
+    const line = lineFor(chart, alert.id);
+    const scale = new PriceScale(); scale.setHeight(400); scale.setPriceRange({ min: 90, max: 120 });
+    const rc = renderContext(scale);
+    alerts.update(alert.id, { source: { kind: 'drawing', drawingId: drawing.id } });
+    expect(line.hitTest(400, scale.priceToY(105), rc)).toBeNull();
+    expect(line.options().cursor).toBeUndefined();
+    alerts.update(alert.id, { source: { kind: 'price', price: 105 } });
+    expect(line.hitTest(400, scale.priceToY(105), rc)?.draggable).toBe(true);
+  });
+
+  it('draws, hit-tests and converts a primary alert on the primary readout scale', () => {
+    const { chart, alerts, series } = alertSetup();
+    chart.movePriceAxis(0, 'right', 'left');
+    const scale = series.priceScale(); scale.setHeight(400); scale.setPriceRange({ min: 90, max: 130 });
+    const wrong = new PriceScale(); wrong.setHeight(400); wrong.setPriceRange({ min: 0, max: 10 });
+    const alert = alerts.add({ source: { kind: 'price', price: 105 } });
+    const line = lineFor(chart, alert.id), rc = renderContext(wrong, scale), paint = makeCtx();
+    line.draw(paint.ctx, rc);
+    expect(paint.rec.ops.find(op => op.type === 'moveTo')?.args[1]).toBe(Math.round(scale.priceToY(105)) + 0.5);
+    expect(paint.rec.ops.filter(op => op.type === 'rect').some(op => op.args.join(',') === '0,0,600,400')).toBe(true);
+    expect(line.autoscaleInfo()).toBeNull();
+    expect(line.hitTest(400, scale.priceToY(105), rc)?.draggable).toBe(true);
+    const id = `alert:${alert.id}:0`;
+    event(chart, 'drag:start', id, 1, { point: { x: 400, y: scale.priceToY(105) }, paneIndex: 0 });
+    event(chart, 'drag', id, 2, { point: { x: 400, y: scale.priceToY(115) }, paneIndex: 0 });
+    event(chart, 'drag:end', id, 2, { point: { x: 400, y: scale.priceToY(115) }, paneIndex: 0 });
+    expect(alerts.list()[0].source).toMatchObject({ price: 115 });
+  });
+
+  it('draws and converts a study threshold through its series scale, not the pane right scale', () => {
+    const { chart, alerts } = alertSetup();
+    const instance = study(chart), scale = instance.series('v')!.priceScale();
+    scale.setHeight(400); scale.setPriceRange({ min: 0, max: 100 });
+    const wrong = new PriceScale(); wrong.setHeight(400); wrong.setPriceRange({ min: 1000, max: 2000 });
+    const alert = alerts.add({ source: { kind: 'indicator', instanceId: instance.id, plotKey: 'v', value: 30 } });
+    const line = lineFor(chart, alert.id), rc = renderContext(wrong), paint = makeCtx();
+    line.draw(paint.ctx, rc);
+    expect(paint.rec.ops.find(op => op.type === 'moveTo')?.args[1]).toBe(Math.round(scale.priceToY(30)) + 0.5);
+    expect(line.hitTest(400, scale.priceToY(30), rc)?.draggable).toBe(true);
+    const id = `alert:${alert.id}:0`;
+    event(chart, 'drag:start', id, 1500, { point: { x: 400, y: scale.priceToY(30) }, paneIndex: instance.paneIndex });
+    event(chart, 'drag:end', id, 1800, { point: { x: 400, y: scale.priceToY(70) }, paneIndex: instance.paneIndex });
+    expect(alerts.list()[0].source).toMatchObject({ value: 70 });
+  });
+
+  it('never autoscales the right axis from an independent study, including its first frame', () => {
+    const doc = fakeDocument();
+    const chart = new Chart(doc.createElement('div'), {
+      document: doc, pixelRatio: () => 1, shortcuts: false,
+      raf: { schedule: () => 1, cancel: () => {} },
     });
-    drag(chart, `alert:${alert.id}:1`, 130, true);
-    expect(alerts.list()[0].source).toMatchObject({ price: 100, upperPrice: 130 });
-    drag(chart, `alert:${alert.id}:0`, 95, true);
-    expect(alerts.list()[0].source).toMatchObject({ price: 95, upperPrice: 130 });
+    cleanup.push(() => chart.destroy());
+    chart.applySize(800, 600);
+    const series = chart.addSeries('candlestick');
+    series.setData([60, 120, 180].map(time => bar(time, 100)));
+    const id = `alert-drag-independent-${++studyId}`;
+    registerIndicator({ id, name: 'Independent', placement: 'onchart', inputs: [],
+      plots: [{ key: 'v', title: 'Reading', type: 'line', priceScaleId: 'overlay:large' }],
+      calc: bars => ({ v: bars.map(() => 1e6) }) });
+    const instance = chart.addIndicator(id);
+    chart.exportSVG();
+    const before = series.priceScale().priceRange();
+    const alerts = new AlertController(chart);
+    const alert = alerts.add({ source: { kind: 'indicator', instanceId: instance.id, plotKey: 'v', value: 1e6 } });
+    chart.exportSVG();
+    expect(series.priceScale().priceRange()).toEqual(before);
+    expect(lineFor(chart, alert.id).autoscaleInfo()).toBeNull();
+    alerts.remove(alert.id);
+    alerts.add({ source: { kind: 'price', price: 150 } });
+    chart.exportSVG();
+    expect(series.priceScale().priceRange().max).toBeGreaterThanOrEqual(150);
   });
 
-  it('moves a study threshold in the plot units it is already in', () => {
-    const { chart, alerts } = alertSetup([60, 120]);
-    const alert = alerts.add({
-      source: { kind: 'indicator', instanceId: 'missing', plotKey: 'v', value: 30 },
-    });
-    drag(chart, `alert:${alert.id}:0`, 70, true);
-    expect(alerts.list()[0].source).toMatchObject({ kind: 'indicator', value: 70 });
-  });
-
-  it('follows the cursor while held, not only on release', () => {
-    // Otherwise the label sits at the old number for the whole gesture and
-    // jumps at the end, which reads as the drag not having worked.
-    const { chart, alerts } = alertSetup([60, 120]);
+  it('rejects an invalid release without retaining its preview', () => {
+    const { chart, alerts } = alertSetup();
     const alert = alerts.add({ source: { kind: 'price', price: 105 } });
-    drag(chart, `alert:${alert.id}:0`, 108);
-    expect(alerts.list()[0].source).toMatchObject({ price: 108 });
-    drag(chart, `alert:${alert.id}:0`, 111, true);
-    expect(alerts.list()[0].source).toMatchObject({ price: 111 });
-  });
-
-  it('leaves a drawing alert alone, because the price is not its own', () => {
-    // A drawing-sourced alert is anchored to the drawing and follows it. Its
-    // line does not hit-test, so this drag cannot come from it in practice;
-    // the guard is what makes that true no matter who emits the event.
-    const { chart, draw, alerts } = alertSetup([60, 120]);
-    const line = add(draw, { tool: 'horizontal-line', points: [point(120, 110)] });
-    const alert = alerts.add({ source: { kind: 'drawing', drawingId: line.id } });
-    const before = alerts.list()[0].source;
-    drag(chart, `alert:${alert.id}:0`, 130, true);
-    // Compared whole, not by the keys it should still have. Without the guard
-    // the drag spreads a `price` onto a drawing source: every key this asks
-    // about is still correct, and the source now carries a number that means
-    // nothing and that nothing reads. `toMatchObject` would pass on that.
-    expect(alerts.list()[0].source).toEqual(before);
-    expect(alerts.list()[0].source).not.toHaveProperty('price');
-  });
-
-  it('ignores a drag that is not an alert, and an id that is not one of ours', () => {
-    const { chart, alerts } = alertSetup([60, 120]);
-    const alert = alerts.add({ source: { kind: 'price', price: 105 } });
-    drag(chart, 'order:7', 500, true);
-    drag(chart, `alert:${alert.id}:notanumber`, 500, true);
-    drag(chart, 'alert:nosuchalert:0', 500, true);
-    expect(alerts.list()[0].source).toMatchObject({ price: 105 });
-  });
-
-  it('ignores a drag with no usable price rather than moving to NaN', () => {
-    const { chart, alerts } = alertSetup([60, 120]);
-    const alert = alerts.add({ source: { kind: 'price', price: 105 } });
-    chart.emit('drag:end', { id: `alert:${alert.id}:0` });
-    chart.emit('drag:end', { id: `alert:${alert.id}:0`, price: Number.NaN });
-    expect(alerts.list()[0].source).toMatchObject({ price: 105 });
+    begin(chart, alert.id, 105); move(chart, alert.id, 110); end(chart, alert.id, Number.NaN);
+    expect(alerts.list()[0].source).toEqual({ kind: 'price', price: 105 });
+    expect(lineFor(chart, alert.id).price).toBe(105);
   });
 });

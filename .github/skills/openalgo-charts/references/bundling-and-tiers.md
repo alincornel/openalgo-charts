@@ -10,14 +10,14 @@ Source of truth: `package.json` (`exports`, `sideEffects`, `files`), `rollup.con
 
 | Specifier | Emitted file | Contents | Brotli measured / limit | Import has side effects |
 |---|---|---|---|---|
-| `openalgo-charts` | `dist/openalgo-charts.mjs` | engine, 13 chart types, indicator + chart-type registries, primitives, feeds, trading controller, shortcuts, TimeNavigator, `ReplayController`, comparison controller, settings schema, chart timezone | 91.55 kB / 92 kB | no |
+| `openalgo-charts` | `dist/openalgo-charts.mjs` | engine, 13 chart types, indicator + chart-type registries, primitives, feeds, trading controller, shortcuts, TimeNavigator, `ReplayController`, comparison controller, settings schema, chart timezone | 92.83 kB / 93.5 kB | no |
 | `openalgo-charts/trade` | `dist/openalgo-charts.trade.mjs` | order/position/bracket primitives, DOM ladder, `OrderEngine`, `TradeController`, `FakeBroker` | 8.01 kB standalone; 100 kB limit for base + trade | no |
 | `openalgo-charts/transform` | `dist/openalgo-charts.transform.mjs` | Renko, Range, Point & Figure, Kagi, Line Break, Heikin Ashi, `runTransform`, symbol arithmetic (`parseExpression`, `evaluateExpression`) | 4.50 kB / 6 kB | **yes**, registers the `point-figure` and `kagi` chart types |
 | `openalgo-charts/profile` | `dist/openalgo-charts.profile.mjs` | Volume Profile, TPO / Market Profile, Footprint, orderflow | 14.96 kB / 15 kB | no |
 | `openalgo-charts/indicators` | `dist/openalgo-charts.indicators.mjs` | 105 Tier-1 built-ins plus the Tier-2 contract | 29.84 kB / 30 kB | **yes**, registers all 105 descriptors |
 | `openalgo-charts/draw` | `dist/openalgo-charts.draw.mjs` | 85 drawing tools, `DrawingController`, `DrawingLayer` | 35.43 kB / 36 kB | **yes**, registers every built-in tool |
 | `openalgo-charts/webgl` | `dist/openalgo-charts.webgl.mjs` | the WebGL2 series backend, `createWebGL2Backend`, `isWebGL2Supported`, `WebGL2Backend`, `GlDevice` | 6.39 kB / 7 kB | **yes**, registers the `webgl2` render backend |
-| `openalgo-charts/widget` | `dist/openalgo-charts.widget.mjs` | `createWidget`, the chrome (top bar, rail, status line, toasts), the dialogs, the keymap, the tokens and stylesheet; the only tier that ships DOM. Imports `openalgo-charts/draw` itself | 49.00 kB / 49.25 kB | **yes**, registers the seven dialog mounts with the shell |
+| `openalgo-charts/widget` | `dist/openalgo-charts.widget.mjs` | `createWidget`, the chrome (top bar, rail, status line, toasts), the dialogs, the keymap, the tokens and stylesheet; the only tier that ships DOM. Imports `openalgo-charts/draw` itself | 49.03 kB / 49.25 kB | **yes**, registers the seven dialog mounts with the shell |
 | `openalgo-charts/workspace` | `dist/openalgo-charts.workspace.mjs` | Validated workspace and template documents, `WorkspaceRepository`, revision conflicts and an IndexedDB adapter | 5.52 kB / 6 kB | no |
 
 Types resolve per tier: `dist/index.d.ts`, `dist/trade/index.d.ts`, `dist/transform/index.d.ts`, `dist/profile/index.d.ts`, `dist/indicators/index.d.ts`, `dist/draw/index.d.ts`, `dist/webgl/index.d.ts`, `dist/widget/index.d.ts`, `dist/workspace/index.d.ts`.
@@ -134,21 +134,21 @@ An import map is optional here. Because the tier bundles reference `./openalgo-c
 
 ## Size budgets
 
-Enforced by `npm run size` (`size-limit`, Brotli, `@size-limit/file`), from `.size-limit.json`. Current measurements are from 2.4.6 and use decimal kB:
+Enforced by `npm run size` (`size-limit`, Brotli, `@size-limit/file`), from `.size-limit.json`. Current measurements are from 2.4.7 and use decimal kB:
 
 | Budget row | Files measured | Limit | Measured |
 |---|---|---|---|
-| Base engine | `openalgo-charts.mjs` | 92 kB | 91.55 kB |
-| Base + trade layer | base + `trade.mjs` | 100 kB | 99.56 kB |
+| Base engine | `openalgo-charts.mjs` | 93.5 kB | 92.83 kB |
+| Base + trade layer | base + `trade.mjs` | 101.5 kB | 100.84 kB |
 | Indicator tier | `indicators.mjs` | 30 kB | 29.84 kB |
 | Draw tier | `draw.mjs` | 36 kB | 35.43 kB |
 | Transform tier | `transform.mjs` | 6 kB | 4.50 kB |
 | Profile tier | `profile.mjs` | 15 kB | 14.96 kB |
 | WebGL2 tier | `webgl.mjs` | 7 kB | 6.39 kB |
-| Widget tier | `widget.mjs` | 49.25 kB | 49.00 kB |
-| Widget terminal | base + `draw.mjs` + `indicators.mjs` + `widget.mjs` | 206 kB | 205.83 kB |
+| Widget tier | `widget.mjs` | 49.25 kB | 49.03 kB |
+| Widget terminal | base + `draw.mjs` + `indicators.mjs` + `widget.mjs` | 207.75 kB | 207.13 kB |
 | Workspace tier | `workspace.mjs` | 6 kB | 5.52 kB |
-| Everything | all nine bundles | 245.5 kB | 245.21 kB |
+| Everything | all nine bundles | 247.25 kB | 246.52 kB |
 
 Version 2.1.2 raises the full-package budget from 187 KB to 188 KB for the feed, indicator lifecycle and recovery fixes. Version 2.1.3 raises base, widget and widget-terminal ceilings to 68 KB, 37 KB and 157 KB for navigation controls, and the chart-only tree-shaking ceiling to 45 KiB. Version 2.1.6 raises the base, base-plus-trade, widget-terminal and total ceilings
 to 73 KB, 81 KB, 165 KB and 197 KB for shared loading, resilient caching and
@@ -240,3 +240,12 @@ expiry handling grow the widget from 48.30 to 49.00 kB. The widget terminal is
 205.83 kB and all tiers total 245.21 kB. Their budgets are 49.25 kB widget,
 206 kB terminal and 245.5 kB total. Other tier ceilings remain unchanged, and
 optional tiers still must shake out of a chart-only import.
+
+Version 2.4.7 adds owned alert drafts, guarded commits, scale-aware previews and
+primitive start/cancel notifications. Measured base Brotli grows from 91.55 to
+92.83 kB (1.28 kB), with a 93.5 kB ceiling. Base plus trade is 100.84 kB against
+101.5 kB. The widget measures 49.03 kB within its unchanged 49.25 kB ceiling;
+the terminal is 207.13 kB and all tiers are 246.52 kB, with ceilings of
+207.75 kB and 247.25 kB. Core gesture support increases the chart-only import
+from 52.75 to 53.00 KiB, with a 53.25 KiB ceiling. The alert controller and
+all optional tiers still must disappear from a chart-only import.

@@ -64,7 +64,10 @@ const BUNDLE = new URL('../dist/openalgo-charts.mjs', import.meta.url).pathname.
 // rebinds replaced anchors and rejects NaN gaps and invisible legend readings.
 // Final measurement is 52.75 KiB, 0.41 KiB above the 2.4.5 release's 52.34.
 // Allow 53 KiB while every optional tier still shakes out below.
-const LIMIT_BYTES = 53 * 1024;
+// Primitive start/cancel notifications and pane-local gesture coordinates in
+// 2.4.7 raise the chart-only build to 53.00 KiB. Alert evaluation and visuals
+// still shake out; allow 53.25 KiB for the core gesture lifecycle.
+const LIMIT_BYTES = 53.25 * 1024;
 
 // Absent from a chart-only build. Each is a string that appears in the adapter
 // source and nowhere in the rendering core.

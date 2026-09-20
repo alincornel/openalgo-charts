@@ -1,8 +1,14 @@
 import { PriceLine } from '../primitives/price-line';
 import type { PrimitiveHit, PrimitiveRenderContext } from '../primitives/primitive';
+import type { PriceScale } from '../scale/price-scale';
 import type { Alert, AlertChartHost, AlertDrawingValue } from './types';
 
 const COLORS = { armed: '#3b82f6', triggered: '#22c55e', disabled: '#64748b', expired: '#d97706' };
+
+interface AlertVisualHost extends AlertChartHost {
+  panes?(): readonly { priceScale: PriceScale }[];
+  primarySeries?(): { priceScale(): PriceScale } | null;
+}
 
 /**
  * The badge on an alert's line.
@@ -32,14 +38,47 @@ function badgeFor(state: Alert['state'], paused: boolean): string {
  * gesture would pin the label while the line it is labelling slid away.
  */
 class AlertPriceLine extends PriceLine {
-  public constructor(options: ConstructorParameters<typeof PriceLine>[0], private readonly _movable: boolean) {
-    super(options);
+  private _movable = false;
+  private _committedPrice = this.price;
+  private _context: PrimitiveRenderContext | undefined;
+  private _resolveScale: (rc: PrimitiveRenderContext) => PriceScale = rc => rc.priceScale;
+  private _canAutoscale: () => boolean = () => true;
+
+  public bind(movable: boolean, price: number, resolveScale: (rc: PrimitiveRenderContext) => PriceScale, canAutoscale: () => boolean): void {
+    this._movable = movable;
+    this._committedPrice = price;
+    this._resolveScale = resolveScale;
+    this._canAutoscale = canAutoscale;
   }
 
   public override zOrder(): 'top' { return 'top'; }
 
+  public override autoscaleInfo(): { min: number; max: number } | null {
+    if (!this._canAutoscale()) return null;
+    if (this._context && this._resolveScale(this._context) !== this._context.priceScale) return null;
+    return { min: this._committedPrice, max: this._committedPrice };
+  }
+
+  public override draw(ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext): void {
+    this._context = rc;
+    const priceScale = this._resolveScale(rc);
+    ctx.save();
+    // A left or overlay scale must not label the pane's right axis in different units.
+    if (priceScale !== rc.priceScale) {
+      ctx.beginPath(); ctx.rect(0, 0, rc.plotWidth * rc.dpr, rc.plotHeight * rc.dpr); ctx.clip();
+    }
+    super.draw(ctx, { ...rc, priceScale });
+    ctx.restore();
+  }
+
   public override hitTest(x: number, y: number, rc: PrimitiveRenderContext): PrimitiveHit | null {
-    return this._movable ? super.hitTest(x, y, rc) : null;
+    this._context = rc;
+    const hit = this._movable ? super.hitTest(x, y, { ...rc, priceScale: this._resolveScale(rc) }) : null;
+    return hit ? { ...hit, zOrder: 'top', draggable: true, cancelOnEscape: true } : null;
+  }
+
+  public coordinateToPrice(y: number): number | undefined {
+    return this._context ? this._resolveScale(this._context).yToPrice(y) : undefined;
   }
 }
 
@@ -53,19 +92,30 @@ export function parseAlertLineId(externalId: string): { id: string; index: numbe
   const match = /^alert:(.+):(\d+)$/.exec(externalId);
   if (match === null) return null;
   const index = Number(match[2]);
-  return Number.isInteger(index) && index >= 0 ? { id: match[1], index } : null;
+  return index === 0 || index === 1 ? { id: match[1], index } : null;
 }
 
 /** One reusable line per bound. Evaluation and host notifications never depend on drawing. */
 export class AlertVisuals {
-  private readonly _lines = new Map<string, { pane: number; lines: PriceLine[] }>();
-  public constructor(private readonly _chart: AlertChartHost) {}
+  private readonly _lines = new Map<string, { pane: number; lines: AlertPriceLine[] }>();
+  public constructor(private readonly _chart: AlertVisualHost) {}
 
   public update(alert: Alert, value: AlertDrawingValue | undefined, paused: boolean): void {
     if (!this._chart.addPrimitive || !this._chart.removePrimitive) return;
     if (!value) { this.remove(alert.id); return; }
     const prices = value.upperPrice === undefined ? [value.price] : [value.price, value.upperPrice];
-    const canMove = movable(alert) && !paused;
+    const canMove = movable(alert) && alert.state === 'armed' && !paused;
+    const { source } = alert;
+    const sourceScale = (): PriceScale | undefined => source.kind === 'indicator'
+      ? this._chart.indicators?.().find(item => item.id === source.instanceId)?.series(source.plotKey)?.priceScale()
+      : source.kind === 'price' ? this._chart.primarySeries?.()?.priceScale() : undefined;
+    const resolveScale = (rc: PrimitiveRenderContext): PriceScale => source.kind === 'indicator'
+      ? sourceScale() ?? rc.priceScale : source.kind === 'price' ? rc.readoutPriceScale ?? rc.priceScale : rc.priceScale;
+    // Autoscale runs before the first draw, so it cannot infer ownership from a render context.
+    const canAutoscale = (): boolean => {
+      const rightScale = this._chart.panes?.()[value.paneIndex]?.priceScale;
+      return rightScale === undefined || (sourceScale() ?? rightScale) === rightScale;
+    };
     let group = this._lines.get(alert.id);
     if (group && (group.pane !== value.paneIndex || group.lines.length !== prices.length)) {
       this.remove(alert.id);
@@ -82,18 +132,31 @@ export class AlertVisuals {
         leftLabel: alert.title + (prices.length === 2 ? (i === 0 ? ' (lower)' : ' (upper)') : ''),
         // The hint is what tells anybody the line can be moved at all. A line
         // that drags with no cursor change is a feature nobody finds.
-        ...(canMove ? { cursor: 'ns-resize' } : {}),
+        cursor: canMove ? 'ns-resize' : undefined,
       };
       const existing = group.lines[i];
       if (existing) {
+        existing.bind(canMove, prices[i], resolveScale, canAutoscale);
         const previous = existing.options();
         if (Object.entries(options).some(([key, value]) => previous[key as keyof typeof previous] !== value)) existing.setOptions(options);
       } else {
-        const line = new AlertPriceLine({ ...options, id: `alert:${alert.id}:${i}` }, canMove);
+        const line = new AlertPriceLine({ ...options, id: `alert:${alert.id}:${i}` });
+        line.bind(canMove, prices[i], resolveScale, canAutoscale);
         group.lines.push(line);
         this._chart.addPrimitive(line, value.paneIndex);
       }
     }
+  }
+
+  /** Preview affects only the primitive; the controller owns the committed threshold. */
+  public preview(externalId: string, price: number): void {
+    const parsed = parseAlertLineId(externalId);
+    if (parsed) this._lines.get(parsed.id)?.lines[parsed.index]?.setPrice(price);
+  }
+
+  public coordinateToPrice(externalId: string, y: number): number | undefined {
+    const parsed = parseAlertLineId(externalId);
+    return parsed ? this._lines.get(parsed.id)?.lines[parsed.index]?.coordinateToPrice(y) : undefined;
   }
 
   public remove(id: string): void {

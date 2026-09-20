@@ -179,12 +179,36 @@ units and never substitutes the instrument price. A missing input is reported
 as unavailable.
 
 Chart hosts show price/drawing thresholds and indicator thresholds with the
-existing PriceLine primitive. Bands have two lines. Labels name Armed,
-Triggered, Disabled or Expired and carry distinct colors. Lines move in place,
+existing PriceLine primitive. Bands have two lines. Armed lines show an Alert
+badge; Triggered, Disabled, Expired and Paused name the other displayed states.
+Lines carry distinct lifecycle colors and move in place,
 disappear during an instrument mismatch and are removed with their alert or
 controller. An unsupported or missing drawing does not produce a line at zero.
 `AlertControllerOptions.visuals: false` disables rendering for a model-only
 host; evaluation and event delivery are otherwise identical.
+
+## Dragging thresholds
+
+Armed price and indicator threshold lines accept a vertical drag on the line or badge.
+Movement changes only the visual preview. `list()`, serialized state and alert
+evaluation retain the committed source until release. A completed changed drag
+updates that source once; use `alert:updated` to observe the committed record.
+Do not persist values from the generic `drag` preview event.
+
+Escape, pointer cancellation, a second pointer starting a pinch, context changes,
+host pause and replay entry cancel the preview. Removed or replaced sources and
+controller/chart teardown also invalidate the gesture. A paused controller does
+not accept threshold drags. Triggered, disabled and expired records are read-only
+until rearmed. Keep `setPaused(true)` in effect throughout any host
+loading or replay-selection interval that must prohibit changes.
+
+A range drag edits one bound and clamps it to the opposite bound; it never swaps
+the bounds or moves both. Indicator thresholds are expressed in their selected
+plot's units and use that plot's current axis, including independent and left
+scales. Never convert them through the primary price scale. Drawing-owned levels
+do not intercept dragging: change the underlying drawing instead. A threshold on
+a foreign scale omits the primary right-axis price tag so it cannot label that
+axis with the wrong units; the record and editor retain the source value.
 
 ## Persistence and restoration
 
@@ -229,6 +253,7 @@ creates fresh instances rather than retargeting saved study alerts.
 | --- | --- |
 | alert:created | `{ alert: Alert }` after creation |
 | alert:updated | `{ alert: Alert }` after editing, enabling or disabling |
+| alerts:changed | `{ id, reason: 'dragged' }` after a changed threshold drag commits |
 | alert:removed | `{ alert: Alert, reason }`, including removed, drawing-removed, drawing-missing, indicator-missing and plot-missing |
 | alert:expired | `{ alert: Alert }` when an armed record expires |
 | alert:triggered | `AlertTriggeredPayload`: alertId, title, message, time, index, price, alert |
