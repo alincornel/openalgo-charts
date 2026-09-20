@@ -288,7 +288,7 @@ test('a symbol the source cannot serve leaves the shell up and says so', async (
 
   // The symbol box is raised by the toolbar's symbol button; Enter loads.
   await page.locator('#shellbar button', { hasText: 'AAPL' }).click();
-  const sym = page.locator('#symbol');
+  const sym = page.getByPlaceholder('Symbol or expression');
   await expect(sym).toBeFocused();
   await sym.fill('FAIL');
   await sym.press('Enter');

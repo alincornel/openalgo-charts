@@ -2,6 +2,7 @@ import { el } from './ui.js';
 import { renderToolbar } from './toolbar.js';
 import { popupMenu } from './menus.js';
 import { isSplit, openSplit, closeSplit } from './split.js';
+import { autosave } from './persist.js';
 
 let app;
 export function initLink(a) { app = a; }
@@ -11,13 +12,14 @@ export function initLink(a) { app = a; }
 export function describeLink() {
   if (!app.linkGroup) return 'unavailable';
   const o = app.linkGroup.options();
-  const on = ['crosshair', 'viewport', 'symbol'].filter((k) => o[k]);
+  const on = ['crosshair', 'viewport', 'symbol', 'interval'].filter((k) => o[k]);
   return on.length ? on.join(' + ') : 'nothing synced';
 }
 
 export function setLink(patch) {
   if (!app.linkGroup) return;
   app.linkGroup.setOptions(patch);
+  autosave();
   renderToolbar();
   el('status').textContent = 'link: ' + describeLink()
     + ' · missing instant: ' + app.linkGroup.options().whenMissing;
@@ -40,6 +42,9 @@ export function openLinkMenu(anchor) {
     { label: 'Crosshair', on: o.crosshair, onSelect: () => setLink({ crosshair: !o.crosshair }) },
     { label: 'Viewport', on: o.viewport, onSelect: () => setLink({ viewport: !o.viewport }) },
     { label: 'Symbol', on: o.symbol, onSelect: () => setLink({ symbol: !o.symbol }) },
+    { label: 'Interval', on: o.interval, disabled: typeof app.linkGroup.setInterval !== 'function',
+      reason: typeof app.linkGroup.setInterval !== 'function' ? 'This build has no interval linking' : '',
+      onSelect: () => setLink({ interval: !o.interval }) },
     { group: 'When the follower has no such bar' },
     { label: 'Snap to the nearest bar', on: o.whenMissing === 'nearest', onSelect: () => setLink({ whenMissing: 'nearest' }) },
     { label: 'Draw nothing', on: o.whenMissing === 'hide', onSelect: () => setLink({ whenMissing: 'hide' }) },

@@ -628,3 +628,28 @@ Remaining reference toolbar routing, F8 shared replay, broader production gates,
 endurance, final broker validation and release work remain open. The library and
 installed consumer package are unchanged. This is a local development checkpoint;
 2.4.5 has not been published and the readiness score remains frozen.
+
+### Reference shared controls and restoration checkpoint
+
+The shared reference toolbar now routes symbol/expression, interval, range,
+chart type, P&F mode, studies/settings, grid and reset to its captured selected
+chart. Secondary history cancellation is independent, loading/failure cannot
+autosave transient state, and alerts stay paused until valid history arrives.
+The secondary chart retains its independent type, study identity/settings,
+grid and selection through reload. Interval sync is optional and persisted.
+Its canvas readout appears in exports and stacks above study legends. Chart 1
+retains the reference trading simulation, with disabled Buy/Sell on chart 2.
+
+Browser regressions also fixed secondary viewport broadcasts and primary resize
+drift during saved split restoration. Final evidence: 261 example tests/21 files,
+49 reference browser tests, types and lint pass. Final screenshots from Chromium,
+Firefox and WebKit were inspected. The shared-toolbar plan records red/green
+artifacts, resource review and the existing runner color warning. No library API,
+packed consumer dependency or consumer source changed in this checkpoint.
+
+Task 2 remains open for settings/readout parity, volume, comparison, replay and
+fullscreen ownership. Remaining F/P scope, endurance, final read-only broker
+validation and release work still apply. The release sequence is to validate
+the packed candidate in /trading, publish 2.4.5, then pin /trading to the published
+package and revalidate. Port 5000 has not been switched to the development
+worktree. Nothing was published and the frozen score is unchanged.

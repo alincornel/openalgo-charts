@@ -1,18 +1,22 @@
 import * as engine from '/dist/openalgo-charts.mjs';
-import { createChart } from '/dist/openalgo-charts.mjs';
+import { createChart, PaneLegend } from '/dist/openalgo-charts.mjs';
 import { attachAlerts, detachAlerts } from './alerts.js';
 import { DrawingController } from '/dist/openalgo-charts.draw.mjs';
-import { el, esc, fmt, UP, DOWN, chartTheme, chartMotionOptions, toast } from './ui.js';
+import { el, fmt, fmtVol, UP, DOWN, chartTheme, chartMotionOptions, toast } from './ui.js';
 import { clipboardPort } from './clipboard.js';
 import { armCursor, magnetMode, stayMode, syncMobileControls, observeMobileControls, focusChart } from './rail.js';
-import { fetchBars, fetchNote, feedErrorState, abortFetch } from './feed.js';
-import { autosave } from './persist.js';
-import { INTERVALS, intervalLabel, intervalName, clampPeriod } from './intervals.js';
-import { tbtn, ticon, renderToolbar } from './toolbar.js';
-import { popupMenu, openContextMenu, closeMenu } from './menus.js';
-import { LONG_NAMES } from './status.js';
+import { fetchBars, fetchNote, feedErrorState } from './feed.js';
+import { autosave, stripView } from './persist.js';
+import { intervalLabel, clampPeriod, INTERVALS } from './intervals.js';
+import { tbtn, renderToolbar, CHART_TYPES } from './toolbar.js';
+import { openContextMenu, closeMenu } from './menus.js';
 import { volumeShown } from './volume.js';
-import { referenceDataContext } from './expression.js';
+import { referenceDataContext, isExpression, fetchExpressionBars } from './expression.js';
+import { applyTransform } from './transforms.js';
+import { chartDecorationsForRebuild } from './chart-settings.js';
+import { openSettings, renderIndicatorChips } from './indicators.js';
+import { capturePaneTarget } from './pane-target.js';
+import { descriptionOf, exchangeOf, nameOf } from './status.js';
 
 // 1.3 surfaces: chart linking, the bar cache and the interval registry.
 // Same namespace read for the same reason: this page must still draw
@@ -25,6 +29,7 @@ let price2 = null;
 let bars2 = [];
 let pane2LoadRevision = 0;
 let restoreRevision = 0;
+let pane2Controller = null;
 
 // ══ split view: a second chart in the same link group ═══════════════════
 //
@@ -41,6 +46,8 @@ let restoreRevision = 0;
 export function initSplit(a) {
   app = a;
   app.restoreSecondary = restoreSecondaryLayout;
+  app.loadSecondary = loadPane2;
+  app.rebuildSecondary = buildChart2;
   app.linkGroup = createLinkGroup
     ? createLinkGroup({ crosshair: true, viewport: true, symbol: false, whenMissing: 'nearest' })
     : null;
@@ -84,6 +91,14 @@ export function joinLink() {
   if (app.chart) {
     app.linkGroup.add(app.chart, {
       symbol: app.req.symbol,
+      interval: app.req.interval,
+      onInterval: interval => {
+        if (!INTERVALS.includes(interval)) return false;
+        if (el('interval').value === interval) return;
+        el('interval').value = interval;
+        el('period').value = clampPeriod(interval, el('period').value);
+        app.load();
+      },
       // The group loads nothing itself: it hands the host a symbol and the
       // host fetches. This is the whole of the engine's symbol story.
       onSymbol: (sym) => {
@@ -96,6 +111,13 @@ export function joinLink() {
   if (app.chart2) {
     app.linkGroup.add(app.chart2, {
       symbol: app.p2.symbol,
+      interval: app.p2.interval,
+      onInterval: interval => {
+        if (!INTERVALS.includes(interval)) return false;
+        if (app.p2.interval === interval) return;
+        app.p2.interval = interval;
+        loadPane2();
+      },
       onSymbol: (sym) => {
         if (app.p2.symbol === sym) return;
         app.p2.symbol = sym;
@@ -118,25 +140,29 @@ export async function openSplit() {
 
 export function closeSplit() {
   pane2LoadRevision++;
-  abortFetch('pane2');
+  pane2Controller?.abort();
+  pane2Controller = null;
+  app.loading2 = false;
+  app.loadFailed2 = false;
   if (app.chart2) {
     detachAlerts(app, 2);
     if (app.linkGroup) app.linkGroup.remove(app.chart2);
     if (app.draw2) { app.draw2.destroy(); app.draw2 = null; }
     app.chart2.destroy();
     app.chart2 = null; price2 = null; app.volume2 = null;
+    app.symbolLegend2 = null;
   }
+  bars2 = [];
   el('pane2').hidden = true;
   el('splitbar').hidden = true;
   el('chart2').innerHTML = '';
-  el('p2legend').innerHTML = '';
   focusChart(1);
   renderToolbar();
   autosave();
 }
 
 /** Restore the second chart only after its own history is available. */
-export async function restoreSecondaryLayout(saved) {
+export async function restoreSecondaryLayout(saved, selected = 1) {
   const revision = ++restoreRevision;
   app.restoringSecondary = true;
   try {
@@ -146,12 +172,23 @@ export async function restoreSecondaryLayout(saved) {
     if (!req || !['symbol', 'interval', 'period'].every(key => typeof req[key] === 'string' && req[key].length > 0 && req[key].length <= 256)) {
       throw new Error('The second chart has invalid instrument settings');
     }
-    app.p2 = { symbol: req.symbol, interval: req.interval, period: req.period };
-    const loaded = await openSplit();
-    if (revision !== restoreRevision || !loaded || !app.chart2) return false;
-    const report = app.chart2.restoreState(saved.state);
-    if (!report.applied) throw new Error('The second chart layout could not be restored');
+    const chartType = saved.chartType || 'candlestick';
+    const pfmode = saved.pfmode || 'atr';
+    if (!CHART_TYPES.some(type => type.v === chartType) || !['atr', 'percent', 'fixed'].includes(pfmode)) {
+      throw new Error('The second chart has invalid chart type settings');
+    }
+    app.p2 = { symbol: req.symbol, interval: req.interval, period: req.period, chartType, pfmode };
     if (Number.isFinite(saved.width)) el('pane2').style.flexBasis = Math.max(18, Math.min(78, saved.width)) + '%';
+    const loaded = await openSplit();
+    const restoredChart = app.chart2;
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    if (revision !== restoreRevision || !loaded || !restoredChart || app.chart2 !== restoredChart
+      || !['symbol', 'interval', 'period'].every(key => app.p2[key] === req[key])) return false;
+    let report;
+    withoutViewportSync(() => { report = app.chart2.restoreState(saved.state); });
+    if (!report.applied) throw new Error('The second chart layout could not be restored');
+    focusChart(selected);
+    renderToolbar();
     return true;
   } catch (error) {
     if (revision === restoreRevision) toast('error', error.message || 'The second chart could not be restored');
@@ -161,8 +198,10 @@ export async function restoreSecondaryLayout(saved) {
   }
 }
 
-export function buildChart2() {
-  const saved = app.chart2?.getState();
+export function buildChart2({ keepView = true, typeChanged = false, state } = {}) {
+  const previous = state || app.chart2?.getState();
+  const saved = previous && (keepView ? previous : stripView(previous));
+  const decorations = chartDecorationsForRebuild(app.chart2);
   detachAlerts(app, 2);
   const dataContext = referenceDataContext(app.p2, app.chart2?.getDataContext());
   if (app.chart2) { if (app.linkGroup) app.linkGroup.remove(app.chart2); app.chart2.destroy(); }
@@ -174,19 +213,35 @@ export function buildChart2() {
     grid: { vertLines: el('vgrid').checked, horzLines: el('hgrid').checked },
     timezone: app.chartTimezone,
     ...chartMotionOptions(),
+    ...decorations,
   });
   app.chart2.setDataContext(dataContext);
-  price2 = app.chart2.addSeries('candlestick');
-  price2.setData(bars2);
-  app.volume2 = app.chart2.addSeries('histogram', {
+  app.symbolLegend2 = new PaneLegend({ id: 'symbol', title: app.p2.symbol, row: 0, actions: [],
+    status: () => ({ description: descriptionOf(app.p2.symbol) || undefined,
+      ticker: exchangeOf(app.p2.symbol) + ':' + nameOf(app.p2.symbol) }),
+  });
+  app.chart2.addPrimitive(app.symbolLegend2, 0);
+  const chartType = app.p2.chartType || 'candlestick';
+  const transformed = chartType.startsWith('t:');
+  const { type, data } = transformed
+    ? applyTransform(chartType.slice(2), bars2, { pfmode: app.p2.pfmode || 'atr' })
+    : { type: chartType, data: bars2 };
+  const style = type === 'baseline'
+    ? { baseValue: bars2.reduce((sum, bar) => sum + bar.close, 0) / (bars2.length || 1) } : {};
+  price2 = app.chart2.addSeries(type, { style });
+  price2.setData(data);
+  app.chart2.setPriceScaleOptions({ minMove: /\.(NS|BO)$/i.test(app.p2.symbol) ? 0.05 : 0.01 });
+  app.volume2 = transformed ? null : app.chart2.addSeries('histogram', {
     paneIndex: 0, priceScaleId: '',
     style: { color: '#33415e', base: 0 }, priceFormat: { type: 'volume' },
   });
-  app.volume2.priceScale().setOptions({ marginTop: 0.85, marginBottom: 0 });
-  app.volume2.setData(bars2.map((b) => ({ time: b.time, open: 0, high: b.volume, low: 0, close: b.volume })));
-  if (!volumeShown()) app.volume2.applyOptions({ visible: false });
-  app.chart2.subscribeCrosshairMove((e) => setPane2Legend(e.bar ?? bars2[bars2.length - 1]));
-  setPane2Legend(bars2[bars2.length - 1]);
+  if (app.volume2) {
+    app.volume2.priceScale().setOptions({ marginTop: 0.85, marginBottom: 0 });
+    app.volume2.setData(bars2.map((b) => ({ time: b.time, open: 0, high: b.volume, low: 0, close: b.volume })));
+    if (!volumeShown()) app.volume2.applyOptions({ visible: false });
+  }
+  app.chart2.subscribeCrosshairMove((e) => setPane2Legend(e.bar ?? app.chart2.primaryBars().at(-1)));
+  setPane2Legend(app.chart2.primaryBars().at(-1));
   // A second drawing controller, so paste has somewhere else to land: the
   // in-memory clipboard is shared by every controller on the page, which is
   // what makes chart-to-chart paste work with the OS permission refused.
@@ -198,7 +253,10 @@ export function buildChart2() {
   attachAlerts(app, 2);
   app.chart2.on('contextmenu', event => { event.preventDefault(); openContextMenu(event, 2); });
   app.chart2.on('destroy', closeMenu);
-  if (saved) app.chart2.restoreState(saved);
+  app.chart2.on('indicatorSettings', ({ instanceId }) => openSettings(instanceId, capturePaneTarget(app, 2)));
+  app.chart2.on('indicatorRemoved', renderIndicatorChips);
+  if (saved) app.chart2.restoreState(typeChanged ? { ...saved, series: [] } : saved);
+  if (app.focusPane === 2) renderIndicatorChips();
   app.chart2.on('draw:tool', ({ tool }) => {
     armCursor(el('chart2'), tool);
     if (app.focusPane === 2) syncMobileControls(tool);
@@ -206,7 +264,7 @@ export function buildChart2() {
   app.chart2.on('draw:add', () => { el('status').textContent = 'chart 2: ' + app.draw2.drawings().length + ' drawings'; });
   for (const event of ['draw:add', 'draw:remove', 'draw:update', 'indicatorAdded', 'indicatorRemoved', 'indicatorUpdated']) app.chart2.on(event, autosave);
   // No properties widget over here (it is glued to the main chart's box),
-  // but the chords apply to whichever plot the pointer is over, so the
+  // but the chords apply to the selected plot, so the
   // selection has to say so on this side too.
   app.chart2.on('draw:select', ({ id }) => {
     const d = id ? app.draw2.get(id) : null;
@@ -221,33 +279,54 @@ export async function loadPane2() {
   if (!app.chart2) return false;
   const revision = ++pane2LoadRevision;
   const chart = app.chart2;
+  const state = chart.getState();
+  const before = chart.getDataContext();
+  pane2Controller?.abort();
+  const controller = new AbortController();
+  pane2Controller = controller;
+  app.loading2 = true;
+  app.loadFailed2 = false;
   app.alerts2?.setPaused(true);
   app.p2.period = clampPeriod(app.p2.interval, app.p2.period);
+  const request = { ...app.p2 };
+  const keepView = before?.symbol === request.symbol && before?.interval === request.interval;
   app.chart2.setDataContext(referenceDataContext(app.p2, app.chart2.getDataContext()));
+  if (app.linkGroup) app.linkGroup.setSymbol(chart, request.symbol);
+  app.linkGroup?.setInterval?.(chart, request.interval);
+  bars2 = [];
+  price2.setData([]);
+  app.volume2?.setData([]);
+  setPane2Legend(null);
   setPane2Note('loading ' + app.p2.symbol + ' ' + intervalLabel(app.p2.interval) + '...');
+  renderToolbar();
   try {
-    const loaded = await fetchBars(app.p2.symbol, app.p2.interval, app.p2.period, { slot: 'pane2' });
+    const loaded = isExpression(request.symbol)
+      ? (await fetchExpressionBars(request.symbol, request.interval, request.period, { signal: controller.signal })).bars
+      : await fetchBars(request.symbol, request.interval, request.period, { signal: controller.signal });
     if (revision !== pane2LoadRevision || app.chart2 !== chart) return false;
     bars2 = loaded;
     const note = `${bars2.length} bars${fetchNote()}`;
-    price2.setData(bars2);
-    if (app.volume2) {
-      app.volume2.setData(bars2.map((b) => ({ time: b.time, open: 0, high: b.volume, low: 0, close: b.volume })));
-    }
-    placePane2View();
-    setPane2Legend(bars2[bars2.length - 1]);
+    buildChart2({ state, keepView });
+    if (!keepView || !state.viewport) placePane2View();
+    setPane2Legend(app.chart2.primaryBars().at(-1));
     setPane2Note(note);
     renderPane2Bar();
-    renderToolbar();   // this load counts towards the cache chip too
-    app.alerts2?.setPaused(false);
-    autosave();
     return true;
   } catch (e) {
-    if (revision !== pane2LoadRevision || app.chart2 !== chart) return false;
+    if (revision !== pane2LoadRevision) return false;
     const fault = feedErrorState(e);
     if (fault.state === 'aborted') return false;
+    app.loadFailed2 = true;
     setPane2Note('error: ' + fault.message);
     return false;
+  } finally {
+    if (revision === pane2LoadRevision) {
+      app.loading2 = false;
+      if (pane2Controller === controller) pane2Controller = null;
+      app.alerts2?.setPaused(Boolean(app.loadFailed2));
+      renderToolbar();
+      if (!app.loadFailed2) autosave();
+    }
   }
 }
 
@@ -283,52 +362,29 @@ export function setPane2Note(text) {
 }
 
 export function setPane2Legend(bar) {
-  const host = el('p2legend');
-  if (!bar) { host.innerHTML = ''; return; }
-  const up = bar.close >= bar.open;
-  host.innerHTML = '<b>' + esc(app.p2.symbol) + '</b> <span class="meta">' + esc(intervalLabel(app.p2.interval))
-    + '</span> <span style="color:' + (up ? UP : DOWN) + '">' + fmt(bar.close) + '</span>'
-    + ' <span class="meta">O ' + fmt(bar.open) + ' H ' + fmt(bar.high) + ' L ' + fmt(bar.low) + '</span>';
+  const legend = app.symbolLegend2;
+  if (!legend) return;
+  legend.setOptions({ title: nameOf(app.p2.symbol), params: intervalLabel(app.p2.interval) });
+  if (!bar) { legend.setValues([]); return; }
+  const color = bar.close >= bar.open ? UP : DOWN;
+  legend.setValues([
+    { label: 'O', text: fmt(bar.open), color, field: 'ohlc' },
+    { label: 'H', text: fmt(bar.high), color, field: 'ohlc' },
+    { label: 'L', text: fmt(bar.low), color, field: 'ohlc' },
+    { label: 'C', text: fmt(bar.close), color, field: 'ohlc' },
+    ...(Number.isFinite(bar.volume) ? [{ label: 'Vol', text: fmtVol(bar.volume), color, field: 'volume' }] : []),
+    ...(app.chart2.hasOpenInterest !== false && Number.isFinite(bar.oi)
+      ? [{ label: 'OI', text: fmtVol(bar.oi), color, field: 'openInterest' }] : []),
+  ]);
 }
 
-/** The second chart's own header: symbol, timeframe, bar count, close. */
+/** Pane identification and status; editing controls belong to the shared toolbar. */
 export function renderPane2Bar() {
   const bar = el('p2bar');
   bar.innerHTML = '';
-  const sym = tbtn(ticon('search') + '<b>' + esc(app.p2.symbol) + '</b>', 'Change this chart\'s symbol');
-  sym.addEventListener('click', () => {
-    const rows = Object.keys(LONG_NAMES).map((s) => ({
-      label: s + '  ' + LONG_NAMES[s],
-      on: s === app.p2.symbol,
-      onSelect: () => {
-        app.p2.symbol = s;
-        // Announce first: with symbol sync on, the group carries it to the
-        // main chart, and this member is already where it needs to be.
-        if (app.linkGroup) app.linkGroup.setSymbol(app.chart2, s);
-        renderPane2Bar();
-        loadPane2();
-      },
-    }));
-    popupMenu(sym, rows, { find: 'Search ' + rows.length + ' symbols' });
-  });
-  bar.appendChild(sym);
-
-  const pills = document.createElement('div');
-  pills.className = 'pills';
-  for (const iv of INTERVALS) {
-    const b = document.createElement('button');
-    b.textContent = intervalLabel(iv);
-    b.title = intervalName(iv);
-    b.className = app.p2.interval === iv ? 'is-on' : '';
-    b.addEventListener('click', () => {
-      app.p2.interval = iv;
-      app.p2.period = clampPeriod(iv, app.p2.period);
-      renderPane2Bar();
-      loadPane2();
-    });
-    pills.appendChild(b);
-  }
-  bar.appendChild(pills);
+  const select = tbtn('Chart 2', 'Select chart 2');
+  select.addEventListener('click', () => { focusChart(2); el('chart2').focus(); });
+  bar.appendChild(select);
 
   const note = document.createElement('span');
   note.className = 'p2note';

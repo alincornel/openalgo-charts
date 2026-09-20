@@ -488,12 +488,6 @@ select.field { cursor: pointer; padding-right: 24px; }
   overflow: hidden; text-overflow: ellipsis; }
 .p2plot { position: relative; flex: 1 1 auto; min-height: 0; }
 #chart2 { position: absolute; inset: 0; cursor: var(--tool-cursor, crosshair); }
-.p2legend { position: absolute; top: 10px; left: 12px; z-index: 10; pointer-events: none;
-  white-space: nowrap; padding: 6px 10px; border-radius: 9px; font: 11px/1.45 system-ui, sans-serif;
-  background: var(--glass); border: 1px solid var(--bd-soft); backdrop-filter: blur(8px); }
-.p2legend:empty { display: none; }
-.p2legend b { color: var(--tx-strong); font-weight: 700; font-size: 12px; }
-.p2legend .meta { opacity: .5; }
 /* Full-screening the stage takes it out of the page flow, so it needs its
    own background: the browser backdrop is black and the panes are only
    painted where the chart draws. */

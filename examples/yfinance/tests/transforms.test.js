@@ -30,4 +30,11 @@ describe('applyTransform', () => {
     expect(applyTransform('nope', bars)).toEqual({ type: 'candlestick', data: bars });
     expect(applyTransform('renko', [])).toEqual({ type: 'candlestick', data: [] });
   });
+
+  it('uses the owning chart box mode independently of the legacy primary field', () => {
+    fakeDom({ pfmode: 'atr' });
+    const owned = applyTransform('point-figure', bars, { pfmode: 'percent' });
+    fakeDom({ pfmode: 'percent' });
+    expect(owned).toEqual(applyTransform('point-figure', bars));
+  });
 });

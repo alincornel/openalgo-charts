@@ -51,6 +51,176 @@ test('reference selection survives hover and snapshot menus retain their chart o
   }))).toEqual({ orders: 0, fills: 0 });
 });
 
+test('shared request and type controls preserve independent charts through reload', async ({ page }, info) => {
+  await page.setViewportSize({ width: 1360, height: 900 });
+  await openDemo(page);
+  await page.getByRole('button', { name: /Open a second, linked chart/ }).click();
+  await page.waitForFunction(() => (window as any).__oac.app.chart2?.primaryBars().length > 0);
+  await page.locator('#chart2').focus();
+  await expect(page.getByRole('button', { name: 'Change symbol', exact: true })).toContainText('MSFT');
+  await page.locator('#shellbar .pills').getByRole('button', { name: '15M', exact: true }).click();
+  await page.waitForFunction(() => {
+    const app = (window as any).__oac.app;
+    return app.p2.interval === '15m' && !app.loading2 && app.chart2.primaryBars().length > 0;
+  });
+  expect(await page.evaluate(() => (window as any).__oac.app.req.interval)).toBe('1d');
+  await expect(page.getByRole('button', { name: 'Place a Buy OCO bracket: entry, target and stop', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Place a Sell OCO bracket: entry, target and stop', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Change symbol', exact: true }).click();
+  await page.getByPlaceholder('Symbol or expression').fill('TSLA');
+  await page.getByPlaceholder('Symbol or expression').press('Enter');
+  await page.waitForFunction(() => {
+    const app = (window as any).__oac.app;
+    return app.chart2.getDataContext().symbol === 'TSLA' && !app.loading2;
+  });
+  await page.getByRole('button', { name: 'Add an indicator', exact: true }).click();
+  await page.getByRole('button', { name: 'EMA', exact: true }).click();
+  const study = await page.evaluate(() => (window as any).__oac.app.chart2.indicators()[0]?.id);
+  expect(study).toBeTruthy();
+  await page.evaluate(async (id) => {
+    const source = '/examples/yfinance/src/indicators.js';
+    (await import(source)).openSettings(id);
+  }, study);
+  await expect(page.locator('#setmodal')).toBeVisible();
+  await page.locator('#set-body [data-key="length"]').fill('9');
+  await page.locator('#set-ok').click();
+  expect(await page.evaluate(() => (window as any).__oac.app.chart2.indicators()[0].settings().length)).toBe(9);
+  await page.getByRole('button', { name: 'Grid', exact: true }).click();
+  await page.getByRole('button', { name: 'None', exact: true }).click();
+  expect(await page.evaluate(() => {
+    const app = (window as any).__oac.app;
+    return [app.chart.gridOptions().vertLines, app.chart2.gridOptions().vertLines];
+  })).toEqual([true, false]);
+  await page.getByRole('button', { name: 'Chart type', exact: true }).click();
+  await page.locator('#chart').focus();
+  await expect(page.getByRole('button', { name: 'Place a Buy OCO bracket: entry, target and stop', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Line', exact: true }).click();
+  expect(await page.evaluate(() => {
+    const app = (window as any).__oac.app;
+    return { primary: app.chart.getState().series[0].type, secondary: app.chart2.getState().series[0].type,
+      symbol: app.req.symbol, study: app.chart2.indicators()[0].id };
+  })).toEqual({ primary: 'candlestick', secondary: 'line', symbol: 'AAPL', study });
+  await page.locator('#chart2').focus();
+  await expect(page.getByRole('button', { name: 'Chart type', exact: true })).toContainText('Line');
+  await expect(page.locator('#p2bar .pills')).toHaveCount(0);
+  const primaryView = await page.evaluate(() => (window as any).__oac.app.chart.getVisibleLogicalRange());
+  await page.getByRole('button', { name: 'Save layout', exact: true }).click();
+  await page.reload();
+  await page.waitForFunction(() => {
+    const app = (window as any).__oac?.app;
+    return app?.chart2?.primaryBars().length > 0 && !app.loading && !app.loading2 && !app.restoringSecondary;
+  });
+  expect(await page.evaluate(() => {
+    const app = (window as any).__oac.app;
+    return { request: app.p2.symbol + '/' + app.p2.interval, type: app.chart2.getState().series[0].type,
+      study: app.chart2.indicators()[0].id, length: app.chart2.indicators()[0].settings().length,
+      grid: app.chart2.gridOptions().vertLines, selected: app.focusPane };
+  })).toEqual({ request: 'TSLA/15m', type: 'line', study, length: 9, grid: false, selected: 2 });
+  const restoredView = await page.evaluate(() => (window as any).__oac.app.chart.getVisibleLogicalRange());
+  expect(restoredView.from).toBeCloseTo(primaryView.from, 5);
+  expect(restoredView.to).toBeCloseTo(primaryView.to, 5);
+  expect(await page.evaluate(() => (window as any).__oac.app.chart2.exportSVG())).toContain('TSLA');
+  await page.screenshot({ path: info.outputPath('reference-shared-controls.png') });
+});
+
+test('secondary requests cancel stale history and retain the last saved source during loading', async ({ page }) => {
+  await page.setViewportSize({ width: 1360, height: 900 });
+  await openDemo(page);
+  await page.getByRole('button', { name: /Open a second, linked chart/ }).click();
+  await page.waitForFunction(() => (window as any).__oac.app.chart2?.primaryBars().length > 0);
+  await page.locator('#chart2').focus();
+  await page.getByRole('button', { name: 'Save layout', exact: true }).click();
+  let release: (() => void) | undefined;
+  let cancelled = 0;
+  page.on('requestfailed', request => { if (request.url().includes('symbol=SLOW')) cancelled++; });
+  await page.route('**/api/history**', async route => {
+    if (new URL(route.request().url()).searchParams.get('symbol') !== 'SLOW') { await route.continue(); return; }
+    const response = await route.fetch();
+    await new Promise<void>(resolve => { release = resolve; });
+    await route.fulfill({ response });
+  });
+  const symbol = async (value: string) => {
+    await page.getByRole('button', { name: 'Change symbol', exact: true }).click();
+    await page.getByPlaceholder('Symbol or expression').fill(value);
+    await page.getByPlaceholder('Symbol or expression').press('Enter');
+  };
+  try {
+    await symbol('SLOW');
+    await expect.poll(() => Boolean(release)).toBe(true);
+    expect(await page.evaluate(() => {
+      const app = (window as any).__oac.app;
+      return { loading: app.loading2, bars: app.chart2.primaryBars().length };
+    })).toEqual({ loading: true, bars: 0 });
+    await expect(page.getByRole('button', { name: 'Chart type', exact: true })).toBeDisabled();
+    await page.evaluate(async () => {
+      const source = '/examples/yfinance/src/persist.js';
+      (await import(source)).flushAutosave();
+    });
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('oa-charts:layout')!).secondary.request.symbol)).toBe('MSFT');
+    await symbol('TSLA');
+    await page.waitForFunction(() => {
+      const app = (window as any).__oac.app;
+      return app.chart2.getDataContext().symbol === 'TSLA' && !app.loading2 && app.chart2.primaryBars().length > 0;
+    });
+    await expect.poll(() => cancelled).toBe(1);
+    release?.();
+    release = undefined;
+    await symbol('SLOW');
+    await expect.poll(() => Boolean(release)).toBe(true);
+    await page.getByRole('button', { name: 'Close the second chart', exact: true }).click();
+    await expect.poll(() => cancelled).toBe(2);
+    release?.();
+    release = undefined;
+    expect(await page.evaluate(() => {
+      const app = (window as any).__oac.app;
+      return { secondary: app.chart2, loading: app.loading2, selected: app.focusPane, primary: app.req.symbol,
+        orders: app.orders.length, fills: app.fills.length };
+    })).toEqual({ secondary: null, loading: false, selected: 1, primary: 'AAPL', orders: 0, fills: 0 });
+  } finally {
+    release?.();
+  }
+});
+
+test('reference interval sync is optional and follows the selected chart', async ({ page }) => {
+  await page.setViewportSize({ width: 1360, height: 900 });
+  await openDemo(page);
+  await page.getByRole('button', { name: /Open a second, linked chart/ }).click();
+  await page.waitForFunction(() => (window as any).__oac.app.chart2?.primaryBars().length > 0);
+  expect(await page.evaluate(() => (window as any).__oac.app.linkGroup.options().interval)).toBe(false);
+  await page.locator('#chart2').focus();
+  await page.getByRole('button', { name: /^Chart linking \(/ }).click();
+  await page.getByRole('button', { name: /^Interval/ }).click();
+  await page.waitForFunction(() => {
+    const app = (window as any).__oac.app;
+    return app.req.interval === app.p2.interval && !app.loading && !app.loading2;
+  });
+  await page.locator('#shellbar .pills').getByRole('button', { name: '30M', exact: true }).click();
+  await page.waitForFunction(() => {
+    const app = (window as any).__oac.app;
+    return app.req.interval === '30m' && app.p2.interval === '30m' && !app.loading && !app.loading2;
+  });
+  await page.getByRole('button', { name: 'Save layout', exact: true }).click();
+  await page.reload();
+  await page.waitForFunction(() => {
+    const app = (window as any).__oac?.app;
+    return app?.chart2?.primaryBars().length > 0 && !app.loading && !app.loading2 && !app.restoringSecondary;
+  });
+  expect(await page.evaluate(() => (window as any).__oac.app.linkGroup.options().interval)).toBe(true);
+  expect(await page.evaluate(() => {
+    const app = (window as any).__oac.app;
+    return [app.req.interval, app.p2.interval];
+  })).toEqual(['30m', '30m']);
+  await page.getByRole('button', { name: /^Chart linking \(/ }).click();
+  await page.getByRole('button', { name: /^Interval/ }).click();
+  await page.locator('#chart').focus();
+  await page.locator('#shellbar .pills').getByRole('button', { name: '1D', exact: true }).click();
+  await page.waitForFunction(() => !(window as any).__oac.app.loading);
+  expect(await page.evaluate(() => {
+    const app = (window as any).__oac.app;
+    return [app.req.interval, app.p2.interval, app.linkGroup.options().interval];
+  })).toEqual(['1d', '30m', false]);
+});
+
 for (const pane of [1, 2]) {
   test(`reference context alert creation stays on chart ${pane}`, async ({ page }, info) => {
     await page.setViewportSize({ width: 1360, height: 900 });

@@ -129,3 +129,48 @@ retained as `reference-snapshot-red.log`, `reference-focus-red.log` and
 Task 2 remains in progress: symbol, interval, chart type, studies, grid/readout,
 settings, comparisons and replay still need consistent reference-pane routing.
 This checkpoint changes no published library API or installed consumer package.
+
+## Task 2 request, study and restoration checkpoint
+
+Shared symbol, interval, history range, chart type, P&F mode, studies, grid and
+reset controls now capture the selected chart and reject stale chart/request
+owners. A chart selector uses the same explicit focus owner as pointer/keyboard
+selection. Secondary chart requests include expression support and use their own
+AbortController; replacement or closure cancels all legs without claiming the
+primary expression slots. Pending/failed history pauses alerts and blocks
+autosave. The reference Buy/Sell simulation is explicitly available on chart 1.
+
+Secondary chart type, box mode, studies with stable instance ids/settings, grid,
+focus and link preferences survive rebuild/reload. Interval linking is optional
+and off by default. Study settings capture their chart and dispose their destroy
+listener on close. Secondary OHLC/volume/OI readings use the canvas legend and
+appear in exports without overlapping the study legend; absent OI stays absent.
+
+Screenshot review reproduced a reload viewport defect: restoring the second
+chart broadcast its viewport, and opening the split resized the primary after
+its own restore. Restoration now preserves the saved pane width, waits for the
+chart boxes to settle, suppresses viewport broadcasts and restores the primary
+logical window with chart/request guards. The browser regression checks that
+logical range across reload in all three engines.
+
+Final checks pass: 261 example tests in 21 files, 49 reference browser tests,
+repository types and lint. All three final shared-control screenshots were
+inspected. Logs: `reference-controls-final-{demo,browser,types,lint}.log`; images
+are under `artifacts/candidate/reference-controls-final-browser/`. Focused red
+runs cover requests/types, caller-owned expression cancellation, studies/settings,
+grid ownership, simulation ownership, loading/autosave, interval sync, exported
+readout and viewport restoration. The intermediate interval diagnostic was a
+checked-menu accessible-label assertion; the final test accepts the checkmark.
+The existing NO_COLOR/FORCE_COLOR runner warning remains. Example JavaScript is
+excluded by repository lint and is exercised by module/unit/browser checks.
+
+Static resource review: pane history has one abort owner, closing a settings
+dialog removes its destroy listener, chart destruction owns its canvas legend,
+and rebuilt charts close their popup menus. This is not sustained endurance
+evidence. No engine/package/consumer source changed, so the installed consumer
+candidate remains unchanged. No real orders were sent.
+
+Task 2 remains in progress for chart settings/readout parity, volume controls,
+comparisons, replay and fullscreen ownership. Full reference workspace/template
+work, F8 shared replay, broader production gates, endurance, final authenticated
+broker checks and release/publication remain open. Version 2.4.5 is unpublished.

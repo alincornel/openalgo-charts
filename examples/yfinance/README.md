@@ -288,7 +288,7 @@ exists to show one engine surface carrying real use, not just being present.
 | `status.js`, `axis-chrome.js`, `timezone.js` | The status line, the clock and the countdown are fed by the host: venue, session hours by IANA zone (never a fixed offset), and long names. The chart zone is a runtime setting the demo carries across a rebuild. |
 | `orders.js`, `bracket.js` | Chart trading: right-click for single orders, Buy and Sell brackets with OCO target and stop, drag any line to re-price it, and per-symbol trade state that survives a symbol switch. |
 | `replay.js` | Market replay picks a start bar with everything to its right greyed out across every pane, then walks forward. On an interval with a finer one below it the displayed bar forms rather than landing complete, the transport counts the steps, and a mark stays on the plot the whole time. |
-| `compare.js`, `split.js`, `link.js` | Comparison overlays and their scale mode, a linked second chart, and the link-group switches for crosshair, viewport and symbol. |
+| `compare.js`, `split.js`, `link.js` | Comparison overlays and their scale mode, a linked second chart, and independent link-group switches for crosshair, viewport, symbol and interval. Interval sync is off by default. |
 | `drawing.js`, `rail.js`, `rail-flyout.js` | The 2.0 drawing model from the host's side: the controller, the tool picker built from `BUILTIN_DRAWING_TOOLS` with the tier's own icon sprite and cursors, keyboard chords from `drawingShortcuts()`, and a rail whose flyouts and tooltips are host chrome built from the shipped glyphs. |
 | `properties.js` | The floating properties bar is generated from `drawingSettingsSchema`, which declares only the fields a tool's `draw` reads: a field in the schema is a control with something behind it, a field absent from it is a control not shown. With several drawings selected it edits the fields their schemas share, as one undo entry. |
 | `clipboard.js` | One in-memory clipboard shared by both charts' controllers, so copy here and paste there works even when the browser refuses the OS clipboard; the OS read is bounded so a paste never hangs on a permission popup. |
@@ -300,11 +300,25 @@ exists to show one engine surface carrying real use, not just being present.
 | `persist.js` | A versioned layout document with migrations, quarantine instead of deletion, memory-only degradation when storage refuses a write, and export and import as a file. See the next section. |
 | `alerts.js` | The Alerts toolbar button opens the focused chart's lifecycle list and source editor. Price, study plots, supported drawing levels and registered candle conditions use the same controls as the packaged widget. Local notices display fired events; the demo does not send notifications or orders for an alert. |
 
-Click or focus a chart to select it for drawing shortcuts, alert controls and
-snapshots. Hovering another chart leaves that selection unchanged. Snapshot
-menus retain the chart that opened them; snapshot keyboard shortcuts use the
-current selection. A filename retains the captured symbol and interval while
-the image is generated. Further shared-toolbar routing is still in development.
+Click or focus a chart, or use the Chart selector, to select it for symbol,
+interval, history range, chart type, study, grid, drawing, alert and snapshot
+controls. Hovering another chart leaves that selection unchanged. Menus retain
+the chart that opened them and reject an action after its chart or request has
+changed. Snapshot keyboard shortcuts use the current selection; asynchronous
+image conversion retains the captured symbol and interval in its filename.
+
+The second chart retains its type, box mode, study identities/settings and grid
+through rebuild and reload. The selected pane and link preferences are saved
+with the layout. Its symbol/readout is drawn on the chart, stacks above studies
+and appears in exported images. Symbol search accepts a ticker or expression.
+Changing its request or closing it aborts pending history, including expression
+legs. Loading and failed history remain silent for alerts and do not overwrite
+the saved layout. The reference trading simulation belongs to chart 1; its Buy
+and Sell controls are disabled while chart 2 is selected.
+
+Further chart-settings/readout parity, volume controls, comparison and replay
+routing remain in development. Shared replay is a separate opt-in feature;
+existing per-chart library defaults remain unchanged.
 
 Alerts default to confirmed bar closes. Intrabar touch can fire on a wick that
 the provider later removes from final history. Absent study readings remain

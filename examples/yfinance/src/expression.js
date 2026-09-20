@@ -60,10 +60,10 @@ export function isExpression(text) {
  */
 export async function fetchExpressionBars(source, interval, period, opts = {}) {
   const expr = parseExpression(source);
-  // One slot per leg so a newer load cancels this one leg for leg, the way the
-  // single-symbol path cancels its own request.
+  // A pane-owned signal cancels all its legs together without claiming another
+  // chart's slots. Legacy callers retain the primary expression slots.
   const legs = await Promise.all(expr.symbols.map((symbol, i) =>
-    fetchBars(symbol, interval, period, { ...opts, slot: `expr:${i}` })
+    fetchBars(symbol, interval, period, { ...opts, slot: opts.signal ? undefined : `expr:${i}` })
       .then((bars) => [symbol, bars])));
 
   const bySymbol = {};

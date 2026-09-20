@@ -1,24 +1,28 @@
 import { el, esc, currentTheme, toggleTheme } from './ui.js';
 import { attachTip, hideTip } from './hover.js';
-import { cycleMagnet, magnetMode } from './rail.js';
+import { cycleMagnet, magnetMode, focusChart } from './rail.js';
 import { INTERVALS, intervalLabel, intervalName, periodsFor, clampPeriod } from './intervals.js';
 import { popupMenu } from './menus.js';
 import { openCompare } from './compare.js';
 import { enterReplay, askExitReplay } from './replay.js';
-import { openSnapMenu } from './snapshot.js';
+import { openSnapMenu, downloadSnapshot } from './snapshot.js';
 import { isSplit, openSplit, closeSplit } from './split.js';
 import { describeLink, openLinkMenu } from './link.js';
 import { openCacheMenu } from './feed.js';
 import { openChartSettings } from './chart-settings.js';
 import { openAlerts } from './alerts.js';
+import { capturePaneTarget, selectedPane } from './pane-target.js';
+import { LONG_NAMES } from './status.js';
+import { autosave } from './persist.js';
+import { addIndicator } from './indicators.js';
 
 let app;
 
 // ══ toolbar shell ══════════════════════════════════════════════════════
 // Buttons and popup menus rather than native <select>s: a select cannot show
 // an icon per row, cannot group, and looks like a form control on a chart.
-// The old fields still exist (hidden) so every existing handler keeps working;
-// the shell just drives them.
+// Primary legacy fields remain available; shared actions capture their pane
+// instead of treating those fields as the selected chart's state.
 export const TOOLBAR_ICON = {
   search: '<circle cx="9" cy="9" r="5.5"/><path d="M13 13l4 4"/>',
   download: '<path d="M10 3v9m0 0 3.2-3.2M10 12 6.8 8.8"/><path d="M3.5 14v2.5h13V14"/>',
@@ -148,10 +152,51 @@ export function syncFullscreenChrome() {
 }
 
 
-/** Rebuild the top toolbar from the current state of the hidden controls. */
+function currentTarget(target) {
+  if (target?.current()) return true;
+  el('status').textContent = 'chart changed; open the control again';
+  return false;
+}
+
+function changeRequest(target, patch) {
+  if (!currentTarget(target)) return;
+  const request = { ...target.request, ...patch };
+  request.period = clampPeriod(request.interval, request.period);
+  if (target.pane === 2) {
+    Object.assign(app.p2, request);
+    app.loadSecondary();
+  } else {
+    for (const key of ['symbol', 'interval', 'period']) el(key).value = request[key];
+    app.load();
+  }
+  renderToolbar();
+}
+
+function changeType(target, chartType, pfmode) {
+  if (!currentTarget(target)) return;
+  const busy = target.pane === 2 ? app.loading2 || app.loadFailed2 : app.loading || app.loadFailed;
+  if (busy) { el('status').textContent = 'wait for chart history before changing its type'; return; }
+  if (target.pane === 2) {
+    app.p2.chartType = chartType;
+    app.p2.pfmode = pfmode;
+    app.rebuildSecondary({ typeChanged: true });
+  } else {
+    el('ctype').value = chartType;
+    el('pfmode').value = pfmode;
+    app.render();
+  }
+  renderToolbar();
+  autosave();
+}
+
+/** Rebuild shared controls from their explicitly selected chart. */
 export function renderToolbar() {
   const bar = el('shellbar');
-  const ctype = el('ctype').value;
+  const pane = selectedPane(app);
+  const target = capturePaneTarget(app, pane);
+  const request = target?.request || app.req || {};
+  const ctype = pane === 2 ? app.p2.chartType || 'candlestick' : el('ctype').value;
+  const pfmode = pane === 2 ? app.p2.pfmode || 'atr' : el('pfmode').value;
   // #status starts in the hidden legacy bar and gets moved in here on the
   // first render -- so from the second call on it is a child of `bar`, and
   // wiping the bar would destroy it. Every el('status') after that returns
@@ -162,7 +207,7 @@ export function renderToolbar() {
   if (statusText.parentElement) statusText.parentElement.removeChild(statusText);
   bar.innerHTML = '';
 
-  const link = brandingLink(app.chart);
+  const link = brandingLink(target?.chart);
   const brand = document.createElement(link ? 'a' : 'div');
   brand.className = 'brand';
   brand.title = link ? link.label : 'OpenAlgo Charts yfinance demo';
@@ -179,13 +224,22 @@ export function renderToolbar() {
   bar.appendChild(brand);
   bar.appendChild(divider());
 
+  if (isSplit()) {
+    const selection = tbtn('Chart ' + pane, 'Selected chart');
+    selection.addEventListener('click', () => popupMenu(selection, [1, 2].map(index => ({
+      label: 'Chart ' + index, on: pane === index,
+      onSelect: () => { focusChart(index); el(index === 2 ? 'chart2' : 'chart').focus(); },
+    }))));
+    bar.appendChild(selection);
+  }
+
   // symbol
-  const sym = tbtn(ticon('search') + '<b>' + esc((el('symbol').value || '').toUpperCase()) + '</b>', 'Change symbol');
+  const sym = tbtn(ticon('search') + '<b>' + esc((request.symbol || '').toUpperCase()) + '</b>', 'Change symbol');
   sym.addEventListener('click', () => {
-    const box = el('symbol');
-    box.classList.add('is-live');
-    box.focus();
-    box.select();
+    popupMenu(sym, Object.entries(LONG_NAMES).map(([symbol, name]) => ({
+      label: symbol + '  ' + name, on: request.symbol === symbol,
+      onSelect: () => changeRequest(target, { symbol }),
+    })), { find: 'Symbol or expression', onSubmit: symbol => changeRequest(target, { symbol }) });
   });
   bar.appendChild(sym);
   bar.appendChild(divider());
@@ -197,42 +251,39 @@ export function renderToolbar() {
     const b = document.createElement('button');
     b.textContent = intervalLabel(iv);
     b.title = intervalName(iv);
-    b.className = el('interval').value === iv ? 'is-on' : '';
-    b.addEventListener('click', () => {
-      el('interval').value = iv;
-      el('period').value = clampPeriod(iv, el('period').value);
-      app.load();
-      renderToolbar();
-    });
+    b.className = request.interval === iv ? 'is-on' : '';
+    b.addEventListener('click', () => changeRequest(target, { interval: iv }));
     ig.appendChild(b);
   }
   bar.appendChild(ig);
 
   // range menu
-  const range = tbtn('<span>' + esc(el('period').value) + '</span>' + ticon('chevron'), 'History range');
+  const range = tbtn('<span>' + esc(request.period || '') + '</span>' + ticon('chevron'), 'History range');
   // Only offer ranges this interval can actually serve: an unavailable one
   // comes back empty from Yahoo, which reads as a broken chart.
-  range.addEventListener('click', () => popupMenu(range, periodsFor(el('interval').value).map((p) => ({
-    label: p, on: p === el('period').value,
-    onSelect: () => { el('period').value = p; app.load(); renderToolbar(); },
+  range.addEventListener('click', () => popupMenu(range, periodsFor(request.interval).map((p) => ({
+    label: p, on: p === request.period,
+    onSelect: () => changeRequest(target, { period: p }),
   }))));
   bar.appendChild(range);
   bar.appendChild(divider());
 
   // chart type menu
   const ct = tbtn(ticon(chartTypeIcon(ctype)) + '<span>' + esc(chartTypeLabel(ctype)) + '</span>' + ticon('chevron'), 'Chart type');
+  ct.disabled = Boolean(pane === 2 ? app.loading2 || app.loadFailed2 : app.loading || app.loadFailed);
   ct.addEventListener('click', () => popupMenu(ct, CHART_TYPES.map((t) => (t.group ? { group: t.group } : {
     label: t.label, icon: t.icon, on: t.v === ctype,
-    onSelect: () => { el('ctype').value = t.v; el('ctype').dispatchEvent(new Event('change')); renderToolbar(); },
+    onSelect: () => changeType(target, t.v, pfmode),
   }))));
   bar.appendChild(ct);
 
   // P&F box mode, only when it applies
   if (ctype === 't:point-figure') {
-    const pf = tbtn('<span>' + esc(el('pfmode').selectedOptions[0].textContent) + '</span>' + ticon('chevron'), 'P&F box sizing');
+    const modeLabel = [...el('pfmode').options].find(option => option.value === pfmode)?.textContent || pfmode;
+    const pf = tbtn('<span>' + esc(modeLabel) + '</span>' + ticon('chevron'), 'P&F box sizing');
     pf.addEventListener('click', () => popupMenu(pf, [...el('pfmode').options].map((o) => ({
-      label: o.textContent, on: o.selected,
-      onSelect: () => { el('pfmode').value = o.value; el('pfmode').dispatchEvent(new Event('change')); renderToolbar(); },
+      label: o.textContent, on: o.value === pfmode,
+      onSelect: () => changeType(target, ctype, o.value),
     }))));
     bar.appendChild(pf);
   }
@@ -247,7 +298,7 @@ export function renderToolbar() {
       if (g && g !== group) { group = g; rows.push({ group: g }); }
       rows.push({
         label: o.textContent,
-        onSelect: () => { el('indpick').value = o.value; el('indadd').click(); },
+        onSelect: () => addIndicator(o.value, target),
       });
     }
     popupMenu(ind, rows, { find: 'Search ' + (rows.length - new Set(rows.filter((r) => r.group).map((r) => r.group)).size) + ' indicators' });
@@ -309,17 +360,23 @@ export function renderToolbar() {
   bar.appendChild(divider());
 
   // view + layout icons
-  bar.appendChild(iconBtn('fit', 'Reset view', () => app.chart && app.chart.resetScale()));
+  bar.appendChild(iconBtn('fit', 'Reset view', () => { if (currentTarget(target)) target.chart.resetScale(); }));
   // Anchor on the button that was clicked: by the time the handler runs,
   // bar.lastChild is whatever the toolbar appended last, not this button.
   bar.appendChild(iconBtn('grid', 'Grid', (ev) => {
-    const v = el('vgrid'), h = el('hgrid');
+    if (!currentTarget(target)) return;
+    const grid = target.chart.gridOptions();
     popupMenu(ev.currentTarget, [
-      { label: 'Both', on: v.checked && h.checked, onSelect: () => { v.checked = h.checked = true; v.dispatchEvent(new Event('change')); h.dispatchEvent(new Event('change')); } },
-      { label: 'Horizontal', on: !v.checked && h.checked, onSelect: () => { v.checked = false; h.checked = true; v.dispatchEvent(new Event('change')); h.dispatchEvent(new Event('change')); } },
-      { label: 'Vertical', on: v.checked && !h.checked, onSelect: () => { v.checked = true; h.checked = false; v.dispatchEvent(new Event('change')); h.dispatchEvent(new Event('change')); } },
-      { label: 'None', on: !v.checked && !h.checked, onSelect: () => { v.checked = h.checked = false; v.dispatchEvent(new Event('change')); h.dispatchEvent(new Event('change')); } },
-    ]);
+      ['Both', true, true], ['Horizontal', false, true], ['Vertical', true, false], ['None', false, false],
+    ].map(([label, vertLines, horzLines]) => ({
+      label, on: grid.vertLines === vertLines && grid.horzLines === horzLines,
+      onSelect: () => {
+        if (!currentTarget(target)) return;
+        target.chart.setGridOptions({ vertLines, horzLines });
+        if (target.pane === 1) { el('vgrid').checked = vertLines; el('hgrid').checked = horzLines; }
+        autosave();
+      },
+    })));
   }));
   // The magnet is the rail's three-way mode (off, weak, strong); this button
   // cycles it, so the shell and the rail can never disagree.
@@ -327,7 +384,7 @@ export function renderToolbar() {
     'snaps anchors to O/H/L/C; off, weak, strong');
   if (magnetMode() !== 'off') mg.classList.add('is-on');
   bar.appendChild(mg);
-  bar.appendChild(iconBtn('camera', 'Save PNG', () => el('save').click()));
+  bar.appendChild(iconBtn('camera', 'Save PNG', () => downloadSnapshot(target)));
   const fs = iconBtn(isChartFull() ? 'fullscreenExit' : 'fullscreen',
     isChartFull() ? 'Exit full screen (Esc)' : 'Full screen chart', toggleChartFullscreen);
   if (isChartFull()) fs.classList.add('is-on');
@@ -341,13 +398,15 @@ export function renderToolbar() {
   // user had no way to reach them, which also stranded the Trading tab's
   // entry and exit colours with nothing on the chart to recolour.
   bar.appendChild(divider());
-  const buy = tbtn('<b>Buy</b>', 'Place a Buy OCO bracket: entry, target and stop');
+  const buy = tbtn('<b>Buy</b>', 'Place a Buy OCO bracket: entry, target and stop', pane === 2 ? 'Trading simulation is available on chart 1' : undefined);
+  buy.disabled = pane === 2;
   buy.classList.add('tbtn--buy');
-  buy.addEventListener('click', () => el('buy').click());
+  buy.addEventListener('click', () => { if (pane === 1 && currentTarget(target)) el('buy').click(); });
   bar.appendChild(buy);
-  const sell = tbtn('<b>Sell</b>', 'Place a Sell OCO bracket: entry, target and stop');
+  const sell = tbtn('<b>Sell</b>', 'Place a Sell OCO bracket: entry, target and stop', pane === 2 ? 'Trading simulation is available on chart 1' : undefined);
+  sell.disabled = pane === 2;
   sell.classList.add('tbtn--sell');
-  sell.addEventListener('click', () => el('sell').click());
+  sell.addEventListener('click', () => { if (pane === 1 && currentTarget(target)) el('sell').click(); });
   bar.appendChild(sell);
 
   bar.appendChild(divider());

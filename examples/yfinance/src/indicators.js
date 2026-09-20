@@ -1,6 +1,7 @@
 import { registeredIndicators, getIndicator, indicatorStyleInputs, INDICATOR_SOURCES } from '/dist/openalgo-charts.mjs';
 import { el, esc } from './ui.js';
 import { autosave } from './persist.js';
+import { capturePaneTarget } from './pane-target.js';
 
 let app;
 
@@ -34,7 +35,10 @@ export function fillIndicatorPicker() {
 export function renderIndicatorChips() {
   const host = el('indlist');
   host.innerHTML = '';
-  for (const inst of app.chart.indicators()) {
+  const target = capturePaneTarget(app);
+  const chart = target?.chart;
+  if (!chart) return;
+  for (const inst of chart.indicators()) {
     const chip = document.createElement('span');
     chip.className = 'chip';
     const first = inst.series(Object.keys(inst.values())[0]);
@@ -44,8 +48,8 @@ export function renderIndicatorChips() {
     x.textContent = '×';
     x.title = 'remove';
     x.addEventListener('click', () => {
-      app.chart.removeIndicator(inst.id);
-      app.activeIndicators = app.activeIndicators.filter((s) => s.indicatorId !== inst.indicatorId);
+      if (!target.current()) return;
+      chart.removeIndicator(inst.id);
       renderIndicatorChips();
       el('status').textContent = `removed ${inst.name}`;
     });
@@ -53,7 +57,19 @@ export function renderIndicatorChips() {
     host.appendChild(chip);
     void first;
   }
-  if (!app.chart.indicators().length) host.innerHTML = '<span style="color:var(--faint);font-size:12px">none</span>';
+  if (!chart.indicators().length) host.innerHTML = '<span style="color:var(--faint);font-size:12px">none</span>';
+}
+
+export function addIndicator(id, target = capturePaneTarget(app)) {
+  if (!target?.current()) { el('status').textContent = 'chart changed; open the indicator menu again'; return; }
+  if ((target.pane === 2 ? app.loading2 || app.loadFailed2 : app.loading || app.loadFailed)
+    || !target.chart.primaryBars().length) { el('status').textContent = 'load chart history before adding a study'; return; }
+  const inst = target.chart.addIndicator(id);
+  if (target.pane === 1) app.activeIndicators.push({ instanceId: inst.id, indicatorId: id, settings: inst.settings() });
+  renderIndicatorChips();
+  autosave();
+  el('status').textContent = `added ${inst.name} on chart ${target.pane}`;
+  return inst;
 }
 
 // ── generated indicator settings ───────────────────────────────────────
@@ -61,12 +77,18 @@ export function renderIndicatorChips() {
 // key, a type, a label, and a default, which is everything a form needs.
 // The same 40 lines render MACD, Bollinger, or your own custom descriptor.
 let settingsFor = null; // the IndicatorApi handle being edited
+let settingsTarget = null;
+let disposeSettings = null;
 
 let settingsTab = 'inputs';
-export function openSettings(instanceId) {
-  const inst = app.chart.indicators().find((i) => i.id === instanceId);
+export function openSettings(instanceId, target = capturePaneTarget(app)) {
+  if (!target?.current()) return;
+  const inst = target.chart.indicators().find((i) => i.id === instanceId);
   if (!inst) return;
+  disposeSettings?.();
+  settingsTarget = target;
   settingsFor = inst;
+  disposeSettings = target.chart.on('destroy', closeSettings);
   el('set-title').textContent = getIndicator(inst.indicatorId).name + ' settings';
   renderSettingsTab();
   el('setmodal').hidden = false;
@@ -263,24 +285,43 @@ export function renderSettingsTab() {
 }
 
 export function collectSettings() {
-  if (!settingsFor) return;
+  if (!currentSettings()) return false;
   settingsFor.setSettings(collectInputRows(el('set-body')));  // recomputes + restyles
-  const spec = app.activeIndicators.find((s) => s.indicatorId === settingsFor.indicatorId);
-  if (spec) spec.settings = settingsFor.settings();      // survives a chart rebuild
+  rememberSettings();
+  return true;
+}
+
+function currentSettings() {
+  if (settingsTarget?.current() && settingsTarget.chart.indicators().some(inst => inst.id === settingsFor?.id)) return true;
+  closeSettings();
+  el('status').textContent = 'study changed; open its settings again';
+  return false;
+}
+
+function rememberSettings() {
+  if (settingsTarget?.pane === 1) {
+    app.activeIndicators = app.chart.indicators().map(inst => ({
+      instanceId: inst.id, indicatorId: inst.indicatorId, settings: inst.settings(),
+    }));
+  }
+  autosave();
 }
 
 export function applySettings() {
   if (!settingsFor) return;
   const name = settingsFor.name;
-  collectSettings();
+  if (!collectSettings()) return;
   renderIndicatorChips();
   el('status').textContent = `${name} updated`;
   closeSettings();
 }
 
 export function closeSettings() {
+  disposeSettings?.();
+  disposeSettings = null;
   el('setmodal').hidden = true;
   settingsFor = null;
+  settingsTarget = null;
   settingsTab = 'inputs';
   for (const t of document.querySelectorAll('.set-tab')) t.classList.toggle('is-on', t.dataset.tab === 'inputs');
 }
@@ -290,20 +331,13 @@ export function initIndicators(a) {
   // Add an indicator live: no chart rebuild, no refetch. The handle it returns
   // is what a settings dialog or an objects panel would drive.
   el('indadd').addEventListener('click', () => {
-    const id = el('indpick').value;
-    if (!app.chart || !app.currentBars.length) return;
-    if (app.activeIndicators.some((s) => s.indicatorId === id)) { el('status').textContent = `${id} already added`; return; }
-    const inst = app.chart.addIndicator(id);
-    app.activeIndicators.push({ indicatorId: id, settings: inst.settings() });
-    renderIndicatorChips();
-    autosave();
-    el('status').textContent = `added ${inst.name} on pane ${inst.paneIndex}`;
+    addIndicator(el('indpick').value);
   });
 
   for (const tab of document.querySelectorAll('.set-tab')) {
     tab.addEventListener('click', () => {
       if (!settingsFor) return;
-      collectSettings();                       // keep edits made on this tab
+      if (!collectSettings()) return;
       settingsTab = tab.dataset.tab;
       for (const t of document.querySelectorAll('.set-tab')) t.classList.toggle('is-on', t === tab);
       renderSettingsTab();
@@ -312,13 +346,12 @@ export function initIndicators(a) {
   el('set-ok').addEventListener('click', applySettings);
   el('set-x').addEventListener('click', closeSettings);
   el('set-reset').addEventListener('click', () => {
-    if (!settingsFor) return;
+    if (!currentSettings()) return;
     const d = getIndicator(settingsFor.indicatorId);
     const defaults = {};
     for (const i of d.inputs) defaults[i.key] = i.default;
     settingsFor.setSettings(defaults);
-    const spec = app.activeIndicators.find((s) => s.indicatorId === settingsFor.indicatorId);
-    if (spec) spec.settings = settingsFor.settings();
+    rememberSettings();
     renderIndicatorChips();
     closeSettings();
   });

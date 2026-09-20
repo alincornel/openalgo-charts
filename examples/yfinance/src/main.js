@@ -40,6 +40,7 @@ import { initToolbar, renderToolbar } from './toolbar.js';
 import { initRail, buildRail, initMobile } from './rail.js';
 import { mountPropertiesBar } from './properties.js';
 import { initDrawing, attachDrawing } from './drawing.js';
+import { capturePaneTarget } from './pane-target.js';
 
 // Price-level family (previous close, session extremes, extended hours,
 // bid/ask). Read off the namespace rather than named above on purpose: a
@@ -143,6 +144,7 @@ const app = {
   load: null,            // set below: the modules reach the loader through the app
 };
 app.load = load;
+app.render = render;
 
 // The e2e suite drives the page through this handle, and only when asked to:
 // a demo should not put its internals on window by default.
@@ -339,11 +341,11 @@ function render({ keepView = true } = {}) {
 
   // The gear on a pane legend has no built-in dialog (the engine ships no
   // DOM), so it emits and we render the generated form.
-  app.chart.on('indicatorSettings', ({ instanceId }) => openSettings(instanceId));
+  app.chart.on('indicatorSettings', ({ instanceId }) => openSettings(instanceId, capturePaneTarget(app, 1)));
   // The close and trash buttons on a legend removes the indicator inside the chart, so
   // mirror that into our own spec list and refresh the chips.
-  app.chart.on('indicatorRemoved', ({ indicatorId }) => {
-    app.activeIndicators = app.activeIndicators.filter((s) => s.indicatorId !== indicatorId);
+  app.chart.on('indicatorRemoved', () => {
+    app.activeIndicators = app.chart.indicators().map(inst => ({ instanceId: inst.id, indicatorId: inst.indicatorId, settings: inst.settings() }));
     renderIndicatorChips();
   });
   // Any change to the pane stack moves which pane is the bottom one.
@@ -415,6 +417,7 @@ async function load(opts) {
   // even with symbol sync off, so switching it on later converges on this
   // instrument rather than on a stale one.
   if (app.linkGroup && app.chart) app.linkGroup.setSymbol(app.chart, app.req.symbol);
+  if (app.chart) app.linkGroup?.setInterval?.(app.chart, app.req.interval);
   status.textContent = `loading ${app.req.symbol} ${app.req.interval}...`;
   setChartState('loading', { ...app.req, blank: identityChanged || !app.chart });
   try {
@@ -471,6 +474,7 @@ async function load(opts) {
     if (revision === loadRevision) {
       app.loading = false;
       app.alerts?.setPaused(Boolean(app.loadFailed || app.replay || app.replayPicking || app.replayLoading));
+      renderToolbar();
       if (!app.loadFailed) autosave();
     }
   }
@@ -519,13 +523,10 @@ el('save').addEventListener('click', () => {
 // switching chart type / P&F box mode re-renders cached bars (no network round-trip)
 ['ctype', 'pfmode'].forEach((id) => el(id).addEventListener('change', () => { if (app.currentBars.length) render(); }));
 // toggle grid lines live (no rebuild needed)
-// The second chart is part of the same workspace, so a workspace switch
-// reaches it too: a grid that is on in one pane and off in the other looks
-// like a bug in the split, not like two charts.
+// These legacy fields belong to the primary chart; the shared toolbar captures its owner.
 const applyGrid = () => {
   const o = { vertLines: el('vgrid').checked, horzLines: el('hgrid').checked };
   if (app.chart) app.chart.setGridOptions(o);
-  if (app.chart2) app.chart2.setGridOptions(o);
 };
 el('vgrid').addEventListener('change', applyGrid);
 el('hgrid').addEventListener('change', applyGrid);
@@ -537,7 +538,7 @@ initPersist(app);
 // Escape is the overlay stack's (ui.js): one layer per press, each closed
 // through its own close control, so chart settings still revert.
 initToolbar(app);
-app.onFocusPane = () => renderToolbar();
+app.onFocusPane = () => { renderToolbar(); renderIndicatorChips(); autosave(); };
 // The rail mounts the properties bar for the selected drawing on the stage,
 // so a bar docked to it comes along into chart-only full screen.
 initRail(app, { mountPropertiesBar });
@@ -548,7 +549,7 @@ fillIntervalSelect();
 buildRail();
 fillIndicatorPicker();
 renderToolbar();
-// The symbol box is a floating editor raised by the toolbar button.
+// Keep legacy field events available to embedded examples and test harnesses.
 el('symbol').addEventListener('blur', () => { el('symbol').classList.remove('is-live'); renderToolbar(); });
 el('symbol').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' || e.key === 'Escape') { el('symbol').classList.remove('is-live'); renderToolbar(); }

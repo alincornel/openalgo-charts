@@ -499,6 +499,13 @@ export function popupMenu(anchor, rows, opts) {
     const needle = q.trim().toLowerCase();
     body.innerHTML = '';
     let shown = 0;
+    if (needle && opts?.onSubmit) {
+      const submit = document.createElement('button');
+      submit.textContent = 'Load ' + q.trim();
+      submit.addEventListener('click', () => { closeMenu(); opts.onSubmit(q.trim()); });
+      body.appendChild(submit);
+      shown++;
+    }
     // A group heading is only worth drawing once something under it survives
     // the filter, so it is held back until the first matching row appears.
     let pending = null;
@@ -536,6 +543,12 @@ export function popupMenu(anchor, rows, opts) {
     // Enter picks the only remaining row, so a unique search needs no click.
     find.addEventListener('keydown', (e) => {
       if (e.key !== 'Enter') return;
+      if (opts?.onSubmit && find.value.trim()) {
+        e.preventDefault();
+        closeMenu();
+        opts.onSubmit(find.value.trim());
+        return;
+      }
       const only = body.querySelectorAll('button');
       if (only.length === 1) only[0].click();
     });

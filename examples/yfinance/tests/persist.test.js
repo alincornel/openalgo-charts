@@ -234,6 +234,18 @@ describe('storage', () => {
     expect(setItem).not.toHaveBeenCalled();
   });
 
+  it.each(['loading2', 'loadFailed2', 'loadFailed'])('does not autosave an incomplete request while %s is set', flag => {
+    const app = freshApp();
+    initPersist(app);
+    autosave();
+    app[flag] = true;
+    flushAutosave();
+    expect(store.has(LAYOUT_KEY)).toBe(false);
+    autosave();
+    vi.advanceTimersByTime(SAVE_DEBOUNCE_MS);
+    expect(store.has(LAYOUT_KEY)).toBe(false);
+  });
+
   it('flushes a pending save when the page goes away', () => {
     const app = freshApp();
     initPersist(app);
@@ -279,7 +291,7 @@ describe('storage', () => {
 function layoutSnapshotFor(app) {
   return {
     schema: LAYOUT_SCHEMA, ...app.chart.getState(), dataset: datasetKey(app.req),
-    comparisons: [], compareMode: app.cmpMode, volume: true,
+    comparisons: [], compareMode: app.cmpMode, volume: true, focusPane: 1,
   };
 }
 
@@ -303,6 +315,16 @@ describe('applying a layout', () => {
     expect(snap.comparisons).toEqual([{ symbol: 'MSFT', color: '#f00' }]);
     expect(snap.compareMode).toBe('indexed');
     expect(snap.dataset).toBe('AAPL|1d|1y');
+  });
+
+  it('captures independent secondary chart controls and explicit selection', () => {
+    app.chart2 = fakeChart();
+    app.p2 = { symbol: 'TSLA', interval: '15m', period: '1mo', chartType: 't:point-figure', pfmode: 'percent' };
+    app.focusPane = 2;
+    const snap = layoutSnapshot();
+    expect(snap.focusPane).toBe(2);
+    expect(snap.secondary).toMatchObject({ chartType: 't:point-figure', pfmode: 'percent',
+      request: { symbol: 'TSLA', interval: '15m', period: '1mo' } });
   });
 
   it('drops the view, and only the view, for another dataset', () => {

@@ -6,6 +6,7 @@ import { syncTimezoneFromChart } from './timezone.js';
 import { removeComparison, syncComparisons } from './compare.js';
 import { renderIndicatorChips } from './indicators.js';
 import { renderToolbar } from './toolbar.js';
+import { withoutViewportSync } from './split.js';
 
 // Both read off their namespaces: a dist/ built before either shipped must
 // still read and write layouts, and a layout on such a build simply keeps
@@ -262,6 +263,8 @@ export function migrateStorage() {
  * the symbol and the feed), so they ride alongside `dataset`.
  */
 export function layoutSnapshot() {
+  const measuredWidth = app.chart2
+    ? 100 * el('pane2').getBoundingClientRect().width / el('split').getBoundingClientRect().width : 0;
   return {
     schema: LAYOUT_SCHEMA,
     ...app.chart.getState(),
@@ -271,10 +274,14 @@ export function layoutSnapshot() {
     // Demo-owned like the comparisons: `render()` builds the histogram from
     // this flag, so without it a hidden volume comes back on a reload.
     volume: volumeShown(),
+    focusPane: app.focusPane === 2 && app.chart2 ? 2 : 1,
+    linkOptions: app.linkGroup?.options(),
     secondary: app.chart2 ? {
       request: { symbol: app.p2.symbol, interval: app.p2.interval, period: app.p2.period },
+      chartType: app.p2.chartType || 'candlestick',
+      pfmode: app.p2.pfmode || 'atr',
       state: app.chart2.getState(),
-      width: parseFloat(el('pane2').style.flexBasis) || 50,
+      width: parseFloat(el('pane2').style.flexBasis) || (Number.isFinite(measuredWidth) && measuredWidth > 0 ? measuredWidth : 50),
     } : undefined,
   };
 }
@@ -310,6 +317,8 @@ export function stripView(doc) {
  */
 export function applyLayout(doc, { keepView = true, replaceComparisons = true } = {}) {
   if (!app.chart) return { applied: false, series: [], indicators: 0, reason: 'no chart' };
+  const primary = app.chart;
+  const primaryRequest = datasetKey(app.req);
   const state = keepView ? doc : stripView(doc);
   // Mirror the restored indicators into our own spec list so a later chart
   // rebuild (type switch / reload) keeps them.
@@ -335,7 +344,32 @@ export function applyLayout(doc, { keepView = true, replaceComparisons = true } 
   if (replaceComparisons) syncComparisons();
   renderIndicatorChips();
   renderToolbar();
-  if (app.restoreSecondary) report.secondaryReady = app.restoreSecondary(state.secondary);
+  if (app.restoreSecondary) {
+    const links = state.linkOptions || app.linkGroup?.options() || {};
+    const options = {};
+    for (const key of ['crosshair', 'viewport', 'symbol', 'interval']) {
+      if (typeof links[key] === 'boolean') options[key] = links[key];
+    }
+    if (links.whenMissing === 'nearest' || links.whenMissing === 'hide') options.whenMissing = links.whenMissing;
+    app.linkGroup?.setOptions({ symbol: false, interval: false });
+    report.secondaryReady = Promise.resolve(app.restoreSecondary(state.secondary, state.focusPane)).then(restored => {
+      if (!restored || app.chart !== primary || datasetKey(app.req) !== primaryRequest) return false;
+      // Opening the split resizes the primary chart after its state was applied.
+      // Restore its logical window once both chart boxes have settled.
+      if (state.viewport) {
+        withoutViewportSync(() => primary.setVisibleLogicalRange(state.viewport));
+      }
+      if (!app.linkGroup) return restored;
+      const secondary = state.focusPane === 2 && app.chart2;
+      const chart = secondary || app.chart;
+      const request = secondary ? app.p2 : app.req;
+      app.linkGroup.setSymbol(chart, request.symbol);
+      app.linkGroup.setInterval?.(chart, request.interval);
+      app.linkGroup.setOptions(options);
+      renderToolbar();
+      return restored;
+    });
+  }
   return report;
 }
 
@@ -355,7 +389,7 @@ export function persistLayoutNow(opts) {
 export function autosave() {
   // Not while replaying: the chart is showing a prefix of the session and a
   // viewport captured over it would restore the user into a truncated chart.
-  if (!app.chart || app.replay || app.replayLoading || app.loading || app.restoringSecondary) return;
+  if (!app.chart || app.replay || app.replayLoading || app.loading || app.loadFailed || app.loading2 || app.loadFailed2 || app.restoringSecondary) return;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(flushAutosave, SAVE_DEBOUNCE_MS);
 }
@@ -365,7 +399,7 @@ export function flushAutosave() {
   if (!saveTimer) return;
   clearTimeout(saveTimer);
   saveTimer = 0;
-  if (app.chart && !app.replay && !app.replayLoading && !app.loading && !app.restoringSecondary) persistLayoutNow();
+  if (app.chart && !app.replay && !app.replayLoading && !app.loading && !app.loadFailed && !app.loading2 && !app.loadFailed2 && !app.restoringSecondary) persistLayoutNow();
 }
 
 // ── files ──────────────────────────────────────────────────────────────
