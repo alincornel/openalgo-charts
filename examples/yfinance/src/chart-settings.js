@@ -30,7 +30,7 @@ const chartSetDirty = new Set();    // keys this session touched, for Cancel
 let chartSetTarget = null;
 let disposeSettings = null;
 
-/** Branding and watermark options that must outlive a chart-type rebuild. */
+/** Host display options that must outlive a chart-type rebuild. */
 export function chartDecorationsForRebuild(chart) {
   const options = {};
   if (chart && typeof chart.brandingOptions === 'function') {
@@ -39,8 +39,12 @@ export function chartDecorationsForRebuild(chart) {
   if (chart && typeof chart.watermarkOptions === 'function') {
     options.watermark = chart.watermarkOptions();
   }
+  const size = chart?.legendIconSize?.();
+  if (Number.isFinite(size)) options.legendIconSize = normalizeLegendIconSize(size);
   return options;
 }
+
+export const normalizeLegendIconSize = value => Number.isFinite(value) ? Math.max(12, Math.min(28, value)) : 16;
 
 /** Series are host-owned, so the engine's state restore only returns their styles. */
 export function restorePrimaryStyle(chart, state) {
@@ -64,12 +68,16 @@ const CSET_ICON = {
 };
 const cseticon = (id) => '<svg viewBox="0 0 20 20">' + (CSET_ICON[id] || '') + '</svg>';
 
-const settingsTabs = chart => [...chartSettingsSchema(chart), VOLUME_TAB];
-const settingsValues = target => ({ ...readChartSettings(target.chart), ...volumeSettings(target.pane) });
+const settingsTabs = chart => [...chartSettingsSchema(chart).map(tab => tab.id === 'readout'
+  ? { ...tab, inputs: [...tab.inputs, { key: 'legend.iconSize', label: 'Legend button size', type: 'number',
+    default: 16, min: 12, max: 28, step: 1 }] } : tab), VOLUME_TAB];
+const settingsValues = target => ({ ...readChartSettings(target.chart), ...volumeSettings(target.pane),
+  'legend.iconSize': normalizeLegendIconSize(target.chart.legendIconSize?.()) });
 function writeSettings(target, patch) {
   if (patch['time.timezone'] !== undefined && patch['time.timezone'] !== target.chart.timezone()) exitReplay(target.pane);
-  const chartPatch = Object.fromEntries(Object.entries(patch).filter(([key]) => !key.startsWith('volume.')));
+  const chartPatch = Object.fromEntries(Object.entries(patch).filter(([key]) => !key.startsWith('volume.') && key !== 'legend.iconSize'));
   if (Object.keys(chartPatch).length) applyChartSettings(target.chart, chartPatch);
+  if (patch['legend.iconSize'] !== undefined) target.chart.setLegendIconSize(normalizeLegendIconSize(patch['legend.iconSize']));
   applyVolumeSettings(target.pane, patch);
   afterChartSettingsWrite(target);
 }
@@ -174,6 +182,7 @@ export function afterChartSettingsWrite(target = chartSetTarget || capturePaneTa
   if (!target?.current()) return;
   if (target.pane === 2) {
     app.p2.timezone = target.chart.timezone();
+    app.p2.legendIconSize = normalizeLegendIconSize(target.chart.legendIconSize?.());
     return;
   }
   syncTimezoneFromChart();

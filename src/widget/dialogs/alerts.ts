@@ -1,5 +1,5 @@
 import { widgetText } from '../localization';
-import { alertSettingsSchema, getBarCondition, utcSecondsToZonedParts, zonedWallClockToUtcSeconds, type Alert, type AlertCondition, type AlertInput, type AlertPatch, type AlertSource } from 'openalgo-charts';
+import { alertSettingsSchema, getBarCondition, utcSecondsToZonedParts, zoneOffsetSeconds, zonedWallClockToUtcSeconds, type Alert, type AlertCondition, type AlertInput, type AlertPatch, type AlertSource } from 'openalgo-charts';
 import type { WidgetContext } from '../context';
 import { button, controlsFromInputs, dialogFrame, el, openPanel, renderForm, type FormHandle, type PanelHandle } from '../form';
 import { alertSourceFields } from './alert-source';
@@ -43,6 +43,8 @@ function expiryText(value: number | undefined, zone: string): string {
  * `zonedWallClockToUtcSeconds` already owns this, including what to do with a
  * wall time a spring-forward skipped, so this parses the field into its parts
  * and hands them over rather than doing the offset arithmetic a second time.
+ * The round-trip check rejects skipped readings. Unchanged existing readings
+ * skip parsing, preserving either occurrence of an overlap and its seconds.
  */
 function expiryValue(ctx: WidgetContext, value: unknown, zone: string): number | undefined {
   if (value === '') return undefined;
@@ -70,19 +72,26 @@ const DEFAULT_EXPIRY_MONTHS = 2;
 /** That default as a wall-clock reading, or empty when editing an alert. */
 function defaultExpiry(existing: Alert | undefined, zone: string): string {
   if (existing) return expiryText(existing.expiresAt, zone);
-  const now = new Date();
-  // Through the calendar rather than by adding days: two months from the 31st
-  // has to land on a date that exists, and `setMonth` is what already knows
-  // that. The minutes are trimmed to the step the input accepts.
-  const then = new Date(now.getTime());
-  then.setMonth(then.getMonth() + DEFAULT_EXPIRY_MONTHS);
-  return expiryText(Math.floor(then.getTime() / 1000 / 60) * 60, zone);
+  const now = utcSecondsToZonedParts(Math.floor(Date.now() / 1000), zone);
+  const month = now.month - 1 + DEFAULT_EXPIRY_MONTHS;
+  const day = Math.min(now.day, new Date(Date.UTC(now.year, month + 1, 0)).getUTCDate());
+  // UTC arithmetic here represents the chart's calendar, independent of the
+  // browser zone. Clamp the day before converting that wall time to an instant.
+  const wall = Date.UTC(now.year, month, day, now.hour, now.minute) / 1000;
+  const first = wall - zoneOffsetSeconds(wall, zone);
+  const second = wall - zoneOffsetSeconds(first, zone);
+  // A default inside a spring gap advances across it so it can be saved.
+  // Manually entered skipped times still fail expiryValue's round-trip check.
+  const seconds = second + zoneOffsetSeconds(second, zone) === wall ? second : Math.max(first, second);
+  return expiryText(seconds, zone);
 }
 
 /** Draft edits never arm an alert until Save. Closing always discards the draft. */
 export function mountAlertEditor(ctx: WidgetContext, anchor?: HTMLElement, opts: AlertEditorOptions = {}): PanelHandle {
   const alerts = ctx.alerts;
   const existing = alerts?.list().find(alert => alert.id === opts.alertId);
+  // Keep the labelled reading stable if a host changes the chart's zone while editing.
+  const expiryZone = ctx.chart.timezone();
   const initialContext = ctx.chart.getDataContext();
   const scope = (value: typeof initialContext): string => JSON.stringify([value?.symbol, value?.exchange, value?.interval]);
   const initialScope = scope(initialContext);
@@ -98,7 +107,7 @@ export function mountAlertEditor(ctx: WidgetContext, anchor?: HTMLElement, opts:
     ...(source.kind === 'drawing' ? { inputInstanceId: source.input?.instanceId, inputPlotKey: source.input?.plotKey } : {}),
     ...(source.kind === 'barCondition' ? { barConditionId: source.id } : {}),
     enabled: existing ? existing.state === 'armed' : true,
-    expiresAt: defaultExpiry(existing, ctx.chart.timezone()),
+    expiresAt: defaultExpiry(existing, expiryZone),
   };
   function close(): void {
     if (closed) return;
@@ -140,7 +149,11 @@ export function mountAlertEditor(ctx: WidgetContext, anchor?: HTMLElement, opts:
     const schema = alertSettingsSchema(selection.source, draft.condition as AlertCondition | undefined);
     for (const field of schema) if (!(field.key in draft)) draft[field.key] = field.default;
     draft.condition = schema.find(field => field.key === 'condition')!.default;
-    form = renderForm(fields, [...selection.controls, ...controlsFromInputs(schema, { translate: ctx.translate, scope: 'alert' })], {
+    const controls = controlsFromInputs(schema, { translate: ctx.translate, scope: 'alert' });
+    const expiryControl = controls.find(control => control.key === 'expiresAt');
+    // Keep the host's schema translation and help while naming the draft's zone.
+    if (expiryControl) expiryControl.label += ` (${expiryZone})`;
+    form = renderForm(fields, [...selection.controls, ...controls], {
       idPrefix: formId, values: draft, translate: ctx.translate, preserveInvalidNumbers: true,
       onChange: (key, value) => {
         draft = { ...draft, ...form.values(), [key]: value };
@@ -163,11 +176,6 @@ export function mountAlertEditor(ctx: WidgetContext, anchor?: HTMLElement, opts:
     });
     const expiry = fields.querySelector<HTMLInputElement>('[data-key="expiresAt"] input');
     if (expiry) { expiry.type = 'datetime-local'; expiry.step = '60'; }
-    // The label carries the zone, because the schema's is a fixed string and
-    // the zone is the chart's. A field reading a time in one zone under a label
-    // naming another is worse than an unlabelled one.
-    const expiryLabel = fields.querySelector<HTMLElement>('[data-key="expiresAt"] .oac-row__label');
-    if (expiryLabel) expiryLabel.textContent = widgetText(ctx, 'Expires') + ` (${ctx.chart.timezone()})`;
   }
   function commit(): void {
     if (closed) return;
@@ -188,8 +196,7 @@ export function mountAlertEditor(ctx: WidgetContext, anchor?: HTMLElement, opts:
         policy: draft.policy as AlertInput['policy'], repeat: draft.repeat as AlertInput['repeat'],
         cooldownSeconds: draft.cooldownSeconds as number,
       };
-      const zone = ctx.chart.timezone();
-      if (!existing || draft.expiresAt !== expiryText(existing.expiresAt, zone)) patch.expiresAt = expiryValue(ctx, draft.expiresAt, zone);
+      if (!existing || draft.expiresAt !== expiryText(existing.expiresAt, expiryZone)) patch.expiresAt = expiryValue(ctx, draft.expiresAt, expiryZone);
       if (!existing || enabledChanged) patch.state = draft.enabled ? 'armed' : 'disabled';
       if (existing) alerts!.update(existing.id, patch);
       else alerts!.add(patch as AlertInput);
@@ -299,7 +306,7 @@ export function mountAlertsPanel(ctx: WidgetContext, anchor?: HTMLElement, opts:
     } finally { rendering = false; }
   }
   for (const event of ['alert:created', 'alert:updated', 'alert:removed', 'alert:triggered', 'alert:expired', 'alerts:restored',
-    'data:context', 'data:update', 'objects:change', 'replay:start', 'replay:stop']) off.push(ctx.chart.on(event, render));
+    'data:context', 'data:update', 'data:range', 'objects:change', 'replay:start', 'replay:stop']) off.push(ctx.chart.on(event, render));
   off.push(ctx.chart.on('destroy', close));
   render();
   const panel = openPanel(ctx, frame.el, { anchor, modal: true, placement: 'center' }, close);

@@ -63,10 +63,10 @@ export default defineConfig({
   projects: [
     // The engine suite, against the static server. The demo spec is not in
     // it: that page needs /api/history, which serve.cjs does not answer.
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] }, testIgnore: /(?:yfinance(?:-(?:mobile|templates))?|widget-data-loading|widget-localization|chart-data-export|instruments|indicator-source-markers)\.spec\.ts/ },
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] }, testIgnore: /(?:yfinance(?:-(?:mobile|templates|indicator-source))?|widget-data-loading|widget-localization|widget-alerts|chart-data-export|instruments|indicator-source-markers)\.spec\.ts/ },
     ...(['chromium', 'firefox', 'webkit'] as const).map(browserName => ({
       name: `widget-loading-${browserName}`,
-      testMatch: /(?:widget-data-loading|widget-localization|drawing-future|drawing-catalog|widget-objects|navigation-wheel|widget-mobile|branding-watermark|crosshair-snap|workspace-storage|open-interest|alerts|replay-time|chart-data-export|instruments|indicator-source-markers)\.spec\.ts/,
+      testMatch: /(?:widget-data-loading|widget-localization|widget-alerts|drawing-future|drawing-catalog|widget-objects|navigation-wheel|widget-mobile|branding-watermark|crosshair-snap|workspace-storage|open-interest|alerts|replay-time|chart-data-export|instruments|indicator-source-markers)\.spec\.ts/,
       use: { browserName, baseURL: 'http://127.0.0.1:4176' },
     })),
     // The demo, against its own server. Kept in the list even with no
@@ -74,7 +74,7 @@ export default defineConfig({
     { name: 'yfinance-demo', testMatch: /yfinance\.spec\.ts/, use: { ...devices['Desktop Chrome'], baseURL: DEMO_URL } },
     ...(['chromium', 'firefox', 'webkit'] as const).map(browserName => ({
       name: `yfinance-mobile-${browserName}`,
-      testMatch: /yfinance-(?:mobile|templates)\.spec\.ts/,
+      testMatch: /yfinance-(?:mobile|templates|indicator-source)\.spec\.ts/,
       use: { browserName, baseURL: DEMO_URL },
     })),
   ],

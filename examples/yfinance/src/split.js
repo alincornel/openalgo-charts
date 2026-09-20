@@ -14,7 +14,8 @@ import { openContextMenu, closeMenu } from './menus.js';
 import { attachVolume, refreshVolume, setVolumeLegend, applyVolumeSettings, volumeValues } from './volume.js';
 import { referenceDataContext, isExpression, fetchExpressionBars } from './expression.js';
 import { applyTransform } from './transforms.js';
-import { chartDecorationsForRebuild, restorePrimaryStyle } from './chart-settings.js';
+import { chartDecorationsForRebuild, normalizeLegendIconSize, restorePrimaryStyle } from './chart-settings.js';
+import { bindIndicatorSource } from './indicator-source.js';
 import { openSettings, renderIndicatorChips } from './indicators.js';
 import { capturePaneTarget } from './pane-target.js';
 import { symbolStatus, exchangeOf, nameOf } from './status.js';
@@ -91,6 +92,7 @@ export function installSecondaryWorkspace(saved, bars) {
   closeSplit();
   if (!saved) return;
   app.p2 = { ...saved.request, chartType: saved.chartType || 'candlestick', pfmode: saved.pfmode || 'atr',
+    legendIconSize: normalizeLegendIconSize(saved.legendIconSize),
     timezone: saved.state?.timezone || app.chartTimezone };
   el('pane2').style.flexBasis = (saved.width ?? 50) + '%';
   el('pane2').hidden = false;
@@ -204,6 +206,7 @@ export async function restoreSecondaryLayout(saved, selected = 1) {
       throw new Error('The second chart has invalid chart type settings');
     }
     app.p2 = { symbol: req.symbol, interval: req.interval, period: req.period, chartType, pfmode,
+      legendIconSize: normalizeLegendIconSize(saved.legendIconSize),
       timezone: saved.state?.timezone || app.chartTimezone };
     if (Number.isFinite(saved.width)) el('pane2').style.flexBasis = Math.max(18, Math.min(78, saved.width)) + '%';
     const legacyVisible = saved.state?.series?.find(series => series.type === 'histogram')?.style?.visible !== false;
@@ -244,6 +247,7 @@ export function buildChart2({ keepView = true, typeChanged = false, state } = {}
   app.chart2 = createChart(el('chart2'), {
     theme: chartTheme(),
     priceAxisWidth: 62,
+    legendIconSize: normalizeLegendIconSize(app.p2.legendIconSize),
     grid: { vertLines: el('vgrid').checked, horzLines: el('hgrid').checked },
     timezone: app.p2.timezone || app.chartTimezone,
     ...chartMotionOptions(),
@@ -281,6 +285,7 @@ export function buildChart2({ keepView = true, typeChanged = false, state } = {}
   app.chart2.on('contextmenu', event => { event.preventDefault(); openContextMenu(event, 2); });
   app.chart2.on('destroy', closeMenu);
   app.chart2.on('indicatorSettings', ({ instanceId }) => openSettings(instanceId, capturePaneTarget(app, 2)));
+  bindIndicatorSource(app.chart2, 2);
   app.chart2.on('indicatorRemoved', renderIndicatorChips);
   if (saved) {
     const report = app.chart2.restoreState(typeChanged ? { ...saved, series: [] } : saved);

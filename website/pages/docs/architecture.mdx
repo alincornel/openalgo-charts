@@ -96,8 +96,8 @@ tiers stay outside the base bundle.
 
 | Tier | Brotli | Contents |
 |---|--:|---|
-| `openalgo-charts` | 91.57 kB | Engine, 13 chart types, panes and scales, primitives, registries, chart state, linking, bar cache, trading overlay, SVG export, render backend port, feeds |
-| `openalgo-charts/widget` | 48.30 kB | Packaged interface controls through `createWidget`: top bar, drawing rail, mobile controls, status line, dialogs, right-click menu, keymap and persistence |
+| `openalgo-charts` | 91.55 kB | Engine, 13 chart types, panes and scales, primitives, registries, chart state, linking, bar cache, trading overlay, SVG export, render backend port, feeds |
+| `openalgo-charts/widget` | 49.00 kB | Packaged interface controls through `createWidget`: top bar, drawing rail, mobile controls, status line, dialogs, right-click menu, keymap and persistence |
 | `openalgo-charts/indicators` | 29.84 kB | 105 built-ins, shared TA helpers, and the Tier-2 external-data contract |
 | `openalgo-charts/draw` | 35.43 kB | 85 drawing tools, headless controller, clipboard, settings schema |
 | `openalgo-charts/profile` | 14.96 kB | Volume Profile, Market Profile (TPO), Footprint, order flow |
@@ -106,8 +106,8 @@ tiers stay outside the base bundle.
 | `openalgo-charts/transform` | 4.50 kB | Heikin Ashi, Renko, Range, Line Break, Point and Figure, Kagi, symbol arithmetic |
 | `openalgo-charts/workspace` | 5.52 kB | Validated workspace and template documents, revisioned named catalogs, asynchronous storage and IndexedDB adapter |
 
-**244.53 kB Brotli** for every tier at once; a widget terminal with built-in
-indicators (base + draw + indicators + widget) is 205.15 kB. Figures are decimal
+**245.21 kB Brotli** for every tier at once; a widget terminal with built-in
+indicators (base + draw + indicators + widget) is 205.83 kB. Figures are decimal
 kB from the 2.4.6 build, measured by `size-limit`. CI enforces the budgets and
 fails a build when a bundle exceeds its limit.
 

@@ -95,11 +95,14 @@ export type WidgetBuiltinMessage =
   | "Enable"
   | "Enable {name}"
   | "Enabled"
-
+  // Retained so existing host translation catalogs remain type compatible.
+  | "Enter a valid expiry date and time in UTC"
+  | "Enter an expiry date and time in UTC"
   | "Enter an expiry date and time"
   | "Every match"
   | "Expired"
   | "Expires {time}"
+  | "Expires {time} UTC"
   | "Expires"
   | "Finish"
   | "Fit all bars"
@@ -128,6 +131,7 @@ export type WidgetBuiltinMessage =
   | "L"
   | "Label"
   | "Last fired {time}"
+  | "Last fired {time} UTC"
   | "Level"
   | "Levels"
   | "Light"

@@ -2,13 +2,14 @@ import { parseWorkspacePayload, WorkspaceDocumentError } from '/dist/openalgo-ch
 import { primaryLayoutSelection, datasetKey, LAYOUT_SCHEMA } from './persist.js';
 import { clampPeriod } from './intervals.js';
 import { VOLUME_DEFAULTS, volumeValues } from './volume.js';
+import { normalizeLegendIconSize } from './chart-settings.js';
 
 const CHART_FIELDS = ['version', 'timezone', 'navigation', 'canvas', 'statusLine', 'watermark',
   'trading', 'events', 'axisChrome', 'viewport', 'barSpacing', 'grid', 'crosshairMode',
   'crosshairSnapToBar', 'indicators', 'alerts', 'drawings', 'panes', 'series'];
 const COMPARISON_MODES = ['percentage', 'indexed-to-100', 'none'];
 const SCALE_MODES = ['linear', 'logarithmic', 'percentage', 'indexed-to-100'];
-const HOST_SETTINGS = ['reference.pfmode', 'reference.compareMode', 'reference.compareBaseMode', 'reference.whenMissing'];
+const HOST_SETTINGS = ['reference.pfmode', 'reference.compareMode', 'reference.compareBaseMode', 'reference.whenMissing', 'reference.legendIconSize'];
 const fail = message => { throw new WorkspaceDocumentError(message); };
 
 function chartFields(state) {
@@ -20,7 +21,7 @@ function paneFromLayout(saved, state, id, rail, whenMissing) {
   if (!selection.request) fail('A named workspace needs an explicit chart source request');
   const settings = { ...volumeValues({ 'volume.visible': saved.volume !== false, ...saved.volumeSettings }),
     'reference.pfmode': selection.pfmode || 'atr', 'reference.compareMode': saved.compareMode || 'percentage',
-    'reference.whenMissing': whenMissing };
+    'reference.whenMissing': whenMissing, 'reference.legendIconSize': normalizeLegendIconSize(saved.legendIconSize) };
   if (saved.compareBaseMode != null) settings['reference.compareBaseMode'] = saved.compareBaseMode;
   const comparisons = (saved.comparisons || []).map((item, index) => ({
     id: `${id}:comparison:${index}`, symbol: item.symbol, exchange: '', visible: item.hidden !== true,
@@ -86,6 +87,10 @@ export function validateReferenceWorkspace(input) {
       }
     }
     const normalizedVolume = volumeValues(pane.settings);
+    const legendSize = pane.settings['reference.legendIconSize'];
+    if (legendSize !== undefined && legendSize !== normalizeLegendIconSize(legendSize)) {
+      fail('Invalid workspace setting: reference.legendIconSize');
+    }
     for (const key of Object.keys(VOLUME_DEFAULTS)) {
       if (pane.settings[key] !== undefined && pane.settings[key] !== normalizedVolume[key]) fail(`Invalid workspace setting: ${key}`);
     }
@@ -120,6 +125,7 @@ export function validateReferenceWorkspace(input) {
 function paneToLayout(pane) {
   const request = { symbol: pane.symbol, interval: pane.interval, period: pane.historyPeriod };
   return { request, chartType: pane.chartType, pfmode: pane.settings['reference.pfmode'] || 'atr',
+    legendIconSize: normalizeLegendIconSize(pane.settings['reference.legendIconSize']),
     volume: pane.volume, volumeSettings: volumeValues({ 'volume.visible': pane.volume, ...pane.settings }),
     comparisons: pane.comparisons.map(item => ({ symbol: item.symbol, hidden: !item.visible,
       ...(item.color === undefined ? {} : { color: item.color }) })),

@@ -8,7 +8,7 @@ import { renderIndicatorChips } from './indicators.js';
 import { CHART_TYPES, renderToolbar } from './toolbar.js';
 import { INTERVALS, PERIODS } from './intervals.js';
 import { withoutViewportSync } from './split.js';
-import { restorePrimaryStyle } from './chart-settings.js';
+import { normalizeLegendIconSize, restorePrimaryStyle } from './chart-settings.js';
 
 // Both read off their namespaces: a dist/ built before either shipped must
 // still read and write layouts, and a layout on such a build simply keeps
@@ -326,6 +326,7 @@ export function layoutSnapshot() {
     request: { symbol: app.req.symbol, interval: app.req.interval, period: app.req.period },
     chartType: el('ctype').value || 'candlestick',
     pfmode: el('pfmode').value || 'atr',
+    legendIconSize: normalizeLegendIconSize(app.chart.legendIconSize?.()),
     ...comparisonSnapshot(1),
     // Demo-owned like the comparisons: `render()` builds the histogram from
     // this flag, so without it a hidden volume comes back on a reload.
@@ -337,6 +338,7 @@ export function layoutSnapshot() {
       request: { symbol: app.p2.symbol, interval: app.p2.interval, period: app.p2.period },
       chartType: app.p2.chartType || 'candlestick',
       pfmode: app.p2.pfmode || 'atr',
+      legendIconSize: normalizeLegendIconSize(app.chart2.legendIconSize?.()),
       volumeSettings: volumeSettings(2),
       ...comparisonSnapshot(2),
       state: app.chart2.getState(),
@@ -389,6 +391,7 @@ export function applyLayout(doc, { keepView = true, replaceComparisons = true } 
   }
   syncTimezoneFromChart();   // the saved zone is the engine's to apply, ours to remember
   restorePrimaryStyle(app.chart, state);
+  app.chart.setLegendIconSize?.(normalizeLegendIconSize(state.legendIconSize));
   // The engine restores drawings before alerts. A second drawing restore
   // would remove the anchors underneath the alerts that just returned.
   restoreComparisons(state, 1, replaceComparisons);
