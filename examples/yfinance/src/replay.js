@@ -157,11 +157,11 @@ export async function startReplayAt(index) {
   const sub = await loadReplaySubBars();
   if (revision !== replayLoadRevision) return;
   if (app.chart !== chart || requestKey(app.req) !== key) { cancelPick(); return; }
-  // Volume rides along: the DataLayer merges every series onto one axis, so
-  // a full-length volume histogram would hold the axis open at bars the
-  // price series has not reached yet.
+  // Volume and its average derive from the displayed primary bars. Driving
+  // only the price lets them follow forming bars without replaying a final
+  // history volume into an unfinished candle.
   app.replay = new ReplayController(app.chart, {
-    series: app.volume ? [app.price, app.volume] : [app.price],
+    series: [app.price],
     startIndex: Math.max(0, Math.min(bars.length - 1, index)),
     subBars: sub || undefined,
     barMs: 1000,

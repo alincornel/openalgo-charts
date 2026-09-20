@@ -15,7 +15,7 @@ beforeEach(() => {
   fakeDom();
   app = {
     req: { symbol: 'CONTRACT', interval: '1m' },
-    chart: { hasOpenInterest: true },
+    chart: { hasOpenInterest: true, primaryBars: () => app.currentBars },
     comparisons: [], currentBars: [], idxByTime: new Map(),
     symbolLegend: new PaneLegend({ id: 'price', title: 'Contract', actions: [] }),
   };

@@ -4,7 +4,8 @@ import { fakeDom, fakeStorage } from './helpers.js';
 // Restoring a layout reaches into the modules that own the comparisons, the
 // volume flag, the zone and the chrome. None of them is under test here, and
 // each keeps its own `app`, so they are stood in for and their calls read back.
-vi.mock('../src/volume.js', () => ({ volumeShown: vi.fn(() => true), setVolumeShown: vi.fn() }));
+vi.mock('../src/volume.js', () => ({ volumeShown: vi.fn(() => true), setVolumeShown: vi.fn(),
+  volumeSettings: vi.fn(() => ({ 'volume.visible': true })), applyVolumeSettings: vi.fn() }));
 vi.mock('../src/timezone.js', () => ({ DEFAULT_TZ: 'Asia/Kolkata', syncTimezoneFromChart: vi.fn() }));
 vi.mock('../src/compare.js', () => ({ removeComparison: vi.fn(), syncComparisons: vi.fn() }));
 vi.mock('../src/indicators.js', () => ({ renderIndicatorChips: vi.fn() }));
@@ -234,7 +235,7 @@ describe('storage', () => {
     expect(setItem).not.toHaveBeenCalled();
   });
 
-  it.each(['loading2', 'loadFailed2', 'loadFailed'])('does not autosave an incomplete request while %s is set', flag => {
+  it.each(['loading2', 'loadFailed2', 'loadFailed', 'chartSettingsEditing'])('does not autosave transient state while %s is set', flag => {
     const app = freshApp();
     initPersist(app);
     autosave();
@@ -291,7 +292,7 @@ describe('storage', () => {
 function layoutSnapshotFor(app) {
   return {
     schema: LAYOUT_SCHEMA, ...app.chart.getState(), dataset: datasetKey(app.req),
-    comparisons: [], compareMode: app.cmpMode, volume: true, focusPane: 1,
+    comparisons: [], compareMode: app.cmpMode, volume: true, volumeSettings: { 'volume.visible': true }, focusPane: 1,
   };
 }
 
@@ -350,7 +351,7 @@ describe('applying a layout', () => {
     expect(app.chart.restored[0].viewport).toBeUndefined();
     expect(app.activeIndicators).toEqual([{ indicatorId: 'rsi', settings: { length: 14 } }]);
     expect(app.draw.fromJSON).not.toHaveBeenCalled();
-    expect(setVolumeShown).toHaveBeenCalledWith(false);
+    expect(setVolumeShown).toHaveBeenCalledWith(false, 1);
     expect(removeComparison).toHaveBeenCalledWith(live);
     expect(app.comparisons).toEqual([{ symbol: 'MSFT', color: '#f00', bars: [] }]);
     expect(syncComparisons).toHaveBeenCalledTimes(1);

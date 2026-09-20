@@ -10,13 +10,13 @@ import { autosave, stripView } from './persist.js';
 import { intervalLabel, clampPeriod, INTERVALS } from './intervals.js';
 import { tbtn, renderToolbar, CHART_TYPES } from './toolbar.js';
 import { openContextMenu, closeMenu } from './menus.js';
-import { volumeShown } from './volume.js';
+import { attachVolume, refreshVolume, setVolumeLegend, applyVolumeSettings, volumeValues } from './volume.js';
 import { referenceDataContext, isExpression, fetchExpressionBars } from './expression.js';
 import { applyTransform } from './transforms.js';
-import { chartDecorationsForRebuild } from './chart-settings.js';
+import { chartDecorationsForRebuild, restorePrimaryStyle } from './chart-settings.js';
 import { openSettings, renderIndicatorChips } from './indicators.js';
 import { capturePaneTarget } from './pane-target.js';
-import { descriptionOf, exchangeOf, nameOf } from './status.js';
+import { symbolStatus, exchangeOf, nameOf } from './status.js';
 
 // 1.3 surfaces: chart linking, the bar cache and the interval registry.
 // Same namespace read for the same reason: this page must still draw
@@ -150,7 +150,8 @@ export function closeSplit() {
     if (app.draw2) { app.draw2.destroy(); app.draw2 = null; }
     app.chart2.destroy();
     app.chart2 = null; price2 = null; app.volume2 = null;
-    app.symbolLegend2 = null;
+    app.symbolLegend2 = null; app.volLegend2 = null; app.volumeMA2 = null;
+    app.volumeReadings2 = null;
   }
   bars2 = [];
   el('pane2').hidden = true;
@@ -177,8 +178,11 @@ export async function restoreSecondaryLayout(saved, selected = 1) {
     if (!CHART_TYPES.some(type => type.v === chartType) || !['atr', 'percent', 'fixed'].includes(pfmode)) {
       throw new Error('The second chart has invalid chart type settings');
     }
-    app.p2 = { symbol: req.symbol, interval: req.interval, period: req.period, chartType, pfmode };
+    app.p2 = { symbol: req.symbol, interval: req.interval, period: req.period, chartType, pfmode,
+      timezone: saved.state?.timezone || app.chartTimezone };
     if (Number.isFinite(saved.width)) el('pane2').style.flexBasis = Math.max(18, Math.min(78, saved.width)) + '%';
+    const legacyVisible = saved.state?.series?.find(series => series.type === 'histogram')?.style?.visible !== false;
+    applyVolumeSettings(2, volumeValues(saved.volumeSettings || { 'volume.visible': legacyVisible }));
     const loaded = await openSplit();
     const restoredChart = app.chart2;
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -187,6 +191,8 @@ export async function restoreSecondaryLayout(saved, selected = 1) {
     let report;
     withoutViewportSync(() => { report = app.chart2.restoreState(saved.state); });
     if (!report.applied) throw new Error('The second chart layout could not be restored');
+    restorePrimaryStyle(app.chart2, saved.state);
+    refreshVolume(2);
     focusChart(selected);
     renderToolbar();
     return true;
@@ -211,14 +217,14 @@ export function buildChart2({ keepView = true, typeChanged = false, state } = {}
     theme: chartTheme(),
     priceAxisWidth: 62,
     grid: { vertLines: el('vgrid').checked, horzLines: el('hgrid').checked },
-    timezone: app.chartTimezone,
+    timezone: app.p2.timezone || app.chartTimezone,
     ...chartMotionOptions(),
     ...decorations,
   });
+  app.p2.timezone = app.chart2.timezone();
   app.chart2.setDataContext(dataContext);
   app.symbolLegend2 = new PaneLegend({ id: 'symbol', title: app.p2.symbol, row: 0, actions: [],
-    status: () => ({ description: descriptionOf(app.p2.symbol) || undefined,
-      ticker: exchangeOf(app.p2.symbol) + ':' + nameOf(app.p2.symbol) }),
+    status: () => symbolStatus({ symbol: app.p2.symbol, bars: app.chart2.primaryBars(), timezone: app.chart2.timezone() }),
   });
   app.chart2.addPrimitive(app.symbolLegend2, 0);
   const chartType = app.p2.chartType || 'candlestick';
@@ -231,15 +237,7 @@ export function buildChart2({ keepView = true, typeChanged = false, state } = {}
   price2 = app.chart2.addSeries(type, { style });
   price2.setData(data);
   app.chart2.setPriceScaleOptions({ minMove: /\.(NS|BO)$/i.test(app.p2.symbol) ? 0.05 : 0.01 });
-  app.volume2 = transformed ? null : app.chart2.addSeries('histogram', {
-    paneIndex: 0, priceScaleId: '',
-    style: { color: '#33415e', base: 0 }, priceFormat: { type: 'volume' },
-  });
-  if (app.volume2) {
-    app.volume2.priceScale().setOptions({ marginTop: 0.85, marginBottom: 0 });
-    app.volume2.setData(bars2.map((b) => ({ time: b.time, open: 0, high: b.volume, low: 0, close: b.volume })));
-    if (!volumeShown()) app.volume2.applyOptions({ visible: false });
-  }
+  attachVolume(2, !transformed || chartType === 't:heikin-ashi');
   app.chart2.subscribeCrosshairMove((e) => setPane2Legend(e.bar ?? app.chart2.primaryBars().at(-1)));
   setPane2Legend(app.chart2.primaryBars().at(-1));
   // A second drawing controller, so paste has somewhere else to land: the
@@ -256,6 +254,8 @@ export function buildChart2({ keepView = true, typeChanged = false, state } = {}
   app.chart2.on('indicatorSettings', ({ instanceId }) => openSettings(instanceId, capturePaneTarget(app, 2)));
   app.chart2.on('indicatorRemoved', renderIndicatorChips);
   if (saved) app.chart2.restoreState(typeChanged ? { ...saved, series: [] } : saved);
+  restorePrimaryStyle(app.chart2, saved);
+  refreshVolume(2);
   if (app.focusPane === 2) renderIndicatorChips();
   app.chart2.on('draw:tool', ({ tool }) => {
     armCursor(el('chart2'), tool);
@@ -289,7 +289,8 @@ export async function loadPane2() {
   app.alerts2?.setPaused(true);
   app.p2.period = clampPeriod(app.p2.interval, app.p2.period);
   const request = { ...app.p2 };
-  const keepView = before?.symbol === request.symbol && before?.interval === request.interval;
+  const keepView = chart.primaryBars().length > 0
+    && before?.symbol === request.symbol && before?.interval === request.interval;
   app.chart2.setDataContext(referenceDataContext(app.p2, app.chart2.getDataContext()));
   if (app.linkGroup) app.linkGroup.setSymbol(chart, request.symbol);
   app.linkGroup?.setInterval?.(chart, request.interval);
@@ -301,8 +302,8 @@ export async function loadPane2() {
   renderToolbar();
   try {
     const loaded = isExpression(request.symbol)
-      ? (await fetchExpressionBars(request.symbol, request.interval, request.period, { signal: controller.signal })).bars
-      : await fetchBars(request.symbol, request.interval, request.period, { signal: controller.signal });
+      ? (await fetchExpressionBars(request.symbol, request.interval, request.period, { signal: controller.signal, timezone: request.timezone })).bars
+      : await fetchBars(request.symbol, request.interval, request.period, { signal: controller.signal, timezone: request.timezone });
     if (revision !== pane2LoadRevision || app.chart2 !== chart) return false;
     bars2 = loaded;
     const note = `${bars2.length} bars${fetchNote()}`;
@@ -364,15 +365,22 @@ export function setPane2Note(text) {
 export function setPane2Legend(bar) {
   const legend = app.symbolLegend2;
   if (!legend) return;
-  legend.setOptions({ title: nameOf(app.p2.symbol), params: intervalLabel(app.p2.interval) });
+  legend.setOptions({ title: nameOf(app.p2.symbol), params: intervalLabel(app.p2.interval) + ' ' + exchangeOf(app.p2.symbol) });
+  setVolumeLegend(bar, 2);
   if (!bar) { legend.setValues([]); return; }
   const color = bar.close >= bar.open ? UP : DOWN;
+  const bars = app.chart2.primaryBars();
+  const index = bars.findIndex(item => item.time === bar.time);
+  const previous = index > 0 ? bars[index - 1].close : bar.open;
+  const change = bar.close - previous;
+  const sign = change >= 0 ? '+' : '';
+  const percent = previous ? 100 * change / previous : 0;
   legend.setValues([
     { label: 'O', text: fmt(bar.open), color, field: 'ohlc' },
     { label: 'H', text: fmt(bar.high), color, field: 'ohlc' },
     { label: 'L', text: fmt(bar.low), color, field: 'ohlc' },
     { label: 'C', text: fmt(bar.close), color, field: 'ohlc' },
-    ...(Number.isFinite(bar.volume) ? [{ label: 'Vol', text: fmtVol(bar.volume), color, field: 'volume' }] : []),
+    { text: `${sign}${fmt(change)} (${sign}${percent.toFixed(2)}%)`, color: change >= 0 ? UP : DOWN, field: 'change' },
     ...(app.chart2.hasOpenInterest !== false && Number.isFinite(bar.oi)
       ? [{ label: 'OI', text: fmtVol(bar.oi), color, field: 'openInterest' }] : []),
   ]);

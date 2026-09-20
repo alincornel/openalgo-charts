@@ -1,12 +1,13 @@
 import * as engine from '/dist/openalgo-charts.mjs';
 import * as drawTier from '/dist/openalgo-charts.draw.mjs';
 import { el, toast } from './ui.js';
-import { volumeShown, setVolumeShown } from './volume.js';
+import { volumeShown, setVolumeShown, volumeSettings, applyVolumeSettings } from './volume.js';
 import { syncTimezoneFromChart } from './timezone.js';
 import { removeComparison, syncComparisons } from './compare.js';
 import { renderIndicatorChips } from './indicators.js';
 import { renderToolbar } from './toolbar.js';
 import { withoutViewportSync } from './split.js';
+import { restorePrimaryStyle } from './chart-settings.js';
 
 // Both read off their namespaces: a dist/ built before either shipped must
 // still read and write layouts, and a layout on such a build simply keeps
@@ -273,13 +274,15 @@ export function layoutSnapshot() {
     compareMode: app.cmpMode,
     // Demo-owned like the comparisons: `render()` builds the histogram from
     // this flag, so without it a hidden volume comes back on a reload.
-    volume: volumeShown(),
+    volume: volumeShown(1),
+    volumeSettings: volumeSettings(1),
     focusPane: app.focusPane === 2 && app.chart2 ? 2 : 1,
     linkOptions: app.linkGroup?.options(),
     secondary: app.chart2 ? {
       request: { symbol: app.p2.symbol, interval: app.p2.interval, period: app.p2.period },
       chartType: app.p2.chartType || 'candlestick',
       pfmode: app.p2.pfmode || 'atr',
+      volumeSettings: volumeSettings(2),
       state: app.chart2.getState(),
       width: parseFloat(el('pane2').style.flexBasis) || (Number.isFinite(measuredWidth) && measuredWidth > 0 ? measuredWidth : 50),
     } : undefined,
@@ -329,6 +332,7 @@ export function applyLayout(doc, { keepView = true, replaceComparisons = true } 
     return report;
   }
   syncTimezoneFromChart();   // the saved zone is the engine's to apply, ours to remember
+  restorePrimaryStyle(app.chart, state);
   // The engine restores drawings before alerts. A second drawing restore
   // would remove the anchors underneath the alerts that just returned.
   if (replaceComparisons) {
@@ -340,7 +344,8 @@ export function applyLayout(doc, { keepView = true, replaceComparisons = true } 
     app.comparisons = state.comparisons.map((c) => ({ symbol: c.symbol, color: c.color, bars: [] }));
   }
   if (state.compareMode) app.cmpMode = state.compareMode;
-  if (state.volume !== undefined) setVolumeShown(state.volume !== false);
+  if (state.volume !== undefined) setVolumeShown(state.volume !== false, 1);
+  if (state.volumeSettings) applyVolumeSettings(1, state.volumeSettings);
   if (replaceComparisons) syncComparisons();
   renderIndicatorChips();
   renderToolbar();
@@ -389,7 +394,7 @@ export function persistLayoutNow(opts) {
 export function autosave() {
   // Not while replaying: the chart is showing a prefix of the session and a
   // viewport captured over it would restore the user into a truncated chart.
-  if (!app.chart || app.replay || app.replayLoading || app.loading || app.loadFailed || app.loading2 || app.loadFailed2 || app.restoringSecondary) return;
+  if (!app.chart || app.replay || app.replayLoading || app.loading || app.loadFailed || app.loading2 || app.loadFailed2 || app.restoringSecondary || app.chartSettingsEditing) return;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(flushAutosave, SAVE_DEBOUNCE_MS);
 }
@@ -399,7 +404,7 @@ export function flushAutosave() {
   if (!saveTimer) return;
   clearTimeout(saveTimer);
   saveTimer = 0;
-  if (app.chart && !app.replay && !app.replayLoading && !app.loading && !app.loadFailed && !app.loading2 && !app.loadFailed2 && !app.restoringSecondary) persistLayoutNow();
+  if (app.chart && !app.replay && !app.replayLoading && !app.loading && !app.loadFailed && !app.loading2 && !app.loadFailed2 && !app.restoringSecondary && !app.chartSettingsEditing) persistLayoutNow();
 }
 
 // ── files ──────────────────────────────────────────────────────────────

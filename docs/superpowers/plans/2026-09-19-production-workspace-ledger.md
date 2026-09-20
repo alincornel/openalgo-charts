@@ -653,3 +653,31 @@ validation and release work still apply. The release sequence is to validate
 the packed candidate in /trading, publish 2.4.5, then pin /trading to the published
 package and revalidate. Port 5000 has not been switched to the development
 worktree. Nothing was published and the frozen score is unchanged.
+
+### Reference settings, readout and volume checkpoint
+
+Chart settings retain their selected owner through edits, Cancel, defaults,
+context actions, rebuild and reload. Secondary timezone and calendar aggregation
+are independent; confirmation refolds that chart and Cancel preserves its history.
+Host-owned candle styles are reapplied on matching-type restore. Both charts now
+have persisted volume visibility, candle-colour matching and configurable volume
+MA on the same scale, including live tail replacement/append and replay-prefix
+isolation. Heikin Ashi retains volume; unsupported price-bucket transforms explain
+the unavailable controls. Missing volume and warmup remain gaps.
+
+Additional regressions fixed a future daily-change reading during replay, the
+primary transformed close showing raw candles, a fresh split displaying only its
+first few bars, and a WebKit colour control displaying clipped hex text.
+
+Final checks: 267 example tests/22 files, 64 reference browser tests, types and
+lint pass. Three-engine settings and dark/light chart images were inspected;
+browser pixels verify candle-direction colours and the colour swatch. The shared
+toolbar plan records full artifacts, resource review and retained runner warning.
+No library/package/consumer source changed, and no real orders were sent.
+
+Task 2 still owns reference comparison/replay/fullscreen routing and compact
+toolbar/readout polish. Reference F1/F2 restoration remains broader than the
+secondary restore tested here, including primary request/type and initial calendar
+timezone handling. F8, P1-P6, sustained endurance, final authenticated read-only
+broker validation, whole-branch review and release/publication remain open.
+The consumer stays at 3972843f7 with the 0939bcc candidate; 2.4.5 is unpublished.

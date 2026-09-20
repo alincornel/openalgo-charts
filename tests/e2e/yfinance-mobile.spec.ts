@@ -8,7 +8,7 @@ test('reference selection survives hover and snapshot menus retain their chart o
   await page.setViewportSize({ width: 1360, height: 900 });
   await openDemo(page);
   await page.getByRole('button', { name: /Open a second, linked chart/ }).click();
-  await page.waitForFunction(() => (window as any).__oac.app.chart2?.primaryBars().length > 0);
+  await page.waitForFunction(() => (window as any).__oac?.app.chart2?.primaryBars().length > 0);
   const secondary = page.locator('#chart2');
   const primary = page.locator('#chart');
   const box = (await secondary.boundingBox())!;
@@ -55,7 +55,7 @@ test('shared request and type controls preserve independent charts through reloa
   await page.setViewportSize({ width: 1360, height: 900 });
   await openDemo(page);
   await page.getByRole('button', { name: /Open a second, linked chart/ }).click();
-  await page.waitForFunction(() => (window as any).__oac.app.chart2?.primaryBars().length > 0);
+  await page.waitForFunction(() => (window as any).__oac?.app.chart2?.primaryBars().length > 0);
   await page.locator('#chart2').focus();
   await expect(page.getByRole('button', { name: 'Change symbol', exact: true })).toContainText('MSFT');
   await page.locator('#shellbar .pills').getByRole('button', { name: '15M', exact: true }).click();
@@ -123,11 +123,290 @@ test('shared request and type controls preserve independent charts through reloa
   await page.screenshot({ path: info.outputPath('reference-shared-controls.png') });
 });
 
+test('chart settings retain their selected owner through cancel, rebuild and reload', async ({ page }, info) => {
+  await page.setViewportSize({ width: 1360, height: 900 });
+  await openDemo(page);
+  await page.getByRole('button', { name: /Open a second, linked chart/ }).click();
+  await page.waitForFunction(() => (window as any).__oac?.app.chart2?.primaryBars().length > 0);
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const firstView = await page.evaluate(() => {
+    const chart = (window as any).__oac.app.chart2;
+    return { ...chart.timeScale.getVisibleLogicalRange(), count: chart.primaryBars().length };
+  });
+  expect(firstView.to).toBeGreaterThanOrEqual(firstView.count - 1);
+  expect(firstView.from).toBeLessThanOrEqual(1);
+  await page.locator('#chart2').focus();
+  const settings = page.getByRole('button', { name: 'Chart settings (or right-click the chart)', exact: true });
+  await settings.click();
+  await page.locator('#cset-tabs').getByRole('button', { name: 'Readout', exact: true }).click();
+  await page.locator('[data-key="statusLine.titleMode"]').selectOption('description');
+  expect(await page.evaluate(() => (window as any).__oac.app.chart2.statusLineOptions().titleMode)).toBe('description');
+  expect(await page.evaluate(() => (window as any).__oac.app.chart.statusLineOptions().titleMode)).not.toBe('description');
+  await page.locator('#chart').focus();
+  await page.locator('#cset-cancel').click();
+  expect(await page.evaluate(() => (window as any).__oac.app.chart2.statusLineOptions().titleMode)).toBe('symbol');
+  await page.locator('#chart2').focus();
+  await settings.click();
+  await page.locator('#cset-tabs').getByRole('button', { name: 'Readout', exact: true }).click();
+  await page.locator('[data-key="statusLine.titleMode"]').selectOption('description');
+  await page.locator('[data-key="statusLine.barChange"]').uncheck();
+  await page.locator('#cset-tabs').getByRole('button', { name: 'Axes', exact: true }).click();
+  await page.locator('[data-key="time.timezone"]').selectOption('UTC');
+  await page.locator('#cset-ok').click();
+  expect(await page.evaluate(() => (window as any).__oac.app.chart.timezone())).toBe('Asia/Kolkata');
+  expect(await page.evaluate(() => (window as any).__oac.app.chart2.timezone())).toBe('UTC');
+  expect(await page.evaluate(() => (window as any).__oac.app.chart2.exportSVG())).toContain('Microsoft Corporation');
+  await page.getByRole('button', { name: 'Chart type', exact: true }).click();
+  await page.getByRole('button', { name: 'Line', exact: true }).click();
+  expect(await page.evaluate(() => (window as any).__oac.app.chart2.statusLineOptions().barChange)).toBe(false);
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const secondaryView = await page.evaluate(() => (window as any).__oac.app.chart2.timeScale.getVisibleLogicalRange());
+  await page.getByRole('button', { name: 'Save layout', exact: true }).click();
+  await page.reload();
+  await page.waitForFunction(() => (window as any).__oac?.app.chart2?.primaryBars().length > 0 && !(window as any).__oac.app.restoringSecondary);
+  expect(await page.evaluate(() => (window as any).__oac.app.chart2.timezone())).toBe('UTC');
+  expect(await page.evaluate(() => (window as any).__oac.app.chart.timezone())).toBe('Asia/Kolkata');
+  expect(await page.evaluate(() => (window as any).__oac.app.chart2.statusLineOptions().titleMode)).toBe('description');
+  const secondaryRestored = await page.evaluate(() => (window as any).__oac.app.chart2.timeScale.getVisibleLogicalRange());
+  expect(secondaryRestored.from).toBeCloseTo(secondaryView.from, 5);
+  expect(secondaryRestored.to).toBeCloseTo(secondaryView.to, 5);
+  await page.mouse.move(5, 895);
+  await page.screenshot({ path: info.outputPath('reference-owned-settings.png') });
+  await settings.click();
+  await page.evaluate(async () => { const source = '/examples/yfinance/src/split.js'; (await import(source)).closeSplit(); });
+  await expect(page.locator('#chartset')).toBeHidden();
+  expect(await page.evaluate(() => (window as any).__oac.app.chart.statusLineOptions().titleMode)).not.toBe('description');
+});
+
+test('reference volume settings follow each chart and update their own average', async ({ page }, info) => {
+  await page.setViewportSize({ width: 1360, height: 900 });
+  await openDemo(page);
+  await page.getByRole('button', { name: /Open a second, linked chart/ }).click();
+  await page.waitForFunction(() => (window as any).__oac?.app.chart2?.primaryBars().length > 0);
+  await page.locator('#chart2').focus();
+  await page.getByRole('button', { name: 'Chart settings (or right-click the chart)', exact: true }).click();
+  await page.locator('#cset-tabs').getByRole('button', { name: 'Volume', exact: true }).click();
+  await page.locator('[data-key="volume.showMA"]').check();
+  await page.locator('[data-key="volume.maPeriod"]').fill('3');
+  await page.locator('[data-key="volume.maPeriod"]').press('Tab');
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const colorFace = await page.locator('[data-key="volume.maColor"]').screenshot();
+  const colorPixels = await page.evaluate(async encoded => {
+    const bitmap = await createImageBitmap(new Blob([Uint8Array.from(atob(encoded), value => value.charCodeAt(0))], { type: 'image/png' }));
+    const canvas = document.createElement('canvas');
+    canvas.width = bitmap.width; canvas.height = bitmap.height;
+    const context = canvas.getContext('2d')!;
+    context.drawImage(bitmap, 0, 0); bitmap.close();
+    const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    let count = 0;
+    for (let at = 0; at < data.length; at += 4) {
+      if (data[at] === 230 && data[at + 1] === 181 && data[at + 2] === 60) count++;
+    }
+    return count;
+  }, colorFace.toString('base64'));
+  expect(colorPixels, 'colour control must show the selected colour').toBeGreaterThan(20);
+  await page.screenshot({ path: info.outputPath('reference-volume-settings.png') });
+  await page.locator('#cset-tabs').getByRole('button', { name: 'Price', exact: true }).click();
+  await page.locator('[data-key="symbol.upColor"]').fill('#11aa22');
+  await page.locator('[data-key="symbol.downColor"]').fill('#cc3344');
+  await page.locator('#cset-ok').click();
+  const result = await page.evaluate(() => {
+    const app = (window as any).__oac.app;
+    const time = app.chart2.primaryBars()[0].time;
+    const bars = [10, 20, 30, 40].map((volume, index) => ({
+      time: time + index * 3600, open: 100, high: 103, low: 97, close: index % 2 ? 99 : 101, volume,
+    }));
+    app.chart2.primarySeries().setData(bars);
+    const initial = app.volumeMA2.getData().map((bar: any) => bar.close);
+    const colors = app.volume2.getData().map((bar: any) => bar.color);
+    app.chart2.primarySeries().update({ ...bars[3], volume: 60 });
+    const replaced = app.volumeMA2.getData().at(-1).close;
+    app.chart2.primarySeries().update({ ...bars[3], time: time + 4 * 3600, volume: 50 });
+    return { initial, colors, replaced, appended: app.volumeMA2.getData().at(-1).close,
+      sharedScale: app.volumeMA2.priceScale() === app.volume2.priceScale(),
+      primaryAverage: app.volumeMA.getData().length };
+  });
+  expect(result.initial).toEqual([NaN, NaN, 20, 30]);
+  expect(result.colors).toEqual(['#11aa22', '#cc3344', '#11aa22', '#cc3344']);
+  expect(result.replaced).toBeCloseTo(110 / 3);
+  expect(result.appended).toBeCloseTo(140 / 3);
+  expect(result.sharedScale).toBe(true);
+  expect(result.primaryAverage).toBe(0);
+  await page.evaluate(async () => {
+    const app = (window as any).__oac.app;
+    await app.loadSecondary();
+    const path = '/examples/yfinance/src/split.js';
+    (await import(path)).withoutViewportSync(() => app.chart2.resetScale());
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
+  await page.getByRole('button', { name: 'Save layout', exact: true }).click();
+  await page.reload();
+  await page.waitForFunction(() => (window as any).__oac?.app.chart2?.primaryBars().length > 0 && !(window as any).__oac.app.restoringSecondary);
+  expect(await page.evaluate(() => (window as any).__oac.app.chart2.primarySeriesInfo().style.upColor)).toBe('#11aa22');
+  expect(await page.evaluate(() => (window as any).__oac.app.chart2.primarySeriesInfo().style.downColor)).toBe('#cc3344');
+  await page.getByRole('button', { name: 'Chart settings (or right-click the chart)', exact: true }).click();
+  await page.locator('#cset-tabs').getByRole('button', { name: 'Volume', exact: true }).click();
+  await expect(page.locator('[data-key="volume.showMA"]')).toBeChecked();
+  await expect(page.locator('[data-key="volume.maPeriod"]')).toHaveValue('3');
+  await page.locator('[data-key="volume.visible"]').uncheck();
+  await page.locator('#cset-ok').click();
+  expect(await page.evaluate(() => (window as any).__oac.app.chart.getState().series.filter((series: any) => series.type === 'histogram')[0].style.visible)).not.toBe(false);
+  expect(await page.evaluate(() => (window as any).__oac.app.chart2.getState().series.filter((series: any) => series.priceScaleId === '').every((series: any) => series.style.visible === false))).toBe(true);
+  await page.getByRole('button', { name: 'Chart settings (or right-click the chart)', exact: true }).click();
+  await page.locator('#cset-tabs').getByRole('button', { name: 'Volume', exact: true }).click();
+  await page.locator('[data-key="volume.visible"]').check();
+  await page.locator('#cset-ok').click();
+  await page.mouse.move(5, 895);
+  await page.locator('#shellbar').evaluate(element => { element.scrollLeft = 0; });
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await page.screenshot({ path: info.outputPath('reference-volume-average.png') });
+  for (const theme of ['dark', 'light']) {
+    await page.evaluate(async (name) => {
+      const path = '/examples/yfinance/src/ui.js';
+      (await import(path)).setTheme(name);
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    }, theme);
+    const box = (await page.locator('#chart2').boundingBox())!;
+    const histogram = await page.screenshot({ clip: { x: box.x + 2, y: box.y + box.height * 0.82,
+      width: box.width - 66, height: box.height * 0.14 } });
+    const pixels = await page.evaluate(async encoded => {
+      const bytes = Uint8Array.from(atob(encoded), value => value.charCodeAt(0));
+      const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+      const canvas = document.createElement('canvas');
+      canvas.width = bitmap.width; canvas.height = bitmap.height;
+      const context = canvas.getContext('2d')!;
+      context.drawImage(bitmap, 0, 0); bitmap.close();
+      const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
+      const counts = [0, 0];
+      for (let at = 0; at < data.length; at += 4) {
+        if (data[at] === 17 && data[at + 1] === 170 && data[at + 2] === 34) counts[0]++;
+        if (data[at] === 204 && data[at + 1] === 51 && data[at + 2] === 68) counts[1]++;
+      }
+      return counts;
+    }, histogram.toString('base64'));
+    expect(pixels[0], theme + ' up-volume pixels').toBeGreaterThan(20);
+    expect(pixels[1], theme + ' down-volume pixels').toBeGreaterThan(20);
+    if (theme === 'light') await page.screenshot({ path: info.outputPath('reference-volume-average-light.png') });
+  }
+  await page.getByRole('button', { name: 'Chart type', exact: true }).click();
+  await page.getByRole('button', { name: 'Renko', exact: true }).click();
+  await page.getByRole('button', { name: 'Chart settings (or right-click the chart)', exact: true }).click();
+  await page.locator('#cset-tabs').getByRole('button', { name: 'Volume', exact: true }).click();
+  await expect(page.locator('[data-key="volume.showMA"]')).toBeDisabled();
+  await page.locator('#cset-ok').click();
+  await page.getByRole('button', { name: 'Chart type', exact: true }).click();
+  await page.getByRole('button', { name: 'Candles', exact: true }).click();
+  expect(await page.evaluate(() => (window as any).__oac.app.volumeMA2.getData().length)).toBeGreaterThan(3);
+  await page.getByRole('button', { name: 'Chart type', exact: true }).click();
+  await page.getByRole('button', { name: 'Heikin Ashi', exact: true }).click();
+  expect(await page.evaluate(() => Boolean((window as any).__oac.app.volume2))).toBe(true);
+  const transformed = await page.evaluate(() => {
+    const app = (window as any).__oac.app, chart = app.chart2;
+    const style = { upColor: chart.theme().upColor, downColor: chart.theme().downColor, ...chart.primarySeriesInfo().style };
+    return { actual: app.volume2.getData().map((bar: any) => [bar.close, bar.color]),
+      expected: chart.primaryBars().map((bar: any) => [bar.volume, bar.close >= bar.open ? style.upColor : style.downColor]),
+      average: app.volumeMA2.getData().length, count: chart.primaryBars().length };
+  });
+  expect(transformed.actual).toEqual(transformed.expected);
+  expect(transformed.average).toBe(transformed.count);
+});
+
+test('transformed price readout uses displayed candles', async ({ page }) => {
+  await openDemo(page);
+  await page.getByRole('button', { name: 'Chart type', exact: true }).click();
+  await page.getByRole('button', { name: 'Heikin Ashi', exact: true }).click();
+  const reading = await page.evaluate(async () => {
+    const app = (window as any).__oac.app;
+    const path = '/examples/yfinance/src/ui.js';
+    const { fmt } = await import(path);
+    const bars = app.chart.primaryBars();
+    const svg = new DOMParser().parseFromString(app.chart.exportSVG(), 'image/svg+xml');
+    const texts = [...svg.querySelectorAll('text')].map(node => node.textContent);
+    return { actual: texts[texts.indexOf('C') + 1],
+      expected: fmt(bars.at(-1).close), volume: Boolean(app.volume) };
+  });
+  expect(reading.actual).toBe(reading.expected);
+  expect(reading.volume).toBe(true);
+});
+
+test('calendar timezone settings refold only their owner after confirmation', async ({ page }) => {
+  await openDemo(page);
+  await page.getByRole('button', { name: /Open a second, linked chart/ }).click();
+  await page.waitForFunction(() => (window as any).__oac?.app.chart2?.primaryBars().length > 0);
+  await page.locator('#chart2').focus();
+  await page.locator('#shellbar .pills').getByRole('button', { name: '1MO', exact: true }).click();
+  await page.waitForFunction(() => !(window as any).__oac.app.loading2 && (window as any).__oac.app.p2.interval === '1mo');
+  await page.evaluate(() => { (window as any).__settingsOwner = (window as any).__oac.app.chart2; });
+  const settings = page.getByRole('button', { name: 'Chart settings (or right-click the chart)', exact: true });
+  await settings.click();
+  await page.locator('#cset-tabs').getByRole('button', { name: 'Axes', exact: true }).click();
+  await page.locator('[data-key="time.timezone"]').selectOption('UTC');
+  await page.locator('#cset-cancel').click();
+  expect(await page.evaluate(() => (window as any).__oac.app.chart2 === (window as any).__settingsOwner)).toBe(true);
+  expect(await page.evaluate(() => (window as any).__oac.app.p2.timezone)).toBe('Asia/Kolkata');
+  await settings.click();
+  await page.locator('#cset-tabs').getByRole('button', { name: 'Axes', exact: true }).click();
+  await page.locator('[data-key="time.timezone"]').selectOption('UTC');
+  await page.locator('#cset-ok').click();
+  await page.waitForFunction(() => !(window as any).__oac.app.loading2 && (window as any).__oac.app.chart2 !== (window as any).__settingsOwner);
+  const firstTime = await page.evaluate(() => (window as any).__oac.app.chart2.primaryBars()[0].time);
+  const first = new Date(firstTime * 1000);
+  expect([first.getUTCDate(), first.getUTCHours(), first.getUTCMinutes()]).toEqual([1, 0, 0]);
+  expect(await page.evaluate(() => (window as any).__oac.app.chart.timezone())).toBe('Asia/Kolkata');
+  await page.getByRole('button', { name: 'Save layout', exact: true }).click();
+  await page.reload();
+  await page.waitForFunction(() => (window as any).__oac?.app.chart2?.primaryBars().length > 0 && !(window as any).__oac.app.restoringSecondary);
+  expect(await page.evaluate(() => (window as any).__oac.app.chart2.primaryBars()[0].time)).toBe(firstTime);
+  expect(await page.evaluate(() => (window as any).__oac.app.chart2.timezone())).toBe('UTC');
+});
+
+test('volume and daily readout follow the replay prefix without future readings', async ({ page }) => {
+  await openDemo(page);
+  const evidence = await page.evaluate(async () => {
+    const { app } = (window as any).__oac;
+    const volumePath = '/examples/yfinance/src/volume.js';
+    const replayPath = '/examples/yfinance/src/replay.js';
+    const statusPath = '/examples/yfinance/src/status.js';
+    const volume = await import(volumePath), replay = await import(replayPath), status = await import(statusPath);
+    volume.applyVolumeSettings(1, { 'volume.showMA': true, 'volume.maPeriod': 3 });
+    const count = app.chart.primaryBars().length;
+    await replay.startReplayAt(10);
+    const samples = [];
+    const record = () => {
+      const bars = app.chart.primaryBars();
+      const expected = volume.volumeAverage(bars.map((bar: any) => ({ time: bar.time, close: bar.volume })), 3);
+      samples.push({ times: bars.map((bar: any) => bar.time), volume: app.volume.getData(),
+        average: app.volumeMA.getData(), expected, amounts: bars.map((bar: any) => bar.volume),
+        reading: status.dayChangeReading(bars, app.chart.timezone())?.text,
+        supplied: app.symbolLegend.options().status().lastDayChange?.text,
+        svg: app.chart.exportSVG() });
+    };
+    record();
+    app.replay.step(); record();
+    app.replay.stepBack(); record();
+    app.replay.seek(30); record();
+    replay.exitReplay();
+    return { samples, count, restored: app.volume.getData().length, restoredAverage: app.volumeMA.getData().length };
+  });
+  for (const sample of evidence.samples) {
+    expect(sample.times.length).toBeGreaterThan(2);
+    expect(sample.times.length).toBeLessThan(evidence.count);
+    expect(sample.volume.map((bar: any) => bar.time)).toEqual(sample.times);
+    expect(sample.volume.map((bar: any) => bar.close)).toEqual(sample.amounts);
+    expect(sample.average.map((bar: any) => bar.close)).toEqual(sample.expected.map((bar: any) => bar.close));
+    expect(sample.reading).toBeTruthy();
+    expect(sample.supplied).toBe(sample.reading);
+    expect(sample.svg).toContain(sample.reading!);
+  }
+  expect(evidence.restored).toBe(evidence.count);
+  expect(evidence.restoredAverage).toBe(evidence.count);
+});
+
 test('secondary requests cancel stale history and retain the last saved source during loading', async ({ page }) => {
   await page.setViewportSize({ width: 1360, height: 900 });
   await openDemo(page);
   await page.getByRole('button', { name: /Open a second, linked chart/ }).click();
-  await page.waitForFunction(() => (window as any).__oac.app.chart2?.primaryBars().length > 0);
+  await page.waitForFunction(() => (window as any).__oac?.app.chart2?.primaryBars().length > 0);
   await page.locator('#chart2').focus();
   await page.getByRole('button', { name: 'Save layout', exact: true }).click();
   let release: (() => void) | undefined;
@@ -185,7 +464,7 @@ test('reference interval sync is optional and follows the selected chart', async
   await page.setViewportSize({ width: 1360, height: 900 });
   await openDemo(page);
   await page.getByRole('button', { name: /Open a second, linked chart/ }).click();
-  await page.waitForFunction(() => (window as any).__oac.app.chart2?.primaryBars().length > 0);
+  await page.waitForFunction(() => (window as any).__oac?.app.chart2?.primaryBars().length > 0);
   expect(await page.evaluate(() => (window as any).__oac.app.linkGroup.options().interval)).toBe(false);
   await page.locator('#chart2').focus();
   await page.getByRole('button', { name: /^Chart linking \(/ }).click();
@@ -227,7 +506,7 @@ for (const pane of [1, 2]) {
     await openDemo(page);
     if (pane === 2) {
       await page.getByRole('button', { name: /Open a second, linked chart/ }).click();
-      await page.waitForFunction(() => (window as any).__oac.app.chart2?.primaryBars().length > 0);
+      await page.waitForFunction(() => (window as any).__oac?.app.chart2?.primaryBars().length > 0);
     }
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     const point = await page.evaluate(pane => {
@@ -409,7 +688,7 @@ test('reference second-chart alerts restore on reload and stay scoped to that ch
   await page.setViewportSize({ width: 1280, height: 850 });
   await openDemo(page);
   await page.getByRole('button', { name: /Open a second, linked chart/ }).click();
-  await page.waitForFunction(() => (window as any).__oac.app.chart2?.primaryBars().length > 0);
+  await page.waitForFunction(() => (window as any).__oac?.app.chart2?.primaryBars().length > 0);
   await page.evaluate(() => { (window as any).__oac.app.focusPane = 2; });
   await page.getByRole('button', { name: 'Alerts', exact: true }).click();
   await page.getByRole('button', { name: 'Create alert', exact: true }).click();

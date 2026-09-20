@@ -114,7 +114,7 @@ input[type=color]:hover { border-color: var(--bd-hover); }
 input[type=color]::-webkit-color-swatch-wrapper { padding: 3px; }
 input[type=color]::-webkit-color-swatch { border: 1px solid var(--swatch-bd); border-radius: 4px; }
 input[type=color]::-moz-color-swatch { border: 1px solid var(--swatch-bd); border-radius: 4px; }
-input.swatch { width: 26px; height: 26px; flex: none; }
+input.swatch { width: 26px; height: 26px; flex: none; color: transparent; caret-color: transparent; }
 /* A number field's spinner is another OS plate; the keyboard still steps it. */
 input[type=number] { -moz-appearance: textfield; appearance: textfield; }
 input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button {

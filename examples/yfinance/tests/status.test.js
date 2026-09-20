@@ -62,6 +62,17 @@ describe('status-line readings', () => {
   });
   afterEach(() => { vi.useRealTimers(); });
 
+  it('reads a secondary instrument and its own bars without changing the primary context', () => {
+    app.req = { symbol: '^FTSE' };
+    const day = Date.UTC(2024, 0, 2, 12) / 1000;
+    const secondary = [flatBar(day, 200), flatBar(day + 86400, 210)];
+    expect(marketStatusReading('BTC-USD')).toEqual({ text: 'Open 24x7', color: UP });
+    expect(previousSessionClose(secondary, 'UTC')).toBe(200);
+    expect(dayChangeReading(secondary, 'UTC')).toEqual({ label: '1D', text: '+10.00 (+5.00%)', color: UP });
+    expect(marketStatusReading()).toBeUndefined();
+    expect(previousSessionClose()).toBeNull();
+  });
+
   it('reports the market state, or nothing for a venue without hours', () => {
     vi.useFakeTimers({ now: KOLKATA_MORNING });
     app.req = { symbol: 'RELIANCE.NS' };

@@ -19,17 +19,17 @@ import { isExpression, fetchExpressionBars, mountOperatorKeypad, referenceDataCo
 import { initStatus, nameOf, symbolStatus } from './status.js';
 import { DEFAULT_TZ, initTimezone } from './timezone.js';
 import { initAxisChrome, applyAxisChrome, applyStatusLineChoice, applyTradeChoice } from './axis-chrome.js';
-import { initVolume, volumeShown, setVolumeShown, setLegend } from './volume.js';
+import { initVolume, attachVolume, refreshVolume, setVolumeShown, setLegend } from './volume.js';
 import {
   initOrders, saveState, restoreState, cancelOrder, attachOrderLines, removeAllOrders,
   updatePositionLine, restyleTradeChrome, clearPosition, executionAllowed,
 } from './orders.js';
 import { initBracket, attachBracketLines, setBracketPrice, updateBracket, removeBracket } from './bracket.js';
 import { initIndicators, fillIndicatorPicker, renderIndicatorChips, openSettings } from './indicators.js';
-import { chartDecorationsForRebuild, initChartSettings } from './chart-settings.js';
+import { chartDecorationsForRebuild, initChartSettings, restorePrimaryStyle } from './chart-settings.js';
 import { initCompare, attachComparison, removeComparison, syncComparisons } from './compare.js';
 import { initSnapshot } from './snapshot.js';
-import { initReplay, exitReplay, syncReplayBar, lastBar, movePick, startReplayAt } from './replay.js';
+import { initReplay, exitReplay, syncReplayBar, movePick, startReplayAt } from './replay.js';
 import { initSplit, joinLink } from './split.js';
 import { initLink } from './link.js';
 import { initClipboard } from './clipboard.js';
@@ -196,7 +196,9 @@ function render({ keepView = true } = {}) {
   // titles, the session state and the change since the previous close. The
   // legend draws nothing for a field with no data, so these switches are live
   // only because this hands them something.
-  app.symbolLegend = new PaneLegend({ id: 'symbol', title: '', params: '', row: 0, actions: [], status: symbolStatus });
+  app.symbolLegend = new PaneLegend({ id: 'symbol', title: '', params: '', row: 0, actions: [],
+    status: () => symbolStatus({ symbol: app.req.symbol, bars: app.chart.primaryBars(), timezone: app.chart.timezone() }),
+  });
   app.chart.addPrimitive(app.symbolLegend, 0);
 
   // Previous close, session high/low and the rest. Off the namespace, so a
@@ -213,8 +215,8 @@ function render({ keepView = true } = {}) {
   el('pfmode').hidden = sel !== 't:point-figure';
 
   // Family-B transforms replace the plotted series with derived elements, so
-  // the volume pane and trading overlay are hidden for them (a Renko brick or
-  // a P&F column has no single source bar to hang volume off).
+  // Trading uses real prices. Volume also needs a source-bar mapping, which
+  // Heikin Ashi retains but price-bucket transforms do not provide.
   const { type, data } = isTransform
     ? applyTransform(sel.slice(2), app.currentBars)
     : { type: sel, data: app.currentBars };
@@ -236,40 +238,12 @@ function render({ keepView = true } = {}) {
   // so plainly. A real host reads it from its own instrument master, the way
   // OpenAlgo reads tick_size out of its symbol table, rather than guessing.
   app.chart.setPriceScaleOptions({ minMove: tickFor(app.req.symbol) });
+  attachVolume(1, !isTransform || sel === 't:heikin-ashi');
   if (!isTransform) {
-    // Volume rides an OVERLAY price scale inside the price pane
-    // (priceScaleId: '') rather than a pane of its own: it autoscales
-    // independently but draws no axis, so the right-hand column stays a
-    // clean price ladder instead of stacking a second numeric scale. The
-    // 82% top margin pins the bars to the bottom fifth, and the `volume`
-    // price format renders 200M rather than 200000000.
-    app.volume = app.chart.addSeries('histogram', {
-      paneIndex: 0,
-      priceScaleId: '',
-      style: { color: '#33415e', base: 0 },
-      priceFormat: { type: 'volume' },
-    });
-    app.volume.priceScale().setOptions({ marginTop: 0.82, marginBottom: 0 });
-    // A rebuild makes a fresh series, so the checkbox has to be re-applied
-    // rather than assumed -- a chart-type switch would show it again.
-    if (!volumeShown()) app.volume.applyOptions({ visible: false });
-    app.volume.setData(app.currentBars.map((b) => ({ time: b.time, open: 0, high: b.volume, low: 0, close: b.volume })));
-    // The eye is the only control the volume histogram has on the chart
-    // itself, and it is the one a reader reaches for: the row is already
-    // sitting over the bars it governs. No trash alongside it, because
-    // volume here is a fixture of the price pane rather than a study that
-    // can be re-added from a list, so a delete would only be a second
-    // spelling of hide.
-    app.volLegend = new PaneLegend({
-      id: 'volume', title: 'Vol', params: '', actions: ['hide'], hidden: !volumeShown(),
-    });
-    app.chart.addPrimitive(app.volLegend, 0);
-    app.markersApi = app.price.createMarkers(); // executed-fill arrows
+    app.markersApi = app.price.createMarkers();
     app.markersApi.setMarkers(app.fills);
   } else {
-    app.volume = null;
-    app.markersApi = null; // the old handle belongs to the destroyed chart
-    app.volLegend = null;  // transforms have no per-bar volume to report
+    app.markersApi = null;
   }
 
   // Indicators come from the lazy 'openalgo-charts/indicators' tier. The chart
@@ -292,6 +266,8 @@ function render({ keepView = true } = {}) {
     // The new series type is the user's selection; carry studies and anchors
     // through the engine's ordered restore without applying the old series style.
     app.chart.restoreState({ ...rebuildState, series: [] });
+    restorePrimaryStyle(app.chart, rebuildState);
+    refreshVolume(1);
     renderIndicatorChips();
   }
 
@@ -311,7 +287,7 @@ function render({ keepView = true } = {}) {
     if (id === 'position::close') { clearPosition(); saveState(); el('status').textContent = 'position closed'; return; }
     // The volume row's eye. Ahead of the `::close` fallthrough below, which
     // reads any other `::close` as an order line's cancel box.
-    if (id === 'volume::hide') { setVolumeShown(!volumeShown()); return; }
+    if (id === 'volume::hide') return;
     // A comparison's legend row carries the same hide/close buttons every
     // other source's row does, so route them before the order lines.
     if (id.startsWith('cmp:')) {
@@ -366,7 +342,7 @@ function render({ keepView = true } = {}) {
   // OHLC legend tracks the crosshair. The position P&L does NOT - it marks to
   // the LTP (the latest close here; with a live feed, update it on each tick).
   app.chart.subscribeCrosshairMove((e) => {
-    setLegend(e.bar ?? lastBar());
+    setLegend(e.bar ?? app.chart.primaryBars().at(-1));
     movePick(e.index);
   });
   // The pick is committed on a plain click. `subscribeClick` reports the
@@ -375,7 +351,7 @@ function render({ keepView = true } = {}) {
   el('chart').addEventListener('click', () => {
     if (app.replayPicking && app.replayPickIndex !== null) startReplayAt(app.replayPickIndex);
   });
-  setLegend(lastBar());
+  setLegend(app.chart.primaryBars().at(-1));
   // Last, because the chart that just replaced the destroyed one has to be
   // the one in the group: the old entry is a corpse the group prunes on its
   // next broadcast, and a linked grid that stops following after a
@@ -532,7 +508,7 @@ el('vgrid').addEventListener('change', applyGrid);
 el('hgrid').addEventListener('change', applyGrid);
 // Volume is hidden, not removed: the series keeps its data and its overlay
 // price scale, so switching it back on is instant.
-el('volshow').addEventListener('change', () => setVolumeShown(el('volshow').checked));
+el('volshow').addEventListener('change', () => setVolumeShown(el('volshow').checked, 1));
 initPersist(app);
 
 // Escape is the overlay stack's (ui.js): one layer per press, each closed

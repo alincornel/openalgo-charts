@@ -410,7 +410,7 @@ export function renderToolbar() {
   bar.appendChild(sell);
 
   bar.appendChild(divider());
-  bar.appendChild(iconBtn('gear', 'Chart settings (or right-click the chart)', () => openChartSettings()));
+  bar.appendChild(iconBtn('gear', 'Chart settings (or right-click the chart)', () => openChartSettings(undefined, target)));
   bar.appendChild(iconBtn('save', 'Save layout', () => el('lsave').click()));
   bar.appendChild(iconBtn('restore', 'Restore layout', () => el('lload').click()));
   // The layout as a file, both ways. The legacy buttons own the work

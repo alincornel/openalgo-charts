@@ -9,6 +9,7 @@ import { removeBracket } from './bracket.js';
 import { clipboardAction } from './clipboard.js';
 import { autosave } from './persist.js';
 import { alertContextEntries } from './alerts.js';
+import { capturePaneTarget } from './pane-target.js';
 
 // Price-level family (previous close, session extremes, extended hours,
 // bid/ask). Read off the namespace for the same reason as the block above:
@@ -30,17 +31,26 @@ let axSub = null;
 let ctxPrice = 0;
 let ctxIndicator = null;   // instance id when the pointer was over an indicator
 let ctxAlerts = [];
+let ctxOwner = null;
 export const hideCtx = () => { ctxMenu.hidden = true; };
 
 export function openContextMenu(e, pane = 1) {
+  const owner = capturePaneTarget(app, pane);
+  if (!owner) return;
   if (pane === 2) {
     hideCtx(); closeAxisMenu();
     const rect = el('chart2').getBoundingClientRect();
     const rows = alertContextEntries(app, e, 2);
+    rows.push({ label: 'Chart settings...', onSelect: () => openChartSettings(undefined, owner) });
+    if (app.volume2) rows.push({ label: 'Volume', on: volumeShown(2),
+      onSelect: () => { if (owner.current()) setVolumeShown(!volumeShown(2), 2); } });
+    if (e.target?.kind === 'indicator') rows.push({ label: 'Study settings...',
+      onSelect: () => openSettings(e.target.instanceId, owner) });
     if (rows.length) popupMenu({ getBoundingClientRect: () => ({ left: rect.left + e.point.x, bottom: rect.top + e.point.y }) }, rows, { role: 'menu' });
     return;
   }
   closeMenu();
+  ctxOwner = owner;
   const rect = el('chart').getBoundingClientRect();
   const target = e.target || { kind: 'empty' };
   // A price ladder gets its own menu. The chart is what knows a click landed
@@ -110,8 +120,8 @@ export function openContextMenu(e, pane = 1) {
   const rowVol = ctxMenu.querySelector('[data-act="volshow"]');
   rowVol.hidden = !app.volume;
   ctxMenu.querySelector('hr[data-sec="vol"]').hidden = !app.volume;
-  rowVol.classList.toggle('is-on', volumeShown());
-  rowVol.querySelector('em').textContent = volumeShown() ? 'Shown' : 'Hidden';
+  rowVol.classList.toggle('is-on', volumeShown(1));
+  rowVol.querySelector('em').textContent = volumeShown(1) ? 'Shown' : 'Hidden';
 
   // Unhide first, then measure: the menu's height depends on which rows
   // above survived, so a fixed clamp would be wrong for most of them.
@@ -277,7 +287,7 @@ function paintAxisMenu() {
   axMenu.appendChild(axSeparator());
   add({
     label: 'Axis settings...',
-    onSelect: () => { closeAxisMenu(); openChartSettings('axes'); },
+    onSelect: () => { closeAxisMenu(); openChartSettings('axes', ctxOwner); },
   });
 }
 
@@ -604,9 +614,9 @@ export function initMenus(a) {
       clipboardAction(act);
       return;
     }
-    if (act === 'volshow') { setVolumeShown(!volumeShown()); return; }
-    if (act === 'chartset') { openChartSettings(); return; }
-    if (act === 'indset') { if (ctxIndicator) openSettings(ctxIndicator); return; }
+    if (act === 'volshow') { if (ctxOwner?.current()) setVolumeShown(!volumeShown(1), 1); return; }
+    if (act === 'chartset') { openChartSettings(undefined, ctxOwner); return; }
+    if (act === 'indset') { if (ctxIndicator) openSettings(ctxIndicator, ctxOwner); return; }
     placeOrder(btn.getAttribute('data-side'), btn.getAttribute('data-type'), ctxPrice);
   });
 

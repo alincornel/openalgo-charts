@@ -157,6 +157,12 @@ function inputField(host, key, kind, spec, value, onChange, unavailable) {
     field.type = 'color';
     field.className = 'swatch';        // a 26px square, not a 140px block
     field.value = String(value ?? '#000000');
+    // Some engines paint a text fallback for the native colour control.
+    // Keep its actual value visible as the square's background in every engine.
+    const paintColor = () => { field.style.backgroundColor = field.value; };
+    paintColor();
+    field.addEventListener('input', paintColor);
+    field.addEventListener('change', paintColor);
   } else {
     field = document.createElement('input');
     field.type = kind === 'number' ? 'number' : 'text';

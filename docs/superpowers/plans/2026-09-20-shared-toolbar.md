@@ -174,3 +174,66 @@ Task 2 remains in progress for chart settings/readout parity, volume controls,
 comparisons, replay and fullscreen ownership. Full reference workspace/template
 work, F8 shared replay, broader production gates, endurance, final authenticated
 broker checks and release/publication remain open. Version 2.4.5 is unpublished.
+
+## Task 2 settings, readout and volume checkpoint
+
+Chart settings now capture their selected chart. Live edits, Cancel, defaults,
+context-menu entry and owner destruction use that target; incomplete history
+cannot open the editor, and autosave skips unconfirmed edits. Secondary settings
+retain their own timezone. History captures its folding timezone before awaiting
+the feed. Accepting a changed calendar timezone refolds only its owner; Cancel
+does not start a new request. A saved secondary timezone is read before history
+is folded on reload. Host-owned primary series styles are now reapplied when the
+saved and live series types match, fixing lost candle colours on reload.
+
+Both charts have independent Volume controls for visibility, matching candle
+colours, and moving-average period, colour, thickness and style. The histogram
+and average share a scale. Missing values and warmup remain gaps. Tail updates
+recompute only the averaging window. Displayed primary data owns the derived
+volume, so replay seek/step/back and forming updates never display a final-volume
+snapshot ahead of the current price bars. Saved volume settings survive rebuild,
+reload and switching through an unsupported transform. Heikin Ashi retains its
+volume and follows its displayed candle direction; other price-bucket transforms
+disable the controls with a reason.
+
+Readouts use each chart's instrument, displayed bars and zone. Regressions caught
+the primary daily-change status reading future history during replay and the
+primary transformed close displaying the original candle. Both now use displayed
+bars. Screenshot review also found a fresh split keeping the empty chart's
+viewport, which showed only its first few bars. Initial history now fits its own
+content; saved non-empty windows remain preserved. A WebKit colour-input fallback
+showed clipped text instead of a swatch; the input now paints its current colour
+in every tested engine.
+
+Final evidence: 267 example tests in 22 files, 64 reference browser tests,
+repository types and lint pass. Screenshots of settings and dark/light volume
+charts were inspected across engines, including the corrected WebKit swatch.
+Browser tests assert actual candle-direction pixels and colour-control pixels,
+average warmup/replacement/append/shared-scale, Heikin Ashi direction, hidden
+volume, transformed unavailability, independent settings/Cancel, calendar
+confirmation/reload, viewport restore and replay-prefix data/readout isolation.
+The first whole-suite run after adding the transformed readout used an outdated
+OI chart double; its public primaryBars method was added. One browser reload wait
+ran before the page test handle existed; it now waits for that handle safely.
+Neither was a reason to weaken the OI or browser assertions.
+
+Artifacts: `reference-settings-volume-final-{demo,browser,types,lint}.log` and
+`artifacts/candidate/reference-settings-volume-final-browser/`. Failing regressions
+are recorded in `reference-settings-red-{unit,browser}.log`,
+`reference-volume-red-{unit,browser}.log`, `reference-volume-replay-red.log`,
+`reference-style-restore-red.log`, `reference-initial-split-view-red.log`,
+`reference-color-control-red.log`, `reference-ha-volume-red.log` and
+`reference-transform-readout-red.log`. The existing runner colour warning remains.
+Example JavaScript is excluded by root lint; module, unit and browser checks
+exercise it. No library/package/consumer changes or real orders in this phase.
+
+Static resource review: derived-volume subscriptions and legends belong to their
+chart, secondary reading caches are cleared on closure, the theme listener belongs
+to the page, the session memo is weakly held, and closing settings removes its
+destroy listener. This is not measured endurance evidence.
+
+Task 2 remains open for comparison, replay and fullscreen ownership and compact
+toolbar/readout polish. Reference primary request/type and named workspace/template
+restoration, including the initial folded-timezone path, still need the broader
+F1/F2 work. Shared replay is still F8 and opt-in. Full production gates, endurance,
+final authenticated read-only broker validation and 2.4.5 publication remain open.

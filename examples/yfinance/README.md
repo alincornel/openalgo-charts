@@ -316,9 +316,24 @@ legs. Loading and failed history remain silent for alerts and do not overwrite
 the saved layout. The reference trading simulation belongs to chart 1; its Buy
 and Sell controls are disabled while chart 2 is selected.
 
-Further chart-settings/readout parity, volume controls, comparison and replay
-routing remain in development. Shared replay is a separate opt-in feature;
-existing per-chart library defaults remain unchanged.
+Chart settings keep the chart that opened the dialog, including when focus
+changes. Cancel restores that chart's edited fields; removing it closes the
+dialog. Each chart retains its own timezone, readout options and saved price
+style. For calendar intervals, accepting a timezone change rebuilds the owning
+chart's buckets. Cancel leaves the original history intact.
+
+The Volume settings tab controls each chart's visibility, candle colours and
+moving average (period, colour, thickness and line style). The average shares
+the histogram's scale, keeps warmup and missing-volume gaps, and follows live
+replacement/append and the displayed replay prefix. Its settings survive reload
+and returning from a transformed chart. Heikin Ashi retains volume and matches
+its displayed candle colours. Transforms without a per-bar volume mapping
+disable these controls with a reason. Volume colours follow candle
+overrides, previous-close direction and theme changes. The daily-change readout
+also uses displayed bars during replay.
+
+Comparison, replay and fullscreen routing remain in development. Shared replay
+is a separate opt-in feature; existing per-chart library defaults are unchanged.
 
 Alerts default to confirmed bar closes. Intrabar touch can fire on a wick that
 the provider later removes from final history. Absent study readings remain

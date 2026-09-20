@@ -323,6 +323,7 @@ export function abortFetch(slot) {
  * own AbortSignal for anything else.
  */
 export async function fetchBars(symbol, interval, period, opts) {
+  const timezone = opts?.timezone || app.chartTimezone;
   // Validated before anything is built from it: `barsRequest` would fall
   // back to a day for a code it cannot size, and the wire would then draw
   // whatever came back under the label that was asked for.
@@ -368,7 +369,7 @@ export async function fetchBars(symbol, interval, period, opts) {
     newestSeen.set(seenKey(symbol, interval), { wire, time: bars[bars.length - 1].time });
     syncStaleBadge();
   }
-  return fold ? foldToBuckets(bars, fold.bucketing, app.chartTimezone) : bars;
+  return fold ? foldToBuckets(bars, fold.bucketing, timezone) : bars;
 }
 
 /**
