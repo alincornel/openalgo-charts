@@ -11,6 +11,7 @@
  * Add --workspaces true for complete named chart grids.
  * Add --oi true for history capability, readouts, studies and persistence.
  * Add --alerts true for source controls, live delivery, persistence and replay guards.
+ * Add --consumer-checks /absolute/checks.mjs for additional checkTradingWorkspace checks.
  * Use --browser chromium|firefox|webkit to select the rendering engine.
  *
  * No backend is started. Vite proxies are removed and every API/WS is mocked.
@@ -212,12 +213,18 @@ try {
     return route.fulfill({ status: 200, json });
   });
   const sockets = [];
+  const subscriptions = new Map();
   await context.routeWebSocket('**/*', (socket) => {
     sockets.push(socket);
+    subscriptions.set(socket, new Set());
+    socket.onClose(() => subscriptions.delete(socket));
     socket.onMessage((wire) => {
       let message;
       try { message = JSON.parse(wire.toString()); } catch { return; }
       report.websocket.push(message);
+      const key = `${message.mode}:${message.symbol}:${message.exchange}`;
+      if (message.action === 'subscribe') subscriptions.get(socket)?.add(key);
+      if (message.action === 'unsubscribe') subscriptions.get(socket)?.delete(key);
       if (message.action === 'authenticate') socket.send(JSON.stringify({ type: 'auth', status: 'success' }));
       else if (message.action === 'ping') socket.send(JSON.stringify({ type: 'pong' }));
       else socket.send(JSON.stringify({ type: message.action, status: 'success' }));
@@ -239,6 +246,9 @@ try {
   const waitDialogClosed = () => page.waitForFunction(() => !document.querySelector('[role="dialog"]')
     && getComputedStyle(document.body).pointerEvents !== 'none');
   const reload = async () => {
+    // Let state changes from the preceding interaction paint before automation
+    // interrupts the document with navigation and its visibility event.
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     reloading = true;
     try { return await page.reload(); }
     finally { reloading = false; }
@@ -250,6 +260,17 @@ try {
       } })); } catch { /* a StrictMode terminal was destroyed */ }
     }
     await page.waitForFunction((price) => window.__compatTerminals?.some((t) => !t.destroyed && t.lastLtp === price), ltp);
+  };
+  const waitForSubscription = (symbol, exchange, mode, count = 1) => expect.poll(() =>
+    [...subscriptions.values()].filter(items => items.has(`${mode}:${symbol}:${exchange}`)).length).toBeGreaterThanOrEqual(count);
+  const sendLtp = async (symbol, exchange, ltp) => {
+    await waitForSubscription(symbol, exchange, 1);
+    for (const [socket, items] of subscriptions) {
+      if (items.has(`1:${symbol}:${exchange}`)) socket.send(JSON.stringify({
+        type: 'market_data', symbol, exchange, mode: 1, data: { ltp, timestamp: fixedNow },
+      }));
+    }
+    await page.waitForFunction(price => window.__compatTerminals?.some(t => !t.destroyed && t.lastLtp === price), ltp);
   };
   await page.goto(`${origin}/trading`);
   if (args.workspaces === 'true') {
@@ -931,6 +952,14 @@ try {
   if (args.oi === 'true') await checkOpenInterest({ page, terminal, check, reload, sendDepth, screenshot: args.screenshot, orderCount: () => orderCounter });
   if (args.alerts === 'true') await checkAlerts({ page, terminal, check, reload, sendDepth, screenshot: args.screenshot, orderCount: () => orderCounter });
   if (args.workspaces === 'true') await checkWorkspaces({ page, check, reload, screenshot: args.screenshot, orderCount: () => orderCounter, sendDepth });
+  if (args['consumer-checks']) {
+    const file = resolve(args['consumer-checks']);
+    report.consumerChecks = { file, sha256: createHash('sha256').update(await readFile(file)).digest('hex') };
+    const { checkTradingWorkspace } = await import(pathToFileURL(file).href);
+    assert.equal(typeof checkTradingWorkspace, 'function', 'Consumer module must export checkTradingWorkspace');
+    await checkTradingWorkspace({ page, check, expect, report, reload, sendDepth, sendLtp, waitForSubscription,
+      screenshot: args.screenshot, output: args.output, orderCount: () => orderCounter });
+  }
   await check('no browser runtime errors or external HTTP', async () => {
     await Promise.all(consoleReads);
     // WebKit reports fetches cancelled/refused on a departing document as

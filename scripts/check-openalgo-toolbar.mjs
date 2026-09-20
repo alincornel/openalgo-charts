@@ -7,7 +7,8 @@ export async function checkToolbar({ page, check, screenshot, orderCount }) {
   const toolbar = page.getByRole('toolbar', { name: 'Chart controls' });
   const state = () => page.evaluate(() => window.__compatTerminals.filter(t => !t.destroyed && t.chart).map(t => ({
     key: t.sk, symbol: t.sym?.symbol, interval: t.interval, type: t.ctype,
-    picking: t.replayPickingBar(), studies: t.chart.indicators().map(s => s.indicatorId),
+    picking: t.replayPickingBar(), replay: t.replayActive(), locked: t.workspaceReplayLocked,
+    studies: t.chart.indicators().map(s => s.indicatorId),
   })));
   const ready = () => page.waitForFunction(() => window.__compatTerminals.filter(t => !t.destroyed).every(t =>
     t.chart && t.price?.getData().length && !t.dataUnavailable() && t.chart.getDataContext()?.interval === t.interval));
@@ -64,8 +65,32 @@ export async function checkToolbar({ page, check, screenshot, orderCount }) {
     await page.locator('[data-sonner-toast] [data-close-button]').last().click();
     await toolbar.getByRole('button', { name: 'Replay', exact: true }).click();
     await expect.poll(async () => (await state()).map(pane => pane.picking)).toEqual([false, true]);
-    await toolbar.getByTitle('Cancel bar selection', { exact: true }).click();
+    const replay = page.getByRole('region', { name: 'Workspace replay' });
+    await expect(replay).toHaveCount(1);
+    await expect(replay.getByLabel('Replay scope')).toHaveValue('focused');
+    assert.deepEqual((await state()).map(pane => pane.locked), [true, true]);
+    await replay.getByRole('button', { name: 'Cancel replay', exact: true }).click();
     await expect.poll(async () => (await state()).map(pane => pane.picking)).toEqual([false, false]);
+    await expect(replay).toHaveCount(0);
+    assert.deepEqual((await state()).map(pane => pane.locked), [false, false]);
+    await expect(page.getByRole('dialog', { name: 'Leave replay?' })).toHaveCount(0);
+    await toolbar.getByRole('button', { name: 'Replay', exact: true }).click();
+    await page.evaluate(() => window.__compatTerminals.find(t => !t.destroyed && t.sk === 'oa-trading-p1').commitReplayPick());
+    await expect.poll(async () => (await state()).map(pane => pane.replay)).toEqual([false, true]);
+    assert.deepEqual((await state()).map(pane => pane.locked), [true, true]);
+    await replay.getByRole('button', { name: 'Stop replay', exact: true }).click();
+    const confirmation = page.getByRole('dialog', { name: 'Leave replay?' });
+    await expect(confirmation).toBeVisible();
+    await confirmation.getByRole('button', { name: 'Stay', exact: true }).click();
+    await expect(confirmation).toHaveCount(0);
+    assert.deepEqual((await state()).map(pane => pane.replay), [false, true]);
+    await toolbar.getByTitle('Stop workspace replay', { exact: true }).click();
+    await expect(confirmation).toBeVisible();
+    await confirmation.getByRole('button', { name: 'Leave', exact: true }).click();
+    await expect(replay).toHaveCount(0);
+    assert.deepEqual((await state()).map(pane => pane.replay), [false, false]);
+    assert.deepEqual((await state()).map(pane => pane.locked), [false, false]);
+    assert.equal(orderCount(), ordersBefore);
   });
   await check('study controls add an indicator only to the selected chart', async () => {
     await toolbar.getByTitle('Indicators', { exact: true }).click();

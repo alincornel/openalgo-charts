@@ -284,3 +284,35 @@ were inspected. No site or package publication work remains for Charts 2.4.5.
 Remaining goal work is the published-package OpenAlgo consumer migration,
 comparisons/shared replay/CSV integration and final connected-broker validation.
 The score remains frozen and no live orders were placed.
+
+
+### OpenAlgo consumer acceptance and delivery
+
+The published-package consumer is committed as 6e914b354 on
+feat/production-chart-workspace and is under CI in
+https://github.com/marketcalls/openalgo/pull/2083. It adds comparison persistence,
+shared replay with workspace execution guards, selected-chart CSV and the final
+OI/alert/workspace integration. The canonical guide, changelog and indicator
+references describe the resulting controls.
+
+The frozen consumer passes 2403 frontend tests across 150 files, TypeScript,
+production build, lint and metadata/skill checks. Browser acceptance passes all
+201 checks, 67 each in Chromium, Firefox and WebKit. Screenshots were inspected;
+there are no unexpected console errors, runtime events or external HTTP. All 649
+recorded source/configuration/harness hashes remain unchanged. Reports are in
+D:/OpenAlgo-Voice/artifacts/consumer-245-final-browser-summary.json and the
+consumer-245-final-{engine}-acceptance files.
+
+The compatibility harness now supports consumer-owned acceptance modules,
+subscription-aware LTP delivery, shared replay controls and OI-unavailable text.
+A paint boundary before automated reload resolves the observed departing-document
+visibility warning; failed reports remain preserved and assertions are unchanged.
+No Charts engine, package, version or immutable release tag changed.
+
+Authenticated cash-history validation passes on the final production build with
+1440 historical bars plus one forming bar, blank OI and no invented study values.
+The interface reports the cash instrument's unavailable OI explicitly. Futures
+OI equality and final GitHub/actual-checkout rollout are still pending. The test
+session uses real broker history and the installation's 502 custom indicators;
+routed browser timings are not uninstrumented host performance evidence. No live
+orders were placed, saved chart state is preserved and the score remains frozen.

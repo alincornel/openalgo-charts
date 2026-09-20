@@ -33,6 +33,11 @@ export async function checkOpenInterest({ page, terminal, check, reload, sendDep
   await check('OI history removes cash placeholders and preserves futures zero and gaps', async () => {
     await terminal(async t => { t.stopReplay(); await t.loadSymbol({ symbol: 'BHEL', exchange: 'NSE' }); });
     assert.deepEqual(await terminal(t => ({ capability: t.chart.hasOpenInterest, any: t.rawBars.some(bar => 'oi' in bar) })), { capability: false, any: false });
+    await terminal(t => t.addIndicatorById('open-interest'));
+    const unavailable = page.locator('[data-sonner-toast]').filter({ hasText: 'Open interest is not available for this instrument.' });
+    await expect(unavailable).toBeVisible();
+    assert.doesNotMatch(await unavailable.innerText(), /needs more history|Widen the range/);
+    await unavailable.locator('[data-close-button]').click();
     await terminal(async (t, ids) => {
       await t.loadSymbol({ symbol: 'NIFTY29SEP26FUT', exchange: 'NFO' });
       t.setChartType('candlestick');
