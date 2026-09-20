@@ -10,6 +10,9 @@ Keep price alerts visible when switching chart timeframes.
 
 ### Fixed
 
+- Table cells clip text to their own bounds instead of drawing over adjacent
+  readings. `cellWidth: 'auto'` sizes each column from its widest cell.
+
 - Fixed price alert levels now remain visible across timeframes for the same
   symbol and exchange. On another timeframe, the label names the original
   timeframe and armed alerts show Paused. Triggered, disabled and expired
@@ -3817,7 +3820,7 @@ budget.
   labels, each independently toggleable.
 
   Original implementation written from the algorithm's published behaviour, per
-  ARCHITECTURE.md §0.1, not ported from any third-party source.
+  ARCHITECTURE.md Â§0.1, not ported from any third-party source.
 
 - **`IndicatorDescriptor.markers`**: an optional hook returning bar-anchored
   `SeriesMarker`s, run after every `calc` so it reads the values it just
@@ -3860,12 +3863,12 @@ correctly in every case below; the docs did not.
 - README: version (said 1.0.8), test counts (said 468 across 47 files, now 619
   across 50), and both size tables, which disagreed with each other because they
   were snapshots from different releases.
-- README + ARCHITECTURE.md §13a: the four stated **Footprint gaps are all
+- README + ARCHITECTURE.md Â§13a: the four stated **Footprint gaps are all
   stale**: the renderer is theme-driven, has `setOptions`, three display modes,
   and draws stacked imbalances. Replaced with the real remaining gap: only
   `Footprint` reads `rc.theme`; `VolumeProfile`, `MarketProfile` and
   `HorizontalProfile` do not.
-- README + ARCHITECTURE.md §13a: **overlay price scales are implemented**
+- README + ARCHITECTURE.md Â§13a: **overlay price scales are implemented**
   (`priceScaleId: ''`). Only `percentage` and `indexed-to-100` are absent.
 - `ChartOptions.theme` JSDoc said `darkTheme` was the default; `DEFAULT_THEME`
   is `lightTheme`. This one shipped in the typings.
@@ -4253,7 +4256,7 @@ and the fix for `path` / `polyline` being impossible to finish. 556 unit tests.
   still draggable. Previously they needed three clicks and drew nothing until
   the third.
 - **Position and Forecast readouts** are now chips rather than one terse line.
-  Position: `Target: <Δ> (<%>), Amount: <cash>` outside the target line,
+  Position: `Target: <Î”> (<%>), Amount: <cash>` outside the target line,
   the same for `Stop`, and `Qty` / `Risk/reward ratio` at the entry, each
   hugging its own line, so the layout reads the same for a long and a short.
   Forecast: the anchor price/date, the projected move with its duration and
@@ -4379,7 +4382,7 @@ hover-revealed zoom controls. 518 unit tests.
 
 - **Time navigator**: the zoom / step controls that live just above the time
   axis. Invisible until the pointer nears the bottom of the chart, then faded in
-  over `fadeSeconds`: `-` `+` to zoom, `‹` `›` to step exactly one bar.
+  over `fadeSeconds`: `-` `+` to zoom, `â€¹` `â€º` to step exactly one bar.
 
   The buttons run the *same* commands the keyboard does (`_runShortcut`), so the
   two paths cannot drift apart, and each tooltip reads its combo from the live
@@ -4691,7 +4694,7 @@ state, and pane chrome they need. Base engine ~32.7 KB Brotli, full package
 - **`chart.timeToCoordinate(time)` / `chart.coordinateToTime(x)`**, backed by
   new `DataLayer.indexToTimeFloat` / `timeToIndexFloat`. `indexToTime` only
   answers for indices that have a bar; anchoring to an arbitrary x needs a time
-  *between* bars too, which the gapless axis (§5.3) makes the common case,
+  *between* bars too, which the gapless axis (Â§5.3) makes the common case,
   since everything a weekend or session break collapsed lands there, and past
   the right edge, where projections live.
 - `SeriesStyle.markersOnly`: draw a line series' markers with no connecting
@@ -4700,8 +4703,8 @@ state, and pane chrome they need. Base engine ~32.7 KB Brotli, full package
   read path for anything recomputing over full history.
 
 - **P&F box-size modes.** `mode: 'fixed' | 'percent' | 'atr'`, `'percent'`
-  sizes the box at `price × percent / 100` and `'atr'` at
-  `ATR(atrPeriod) × atrMultiplier` (Wilder), both re-resolved each time a column
+  sizes the box at `price Ã— percent / 100` and `'atr'` at
+  `ATR(atrPeriod) Ã— atrMultiplier` (Wilder), both re-resolved each time a column
   opens, so the grid tracks price level and volatility.
 - **Columns carry their own geometry.** `PointFigureColumn` extends `Bar` with
   `boxSize` and `boxes`, and the renderer reads the box size from the column.
@@ -4743,7 +4746,7 @@ state, and pane chrome they need. Base engine ~32.7 KB Brotli, full package
 ## 1.0.5
 
 ### Fixed
-- The browser's native right-click **"Save image as…"** now saves the visible
+- The browser's native right-click **"Save image asâ€¦"** now saves the visible
   chart instead of a blank image. The chart renders as stacked canvases and the
   browser captures only the topmost (transparent overlay) layer, so on
   `contextmenu` the clicked pane's base layer is composited beneath its overlay
@@ -4781,7 +4784,7 @@ the order-update stream).
 - `WorkingOrderLine` shows fill progress (`3/10`) once partially filled, dims
   pending (un-acked) orders until the broker confirms, and gains a close (x) segment
   (`order:<id>::close`) plus a compact price-only axis tag.
-- `PositionMarker` renders the segmented group with live P&L (₹ and %) colored
+- `PositionMarker` renders the segmented group with live P&L (â‚¹ and %) colored
   by sign, a close (x) segment (`position:<symbol>::close`), and highlights on hover.
 - `BracketGroup` chips now include prices (`SL 2,850.00`, `TP 3,000.00`), the
   R:R chip is theme-aware, risk/reward zones derive from `theme.loss`/`profit`,
@@ -4801,7 +4804,7 @@ the order-update stream).
   keeps a slow poll only for reconciliation.
 - `chart.downloadScreenshot(filename?)`: public PNG export of the full
   composited chart (all panes + overlays); the screenshot shortcut now routes
-  through it. The browser's native right-click "Save image as…" only captures
+  through it. The browser's native right-click "Save image asâ€¦" only captures
   the transparent overlay layer.
 
 ### Fixed
@@ -4814,7 +4817,7 @@ the order-update stream).
   transformed element times instead of re-adding every raw timestamp to the
   shared axis (documented in Transforms).
 - `OpenAlgoTradeFeed` errors now include OpenAlgo's own message (e.g. "MIS
-  orders cannot be placed after square-off time…") instead of a bare HTTP
+  orders cannot be placed after square-off timeâ€¦") instead of a bare HTTP
   status code.
 - The crosshair is hidden while dragging an order line, the frozen crosshair
   at the grab point used to read as a phantom second line.

@@ -207,3 +207,75 @@ describe('ChartTable row weights', () => {
     expect(rec.ops.filter((o) => o.type === 'fillRect').map((o) => o.args[3])).toEqual([20, 10, 10]);
   });
 });
+
+describe('a cell stays inside its own cell', () => {
+  /**
+   * The reported case: a grid of readings where one column's text was wider
+   * than the column, so it was painted straight across the column beside it.
+   * Two numbers on top of each other, both unreadable, and nothing in the grid
+   * to say which belonged where.
+   */
+  const WIDE = [
+    [{ text: 'Moving averages' }, { text: 'Oscillators' }],
+    [{ text: 'SMA 20: 1244.95' }, { text: 'RSI: 27.22' }],
+  ]
+
+  it('clips a cell whose text is wider than its column', () => {
+    const { ctx, rec } = makeCtx();
+    const t = new ChartTable({ cellWidth: 40, fontSize: 11 });
+    t.setRows(WIDE);
+    t.draw(ctx, rc());
+    // One clip per drawn cell. Without it the text simply overflows, and the
+    // op stream is identical apart from these: that is why this asserts the
+    // clip and not the pixels.
+    const clips = rec.ops.filter((op) => op.type === 'clip').length;
+    const texts = rec.ops.filter((op) => op.type === 'fillText').length;
+    expect(texts).toBe(4);
+    expect(clips).toBeGreaterThanOrEqual(texts);
+  });
+
+  /** The width the grid actually painted, read off its own background fill. */
+  const drawnWidth = (
+    rows: readonly (readonly { text: string }[])[],
+    options: Partial<ConstructorParameters<typeof ChartTable>[0]>
+  ): number | null => {
+    const { ctx, rec } = makeCtx();
+    const t = new ChartTable({ background: '#101010', ...options });
+    t.setRows(rows);
+    t.draw(ctx, rc());
+    const fill = rec.ops.find((op) => op.type === 'fillRect');
+    return fill ? fill.args[2] : null;
+  };
+
+  it('measures each column to its widest cell when asked', () => {
+    // The fake context measures 6px per character, so the widths are known.
+    // 'Moving averages' is the widest of column 0 at 15 characters and
+    // 'Oscillators' the widest of column 1 at 11, plus padding for each.
+    const auto = drawnWidth(WIDE, { cellWidth: 'auto', fontSize: 11 });
+    const fixed = drawnWidth(WIDE, { cellWidth: 64, fontSize: 11 });
+    expect(auto).toBeGreaterThan(15 * 6 + 11 * 6);
+    expect(auto).toBeLessThan(15 * 6 + 11 * 6 + 40);
+    // The point of it: the two columns are sized differently, which a single
+    // number cannot do however it is chosen.
+    expect(auto).not.toBe(fixed);
+  });
+
+  it('gives an empty column a column of room', () => {
+    // A grid keeps the shape the caller declared. A column of blanks collapsing
+    // to nothing would silently turn a four column grid into a three.
+    const width = drawnWidth(
+      [
+        [{ text: 'A' }, { text: '' }],
+        [{ text: 'B' }, { text: '' }],
+      ],
+      { cellWidth: 'auto' }
+    );
+    expect(width).toBeGreaterThan(28);
+  });
+
+  it('still honours an explicit width, per column and uniform', () => {
+    // Auto is opt-in. A caller that measured its own content keeps control.
+    expect(drawnWidth(WIDE, { cellWidth: 50 })).toBe(100);
+    expect(drawnWidth(WIDE, { cellWidth: [30, 90] })).toBe(120);
+  });
+});
