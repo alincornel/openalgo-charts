@@ -233,10 +233,11 @@ export function contextMenuEntries(ctx: WidgetContext, e: ContextMenuEvent, hook
         run: () => { mountAlertEditor(ctx, undefined, { source: { kind: 'drawing', drawingId: hit.id } }); } });
     } else if (target.kind === 'indicator' && target.instanceId) {
       const instance = chart.indicators().find(item => item.id === target.instanceId);
-      const plot = instance && getIndicator(instance.indicatorId).plots.find(item => (item.overlay ? 0 : instance.paneIndex) === e.paneIndex);
+      const plot = instance && getIndicator(instance.indicatorId).plots.find(item =>
+        (item.overlay ? 0 : instance.paneIndex) === e.paneIndex && (target.plotKey === undefined || item.key === target.plotKey));
       if (instance && plot) out.push({ id: 'alert-indicator', label: 'Create study alert...', run: () => {
         const values = instance.values()[plot.key];
-        const value = values?.[chart.primaryBars().length - 1];
+        const value = values?.[e.index ?? chart.primaryBars().length - 1];
         mountAlertEditor(ctx, undefined, { source: { kind: 'indicator', instanceId: instance.id, plotKey: plot.key, value: value ?? NaN } });
       } });
     } else if (e.paneIndex === 0 && e.price !== null && Number.isFinite(e.price)) {

@@ -330,6 +330,22 @@ describe('widget alert list', () => {
 });
 
 describe('alert context actions', () => {
+  it('seeds the clicked plot and bar reading instead of the first plot or latest bar', () => {
+    const { w, root } = make();
+    w.series.setData([{ time: 1000, open: 100, high: 101, low: 99, close: 100, oi: 0 },
+      { time: 1060, open: 110, high: 111, low: 109, close: 110, oi: 20 }]);
+    const study = w.chart.addIndicator('widget-alert-study');
+    const event: ContextMenuEvent = { paneIndex: study.paneIndex, point: { x: 150, y: 80 },
+      price: 0, time: 1000, index: 0,
+      target: { kind: 'indicator', id: `indicator:${study.id}`, instanceId: study.id, plotKey: 'oi' },
+      preventDefault: () => {} };
+    const action = widget.contextMenuEntries(w.context, event)
+      .find(entry => 'id' in entry && entry.id === 'alert-indicator') as widget.MenuItem;
+    action.run!();
+    expect(field(root, 'plotKey').value).toBe('oi');
+    expect(field(root, 'value').value).toBe('0');
+  });
+
   it('seeds a price or drawing alert from its actual target, and keeps study-pane units separate', () => {
     const { w, root } = make();
     const event: ContextMenuEvent = { paneIndex: 0, point: { x: 150, y: 80 }, price: 107, time: 1000, index: 0,

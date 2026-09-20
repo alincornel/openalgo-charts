@@ -571,6 +571,8 @@ export interface ContextMenuTarget {
   id: string | null;
   /** Indicator instance id, when `kind` is 'indicator'. */
   instanceId?: string;
+  /** Exact plot key when a study's plotted series was hit rather than its legend. */
+  plotKey?: string;
   /** Series type, when `kind` is 'series'. */
   seriesType?: SeriesType;
   /** Which axis strip was hit, when `kind` is 'price-scale'. */
@@ -779,6 +781,7 @@ export class Chart {
   private readonly _firstDataId: { value: number | null } = { value: null };
   /** Handle + record of the primary price series (see `primarySeries`). */
   private _primary: { api: SeriesApi; record: SeriesRecord } | null = null;
+  private readonly _seriesRecords = new WeakMap<SeriesApi, SeriesRecord>();
   private readonly _indicators: IndicatorInstance[] = [];
   private _dataContext: Readonly<ChartDataContext> | undefined;
   private _barsProvider: IndicatorBarsProvider | null = null;
@@ -1223,6 +1226,7 @@ export class Chart {
       this._primary = { api, record };
       this.emit('objects:change', {});
     }
+    this._seriesRecords.set(api, record);
     return api;
   }
 
@@ -3622,8 +3626,17 @@ export class Chart {
       if (id.endsWith('::row')) return { kind: 'legend', id };
       return { kind: 'primitive', id };
     }
-    const type = index === null ? null : this._seriesAt(p.pane, index, p.localY);
-    return type === null ? { kind: 'empty', id: null } : { kind: 'series', id: null, seriesType: type };
+    const record = index === null ? null : this._seriesAt(p.pane, index, p.localY);
+    if (record === null) return { kind: 'empty', id: null };
+    for (const instance of this._indicators) {
+      for (const plot of getIndicator(instance.indicatorId).plots) {
+        const series = instance.series(plot.key);
+        if (series && this._seriesRecords.get(series) === record) {
+          return { kind: 'indicator', id: `indicator:${instance.id}`, instanceId: instance.id, plotKey: plot.key };
+        }
+      }
+    }
+    return { kind: 'series', id: null, seriesType: record.type };
   }
 
   /**
@@ -3644,11 +3657,14 @@ export class Chart {
    * autoscale extents for the bar under the cursor and test the band they span,
    * with a few px of slack so a 1px line is still a target.
    */
-  private _seriesAt(paneIndex: number, index: number, localY: number): SeriesType | null {
+  private _seriesAt(paneIndex: number, index: number, localY: number): SeriesRecord | null {
     const pane = this._panes[paneIndex];
     if (pane === undefined) return null;
     const tol = 3;
-    for (const record of pane.series()) {
+    // Later series paint above earlier series, so their context actions win overlaps.
+    const records = pane.series();
+    for (let position = records.length - 1; position >= 0; position--) {
+      const record = records[position];
       if (record.style.visible === false) continue;
       const bars = this._dataLayer.visibleBars(record.dataId, index, index);
       if (bars.length === 0) continue;
@@ -3657,7 +3673,7 @@ export class Chart {
       const scale = pane.scaleOf(record);
       const a = scale.priceToY(ext.max);
       const b = scale.priceToY(ext.min);
-      if (localY >= Math.min(a, b) - tol && localY <= Math.max(a, b) + tol) return record.type;
+      if (localY >= Math.min(a, b) - tol && localY <= Math.max(a, b) + tol) return record;
     }
     return null;
   }

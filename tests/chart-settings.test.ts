@@ -6,7 +6,7 @@ import {
   type ChartSettingsValue, type ChartSettingsValues,
   type ChartSettingsInput, type ChartSettingsColorPairInput,
 } from '../src/model/chart-settings';
-import type { IndicatorInput } from '../src/model/indicator-registry';
+import { registerIndicator, type IndicatorInput } from '../src/model/indicator-registry';
 import { PaneLegend } from '../src/primitives/pane-legend';
 import { ReplayController } from '../src/replay/controller';
 import type { IPrimitive } from '../src/primitives/primitive';
@@ -555,6 +555,12 @@ describe('settings survive getState / restoreState', () => {
 });
 
 describe('contextmenu event', () => {
+  registerIndicator({
+    id: 'context-source', name: 'Context source', placement: 'onchart',
+    inputs: [],
+    plots: [{ key: 'first', type: 'line', title: 'First' }, { key: 'second', type: 'line', title: 'Second' }],
+    calc: bars => ({ first: bars.map(() => 130), second: bars.map((_, index) => index === 25 ? null : 150) }),
+  });
   afterEach(() => vi.unstubAllGlobals());
 
   const drawing: IPrimitive = {
@@ -623,6 +629,26 @@ describe('contextmenu event', () => {
     expect(e.target.seriesType).toBe('candlestick');
     expect(e.time).toBe(bar.time);
     expect(e.index).toBe(20);
+  });
+
+  it('identifies the exact plot of the topmost study and ignores hidden or missing readings', () => {
+    vi.stubGlobal('window', {});
+    const m = mount();
+    const first = m.chart.addIndicator('context-source');
+    const second = m.chart.addIndicator('context-source');
+    first.values(); second.values();
+    const x = m.chart.timeToCoordinate(BARS[20].time);
+    const y = m.chart.priceToCoordinate(150, 0)!;
+    expect(menuAt(m, x, y)[0].target).toMatchObject({ kind: 'indicator', instanceId: second.id, plotKey: 'second' });
+    second.series('second')!.applyOptions({ visible: false });
+    expect(menuAt(m, x, y)[0].target).toMatchObject({ kind: 'indicator', instanceId: first.id, plotKey: 'second' });
+    expect(menuAt(m, m.chart.timeToCoordinate(BARS[25].time), y)[0].target.kind).toBe('empty');
+    expect(menuAt(m, x, m.chart.priceToCoordinate(130, 0)!)[0].target)
+      .toMatchObject({ kind: 'indicator', instanceId: second.id, plotKey: 'first' });
+    m.chart.addPrimitive({ zOrder: () => 'top', draw: () => {},
+      hitTest: () => ({ externalId: 'draw:above-study', zOrder: 'top', distance: 0 }) }, 0);
+    expect(menuAt(m, x, y)[0].target).toEqual({ kind: 'drawing', id: 'draw:above-study' });
+    m.chart.destroy();
   });
 
   it('classifies empty space, and the two axis strips', () => {
