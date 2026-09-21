@@ -770,3 +770,71 @@ describe('the alert the pointer is over', () => {
     expect(alerts.hovered()).toBe(second.id);
   });
 });
+
+/**
+ * A host may ask for a spent alert to stop drawing.
+ *
+ * Both readings are defensible and they are opposites, which is why this is an
+ * option rather than a change. Keeping the line is the default and the reason
+ * every lifecycle state has its own badge and colour: the line says what became
+ * of the level, which is worth knowing on a chart somebody has just come back
+ * to. A terminal left open through a session reads it the other way, because it
+ * accumulates levels that will never fire again and the ones still watching
+ * become the hardest to pick out of them.
+ *
+ * What must not change either way is the record. It is what stops a once-only
+ * alert firing again every time a host reloads it.
+ */
+describe('a host that hides the lines of spent alerts', () => {
+  it('draws nothing for a triggered alert, and keeps the alert', () => {
+    const { chart, alerts, series } = alertSetup([60, 120], { spentLines: 'hide' });
+    const remove = vi.spyOn(chart, 'removePrimitive');
+    const alert = alerts.add({ source: { kind: 'price', price: 105 }, title: 'Breakout', policy: 'onTouch', condition: 'crossingUp' });
+    series.update({ ...bar(120, 100), high: 106 });
+
+    expect(remove).toHaveBeenCalled();
+    const held = alerts.list().find(one => one.id === alert.id);
+    expect(held?.state).toBe('triggered');
+  });
+
+  it('draws nothing for an expired alert either', () => {
+    const { chart, alerts } = alertSetup([60, 120], { spentLines: 'hide' });
+    const remove = vi.spyOn(chart, 'removePrimitive');
+    const alert = alerts.add({ source: { kind: 'price', price: 105 }, title: 'Breakout' });
+    alerts.update(alert.id, { state: 'armed', expiresAt: 1 });
+
+    expect(remove).toHaveBeenCalled();
+    expect(alerts.list().find(one => one.id === alert.id)?.state).toBe('expired');
+  });
+
+  it('keeps the line of an alert that is still watching', () => {
+    // The direction that matters as much as the other: an option that hid every
+    // line would pass the two tests above and be useless.
+    const { chart, alerts } = alertSetup([60, 120], { spentLines: 'hide' });
+    const attach = vi.spyOn(chart, 'addPrimitive');
+    alerts.add({ source: { kind: 'price', price: 105 }, title: 'Breakout' });
+    expect(attach.mock.calls.some(([primitive]) => primitive instanceof PriceLine)).toBe(true);
+  });
+
+  it('keeps the line of a repeating alert after it fires', () => {
+    // `triggered` is reached only by `repeat: 'once'`, so a repeating alert is
+    // still watching and must still be marked.
+    const { chart, alerts, series, fired } = alertSetup([60, 120], { spentLines: 'hide' });
+    const alert = alerts.add({ source: { kind: 'price', price: 105 }, title: 'Breakout', policy: 'onTouch', condition: 'crossingUp', repeat: 'everyTime' });
+    const remove = vi.spyOn(chart, 'removePrimitive');
+    series.update({ ...bar(120, 100), high: 106 });
+
+    expect(fired.length).toBeGreaterThan(0);
+    expect(alerts.list().find(one => one.id === alert.id)?.state).toBe('armed');
+    expect(remove).not.toHaveBeenCalled();
+  });
+
+  it('leaves a spent line alone when the host has not asked', () => {
+    // The default, stated here rather than only implied by the tests above.
+    const { chart, alerts, series } = alertSetup([60, 120]);
+    const remove = vi.spyOn(chart, 'removePrimitive');
+    alerts.add({ source: { kind: 'price', price: 105 }, title: 'Breakout', policy: 'onTouch', condition: 'crossingUp' });
+    series.update({ ...bar(120, 100), high: 106 });
+    expect(remove).not.toHaveBeenCalled();
+  });
+});

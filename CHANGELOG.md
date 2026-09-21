@@ -2,6 +2,20 @@
 
 All notable changes to OpenAlgo Charts.
 
+## Unreleased
+
+### Added
+
+- `AlertControllerOptions.spentLines` chooses whether a triggered or expired
+  alert keeps its line. The default, `'show'`, is unchanged and is why each
+  lifecycle state has its own badge and colour: the line says what became of the
+  level, which is worth knowing on a chart somebody has just come back to.
+  `'hide'` is for the host that reads it the other way, where a terminal left
+  open through a session accumulates levels that will never fire again and the
+  ones still watching become the hardest to pick out of them. The alert itself
+  is untouched either way: it stays in `list()`, keeps its lifecycle state, goes
+  on refusing to fire twice, and gets its line back if a host re-arms it.
+
 ## 2.5.0
 
 2026-09-21
