@@ -2,6 +2,26 @@
 
 All notable changes to OpenAlgo Charts.
 
+## Unreleased
+
+### Added
+
+- `AlertController.hovered()` reports the alert whose line the pointer is over,
+  and the widget's Delete key removes it, which is what that key already does
+  to a drawing. A drawing under the same pointer keeps the key it owned.
+- `Chart.snapPrice(paneIndex, price)` rounds to a pane's own tick, so a host
+  does not work out separately what the axis already knows.
+
+### Fixed
+
+- A dragged alert lands on the tick the pane's axis is written with. A pointer's
+  pixel maps to a price with a dozen decimals behind it, so an alert dropped
+  where the axis read 1255.90 was stored as 1255.8706204379562: a price the
+  instrument cannot trade at, and one that made the line, the editor and the
+  axis each show a different number for the same alert. The preview snaps too,
+  or the line would slide between ticks under the pointer and jump on release.
+  A scale that declares no tick rounds nothing.
+
 ## 2.4.8
 
 2026-09-21

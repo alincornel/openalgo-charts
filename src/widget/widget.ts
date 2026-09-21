@@ -845,6 +845,20 @@ class WidgetImpl implements Widget {
     // nothing right now is declined so the engine (an arrow pan) still gets it.
     const editing = (e: KeyEventLike): boolean => {
       const action = keyToDrawingAction(e, drawCtx());
+      // An alert's line is hovered and no drawing claimed the key: Delete
+      // removes the alert, which is what the same key does to a study or a
+      // drawing. Checked after the drawing tier rather than before it, so a
+      // drawing under the same pointer keeps the key it already owned.
+      if (action === null || action.type === 'delete') {
+        const alertId = this.alerts.hovered();
+        const wantsDelete = action?.type === 'delete'
+          || ((e.key === 'Delete' || e.key === 'Backspace') && draw.selected() === null && draw.hovered() === null);
+        if (alertId !== undefined && wantsDelete) {
+          this.alerts.remove(alertId);
+          this._rail?.refresh();
+          return true;
+        }
+      }
       if (action === null) return false;
       switch (action.type) {
         case 'undo': draw.undo(); break;

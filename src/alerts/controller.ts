@@ -47,6 +47,8 @@ const sameScope = (a: AlertScope, b: AlertScope): boolean =>
 /** Headless, chart-owned trader alerts. Hosts subscribe to alert:triggered for delivery. */
 export class AlertController {
   private readonly _records = new Map<string, RecordState>();
+  /** The alert whose line the pointer is over, for a key that acts on it. */
+  private _hovered: string | undefined;
   private readonly _off: (() => void)[];
   private readonly _now: () => number;
   private readonly _drawings: AlertDrawingProvider | undefined;
@@ -78,6 +80,14 @@ export class AlertController {
       _chart.on('replay:stop', () => { this._replay = false; this._seedAll(); }),
       _chart.on('destroy', () => this.destroy()),
       _chart.on('drag:start', payload => this._startDrag(payload as AlertDragEvent)),
+      // Which alert the pointer is over, so a key can act on it. The drawing
+      // tier keeps the same fact for the same reason: Delete has to know what
+      // it would be deleting before anybody presses it.
+      _chart.on('hover', payload => {
+        const id = (payload as { id?: unknown } | undefined)?.id;
+        const parsed = typeof id === 'string' ? parseAlertLineId(id) : null;
+        this._hovered = parsed !== null && this._records.has(parsed.id) ? parsed.id : undefined;
+      }),
       _chart.on('drag', payload => this._onDrag(payload as AlertDragEvent, false)),
       _chart.on('drag:end', payload => this._onDrag(payload as AlertDragEvent, true)),
       _chart.on('drag:cancel', payload => {
@@ -100,11 +110,29 @@ export class AlertController {
     return this.availability(record.alert.id);
   }
 
-  private _dragPrice(payload: AlertDragEvent, externalId: string): number | undefined {
+  /**
+   * The alert the pointer is over, or none.
+   *
+   * Offered so a host can bind a key to it. The controller does not bind keys
+   * itself: it owns no input and a chart embedded without the widget shell has
+   * its own idea of what a keystroke means.
+   */
+  public hovered(): string | undefined {
+    return this._hovered !== undefined && this._records.has(this._hovered) ? this._hovered : undefined;
+  }
+
+  private _dragPrice(payload: AlertDragEvent, externalId: string, paneIndex?: number): number | undefined {
     const y = payload.point?.y;
     const converted = typeof y === 'number' && Number.isFinite(y) ? this._visuals?.coordinateToPrice(externalId, y) : undefined;
     const price = converted ?? payload.price;
-    return typeof price === 'number' && Number.isFinite(price) ? price : undefined;
+    if (typeof price !== 'number' || !Number.isFinite(price)) return undefined;
+    // Rounded on the way in, so the preview, the committed source and the
+    // number the axis shows are one price. Snapping only on release would let
+    // the line slide between ticks under the pointer and jump as it was let go.
+    const pane = paneIndex ?? payload.paneIndex;
+    if (typeof pane !== 'number' || this._chart.snapPrice === undefined) return price;
+    const snapped = this._chart.snapPrice(pane, price);
+    return typeof snapped === 'number' && Number.isFinite(snapped) ? snapped : price;
   }
 
   private _startDrag(payload: AlertDragEvent): void {
@@ -114,7 +142,7 @@ export class AlertController {
     const record = parsed && this._records.get(parsed.id);
     if (!parsed || !record) return;
     const available = this._dragAvailability(record, parsed.index);
-    const price = this._dragPrice(payload, payload.id);
+    const price = this._dragPrice(payload, payload.id, available.paneIndex);
     if (!available.available || available.paneIndex === undefined || price === undefined
       || (payload.paneIndex !== undefined && payload.paneIndex !== available.paneIndex)) return;
     this._drag = { externalId: payload.id, record, index: parsed.index, paneIndex: available.paneIndex,
@@ -137,7 +165,7 @@ export class AlertController {
     const available = this._dragAvailability(drag.record, drag.index);
     if (!available.available || available.paneIndex !== drag.paneIndex
       || (payload.paneIndex !== undefined && payload.paneIndex !== drag.paneIndex)) { this._cancelDrag(); return; }
-    const proposed = this._dragPrice(payload, drag.externalId);
+    const proposed = this._dragPrice(payload, drag.externalId, drag.paneIndex);
     if (proposed === undefined) { if (done) this._cancelDrag(); return; }
     const y = payload.point?.y;
     drag.moved ||= drag.startY !== undefined && typeof y === 'number' ? y !== drag.startY : proposed !== drag.startPrice;

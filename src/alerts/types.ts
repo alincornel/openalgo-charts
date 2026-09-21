@@ -21,6 +21,13 @@ export interface AlertChartHost {
   removePrimitive?(primitive: IPrimitive): void;
   alertState?(): AlertsDocument | undefined;
   setAlertState?(document: AlertsDocument | undefined): void;
+  /**
+   * A price rounded to the tick the pane's scale is written in.
+   *
+   * Optional, and unrounded is the fallback: a host that declares no tick has
+   * nothing to round to, and inventing one would move a price somebody chose.
+   */
+  snapPrice?(paneIndex: number, price: number): number;
 }
 
 export type AlertCondition = 'crossing' | 'crossingUp' | 'crossingDown'
