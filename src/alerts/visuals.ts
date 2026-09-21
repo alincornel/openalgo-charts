@@ -100,7 +100,7 @@ export class AlertVisuals {
   private readonly _lines = new Map<string, { pane: number; lines: AlertPriceLine[] }>();
   public constructor(private readonly _chart: AlertVisualHost) {}
 
-  public update(alert: Alert, value: AlertDrawingValue | undefined, paused: boolean): void {
+  public update(alert: Alert, value: AlertDrawingValue | undefined, paused: boolean, timeframe?: string): void {
     if (!this._chart.addPrimitive || !this._chart.removePrimitive) return;
     if (!value) { this.remove(alert.id); return; }
     const prices = value.upperPrice === undefined ? [value.price] : [value.price, value.upperPrice];
@@ -129,7 +129,8 @@ export class AlertVisuals {
       const options = {
         price: prices[i], color: COLORS[alert.state], lineStyle: alert.state === 'armed' ? 'dashed' as const : 'dotted' as const,
         badge: badgeFor(alert.state, paused),
-        leftLabel: alert.title + (prices.length === 2 ? (i === 0 ? ' (lower)' : ' (upper)') : ''),
+        leftLabel: alert.title + (timeframe === undefined ? '' : ` (${timeframe})`)
+          + (prices.length === 2 ? (i === 0 ? ' (lower)' : ' (upper)') : ''),
         // The hint is what tells anybody the line can be moved at all. A line
         // that drags with no cursor change is a feature nobody finds.
         cursor: canMove ? 'ns-resize' : undefined,

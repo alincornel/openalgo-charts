@@ -8,6 +8,32 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 2.4.9
+
+2026-09-21
+
+Keep price alerts visible when switching chart timeframes.
+
+### Fixed
+
+- Fixed price alert levels now remain visible across timeframes for the same
+  symbol and exchange. On another timeframe, the label names the original
+  timeframe and armed alerts show Paused. Triggered, disabled and expired
+  records retain their lifecycle state, including after reload.
+- Evaluation stays bound to the original timeframe for every source and policy.
+  Switching timeframes does not silently retime bar-close or intrabar alerts.
+  The alert list explains which timeframe to return to; study and drawing
+  levels remain on their original timeframe.
+- Loading another timeframe no longer advances an alert's evaluated-bar
+  checkpoint. Returning to the original timeframe can evaluate its next close
+  without skipping it or delivering historical signals.
+
+### Documentation
+
+- Updated the alert guide, yfinance instructions and integration skill with
+  timeframe visibility, evaluation and restore behavior. No API or saved-alert
+  migration is required.
+
 ## 2.4.8
 
 2026-09-21

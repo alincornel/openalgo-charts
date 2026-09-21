@@ -321,6 +321,52 @@ test('a symbol the source cannot serve leaves the shell up and says so', async (
   expect(pageErrors).toEqual([]);
 });
 
+test('a saved price alert stays visible after a timeframe change and reload', async ({ page }, info) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1360, height: 900 });
+  await page.route('**/api/history?**', route => {
+    const interval = new URL(route.request().url()).searchParams.get('interval');
+    const seconds = interval === '5m' ? 300 : 86400;
+    return route.fulfill({ json: Array.from({ length: 48 }, (_, index) => ({
+      time: 1735689600 + index * seconds, open: 99, high: 102, low: 98, close: 100, volume: 1000,
+    })) });
+  });
+  await openDemo(page);
+  await page.waitForFunction(() => !(window as unknown as AlertDragHost).__oac.app.loading);
+  await page.getByRole('button', { name: 'Alerts', exact: true }).click();
+  await page.getByRole('button', { name: 'Create alert', exact: true }).click();
+  const editor = page.getByRole('dialog', { name: 'Create alert', exact: true });
+  await editor.getByLabel('Name', { exact: true }).fill('Daily price watch');
+  await editor.getByLabel('Threshold', { exact: true }).fill('110');
+  await editor.getByRole('button', { name: 'Save', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Alerts', exact: true }).getByRole('button', { name: 'Close', exact: true }).click();
+  await page.getByRole('button', { name: '5M', exact: true }).click();
+  const ready = () => page.waitForFunction(() => {
+    const app = (window as unknown as AlertDragHost).__oac?.app;
+    return app?.chart?.getDataContext()?.interval === '5m' && !app.loading && app.alerts?.list().length === 1;
+  });
+  await ready();
+  const visible = () => page.evaluate(() => (window as unknown as AlertDragHost).__oac.app.chart.exportSVG().includes('Daily price watch (1d)'));
+  await expect.poll(visible).toBe(true);
+  await page.getByRole('button', { name: 'Alerts', exact: true }).click();
+  await expect(page.locator('.oac-alerts__status')).toContainText('1d');
+  await expect(page.locator('.oac-alerts__status')).toContainText('Switch');
+  await page.getByRole('dialog', { name: 'Alerts', exact: true }).getByRole('button', { name: 'Close', exact: true }).click();
+  await page.reload();
+  await ready();
+  await expect.poll(visible).toBe(true);
+  await page.screenshot({ path: info.outputPath('reference-alert-other-timeframe.png') });
+  await page.getByRole('button', { name: '1D', exact: true }).click();
+  await page.waitForFunction(() => {
+    const { chart, alerts, loading } = (window as unknown as AlertDragHost).__oac.app;
+    return !loading && chart?.getDataContext()?.interval === '1d' && alerts?.list().length === 1
+      && alerts.availability(alerts.list()[0].id).available;
+  });
+  expect(await page.evaluate(() => (window as unknown as AlertDragHost).__oac.app.alerts.list()[0]))
+    .toMatchObject({ title: 'Daily price watch', state: 'armed', scope: { interval: '1d' }, source: { price: 110 } });
+  expect(errors).toEqual([]);
+});
+
 test('an alert line drag previews without saving and persists once when released', async ({ page }, info) => {
   const errors = watchErrors(page);
   await page.setViewportSize({ width: 1360, height: 900 });

@@ -12,7 +12,7 @@ import { Callout } from 'nextra/components'
 with a top bar (symbol, interval, chart type, theme, settings, indicators, objects, alerts), a drawing rail
 down the left, a status line, the dialogs behind each of those buttons, keyboard shortcuts
 with a `?` panel that lists them, and optional persistence of the layout. It is one of nine
-loadable tiers (**49.03 kB** Brotli in 2.4.8) and the only tier that supplies
+loadable tiers (**49.03 kB** Brotli in 2.4.9) and the only tier that supplies
 application controls.
 
 The **Capture** menu offers **Download chart data (CSV)** alongside image export.
@@ -447,13 +447,13 @@ widget: a tier loaded beside it would import its own second engine. See
 
 ## Size
 
-Budgets from `.size-limit.json` and measurements from the 2.4.8 build, decimal
+Budgets from `.size-limit.json` and measurements from the 2.4.9 build, decimal
 Brotli kB, enforced by `npm run size`:
 
 | Row | Files | Budget | Measured |
 |---|---|--:|--:|
 | Widget tier | `openalgo-charts.widget.mjs` | 49.25 kB | 49.03 kB |
-| Widget terminal | base + draw + indicators + widget | 207.75 kB | 207.24 kB |
+| Widget terminal | base + draw + indicators + widget | 207.75 kB | 207.43 kB |
 
 The widget is a tier because of these rows. A host that never calls `createWidget`
 downloads none of it, and the base engine's own budget is unchanged.

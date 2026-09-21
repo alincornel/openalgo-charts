@@ -103,6 +103,30 @@ source is ready. The controller also observes chart replay start/stop events.
 Context mismatches and replay suppress delivery; resuming does not deliver a
 backlog. The host still owns pausing live series writes while replay is active.
 
+## Switching timeframes
+
+From 2.4.9, a fixed price alert stays visible on every timeframe for the same
+symbol and exchange. Its label shows the original timeframe when you view
+another one. An armed alert shows `Paused` there and cannot be dragged.
+Triggered, disabled and expired price alerts keep their lifecycle badges.
+
+Visibility does not change evaluation. An alert created on `5m` still needs
+`5m` bars, including when its policy is `onTouch`. Switching to `1m` does not
+turn a five-minute close condition into a one-minute close condition.
+`availability(id)` explains which timeframe to return to. Study and drawing
+levels remain visible only on their original timeframe because their values
+and geometry can change with the bars. The alert list retains every record.
+
+When changing data context, clear the old source bars, call `setDataContext`,
+then load the new bars. Returning to the original timeframe seeds observations
+silently and resumes with fresh live updates. Bars from another timeframe do
+not advance that alert's evaluated-bar checkpoint. Saved alerts use the same
+rules after a reload; no document migration is needed.
+
+This chart-owned controller only evaluates the chart data it receives. To keep
+alerts running on an unseen timeframe, your application needs a separate
+evaluator receiving that timeframe's data, and one owner for delivery.
+
 ## Drag a threshold
 
 <AlertDragDemo />

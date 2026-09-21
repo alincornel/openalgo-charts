@@ -102,7 +102,11 @@ export interface BarCondition {
   when(context: BarConditionContext): boolean;
 }
 
-/** An alert belongs to the instrument and interval present when it was armed. */
+/**
+ * Evaluation belongs to the instrument and interval present when the alert was armed.
+ * Fixed price levels remain visible on other intervals of the same instrument,
+ * labelled with their original timeframe and paused until it is displayed again.
+ */
 export interface AlertScope {
   symbol?: string;
   exchange?: string;

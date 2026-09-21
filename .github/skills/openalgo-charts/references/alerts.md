@@ -42,6 +42,18 @@ predicate uses `{ kind: 'barCondition', id }`.
 A drawing uses `{ kind: 'drawing', drawingId, level?, input? }`.
 `AlertScope` captures symbol, exchange and interval from chart data context.
 Set that context before creating alerts; alerts do not migrate to a new market.
+From 2.4.9, price-source levels remain visible across intervals for the same
+symbol and exchange. On another interval they show the original timeframe;
+armed levels are paused and cannot drag. Triggered, disabled and expired levels
+retain their lifecycle badge. Study/drawing visuals still require the original
+scope. Evaluation for every source and policy remains original-interval-only;
+`availability` names the required timeframe. This does not provide background
+evaluation of an unseen interval. Hosts needing that must feed a separate
+evaluator and own delivery once.
+
+Clear primary bars before changing context, then load the new source. Only
+matching-scope bars can seed an alert's evaluated-bar checkpoint. Restore and
+returning to the original interval seed silently without replaying history.
 
 `Alert` is the normalized record, with a required id, defaults, scope,
 `AlertState` and optional lastTriggeredAt (UTC delivery seconds) and

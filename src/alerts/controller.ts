@@ -41,8 +41,10 @@ const scopeOf = (chart: AlertChartHost): AlertScope => {
   const context = chart.getDataContext();
   return { symbol: context?.symbol, exchange: context?.exchange, interval: context?.interval };
 };
+const sameInstrument = (a: AlertScope, b: AlertScope): boolean =>
+  a.symbol === b.symbol && a.exchange === b.exchange;
 const sameScope = (a: AlertScope, b: AlertScope): boolean =>
-  a.symbol === b.symbol && a.exchange === b.exchange && a.interval === b.interval;
+  sameInstrument(a, b) && a.interval === b.interval;
 
 /** Headless, chart-owned trader alerts. Hosts subscribe to alert:triggered for delivery. */
 export class AlertController {
@@ -267,7 +269,11 @@ export class AlertController {
     const record = this._records.get(id);
     if (!record) return { available: false, reason: 'Alert is unavailable' };
     if (this._paused || this._replay) return { available: false, reason: 'Alerts are paused' };
-    if (!sameScope(record.alert.scope, scopeOf(this._chart))) return { available: false, reason: 'Instrument context differs' };
+    const context = scopeOf(this._chart);
+    if (!sameInstrument(record.alert.scope, context)) return { available: false, reason: 'Instrument context differs' };
+    if (record.alert.scope.interval !== context.interval) return {
+      available: false, reason: `Switch to ${record.alert.scope.interval ?? 'the original timeframe'} to evaluate this alert`,
+    };
     const { source } = record.alert;
     const bars = this._chart.primaryBars();
     if (source.kind === 'drawing') {
@@ -316,6 +322,13 @@ export class AlertController {
   }
 
   private _seed(record: RecordState): void {
+    // Finer bars from another timeframe must not consume an original-timeframe close.
+    if (!sameScope(record.alert.scope, scopeOf(this._chart))) {
+      record.tail = undefined;
+      record.value = undefined;
+      record.plotPane = undefined;
+      return;
+    }
     const bars = this._chart.primaryBars();
     const tail = bars[bars.length - 1];
     record.tail = tail ? { ...tail } : undefined;
@@ -361,9 +374,14 @@ export class AlertController {
     if (!this._visuals) return;
     const { alert } = record;
     const { source } = alert;
+    const context = scopeOf(this._chart);
+    const matches = sameScope(alert.scope, context);
     let value: AlertDrawingValue | undefined;
-    if (sameScope(alert.scope, scopeOf(this._chart))) {
-      if (source.kind === 'price') value = { price: source.price, upperPrice: source.upperPrice, paneIndex: 0 };
+    // A fixed price remains meaningful across timeframes; study and drawing values may not.
+    if (source.kind === 'price' && sameInstrument(alert.scope, context)) {
+      value = { price: source.price, upperPrice: source.upperPrice, paneIndex: 0 };
+    }
+    if (matches) {
       if (source.kind === 'indicator') {
         if (record.plotPane !== undefined) value = { price: source.value, upperPrice: source.upperValue, paneIndex: record.plotPane };
       }
@@ -372,7 +390,8 @@ export class AlertController {
         value = this._drawingValue(alert, bars[bars.length - 1]?.time);
       }
     }
-    this._visuals.update(alert, value, this._paused || this._replay);
+    this._visuals.update(alert, value, this._paused || this._replay || (!matches && alert.state === 'armed'),
+      matches ? undefined : alert.scope.interval ?? 'original timeframe');
   }
 
   private _onData(update: ChartDataUpdate): void {
@@ -391,11 +410,12 @@ export class AlertController {
     for (const record of [...this._records.values()]) {
       if (this._destroyed || revision !== this._revision) break;
       if (this._records.get(record.alert.id) !== record) continue;
+      if (!sameScope(record.alert.scope, scope)) continue;
       const previous = record.tail;
       record.tail = { ...tail };
       if (record.alert.source.kind === 'drawing' && previous?.time !== tail.time) this._syncVisual(record);
       if (this._destroyed || revision !== this._revision) break;
-      if (record.alert.state !== 'armed' || !sameScope(record.alert.scope, scope) || !previous) continue;
+      if (record.alert.state !== 'armed' || !previous) continue;
       const { alert } = record;
       if (alert.policy === 'onBarClose') {
         const index = bars.length - 2;

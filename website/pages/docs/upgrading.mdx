@@ -1,9 +1,19 @@
 ---
-title: Upgrading to 2.4.8
+title: Upgrading to 2.4.9
 description: Adopt workspace, open-interest, alert and host contracts while preserving existing integrations.
 ---
 
-# Upgrading to 2.4.8
+# Upgrading to 2.4.9
+
+Version 2.4.9 keeps fixed price-alert levels visible across timeframes for the
+same symbol and exchange. The label names the original timeframe and an armed
+alert shows Paused when another timeframe is open. Evaluation still uses the
+original timeframe, including intrabar alerts. Return to that timeframe to
+resume; the controller does not evaluate unseen bars in the background.
+Triggered records survive reload, and changing intervals cannot consume another
+interval's evaluated-bar checkpoint. No API or saved-alert migration is needed.
+See [Trader alerts](/docs/alerts#switching-timeframes) and the
+[2.4.9 release notes](/docs/release-notes#249).
 
 Version 2.4.8 shows a grabbing hand while you hold the plot. Mouse and pen panning
 stops on release, including a release outside the chart. Touch flicks keep their

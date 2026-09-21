@@ -25,6 +25,66 @@ async function ink(page: Page, rgb: readonly number[]) {
   }, [...rgb]);
 }
 
+test('price alerts remain visible across timeframes while their original evaluation stays paused', async ({ page }, info) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.setViewportSize({ width: 1360, height: 900 });
+  await page.goto('/tests/e2e/alerts-fixture.html');
+  await page.waitForFunction(() => !!window.__alertsDemo);
+  await page.evaluate(() => {
+    const { chart, series, alerts, bars } = window.__alertsDemo;
+    const document = alerts.toJSON();
+    series.setData([]);
+    chart.setDataContext({ symbol: 'ALERT FIXTURE', exchange: 'SIM', interval: '5m' });
+    series.setData(bars.filter((_, index) => index % 5 === 0));
+    alerts.fromJSON(document);
+    chart.fitContent();
+  });
+  await expect.poll(() => page.evaluate(() => window.__alertsDemo.chart.exportSVG().includes('Confirmed threshold (1m)'))).toBe(true);
+  const paused = await page.evaluate(() => {
+    const { chart, alerts, ids, fired } = window.__alertsDemo;
+    return { svg: chart.exportSVG(), availability: alerts.availability(ids.close), fired: fired.length, count: alerts.list().length };
+  });
+  expect(paused.availability).toMatchObject({ available: false, reason: expect.stringContaining('1m') });
+  expect(paused.count).toBe(5);
+  expect(paused.fired).toBe(0);
+  expect(paused.svg).toContain('Paused');
+  expect(paused.svg).toContain('Disabled');
+  expect(paused.svg).toContain('Expired');
+  expect(paused.svg).not.toContain('Drawing threshold');
+  await expect.poll(() => ink(page, [59, 130, 246])).toBeGreaterThan(100);
+  const point = await page.evaluate(() => {
+    const { chart } = window.__alertsDemo;
+    const box = document.getElementById('chart')!.getBoundingClientRect();
+    return { x: box.left + 400, y: box.top + chart.priceToCoordinate(110)! };
+  });
+  await page.mouse.move(point.x, point.y);
+  expect(await page.locator('#chart').evaluate(node => node.style.cursor)).not.toBe('ns-resize');
+  await page.mouse.move(5, 5);
+  await page.screenshot({ path: info.outputPath('alerts-other-timeframe.png'), animations: 'disabled' });
+  await page.evaluate(() => {
+    const { chart, series, bars } = window.__alertsDemo;
+    series.setData([]);
+    chart.setDataContext({ symbol: 'ALERT FIXTURE', exchange: 'SIM', interval: '1m' });
+    series.setData(bars);
+    chart.fitContent();
+  });
+  expect(await page.evaluate(() => window.__alertsDemo.fired)).toEqual([]);
+  expect(await page.evaluate(() => window.__alertsDemo.alerts.availability(window.__alertsDemo.ids.close).available)).toBe(true);
+  expect(await page.evaluate(() => window.__alertsDemo.chart.exportSVG())).toContain('Drawing threshold');
+  await page.evaluate(() => {
+    const { series, bars } = window.__alertsDemo;
+    const tail = bars[bars.length - 1];
+    series.update({ ...tail, close: 112, high: 113 });
+    series.update({ ...tail, time: tail.time + 60, open: 112, close: 112, high: 113 });
+  });
+  expect(await page.evaluate(() => {
+    const { fired, ids } = window.__alertsDemo;
+    return fired.filter(event => event.alertId === ids.close).length;
+  })).toBe(1);
+  expect(errors).toEqual([]);
+});
+
 test('drawing alerts follow a real drag and render armed, triggered, disabled and expired levels', async ({ page }, info) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));

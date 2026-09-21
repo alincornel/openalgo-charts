@@ -12,7 +12,7 @@ with no runtime dependencies.
 [![npm version](https://img.shields.io/npm/v/openalgo-charts.svg?color=cb3837&label=npm)](https://www.npmjs.com/package/openalgo-charts)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
 [![npm downloads](https://img.shields.io/npm/dm/openalgo-charts.svg?color=0ea5e9&label=npm%20downloads)](https://www.npmjs.com/package/openalgo-charts)
-[![tests](https://img.shields.io/badge/engine%20tests-5854%20passing-brightgreen.svg)](#develop)
+[![tests](https://img.shields.io/badge/engine%20tests-5861%20passing-brightgreen.svg)](#develop)
 [![dependencies](https://img.shields.io/badge/runtime%20deps-0-brightgreen.svg)](#principles)
 
 [**Documentation**](https://marketcalls.github.io/openalgo-charts/) &nbsp;·&nbsp; [**Live examples**](https://marketcalls.github.io/openalgo-charts/examples) &nbsp;·&nbsp; [**Getting started**](./docs/getting-started.md) &nbsp;·&nbsp; [**Migrating to 2.0**](./docs/migrating-to-2.md) &nbsp;·&nbsp; [**Architecture**](./ARCHITECTURE.md)
@@ -25,7 +25,7 @@ with no runtime dependencies.
 npm install openalgo-charts
 ```
 
-Current version: **2.4.8**. Hold the plot to move it in any direction; release to stop.
+Current version: **2.4.9**. Price alerts stay visible when you switch timeframes.
 See the [changelog](./CHANGELOG.md) for release notes.
 
 ## Quick start
@@ -56,7 +56,7 @@ for live data, or [the widget example](#the-whole-terminal-in-one-call) for char
 
 ## Architecture
 
-<a href="docs/architecture-diagram.svg"><img src="docs/architecture-diagram.svg" alt="OpenAlgo Charts 2.4.8 architecture: host responsibilities, the base data-to-rendering pipeline with alerts and shared replay, and eight optional tiers including workspace storage, trading tools and the widget" width="920" /></a>
+<a href="docs/architecture-diagram.svg"><img src="docs/architecture-diagram.svg" alt="OpenAlgo Charts 2.4.9 architecture: host responsibilities, the base data-to-rendering pipeline with alerts and shared replay, and eight optional tiers including workspace storage, trading tools and the widget" width="920" /></a>
 
 How data reaches the chart, what your app owns, and which features you can import.
 [Open the full-size diagram](docs/architecture-diagram.svg).
@@ -107,7 +107,7 @@ You can also load the library from a CDN in a plain HTML page:
 ```html
 <div id="chart" style="width:100vw;height:100vh"></div>
 <script type="module">
-  import { createChart, generateBars } from 'https://unpkg.com/openalgo-charts@2.4.8/dist/openalgo-charts.mjs';
+  import { createChart, generateBars } from 'https://unpkg.com/openalgo-charts@2.4.9/dist/openalgo-charts.mjs';
   const chart = createChart(document.getElementById('chart'), { timezone: 'Asia/Kolkata' });
   chart.addSeries('candlestick').setData(generateBars(1700000000, 200, 3600));
   chart.fitContent();
@@ -157,7 +157,7 @@ Unused optional tiers stay out of the base chart download.
 
 | Import | Contents | Brotli |
 |---|---|---|
-| `openalgo-charts` | Engine, 13 chart types, panes and scales, custom indicator registry, primitives, alerts, replay, comparisons, chart linking, state, feeds, bar cache, trading overlays, CSV and SVG export | 92.94 kB |
+| `openalgo-charts` | Engine, 13 chart types, panes and scales, custom indicator registry, primitives, alerts, replay, comparisons, chart linking, state, feeds, bar cache, trading overlays, CSV and SVG export | 93.12 kB |
 | `openalgo-charts/indicators` | 105 built-in indicators, calculation helpers and helpers for studies that use external data | 29.84 kB |
 | `openalgo-charts/draw` | 85 drawing tools + a headless drawing controller, clipboard, settings schema, level palette, freehand geometry and SVG icons | 35.43 kB |
 | `openalgo-charts/transform` | Heikin Ashi, Renko, Range bars, Line Break, Point &amp; Figure, Kagi, and symbol arithmetic (`AAPL/MSFT`) | 4.50 kB |
@@ -167,7 +167,7 @@ Unused optional tiers stay out of the base chart download.
 | `openalgo-charts/widget` | `createWidget`: toolbar, drawing controls, dialogs, mobile controls, status line, shortcuts and optional layout persistence | 49.03 kB |
 | `openalgo-charts/workspace` | Validated workspace and indicator-template documents, named catalogs with revision checks, asynchronous storage and an IndexedDB adapter; no DOM | 5.52 kB |
 
-Everything together is **246.63 kB Brotli**; a widget terminal with built-in indicators (base + draw + indicators + widget) is 207.24 kB. Figures are measured from the 2.4.8 release build. The trade tier is 8.01 kB on its own; base + trade costs 100.95 kB. Sizes use decimal kB.
+Everything together is **246.81 kB Brotli**; a widget terminal with built-in indicators (base + draw + indicators + widget) is 207.43 kB. Figures are measured from the 2.4.9 release build. The trade tier is 8.01 kB on its own; base + trade costs 101.13 kB. Sizes use decimal kB.
 
 ## What's built
 
@@ -489,17 +489,17 @@ Enforced in CI by [`size-limit`](./.size-limit.json). Nothing is excluded, becau
 
 | Bundle | Limit | Actual |
 |---|---|---|
-| Base engine | 93.5 kB | 92.94 kB |
-| Base + trade | 101.5 kB | 100.95 kB |
+| Base engine | 93.5 kB | 93.12 kB |
+| Base + trade | 101.5 kB | 101.13 kB |
 | Indicators tier | 30 kB | 29.84 kB |
 | Draw tier | 36 kB | 35.43 kB |
 | Transform tier | 6 kB | 4.50 kB |
 | Profile tier | 15 kB | 14.96 kB |
 | WebGL2 tier | 7 kB | 6.39 kB |
 | Widget tier | 49.25 kB | 49.03 kB |
-| Widget terminal (base + draw + indicators + widget) | 207.75 kB | 207.24 kB |
+| Widget terminal (base + draw + indicators + widget) | 207.75 kB | 207.43 kB |
 | Workspace tier | 6 kB | 5.52 kB |
-| **Everything** | 247.25 kB | 246.63 kB |
+| **Everything** | 247.25 kB | 246.81 kB |
 
 ## Documentation
 
@@ -544,7 +544,7 @@ See [Contributing](./CONTRIBUTING.md) for setup, targeted checks, documentation 
 ```bash
 npm install        # install dev toolchain
 npm run typecheck  # strict TypeScript check
-npm test           # engine unit tests (Vitest): 5854 across 246 files
+npm test           # engine unit tests (Vitest): 5861 across 247 files
 npm run test:demo  # reference-host tests: 401 across 31 files
 npm run test:endurance # node endurance-harness tests: 7 cases
 npm run build      # Rollup -> dist/ (minified ESM per tier + types)
@@ -563,7 +563,7 @@ npm run verify     # lint + types + unit + endurance harness + build + demo + dt
 
 ## Status &amp; limitations
 
-Version **2.4.8**. All engine build phases are implemented. Upgrading a 1.9.x host: [Migrating to 2.0](./docs/migrating-to-2.md).
+Version **2.4.9**. All engine build phases are implemented. Upgrading a 1.9.x host: [Migrating to 2.0](./docs/migrating-to-2.md).
 
 Known gaps, stated plainly:
 
