@@ -71,7 +71,10 @@ async function clickSource(page: Page, pane: Pane, row = 0): Promise<void> {
   }, { pane, row, name: SAMPLE });
   await page.mouse.move(point.hoverX, point.y);
   await paint(page);
-  await page.mouse.click(point.x, point.y);
+  await page.mouse.move(point.x, point.y);
+  await page.mouse.down();
+  await paint(page);
+  await page.mouse.up();
   await expect(page.locator('#indsource')).toBeVisible();
 }
 

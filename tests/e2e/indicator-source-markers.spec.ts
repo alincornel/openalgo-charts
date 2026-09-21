@@ -194,7 +194,11 @@ test('source braces, enlarged hitboxes and stacked rows identify the clicked ins
       if (row === 0) extents.push(source.bottom - source.top);
       const before = await page.evaluate(() => window.__indicatorRegression.source.length);
       // A larger target must be clickable beyond the default button's edge.
-      await page.mouse.click(cx + size / 2 - 1, cy + size / 2 - 1);
+      await page.mouse.move(cx + size / 2 - 1, cy + size / 2 - 1);
+      await page.mouse.down();
+      // A held press must remain clickable after hover controls repaint.
+      await paint(page);
+      await page.mouse.up();
       await expect.poll(() => page.evaluate(() => window.__indicatorRegression.source.length)).toBe(before + 1);
       expect(await page.evaluate(() => window.__indicatorRegression.source.at(-1))).toEqual({
         instanceId: ids[row], indicatorId: 'source-study', paneIndex: 0,

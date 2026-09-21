@@ -3897,7 +3897,8 @@ export class Chart {
     }
 
     this._dragging = true;
-    this._setHover(null);
+    // Hover-only controls must survive a repaint between press and release.
+    this._setHover(hit ?? null);
     this._pointerMoved = false;
     this._dragStartX = p.x;
     this._dragStartY = p.y;
@@ -3999,6 +4000,7 @@ export class Chart {
       this._beginAutoscaleMotion();
       const dx = p.x - this._dragStartX;
       if (Math.abs(dx) > 3 || Math.abs(p.y - this._dragStartY) > 3) this._pointerMoved = true;
+      if (this._pointerMoved && this._hoverId !== null) this._setHover(null);
       // horizontal: scroll time
       this._timeScale.setRightOffset(this._dragStartOffset - dx / this._timeScale.barSpacing);
       // Horizontal-only mode preserves autoscale when the pointer moves vertically.
@@ -4105,16 +4107,15 @@ export class Chart {
       this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Light));
       return;
     }
-    if (this._dragging) {
-      this._dragging = false;
-      this._setHover(null);
-    }
+    const wasPanning = this._dragging;
+    this._dragging = false;
     // Placement mode: a press-drag-release is how every charting UI draws a
     // two-point shape, but the click branch below is gated on the pointer having
     // stayed still, so the gesture used to place nothing at all. Replay it as the
     // two clicks it means — press point, then release point. `viaDrag` lets the
     // host ignore the second one for single-anchor tools it already completed.
     if (this._placementMode && this._pointerMoved) {
+      if (wasPanning) this._setHover(null);
       const p = this._localPoint(e);
       this._ensureScaled(this._downPane);
       const info = this._clickInfo(e);
@@ -4144,6 +4145,7 @@ export class Chart {
     if (!this._pointerMoved) {
       const isBottom = this._downPane === this._bottomPaneIndex();
       const hit = this._panes[this._downPane]?.hitTestPrimitives(this._downX - this._leftAxisWidth, this._downLocalY, this._renderContext(isBottom));
+      if (wasPanning) this._setHover(e.pointerType === 'touch' ? null : hit ?? null);
       // Pane-legend buttons are the chart's own chrome — handle them here so
       // the host doesn't have to re-implement remove/hide/move/maximize.
       if (hit && this._handleLegendAction(hit.externalId)) return;
@@ -4165,6 +4167,7 @@ export class Chart {
       this.emit('click', click);
       return;
     }
+    if (wasPanning) this._setHover(null);
     // A mouse or pen release places the viewport precisely; only a touch flick coasts.
     if (e.pointerType === 'touch' && e.type !== 'pointercancel'
       && KineticAnimation.shouldAnimate(this._dragVelocity)) this._startKinetic(this._dragVelocity);
@@ -4526,7 +4529,7 @@ export class Chart {
    */
   private _setHover(hit: PrimitiveHit | null): void {
     const id = hit?.externalId ?? null;
-    this._container.style.cursor = this._dragging ? 'grabbing' : hit?.cursor ?? '';
+    this._container.style.cursor = this._dragging && hit?.cursor !== 'pointer' ? 'grabbing' : hit?.cursor ?? '';
     if (id === this._hoverId) return;
     // Hover-styled primitives on the base canvas need a light repaint, no
     // rescale. A change that touches only 'top' primitives (leaving a drawing

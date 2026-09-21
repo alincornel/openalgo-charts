@@ -125,6 +125,28 @@ describe('mouse panning preferences', () => {
     else expect(chart.timeScale.rightOffset).not.toBe(offset);
   });
 
+  it('clears a plot grab when a drawing tool is armed during the held gesture', () => {
+    const { chart, el } = mount();
+    el.dispatch('pointerdown', pointer('down', 400, 220));
+    el.dispatch('pointermove', pointer('move', 450, 260));
+    chart.setPlacementMode(true);
+    el.dispatch('pointerup', pointer('up', 450, 260));
+    expect(el.style.cursor).toBe('');
+  });
+
+  it('shows a grabbing hand when a passive plot guide is under the press', () => {
+    const { chart, el } = mount();
+    chart.addPriceLine({ id: 'guide', price: 100, color: '#336699', cursor: 'crosshair' });
+    const y = chart.priceToCoordinate(100)!;
+    el.dispatch('pointerdown', pointer('down', 400, y));
+    expect(el.style.cursor).toBe('grabbing');
+    const offset = chart.timeScale.rightOffset;
+    el.dispatch('pointermove', pointer('move', 450, y + 20));
+    expect(chart.timeScale.rightOffset).not.toBe(offset);
+    el.dispatch('pointerup', pointer('up', 450, y + 20));
+    expect(el.style.cursor).toBe('');
+  });
+
   it.each(['mouse', 'pen'])('pans time and price by default with a %s', (pointerType) => {
     const { chart, el } = mount();
     const scale = chart.panes()[0].priceScale;

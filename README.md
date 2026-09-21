@@ -12,7 +12,7 @@ with no runtime dependencies.
 [![npm version](https://img.shields.io/npm/v/openalgo-charts.svg?color=cb3837&label=npm)](https://www.npmjs.com/package/openalgo-charts)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
 [![npm downloads](https://img.shields.io/npm/dm/openalgo-charts.svg?color=0ea5e9&label=npm%20downloads)](https://www.npmjs.com/package/openalgo-charts)
-[![tests](https://img.shields.io/badge/engine%20tests-5852%20passing-brightgreen.svg)](#develop)
+[![tests](https://img.shields.io/badge/engine%20tests-5854%20passing-brightgreen.svg)](#develop)
 [![dependencies](https://img.shields.io/badge/runtime%20deps-0-brightgreen.svg)](#principles)
 
 [**Documentation**](https://marketcalls.github.io/openalgo-charts/) &nbsp;·&nbsp; [**Live examples**](https://marketcalls.github.io/openalgo-charts/examples) &nbsp;·&nbsp; [**Getting started**](./docs/getting-started.md) &nbsp;·&nbsp; [**Migrating to 2.0**](./docs/migrating-to-2.md) &nbsp;·&nbsp; [**Architecture**](./ARCHITECTURE.md)
@@ -157,7 +157,7 @@ Unused optional tiers stay out of the base chart download.
 
 | Import | Contents | Brotli |
 |---|---|---|
-| `openalgo-charts` | Engine, 13 chart types, panes and scales, custom indicator registry, primitives, alerts, replay, comparisons, chart linking, state, feeds, bar cache, trading overlays, CSV and SVG export | 92.91 kB |
+| `openalgo-charts` | Engine, 13 chart types, panes and scales, custom indicator registry, primitives, alerts, replay, comparisons, chart linking, state, feeds, bar cache, trading overlays, CSV and SVG export | 92.94 kB |
 | `openalgo-charts/indicators` | 105 built-in indicators, calculation helpers and helpers for studies that use external data | 29.84 kB |
 | `openalgo-charts/draw` | 85 drawing tools + a headless drawing controller, clipboard, settings schema, level palette, freehand geometry and SVG icons | 35.43 kB |
 | `openalgo-charts/transform` | Heikin Ashi, Renko, Range bars, Line Break, Point &amp; Figure, Kagi, and symbol arithmetic (`AAPL/MSFT`) | 4.50 kB |
@@ -167,7 +167,7 @@ Unused optional tiers stay out of the base chart download.
 | `openalgo-charts/widget` | `createWidget`: toolbar, drawing controls, dialogs, mobile controls, status line, shortcuts and optional layout persistence | 49.03 kB |
 | `openalgo-charts/workspace` | Validated workspace and indicator-template documents, named catalogs with revision checks, asynchronous storage and an IndexedDB adapter; no DOM | 5.52 kB |
 
-Everything together is **246.60 kB Brotli**; a widget terminal with built-in indicators (base + draw + indicators + widget) is 207.21 kB. Figures are measured from the 2.4.8 release build. The trade tier is 8.01 kB on its own; base + trade costs 100.92 kB. Sizes use decimal kB.
+Everything together is **246.63 kB Brotli**; a widget terminal with built-in indicators (base + draw + indicators + widget) is 207.24 kB. Figures are measured from the 2.4.8 release build. The trade tier is 8.01 kB on its own; base + trade costs 100.95 kB. Sizes use decimal kB.
 
 ## What's built
 
@@ -489,17 +489,17 @@ Enforced in CI by [`size-limit`](./.size-limit.json). Nothing is excluded, becau
 
 | Bundle | Limit | Actual |
 |---|---|---|
-| Base engine | 93.5 kB | 92.91 kB |
-| Base + trade | 101.5 kB | 100.92 kB |
+| Base engine | 93.5 kB | 92.94 kB |
+| Base + trade | 101.5 kB | 100.95 kB |
 | Indicators tier | 30 kB | 29.84 kB |
 | Draw tier | 36 kB | 35.43 kB |
 | Transform tier | 6 kB | 4.50 kB |
 | Profile tier | 15 kB | 14.96 kB |
 | WebGL2 tier | 7 kB | 6.39 kB |
 | Widget tier | 49.25 kB | 49.03 kB |
-| Widget terminal (base + draw + indicators + widget) | 207.75 kB | 207.21 kB |
+| Widget terminal (base + draw + indicators + widget) | 207.75 kB | 207.24 kB |
 | Workspace tier | 6 kB | 5.52 kB |
-| **Everything** | 247.25 kB | 246.60 kB |
+| **Everything** | 247.25 kB | 246.63 kB |
 
 ## Documentation
 
@@ -544,7 +544,7 @@ See [Contributing](./CONTRIBUTING.md) for setup, targeted checks, documentation 
 ```bash
 npm install        # install dev toolchain
 npm run typecheck  # strict TypeScript check
-npm test           # engine unit tests (Vitest): 5852 across 246 files
+npm test           # engine unit tests (Vitest): 5854 across 246 files
 npm run test:demo  # reference-host tests: 401 across 31 files
 npm run test:endurance # node endurance-harness tests: 7 cases
 npm run build      # Rollup -> dist/ (minified ESM per tier + types)
