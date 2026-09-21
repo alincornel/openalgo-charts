@@ -112,7 +112,7 @@ export interface ChartWatermarkOptions extends Partial<TextWatermarkOptions> {
 /** Defensive branding snapshot emitted synchronously after setBranding as `branding:changed`. */
 export type BrandingChangedEvent = false | LogoWatermarkOptions;
 import { DEFAULT_TIMEZONE, isValidTimezone } from '../feed/time';
-import { clamp } from '../helpers/math';
+import { clamp, roundToTick } from '../helpers/math';
 
 /** A zone name the runtime recognises, or a readable failure at the call site. */
 function checkedTimezone(zone: string): string {
@@ -3024,6 +3024,25 @@ export class Chart {
   public setDrawingState(value: unknown): void {
     this._drawingState = value;
     this.emit('objects:change', {});
+  }
+
+  /**
+   * A price rounded to the tick the pane's own axis is written with.
+   *
+   * A dragged alert's price comes from a pointer, and a pixel maps to a price
+   * with a dozen decimals behind it: dropped where the axis reads 1255.90 it
+   * was stored as 1255.8706204379562, a price the instrument cannot trade at
+   * and a number nothing in the interface could show. The scale already knows
+   * the tick, because it is the one the axis is written with, so this is the
+   * chart's answer rather than something every host works out again.
+   *
+   * A scale with no declared tick rounds nothing: there is no tick to round to
+   * and inventing one would move a price somebody chose.
+   */
+  public snapPrice(paneIndex: number, price: number): number {
+    if (!Number.isFinite(price)) return price;
+    const step = this._panes[paneIndex]?.priceScale.options.minMove ?? 0;
+    return step > 0 ? roundToTick(price, step) : price;
   }
 
   /** Detached JSON state, also available when no alert controller is attached. */

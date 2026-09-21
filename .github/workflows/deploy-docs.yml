@@ -24,6 +24,7 @@ on:
       - 'scripts/check-objects-website.mjs'
       - 'scripts/check-drawing-demo.mjs'
       - 'scripts/check-alert-drag-website.mjs'
+      - 'scripts/check-table-website.mjs'
       - 'docs/api-introduction.md'
       - 'docs/architecture-diagram.svg'
       - '.github/workflows/deploy-docs.yml'
@@ -87,6 +88,7 @@ jobs:
           node scripts/check-objects-website.mjs
           node scripts/check-drawing-demo.mjs
           OAC_WEBSITE_BROWSERS=chromium node scripts/check-alert-drag-website.mjs
+          OAC_WEBSITE_BROWSERS=chromium node scripts/check-table-website.mjs
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         if: failure()
         with:

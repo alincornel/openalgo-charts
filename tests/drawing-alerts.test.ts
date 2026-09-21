@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AlertController, Chart, PriceLine, PriceScale, registerIndicator } from '../src/index';
 import { DrawingController, type DrawingInput } from '../src/draw/index';
-import type { AlertControllerOptions, AlertTriggeredPayload, Bar, PrimitiveRenderContext } from '../src/index';
+import type { AlertSource, AlertControllerOptions, AlertTriggeredPayload, Bar, PrimitiveRenderContext } from '../src/index';
 import { fakeDocument } from './helpers/fake-dom';
 import { makeCtx } from './helpers/fake-ctx';
 import { DataLayer } from '../src/model/data-layer';
@@ -560,11 +560,213 @@ describe('moving an alert by dragging its line', () => {
     expect(series.priceScale().priceRange().max).toBeGreaterThanOrEqual(150);
   });
 
+  it.each(['price', 'indicator'] as const)('snaps the %s source scale in preview and commit', kind => {
+    const { chart, alerts, series } = alertSetup();
+    let scale = series.priceScale();
+    let source: AlertSource = { kind: 'price', price: 105 };
+    if (kind === 'price') {
+      chart.movePriceAxis(0, 'right', 'left');
+    } else {
+      const id = `tick-overlay-${++studyId}`;
+      registerIndicator({ id, name: 'Tick reading', placement: 'onchart', inputs: [],
+        plots: [{ key: 'v', title: 'Reading', type: 'line', priceScaleId: 'overlay:tick' }],
+        calc: bars => ({ v: bars.map(() => 100) }) });
+      const instance = chart.addIndicator(id);
+      scale = instance.series('v')!.priceScale();
+      source = { kind: 'indicator', instanceId: instance.id, plotKey: 'v', value: 105 };
+    }
+    chart.panes()[0].priceScale.setOptions({ minMove: 0.01 });
+    scale.setOptions({ minMove: 0.25 });
+    const alert = alerts.add({ source });
+    scale.setHeight(400); scale.setPriceRange({ min: 90, max: 120 });
+    const line = lineFor(chart, alert.id);
+    line.draw(makeCtx().ctx, renderContext(chart.panes()[0].priceScale, series.priceScale()));
+    const id = `alert:${alert.id}:0`;
+    const at = (price: number) => ({ point: { y: scale.priceToY(price) }, paneIndex: 0 });
+    event(chart, 'drag:start', id, 999, at(105));
+    event(chart, 'drag', id, 999, at(106.13));
+    expect(line.price).toBe(106.25);
+    expect(alerts.list()[0].source).toEqual(source);
+    event(chart, 'drag:end', id, 999, at(106.13));
+    expect(alerts.list()[0].source).toMatchObject(kind === 'price' ? { price: 106.25 } : { value: 106.25 });
+  });
+
+  it.each([0, 1])('keeps snapped range bound %s within an off-tick opposite bound', index => {
+    const { chart, alerts } = alertSetup();
+    chart.panes()[0].priceScale.setOptions({ minMove: 0.25 });
+    const alert = alerts.add({ source: { kind: 'price', price: 100.13, upperPrice: 105.13 }, condition: 'enteringRange' });
+    begin(chart, alert.id, index === 0 ? 100.13 : 105.13, index);
+    move(chart, alert.id, index === 0 ? 110 : 90, index);
+    expect(lineFor(chart, alert.id, index).price).toBe(index === 0 ? 105 : 100.25);
+    end(chart, alert.id, index === 0 ? 110 : 90, index);
+    expect(alerts.list()[0].source).toMatchObject(index === 0 ? { price: 105, upperPrice: 105.13 } : { price: 100.13, upperPrice: 100.25 });
+  });
+
+  it.each([0, 1])('can meet an opposite decimal tick from bound %s', index => {
+    const { chart, alerts } = alertSetup();
+    chart.panes()[0].priceScale.setOptions({ minMove: 0.05 });
+    const alert = alerts.add({ source: { kind: 'price', price: 100.1, upperPrice: 110.1 }, condition: 'enteringRange' });
+    begin(chart, alert.id, index === 0 ? 100.1 : 110.1, index);
+    end(chart, alert.id, index === 0 ? 120 : 90, index);
+    expect(alerts.list()[0].source).toMatchObject(index === 0 ? { price: 110.1 } : { upperPrice: 100.1 });
+  });
+
+  it.each([[105.13, 100], [105.12, 105]])('keeps callback-only snapping inside range %s', (bound, expected) => {
+    const { chart } = setup();
+    chart.panes()[0].priceScale.setOptions({ minMove: 0.25 });
+    const host = {
+      primaryBars: () => chart.primaryBars(), getDataContext: () => chart.getDataContext(),
+      on: chart.on.bind(chart), emit: chart.emit.bind(chart), snapPrice: chart.snapPrice.bind(chart),
+    };
+    const alerts = new AlertController(host, { visuals: false });
+    cleanup.push(() => alerts.destroy());
+    const alert = alerts.add({ source: { kind: 'price', price: 100, upperPrice: bound }, condition: 'enteringRange' });
+    begin(chart, alert.id, 100); end(chart, alert.id, 110);
+    expect(alerts.list()[0].source).toMatchObject({ price: expected, upperPrice: bound });
+  });
+
   it('rejects an invalid release without retaining its preview', () => {
     const { chart, alerts } = alertSetup();
     const alert = alerts.add({ source: { kind: 'price', price: 105 } });
     begin(chart, alert.id, 105); move(chart, alert.id, 110); end(chart, alert.id, Number.NaN);
     expect(alerts.list()[0].source).toEqual({ kind: 'price', price: 105 });
     expect(lineFor(chart, alert.id).price).toBe(105);
+  });
+});
+
+describe('a dragged alert lands on the instrument tick', () => {
+  /**
+   * Reported from a live chart: an alert dropped where the axis read 1255.90
+   * was stored as 1255.8706204379562. A pointer's pixel maps to a price with a
+   * dozen decimals behind it, so the line, the editor and the axis each showed
+   * a different number for one alert, and the stored one was a price the
+   * instrument cannot trade at.
+   */
+  const dragTo = (
+    chart: { emit(name: string, payload: unknown): void },
+    id: string,
+    price: number,
+    from = 100
+  ) => {
+    // The gesture starts where the line is. Starting it at the destination
+    // means nothing moved, and a gesture that did not move commits nothing,
+    // which is 2.4.7's own rule and would make every case below pass vacuously.
+    chart.emit('drag:start', { id, price: from, paneIndex: 0 });
+    // No `point`: with one, the controller converts the y coordinate through
+    // the scale and the price passed here is ignored, which is right for a
+    // real gesture and useless for stating the price a test is about.
+    chart.emit('drag', { id, price, paneIndex: 0 });
+    chart.emit('drag:end', { id, price, paneIndex: 0 });
+  };
+
+  it('rounds to the tick the pane axis is written with', () => {
+    const { chart, alerts } = alertSetup([60, 120]);
+    chart.panes()[0].priceScale.setOptions({ minMove: 0.05 });
+    const alert = alerts.add({ source: { kind: 'price', price: 100 }, title: 'T' });
+    dragTo(chart, `alert:${alert.id}:0`, 105.8706204379562);
+    const stored = alerts.list()[0].source as { price: number };
+    // 105.8706... is between ticks. 105.85 and 105.90 are not.
+    expect(Math.round(stored.price / 0.05) * 0.05).toBeCloseTo(stored.price, 10);
+    expect(stored.price).toBeCloseTo(105.85, 10);
+  });
+
+  it('asks the chart rather than deciding the tick itself', () => {
+    // The scale is the only thing that knows, because it is the same tick the
+    // axis is written with. A controller that picked its own would disagree
+    // with the axis beside it.
+    const { chart, alerts } = alertSetup([60, 120]);
+    chart.panes()[0].priceScale.setOptions({ minMove: 0.5 });
+    const alert = alerts.add({ source: { kind: 'price', price: 100 }, title: 'T' });
+    dragTo(chart, `alert:${alert.id}:0`, 105.8706204379562);
+    expect((alerts.list()[0].source as { price: number }).price).toBeCloseTo(106, 10);
+  });
+
+  it('leaves the price alone when the scale declares no tick', () => {
+    // Nothing to round to. Inventing a tick would move a price somebody chose,
+    // which is worse than an ugly number.
+    const { chart, alerts } = alertSetup([60, 120]);
+    chart.panes()[0].priceScale.setOptions({ minMove: 0 });
+    const alert = alerts.add({ source: { kind: 'price', price: 100 }, title: 'T' });
+    dragTo(chart, `alert:${alert.id}:0`, 105.8706204379562);
+    expect((alerts.list()[0].source as { price: number }).price).toBeCloseTo(105.8706204379562, 9);
+  });
+
+  it('snaps the preview too, not only what is committed', () => {
+    // Otherwise the line slides between ticks under the pointer and jumps as
+    // it is let go, which reads as the drag having missed.
+    const { chart, alerts } = alertSetup([60, 120]);
+    chart.panes()[0].priceScale.setOptions({ minMove: 0.05 });
+    const alert = alerts.add({ source: { kind: 'price', price: 100 }, title: 'T' });
+    chart.emit('drag:start', { id: `alert:${alert.id}:0`, price: 100, paneIndex: 0 });
+    chart.emit('drag', { id: `alert:${alert.id}:0`, price: 105.8706204379562, paneIndex: 0 });
+    expect((chart.panes()[0].primitives().find(item => item instanceof PriceLine && item.options().id === `alert:${alert.id}:0`) as PriceLine).price).toBeCloseTo(105.85, 10);
+    // Committed value is untouched mid-drag, which 2.4.7 already guarantees.
+    expect((alerts.list()[0].source as { price: number }).price).toBe(100);
+    chart.emit('drag:end', { id: `alert:${alert.id}:0`, price: 105.8706204379562, paneIndex: 0 });
+    expect((alerts.list()[0].source as { price: number }).price).toBeCloseTo(105.85, 10);
+  });
+});
+
+describe('the alert the pointer is over', () => {
+  it('does not offer a removed numeric line after changing to a candle condition', () => {
+    const { chart, alerts } = alertSetup();
+    const alert = alerts.add({ source: { kind: 'price', price: 105 } });
+    chart.emit('hover', { id: `alert:${alert.id}:0` });
+    alerts.update(alert.id, { source: { kind: 'barCondition', id: 'bullish' }, condition: 'matches' });
+    expect(alerts.hovered()).toBeUndefined();
+  });
+
+  it.each(['context', 'restore', 'replace'] as const)('forgets stale hover after %s', change => {
+    const { chart, alerts } = alertSetup();
+    chart.setDataContext({ symbol: 'ONE', interval: '5m' });
+    const alert = alerts.add({ id: 'same-id', source: { kind: 'price', price: 105 } });
+    chart.emit('hover', { id: `alert:${alert.id}:0` });
+    expect(alerts.hovered()).toBe(alert.id);
+    if (change === 'context') chart.setDataContext({ symbol: 'TWO', interval: '5m' });
+    if (change === 'restore') alerts.fromJSON(alerts.toJSON());
+    if (change === 'replace') { alerts.remove(alert.id); alerts.add({ id: alert.id, source: { kind: 'price', price: 110 } }); }
+    expect(alerts.hovered()).toBeUndefined();
+  });
+
+  it('is reported while hovered and forgotten when it is gone', () => {
+    // What a Delete key needs to know before anybody presses it, which is the
+    // same fact the drawing tier keeps about its own hovered shape.
+    const { chart, alerts } = alertSetup([60, 120]);
+    const alert = alerts.add({ source: { kind: 'price', price: 105 }, title: 'T' });
+    expect(alerts.hovered()).toBeUndefined();
+    chart.emit('hover', { id: `alert:${alert.id}:0` });
+    expect(alerts.hovered()).toBe(alert.id);
+    chart.emit('hover', { id: null });
+    expect(alerts.hovered()).toBeUndefined();
+  });
+
+  it('is not reported for something that is not an alert', () => {
+    const { chart, alerts } = alertSetup([60, 120]);
+    alerts.add({ source: { kind: 'price', price: 105 }, title: 'T' });
+    chart.emit('hover', { id: 'draw:trend-1' });
+    expect(alerts.hovered()).toBeUndefined();
+    chart.emit('hover', { id: 'order:7::close' });
+    expect(alerts.hovered()).toBeUndefined();
+  });
+
+  it('stops reporting one that has been removed', () => {
+    // The hover event does not fire again just because an alert went away, so
+    // a stale id here is a Delete that removes nothing and reports success.
+    const { chart, alerts } = alertSetup([60, 120]);
+    const alert = alerts.add({ source: { kind: 'price', price: 105 }, title: 'T' });
+    chart.emit('hover', { id: `alert:${alert.id}:0` });
+    expect(alerts.hovered()).toBe(alert.id);
+    alerts.remove(alert.id);
+    expect(alerts.hovered()).toBeUndefined();
+  });
+
+  it('follows the pointer from one alert to another', () => {
+    const { chart, alerts } = alertSetup([60, 120]);
+    const first = alerts.add({ source: { kind: 'price', price: 105 }, title: 'A' });
+    const second = alerts.add({ source: { kind: 'price', price: 110 }, title: 'B' });
+    chart.emit('hover', { id: `alert:${first.id}:0` });
+    expect(alerts.hovered()).toBe(first.id);
+    chart.emit('hover', { id: `alert:${second.id}:0` });
+    expect(alerts.hovered()).toBe(second.id);
   });
 });

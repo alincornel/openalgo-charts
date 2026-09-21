@@ -1,9 +1,25 @@
 ---
-title: Upgrading to 2.4.8
+title: Upgrading to 2.5.0
 description: Adopt workspace, open-interest, alert and host contracts while preserving existing integrations.
 ---
 
-# Upgrading to 2.4.8
+# Upgrading to 2.5.0
+
+Version 2.5.0 adds automatic table columns with `cellWidth: 'auto'` and clips text
+inside every cell. Alert drags now snap to their source scale's tick in both
+preview and release. The widget and yfinance host support removing a hovered
+alert with Delete or Backspace, after drawing and text-editing shortcuts. Custom
+hosts can use `alerts.hovered()` to add the same shortcut.
+
+Version 2.5.0 keeps fixed price-alert levels visible across timeframes for the
+same symbol and exchange. The label names the original timeframe and an armed
+alert shows Paused when another timeframe is open. Evaluation still uses the
+original timeframe, including intrabar alerts. Return to that timeframe to
+resume; the controller does not evaluate unseen bars in the background.
+Triggered records survive reload, and changing intervals cannot consume another
+interval's evaluated-bar checkpoint. No API or saved-alert migration is needed.
+See [Trader alerts](/docs/alerts#switching-timeframes) and the
+[2.5.0 release notes](/docs/release-notes#250).
 
 Version 2.4.8 shows a grabbing hand while you hold the plot. Mouse and pen panning
 stops on release, including a release outside the chart. Touch flicks keep their

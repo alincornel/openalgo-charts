@@ -198,7 +198,7 @@ chart.addSeries('candlestick').setData(lib.generateBars(1700000000, 140, 3600));
 
 const table = new lib.ChartTable({
   position: 'top-right',
-  cellWidth: [78, 62],
+  cellWidth: 'auto',
   cellHeight: 20,
   borderColor: 'rgba(255,255,255,0.08)',
   background: 'rgba(0,0,0,0.35)',
@@ -220,7 +220,12 @@ return chart;`} />
 | `setOptions(patch)` | Merge option changes and request a repaint. |
 | `options()` | The resolved options. |
 
-Sizing has two modes. Fixed: `cellWidth` (a number, or an array for per-column widths)
+Set `cellWidth: 'auto'` to fit each column to its widest cell, including padding
+and the font size actually drawn. Empty columns retain a 28 px minimum.
+With `fontSize: 'auto'`, width measurement uses an 11 px baseline unless the cell
+overrides its font. Text always clips to its own cell.
+
+Fixed sizing uses `cellWidth` (a number, or an array for per-column widths)
 and `cellHeight`, in media px. Proportional: `widthPercent` and `heightPercent` stretch
 the grid to a share of the plot, preserving the column proportions declared in
 `cellWidth`, with `rowWeights` giving individual rows a larger or smaller share. Font size

@@ -67,7 +67,9 @@ const BUNDLE = new URL('../dist/openalgo-charts.mjs', import.meta.url).pathname.
 // Primitive start/cancel notifications and pane-local gesture coordinates in
 // 2.4.7 raise the chart-only build to 53.00 KiB. Alert evaluation and visuals
 // still shake out; allow 53.25 KiB for the core gesture lifecycle.
-const LIMIT_BYTES = 53.25 * 1024;
+// Automatic table measurement and clipping remain available to a chart-only host.
+// 2.5.0 measures 53.36 KiB; optional tiers and the alert controller must still shake out.
+const LIMIT_BYTES = 53.5 * 1024;
 
 // Absent from a chart-only build. Each is a string that appears in the adapter
 // source and nowhere in the rendering core.

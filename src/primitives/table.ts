@@ -31,8 +31,16 @@ export interface ChartTableOptions {
   position: TablePosition;
   /** Gap from the pane edge, media px. */
   margin: number;
-  /** Column width in media px. A per-column array sizes each one separately. */
-  cellWidth: number | readonly number[];
+  /**
+   * Column width in media px. A per-column array sizes each one separately.
+   *
+   * `'auto'` measures instead: every column takes the width of its own widest
+   * cell at the size that cell will be drawn at. A grid whose cells are
+   * sentences rather than numbers cannot be sized by a caller who has not
+   * measured the text, and a fixed width there is a column of readings running
+   * into the column beside it.
+   */
+  cellWidth: number | readonly number[] | 'auto';
   cellHeight: number;
   /**
    * Type size in media px, or `'auto'` to fit each cell: as large as its row
@@ -84,6 +92,54 @@ function columnEdges(cellWidth: number | readonly number[], cols: number): { x: 
   }
   return { x, total: acc };
 }
+
+/** Use the same bitmap rounding and row limit for measurement and painting. */
+function clampedFontSize(size: number, rowH: number, dpr: number): number {
+  return Math.min(Math.round(size * dpr), Math.floor(rowH * 0.62));
+}
+
+/**
+ * Each column's width, from the widest cell in it.
+ *
+ * Measured at the size each cell will actually be drawn at, because a cell may
+ * carry its own `fontSize` and a row may be short enough to shrink one, and a
+ * column sized against the wrong size is a column that still does not fit.
+ * Automatic fonts use an 11px baseline instead: fitting them here would size
+ * the column to the text and the text to the column at once.
+ *
+ * Returned in media px, the units every other width here is in.
+ */
+function measuredColumns(
+  ctx: CanvasRenderingContext2D,
+  rows: readonly (readonly TableCell[])[],
+  cols: number,
+  rowHeights: readonly number[],
+  o: ChartTableOptions,
+  dpr: number,
+): number[] {
+  const widths: number[] = [];
+  const padding = 10;
+  for (let c = 0; c < cols; c++) {
+    let widest = 0;
+    for (let r = 0; r < rows.length; r++) {
+      const cell = rows[r][c];
+      if (cell === undefined || cell.text === '') continue;
+      const declaredSize = cell.fontSize ?? o.fontSize;
+      const size = declaredSize === 'auto' ? Math.round(11 * dpr)
+        : clampedFontSize(declaredSize, rowHeights[r], dpr);
+      ctx.font = `${cell.bold === true ? '600 ' : ''}${size}px system-ui, sans-serif`;
+      const measured = ctx.measureText(cell.text).width / dpr;
+      if (measured > widest) widest = measured;
+    }
+    // An empty column still takes a column's worth of room, or the grid's
+    // shape stops matching the shape the script declared.
+    widths.push(Math.max(widest + padding, MIN_AUTO_COLUMN));
+  }
+  return widths;
+}
+
+/** The narrowest an automatic column goes, so an empty one is still a column. */
+const MIN_AUTO_COLUMN = 28;
 
 /** Top-left corner of the grid for a position keyword, in media px. */
 export function tableOrigin(
@@ -140,18 +196,6 @@ export class ChartTable implements IPrimitive {
     for (const r of rows) if (r.length > cols) cols = r.length;
     if (cols === 0) return;
 
-    const edges = columnEdges(o.cellWidth, cols);
-    let colX = edges.x;
-    let w = edges.total;
-    // A percentage stretches the grid to the pane it sits in. The columns keep
-    // their declared proportions, so a heatmap with a wide year column still
-    // reads correctly at any width.
-    if (o.widthPercent !== undefined && o.widthPercent > 0 && w > 0) {
-      const target = (rc.plotWidth * o.widthPercent) / 100;
-      const k = target / w;
-      colX = colX.map((v) => v * k);
-      w = target;
-    }
     // Row tops and the total height, from the weights and the base cell height.
     const weights = rows.map((_, r) => {
       const w2 = o.rowWeights?.[r];
@@ -166,6 +210,23 @@ export class ChartTable implements IPrimitive {
     }
     const rowY: number[] = [];
     for (let r = 0, acc = 0; r < rows.length; r++) { rowY.push(acc); acc += unit * weights[r]; }
+    const rowHeights = weights.map((weight) => Math.round(unit * weight * dpr));
+    ctx.save();
+    const edges = columnEdges(
+      o.cellWidth === 'auto' ? measuredColumns(ctx, rows, cols, rowHeights, o, dpr) : o.cellWidth,
+      cols,
+    );
+    let colX = edges.x;
+    let w = edges.total;
+    // A percentage stretches the grid to the pane it sits in. The columns keep
+    // their declared proportions, so a heatmap with a wide year column still
+    // reads correctly at any width.
+    if (o.widthPercent !== undefined && o.widthPercent > 0 && w > 0) {
+      const target = (rc.plotWidth * o.widthPercent) / 100;
+      const k = target / w;
+      colX = colX.map((v) => v * k);
+      w = target;
+    }
     const origin = tableOrigin(o.position, o.margin, w, h, rc.plotWidth, rc.plotHeight);
     this._rect = { x: origin.x, y: origin.y, w, h };
 
@@ -173,7 +234,6 @@ export class ChartTable implements IPrimitive {
     const ox = px(origin.x);
     const oy = px(origin.y);
 
-    ctx.save();
     if (o.background !== undefined) {
       ctx.fillStyle = o.background;
       ctx.fillRect(ox, oy, px(w), px(h));
@@ -183,7 +243,7 @@ export class ChartTable implements IPrimitive {
     for (let r = 0; r < rows.length; r++) {
       const row = rows[r];
       const cellTop = oy + px(rowY[r]);
-      const rowH = px(unit * weights[r]);
+      const rowH = rowHeights[r];
       for (let c = 0; c < row.length; c++) {
         const cell = row[c];
         const cellLeft = ox + px(colX[c]);
@@ -201,6 +261,17 @@ export class ChartTable implements IPrimitive {
         if (cell.text === '') continue;
 
         const pad = px(4);
+        // A cell draws inside its own cell, always. The auto font path shrinks
+        // text until it fits, but a fixed size has nothing stopping it, and a
+        // reading wider than its column was simply painted across the column
+        // beside it: two numbers on top of each other, both unreadable, and
+        // nothing about the grid to say which belonged where. Clipping makes
+        // an over-long cell look cut off, which is a thing a reader can see
+        // and act on.
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(cellLeft, cellTop, cellW, rowH);
+        ctx.clip();
         const weight = cell.bold === true ? '600 ' : '';
         // Shrink the type when a stretched row is shorter than the declared
         // font, so a tall grid in a short pane stays legible instead of
@@ -219,7 +290,7 @@ export class ChartTable implements IPrimitive {
             ctx.font = `${weight}${size}px system-ui, sans-serif`;
           }
         } else {
-          size = Math.min(px(cell.fontSize ?? (o.fontSize === 'auto' ? 11 : o.fontSize)), rowMax);
+          size = clampedFontSize(cell.fontSize ?? (o.fontSize === 'auto' ? 11 : o.fontSize), rowH, dpr);
         }
         ctx.font = `${weight}${size}px system-ui, sans-serif`;
         // A cell with a fill picks its own readable ink; one without falls back
@@ -232,6 +303,7 @@ export class ChartTable implements IPrimitive {
           : align === 'right' ? cellLeft + cellW - pad
           : cellLeft + cellW / 2;
         ctx.fillText(cell.text, tx, cellTop + rowH / 2);
+        ctx.restore();
       }
     }
     ctx.restore();

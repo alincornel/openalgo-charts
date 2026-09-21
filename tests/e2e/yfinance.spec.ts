@@ -1,9 +1,18 @@
 import { test, expect, type Page } from '@playwright/test';
-import type { AlertController, Chart } from '../../src/index';
+import type { AlertController, Chart, SeriesApi } from '../../src/index';
 
 type AlertDragHost = Window & {
   __oac: { app: { chart: Chart; alerts: AlertController; loading: boolean } };
   __referenceAlertDrag: { writes: number; updates: number };
+};
+
+type AlertLoadHost = Window & {
+  __oac: { app: {
+    chart: Chart; chart2: Chart; price: SeriesApi; volume: SeriesApi; volume2: SeriesApi;
+    alerts: AlertController; alerts2: AlertController; loading: boolean; loading2: boolean;
+    p2: { symbol: string; interval: string; period: string };
+    load(): Promise<void>; loadSecondary(): Promise<boolean>;
+  } };
 };
 
 // The yfinance demo, the reference host, in a real browser.
@@ -319,6 +328,164 @@ test('a symbol the source cannot serve leaves the shell up and says so', async (
   expect(await page.evaluate(() => Boolean((window as any).__oac.chart))).toBe(true);
   expect(await page.evaluate(() => (window as any).__oac.app.currentBars.length as number)).toBe(barsBefore);
   expect(pageErrors).toEqual([]);
+});
+
+for (const pane of [1, 2]) {
+  test(`chart ${pane} history handoff clears old bars before context and preserves same-source refresh`, async ({ page }) => {
+    const errors = watchErrors(page);
+    await page.route('**/api/history?**', route => route.fulfill({ json: Array.from({ length: 48 }, (_, index) => ({
+      time: 1735689600 + index * 300, open: 99, high: 102, low: 98, close: 100, volume: 1000,
+    })) }));
+    await openDemo(page);
+    await page.waitForFunction(() => !(window as unknown as AlertLoadHost).__oac.app.loading);
+    if (pane === 2) {
+      await page.getByRole('button', { name: /Open a second, linked chart/ }).click();
+      await page.waitForFunction(() => !(window as unknown as AlertLoadHost).__oac.app.loading2);
+    }
+    const same = await page.evaluate(async pane => {
+      const app = (window as unknown as AlertLoadHost).__oac.app;
+      const chart = pane === 1 ? app.chart : app.chart2;
+      chart.setVisibleLogicalRange({ from: 12, to: 34 });
+      const before = chart.getVisibleLogicalRange();
+      const load = pane === 1 ? app.load() : app.loadSecondary();
+      const during = { price: chart.primaryBars().length, volume: (pane === 1 ? app.volume : app.volume2).getData().length };
+      await load;
+      return { before, during, after: (pane === 1 ? app.chart : app.chart2).getVisibleLogicalRange() };
+    }, pane);
+    expect.soft(same.during).toEqual({ price: 48, volume: 48 });
+    expect(same.after!.from).toBeCloseTo(same.before!.from, 6);
+    expect(same.after!.to).toBeCloseTo(same.before!.to, 6);
+    const changed = await page.evaluate(async pane => {
+      const app = (window as unknown as AlertLoadHost).__oac.app;
+      const chart = pane === 1 ? app.chart : app.chart2;
+      const volume = pane === 1 ? app.volume : app.volume2;
+      const atContext: { price: number; volume: number }[] = [];
+      chart.on('data:context', () => atContext.push({ price: chart.primaryBars().length, volume: volume.getData().length }));
+      if (pane === 1) (document.getElementById('interval') as HTMLSelectElement).value = '5m';
+      else app.p2.interval = '5m';
+      await (pane === 1 ? app.load() : app.loadSecondary());
+      return atContext;
+    }, pane);
+    expect(changed).toEqual([{ price: 0, volume: 0 }]);
+    expect(errors).toEqual([]);
+  });
+
+  test(`chart ${pane} returning to alert timeframe preserves its unclosed bar checkpoint`, async ({ page }, info) => {
+    const errors = watchErrors(page);
+    await page.route('**/api/history?**', route => {
+      const interval = new URL(route.request().url()).searchParams.get('interval');
+      const seconds = interval === '1m' ? 60 : 300;
+      const start = 1735689600 + (interval === '1m' ? 18000 : 0);
+      return route.fulfill({ json: Array.from({ length: 48 }, (_, index) => {
+        const close = index === 47 ? 101 : 99;
+        return { time: start + index * seconds, open: 99, high: 102, low: 98, close, volume: 1000 };
+      }) });
+    });
+    await openDemo(page);
+    await page.waitForFunction(() => !(window as unknown as AlertLoadHost).__oac.app.loading);
+    if (pane === 2) {
+      await page.getByRole('button', { name: /Open a second, linked chart/ }).click();
+      await page.waitForFunction(() => !(window as unknown as AlertLoadHost).__oac.app.loading2);
+    }
+    const switchFrame = async (interval: string): Promise<void> => {
+      await page.evaluate(async ({ pane, interval }) => {
+        const app = (window as unknown as AlertLoadHost).__oac.app;
+        if (pane === 1) {
+          const select = document.getElementById('interval') as HTMLSelectElement;
+          if (![...select.options].some(option => option.value === interval)) select.add(new Option(interval, interval));
+          select.value = interval;
+        }
+        else app.p2.interval = interval;
+        await (pane === 1 ? app.load() : app.loadSecondary());
+      }, { pane, interval });
+      expect(await page.evaluate(pane => {
+        const app = (window as unknown as AlertLoadHost).__oac.app;
+        return (pane === 1 ? app.chart : app.chart2).getDataContext()?.interval;
+      }, pane)).toBe(interval);
+    };
+    await switchFrame('5m');
+    const created = await page.evaluate(pane => {
+      const app = (window as unknown as AlertLoadHost).__oac.app;
+      const chart = pane === 1 ? app.chart : app.chart2;
+      const alerts = pane === 1 ? app.alerts : app.alerts2;
+      const alert = alerts.add({ title: 'Original frame close', source: { kind: 'price', price: 100 },
+        condition: 'crossingUp', policy: 'onBarClose', repeat: 'once' });
+      return { id: alert.id, lastClosedTime: alert.lastClosedTime, formingTime: chart.primaryBars().at(-1)!.time };
+    }, pane);
+    expect(created).toMatchObject({ lastClosedTime: 1735703400, formingTime: 1735703700 });
+    await switchFrame('1m');
+    expect(await page.evaluate(pane => {
+      const app = (window as unknown as AlertLoadHost).__oac.app;
+      return (pane === 1 ? app.chart : app.chart2).primaryBars().at(-1)!.time;
+    }, pane)).toBe(1735710420);
+    await switchFrame('5m');
+    const returned = await page.evaluate(pane => {
+      const app = (window as unknown as AlertLoadHost).__oac.app;
+      return (pane === 1 ? app.alerts : app.alerts2).list()[0];
+    }, pane);
+    expect(returned).toMatchObject({ id: created.id, state: 'armed', lastClosedTime: created.lastClosedTime });
+    const triggered = await page.evaluate(pane => {
+      const app = (window as unknown as AlertLoadHost).__oac.app;
+      const chart = pane === 1 ? app.chart : app.chart2;
+      const fired: unknown[] = [];
+      chart.on('alert:triggered', event => fired.push(event));
+      const bar = { time: chart.primaryBars().at(-1)!.time + 300, open: 101, high: 102, low: 100, close: 101, volume: 1000 };
+      const price = pane === 1 ? app.price : chart.primarySeries()!;
+      price.update(bar);
+      price.update({ ...bar, close: 102 });
+      return fired;
+    }, pane);
+    expect(triggered).toHaveLength(1);
+    expect(triggered[0]).toMatchObject({ alert: { id: created.id }, time: created.formingTime });
+    await page.screenshot({ path: info.outputPath(`chart-${pane}-original-frame-alert.png`), animations: 'disabled' });
+    expect(errors).toEqual([]);
+  });
+}
+
+test('a saved price alert stays visible after a timeframe change and reload', async ({ page }, info) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1360, height: 900 });
+  await page.route('**/api/history?**', route => {
+    const interval = new URL(route.request().url()).searchParams.get('interval');
+    const seconds = interval === '5m' ? 300 : 86400;
+    return route.fulfill({ json: Array.from({ length: 48 }, (_, index) => ({
+      time: 1735689600 + index * seconds, open: 99, high: 102, low: 98, close: 100, volume: 1000,
+    })) });
+  });
+  await openDemo(page);
+  await page.waitForFunction(() => !(window as unknown as AlertDragHost).__oac.app.loading);
+  await page.getByRole('button', { name: 'Alerts', exact: true }).click();
+  await page.getByRole('button', { name: 'Create alert', exact: true }).click();
+  const editor = page.getByRole('dialog', { name: 'Create alert', exact: true });
+  await editor.getByLabel('Name', { exact: true }).fill('Daily price watch');
+  await editor.getByLabel('Threshold', { exact: true }).fill('110');
+  await editor.getByRole('button', { name: 'Save', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Alerts', exact: true }).getByRole('button', { name: 'Close', exact: true }).click();
+  await page.getByRole('button', { name: '5M', exact: true }).click();
+  const ready = () => page.waitForFunction(() => {
+    const app = (window as unknown as AlertDragHost).__oac?.app;
+    return app?.chart?.getDataContext()?.interval === '5m' && !app.loading && app.alerts?.list().length === 1;
+  });
+  await ready();
+  const visible = () => page.evaluate(() => (window as unknown as AlertDragHost).__oac.app.chart.exportSVG().includes('Daily price watch (1d)'));
+  await expect.poll(visible).toBe(true);
+  await page.getByRole('button', { name: 'Alerts', exact: true }).click();
+  await expect(page.locator('.oac-alerts__status')).toContainText('1d');
+  await expect(page.locator('.oac-alerts__status')).toContainText('Switch');
+  await page.getByRole('dialog', { name: 'Alerts', exact: true }).getByRole('button', { name: 'Close', exact: true }).click();
+  await page.reload();
+  await ready();
+  await expect.poll(visible).toBe(true);
+  await page.screenshot({ path: info.outputPath('reference-alert-other-timeframe.png') });
+  await page.getByRole('button', { name: '1D', exact: true }).click();
+  await page.waitForFunction(() => {
+    const { chart, alerts, loading } = (window as unknown as AlertDragHost).__oac.app;
+    return !loading && chart?.getDataContext()?.interval === '1d' && alerts?.list().length === 1
+      && alerts.availability(alerts.list()[0].id).available;
+  });
+  expect(await page.evaluate(() => (window as unknown as AlertDragHost).__oac.app.alerts.list()[0]))
+    .toMatchObject({ title: 'Daily price watch', state: 'armed', scope: { interval: '1d' }, source: { price: 110 } });
+  expect(errors).toEqual([]);
 });
 
 test('an alert line drag previews without saving and persists once when released', async ({ page }, info) => {

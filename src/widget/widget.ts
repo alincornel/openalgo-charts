@@ -845,7 +845,17 @@ class WidgetImpl implements Widget {
     // nothing right now is declined so the engine (an arrow pan) still gets it.
     const editing = (e: KeyEventLike): boolean => {
       const action = keyToDrawingAction(e, drawCtx());
-      if (action === null) return false;
+      // Alert deletion is a fallback: a drawing selection, hover or armed
+      // tool keeps ownership even when the pointer is over an alert line.
+      if (action === null) {
+        const alertId = this.alerts.hovered();
+        if (alertId !== undefined && draw.activeTool() === null && (e.key === 'Delete' || e.key === 'Backspace')) {
+          this.alerts.remove(alertId);
+          this._rail?.refresh();
+          return true;
+        }
+        return false;
+      }
       switch (action.type) {
         case 'undo': draw.undo(); break;
         case 'redo': draw.redo(); break;
