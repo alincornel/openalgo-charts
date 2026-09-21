@@ -1,5 +1,60 @@
 # OpenAlgo Charts architecture diagram: update brief
 
+## Current diagram: 2.4.7, redrawn 2026-09-21
+
+The current SVG replaces the old seven-row capability list with explicit ownership
+boundaries and data flow. The old layout had received updated numbers but did not
+explain the workspace, alert, replay and feed changes shipped during September.
+
+`docs/architecture-diagram.svg` is the editable source used by README and
+ARCHITECTURE.md. `website/public/architecture-diagram.svg` is its identical website
+copy, refreshed by the site's sync script. The intrinsic size is 1280 by 1520;
+README displays it at 920 pixels with a link to the full-size vector.
+
+The map must preserve these distinctions:
+
+- The host supplies custom UI or the optional widget, adapters, instrument lookup,
+  chart selection and workspace activation. Credentials, broker execution and
+  external notification delivery remain host responsibilities.
+- The base contains the loading pipeline, shared DataLayer and time scale,
+  independent price scales, the study registry and primitive contracts, chart interaction,
+  alerts, comparisons, replay groups, linking and rendering.
+- Loading snapshots reach series through host wiring. Data-flow arrows are not
+  automatic API connections or an import/dependency graph.
+- Closed bars can be cached; the live tail must be refreshed. Optional open
+  interest is a level: aggregation retains the last observation and never sums
+  it. Missing OI remains absent, not zero.
+- Alerts default to bar-close evaluation. A threshold drag previews a draft and
+  commits once. Restored lifecycle state and external delivery remain distinct.
+- Group replay follows when observations become available, not only the candle's
+  opening timestamp. Host callbacks perform linked symbol and interval changes.
+- The workspace tier provides documents, templates, revisioned catalogs and
+  asynchronous storage. It does not render or activate a chart grid itself.
+- Canvas 2D supplies the base renderer. Optional WebGL2 draws supported series;
+  axes, text and primitives remain 2D. Study and profile calculation stays on CPU.
+- Base plus eight optional ESM entries makes nine tiers. Custom study contracts
+  belong to the base registry; the indicator tier adds built-ins and helpers.
+
+Measurements were rechecked with `npm run size` and the built registries on
+2.4.7: base 92.83 kB, indicators 29.84 kB, draw 35.43 kB, profile 14.96 kB,
+transform 4.50 kB, trade 8.01 kB, workspace 5.52 kB, webgl 6.39 kB and widget
+49.03 kB, all decimal Brotli. All tiers total 246.52 kB. Registry counts are
+105 indicators, 85 drawing tools and 15 chart types with the transform tier loaded.
+
+Source references: `src/index.ts`, `src/feed/data-controller.ts`,
+`src/feed/instrument.ts`, `src/model/bar.ts`, `src/core/pane.ts`,
+`src/alerts/controller.ts`, `src/replay/group.ts`, `src/link/group.ts`,
+`src/compare/controller.ts`, `src/workspace/`, `src/render/backend.ts`,
+`src/trade/order-engine.ts` and `package.json` exports.
+
+When updating the asset, check both SVG copies, README/ARCHITECTURE alt text, the
+website component's intrinsic dimensions and cache query, and the website guide.
+Render at full size and README width in Chromium, Firefox and WebKit; verify text
+bounds, label collisions and actual pixels. Keep historical measurements below
+as a record of the earlier redraw.
+
+## Historical update brief: 1.8.2
+
 Written 2026-08-28 against openalgo-charts 1.8.2.
 
 > **Status: implemented in `d0eb679`.** The diagram was redrawn and now ships as
@@ -7,9 +62,7 @@ Written 2026-08-28 against openalgo-charts 1.8.2.
 > record of what was wrong, what the measured figures were, and why each change
 > was made, so the next redraw starts from evidence rather than memory.
 >
-> **Current release source of truth:** the 2.4.7 SVG reports 92.83 kB base and
-> 246.52 kB for every tier, nine tier chips, 105 built-in indicators and 85 drawing tools.
-> Earlier measurements below remain the historical record of each redraw.
+> The current diagram and measurements are documented above.
 
 Build brief for the replacement of `docs/architecture-diagram.png` in
 `openalgo-charts`, shown in `README.md` at 920 px wide.
