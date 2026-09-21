@@ -58,7 +58,7 @@ returning to the original interval seed silently without replaying history.
 `Alert` is the normalized record, with a required id, defaults, scope,
 `AlertState` and optional lastTriggeredAt (UTC delivery seconds) and
 lastTriggeredTime (bar UTC seconds). `AlertState` is armed, triggered, disabled
-or expired. Once alerts stay visible as triggered. Every-time alerts stay armed.
+or expired. Once alerts keep a triggered record and show its line by default. Every-time alerts stay armed.
 `list()` and returned records detach mutable configuration; payload remains
 opaque and retains its original reference.
 
@@ -75,6 +75,21 @@ armed expiry, including on an idle feed. Disabled and once-triggered records do
 not keep an expiry timer. Destruction cancels it.
 `AlertChartHost` is the structural chart interface, allowing a host integration
 without a nominal dependency on a specific bundled Chart class.
+
+## Finished alert lines
+
+From 2.5.1, construct `new AlertController(chart, { spentLines: 'hide' })` to
+hide triggered and expired lines while retaining records and runtime state.
+The default is `'show'`. Armed, repeating and disabled lines retain their normal
+appearance; `enable(id)` re-arms a spent alert and restores its line. Clear or
+extend an elapsed `expiresAt` before re-arming an expired record.
+
+This is a constructor policy, not part of `toJSON()`. Pass it again when
+recreating the controller. Preserve the full saved document; deleting a spent
+record to hide its line loses its once-only firing protection. Hiding an alert
+anchored to a drawing does not remove the drawing. `visuals: false` still hides
+all alert visuals. The packaged widget and yfinance keep the default display;
+this option is for hosts that construct their own controller.
 
 ## Editor schema and widget ownership
 

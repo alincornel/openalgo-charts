@@ -411,6 +411,13 @@ priority over other prices, lower-priority fields disappear as whole readings,
 and long source names shorten. Hover actions stay out of the price axis. Widening
 the pane restores its full readout.
 
+From 2.5.1, custom hosts may construct `AlertController` with
+`{ spentLines: 'hide' }` to hide triggered and expired lines without removing
+saved records. This reference host keeps the default `'show'` behavior in both
+panes. Apply the option at each controller's construction if adapting the demo.
+Keep the saved runtime when restoring alerts, and reapply this constructor policy.
+See the website's finished-alert-lines example for both display choices.
+
 Alerts default to confirmed bar closes. Intrabar touch can fire on a wick that
 the provider later removes from final history. Absent study readings remain
 unavailable, including OI on this OHLCV-only provider. Alerts keep their symbol,

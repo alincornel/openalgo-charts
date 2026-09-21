@@ -23,7 +23,8 @@ header{height:42px;display:flex;align-items:center;padding:0 16px;border-bottom:
   chart.panes()[0].priceScale.setFixedRange({ min: 88, max: 120 });
   const draw = new DrawingController(chart, { defaultStyle: { color: '#e879f9', lineWidth: 2 } });
   const drawing = draw.add({ tool: 'horizontal-line', points: [{ time: bars[20].time, price: 108 }], style: {}, paneIndex: 0 });
-  const alerts = new AlertController(chart, { drawings: draw, now: () => 1000 });
+  const spentLines = new URLSearchParams(location.search).get('spentLines') === 'hide' ? 'hide' : 'show';
+  const alerts = new AlertController(chart, { drawings: draw, now: () => 1000, spentLines });
   const ids = {
     touch: alerts.add({ source: { kind: 'price', price: 105 }, title: 'Intrabar threshold', condition: 'crossingUp', policy: 'onTouch' }).id,
     close: alerts.add({ source: { kind: 'price', price: 110 }, title: 'Confirmed threshold', condition: 'crossingUp' }).id,
