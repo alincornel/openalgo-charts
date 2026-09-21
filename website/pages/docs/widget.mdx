@@ -11,8 +11,9 @@ import { Callout } from 'nextra/components'
 `openalgo-charts/widget` turns the engine into a working terminal in one call: a chart
 with a top bar (symbol, interval, chart type, theme, settings, indicators, objects, alerts), a drawing rail
 down the left, a status line, the dialogs behind each of those buttons, keyboard shortcuts
-with a `?` panel that lists them, and optional persistence of the layout. It is the eighth
-loadable tier (**41.91 KB** Brotli), and it is the only one that builds DOM.
+with a `?` panel that lists them, and optional persistence of the layout. It is one of nine
+loadable tiers (**49.03 kB** Brotli in 2.4.8) and the only tier that supplies
+application controls.
 
 The **Capture** menu offers **Download chart data (CSV)** alongside image export.
 CSV contains loaded OHLC, volume, OI, configured study plots and aligned comparison
@@ -35,10 +36,12 @@ widget.series.setData(bars);
 widget.chart.timeScale.fitContent(160);
 return widget;`} />
 
-## The engine still ships no DOM
+<a id="the-engine-still-ships-no-dom"></a>
 
-`openalgo-charts` and the six tiers beneath the widget contain no toolbar, no dialog, no
-menu and no stylesheet. They touch the document only to own their canvases. The widget is
+## Engine and interface separation
+
+`openalgo-charts` and the seven non-widget optional tiers contain no toolbar, no dialog, no
+menu and no stylesheet. The engine creates canvas and container elements; it does not provide application controls. The widget is
 a host, packaged: everything it draws in HTML it drives through the same public API a host
 of your own would use (`createChart`, `DrawingController`, `chartSettingsSchema`, the
 `contextmenu` event, the indicator registry).
@@ -111,7 +114,7 @@ npm install openalgo-charts
 
 The widget entry imports `openalgo-charts` and `openalgo-charts/draw` itself. The
 indicator picker offers whatever the indicator registry holds, so import
-`openalgo-charts/indicators` alongside it for the 102 built-ins; without that import the
+`openalgo-charts/indicators` alongside it for the 105 built-ins; without that import the
 picker offers only what you registered yourself.
 
 ## One call
@@ -444,12 +447,13 @@ widget: a tier loaded beside it would import its own second engine. See
 
 ## Size
 
-Budgets from `.size-limit.json`, Brotli, enforced by `npm run size`:
+Budgets from `.size-limit.json` and measurements from the 2.4.8 build, decimal
+Brotli kB, enforced by `npm run size`:
 
 | Row | Files | Budget | Measured |
 |---|---|--:|--:|
-| Widget tier | `openalgo-charts.widget.mjs` | 43 KB | 42.49 KB |
-| Widget terminal | base + draw + indicators + widget | 185 KB | 184.14 KB |
+| Widget tier | `openalgo-charts.widget.mjs` | 49.25 kB | 49.03 kB |
+| Widget terminal | base + draw + indicators + widget | 207.75 kB | 207.21 kB |
 
 The widget is a tier because of these rows. A host that never calls `createWidget`
 downloads none of it, and the base engine's own budget is unchanged.
@@ -478,6 +482,9 @@ replay lifetime, including paused replay; stop replay before resuming delivery.
 See [data loading](/docs/data-loading) for the interactive failure/retry example.
 
 ## Trader alerts
+
+For the standalone base controller, delivery events and restore order, see
+[Trader Alerts](/docs/alerts). This section covers the widget editor and list.
 
 The widget owns `widget.alerts`, an `AlertController` attached to its chart and
 drawing controller. Open **Alerts** in the desktop toolbar, or **More**, then **Alerts**

@@ -1,0 +1,88 @@
+---
+title: Chart Data Export
+description: Export loaded OHLCV, open interest, study values and comparisons as replay-aware CSV.
+---
+
+# Chart data export
+
+`exportChartDataCsv(chart, options?)` is a base export that returns a CSV string
+from the chart's installed data. It does not fetch history or start a download.
+Your application selects the chart, chooses the filename and delivers the file.
+
+## Create a CSV download
+
+Call this function from the selected chart's download action, after its source
+has finished loading. It uses the chart passed to the function rather than
+looking up whichever chart becomes focused later.
+
+```ts
+import { exportChartDataCsv, type Chart } from 'openalgo-charts';
+
+export function downloadChartData(chart: Chart, filename = 'chart-data.csv') {
+  const csv = exportChartDataCsv(chart);
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  try {
+    link.click();
+  } finally {
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+}
+```
+
+An application can also send the returned string to its own storage or download
+service. Browser download initiation does not confirm that a file was saved.
+
+## Rows and columns
+
+Rows cover **all loaded primary bars**, not only the visible viewport. The fixed
+columns are `time,open,high,low,close,volume,oi`. Time is UTC seconds, and numbers
+retain input precision rather than axis display rounding. Missing or nonfinite
+values are empty cells; genuine zero values remain `0`. Output uses CRLF row
+endings and escapes quoted header fields.
+
+| Additional columns | Behavior |
+| --- | --- |
+| `indicator:<instanceId>:<plotKey>` | Every configured study's declared plots, including hidden studies. Repeated study instances stay separate. Warmup and missing values are blank. |
+| `comparison:<ordinal>:<symbol>:close` | Comparison closes aligned to each primary timestamp, in the comparison's own price units. |
+
+Study values belong to the input row, before visual plot offsets. A study output
+that is not a declared plot, such as a candle-color classification, is not added
+as a CSV column. Comparison values are not converted into displayed percentage
+or indexed-axis values. Transformed charts export their installed transformed
+OHLC bars.
+
+Use `{ indicators: false }` to omit study columns. Comparisons created through
+`addComparison` or `comparisonController` are discovered automatically. For an
+explicitly owned controller, pass its list through the `comparisons` option:
+
+```ts
+import { exportChartDataCsv, type Chart, type ComparisonController } from 'openalgo-charts';
+
+export function exportComparisons(chart: Chart, comparisons: ComparisonController) {
+  return exportChartDataCsv(chart, { indicators: false, comparisons: comparisons.list() });
+}
+```
+
+Pass `{ comparisons: [] }` to omit comparisons. A chart without primary rows
+still returns its header. Drawings, orders, positions, account state and
+credentials are not exported.
+
+## Replay and host ownership
+
+Replay installs only its revealed prefix, so CSV reads only those rows. Partial
+bars contain only the observations revealed so far. Do not substitute the full
+history retained by a replay controller or feed cache when exporting a chart.
+
+Capture the chart and instrument when opening a download menu. Before exporting,
+reject a stale target or a source still loading or in an error state. The export
+function has no knowledge of the host's loading controls or current account.
+Report exceptions through the host's normal error UI.
+
+CSV is a numeric snapshot, not a restorable chart layout. Use
+[chart state](/docs/state) or [workspaces](/docs/workspaces) for configuration,
+and [PNG or SVG export](/docs/rendering) for a visual capture.

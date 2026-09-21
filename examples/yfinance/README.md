@@ -264,7 +264,9 @@ yfinance (Python)  ->  server.py /api/history  ->  YFinanceDataFeed.getBars()  -
 
 ## Navigation
 
-Mouse and pen drags in the plot pan time and price by default. In Settings, open
+Press and hold the plot to show a grabbing hand, then drag left, right, up or down.
+Mouse and pen movement stops immediately on release, including outside the chart.
+Touch flicks retain momentum. Mouse and pen drags pan time and price by default. In Settings, open
 Axes, then Navigation, and choose **Horizontal only** for time-only movement.
 An existing saved horizontal preference stays intact after upgrading; select
 **Mouse drag > Time and price** to restore two-axis panning.

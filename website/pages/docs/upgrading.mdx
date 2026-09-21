@@ -1,9 +1,15 @@
 ---
-title: Upgrading to 2.4.7
+title: Upgrading to 2.4.8
 description: Adopt workspace, open-interest, alert and host contracts while preserving existing integrations.
 ---
 
-# Upgrading to 2.4.7
+# Upgrading to 2.4.8
+
+Version 2.4.8 shows a grabbing hand while you hold the plot. Mouse and pen panning
+stops on release, including a release outside the chart. Touch flicks keep their
+momentum. Two-axis panning remains the default; saved horizontal-only preferences
+still apply. No API or saved-state migration is required. See the
+[2.4.8 release notes](/docs/release-notes#248).
 
 Price and study-threshold alerts now support dragging through the existing alert
 controller. No additional drag callback is required. Preview only moves the line;
@@ -20,7 +26,7 @@ draft on `drag:cancel` before considering a later release. Custom primitives
 opt into Escape rollback with `PrimitiveHit.cancelOnEscape: true` and must
 handle cancellation without requiring an end notification.
 
-See the [alert example](/examples#alert-threshold-dragging) and
+See [Trader alerts](/docs/alerts), the [alert example](/examples#alert-threshold-dragging) and
 [2.4.7 release notes](/docs/release-notes#247).
 
 ## Existing 2.4.6 integrations
@@ -51,10 +57,10 @@ then run your host's source-switch, persistence, replay and trading guard checks
 The optional APIs require explicit host wiring; a dependency update alone does
 not add workspace controls to an existing terminal.
 
-- Import named layout and template contracts from `openalgo-charts/workspace`.
+- Import [named layout and template contracts](/docs/workspaces) from `openalgo-charts/workspace`.
   Keep account namespaces separate and show rejected saves or revision conflicts.
   Portable documents exclude credentials, live orders, positions and armed state.
-- Treat `Bar.oi` as a level: folds take the latest defined reading, never a sum.
+- Treat [open interest](/docs/open-interest) (`Bar.oi`) as a level: folds take the latest defined reading, never a sum.
   Preserve missing observations and real zero separately. Declare instrument OI
   support independently of whether the current bar has an observation.
 - Restore drawing and study identities before their alerts. Triggered once alerts

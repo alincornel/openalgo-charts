@@ -339,6 +339,9 @@ media pixels and are clamped to 12..28 when drawn. A chart-wide size also applie
 later host-added legends, so adjacent rows share one height; it overrides their
 individual `PaneLegendOptions.iconSize`. Nonfinite chart sizes are ignored.
 `chart.legendIconSize()` returns the configured value, or `undefined` when unset.
+This setting is a host preference outside `ChartState`; save it separately and
+reapply it when replacing the chart. The yfinance host includes it in its chart
+settings and [named workspaces](/docs/workspaces).
 
 Fully transparent plot colors, including `transparent`, zero-alpha hex and supported
 `rgba()` colors, contribute no blank reading to the legend. Unrecognized color syntax
@@ -1105,6 +1108,10 @@ test on.
 
 ### Alerts
 
+Descriptor conditions emit `indicator:alert`. For user-created price, drawing
+or study thresholds with expiry, lifecycle state and draggable lines, use
+[`AlertController`](/docs/alerts). The two event contracts are separate.
+
 A crossover of an indicator's own columns is something only that indicator knows how to
 name, so the condition is declared on the descriptor and the runtime watches it:
 
@@ -1318,7 +1325,7 @@ defined reading in each bucket and never add OI values. Declare instrument
 support through `ChartDataContext.hasOpenInterest`: supported with a missing
 reading, unsupported and unknown support are distinct states. See the
 [live OI example](/examples#open-interest-and-instrument-rules) and
-[data integration guide](https://github.com/marketcalls/openalgo-charts/blob/master/docs/open-interest.md).
+[Open interest guide](/docs/open-interest).
 
 ## Tier 2: indicators with their own data
 

@@ -15,7 +15,11 @@ and drawing persistence all ride on this one pair.
 localStorage.setItem('layout', JSON.stringify(chart.getState()));
 
 // later, after your data has loaded
-const report = chart.restoreState(JSON.parse(localStorage.getItem('layout')));
+const raw = localStorage.getItem('layout');
+if (raw !== null) {
+  const report = chart.restoreState(JSON.parse(raw));
+  if (!report.applied) showRestoreError(report.reason);
+}
 ```
 
 ## What is captured - and what is not
@@ -35,8 +39,10 @@ The rule: **the chart serialises what the chart owns.**
 | [Timezone](/docs/timezones) | Yes | A saved zone the runtime no longer recognises is skipped, not thrown: one stale name must not cost the whole layout. |
 | Pane weights | Yes | Panes are created as needed. |
 | Price scales (margins, `minMove`, mode, inverted, auto-scale, pinned range) | Yes | Per pane. |
-| Indicator instances (descriptor id, settings, pane, visibility) | Yes | Since 2.1.7, `visible: false` survives restoration. Older layouts default to visible. Runtime instance IDs are recreated. |
+| Indicator instances (descriptor id, instance id, settings, pane, visibility) | Yes | Saved `instanceId` values are preserved so study alerts can resolve their source. Legacy snapshots without IDs receive new ones. Older layouts default to visible. |
 | Drawings | Round-tripped | An opaque slot the drawing tier owns; the base engine only carries it. |
+| Trader alerts | Yes | Validated `AlertsDocument`, including source bindings and lifecycle state. An `AlertController` restores visuals and evaluation without replaying historical notifications. |
+| Legend button size | **No** | Persist the host preference separately and reapply `chart.setLegendIconSize(size)` when rebuilding. |
 | Series descriptors (type, style, pane, price scale) | **No** | Reported back to you - see below. |
 | Series **data** | **No** | The host supplies the bars; they are not embedded in the saved layout. |
 | Host-registered Objects providers | **No** | Register them again for a replacement chart and persist their state through the host. |
@@ -54,29 +60,32 @@ chart keeps its current navigation options. The count controls the initial/reset
 loaded data, not the amount of history your feed requests or retains.
 
 <Callout type="warning">
-**`restoreState` never recreates series.** The chart has no way to know what data belongs in
-them. It restores everything else and hands you the series descriptors it saw, so *you*
-rebuild them from your own feed and re-apply the saved styling.
+**Your host recreates its source series and loads their data.** Use your saved source
+manifest for price, volume and comparison series. `restoreState` recreates indicator
+outputs internally; do not create those a second time from the report.
 </Callout>
 
 ```ts
+// On a replacement chart, recreate the sources your host owns first.
+chart.setDataContext({ symbol: mySymbol, exchange: myExchange, interval: myInterval });
+const price = chart.addSeries('candlestick');
+price.setData(await loadBars(mySymbol, myInterval));
+
 const report = chart.restoreState(saved);
-
-for (const s of report.series) {
-  const series = chart.addSeries(s.type, { paneIndex: s.paneIndex, style: s.style, priceScaleId: s.priceScaleId });
-  series.setData(await loadBars(mySymbol, myInterval));   // your data
-}
-
-// Logical ranges index bars, so re-apply the viewport once the data has landed.
-chart.restoreState(saved);
+if (!report.applied) showRestoreError(report.reason);
 ```
+
+`report.series` describes all recorded series, including indicator-owned outputs.
+Do not blindly recreate every entry as a price source. Keep a host source manifest
+for primary, volume and comparison data; `restoreState` recreates registered
+indicator outputs itself. Reattach host controllers to a replacement chart.
 
 ### RestoreReport
 
 | Field | Type | Description |
 |---|---|---|
 | `applied` | `boolean` | False when the payload was not a usable state object. |
-| `series` | `SeriesState[]` | Series descriptors found in the state - rebuild these yourself. |
+| `series` | `SeriesState[]` | All recorded descriptors, including indicator outputs. Use your host source manifest to identify source series. |
 | `indicators` | `number` | Indicator instances recreated. |
 | `reason` | `string?` | Why the payload was rejected. |
 
@@ -85,9 +94,12 @@ chart.restoreState(saved);
 Logical ranges index bars, so a viewport restored onto an empty chart means nothing.
 The reliable sequence is:
 
-1. `restoreState(saved)` - grid, panes, price scales, indicators.
-2. Rebuild your series from `report.series` and feed them.
-3. `restoreState(saved)` again (or `setVisibleLogicalRange(saved.viewport)`) for the viewport.
+1. Register the indicator descriptors the saved layout needs.
+2. Set the chart's data context, recreate host-owned source series, and load their bars.
+3. Call `restoreState(saved)` and check `report.applied`.
+
+If settings were restored before data loaded, restore again afterward or apply
+the saved viewport with `setVisibleLogicalRange` when it is present.
 
 Calling `restoreState` twice is safe: indicators are **replaced**, not appended, so restore
 is idempotent.
@@ -101,6 +113,26 @@ reading a newer layout degrades visibly instead of silently dropping settings.
 An indicator whose tier is not loaded is **skipped, not thrown**: restoring a layout that
 uses `openalgo-charts/indicators` in an app that has not imported the tier leaves that
 indicator out and restores the rest.
+
+Saved alerts and indicator identities are validated before restoration begins.
+An invalid alert document or a duplicate indicator instance ID rejects the
+snapshot before changing the chart. During controller restore, a registered
+provider that reports a missing study, plot or drawing causes that alert to be
+dropped with an `alert:removed` reason. If the required provider itself is absent,
+the record is retained but unavailable. Neither path binds to another object by name.
+
+## Alerts and named workspaces
+
+`ChartState.alerts` is the controller's committed alert document. A threshold
+drag changes only its visual preview until release; cancellation leaves the
+saved state untouched. Restore preserves triggered and disabled state and
+does not deliver notifications for historical matches. See [Alerts](/docs/alerts)
+for controller ownership, source availability and host delivery.
+
+For a named layout spanning multiple charts, source requests and link settings,
+use the optional [workspace tier](/docs/workspaces). `ChartState` is one chart's
+snapshot; it does not contain feed credentials or the bars themselves. Exporting
+loaded observations as CSV is a separate [chart data export](/docs/chart-data-export).
 
 ## The drawings slot
 

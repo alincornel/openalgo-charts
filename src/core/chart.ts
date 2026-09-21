@@ -3556,6 +3556,7 @@ export class Chart {
     el.addEventListener('pointermove', this._onPointerMove);
     el.addEventListener('pointerup', this._onPointerUpNative);
     el.addEventListener('pointercancel', this._onPointerCancel);
+    el.addEventListener('lostpointercapture', this._onLostPointerCapture);
     el.addEventListener('pointerleave', this._onPointerLeave);
     el.addEventListener('wheel', this._onWheel, { passive: false });
     el.addEventListener('dblclick', this._onDblClick);
@@ -3896,6 +3897,7 @@ export class Chart {
     }
 
     this._dragging = true;
+    this._setHover(null);
     this._pointerMoved = false;
     this._dragStartX = p.x;
     this._dragStartY = p.y;
@@ -3908,9 +3910,11 @@ export class Chart {
 
   private readonly _onPointerMove = (e: PointerEvent): void => {
     this._unfreezeOverlay();
+    // Hover from a second device must not move or release the pointer that owns the gesture.
+    if (this._pointers.size > 0 && !this._pointers.has(e.pointerId)) return;
     // Safety: if the primary button is no longer held (missed pointerup — e.g.
     // released over a context menu or outside the window), end any drag now.
-    if (e.pointerType === 'mouse' && (e.buttons & 1) === 0
+    if ((e.pointerType === 'mouse' || e.pointerType === 'pen') && (e.buttons & 1) === 0
       && (this._dragging || this._dragId !== null || this._axisDrag !== null || this._brandingPress !== null)) {
       if (this._brandingPress !== null) this._brandingPress.moved = true;
       this._onPointerUp(e);
@@ -4025,6 +4029,7 @@ export class Chart {
   };
 
   private readonly _onPointerUp = (e: PointerEvent): void => {
+    if (this._pointers.size > 0 && !this._pointers.has(e.pointerId)) return;
     try { this._container.releasePointerCapture?.(e.pointerId); } catch { /* already released */ }
     // A gesture ends once. `_onPointerMove` calls this directly when it finds the
     // button already released, because a release over a context menu or outside
@@ -4100,7 +4105,10 @@ export class Chart {
       this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Light));
       return;
     }
-    this._dragging = false;
+    if (this._dragging) {
+      this._dragging = false;
+      this._setHover(null);
+    }
     // Placement mode: a press-drag-release is how every charting UI draws a
     // two-point shape, but the click branch below is gated on the pointer having
     // stayed still, so the gesture used to place nothing at all. Replay it as the
@@ -4157,7 +4165,9 @@ export class Chart {
       this.emit('click', click);
       return;
     }
-    if (KineticAnimation.shouldAnimate(this._dragVelocity)) this._startKinetic(this._dragVelocity);
+    // A mouse or pen release places the viewport precisely; only a touch flick coasts.
+    if (e.pointerType === 'touch' && e.type !== 'pointercancel'
+      && KineticAnimation.shouldAnimate(this._dragVelocity)) this._startKinetic(this._dragVelocity);
   };
 
   /**
@@ -4181,8 +4191,19 @@ export class Chart {
     // Existing hosts still receive their end notification; transactional consumers
     // discard the draft first so cancellation can never become a saved edit.
     this._cancelPrimitiveDrag('pointercancel');
+    if (this._dragging) this._pointerMoved = true;
     if (this._brandingPress?.pointerId === e.pointerId) this._brandingPress.moved = true;
     this._onPointerUp(e);
+  };
+
+  private readonly _onLostPointerCapture = (e: PointerEvent): void => {
+    // Another element can take capture before release. Abandon the pan without a click or fling.
+    if (!this._dragging || !this._pointers.has(e.pointerId)) return;
+    this._dragging = false;
+    this._pointerMoved = true;
+    this._pointers.delete(e.pointerId);
+    this._endedPointers.add(e.pointerId);
+    this._setHover(null);
   };
 
   private _brandingHit(paneIndex: number, x: number, y: number): boolean {
@@ -4363,6 +4384,7 @@ export class Chart {
     this._pinchPane = pts[0].pane;
     // abort any single-pointer interaction so it doesn't fight the pinch
     this._dragging = false; this._axisDrag = null; this._axisDragScale = null; this._dragId = null; this._pointerMoved = true;
+    this._setHover(null);
   }
 
   private _updatePinch(): void {
@@ -4504,7 +4526,7 @@ export class Chart {
    */
   private _setHover(hit: PrimitiveHit | null): void {
     const id = hit?.externalId ?? null;
-    this._container.style.cursor = hit?.cursor ?? '';
+    this._container.style.cursor = this._dragging ? 'grabbing' : hit?.cursor ?? '';
     if (id === this._hoverId) return;
     // Hover-styled primitives on the base canvas need a light repaint, no
     // rescale. A change that touches only 'top' primitives (leaving a drawing
@@ -4684,6 +4706,7 @@ export class Chart {
       el.removeEventListener('pointermove', this._onPointerMove);
       el.removeEventListener('pointerup', this._onPointerUpNative);
       el.removeEventListener('pointercancel', this._onPointerCancel);
+      el.removeEventListener('lostpointercapture', this._onLostPointerCapture);
       el.removeEventListener('pointerleave', this._onPointerLeave);
       el.removeEventListener('wheel', this._onWheel);
       el.removeEventListener('dblclick', this._onDblClick);

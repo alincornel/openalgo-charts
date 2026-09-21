@@ -1,5 +1,10 @@
 # Guides
 
+The website has complete guides for [alerts](https://marketcalls.github.io/openalgo-charts/docs/alerts/),
+[open interest](https://marketcalls.github.io/openalgo-charts/docs/open-interest/),
+[named workspaces](https://marketcalls.github.io/openalgo-charts/docs/workspaces/), and
+[chart data export](https://marketcalls.github.io/openalgo-charts/docs/chart-data-export/).
+
 ## Chart types
 
 Every chart type is a registry descriptor; `addSeries(type)` selects it:
@@ -100,9 +105,32 @@ const eng = new OrderEngine({ feed, constraints: { tickSize: 0.05, priceBand, fr
   armed: false, gate: (req) => confirm(`Place ${req.side} ${req.qty}?`), mode: 'analyzer' });
 
 await eng.placeMarket('RELIANCE', 'BUY', 10);     // one-click
-chart.subscribeDrag((id, price) => eng.requestModify(clientId(id), price),
-                    (id, price) => eng.commitModify(clientId(id))); // drag-to-modify
+
+// Keep draft prices out of the broker API until a valid release.
+const draftPrices = new Map<string, number>();
+chart.on('drag:cancel', payload => {
+  const { id } = payload as { id: string };
+  if (draftPrices.delete(id)) restoreOrderPreview(id);
+});
+chart.subscribeDrag((id, price) => {
+  const line = orderLines.get(id);
+  if (!line) return;
+  draftPrices.set(id, price);
+  line.setPrice(price);
+}, (id) => {
+  const price = draftPrices.get(id);
+  draftPrices.delete(id);
+  if (price === undefined) return;
+  eng.requestModify(clientId(id), price);
+  void eng.commitModify(clientId(id));
+});
 ```
+
+`requestModify` can send immediately; it is not a preview API. The line map,
+ID mapping and cancellation rollback above are host-owned. See the
+[trading guide](https://marketcalls.github.io/openalgo-charts/docs/trading/#drag-to-modify)
+for the release path. `AlertController` threshold edits are separate and never
+send a broker order by themselves.
 
 The engine enforces tick-size snapping, price-band/freeze validation,
 client-token idempotency, OCO (one fill cancels the peer), reconnect to stale, and
@@ -139,7 +167,7 @@ is the same API the trade layer, markers, and profiles are built on.
 
 ## Themes
 
-Pass a full palette: `darkTheme` (default), `lightTheme`, or your own `ChartTheme`:
+Pass a full palette: `lightTheme` (the bare-chart default), `darkTheme`, or your own `ChartTheme`:
 
 ```ts
 import { createChart, lightTheme } from 'openalgo-charts';
@@ -170,8 +198,10 @@ chart.addSeries('area', { style: { areaTopColor: 'rgba(79,140,255,0.5)', areaBot
 - **Drag the price (Y) axis** vertically: up expands, down compresses the price scale
   (switches that pane to manual scale).
 - **Drag the time (X) axis** horizontally: left expands (wider bars), right compresses.
-- **Drag the chart**: mouse and pen movement pans time and price by default. Choose
-  `navigation.mousePan: 'horizontal'` to pan only time and preserve price autoscale.
+- **Drag the chart**: pressing and holding empty plot space shows a grabbing hand.
+  Mouse and pen movement pans time and price by default and stops immediately on
+  release. Choose `navigation.mousePan: 'horizontal'` to pan only time and preserve
+  price autoscale. Touch flicks retain kinetic scrolling.
 - **Reset view** in the bottom controls, or double-click with the default action:
   restore `navigation.defaultVisibleBars` and price autoscale. The bar count is
   saved in chart settings; `0` fits all loaded history. `chart.fitContent()` always

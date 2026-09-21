@@ -110,13 +110,12 @@ try {
     await page.mouse.move(x, y);
     await page.mouse.down();
     try {
+      await expect(chart.locator('canvas').first()).toHaveCSS('cursor', 'grabbing');
       await page.mouse.move(x + dx, y + dy, { steps: 16 });
-      // A stationary sample after the hold clears the last movement's velocity.
-      await page.waitForTimeout(300);
-      await page.mouse.move(x + dx, y + dy);
     } finally {
       await page.mouse.up();
     }
+    await expect(chart.locator('canvas').first()).not.toHaveCSS('cursor', 'grabbing');
     return { dx, dy };
   };
   const clickReset = async (chart, axisWidth) => {

@@ -28,6 +28,7 @@ Jump to [depth of market](#depth-of-market), [drawing tools](#drawing-tools),
 Open Interest draws a separate line pane; Open Interest Change draws a separate
 histogram. These synthetic readings deliberately contain gaps. Missing data stays
 absent, and aggregation takes the latest defined level instead of summing it.
+See the [Open Interest guide](/docs/open-interest) for feed capability and studies.
 The [instrument rules example](/demos/instruments/) lets you switch
 cash, futures and crypto metadata, inspect shortened sessions and check quantity
 steps without sending orders. See [Instrument metadata](/docs/instruments).
@@ -150,7 +151,7 @@ See [Trader alerts](/docs/widget#trader-alerts) for host ownership and persisten
 `createWidget` from `openalgo-charts/widget` builds the chart with its chrome: a top bar
 (symbol, interval, chart type, indicators, capture, settings, theme), the drawing rail, a
 status line, dialogs generated from the settings schemas the engine already ships, a
-right-click menu and a keymap with a `?` panel. The engine underneath still ships no DOM;
+right-click menu and a keymap with a `?` panel. The engine supplies canvases and containers;
 the widget is a packaged host driving the same public API your own would. Pick a tool
 from the rail, open Indicators, change the chart type, press `?`.
 

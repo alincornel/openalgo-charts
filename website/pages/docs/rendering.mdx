@@ -10,7 +10,7 @@ import { Callout } from 'nextra/components'
 
 The series pass on each pane goes through a **render backend port**: `beginFrame`,
 `drawSeries`, `endFrame`. The shipped Canvas2D backend draws through the pane's own 2D
-context and is pixel-identical to 1.9.2; the `openalgo-charts/webgl` tier registers a
+context; the `openalgo-charts/webgl` tier registers a
 WebGL2 backend behind the same port; and `exportSVG` runs the same paint into a
 serialising context, so there is no second renderer to drift from the canvas one. Axes,
 text, price lines, markers, drawings and every primitive stay on the 2D path whichever
@@ -29,7 +29,7 @@ chart.on('renderer:fallback', ({ from, to, reason }) => log(reason));
 
 | `renderer` | Behaviour |
 |---|---|
-| `'canvas2d'` | The default. The 2D path every chart has always drawn with; pixel-identical to 1.9.2. |
+| `'canvas2d'` | The default backend, drawing series directly into each pane's 2D context. |
 | `'webgl2'` | Asks for the GPU backend. Throws when `openalgo-charts/webgl` has not been imported (a missing import is a mistake in the code); on a device without WebGL2 it falls back to `canvas2d` with one console warning (a property of the machine the host should still hear about). |
 | `'auto'` | `webgl2` when the tier is registered and WebGL2 works on this device, `canvas2d` otherwise, silently. |
 
@@ -62,7 +62,8 @@ return chart;`} />
 
 ## The WebGL2 tier
 
-`openalgo-charts/webgl` is **6.39 KB** Brotli and nothing of it is in the base bundle.
+`openalgo-charts/webgl` is optional and is not included in the base bundle.
+See [Getting started](/docs/getting-started) for the current measured tier sizes.
 Importing it registers the backend under `'webgl2'`, so `renderer: 'auto'` picks it up
 wherever WebGL2 is available and `renderer: 'webgl2'` stops throwing. The bare import is
 enough; `registerWebGL2Renderer()` is exported (idempotent) for a bundler that would drop
@@ -120,7 +121,13 @@ const figure = chart.exportSVG({ width: 1600, height: 900, background: false });
 `exportSVG(options?)` returns the chart as a standalone SVG string: the ordinary paint of
 every pane, base and top layers in DOM order, run once into a serialising 2D context at
 pixel ratio 1, so axis labels and tags stay `<text>` and lines stay paths, and the file
-scales without blur. Nothing transient is in it: no crosshair, hover or drag state.
+scales without blur. Crosshairs and hover/drag emphasis are omitted, but the
+export paints current primitive values, which can include an in-progress visual
+preview. Export after release or cancellation when you need committed positions.
+
+For CSV rows, indicator values or a portable data snapshot, use
+[Chart data export](/docs/chart-data-export). Image and SVG exports capture
+appearance; they do not substitute for a structured data export or a saved workspace.
 
 | `ExportSvgOptions` | Default | Notes |
 |---|---|---|

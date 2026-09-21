@@ -1,6 +1,6 @@
 # OpenAlgo Charts architecture diagram: update brief
 
-## Current diagram: 2.4.7, redrawn 2026-09-21
+## Current diagram: 2.4.8, redrawn 2026-09-21
 
 The current SVG replaces the old seven-row capability list with explicit ownership
 boundaries and data flow. The old layout had received updated numbers but did not
@@ -36,9 +36,9 @@ The map must preserve these distinctions:
   belong to the base registry; the indicator tier adds built-ins and helpers.
 
 Measurements were rechecked with `npm run size` and the built registries on
-2.4.7: base 92.83 kB, indicators 29.84 kB, draw 35.43 kB, profile 14.96 kB,
+2.4.8: base 92.91 kB, indicators 29.84 kB, draw 35.43 kB, profile 14.96 kB,
 transform 4.50 kB, trade 8.01 kB, workspace 5.52 kB, webgl 6.39 kB and widget
-49.03 kB, all decimal Brotli. All tiers total 246.52 kB. Registry counts are
+49.03 kB, all decimal Brotli. All tiers total 246.60 kB. Registry counts are
 105 indicators, 85 drawing tools and 15 chart types with the transform tier loaded.
 
 Source references: `src/index.ts`, `src/feed/data-controller.ts`,

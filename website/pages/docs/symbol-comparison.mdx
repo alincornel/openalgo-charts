@@ -93,9 +93,10 @@ matched on the exact timestamp, and the two directions of mismatch get opposite 
 | A comparison print with **no primary bar** | **Dropped**, counted in `dropped` | The DataLayer merges every series' times into one index space, so a time only the comparison has would mint a new logical index: a column the primary has no candle for, inserted mid-chart, shifting every bar after it. A different holiday calendar, a 24/7 instrument next to an NSE one, or a stray print all do this for real. |
 | A primary bar with **no comparison print** | **Whitespace**, counted in `gaps` | A NaN bar the line renderer breaks across, so the holiday reads as a gap. Carrying the last value forward draws a flat segment through a session that never traded, and in percentage mode anchors the far side of the gap to a print that does not exist. Omitting the bar is worse still: the renderer would join the two sides with one straight line. |
 
-Bar-open times are bucketed by the candle builder and stored as UTC seconds, so two
-instruments on the same interval agree to the second. Anything that does not agree is a
-different interval, which no tolerance window could rescue. Repeated timestamps collapse to
+Alignment requires exact UTC-second timestamps. Equal interval labels alone do
+not guarantee a match when feeds use different session anchors or timestamp
+conventions. Normalize those conventions at the adapter boundary; comparison
+does not shift a print into a nearby candle. Repeated timestamps collapse to
 the last item, the same rule the DataLayer applies when it merges.
 
 `alignToPrimary(primary, comparison)` is exported if you want to run the projection
@@ -110,7 +111,7 @@ yourself, for a coverage report or a data-quality check.
 | `symbol` | The label you passed, carried for your own UI. |
 | `series` | The `SeriesApi` it draws through, for style patches and markers. |
 | `paneIndex` | The pane it is on. |
-| `priceScale()` | The hidden scale it maps to. Never the pane's own price axis. |
+| `priceScale()` | Its assigned independent scale, which may use a free left axis or a hidden overlay. |
 | `alignment()` | How the last projection went: `bars`, `matched`, `gaps`, `dropped`. |
 | `barAt(time)` | Eligible aligned bar in its own prices, or null for a gap, unavailable common baseline, forming replay candle or removed handle. Use this for host readouts. |
 | `setBars(bars)` | Replace the instrument's bars and re-align. |
@@ -202,3 +203,8 @@ pane to logarithmic mid-comparison keeps that choice instead of having it silent
 Chart destruction releases comparison subscriptions and history automatically.
 `cc.destroy()` on a live chart removes its comparisons and restores the pane's mode;
 it is safe to call again during host cleanup.
+
+Persist comparison source requests and styling in your host's
+[workspace](/docs/workspaces), then recreate handles with `addComparison` after
+loading the primary source. A [chart state](/docs/state) snapshot does not own
+comparison feeds or replace their controller lifecycle.

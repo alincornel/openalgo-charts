@@ -1,7 +1,8 @@
 # Getting started
 
 OpenAlgo Charts is a dependency-free, canvas-based financial charting engine.
-The base engine is **76.22 KB Brotli**; the full package (all eight tiers) is **212.52 KB Brotli**, measured with `size-limit` on the 2.2.0 build.
+The base engine is **92.91 kB Brotli**; all nine tiers total **246.60 kB Brotli**,
+measured with `size-limit` on the 2.4.8 build. Optional tiers are separate imports.
 
 ## Install
 
@@ -9,12 +10,14 @@ The base engine is **76.22 KB Brotli**; the full package (all eight tiers) is **
 npm install openalgo-charts
 ```
 
-## A chart in ~10 lines
+## Your first chart
 
 ```ts
 import { createChart } from 'openalgo-charts';
 
-const chart = createChart(document.getElementById('chart'));
+const container = document.getElementById('chart');
+if (!container) throw new Error('Chart container not found');
+const chart = createChart(container);
 const series = chart.addSeries('candlestick');
 series.setData([
   { time: 1705286700, open: 100, high: 101, low: 99.5, close: 100.6, volume: 1200 },
@@ -22,6 +25,9 @@ series.setData([
   // ...
 ]);
 ```
+
+Give the chart container a non-zero height, for example `height: 400px`, before
+creating it. Call `chart.destroy()` when the view is removed.
 
 Time is **UTC seconds** internally. Feed adapters convert broker formats at the
 edge (IST date strings, epoch milliseconds); see the OpenAlgo adapter below.
@@ -34,26 +40,34 @@ import { CandleBuilder } from 'openalgo-charts';
 const builder = new CandleBuilder({ intervalSec: 60, volumeMode: 'ltq-sum' });
 builder.seed(lastHistoricalBar);
 
-ws.onTick(({ price, ltq, timeSec }) => {
+// Your market-data adapter calls this callback for each trade tick.
+function onTradeTick({ price, ltq, timeSec }: { price: number; ltq?: number; timeSec: number }) {
   const u = builder.onTick({ time: timeSec, price, ltq });
   if (u) series.update(u.bar); // mutates the last candle or appends a new one
-});
+}
 ```
+
+For production history loading, paging, reconnects and partial-bar repair, use
+the shared [Data Loading controller](https://marketcalls.github.io/openalgo-charts/docs/data-loading/).
+`ltq-sum` requires actual trade quantities; choose `day-delta` for cumulative
+day volume, and configure the instrument session anchor. A tick without OI must
+not manufacture an observation. See [open interest](open-interest.md).
 
 ## Loadable tiers
 
-Only pay for what you use: each tier is a separate entry point.
+Only pay for what you use: each of the nine tiers is a separate entry point.
 
 | Import | Contents |
 |---|---|
-| `openalgo-charts` | base engine + all standard chart types + markers/events/EMA |
+| `openalgo-charts` | base chart engine, registries, feeds, alerts, replay, comparisons, chart state and exports |
 | `openalgo-charts/trade` | order/position/bracket lines, DOM ladder, order engine |
 | `openalgo-charts/transform` | Renko, Range, Point &amp; Figure, Kagi, Line Break, Heikin Ashi |
 | `openalgo-charts/profile` | Volume Profile, Market Profile (TPO), Footprint, order flow |
-| `openalgo-charts/indicators` | 102 built-in indicators (SMA/EMA/MACD/Bollinger/RSI/ADX/...) + the Tier-2 contract |
+| `openalgo-charts/indicators` | 105 built-in indicators (SMA/EMA/MACD/Bollinger/RSI/ADX/...) + the Tier-2 contract |
 | `openalgo-charts/draw` | 85 drawing tools + a headless drawing controller |
 | `openalgo-charts/webgl` | the WebGL2 series backend behind `renderer: 'auto'` |
-| `openalgo-charts/widget` | the chart with its chrome in one `createWidget` call: top bar, drawing rail, status line, dialogs, shortcuts, persistence. The only tier that ships DOM |
+| `openalgo-charts/workspace` | portable layouts, indicator templates, revisioned catalogs and asynchronous storage |
+| `openalgo-charts/widget` | the chart with its chrome in one `createWidget` call: top bar, drawing rail, status line, dialogs, shortcuts, persistence. The only tier that supplies application controls |
 
 ## OpenAlgo data
 
@@ -76,10 +90,23 @@ Live LTP / Quote / Depth come from the WS adapter. Feed its LTP ticks through a
 ```ts
 import { OpenAlgoWsFeed, CandleBuilder } from 'openalgo-charts';
 const ws = new OpenAlgoWsFeed({ url: 'ws://127.0.0.1:8765', apiKey: 'YOUR_KEY' });
-const builder = new CandleBuilder({ intervalSec: 60, volumeMode: 'ltq-sum' });
-ws.connect();
-ws.onLtp((e) => { const u = builder.onTick({ time: e.timeSec, price: e.ltp, ltq: e.ltq }); if (u) series.update(u.bar); });
+const liveBuilder = new CandleBuilder({ intervalSec: 60, volumeMode: 'ltq-sum' });
+const lastBar = bars[bars.length - 1];
+if (lastBar) liveBuilder.seed(lastBar);
+const stopTicks = ws.onLtp((event) => {
+  if (event.symbol !== 'RELIANCE' || (event.exchange && event.exchange !== 'NSE')) return;
+  const time = event.timeSec > 0 ? event.timeSec : Math.floor(Date.now() / 1000);
+  const update = liveBuilder.onTick({ time, price: event.ltp, ltq: event.ltq });
+  if (update) series.update(update.bar);
+});
 ws.subscribe('LTP', 'RELIANCE', 'NSE');
+ws.connect();
+
+// Call when this view is removed or the source is replaced.
+function disposeLiveFeed() {
+  stopTicks();
+  ws.close();
+}
 ```
 
 The chart depends only on the `DataFeed` / `TradeFeed` interfaces, so any broker
@@ -90,3 +117,11 @@ See [guides.md](./guides.md) for chart types, trading, profiles, and writing
 custom chart styles / primitives, [widget.md](./widget.md) for the one-call terminal,
 and [migrating-to-2.md](./migrating-to-2.md) if you are coming from 1.9.x. Runnable
 demos live in [`../examples`](../examples/index.html).
+
+## Current host guides
+
+- [Instrument metadata](instruments.md): sessions, intervals, precision and quantity units.
+- [Open interest](open-interest.md): observations, gaps and the three studies.
+- [Trader alerts](https://marketcalls.github.io/openalgo-charts/docs/alerts/): standalone controller, restoration and host delivery.
+- [Workspaces](workspaces.md): portable layouts, templates and asynchronous storage.
+- [Chart data export](chart-data-export.md): loaded/revealed rows and host-owned CSV delivery.

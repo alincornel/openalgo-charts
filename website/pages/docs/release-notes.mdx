@@ -8,6 +8,30 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 2.4.8
+
+2026-09-21
+
+Hold the chart to move it; release to stop. Clearer setup and integration guides.
+
+### Fixed
+
+- Plot panning shows a grabbing hand while the pointer is held. Mouse and pen
+  movement stops immediately on release instead of continuing with inertia.
+- Releasing outside the plot, pointer cancellation and lost pointer capture cannot
+  leave a mouse pan active. Drawing placement and primitive drag controls keep
+  their own gestures. Touch flicks retain momentum.
+
+### Documentation
+
+- Added dedicated guides for alerts, open interest, workspaces and CSV export.
+- Corrected order-preview examples so broker modification is requested only after
+  release; documented cancellation, preserved indicator IDs and host-owned settings.
+- Clarified live-data refresh, calendar cache rules, linked intervals, loading
+  timestamps, chart lifecycle and the difference between chart canvases and controls.
+- Simplified the README introduction and installation, refreshed measured sizes
+  and fixed the API reference's navigation example link.
+
 ## 2.4.7
 
 2026-09-21

@@ -17,7 +17,10 @@ appears in the page title.
 | --- | --- | --- |
 | A chart with your own interface | [Chart API](/openalgo-charts/api/classes/index.Chart.html) | [Core concepts](/openalgo-charts/docs/core-concepts/) |
 | A complete chart with controls | [Widget](/openalgo-charts/api/modules/widget.html) | [Widget guide](/openalgo-charts/docs/widget/) |
-| Named workspaces and indicator templates | [Workspace](/openalgo-charts/api/modules/workspace.html) | [Host integration](https://github.com/marketcalls/openalgo-charts/blob/master/docs/workspaces.md) |
+| Named workspaces and indicator templates | [Workspace](/openalgo-charts/api/modules/workspace.html) | [Workspaces guide](/openalgo-charts/docs/workspaces/) |
+| Price, drawing and study alerts | [AlertController](/openalgo-charts/api/classes/index.AlertController.html) | [Alerts guide](/openalgo-charts/docs/alerts/) |
+| Open interest observations and studies | [Bar](/openalgo-charts/api/interfaces/index.Bar.html) | [Open interest guide](/openalgo-charts/docs/open-interest/) |
+| CSV and structured chart observations | [Chart API](/openalgo-charts/api/classes/index.Chart.html) | [Chart data export](/openalgo-charts/docs/chart-data-export/) |
 | A searchable object inventory | [ChartObjects](/openalgo-charts/api/classes/index.ChartObjects.html) | [Objects guide](/openalgo-charts/docs/objects/) |
 | Interactive drawing tools | [Drawing controller](/openalgo-charts/api/classes/draw.DrawingController.html) | [Drawing playground](/openalgo-charts/docs/drawing-tools/) |
 | A depth ladder | [Depth of market](/openalgo-charts/api/classes/trade.DomLadder.html) | [Simulated live demo](/openalgo-charts/docs/depth-of-market/) |
@@ -29,7 +32,9 @@ appears in the page title.
 Pointer movement is visual preview; release commits one `alert:updated` event.
 Drawing-owned levels remain tied to the drawing. The
 [live example](/openalgo-charts/examples/#alert-threshold-dragging) demonstrates
-preview, release and cancellation without a trading connection.
+preview, release and cancellation without a trading connection. The
+[Alerts guide](/openalgo-charts/docs/alerts/) covers construction, source binding,
+delivery, expiry and persistence.
 
 ### Indicator controls in 2.4.6
 
@@ -61,8 +66,8 @@ over a visible price axis scales that axis. `ChartOptions.animAutoscale` eases a
 price changes during navigation. `WidgetOptions.mobile` controls the responsive header,
 bottom bar and drawing sheets while sharing existing drawings and object state.
 See the [interaction guide](/openalgo-charts/docs/interactions/),
-[mobile guide](/openalgo-charts/docs/mobile/) and
-[interactive example](/openalgo-charts/examples/#navigation-and-mobile).
+[mobile guide](/openalgo-charts/docs/mobile/) for the responsive controls and
+their touch behavior.
 
 ### Object management in 2.1.7
 

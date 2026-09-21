@@ -54,11 +54,13 @@ import { OpenAlgoWsFeed, CandleBuilder } from 'openalgo-charts';
 const ws = new OpenAlgoWsFeed({ url: 'ws://127.0.0.1:8765', apiKey: 'YOUR_KEY' });
 const builder = new CandleBuilder({ intervalSec: 60, volumeMode: 'ltq-sum' });
 // Continue the bucket history already ended in, rather than opening a new one.
-builder.seed(bars[bars.length - 1]);
+if (bars.length) builder.seed(bars[bars.length - 1]);
 
 ws.connect();
 const stopLtp = ws.onLtp((e) => {
-  const u = builder.onTick({ time: e.timeSec, price: e.ltp, ltq: e.ltq });
+  if (e.symbol !== 'RELIANCE' || (e.exchange && e.exchange !== 'NSE')) return;
+  const time = e.timeSec > 0 ? e.timeSec : Math.floor(Date.now() / 1000);
+  const u = builder.onTick({ time, price: e.ltp, ltq: e.ltq });
   if (u) series.update(u.bar);
 });
 ws.subscribe('LTP', 'RELIANCE', 'NSE');
@@ -177,8 +179,14 @@ logical range. It merges live bars received during the fetch into refreshed hist
 It keeps the previous chart visible with a stale-history error if the refresh fails or
 returns no bars, with display updates paused but buffering and reconnect monitoring
 still active. Call `widget.reload()` to retry; the request keeps `noCache: true`
-until a load succeeds. Manual reload retains its usual fit-to-data behavior. The widget
-owns its subscription; the host still owns `live.close()` during teardown.
+until a load succeeds. `widget.reload()` refreshes the current source without
+resetting the view; a changed symbol, exchange or interval starts a new load.
+The widget owns its subscription; the host still owns `live.close()` during teardown.
+
+Optional open interest is a separate feed capability. The bundled LTP stream
+does not manufacture OI from price or volume. If your provider supplies it, map
+observations to `Bar.oi` and declare instrument support as described in
+[Open interest](/docs/open-interest).
 
 ## Long-running chart lifecycle
 

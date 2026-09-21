@@ -247,3 +247,11 @@ The option defaults to false, survives `getState` / `restoreState`, and is expos
 as `canvas.crosshairSnapToBar` in the chart settings schema. It is independent of
 `crosshairMode: 'magnet'`, which controls horizontal OHLC snapping. Event points
 and drawing hit tests retain the raw pointer. Empty and future space do not snap.
+
+## Plot grab and release (2.4.8)
+
+A primary-button press on the plot shows the `grabbing` cursor. Mouse and pen pan
+time and price by default and stop immediately on release. Lost pointer capture
+and cancellation abandon the pan; drawing placement and primitive drags keep their
+own gestures. Touch flicks retain momentum. `navigation.mousePan: 'horizontal'`
+continues to restrict mouse and pen movement to time. No host cursor handler is needed.

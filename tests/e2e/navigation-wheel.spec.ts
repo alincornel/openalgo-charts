@@ -6,6 +6,65 @@ test.beforeEach(async ({ page }) => {
   await page.waitForFunction(() => (window as any).ready && (window as any).chart.panes()[0].priceScale.scaled);
 });
 
+test('holding the plot grabs both axes and release stops all mouse movement', async ({ page }, info) => {
+  const host = page.locator('#chart');
+  const state = () => page.evaluate(() => {
+    const chart = (window as any).chart;
+    return { offset: chart.timeScale.rightOffset, range: { ...chart.panes()[0].priceScale.priceRange() } };
+  });
+  await page.mouse.move(500, 280);
+  await expect(host).not.toHaveCSS('cursor', 'grabbing');
+  for (const [dx, dy] of [[70, 45], [-70, -45], [70, -45], [-70, 45]]) {
+    const before = await state();
+    await page.mouse.down();
+    await expect(host).toHaveCSS('cursor', 'grabbing');
+    await page.mouse.move(500 + dx, 280 + dy, { steps: 3 });
+    const held = await state();
+    expect((before.offset - held.offset) * dx).toBeGreaterThan(0);
+    expect((held.range.min - before.range.min) * dy).toBeGreaterThan(0);
+    await page.mouse.up();
+    await expect(host).not.toHaveCSS('cursor', 'grabbing');
+    const released = await state();
+    await page.mouse.move(500, 280);
+    await page.waitForTimeout(250);
+    expect(await state()).toEqual(released);
+  }
+  await info.attach('plot after drag release', { body: await page.screenshot(), contentType: 'image/png' });
+});
+
+test('release outside the plot and lost capture cannot leave a mouse pan active', async ({ page }) => {
+  const host = page.locator('#chart');
+  await host.evaluate(el => {
+    el.style.width = '900px'; el.style.height = '500px';
+    el.addEventListener('pointerdown', e => { (window as any).heldPointer = (e as PointerEvent).pointerId; });
+  });
+  await page.waitForFunction(() => (window as any).chart.timeScale.width < 900);
+  for (const end of ['outside', 'capture', 'cancel']) {
+    await page.mouse.move(400, 240);
+    await page.mouse.down();
+    await page.mouse.move(460, 270);
+    await expect(host).toHaveCSS('cursor', 'grabbing');
+    if (end === 'outside') {
+      await page.mouse.move(1050, 600);
+      await page.mouse.up();
+    } else {
+      await host.evaluate((el, kind) => {
+        const pointerId = (window as any).heldPointer;
+        if (kind === 'capture') el.releasePointerCapture(pointerId);
+        else el.dispatchEvent(new PointerEvent('pointercancel', { pointerId, pointerType: 'mouse', clientX: 460, clientY: 270 }));
+      }, end);
+      // Browsers process pending capture changes before the next pointer event.
+      await page.mouse.move(470, 275);
+    }
+    await expect(host).not.toHaveCSS('cursor', 'grabbing');
+    const stopped = await page.evaluate(() => (window as any).chart.timeScale.rightOffset);
+    await page.mouse.move(520, 320);
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    expect(await page.evaluate(() => (window as any).chart.timeScale.rightOffset)).toBe(stopped);
+  }
+});
+
 test('trackpad magnitude, horizontal pan and price-axis wheel stay independent', async ({ page }) => {
   const result = await page.evaluate(async () => {
     const chart = (window as any).chart;

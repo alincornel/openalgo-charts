@@ -70,7 +70,10 @@ available observations. `time()` reports the UTC playhead; `timePoints()` return
 a copy of the observation times. `autoStart: false` prepares a validated snapshot
 without changing the chart, for a host coordinating several participants. Invalid
 timing fails before mutation. Existing index-based replay keeps its defaults.
-The host must pause live feed writes, alert evaluation and trading during replay.
+The host must fence live chart writes and trading before selection or loading
+begins. `AlertController` suspends evaluation and threshold dragging when it
+receives `replay:start`; call `alerts.setPaused(true)` for the earlier selection
+and loading phases too. See [Alerts](/docs/alerts).
 
 ## One clock across charts
 
@@ -156,8 +159,10 @@ legend reading: each is exactly what it was at that bar, because it is computed 
 exactly the bars that existed then.
 
 That also means `chart.dataLayer.length` shrinks to the replayed count, so nothing holds
-the shared time axis open at bars in the future. There is no replay-aware code anywhere in
-the indicator tier, and none is needed in yours.
+the shared time axis open at bars in the future. Pure calculations need no
+separate replay implementation. External studies must still respect observation
+availability; use the [managed external-data contract](/docs/indicators#tier-2-indicators-with-their-own-data)
+and avoid reading future values from a host history cache.
 
 <Callout type="info">
 The right edge of the view anchors to the newest bar plus `rightOffset`, so the chart
@@ -341,7 +346,11 @@ It is safe to call twice, and a later `seek`, `step` or `play` re-enters replay 
 controller.
 
 <Callout type="info">
-**Live data and replay do not mix.** While replay owns the series, a `series.update(bar)`
-from your feed lands on the prefix and is wiped by the next frame. Unsubscribe the feed
-when replay starts (`replay:start`) and resubscribe on `replay:stop`.
+**Fence live writes while replay owns the series.** With a
+[`DataLoadingController`](/docs/data-loading), call `data.setPaused(true)` before
+entering replay. Its live store continues collecting updates while the display
+stays frozen. Stop replay before `data.setPaused(false)` publishes the live
+snapshot. A direct feed binding must instead suspend chart writes, retain live
+observations, and refresh missed history before resuming. Keep trading and alert
+delivery guarded through selection, loading and teardown as well as playback.
 </Callout>

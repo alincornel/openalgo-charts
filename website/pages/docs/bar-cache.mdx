@@ -77,11 +77,11 @@ coverage, and they fail for different reasons:
 | Coverage start | `req.from` is not older than the entry's `from` | Older bars than the entry holds is a real gap at the left edge. Painting a chart that silently starts late is worse than a refetch. |
 | Coverage end | `req.to` is within the entry's `to`, **or** the bar after the last closed one is still forming | Nothing new can have closed, so a fetch would return the same bars. |
 
-The last gate is measured on the feed's **own bar grid** (`entry.to + 1 + intervalSec`),
-not against UTC midnight, so a daily Indian bar opening at 03:45 UTC is judged against its
-own session rather than the wrong boundary. The effect is what you want from a warm cache: a
-closed session stays usable for the whole TTL, while a 1-minute chart is only reused inside
-the current minute.
+The last gate uses the next close returned by the interval registry or your
+`barCloses` callback. Fixed intervals follow their bar grid; calendar intervals
+use the configured IANA timezone. It does not assume every month or session has
+a fixed duration. The cache can reuse closed history while the next bar is
+forming, but that result does not contain a current live tail.
 
 <Callout type="warning">
 **Out of hours, cap your `to` at the newest bar you have.** The cache cannot know a venue is
@@ -151,6 +151,7 @@ live chart, as described in [Performance & Operations](/docs/performance-and-ope
 | `storage` | `BarCacheStore` | in-memory `Map` | Backing store. Sync or async. |
 | `now` | `() => number` | `Date.now` | Injectable clock, for tests and for a host with a server clock. |
 | `barCloses` | `(interval, barStartSec) => number \| null` | interval registry | Returns a bar-close time. Return `null` when close time is unknowable, which disables caching for that interval. |
+| `timezone` | `string` | engine default | IANA zone used by the default resolver for calendar intervals. Match the feed's candle calendar. |
 
 The default close-time resolver asks the interval registry. It handles fixed and
 calendar intervals, including registered interval codes. Tick, volume, range,
