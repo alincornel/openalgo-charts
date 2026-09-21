@@ -12,6 +12,7 @@ import ObjectsDemo from '../components/ObjectsDemo'
 import BrandingWatermarkDemo from '../components/BrandingWatermarkDemo'
 import IndicatorSignalsDemo from '../components/IndicatorSignalsDemo'
 import AlertDragDemo from '../components/AlertDragDemo'
+import TableSizingDemo from '../components/TableSizingDemo'
 import { RangeSwitcherCard, LegendCard, SeriesCompareCard, IndicatorsCard, ChartTypeCard, ThemeCard, DataTooltipCard, EventMarkersCard, PriceScaleCard, CustomTypesCard, ScalesFormatCard, ScalesConfigCard, DataCard, CustomPluginsCard, PositionsCard, TradeMarkersCard } from '../components/gallery'
 
 # Live examples
@@ -22,6 +23,14 @@ is the code that ran. Try it, copy it, ship it.
 Jump to [depth of market](#depth-of-market), [drawing tools](#drawing-tools),
 [market profiles](#compact-market-profiles), [chart controls](#interactive),
 [trading](#trading), or [alert threshold dragging](#alert-threshold-dragging).
+
+## Tables that fit their text
+
+Set `cellWidth: 'auto'` to fit each column to its widest reading. Fixed columns
+clip long text inside the cell. Both modes account for the font that fits the
+row. See [Tables](/docs/primitives-and-plugins#tables).
+
+<TableSizingDemo />
 
 ## Open interest and instrument rules
 

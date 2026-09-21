@@ -105,7 +105,7 @@ backlog. The host still owns pausing live series writes while replay is active.
 
 ## Switching timeframes
 
-From 2.4.9, a fixed price alert stays visible on every timeframe for the same
+From 2.5.0, a fixed price alert stays visible on every timeframe for the same
 symbol and exchange. Its label shows the original timeframe when you view
 another one. An armed alert shows `Paused` there and cannot be dragged.
 Triggered, disabled and expired price alerts keep their lifecycle badges.
@@ -176,3 +176,25 @@ Only `alert:triggered` is the trader-alert delivery event. Descriptor-authored
 
 See [chart state](/docs/state), [workspaces](/docs/workspaces) and the
 [widget alert controls](/docs/widget#trader-alerts) for host integration.
+
+## Tick snapping and keyboard removal
+
+From 2.5.0, preview and release both snap alert thresholds to their source
+scale's tick: the primary series for price alerts, the chosen plot for study
+alerts. Left and independent scales keep their own units. A range bound stops
+at a valid tick inside the opposite bound. No declared tick means no rounding.
+Manually entered thresholds are preserved until you move them.
+
+`Chart.snapPrice(paneIndex, price)` uses that pane's right-axis tick. For another
+series scale, use `series.priceScale().snapToTick(price)`. A custom
+`AlertChartHost` may expose `primarySeries()` for the owning scale, or use the
+optional `snapPrice` fallback when it has no series handle. Without scale tick
+metadata, a callback that rounds the opposite bound outside the range cancels
+the move and keeps the saved threshold. Expose the source scale for exact inner
+tick snapping.
+
+`alerts.hovered()` returns the alert id under the pointer, or `undefined`.
+The widget and yfinance host bind Delete and Backspace to it only when a
+selected or hovered drawing, an active drawing tool, or text editing does not
+own the key. Custom hosts should keep the same priority and clear their saved
+record on `alert:removed`. The controller itself never installs keyboard input.

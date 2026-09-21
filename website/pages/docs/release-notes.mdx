@@ -8,31 +8,46 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
-## 2.4.9
+## 2.5.0
 
 2026-09-21
 
-Keep price alerts visible when switching chart timeframes.
+Keep price alerts visible across timeframes, move them to valid ticks, and fit
+chart tables to their text.
+
+### Added
+
+- `ChartTableOptions.cellWidth: 'auto'` measures each column from its widest
+  cell, including padding, bold text and per-cell font overrides. Empty columns
+  retain a 28 px minimum. Percentage widths preserve measured proportions.
+- `AlertController.hovered()` lets custom hosts delete the alert under the
+  pointer. The widget and yfinance example support Delete and Backspace while
+  preserving drawing selection, placement and text-input priority.
+- `Chart.snapPrice(paneIndex, price)` rounds to the pane's right-axis tick.
+  Alert drags use the primary or study source scale, including left and
+  independent axes. Hosts can use a series' scale for its own tick rules.
 
 ### Fixed
 
-- Fixed price alert levels now remain visible across timeframes for the same
-  symbol and exchange. On another timeframe, the label names the original
-  timeframe and armed alerts show Paused. Triggered, disabled and expired
-  records retain their lifecycle state, including after reload.
-- Evaluation stays bound to the original timeframe for every source and policy.
-  Switching timeframes does not silently retime bar-close or intrabar alerts.
-  The alert list explains which timeframe to return to; study and drawing
-  levels remain on their original timeframe.
-- Loading another timeframe no longer advances an alert's evaluated-bar
-  checkpoint. Returning to the original timeframe can evaluate its next close
-  without skipping it or delivering historical signals.
+- Fixed price levels stay visible across timeframes for the same symbol and
+  exchange. Another timeframe shows the original interval and pauses armed
+  alerts. Triggered, disabled and expired records retain their lifecycle badge.
+- All alert evaluation remains bound to the original timeframe, including
+  intrabar alerts. Study and drawing levels remain scoped to that timeframe.
+  Loading another interval cannot consume the original evaluated-bar checkpoint.
+  Restoring or returning to a timeframe never replays historical signals.
+- Alert previews and release use the same snapped threshold. Range bounds stop
+  at the nearest valid tick inside the opposite bound. A scale without a tick
+  leaves values unrounded. Context changes and restore clear stale hover state.
+- Every table cell clips its text, preventing long readings from covering the
+  next column. Automatic widths measure the font actually drawn in short or
+  weighted rows, and measurement preserves the canvas state for other primitives.
 
 ### Documentation
 
-- Updated the alert guide, yfinance instructions and integration skill with
-  timeframe visibility, evaluation and restore behavior. No API or saved-alert
-  migration is required.
+- Updated alert, table, upgrade and integration guides, the yfinance reference
+  host, and live website examples. Saved alerts need no migration. Price alerts
+  on an unseen timeframe stay paused; background delivery remains the host's job.
 
 ## 2.4.8
 

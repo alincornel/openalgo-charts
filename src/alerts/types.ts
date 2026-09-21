@@ -1,3 +1,4 @@
+import type { SeriesApi } from '../model/series';
 import type { Bar } from '../model/bar';
 import type { ChartDataContext } from '../model/indicator-registry';
 import type { IndicatorApi } from '../model/indicator-instance';
@@ -12,6 +13,8 @@ export interface ChartDataUpdate {
 /** Minimum headless chart surface needed to evaluate alerts. */
 export interface AlertChartHost {
   primaryBars(): readonly Bar[];
+  /** Owning price scale for primary-price drag snapping, including a left axis. */
+  primarySeries?(): Pick<SeriesApi, 'priceScale'> | null;
   getDataContext(): Readonly<ChartDataContext> | undefined;
   on(event: string, callback: (payload: unknown) => void): () => void;
   emit(event: string, payload: unknown): void;

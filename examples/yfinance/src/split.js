@@ -329,15 +329,18 @@ export async function loadPane2() {
   app.alerts2?.setPaused(true);
   app.p2.period = clampPeriod(app.p2.interval, app.p2.period);
   const request = { ...app.p2 };
-  const keepView = chart.primaryBars().length > 0
-    && before?.symbol === request.symbol && before?.interval === request.interval;
+  const identityChanged = before?.symbol !== request.symbol || before?.interval !== request.interval;
+  const keepView = chart.primaryBars().length > 0 && !identityChanged;
+  // Clear while the old context still owns these bars; a refresh keeps its view.
+  if (identityChanged) {
+    bars2 = [];
+    price2.setData([]);
+    app.volume2?.setData([]);
+    setPane2Legend(null);
+  }
   app.chart2.setDataContext(referenceDataContext(app.p2, app.chart2.getDataContext()));
   if (app.linkGroup) app.linkGroup.setSymbol(chart, request.symbol);
   app.linkGroup?.setInterval?.(chart, request.interval);
-  bars2 = [];
-  price2.setData([]);
-  app.volume2?.setData([]);
-  setPane2Legend(null);
   setPane2Note('loading ' + app.p2.symbol + ' ' + intervalLabel(app.p2.interval) + '...');
   renderToolbar();
   try {

@@ -1,3 +1,4 @@
+import { roundToTick } from '../helpers/math';
 import type { Bar } from '../model/bar';
 import { getIndicator, hasIndicator } from '../model/indicator-registry';
 import { numericMatch, touchMatch } from './conditions';
@@ -75,7 +76,7 @@ export class AlertController {
       _chart.on('data:context', () => this._seedAll()),
       _chart.on('objects:change', () => this._onObjects()),
       _chart.on('paneMoved', () => this._onObjects()),
-      _chart.on('state:restore:start', () => { this._cancelDrag(); this._restoring = true; this._revision++; }),
+      _chart.on('state:restore:start', () => { this._hovered = undefined; this._cancelDrag(); this._restoring = true; this._revision++; }),
       _chart.on('state:restore:end', () => { this._restoring = false; this._seedAll(); }),
       _chart.on('alerts:restore', document => this.fromJSON(document)),
       _chart.on('replay:start', () => { this._replay = true; this._seedAll(); }),
@@ -120,7 +121,8 @@ export class AlertController {
    * its own idea of what a keystroke means.
    */
   public hovered(): string | undefined {
-    return this._hovered !== undefined && this._records.has(this._hovered) ? this._hovered : undefined;
+    const record = this._hovered === undefined ? undefined : this._records.get(this._hovered);
+    return record && this._dragAvailability(record, 0).available ? record.alert.id : undefined;
   }
 
   private _dragPrice(payload: AlertDragEvent, externalId: string, paneIndex?: number): number | undefined {
@@ -128,13 +130,41 @@ export class AlertController {
     const converted = typeof y === 'number' && Number.isFinite(y) ? this._visuals?.coordinateToPrice(externalId, y) : undefined;
     const price = converted ?? payload.price;
     if (typeof price !== 'number' || !Number.isFinite(price)) return undefined;
-    // Rounded on the way in, so the preview, the committed source and the
-    // number the axis shows are one price. Snapping only on release would let
-    // the line slide between ticks under the pointer and jump as it was let go.
+    const parsed = parseAlertLineId(externalId);
+    const source = parsed && this._records.get(parsed.id)?.alert.source;
+    const scale = source?.kind === 'price' ? this._chart.primarySeries?.()?.priceScale()
+      : source?.kind === 'indicator'
+        ? this._chart.indicators?.().find(item => item.id === source.instanceId)?.series(source.plotKey)?.priceScale()
+        : undefined;
     const pane = paneIndex ?? payload.paneIndex;
-    if (typeof pane !== 'number' || this._chart.snapPrice === undefined) return price;
-    const snapped = this._chart.snapPrice(pane, price);
-    return typeof snapped === 'number' && Number.isFinite(snapped) ? snapped : price;
+    // The source scale owns both units and tick size, even on a left or overlay axis.
+    const snapped = scale ? roundToTick(price, scale.options.minMove)
+      : typeof pane === 'number' ? this._chart.snapPrice?.(pane, price) ?? price : price;
+    let result = Number.isFinite(snapped) ? snapped : price;
+    if (parsed && (source?.kind === 'price' || source?.kind === 'indicator')) {
+      const bound = parsed.index === 0
+        ? source.kind === 'price' ? source.upperPrice : source.upperValue
+        : source.kind === 'price' ? source.price : source.value;
+      if (bound !== undefined && (parsed.index === 0 ? result > bound : result < bound)) {
+        result = bound;
+        const step = scale?.options.minMove ?? 0;
+        if (step > 0) {
+          result = roundToTick(bound, step);
+          const tolerance = Number.EPSILON * Math.max(1, Math.abs(bound)) * 4;
+          if (Math.abs(result - bound) <= tolerance) result = bound;
+          // A manually entered opposite bound may itself sit between ticks.
+          else if (parsed.index === 0 ? result > bound : result < bound) {
+            result = roundToTick(bound + (parsed.index === 0 ? -step : step), step);
+          }
+        } else if (!scale && typeof pane === 'number' && this._chart.snapPrice) {
+          result = this._chart.snapPrice(pane, bound);
+          // A callback without tick metadata cannot find an adjacent tick safely.
+          // Reject this move instead of inventing a tick or crossing the range.
+          if (!Number.isFinite(result) || (parsed.index === 0 ? result > bound : result < bound)) return undefined;
+        }
+      }
+    }
+    return result;
   }
 
   private _startDrag(payload: AlertDragEvent): void {
@@ -237,6 +267,7 @@ export class AlertController {
     if (!record) return false;
     this._cancelDrag(id);
     this._records.delete(id);
+    if (this._hovered === id) this._hovered = undefined;
     this._visuals?.remove(id);
     this._scheduleExpiry();
     this._saveState();
@@ -277,6 +308,7 @@ export class AlertController {
     this._cancelDrag();
     this._revision++;
     this._visuals?.destroy();
+    this._hovered = undefined;
     this._records.clear();
     for (const [id, record] of next) { this._records.set(id, record); this._syncVisual(record); }
     this._scheduleExpiry();
@@ -341,6 +373,7 @@ export class AlertController {
     for (const off of this._off) off();
     this._clearTimer();
     this._visuals?.destroy();
+    this._hovered = undefined;
     this._records.clear();
     owners.delete(this._chart);
   }

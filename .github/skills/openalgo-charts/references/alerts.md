@@ -42,7 +42,7 @@ predicate uses `{ kind: 'barCondition', id }`.
 A drawing uses `{ kind: 'drawing', drawingId, level?, input? }`.
 `AlertScope` captures symbol, exchange and interval from chart data context.
 Set that context before creating alerts; alerts do not migrate to a new market.
-From 2.4.9, price-source levels remain visible across intervals for the same
+From 2.5.0, price-source levels remain visible across intervals for the same
 symbol and exchange. On another interval they show the original timeframe;
 armed levels are paused and cannot drag. Triggered, disabled and expired levels
 retain their lifecycle badge. Study/drawing visuals still require the original
@@ -283,3 +283,25 @@ delivery failures in the host. Existing indicator:alert behavior is preserved.
 AlertTriggeredPayload: alertId, title, message, time and index. Indicator-source
 trader triggers report the plot reading in price; predicate triggers report
 the evaluated bar's close.
+
+## Tick snapping and keyboard removal
+
+From 2.5.0, preview and release both snap alert thresholds to their source
+scale's tick: the primary series for price alerts, the chosen plot for study
+alerts. Left and independent scales keep their own units. A range bound stops
+at a valid tick inside the opposite bound. No declared tick means no rounding.
+Manually entered thresholds are preserved until you move them.
+
+`Chart.snapPrice(paneIndex, price)` uses that pane's right-axis tick. For another
+series scale, use `series.priceScale().snapToTick(price)`. A custom
+`AlertChartHost` may expose `primarySeries()` for the owning scale, or use the
+optional `snapPrice` fallback when it has no series handle. Without scale tick
+metadata, a callback that rounds the opposite bound outside the range cancels
+the move and keeps the saved threshold. Expose the source scale for exact inner
+tick snapping.
+
+`alerts.hovered()` returns the alert id under the pointer, or `undefined`.
+The widget and yfinance host bind Delete and Backspace to it only when a
+selected or hovered drawing, an active drawing tool, or text editing does not
+own the key. Custom hosts should keep the same priority and clear their saved
+record on `alert:removed`. The controller itself never installs keyboard input.

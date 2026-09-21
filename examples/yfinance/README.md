@@ -415,7 +415,12 @@ Alerts default to confirmed bar closes. Intrabar touch can fire on a wick that
 the provider later removes from final history. Absent study readings remain
 unavailable, including OI on this OHLCV-only provider. Alerts keep their symbol,
 exchange and interval scope, and loading history never evaluates past signals.
-In 2.4.9, fixed price levels stay visible after an interval change. Their labels
+In 2.5.0, alert drags snap to the source scale's tick in preview and on release.
+Hover an armed alert line and press Delete or Backspace to remove it. Selected
+or hovered drawings and active drawing tools keep their shortcut priority;
+editing a field never removes an alert.
+
+In 2.5.0, fixed price levels stay visible after an interval change. Their labels
 show the original interval, with a Paused badge while another interval is open.
 Return to the original interval to resume evaluation or drag the threshold.
 Study and drawing levels stay on their original interval; all records remain

@@ -164,10 +164,11 @@ test('an independent study preserves candle autoscale from its first frame and d
   const geometry = await page.evaluate(() => {
     const { series, study } = window.__alertDrag;
     const scale = study.series('value')!.priceScale();
+    scale.setOptions({ minMove: 10000 });
     const rect = document.getElementById('chart')!.getBoundingClientRect();
     const from = Math.round(rect.top + scale.priceToY(1000000));
     const to = Math.round(rect.top + scale.priceToY(1200000));
-    return { x: Math.round(rect.left + rect.width * 0.6), from, to, value: scale.yToPrice(to - rect.top),
+    return { x: Math.round(rect.left + rect.width * 0.6), from, to, value: scale.snapToTick(scale.yToPrice(to - rect.top)),
       candleValue: series.priceScale().yToPrice(to - rect.top), independent: scale !== series.priceScale() };
   });
   expect(geometry.independent).toBe(true);
@@ -274,6 +275,27 @@ test('a left price axis preserves the rendered line drag geometry', async ({ pag
   expect(await updateCount(page, 'price')).toBe(1);
   await page.screenshot({ path: info.outputPath('left-axis-drag.png') });
 });
+
+for (const axis of ['right', 'left'] as const) {
+  test(`dragging on the ${axis} price axis previews and stores a whole tick`, async ({ page }, info) => {
+    await page.evaluate(axis => {
+      const { chart, series } = window.__alertDrag;
+      if (axis === 'left') chart.movePriceAxis(0, 'right', 'left');
+      chart.panes()[0].priceScale.setOptions({ minMove: 0.01 });
+      series.priceScale().setOptions({ minMove: 5 });
+      chart.exportSVG();
+    }, axis);
+    await paint(page);
+    await startDrag(page, 105, 112);
+    expect(await source(page, 'price')).toMatchObject({ price: 105 });
+    expect(await lineInk(page, 110)).toBeGreaterThan(20);
+    expect(await lineInk(page, 112)).toBe(0);
+    await page.screenshot({ path: info.outputPath(`${axis}-tick-preview.png`) });
+    await page.mouse.up();
+    await expect.poll(() => source(page, 'price')).toMatchObject({ price: 110 });
+    expect(await updateCount(page, 'price')).toBe(1);
+  });
+}
 
 test.describe('touch alert lines', () => {
   test.use({ hasTouch: true });

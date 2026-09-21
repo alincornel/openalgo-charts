@@ -7,7 +7,7 @@ description: The host boundary, the base engine's data-to-model-to-render pipeli
 
 import ArchitectureDiagram from '../../components/ArchitectureDiagram'
 
-OpenAlgo Charts 2.4.9 is a browser charting engine with no runtime dependencies.
+OpenAlgo Charts 2.5.0 is a browser charting engine with no runtime dependencies.
 The diagram separates the host boundary, the base engine and eight optional
 tiers. You can build your own interface or use the widget as a packaged host.
 
@@ -131,7 +131,7 @@ tiers stay outside the base bundle.
 
 | Tier | Brotli | Contents |
 |---|--:|---|
-| `openalgo-charts` | 93.12 kB | Data/model/render engine, 13 chart types, panes and scales, primitives, registries, alerts, replay, linking, comparisons, interaction, chart state, CSV/SVG export, bar cache, trading overlay, feeds |
+| `openalgo-charts` | 93.45 kB | Data/model/render engine, 13 chart types, panes and scales, primitives, registries, alerts, replay, linking, comparisons, interaction, chart state, CSV/SVG export, bar cache, trading overlay, feeds |
 | `openalgo-charts/indicators` | 29.84 kB | 105 built-ins, shared TA helpers, and the Tier-2 external-data contract |
 | `openalgo-charts/draw` | 35.43 kB | 85 drawing tools, headless controller, clipboard, settings schema |
 | `openalgo-charts/profile` | 14.96 kB | Volume Profile, Market Profile (TPO), Footprint, order flow |
@@ -139,11 +139,11 @@ tiers stay outside the base bundle.
 | `openalgo-charts/trade` | 8.01 kB | Order, position and bracket tools, DOM ladder |
 | `openalgo-charts/workspace` | 5.52 kB | Validated workspace and template documents, revisioned named catalogs, asynchronous storage and IndexedDB adapter |
 | `openalgo-charts/webgl` | 6.39 kB | WebGL2 series backend, composited into the pane's canvas, 2D fallback for the session on context loss |
-| `openalgo-charts/widget` | 49.03 kB | Packaged interface controls through `createWidget`: top bar, drawing rail, mobile controls, status line, dialogs, right-click menu, keymap and persistence |
+| `openalgo-charts/widget` | 49.06 kB | Packaged interface controls through `createWidget`: top bar, drawing rail, mobile controls, status line, dialogs, right-click menu, keymap and persistence |
 
-**246.81 kB Brotli** for every tier at once; a widget terminal with built-in
-indicators (base + draw + indicators + widget) is 207.43 kB. Figures are decimal
-kB from the 2.4.9 build, measured by `size-limit`. CI enforces the budgets and
+**247.17 kB Brotli** for every tier at once; a widget terminal with built-in
+indicators (base + draw + indicators + widget) is 207.78 kB. Figures are decimal
+kB from the 2.5.0 build, measured by `size-limit`. CI enforces the budgets and
 fails a build when a bundle exceeds its limit.
 
 The widget is an optional tier and a packaged host that drives the engine through
