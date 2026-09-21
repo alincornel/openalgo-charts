@@ -55,6 +55,8 @@ export class AlertController {
   private readonly _off: (() => void)[];
   private readonly _now: () => number;
   private readonly _drawings: AlertDrawingProvider | undefined;
+  /** Whether a spent alert keeps its line; the host's choice, default 'show'. */
+  private readonly _spentLines: 'show' | 'hide';
   private readonly _visuals: AlertVisuals | undefined;
   private _timer: ReturnType<typeof setTimeout> | undefined;
   private _timerAt: number | undefined;
@@ -69,6 +71,7 @@ export class AlertController {
     if (owners.has(_chart)) throw new Error('An alert controller already owns this chart');
     this._now = options.now ?? (() => Date.now() / 1000);
     this._drawings = options.drawings;
+    this._spentLines = options.spentLines ?? 'show';
     this._visuals = options.visuals === false ? undefined : new AlertVisuals(_chart);
     owners.add(_chart);
     this._off = [
@@ -435,6 +438,16 @@ export class AlertController {
     if (!this._visuals) return;
     const { alert } = record;
     const { source } = alert;
+    // A host that asked for it draws nothing for an alert that is finished
+    // with. `triggered` is reached only by `repeat: 'once'`, which `_trigger`
+    // sets under exactly that condition, so a repeating alert goes on firing
+    // and keeps its line; `expired` is spent in the same way. The record is
+    // untouched, which is what stops a once-only alert firing again after a
+    // host reloads it.
+    if (this._spentLines === 'hide' && (alert.state === 'triggered' || alert.state === 'expired')) {
+      this._visuals.update(alert, undefined, true);
+      return;
+    }
     const context = scopeOf(this._chart);
     const matches = sameScope(alert.scope, context);
     let value: AlertDrawingValue | undefined;

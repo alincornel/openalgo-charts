@@ -1,9 +1,15 @@
 ---
-title: Upgrading to 2.5.0
+title: Upgrading to 2.5.1
 description: Adopt workspace, open-interest, alert and host contracts while preserving existing integrations.
 ---
 
-# Upgrading to 2.5.0
+# Upgrading to 2.5.1
+
+Version 2.5.1 adds the opt-in controller setting `spentLines: 'hide'` to hide
+triggered and expired alert lines. The default remains `'show'`. The alert stays
+in `list()` and saved state, so a once-only alert remains spent after reload.
+Re-arming restores its line. Set this policy when constructing each controller;
+it is not stored in alert documents. See [Finished alert lines](/docs/alerts#finished-alert-lines).
 
 Version 2.5.0 adds automatic table columns with `cellWidth: 'auto'` and clips text
 inside every cell. Alert drags now snap to their source scale's tick in both

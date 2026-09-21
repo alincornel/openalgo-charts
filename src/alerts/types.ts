@@ -187,4 +187,21 @@ export interface AlertControllerOptions {
   drawings?: AlertDrawingProvider;
   /** PriceLine visuals are enabled on chart hosts; disable for a model-only consumer. */
   visuals?: boolean;
+  /**
+   * Whether a spent alert keeps its line. Defaults to `'show'`.
+   *
+   * A triggered or expired alert is no longer watching anything, and the two
+   * defensible things to do with its line are opposites. Keeping it is this
+   * library's default and is why each lifecycle state has its own badge and
+   * colour: the line says what became of the level, which is worth knowing on a
+   * chart somebody has just come back to.
+   *
+   * `'hide'` is for the host where that reading does not pay. A terminal left
+   * open through a session accumulates levels that will never fire again, and
+   * past a certain number the ones still watching are the hardest to pick out
+   * of them. The alert itself is untouched either way: it stays in `list()`,
+   * keeps its lifecycle state, still refuses to fire twice, and gets its line
+   * back if a host re-arms it. Only the drawing goes.
+   */
+  spentLines?: 'show' | 'hide';
 }

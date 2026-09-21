@@ -4,6 +4,7 @@ description: Create, evaluate, drag and persist chart-owned alerts without requi
 ---
 
 import AlertDragDemo from '../../components/AlertDragDemo'
+import AlertLifecycleDemo from '../../components/AlertLifecycleDemo'
 
 # Trader alerts
 
@@ -126,6 +127,28 @@ rules after a reload; no document migration is needed.
 This chart-owned controller only evaluates the chart data it receives. To keep
 alerts running on an unseen timeframe, your application needs a separate
 evaluator receiving that timeframe's data, and one owner for delivery.
+
+## Finished alert lines
+
+From 2.5.1, custom hosts can hide triggered and expired lines without deleting
+the alerts:
+
+```ts
+const alerts = new AlertController(chart, { spentLines: 'hide' });
+```
+
+The default is `'show'`. Hidden alerts stay in `list()` and saved state; a
+once-only alert cannot fire again just because the chart reloads. Armed,
+repeating and disabled alerts keep their normal lines. Re-arm with `enable(id)`
+to restore a line. Clear or extend an elapsed `expiresAt` before re-arming an
+expired record. A drawing-anchored alert never deletes its source drawing.
+
+This setting belongs to the controller, so pass it again after recreating the
+controller. It is not stored in alert documents. Keep the saved runtime;
+removing a spent alert merely to hide its line loses its once-only protection.
+The packaged widget and yfinance example keep the default display policy.
+
+<AlertLifecycleDemo />
 
 ## Drag a threshold
 

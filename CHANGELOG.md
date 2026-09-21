@@ -2,6 +2,20 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 2.5.1
+
+2026-09-21
+
+### Added
+
+- `AlertControllerOptions.spentLines: 'hide'` hides the lines of triggered and
+  expired alerts. The default, `'show'`, preserves existing behavior.
+- Hidden alerts retain their records, lifecycle and saved runtime, so once-only
+  alerts cannot fire again merely because their lines are hidden or restored.
+  Re-arming restores the line. Armed, repeating and disabled lines stay visible.
+- Added restore, re-arm and range browser coverage, a live lifecycle example,
+  and host integration guidance. No saved-alert migration is required.
+
 ## 2.5.0
 
 2026-09-21

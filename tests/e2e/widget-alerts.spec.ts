@@ -58,6 +58,8 @@ for (const key of ['Delete', 'Backspace']) {
     await page.keyboard.press(key);
     expect(await page.evaluate(() => window.__widgetAlerts.widget.alerts.list().map(item => item.id))).toEqual([ids.kept]);
     await page.screenshot({ path: info.outputPath('hovered-alert-deleted.png'), animations: 'disabled' });
+    // The fixture must not seed a new drawing if pagehide is skipped on reload.
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('oac-alert-preview:bars') ?? '[]').length)).toBe(100);
     await page.reload();
     await page.waitForFunction(() => !!window.__widgetAlerts);
     expect(await page.evaluate(() => window.__widgetAlerts.widget.draw.drawings())).toEqual([]);
