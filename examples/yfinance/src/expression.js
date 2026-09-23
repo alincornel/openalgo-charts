@@ -16,6 +16,16 @@ import { fetchBars } from './feed.js';
 
 export { ExpressionError, isPlainSymbol };
 
+/** Preserve supplied metadata for one instrument; an expression has no position level. */
+export function referenceDataContext(request, previous) {
+  const context = { symbol: request.symbol, interval: request.interval };
+  if (isExpression(request.symbol)) context.hasOpenInterest = false;
+  else if (previous?.symbol === request.symbol && previous.hasOpenInterest !== undefined) {
+    context.hasOpenInterest = previous.hasOpenInterest;
+  }
+  return context;
+}
+
 /** The operator keypad, in the order it is drawn. */
 export const OPERATORS = [
   { label: '÷', insert: '/', title: 'Divide' },
@@ -50,10 +60,10 @@ export function isExpression(text) {
  */
 export async function fetchExpressionBars(source, interval, period, opts = {}) {
   const expr = parseExpression(source);
-  // One slot per leg so a newer load cancels this one leg for leg, the way the
-  // single-symbol path cancels its own request.
+  // A pane-owned signal cancels all its legs together without claiming another
+  // chart's slots. Legacy callers retain the primary expression slots.
   const legs = await Promise.all(expr.symbols.map((symbol, i) =>
-    fetchBars(symbol, interval, period, { ...opts, slot: `expr:${i}` })
+    fetchBars(symbol, interval, period, { ...opts, slot: opts.signal ? undefined : `expr:${i}` })
       .then((bars) => [symbol, bars])));
 
   const bySymbol = {};
@@ -64,7 +74,7 @@ export async function fetchExpressionBars(source, interval, period, opts = {}) {
     bySymbol[symbol] = bars;
   }
 
-  const bars = evaluateExpression(expr, bySymbol, { ohlc: opts.ohlc || 'close' });
+  const bars = evaluateExpression(expr, bySymbol, { ohlc: opts.ohlc || 'close', volume: 'sum' });
   if (bars.length === 0) {
     // Every leg had data and nothing survived, so the legs never traded at the
     // same timestamps: a different session, or an interval one of them lacks.

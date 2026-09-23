@@ -101,7 +101,7 @@ Smallest `distance` wins; on a tie the higher z-order wins (`top` > `normal` > `
 Routing, from `src/core/chart.ts`:
 
 - **Click**: on pointerup without movement, the pane is hit-tested at the press point. A hit fires `chart.subscribeClick(cb)` with the `externalId`, and the `click` bus event carries `{ id, price, time, paneIndex, point }` with `id: null` on empty plot.
-- **Drag**: on pointerdown, a hit arms a drag when `hit.draggable === true`, or when `hit.cursor === 'ns-resize'` and `subscribeDrag` has a callback. Moves fire `subscribeDrag(onDrag)` and a `drag` bus event `{ id, price, time, paneIndex, fromPrice, fromTime }`; release fires `onDragEnd` and `drag:end`.
+- **Drag**: on pointerdown, a hit arms a drag when `hit.draggable === true`, or when `hit.cursor === 'ns-resize'` and `subscribeDrag` has a callback. The press emits `drag:start`. Moves fire `subscribeDrag(onDrag)` and a `drag` bus event `{ id, price, time, paneIndex, fromPrice, fromTime }`; release fires `onDragEnd` and `drag:end`. Listen for `drag:cancel` to discard drafts on pointer cancellation or pinch. Set `PrimitiveHit.cancelOnEscape: true` only when the consumer handles cancellation without requiring an end notification; it enables Escape rollback, including with shortcuts disabled. Pointer cancellation retains the legacy end notification after cancellation.
 - A drag that never moved is replayed as a click, so a draggable primitive is still clickable.
 - `hoverId` / `dragId` are pushed back into `PrimitiveRenderContext` each frame, which is how `PriceLine` renders its hover and dragging states without any state of its own.
 
@@ -154,6 +154,16 @@ chart.addEventMarkers(paneIndex = 0);                                       // r
 series.createMarkers();                                                     // returns SeriesMarkers, wired to that series
 chart.tradeHost(paneIndex = 0);                                             // { addPrimitive, removePrimitive } for the trade tier
 ```
+
+`PaneLegend` fits its row inside the plot, including hover actions and hit areas.
+On narrow plots it shortens the title and omits whole label/value pairs; widening
+the plot restores the original readings. `LegendValue.priority` selects which
+readings survive first without changing their order. Series readings default to
+1 and status metadata ranks lower. For example, give the close reading
+`{ label: 'C', text: '123.45', field: 'ohlc', priority: 10 }` to retain it before
+other prices. Status-line switches still apply before fitting. If only some
+configured `actions` fit, the end of that list stays visible. Full-width rows keep
+their existing content and ordering.
 
 **`id` on `PriceLine` is not patchable.** `setOptions` accepts `Partial<Omit<PriceLineOptions, 'id'>>`, because swapping the routing handle mid-drag would strand the gesture.
 

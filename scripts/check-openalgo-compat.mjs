@@ -5,25 +5,40 @@
  * Add --objects true only when the host includes the shared Objects integration.
  * Add --navigation true to validate the wheel routing introduced in 2.1.8.
  * Add --branding true to validate corner branding and optional watermark settings.
+ * Add --foundations true for candle-center snapping, interval sync and volume averages.
+ * Add --templates true for named study templates on the selected chart.
+ * Add --correctness true for volume, hover, pan and linked readout regressions.
+ * Add --workspaces true for complete named chart grids.
+ * Add --oi true for history capability, readouts, studies and persistence.
+ * Add --alerts true for source controls, live delivery, persistence and replay guards.
+ * Add --consumer-checks /absolute/checks.mjs for additional checkTradingWorkspace checks.
+ * Use --browser chromium|firefox|webkit to select the rendering engine.
  *
  * No backend is started. Vite proxies are removed and every API/WS is mocked.
  * The app source is unchanged; an entry wrapper records terminal instances so
  * assertions can inspect the real series, drawings, feed and replay state.
  */
 import assert from 'node:assert/strict';
+import { checkChartCorrectness } from './check-openalgo-correctness.mjs';
+import { checkWorkspaces } from './check-openalgo-workspaces.mjs';
+import { checkOpenInterest } from './check-openalgo-open-interest.mjs';
+import { checkAlerts } from './check-openalgo-alerts.mjs';
+import { checkToolbar } from './check-openalgo-toolbar.mjs';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile, lstat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { chromium } from '@playwright/test';
+import { chromium, firefox, webkit, expect } from '@playwright/test';
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((pairs, value, i, all) => {
   if (value.startsWith('--')) pairs.push([value.slice(2), all[i + 1]]);
   return pairs;
 }, []));
 assert(args.frontend, '--frontend must name an isolated OpenAlgo frontend');
+const browserType = { chromium, firefox, webkit }[args.browser ?? 'chromium'];
+assert(browserType, '--browser must be chromium, firefox or webkit');
 const frontend = resolve(args.frontend);
 assert((await lstat(join(frontend, '..', '.git'))).isFile(), 'Use a linked OpenAlgo git worktree');
 assert(!(await lstat(join(frontend, 'node_modules'))).isSymbolicLink(), 'Use copied dependencies in an isolated checkout');
@@ -39,6 +54,10 @@ const symbols = [
   { symbol: 'BHEL', exchange: 'NSE', name: 'Bharat Heavy Electricals', lotsize: 1, tick_size: 0.05, freeze_qty: 100000 },
   { symbol: 'NIFTY29SEP26FUT', exchange: 'NFO', name: 'Nifty Futures', lotsize: 65, tick_size: 0.05, freeze_qty: 1800 },
   { symbol: 'NIFTY', exchange: 'NSE_INDEX', name: 'Nifty 50', lotsize: 1, tick_size: 0.0005 },
+  ...(args.oi === 'true' ? [
+    { symbol: 'BTCUSD', exchange: 'CRYPTO', instrumenttype: 'SPOT', name: 'Bitcoin Spot', lotsize: 1, tick_size: 0.01 },
+    { symbol: 'BTCUSD.P', exchange: 'CRYPTO', instrumenttype: 'PERPFUT', name: 'Bitcoin Perpetual', lotsize: 1, tick_size: 0.01 },
+  ] : []),
 ];
 function history(body) {
   const interval = body.interval;
@@ -55,7 +74,13 @@ function history(body) {
       if (seconds === 86400) break;
     }
   }
-  return rows;
+  if (args.oi !== 'true') return rows;
+  const derivative = body.exchange === 'NFO' || body.symbol === 'BTCUSD.P';
+  return rows.map((bar, index) => ({ ...bar,
+    ...(derivative && index === rows.length - 14 ? {} : {
+      oi: derivative && index !== rows.length - 20 ? 10000 + index * 10 : 0,
+    }),
+  }));
 }
 let orderCounter = 0;
 let mockOrders = [];
@@ -85,15 +110,62 @@ const server = await createServer({
 });
 let browser;
 let page;
+let reloading = false;
 try {
   await server.listen();
   const origin = `http://127.0.0.1:${server.httpServer.address().port}`;
-  browser = await chromium.launch({ headless: true });
+  browser = await browserType.launch({ headless: true });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' });
   page = await context.newPage();
-  await page.clock.setFixedTime(new Date(fixedNow));
-  page.on('pageerror', (error) => report.pageErrors.push(error.message));
-  page.on('console', (message) => { if (message.type() === 'error') report.consoleErrors.push(message.text()); });
+  report.runtimeEvents = [];
+  await page.exposeFunction('__reportCompatRuntimeError', error => report.runtimeEvents.push(error));
+  report.consoleTraces = [];
+  await page.exposeFunction('__reportCompatConsoleTrace', trace => report.consoleTraces.push({ after: report.checks.at(-1), ...trace }));
+  await page.addInitScript(() => {
+    window.addEventListener('error', event => window.__reportCompatRuntimeError({
+      type: 'error', message: event.message, stack: event.error?.stack,
+    }));
+    window.addEventListener('unhandledrejection', event => window.__reportCompatRuntimeError({
+      type: 'unhandledrejection', message: String(event.reason), stack: event.reason?.stack,
+    }));
+    const original = console.error;
+    console.error = (...args) => {
+      window.__reportCompatConsoleTrace({ message: args.map(String).join(' '), visibility: document.visibilityState, ready: document.readyState, stack: new Error().stack });
+      original.apply(console, args);
+    };
+  });
+  // Freeze market wall time without replacing native timers. A synthetic timer
+  // scheduler can deliver Firefox visibility events inside a pending React
+  // render during reload, producing warnings absent with the browser's tasks.
+  await page.addInitScript(now => {
+    const NativeDate = Date;
+    window.__compatFixedNow = now;
+    function FixedDate(...args) {
+      if (!new.target) return new NativeDate(window.__compatFixedNow).toString();
+      return Reflect.construct(NativeDate, args.length ? args : [window.__compatFixedNow], new.target);
+    }
+    Object.setPrototypeOf(FixedDate, NativeDate);
+    FixedDate.prototype = NativeDate.prototype;
+    FixedDate.now = () => window.__compatFixedNow;
+    window.Date = FixedDate;
+  }, fixedNow);
+  report.pageErrorDetails = [];
+  report.failedRequests = [];
+  page.on('requestfailed', request => report.failedRequests.push({ after: report.checks.at(-1), url: request.url(), failure: request.failure() }));
+  page.on('pageerror', (error) => {
+    report.pageErrors.push(error.message);
+    report.pageErrorDetails.push({ after: report.checks.at(-1), duringReload: reloading, name: error.name, message: error.message, stack: error.stack });
+  });
+  const consoleReads = [];
+  page.on('console', (message) => {
+    if (message.type() !== 'error') return;
+    const index = report.consoleErrors.push(message.text()) - 1;
+    // Some browsers stringify an Error as just "Error". Preserve its actual
+    // message so the deliberate mode-refusal check cannot hide another error.
+    consoleReads.push(Promise.all(message.args().map(arg => arg.evaluate(value =>
+      value instanceof Error ? value.message : String(value)
+    ))).then(parts => { if (parts.length) report.consoleErrors[index] = parts.join(' '); }).catch(() => {}));
+  });
   await context.route('**/*', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -141,12 +213,18 @@ try {
     return route.fulfill({ status: 200, json });
   });
   const sockets = [];
+  const subscriptions = new Map();
   await context.routeWebSocket('**/*', (socket) => {
     sockets.push(socket);
+    subscriptions.set(socket, new Set());
+    socket.onClose(() => subscriptions.delete(socket));
     socket.onMessage((wire) => {
       let message;
       try { message = JSON.parse(wire.toString()); } catch { return; }
       report.websocket.push(message);
+      const key = `${message.mode}:${message.symbol}:${message.exchange}`;
+      if (message.action === 'subscribe') subscriptions.get(socket)?.add(key);
+      if (message.action === 'unsubscribe') subscriptions.get(socket)?.delete(key);
       if (message.action === 'authenticate') socket.send(JSON.stringify({ type: 'auth', status: 'success' }));
       else if (message.action === 'ping') socket.send(JSON.stringify({ type: 'pong' }));
       else socket.send(JSON.stringify({ type: message.action, status: 'success' }));
@@ -162,11 +240,19 @@ try {
   // Wait for that chart's context before driving Replay or another interaction.
   const waitReady = () => page.waitForFunction(() => window.__compatTerminals?.some(t => {
     const context = t.chart?.getDataContext();
-    return !t.destroyed && t.price?.getData().length > 0 && context?.symbol === t.sym?.symbol
+    return !t.destroyed && !t.dataUnavailable?.() && t.price?.getData().length > 0 && context?.symbol === t.sym?.symbol
       && context?.exchange === t.sym?.exchange && context?.interval === t.interval;
   }));
   const waitDialogClosed = () => page.waitForFunction(() => !document.querySelector('[role="dialog"]')
     && getComputedStyle(document.body).pointerEvents !== 'none');
+  const reload = async () => {
+    // Let state changes from the preceding interaction paint before automation
+    // interrupts the document with navigation and its visibility event.
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    reloading = true;
+    try { return await page.reload(); }
+    finally { reloading = false; }
+  };
   const sendDepth = async (symbol, exchange, ltp) => {
     for (const socket of sockets) {
       try { socket.send(JSON.stringify({ type: 'market_data', symbol, exchange, ...(args['legacy-topic'] ? { topic: `${symbol}.${exchange}` } : {}), mode: 3, data: {
@@ -175,13 +261,37 @@ try {
     }
     await page.waitForFunction((price) => window.__compatTerminals?.some((t) => !t.destroyed && t.lastLtp === price), ltp);
   };
+  const waitForSubscription = (symbol, exchange, mode, count = 1) => expect.poll(() =>
+    [...subscriptions.values()].filter(items => items.has(`${mode}:${symbol}:${exchange}`)).length).toBeGreaterThanOrEqual(count);
+  const sendLtp = async (symbol, exchange, ltp) => {
+    await waitForSubscription(symbol, exchange, 1);
+    for (const [socket, items] of subscriptions) {
+      if (items.has(`1:${symbol}:${exchange}`)) socket.send(JSON.stringify({
+        type: 'market_data', symbol, exchange, mode: 1, data: { ltp, timestamp: fixedNow },
+      }));
+    }
+    await page.waitForFunction(price => window.__compatTerminals?.some(t => !t.destroyed && t.lastLtp === price), ltp);
+  };
   await page.goto(`${origin}/trading`);
+  if (args.workspaces === 'true') {
+    await page.getByRole('button', { name: 'Workspaces', exact: true }).click({ timeout: 5000 });
+    await page.getByRole('dialog', { name: 'Chart workspaces' }).waitFor();
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(page.locator('[data-slot="dialog-overlay"]')).toHaveCount(0);
+  }
+  if (args.templates === 'true') {
+    await page.getByRole('button', { name: 'Templates', exact: true }).click({ timeout: 5000 });
+    await page.getByRole('dialog', { name: 'Indicator templates' }).waitFor();
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(page.locator('[data-slot="dialog-overlay"]')).toHaveCount(0);
+  }
   await check('unchanged /trading mounts real chart', async () => {
     await waitReady();
     assert(await page.locator('canvas').count() > 0);
     assert.equal(await terminal((t) => t.sym.symbol), 'BHEL');
     assert(report.requests.some((r) => r.path === '/api/v1/history' && r.body.interval === '5m'));
   });
+  if (args.toolbar === 'true') await checkToolbar({ page, check, screenshot: args.screenshot, orderCount: () => orderCounter });
   if (args.branding === 'true') {
     await check('host branding links follow disabled and custom chart branding', async () => {
       const mark = await terminal(t => t.chart.brandingOptions());
@@ -216,7 +326,7 @@ try {
       await waitDialogClosed();
       await page.waitForFunction(() => window.__compatTerminals.some(t => !t.destroyed && t.chart?.watermarkOptions().visible));
       assert.match(await terminal(t => t.chart.exportSVG()), /BHEL/);
-      await page.reload();
+      await reload();
       await waitReady();
       assert.equal(await terminal(t => t.chart.watermarkOptions().visible), true);
       await terminal(async (t, symbol) => t.loadSymbol(symbol), symbols[1]);
@@ -298,7 +408,7 @@ try {
     await page.getByRole('dialog').waitFor();
     assert.equal(orderCounter, 0);
     await page.keyboard.press('Escape');
-    await page.locator('[data-slot="dialog-overlay"]').waitFor({ state: 'detached' });
+    await expect(page.locator('[data-slot="dialog-overlay"]')).toHaveCount(0);
     await waitDialogClosed();
     await waitReady();
     await terminal((t) => { t.setArmed(true); t.placeCtx('BUY', 'MARKET'); });
@@ -314,7 +424,7 @@ try {
   });
   await check('mode mismatch refuses the ticket before submitting an order', async () => {
     analyzer = true;
-    await page.clock.setFixedTime(new Date(fixedNow + 1));
+    await page.evaluate(now => { window.__compatFixedNow = now; }, fixedNow + 1);
     const count = orderCounter;
     const refusal = await terminal(async (t) => {
       await t.trade.getServerMode(0);
@@ -326,7 +436,7 @@ try {
     assert.match(refusal, /mode/);
     assert.equal(orderCounter, count);
     analyzer = false;
-    await page.clock.setFixedTime(new Date(fixedNow + 6000));
+    await page.evaluate(now => { window.__compatFixedNow = now; }, fixedNow + 6000);
     await terminal((t) => t.trade.getServerMode(0));
   });
   await check('WS order update and canvas drag/cancel preserve stop-limit context', async () => {
@@ -412,7 +522,7 @@ try {
       t.setInterval('15m');
     });
     await page.waitForFunction(() => window.__compatTerminals.some((t) => !t.destroyed && t.interval === '15m' && t.draw?.toJSON().drawings.length));
-    await page.reload();
+    await reload();
     await waitReady();
     await page.waitForFunction(() => window.__compatTerminals.some((t) => !t.destroyed && t.draw?.toJSON().drawings.length));
     const state = await terminal((t) => ({ interval: t.interval, symbol: t.sym.symbol, drawings: t.draw.toJSON().drawings, indicators: t.activeIndicators, gridV: t.gridV, gridH: t.gridH }));
@@ -426,7 +536,7 @@ try {
   await check('runtime custom indicator receives the shared chart API and survives reload', async () => {
     await terminal((t) => t.addIndicatorById('compat-close'));
     await page.waitForFunction(() => window.__compatCustomCalls > 0);
-    await page.reload();
+    await reload();
     await waitReady();
     await page.waitForFunction(() => window.__compatCustomCalls > 0);
     assert(await terminal((t) => t.listIndicators().some((indicator) => indicator.indicatorId === 'compat-close')));
@@ -434,7 +544,7 @@ try {
   await check('saved TPO and session volume profiles attach and survive live updates', async () => {
     for (const kind of ['tpo', 'session-volume-profile']) {
       await terminal(async (t, kind) => { t.setChartType(kind); await t.profileLayer?.ready; }, kind);
-      await page.reload();
+      await reload();
       await waitReady();
       await terminal(async (t) => t.profileLayer?.ready);
       assert.equal(await terminal((t) => t.ctype), kind);
@@ -447,6 +557,7 @@ try {
   await check('daily broker interval and quote-only symbol retain correct contracts', async () => {
     await terminal(async (t, symbol) => { t.setChartType('candlestick'); await t.loadSymbol(symbol); t.setInterval('D'); }, symbols[2]);
     await page.waitForFunction(() => window.__compatTerminals.some((t) => !t.destroyed && t.interval === 'D' && t.price?.getData().length === 3));
+    await waitReady();
     assert(report.requests.some((r) => r.path === '/api/v1/history' && r.body.interval === 'D'));
     assert.equal(await terminal((t) => t.tradeBtns), null);
     assert.equal(await terminal((t) => t.sym.tick), 0.05);
@@ -458,7 +569,7 @@ try {
     await page.getByTitle('2 columns', { exact: true }).click();
     const waitTwo = () => page.waitForFunction(() => window.__compatTerminals.filter((t) => !t.destroyed && t.price?.getData().length > 0).length === 2);
     await waitTwo();
-    await page.reload();
+    await reload();
     await waitTwo();
     assert.equal(await page.evaluate(() => localStorage.getItem('oa-trading-layout')), 'cols2');
     const panes = await page.evaluate(() => window.__compatTerminals.filter((t) => !t.destroyed && t.chart).map((t) => ({ key: t.sk, interval: t.interval, symbol: t.sym.symbol })));
@@ -477,9 +588,7 @@ try {
       await page.getByRole('complementary', { name: 'Objects' }).getByText(/Pane 1/).waitFor();
       await page.evaluate(() => {
         const pane = window.__compatTerminals.find((t) => !t.destroyed && t.sk === 'oa-trading-p1');
-        pane.container.closest('section').querySelector('button').dispatchEvent(
-          new PointerEvent('pointerdown', { bubbles: true })
-        );
+        pane.container.closest('section').focus();
       });
       await page.getByRole('complementary', { name: 'Objects' }).getByText(/Pane 2/).waitFor();
     });
@@ -503,12 +612,13 @@ try {
       await page.waitForFunction((oldId) => {
         const pane = window.__compatTerminals.find((t) => !t.destroyed && t.sk === 'oa-trading-p1');
         const row = pane?.objects?.list().find((object) => object.kind === 'indicator');
-        return row && row.id !== oldId && row.visible === false;
+        return row && row.id === oldId && row.visible === false
+          && !pane.dataUnavailable() && pane.chart.getDataContext()?.interval === '15m';
       }, details.id);
       await panel.getByRole('button', { name: `Settings for ${details.name}` }).click();
       await page.getByRole('heading', { name: details.name }).waitFor();
       await page.keyboard.press('Escape');
-      await page.reload();
+      await reload();
       await page.waitForFunction(() => window.__compatTerminals.filter((t) => !t.destroyed && t.price?.getData().length > 0).length === 2);
       await page.evaluate(() => {
         const pane = window.__compatTerminals.find((t) => !t.destroyed && t.sk === 'oa-trading-p1');
@@ -608,8 +718,266 @@ try {
       });
     });
   }
+  if (args.foundations === 'true') {
+    await check('interval sync is selectable in the real workspace and survives reload', async () => {
+      await page.evaluate(() => {
+        for (const pane of window.__compatTerminals.filter(t => !t.destroyed)) {
+          pane.stopReplay();
+          pane.setChartType('candlestick');
+        }
+      });
+      await page.getByRole('button', { name: 'Chart sync', exact: true }).click();
+      await page.getByRole('checkbox', { name: 'Interval', exact: true }).check();
+      await page.keyboard.press('Escape');
+      await terminal(t => t.setInterval('15m'));
+      const bothReady = async () => {
+        try {
+          await page.waitForFunction(() => {
+            const panes = window.__compatTerminals.filter(t => !t.destroyed);
+            return panes.length === 2 && panes.every(t => t.interval === '15m' && t.chart?.getDataContext()?.interval === '15m');
+          });
+        } catch (error) {
+          report.foundationPanes = await page.evaluate(() => window.__compatTerminals.map(t => ({
+            key: t.sk, destroyed: t.destroyed, interval: t.interval, context: t.chart?.getDataContext(),
+            groupInterval: t.link?.interval(), options: t.link?.options(),
+          })));
+          throw error;
+        }
+      };
+      await bothReady();
+      await reload();
+      await bothReady();
+      assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('oa-trading-sync')).interval), true);
+    });
+    await check('settings expose candle-center snapping and volume averages on the existing scale', async () => {
+      await terminal(async t => t.cb.onChartSettings(await t.chartSettings()));
+      await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+      await page.getByRole('checkbox', { name: 'Snap to candle center', exact: true }).check();
+      await page.getByRole('button', { name: 'Volume', exact: true }).click();
+      await page.getByRole('checkbox', { name: 'Show moving average', exact: true }).check();
+      await page.getByRole('spinbutton', { name: 'Period', exact: true }).fill('3');
+      await page.getByRole('button', { name: 'Ok', exact: true }).click();
+      await waitDialogClosed();
+      await page.waitForFunction(() => window.__compatTerminals.some(t => !t.destroyed && t.chart?.crosshairSnapToBar()));
+      const volume = await terminal(t => ({
+        sameScale: t.volumeMA.priceScale() === t.volume.priceScale(),
+        bars: t.volume.getData(), average: t.volumeMA.getData(),
+        price: t.price.getData(), style: t.chart.primarySeriesInfo().style, theme: t.chart.theme(),
+      }));
+      assert.equal(volume.sameScale, true);
+      assert(volume.average.length > 3);
+      assert.equal(volume.average[0].close, NaN);
+      for (let i = 2; i < volume.average.length; i++) {
+        const expected = (volume.bars[i - 2].close + volume.bars[i - 1].close + volume.bars[i].close) / 3;
+        assert(Math.abs(volume.average[i].close - expected) < 1e-8);
+      }
+      assert(volume.bars.every((b, i) => b.color === (volume.price[i].close >= volume.price[i].open
+        ? volume.style.upColor ?? volume.theme.upColor : volume.style.downColor ?? volume.theme.downColor)));
+      await reload();
+      await waitReady();
+      await page.waitForFunction(() => window.__compatTerminals.some(t => !t.destroyed && t.volumeMA?.getData().length > 3));
+      assert.equal(await terminal(t => t.chart.crosshairSnapToBar()), true);
+    });
+    await check('volume average stays on the replay prefix while its period changes', async () => {
+      await terminal(t => t.beginReplayAt(3));
+      await terminal(t => t.applyChartSettings({ 'volume.maPeriod': 2 }));
+      const counts = await terminal(t => ({ price: t.price.getData().length, volume: t.volume.getData().length, average: t.volumeMA.getData().length }));
+      assert.deepEqual(counts, { price: 4, volume: 4, average: 4 });
+      await terminal(t => t.stopReplay());
+      assert(await terminal(t => t.volumeMA.getData().length > 4));
+    });
+    await check('volume direction renders in both theme palettes after chart rebuilds', async () => {
+      for (const mode of ['dark', 'light']) {
+        const toggle = page.getByRole('button', { name: `Switch to ${mode} mode`, exact: true });
+        if (await toggle.count()) await toggle.click();
+        await page.waitForFunction(mode => window.__compatTerminals.filter(t => !t.destroyed)
+          .every(t => t.getTheme().mode === mode), mode);
+        await terminal(t => {
+          t.rawBars = t.rawBars.map((bar, index) => ({ ...bar, close: bar.open + (index % 2 ? -0.4 : 0.4) }));
+          t.setPriceData();
+        });
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        const paint = await terminal(t => {
+          const palette = t.volumeCandleStyle();
+          const volumes = t.volume.getData();
+          const colors = [...new Set(volumes.map(bar => bar.color))];
+          const probe = document.createElement('canvas').getContext('2d');
+          const wanted = colors.map(color => {
+            probe.fillStyle = color;
+            probe.fillRect(0, 0, 1, 1);
+            return [...probe.getImageData(0, 0, 1, 1).data].slice(0, 3);
+          });
+          const ink = wanted.map(() => 0);
+          for (const canvas of t.container.querySelectorAll('canvas')) {
+            const context = canvas.getContext('2d');
+            if (!context || !canvas.width || !canvas.height) continue;
+            const start = Math.floor(canvas.height * 0.9);
+            const pixels = context.getImageData(0, start, canvas.width, canvas.height - start).data;
+            for (let i = 0; i < pixels.length; i += 4) {
+              wanted.forEach((rgb, index) => {
+                if (pixels[i + 3] > 200 && rgb.every((value, channel) => Math.abs(value - pixels[i + channel]) < 4)) ink[index]++;
+              });
+            }
+          }
+          return { colors, expected: [palette.upColor, palette.downColor], ink };
+        });
+        assert.deepEqual(paint.colors.sort(), paint.expected.sort());
+        assert(paint.ink.every(count => count > 30), `${mode} volume pixels: ${paint.ink}`);
+        if (args.screenshot) await page.screenshot({ path: resolve(args.screenshot.replace(/\.png$/, `-${mode}.png`)), fullPage: true });
+      }
+    });
+  }
+  if (args.templates === 'true') {
+    await check('named study templates preserve repeated instances on the focused chart and reload', async () => {
+      const originalOrderCount = orderCounter;
+      assert.equal(await page.getByRole('button', { name: 'Templates', exact: true }).count(), 1);
+      const studies = [
+        { indicatorId: 'ema', settings: { length: 9, 'plot.ema.color': '#ff9800' }, paneIndex: 0, visible: true },
+        { indicatorId: 'ema', settings: { length: 9, 'plot.ema.color': '#ff9800' }, paneIndex: 0, visible: true },
+        { indicatorId: 'rsi', settings: { length: 14 }, paneIndex: 1, visible: false },
+        { indicatorId: 'rsi', settings: { length: 21 }, paneIndex: 1, visible: true },
+      ];
+      await terminal((t, list) => t.applyIndicatorTemplate(list, 'replace'), studies);
+      const targetKey = await terminal(t => t.sk);
+      const focus = async () => {
+        const box = await terminal(t => { const r = t.container.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+        await page.mouse.click(box.x, box.y);
+      };
+      const snapshots = () => page.evaluate(() => window.__compatTerminals.filter(t => !t.destroyed).map(t => ({
+        key: t.sk, studies: t.captureIndicatorTemplate(), bars: t.price.getData().length, range: t.chart.getVisibleLogicalRange(),
+      })));
+      await focus();
+      const before = await snapshots();
+      const expected = before.find(item => item.key === targetKey).studies;
+      await page.getByRole('button', { name: 'Templates', exact: true }).click();
+      await page.getByLabel('New template name', { exact: true }).fill('Study group');
+      await page.getByRole('button', { name: 'Save current studies', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Template saved' }).waitFor();
+      await page.getByRole('button', { name: 'Close', exact: true }).click();
+      await waitDialogClosed();
+      await terminal(t => t.applyIndicatorTemplate([], 'replace'));
+      await terminal((t, symbol) => t.loadSymbol(symbol), symbols[0]);
+      await waitReady();
+      await focus();
+      const cleared = await snapshots();
+      await page.getByRole('button', { name: 'Templates', exact: true }).click();
+      await page.getByRole('button', { name: 'Replace studies', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Studies replaced' }).waitFor();
+      const applied = await snapshots();
+      assert.deepEqual(applied.find(item => item.key === targetKey).studies, expected);
+      for (const pane of applied) {
+        const prior = cleared.find(item => item.key === pane.key);
+        assert.equal(pane.bars, prior.bars);
+        assert.deepEqual(pane.range, prior.range);
+        if (pane.key !== targetKey) assert.deepEqual(pane.studies, before.find(item => item.key === pane.key).studies);
+      }
+      await page.getByRole('button', { name: 'Close', exact: true }).click();
+      await waitDialogClosed();
+      await reload();
+      await waitReady();
+      await page.waitForFunction(({ key, count }) => window.__compatTerminals.some(t => !t.destroyed && t.sk === key && t.chart?.indicators().length === count), { key: targetKey, count: expected.length });
+      assert.deepEqual((await snapshots()).find(item => item.key === targetKey).studies, expected);
+      await focus();
+      await page.getByRole('button', { name: 'Templates', exact: true }).click();
+      await page.getByLabel('Saved template', { exact: true }).selectOption({ label: 'Study group' });
+      if (args.screenshot) await page.screenshot({ path: resolve(args.screenshot.replace(/\.png$/, '-templates.png')), fullPage: true, animations: 'disabled' });
+      assert.equal(orderCounter, originalOrderCount);
+      await page.getByRole('button', { name: 'Close', exact: true }).click();
+      await waitDialogClosed();
+    });
+  }
+  if (args.templates === 'true') {
+    await check('template imports, exports and storage failures preserve the chart and catalog', async () => {
+      const ordersBefore = orderCounter;
+      const before = await terminal(t => t.captureIndicatorTemplate());
+      await page.getByRole('button', { name: 'Templates', exact: true }).click();
+      await page.getByLabel('Saved template', { exact: true }).selectOption({ label: 'Study group' });
+      const downloadPromise = page.waitForEvent('download');
+      await page.getByRole('button', { name: 'Export JSON', exact: true }).click();
+      const download = await downloadPromise;
+      const stream = await download.createReadStream();
+      const chunks = []; for await (const chunk of stream) chunks.push(chunk);
+      const exported = JSON.parse(Buffer.concat(chunks).toString());
+      assert.equal(exported.kind, 'indicator-template');
+      assert.deepEqual(exported.indicators, before);
+      const upload = async (name, indicators) => {
+        const doc = { kind: 'indicator-template', version: 1, id: 'imported', name, createdAt: 1, updatedAt: 1, indicators };
+        const input = page.getByLabel('Import template JSON', { exact: true });
+        await expect(input).toBeEnabled();
+        await input.setInputFiles({ name: 'template.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(doc)) });
+        await page.getByRole('status').filter({ hasText: 'Template imported' }).waitFor();
+      };
+      await upload('Unavailable custom study', [{ indicatorId: 'absent-local-study', settings: {}, paneIndex: 1 }]);
+      await page.getByRole('button', { name: 'Replace studies', exact: true }).click();
+      await page.getByRole('alert').filter({ hasText: 'absent-local-study' }).waitFor();
+      assert.deepEqual(await terminal(t => t.captureIndicatorTemplate()), before);
+      await upload('Empty studies', []);
+      await page.getByRole('button', { name: 'Replace studies', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Studies replaced' }).waitFor();
+      assert.deepEqual(await terminal(t => t.captureIndicatorTemplate()), []);
+      await page.getByLabel('Saved template', { exact: true }).selectOption({ label: 'Study group' });
+      await page.getByRole('button', { name: 'Replace studies', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Studies replaced' }).waitFor();
+      await page.evaluate(() => {
+        window.__originalCatalogPut = IDBObjectStore.prototype.put;
+        IDBObjectStore.prototype.put = function(...args) {
+          if (this.name === 'catalogs') throw new DOMException('Fixture storage rejected', 'QuotaExceededError');
+          return window.__originalCatalogPut.apply(this, args);
+        };
+      });
+      await page.getByLabel('New template name', { exact: true }).fill('Rejected save');
+      await page.getByRole('button', { name: 'Save current studies', exact: true }).click();
+      await page.getByRole('alert').filter({ hasText: 'Fixture storage rejected' }).waitFor();
+      assert.equal(await page.getByLabel('New template name', { exact: true }).inputValue(), 'Rejected save');
+      assert.equal(await page.getByRole('option', { name: 'Rejected save', exact: true }).count(), 0);
+      await page.evaluate(() => { IDBObjectStore.prototype.put = window.__originalCatalogPut; delete window.__originalCatalogPut; });
+      await page.getByRole('button', { name: 'Refresh templates', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Templates refreshed' }).waitFor();
+      assert.equal(await page.getByRole('option', { name: 'Rejected save', exact: true }).count(), 0);
+      await page.setViewportSize({ width: 390, height: 844 });
+      // Resizing starts a max-width transition; measure its finished layout.
+      await page.getByRole('dialog', { name: 'Indicator templates' }).evaluate(el => {
+        for (const animation of el.getAnimations()) animation.finish();
+      });
+      const dimensions = await page.getByRole('dialog', { name: 'Indicator templates' }).evaluate(el => ({ width: el.getBoundingClientRect().width, scroll: el.scrollWidth, client: el.clientWidth }));
+      assert(dimensions.width <= 358 && dimensions.scroll <= dimensions.client + 1);
+      if (args.screenshot) await page.screenshot({ path: resolve(args.screenshot.replace(/\.png$/, '-templates-mobile.png')), fullPage: true, animations: 'disabled' });
+      await page.setViewportSize({ width: 1440, height: 1000 });
+      await page.getByRole('button', { name: 'Close', exact: true }).click();
+      await waitDialogClosed();
+      assert.equal(orderCounter, ordersBefore);
+    });
+  }
+  if (args.correctness === 'true') await checkChartCorrectness({ page, terminal, report, sendDepth, screenshot: args.screenshot });
+  if (args.oi === 'true') await checkOpenInterest({ page, terminal, check, reload, sendDepth, screenshot: args.screenshot, orderCount: () => orderCounter });
+  if (args.alerts === 'true') await checkAlerts({ page, terminal, check, reload, sendDepth, screenshot: args.screenshot, orderCount: () => orderCounter });
+  if (args.workspaces === 'true') await checkWorkspaces({ page, check, reload, screenshot: args.screenshot, orderCount: () => orderCounter, sendDepth });
+  if (args['consumer-checks']) {
+    const file = resolve(args['consumer-checks']);
+    report.consumerChecks = { file, sha256: createHash('sha256').update(await readFile(file)).digest('hex') };
+    const { checkTradingWorkspace } = await import(pathToFileURL(file).href);
+    assert.equal(typeof checkTradingWorkspace, 'function', 'Consumer module must export checkTradingWorkspace');
+    await checkTradingWorkspace({ page, check, expect, report, reload, sendDepth, sendLtp, waitForSubscription,
+      screenshot: args.screenshot, output: args.output, orderCount: () => orderCounter });
+  }
   await check('no browser runtime errors or external HTTP', async () => {
-    assert.deepEqual(report.pageErrors, []);
+    await Promise.all(consoleReads);
+    // WebKit reports fetches cancelled/refused on a departing document as
+    // pageerrors even when caught. Classify only this network diagnostic during
+    // reload, to caught fixture API/index reads; window errors/rejections fail.
+    report.reloadNetworkNotices = [];
+    const unexpected = report.pageErrorDetails.filter(error => {
+      const url = error.stack?.match(/^(?:Fetch API|XMLHttpRequest) cannot load (https?:\/\/\S+) due to access control checks\./)?.[1];
+      const departing = browserType === webkit && error.duringReload
+        && (url?.startsWith(`${origin}/api/`) || url?.startsWith(`${origin}/socket.io/`)
+          || url === `${origin}/custom-indicators/index.json`);
+      if (departing) report.reloadNetworkNotices.push({ ...error, url,
+        cancelledRequestObserved: report.failedRequests.some(request => request.url === url && request.failure?.errorText === 'Load request cancelled'),
+      });
+      return !departing;
+    });
+    assert.deepEqual(unexpected, []);
+    assert.deepEqual(report.runtimeEvents, []);
     assert.deepEqual(report.consoleErrors.filter((message) => !message.startsWith('Failed to load resource:') && !message.includes('refusing to place, caller expects live mode but the OpenAlgo server is in analyzer mode')), []);
     assert.deepEqual(report.blocked, []);
   });

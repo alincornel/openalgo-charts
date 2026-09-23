@@ -26,6 +26,6 @@ export class HeikinAshiTransform implements ISeriesTransform {
     const haLow = Math.min(bar.low, haOpen, haClose);
     this._prevOpen = haOpen;
     this._prevClose = haClose;
-    return [{ time: bar.time, open: haOpen, high: haHigh, low: haLow, close: haClose, volume: bar.volume }];
+    return [{ time: bar.time, open: haOpen, high: haHigh, low: haLow, close: haClose, volume: bar.volume, oi: bar.oi }];
   }
 }

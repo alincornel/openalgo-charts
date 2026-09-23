@@ -240,6 +240,28 @@ draw.update(d.id, applyDrawingSettings(d, formState, schema));
 
 ## DrawingController API
 
+For numeric alerts, `draw.alertInfo(id)` returns an `AlertDrawingInfo` with
+availability, reason, paneIndex and named `AlertDrawingLevel` choices.
+`draw.valueAt(id, time, level?)` returns `AlertDrawingValue` (price, optional
+upperPrice, paneIndex), or undefined when the geometry has no value there.
+These structural types come from the base entry and are consumed by its
+AlertController. See [alerts](alerts.md) for timing and source choices.
+
+Supported tools currently include trend-line, ray, extended-line, horizontal-line,
+horizontal-ray, trend-angle, parallel-channel, disjoint-channel, flat-top-bottom,
+fib-retracement, fib-extension, fib-extension-two-point and fib-channel. Channel
+choices are band, base, boundary and middle; fib choices are stable ratio ids
+such as ratio:0.5 from active levels. A tool without a numeric hook reports an
+unavailable reason. The API uses the renderer's geometry, including its existing
+extension semantics, rather than inventing a price-time interpolation.
+
+Custom DrawingTool descriptors can opt in with `alertValue(context, level?)`
+and `alertLevels(drawing)`. `DrawingValueContext` contains the drawing, anchors
+as media-pixel pts, query time and x, and fromY for that pane. The value hook
+returns price and optional upperPrice; the controller adds paneIndex and rejects
+non-finite output. The level hook returns readonly id/title choices. No DOM or
+delivery logic belongs in these hooks.
+
 ```ts
 new DrawingController(chart, {
   magnet: 'off',            // 'weak' | 'strong' | 'off'; true = 'strong'. Snap new anchors to the hovered bar's O/H/L/C
@@ -379,7 +401,10 @@ chart.restoreState(JSON.parse(localStorage.getItem('layout')!));
 const draw = new DrawingController(chart);   // reads the state in its constructor
 ```
 
-**Restore chart state before constructing the controller.** The constructor reads `chart.drawingState()` once; a `restoreState` afterwards leaves the controller holding the old list, which the next `_sync()` writes back over the restored one.
+The constructor reads `chart.drawingState()`, and an attached controller handles
+`drawings:restore` during later `chart.restoreState` calls. Both attachment orders
+restore the drawing list. Do not call `fromJSON` again after chart restoration;
+the drawing phase already precedes alert restoration.
 
 The controller and its layers belong to the chart they were built on, so a rebuild (interval, chart type, or theme swap) needs `const saved = draw.toJSON(); draw.destroy();` before `chart.destroy()`, then `new DrawingController(newChart).fromJSON(saved)`. Anchors are data, so the shapes land on the same bars even at a different interval.
 

@@ -18,8 +18,10 @@ export type { SeriesType };
  * Which price axis a series maps to. 'right' (default) and 'left' each draw an
  * axis and autoscale independently; '' is a hidden overlay scale (no axis, its
  * own autoscale) used to pin a volume histogram inside the price pane.
+ * `overlay:name` creates an independent hidden scale, shared only by series
+ * using that same name on this pane.
  */
-export type PriceScaleId = 'right' | 'left' | '';
+export type PriceScaleId = 'right' | 'left' | '' | `overlay:${string}`;
 
 /**
  * Value formatting for a price scale (its axis labels and crosshair tag):
@@ -63,8 +65,14 @@ export interface SeriesApi {
   remove(): void;
   /** The price scale this series maps to (call `.setOptions({ marginTop, marginBottom })` on it). */
   priceScale(): PriceScale;
-  /** Create a markers layer (buy/sell signals, shapes) bound to this series. */
-  createMarkers(): SeriesMarkers;
+  /**
+   * Create a markers layer (buy/sell signals, shapes) bound to this series.
+   *
+   * `fallbackBars` positions a mark whose time this series has no point for,
+   * which happens whenever the series is drawn with gaps. Without it such a
+   * mark is dropped silently.
+   */
+  createMarkers(fallbackBars?: () => readonly Bar[]): SeriesMarkers;
 }
 
 export function createSeriesRecord(dataId: SeriesId, type: SeriesType, style?: SeriesStyle, scaleId: PriceScaleId = 'right'): SeriesRecord {

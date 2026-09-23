@@ -1,7 +1,10 @@
 import { el } from './ui.js';
 import { ticon } from './toolbar.js';
+import { capturePaneTarget } from './pane-target.js';
+import { downloadChartData } from './chart-data.js';
 
 let app;
+let menuTarget = null;
 
 /* ── chart snapshot ──────────────────────────────────────────────────
  * `chart.takeScreenshot()` returns a canvas with everything on it, the
@@ -10,27 +13,28 @@ let app;
  */
 
 /** A PNG blob of the chart as it stands. */
-export function snapshotBlob() {
+export function snapshotBlob(target = capturePaneTarget(app)) {
   return new Promise((resolve, reject) => {
-    if (!app.chart || !app.chart.takeScreenshot) { reject(new Error('no screenshot in this build')); return; }
-    const canvas = app.chart.takeScreenshot();
+    if (!target?.chart.takeScreenshot) { reject(new Error('no screenshot in this build')); return; }
+    if (!target.current()) { reject(new Error('chart changed; open the snapshot menu again')); return; }
+    const canvas = target.chart.takeScreenshot();
     canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('canvas produced no image'))), 'image/png');
   });
 }
 
-export function snapshotName() {
+export function snapshotName(target = capturePaneTarget(app)) {
   const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
-  return `${(app.req.symbol || 'chart').replace(/[^A-Za-z0-9._-]/g, '')}-${app.req.interval}-${stamp}.png`;
+  return `${(target?.request.symbol || 'chart').replace(/[^A-Za-z0-9._-]/g, '')}-${target?.request.interval || ''}-${stamp}.png`;
 }
 
-export async function downloadSnapshot() {
+export async function downloadSnapshot(target = menuTarget ?? capturePaneTarget(app)) {
   closeSnapMenu();
   try {
-    const blob = await snapshotBlob();
+    const blob = await snapshotBlob(target);
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = snapshotName();
+    a.download = snapshotName(target);
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -43,10 +47,10 @@ export async function downloadSnapshot() {
   }
 }
 
-export async function copySnapshot() {
+export async function copySnapshot(target = menuTarget ?? capturePaneTarget(app)) {
   closeSnapMenu();
   try {
-    const blob = await snapshotBlob();
+    const blob = await snapshotBlob(target);
     // The clipboard image API is the only one that pastes into a post
     // composer. It needs a secure context and a user gesture, both of which
     // a click on this menu item supplies.
@@ -61,6 +65,7 @@ export async function copySnapshot() {
 }
 
 export function openSnapMenu(anchor) {
+  menuTarget = capturePaneTarget(app);
   let menu = el('snapmenu');
   if (!menu) {
     menu = document.createElement('div');
@@ -70,10 +75,12 @@ export function openSnapMenu(anchor) {
       + '<button id="snap-save">' + ticon('download') + '<span>Download image</span>'
       + '<span class="key">Ctrl+Alt+S</span></button>'
       + '<button id="snap-copy">' + ticon('copy') + '<span>Copy image</span>'
-      + '<span class="key">Ctrl+Shift+S</span></button>';
+      + '<span class="key">Ctrl+Shift+S</span></button>'
+      + '<button id="snap-data">' + ticon('download') + '<span>Download chart data (CSV)</span></button>';
     document.body.appendChild(menu);
-    el('snap-save').addEventListener('click', downloadSnapshot);
-    el('snap-copy').addEventListener('click', copySnapshot);
+    el('snap-save').addEventListener('click', () => downloadSnapshot());
+    el('snap-copy').addEventListener('click', () => copySnapshot());
+    el('snap-data').addEventListener('click', () => { const target = menuTarget; closeSnapMenu(); downloadChartData(app, target); });
   }
   const r = anchor.getBoundingClientRect();
   menu.hidden = false;
@@ -85,19 +92,21 @@ export function openSnapMenu(anchor) {
 }
 
 export function closeSnapMenu() {
+  menuTarget = null;
   const menu = el('snapmenu');
   if (menu) menu.hidden = true;
 }
 
 export function initSnapshot(a) {
   app = a;
+  menuTarget = null;
   document.addEventListener('click', (e) => {
     const menu = el('snapmenu');
     if (menu && !menu.hidden && !menu.contains(e.target)) closeSnapMenu();
   });
   document.addEventListener('keydown', (e) => {
     if (!e.ctrlKey || e.key.toLowerCase() !== 's') return;
-    if (e.altKey) { e.preventDefault(); downloadSnapshot(); }
-    else if (e.shiftKey) { e.preventDefault(); copySnapshot(); }
+    if (e.altKey) { e.preventDefault(); downloadSnapshot(capturePaneTarget(app)); }
+    else if (e.shiftKey) { e.preventDefault(); copySnapshot(capturePaneTarget(app)); }
   });
 }

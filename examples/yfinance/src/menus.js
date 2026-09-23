@@ -8,6 +8,8 @@ import { placeOrder, removeAllOrders, clearPosition, saveState } from './orders.
 import { removeBracket } from './bracket.js';
 import { clipboardAction } from './clipboard.js';
 import { autosave } from './persist.js';
+import { alertContextEntries } from './alerts.js';
+import { capturePaneTarget } from './pane-target.js';
 
 // Price-level family (previous close, session extremes, extended hours,
 // bid/ask). Read off the namespace for the same reason as the block above:
@@ -28,9 +30,27 @@ let axSub = null;
 // the indicator row below knows which instance was under the pointer.
 let ctxPrice = 0;
 let ctxIndicator = null;   // instance id when the pointer was over an indicator
+let ctxAlerts = [];
+let ctxOwner = null;
 export const hideCtx = () => { ctxMenu.hidden = true; };
 
-export function openContextMenu(e) {
+export function openContextMenu(e, pane = 1) {
+  const owner = capturePaneTarget(app, pane);
+  if (!owner) return;
+  if (pane === 2) {
+    hideCtx(); closeAxisMenu();
+    const rect = el('chart2').getBoundingClientRect();
+    const rows = alertContextEntries(app, e, 2);
+    rows.push({ label: 'Chart settings...', onSelect: () => openChartSettings(undefined, owner) });
+    if (app.volume2) rows.push({ label: 'Volume', on: volumeShown(2),
+      onSelect: () => { if (owner.current()) setVolumeShown(!volumeShown(2), 2); } });
+    if (e.target?.kind === 'indicator') rows.push({ label: 'Study settings...',
+      onSelect: () => openSettings(e.target.instanceId, owner) });
+    if (rows.length) popupMenu({ getBoundingClientRect: () => ({ left: rect.left + e.point.x, bottom: rect.top + e.point.y }) }, rows, { role: 'menu' });
+    return;
+  }
+  closeMenu();
+  ctxOwner = owner;
   const rect = el('chart').getBoundingClientRect();
   const target = e.target || { kind: 'empty' };
   // A price ladder gets its own menu. The chart is what knows a click landed
@@ -40,7 +60,7 @@ export function openContextMenu(e) {
   closeAxisMenu();
   // Off the plot (on a scale) there is no price, so the order rows would be
   // offering to trade at nothing.
-  const tradable = e.price != null && app.currentBars.length > 0;
+  const tradable = e.paneIndex === 0 && e.price != null && app.currentBars.length > 0;
   ctxPrice = tradable ? round2(e.price) : 0;
   for (const b of ctxMenu.querySelectorAll('button[data-type]')) {
     b.hidden = !tradable;
@@ -51,6 +71,16 @@ export function openContextMenu(e) {
       : `${verb} Stop (SL) @ ${fmt(ctxPrice)}`;
   }
   for (const hr of ctxMenu.querySelectorAll('hr[data-sec="order"]')) hr.hidden = !tradable;
+
+  ctxAlerts = alertContextEntries(app, e);
+  const create = ctxAlerts.length > 1 ? ctxAlerts[0] : null;
+  const createRow = ctxMenu.querySelector('[data-act="alert-create"]');
+  createRow.hidden = !create;
+  createRow.disabled = create?.disabled === true;
+  createRow.title = create?.reason || '';
+  createRow.textContent = create?.label || 'Create alert';
+  ctxMenu.querySelector('[data-act="alert-list"]').hidden = ctxAlerts.length === 0;
+  ctxMenu.querySelector('hr[data-sec="alerts"]').hidden = ctxAlerts.length === 0;
 
   // Hide the drawing rows when there is nothing to act on, so the menu
   // never offers a dead option.
@@ -90,8 +120,8 @@ export function openContextMenu(e) {
   const rowVol = ctxMenu.querySelector('[data-act="volshow"]');
   rowVol.hidden = !app.volume;
   ctxMenu.querySelector('hr[data-sec="vol"]').hidden = !app.volume;
-  rowVol.classList.toggle('is-on', volumeShown());
-  rowVol.querySelector('em').textContent = volumeShown() ? 'Shown' : 'Hidden';
+  rowVol.classList.toggle('is-on', volumeShown(1));
+  rowVol.querySelector('em').textContent = volumeShown(1) ? 'Shown' : 'Hidden';
 
   // Unhide first, then measure: the menu's height depends on which rows
   // above survived, so a fixed clamp would be wrong for most of them.
@@ -257,7 +287,7 @@ function paintAxisMenu() {
   axMenu.appendChild(axSeparator());
   add({
     label: 'Axis settings...',
-    onSelect: () => { closeAxisMenu(); openChartSettings('axes'); },
+    onSelect: () => { closeAxisMenu(); openChartSettings('axes', ctxOwner); },
   });
 }
 
@@ -462,6 +492,7 @@ export function popupMenu(anchor, rows, opts) {
   closeMenu();
   const m = document.createElement('div');
   m.className = 'menu';
+  if (opts?.role) m.setAttribute('role', opts.role);
   const find = opts && opts.find
     ? Object.assign(document.createElement('input'), { type: 'text', placeholder: opts.find })
     : null;
@@ -478,6 +509,13 @@ export function popupMenu(anchor, rows, opts) {
     const needle = q.trim().toLowerCase();
     body.innerHTML = '';
     let shown = 0;
+    if (needle && opts?.onSubmit) {
+      const submit = document.createElement('button');
+      submit.textContent = 'Load ' + q.trim();
+      submit.addEventListener('click', () => { closeMenu(); opts.onSubmit(q.trim()); });
+      body.appendChild(submit);
+      shown++;
+    }
     // A group heading is only worth drawing once something under it survives
     // the filter, so it is held back until the first matching row appears.
     let pending = null;
@@ -492,9 +530,12 @@ export function popupMenu(anchor, rows, opts) {
         pending = null;
       }
       const b = document.createElement('button');
+      if (opts?.role === 'menu') b.setAttribute('role', 'menuitem');
+      b.disabled = r.disabled === true;
+      b.title = r.reason || '';
       b.innerHTML = (r.icon ? ticon(r.icon) : '<span style="width:20px"></span>') +
         '<span>' + esc(r.label) + '</span>' + (r.on ? '<em>&#10003;</em>' : '');
-      b.addEventListener('click', () => { closeMenu(); r.onSelect(); });
+      b.addEventListener('click', () => { if (!b.disabled) { closeMenu(); r.onSelect(); } });
       body.appendChild(b);
       shown += 1;
     }
@@ -512,6 +553,12 @@ export function popupMenu(anchor, rows, opts) {
     // Enter picks the only remaining row, so a unique search needs no click.
     find.addEventListener('keydown', (e) => {
       if (e.key !== 'Enter') return;
+      if (opts?.onSubmit && find.value.trim()) {
+        e.preventDefault();
+        closeMenu();
+        opts.onSubmit(find.value.trim());
+        return;
+      }
       const only = body.querySelectorAll('button');
       if (only.length === 1) only[0].click();
     });
@@ -519,7 +566,7 @@ export function popupMenu(anchor, rows, opts) {
   document.body.appendChild(m);
   const r = anchor.getBoundingClientRect();
   m.style.left = Math.min(r.left, window.innerWidth - m.offsetWidth - 8) + 'px';
-  m.style.top = (r.bottom + 4) + 'px';
+  m.style.top = Math.max(4, Math.min(r.bottom + 4, window.innerHeight - m.offsetHeight - 8)) + 'px';
   openMenu = m;
   if (find) find.focus();
 }
@@ -536,10 +583,12 @@ export function initMenus(a) {
   el('chart').addEventListener('wheel', hideCtx, { passive: true });
   ctxMenu.addEventListener('click', (e) => {
     const btn = e.target.closest('button');
-    if (!btn) return;
+    if (!btn || btn.disabled || btn.hidden) return;
     e.stopPropagation();
     hideCtx();
     const act = btn.getAttribute('data-act');
+    if (act === 'alert-create') { ctxAlerts[0]?.onSelect(); return; }
+    if (act === 'alert-list') { ctxAlerts.at(-1)?.onSelect(); return; }
     if (act === 'cancelall') {
       removeAllOrders(); removeBracket(); clearPosition(); saveState(); el('status').textContent = 'all orders cancelled / flat'; return;
     }
@@ -565,9 +614,9 @@ export function initMenus(a) {
       clipboardAction(act);
       return;
     }
-    if (act === 'volshow') { setVolumeShown(!volumeShown()); return; }
-    if (act === 'chartset') { openChartSettings(); return; }
-    if (act === 'indset') { if (ctxIndicator) openSettings(ctxIndicator); return; }
+    if (act === 'volshow') { if (ctxOwner?.current()) setVolumeShown(!volumeShown(1), 1); return; }
+    if (act === 'chartset') { openChartSettings(undefined, ctxOwner); return; }
+    if (act === 'indset') { if (ctxIndicator) openSettings(ctxIndicator, ctxOwner); return; }
     placeOrder(btn.getAttribute('data-side'), btn.getAttribute('data-type'), ctxPrice);
   });
 

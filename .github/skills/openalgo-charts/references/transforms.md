@@ -170,7 +170,11 @@ problem, and the reason `'close'` is the default.
 Three more behaviours worth knowing. A bar the other legs did not trade produces
 a **gap**, not a value carried forward, because a ratio against another minute's
 price was never true. A divisor reaching zero gaps rather than spiking. And the
-result carries no `volume`: the volume of a ratio is not a quantity anyone
-traded, and picking one leg's would be arbitrary.
+result carries no `volume` by default. `EvaluateOptions.volume: 'sum'` opts into
+combined leg activity: sum the volume of each distinct expression symbol once,
+without price signs or coefficients. This is activity of the legs, not a traded
+quantity of the synthetic instrument. Zero is valid. A missing, negative,
+nonfinite or overflowing amount leaves volume absent for that bar. The reference
+host and OpenAlgo expression adapter opt into this rule.
 
 Related: [chart-types](./chart-types.md), [data-and-time](./data-and-time.md), [indicators](./indicators.md), [drawing-tools](./drawing-tools.md), [bundling-and-tiers](./bundling-and-tiers.md), [pitfalls](./pitfalls.md).

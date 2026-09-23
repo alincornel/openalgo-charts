@@ -158,10 +158,10 @@ series.setData(bars);
 chart.timeScale.fitContent(bars.length);
 ```
 
-`setData` replaces the entire series in one pass. The first call also triggers
-an automatic fit so the chart shows all bars without you needing to call
-`fitContent` yourself, but it is good practice to call it explicitly whenever
-you replace data.
+`setData` replaces the entire series. The first non-empty load applies the
+chart's `navigation.defaultVisibleBars` policy; `0` fits all loaded history.
+Call `chart.fitContent()` when the user intends to see all loaded bars. Preserve
+the viewport during refresh, restore and paging instead of fitting every response.
 
 <Callout type="warning">
 `time` is **UTC seconds** (a plain integer), not a `Date` and not milliseconds.
@@ -179,11 +179,16 @@ interface Bar {
   low: number;
   close: number;
   volume?: number;
+  oi?: number;   // optional open-interest level; zero is a valid observation
 }
 ```
 
-Line and area series read only `close`; you can supply the same bar objects to
-every series. Each bar gets a **gapless logical index** on the shared time axis,
+Line and area series read `close`; they also accept `{ time, value }` points
+and `{ time }` whitespace gaps through `SeriesDataItem`. Open interest stays
+optional and must not be synthesized from volume. See [Open interest](/docs/open-interest)
+for aggregation, missing readings and instrument support.
+
+Each bar gets a **gapless logical index** on the shared time axis,
 so weekends, holidays, and overnight breaks collapse automatically. See
 [Core Concepts](/docs/core-concepts) for how the index space works.
 
@@ -318,7 +323,7 @@ const builder = new CandleBuilder({
 // Seed from the last historical bar so the first live tick continues it
 const bars = await feed.getHistory(...);
 series.setData(bars);
-builder.seed(bars[bars.length - 1]);
+if (bars.length) builder.seed(bars[bars.length - 1]);
 
 // Feed each tick as it arrives
 ws.onTick((tick) => {
@@ -358,14 +363,17 @@ Register the loader once after creating the chart:
 
 ```ts
 chart.setHistoryLoader(async () => {
-  const older = await myApi.getBarsBefore(oldestLoadedTime, 500);
-  if (older.length > 0) {
-    series.prependData(older);
-    oldestLoadedTime = older[0].time;
+  try {
+    const older = await myApi.getBarsBefore(oldestLoadedTime, 500);
+    if (older.length > 0) {
+      series.prependData(older);
+      oldestLoadedTime = older[0].time;
+    }
+  } catch (error) {
+    showHistoryError(error);
+  } finally {
+    chart.historyLoadComplete();
   }
-  // Call this from finally in an async loader, including failures.
-  // Without it the loader will never fire again.
-  chart.historyLoadComplete();
 });
 ```
 
@@ -460,18 +468,18 @@ history window for sustained sessions.
 
 ## Reconnect and gap recovery
 
-When a WebSocket feed drops and reconnects, re-fetch the missed window and pass
-it to `setData` or `prependData`. The DataLayer merges by time and
+When a WebSocket feed drops and reconnects, re-fetch the missed window and merge
+it with `prependData`. This path merges by time and
 deduplicates: bars whose timestamps already exist in the series are replaced
 (not duplicated), and genuinely new bars are inserted in sorted order. You do
-not need to compute the exact gap -- overlapping re-fetched windows are safe.
+not need to compute the exact gap. Buffer live observations during the request
+so an older response cannot overwrite a newer forming candle. Prefer the
+[shared loading controller](#shared-loading-controller-216) when it owns the feed.
 
 ```ts
-ws.on('reconnect', async () => {
-  // Fetch everything since the last known bar, with some overlap for safety
-  const missed = await myApi.getBars({ from: lastKnownTime - 60, to: Date.now() / 1000 });
-  // DataLayer upserts by time -- no duplicates, no manual de-overlap needed
-  series.prependData(missed);
+// With the shared controller above, refresh owns buffering and reconciliation.
+ws.on('reconnect', () => {
+  void data.refresh();
 });
 ```
 

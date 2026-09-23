@@ -218,6 +218,18 @@ describe('bar requests', () => {
     expect(barsRequest('BTC-USD', '1d', '1y').to).toBe(Math.floor(now / DAY) * DAY + DAY - 1);
   });
 
+  it('folds a secondary request in its captured timezone instead of the primary zone', async () => {
+    const bars = [
+      flatBar(Date.UTC(2024, 0, 31, 18) / 1000, 100, 1),
+      flatBar(Date.UTC(2024, 0, 31, 20) / 1000, 101, 2),
+      flatBar(Date.UTC(2024, 1, 1, 6) / 1000, 102, 3),
+    ];
+    stubFetch(bars, calls);
+    const out = await fetchBars('ZONE', '1mo', '5y', { timezone: 'America/New_York' });
+    expect(out.map(bar => bar.volume)).toEqual([3, 3]);
+    expect(app.chartTimezone).toBe('Asia/Kolkata');
+  });
+
   it('reports a cold load and then a warm one from the cache', async () => {
     const last = Date.UTC(2024, 0, 5, 0) / 1000;
     stubFetch([flatBar(last - DAY, 99), flatBar(last, 100)], calls);

@@ -10,6 +10,8 @@ import DrawingToolsDemo from '../components/DrawingToolsDemo'
 import DataLoadingDemo from '../components/DataLoadingDemo'
 import ObjectsDemo from '../components/ObjectsDemo'
 import BrandingWatermarkDemo from '../components/BrandingWatermarkDemo'
+import IndicatorSignalsDemo from '../components/IndicatorSignalsDemo'
+import AlertDragDemo from '../components/AlertDragDemo'
 import { RangeSwitcherCard, LegendCard, SeriesCompareCard, IndicatorsCard, ChartTypeCard, ThemeCard, DataTooltipCard, EventMarkersCard, PriceScaleCard, CustomTypesCard, ScalesFormatCard, ScalesConfigCard, DataCard, CustomPluginsCard, PositionsCard, TradeMarkersCard } from '../components/gallery'
 
 # Live examples
@@ -19,7 +21,29 @@ is the code that ran. Try it, copy it, ship it.
 
 Jump to [depth of market](#depth-of-market), [drawing tools](#drawing-tools),
 [market profiles](#compact-market-profiles), [chart controls](#interactive),
-or [trading](#trading).
+[trading](#trading), or [alert threshold dragging](#alert-threshold-dragging).
+
+## Open interest and instrument rules
+
+Open Interest draws a separate line pane; Open Interest Change draws a separate
+histogram. These synthetic readings deliberately contain gaps. Missing data stays
+absent, and aggregation takes the latest defined level instead of summing it.
+See the [Open Interest guide](/docs/open-interest) for feed capability and studies.
+The [instrument rules example](/demos/instruments/) lets you switch
+cash, futures and crypto metadata, inspect shortened sessions and check quantity
+steps without sending orders. See [Instrument metadata](/docs/instruments).
+
+<RunnableExample height={440} tiers={['indicators']} code={`const chart = lib.createChart(el);
+const bars = lib.generateBars(1700000000, 120, 300).map((bar, index) => ({
+  ...bar,
+  ...(index % 30 < 3 ? {} : { oi: 5000 + Math.round(200 * Math.sin(index / 9)) + index * 3 }),
+}));
+chart.setDataContext({ symbol: 'SYNTHETIC', exchange: 'DEMO', interval: '5m', hasOpenInterest: true });
+chart.addSeries('candlestick').setData(bars);
+chart.addIndicator('open-interest');
+chart.addIndicator('open-interest-change');
+chart.fitContent();
+return chart;`} />
 
 ## Branding and optional watermarks
 
@@ -108,12 +132,26 @@ Data-driven positions, orders, TP/SL brackets, and fill markers via
 <TradeMarkersCard />
 </div>
 
+## Alert threshold dragging
+
+Drag a price threshold, either bound of a range, or the study threshold in its own
+pane. The dashed line previews the edit while saved values stay unchanged. Release
+to commit once, or press Escape to cancel. A range bound stops at the other bound.
+The lower pane uses study units, independently of the instrument price.
+
+<AlertDragDemo />
+
+Touch cancellation, a second pointer starting a pinch, a context change, host pause
+or replay entry also discard an unfinished drag. Armed lines carry an **Alert** badge.
+Drawing-owned alert levels follow their drawing and cannot be dragged separately.
+See [Trader alerts](/docs/widget#trader-alerts) for host ownership and persistence.
+
 ## The terminal in one call
 
 `createWidget` from `openalgo-charts/widget` builds the chart with its chrome: a top bar
 (symbol, interval, chart type, indicators, capture, settings, theme), the drawing rail, a
 status line, dialogs generated from the settings schemas the engine already ships, a
-right-click menu and a keymap with a `?` panel. The engine underneath still ships no DOM;
+right-click menu and a keymap with a `?` panel. The engine supplies canvases and containers;
 the widget is a packaged host driving the same public API your own would. Pick a tool
 from the rail, open Indicators, change the chart type, press `?`.
 
@@ -140,7 +178,18 @@ Every option, event and theming token is on [The Widget Tier](/docs/widget).
 
 ## Custom indicators
 
-The 102 built-ins are not special-cased. Each is a descriptor - inputs, plots and a
+### Indicator source and marker anchors
+
+This host supplies the code shown by the legend's source button. Switch between
+price and plot anchoring to compare signal placement, and enlarge the controls to
+see the legend row adapt. Gapped plots share the instrument's scale; a transparent
+helper stays out of the readings. See the [indicator guide](/docs/indicators#source-access-and-legend-controls).
+
+<IndicatorSignalsDemo />
+
+### A descriptor with several outputs
+
+The 105 built-ins are not special-cased. Each is a descriptor - inputs, plots and a
 `calc` - and anything you register with `registerIndicator` uses the same contract,
 so it gets generated settings, a legend entry and state persistence for free.
 

@@ -15,7 +15,7 @@
  * ratios, and gave every drawing a `zIndex`. A 1.9.x document is upgraded by
  * `migrateDrawings` on the way in; nothing downstream sees the old shape.
  */
-import type { PrimitiveRenderContext } from 'openalgo-charts';
+import type { PrimitiveRenderContext, AlertDrawingValue, AlertDrawingLevel } from 'openalgo-charts';
 import type { SettingsSchema } from './schema';
 
 /** One anchor, in data space. */
@@ -219,9 +219,22 @@ export interface ExpandContext {
   fromPixel?(at: ScreenPoint): DrawingPoint | null;
 }
 
+/** Coordinate maps use the same pane and logical time axis as the rendered drawing. */
+export interface DrawingValueContext {
+  drawing: Drawing;
+  pts: readonly ScreenPoint[];
+  time: number;
+  x: number;
+  fromY(y: number): number | null;
+}
+
 export interface DrawingTool {
   id: string;
   name: string;
+  /** Opt in only when the geometry defines a numeric level or band at one time. */
+  alertValue?(context: DrawingValueContext, level?: string): Omit<AlertDrawingValue, 'paneIndex'> | undefined;
+  /** Named boundaries or active rungs, for a host's explicit level selector. */
+  alertLevels?(drawing: Drawing): readonly AlertDrawingLevel[];
   /**
    * Anchors the tool needs before it is complete. `0` means free-form: the
    * drawing finishes on double-click.

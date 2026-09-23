@@ -58,9 +58,32 @@ export const VOLUME: IndicatorDescriptor = {
   name: 'Volume',
   category: 'Volume',
   placement: 'pane',
-  inputs: [{ key: 'color', type: 'color', label: 'Color', default: '#3a4666' }],
-  plots: [{ key: 'volume', type: 'histogram', title: 'Volume', colorKey: 'color', style: { base: 0 } }],
-  calc: (bars) => ({ volume: nulls(bars.map((b) => b.volume ?? 0)) }),
+  inputs: [
+    { key: 'color', type: 'color', label: 'Color', default: '#3a4666' },
+    { key: 'colorByDirection', type: 'boolean', label: 'Match candle direction', default: false },
+    { key: 'upColor', type: 'color', label: 'Up candle', default: '#26a69a' },
+    { key: 'downColor', type: 'color', label: 'Down candle', default: '#ef5350' },
+    { key: 'showMA', type: 'boolean', label: 'Show moving average', default: false, group: 'Moving average' },
+    { key: 'maPeriod', type: 'number', label: 'Period', default: 20, min: 1, max: 500, step: 1, group: 'Moving average' },
+    { key: 'maColor', type: 'color', label: 'Color', default: '#e6b53c', group: 'Moving average' },
+  ],
+  plots: [
+    {
+      key: 'volume', type: 'histogram', title: 'Volume', colorKey: 'color', style: { base: 0 },
+      colorBy: ({ index, values, settings }) => settings.colorByDirection === true
+        ? values.direction[index] === -1 ? str(settings, 'downColor', '#ef5350') : str(settings, 'upColor', '#26a69a')
+        : undefined,
+    },
+    { key: 'ma', type: 'line', title: 'Volume average', colorKey: 'maColor', style: { lineWidth: 1.5 } },
+  ],
+  calc: (bars, settings) => {
+    const volume = bars.map(b => b.volume ?? 0);
+    return {
+      volume: nulls(volume),
+      direction: bars.map(b => b.close >= b.open ? 1 : -1),
+      ma: settings.showMA === true ? nulls(sma(volume, int(settings, 'maPeriod', 20))) : volume.map(() => null),
+    };
+  },
 };
 
 export const OBV: IndicatorDescriptor = {

@@ -1,12 +1,41 @@
 # Indicators
 
+## Per-bar open interest
+
+`OPEN_INTEREST`, `OPEN_INTEREST_CHANGE` and `OPEN_INTEREST_BUILDUP` are exported
+descriptors in the indicators tier. Their registered ids are `open-interest`,
+`open-interest-change` and `open-interest-buildup`. They use the source bar's
+optional `oi`; no external alignment or fetch is required. The first plots a
+compact position level, the second an adjacent difference, and the third paints
+the four price/OI regimes onto the main candles. Missing readings stay null.
+See [Open interest](../../../../docs/open-interest.md) for inputs and semantics.
+
+`ChartDataContext.hasOpenInterest?: boolean` and readonly `chart.hasOpenInterest`
+are host-supplied capability, not an inference from observed values. False means
+unsupported, absent means unknown. Set `statusLine.openInterest: true` to opt in
+to the readout. Canvas readings use `field: 'openInterest'`; `PaneLegendOptions`
+also accepts `hasOpenInterest`, which the owning chart supplies automatically.
+The widget shows available hovered/latest values and disables an unsupported
+setting without clearing its preference. A language host reads per-bar `oi`
+and this separate capability flag.
+
+## Volume direction and average
+
+The `volume` study keeps its single-colour histogram by default. Set
+`colorByDirection: true` and supply `upColor` / `downColor` to follow candle
+direction (a doji is up). The host can pass its current candle palette when the
+theme changes. Set `showMA: true` and `maPeriod` (default 20) for a simple volume
+average on the same scale. It starts after a complete window, recomputes on live
+corrections and respects a replay prefix. `maColor` and the generated plot-style
+controls configure the line. Turning the average off leaves gaps, not zeroes.
+
 *When to read this: you are adding a built-in indicator to a chart, generating a settings UI from a descriptor, writing a custom indicator, or wiring an indicator whose data does not come from the chart's OHLCV.*
 
 ## The one-line import rule
 
 ```ts
 import { createChart } from 'openalgo-charts';
-import 'openalgo-charts/indicators'; // side effect: registers all 102 built-ins
+import 'openalgo-charts/indicators'; // side effect: registers all 105 built-ins
 ```
 
 - The base bundle ships **only** the registry (`registerIndicator`, `getIndicator`, ...) and the runtime (`IndicatorInstance`). The catalog lives in the lazy `openalgo-charts/indicators` tier.
@@ -16,13 +45,13 @@ import 'openalgo-charts/indicators'; // side effect: registers all 102 built-ins
 
 **A tier must import the registry from the package entry (`'openalgo-charts'`), never a deep path.** Each tier is its own rollup bundle with `openalgo-charts` marked external (`rollup.config.js`, `tierExternal`). A deep import is *inlined* instead (a second, private `Map`), so the tier registers into a registry `createChart` never reads. This applies to any tier bundle you build yourself.
 
-## The 102 built-ins
+## The 105 built-ins
 
 `onchart` overlays the price pane (pane 0); `pane` claims a fresh pane. Defaults shown are the descriptor's declared `input.default`.
 
 **Colour inputs are omitted from these tables on purpose.** Every descriptor declares its own colour keys (`color`, `upColor`, `macdColor`, `bandColor`, ...), and the only safe way to read one is `plotStyleKeys(plot).color`. Hand-composing `` `${plotKey}:color` `` is the single most common way to write an indicator patch that is silently ignored. See the settings model below.
 
-`category` is one of exactly four strings, used only to group a picker UI: Trend (36), Momentum (29), Volatility (22), Volume (15).
+`category` is one of exactly four strings, used only to group a picker UI: Trend (36), Momentum (29), Volatility (22), Volume (18).
 
 ### Trend (36)
 
@@ -126,10 +155,13 @@ import 'openalgo-charts/indicators'; // side effect: registers all 102 built-ins
 | `range-analysis` | Range Analysis | pane | `range`, `avgRange` | `showAverage` `false`, `avgLength` 3 |
 | `relative-volatility-index` | Relative Volatility Index | pane | `rvi`, `ma`, `bbUpper`, `bbLower` | `length` 10, `offset` 0, `maType` `'SMA'`, `maLength` 14, `bbMult` 2 |
 
-### Volume (15)
+### Volume (18)
 
 | id | Name | Placement | Plot keys | Inputs (defaults) |
 |---|---|---|---|---|
+| `open-interest` | Open Interest | pane | `oi` | (none besides appearance) |
+| `open-interest-change` | Open Interest Change | pane | `change` | (none besides appearance) |
+| `open-interest-buildup` | Open Interest Buildup | onchart | none; candle colors, `state` output | `unchanged` `'neutral'` (`'up'` also supported) |
 | `vwap` | VWAP | onchart | `vwap`, `upper1`, `lower1`, `upper2`, `lower2`, `upper3`, `lower3` | `anchor` `'session'`, `source` `'hlc3'`, `offset` 0, `calcMode` `'stdev'`, `showBand1` `true`, `bandMult1` 1, `showBand2` `false`, `bandMult2` 2, `showBand3` `false`, `bandMult3` 3 |
 | `volume` | Volume | pane | `volume` | (none) |
 | `net-volume` | Net Volume | pane | `net` | (none) |
@@ -211,6 +243,33 @@ One consequence for a descriptor author: **`calc` must be a pure function of `(b
 `chart.indicators()` lists live instances in add order; `chart.removeIndicator(instanceId)` returns `boolean` and prunes the pane if it emptied.
 
 **Repeated instances get rotated colours.** The 2nd and later instances of the same descriptor id fill any *unset* plot colour key from `INSTANCE_PALETTE` (`#f5a623`, `#26a69a`, `#ab47bc`, `#ef5350`, `#26c6da`, `#8bc34a`, `#ff7043`, `#5c6bc0`), strided by plot count. An explicit colour in `settings` always wins, and the first instance is never touched. Three EMAs in one blue are indistinguishable on the chart and in the legend alike.
+
+## Source access and legend sizing (2.4.6)
+
+`IndicatorDescriptor.hasSource: true` adds a source button beside the legend's settings
+button. It emits `indicatorSource` with `{ instanceId, indicatorId, paneIndex }`.
+The host owns the code and must handle the event to display it; the engine neither
+stores code nor opens a dialog. Omit the flag when source is unavailable. Built-in
+descriptors omit it.
+
+```ts
+chart.on('indicatorSource', ({ instanceId, indicatorId, paneIndex }) => {
+  showIndicatorSource({ instanceId, indicatorId, paneIndex });
+});
+chart.setLegendIconSize(24);
+```
+
+`showIndicatorSource` is a host callback. `ChartOptions.legendIconSize`,
+`chart.applyOptions({ legendIconSize })` and `chart.setLegendIconSize(size)` apply one
+size to every existing and later legend, overriding an explicit per-primitive size.
+`chart.legendIconSize()` reads the configured value, or `undefined` if unset.
+Nonfinite chart values are ignored. `PaneLegendOptions.iconSize` defaults to 16 media
+pixels and is held to 12..28 when drawn; the row grows to fit it. Prefer the chart
+setting when several legends share a pane, since their row heights must agree.
+
+A fully transparent plot color contributes no legend reading: this covers
+`transparent`, zero-alpha hex and supported comma-separated `rgba()` syntax.
+Unknown color syntax is retained. The plot's data and marker anchors remain intact.
 
 ## Help text on an input (2.2.1)
 
@@ -381,10 +440,15 @@ A plot cannot express this: a plot is a column of prices drawn as a line or a hi
 
 - Six built-ins use it: `halftrend` (Buy/Sell plates at flips, suppressed by `showLabels: false`), `williams-fractals` (up/down triangles at pivots), `rsi-divergence` (Bull / H Bull / Bear / H Bear plates at pivots), `alphatrend` (BUY/SELL plates at crossovers, suppressed by `showsignalsk: false`), `wavetrend` (circles at band crossings plus R / H divergence plates), `consolidation-breakout` (a `triangleUp` below the bar that breaks the range up, a `triangleDown` above the one that breaks it down, suppressed by `markbreakout: false`).
 - Returning `[]` clears the layer. That is how a `showLabels`-style boolean input turns markers off without a rebuild.
-- The layer comes from `series.createMarkers()` on the **first plot's** series and is created lazily, only once the descriptor actually returns a marker, so a no-marker indicator costs no extra primitive.
+- The layer is created lazily on the **first plot's** series by default (`markerAnchor: 'plot'`), so a no-marker indicator costs no extra primitive.
+- `markerAnchor: 'price'` selects the primary series for an indicator on pane 0. `aboveBar` uses its high, `belowBar` its low and `inBar` its body midpoint. A study on another pane or a chart without a primary series falls back to the first plot. The layer follows its series' own scale and is recreated when that selected series changes.
+- Missing or NaN plot values use the instrument bar at the same time only when the indicator is on pane 0 and its marker series shares the primary series' price scale. Finite plot points retain precedence. Own-pane oscillators and independent scales never receive instrument-price fallback; without an anchor their bar-relative marker is skipped.
+- `series.createMarkers(fallbackBars)` and `new SeriesMarkers(seriesId, fallbackBars, priceScale)` accept optional callbacks. `fallbackBars` returns current `readonly Bar[]`; the optional constructor `priceScale` returns the current `PriceScale`. Series-created layers supply that scale callback automatically, including after an axis move. Missing shared-axis times are skipped even when a fallback bar exists. `atPrice`, `paneTop` and `paneBottom` do not require a series bar.
 - **Markers are a separate primitive from the plots.** `setVisible(false)` hides both because the runtime re-runs the hook with an empty result, but a plot-level style patch does not touch them.
 
 `MarkerShape` includes two label shapes for named signals: `labelUp` and `labelDown` are rounded text plates with a tail that points **at** the anchor price, so the body sits clear of the bar. `labelUp`'s tail is on the top edge and its body hangs below the anchor; `labelDown` is the mirror. Both require `text`. The renderer is exported as `drawLabel(ctx, up, cx, anchorY, text, color, fontPx)` alongside `drawShape`, `markerSizePx` and `effectiveMarkerPx`, all in bitmap px with dpr already applied by the caller.
+
+Each label begins its own canvas path, so later plates do not refill earlier tails.
 
 ```ts
 { time: bar.time, position: 'atPrice', price, shape: 'labelUp', size: 'small', color: '#2962ff', text: 'Buy' }
@@ -545,7 +609,7 @@ registerIndicator({
 chart.addIndicator('my-momentum', { length: 14 });
 ```
 
-Optional descriptor members: `fills`, `markers`, `levels`, `range`, `attach`, `calcTail`, `table`, `draws` (1.7.1), and `background` / `barColors` / `alerts` (1.7.1), plus `colorBy` (per-bar colour), `priceScaleId` / `overlay`, and `ohlc` (1.8.1) on an individual plot.
+Optional descriptor members: `fills`, `markers`, `markerAnchor` / `hasSource` (2.4.6), `levels`, `range`, `attach`, `calcTail`, `table`, `draws` (1.7.1), and `background` / `barColors` / `alerts` (1.7.1), plus `colorBy` (per-bar colour), `priceScaleId` / `overlay`, and `ohlc` (1.8.1) on an individual plot.
 
 **`overlay: true` on a plot** (1.7.1) draws that one column on the price pane even when the descriptor is `placement: 'pane'`. An oscillator whose stop line belongs on the candles no longer has to ship as two indicators that duplicate the same inputs.
 
@@ -553,7 +617,7 @@ Optional descriptor members: `fills`, `markers`, `levels`, `range`, `attach`, `c
 
 **`calcTail` is worth far less since 1.8.4 than it used to be.** It existed because a recompute ran on every tick; recompute is now scheduled with the frame, so a full `calc` is paid once per paint however fast the feed ticks. Reach for `calcTail` when one pass over the loaded history is itself slow, which means deep history rather than a busy symbol, and not by default. No built-in implements it. Return values for `[fromIndex, bars.length)` and the runtime splices them onto the previous result; return `null` to fall back. Since 1.7.1 the tail path is gated on **times**, not on a bar count: the first bar's time must be unchanged, and the last bar must be either that same bar replaced in place or one appended directly after it. A symbol change landing on a matching count, or one older bar paged in at the left edge, falls back to a full `calc` instead of splicing onto a history that no longer exists. `fromIndex` is `previousCount - 1` because the previously-last bar may have been replaced. Any settings change or external-data arrival resets the tail state to force a full recompute.
 
-`registerIndicator` overwrites an existing id, later registration wins. With 102 built-ins the id space is crowded, so namespace a custom id (`my-momentum`, `acme-vwap`) unless you intend to replace a built-in. Register before `addIndicator`.
+`registerIndicator` overwrites an existing id, later registration wins. With 105 built-ins the id space is crowded, so namespace a custom id (`my-momentum`, `acme-vwap`) unless you intend to replace a built-in. Register before `addIndicator`.
 
 ## The calculation context (1.8.1, extended 1.8.2)
 
@@ -773,26 +837,30 @@ Use these in a `colorBy`, `background` or `barColors` rather than hand-rolling a
 
 ## Tier 2: indicators with their own data
 
-Use Tier 2 when the series is **not** derived from the chart's OHLCV: open interest, cumulative volume delta, PCR, an external analytics feed. `createTier2Indicator` (exported from `openalgo-charts/indicators`) wraps a fetch/subscribe lifecycle into an ordinary `IndicatorDescriptor`: the runtime, settings model, panes, levels, and removal are identical, and there is no second runtime.
+Use Tier 2 when the series has its own timestamps: cumulative volume delta, PCR,
+or an external analytics feed. Per-bar open interest uses the built-ins above.
+`createTier2Indicator` (exported from `openalgo-charts/indicators`) wraps a
+fetch/subscribe lifecycle into an ordinary `IndicatorDescriptor`: the runtime,
+settings model, panes, levels, and removal are identical.
 
 ```ts
 import { registerIndicator } from 'openalgo-charts';
 import { createTier2Indicator } from 'openalgo-charts/indicators';
 
 registerIndicator(createTier2Indicator({
-  id: 'open-interest',
-  name: 'Open Interest',
+  id: 'external-position-index',
+  name: 'External Position Index',
   category: 'Volume',
   placement: 'pane',
   inputs: [{ key: 'symbol', type: 'text', label: 'Symbol', default: 'NIFTY' }],
-  plots: [{ key: 'oi', type: 'line', title: 'OI', style: { lineWidth: 1.5 } }],
+  plots: [{ key: 'position', type: 'line', title: 'Position', style: { lineWidth: 1.5 } }],
   refetchOn: ['symbol'],                       // only these keys invalidate the data
   fetch: async ({ settings, from, to }) => {   // from/to are UTC seconds of first/last bar
-    const rows = await loadOpenInterest(String(settings.symbol), from, to);
-    return rows.map((r) => ({ time: r.time, values: { oi: r.oi } }));
+    const rows = await loadPositionIndex(String(settings.symbol), from, to);
+    return rows.map((r) => ({ time: r.time, values: { position: r.value } }));
   },
   subscribe: (ctx, push) =>                    // returns an unsubscribe function
-    streamOi(String(ctx.settings.symbol), (r) => push({ time: r.time, values: { oi: r.oi } })),
+    streamPositionIndex(String(ctx.settings.symbol), (r) => push({ time: r.time, values: { position: r.value } })),
 }));
 ```
 
@@ -822,11 +890,15 @@ The one fold from the chart's own bars to a coarser interval, one value per sour
 import { securitySeries } from 'openalgo-charts/indicators';
 
 const day = securitySeries(bars, '1d', { timezone: String(settings.timezone ?? '') || undefined });
-// day.open / high / low / close / volume: (number | null)[] aligned to bars
+// day.open / high / low / close / volume / oi: (number | null)[] aligned to bars
 // day.bucketStart: first source bar time of the bucket; day.isNew: first bar of each bucket
 ```
 
 `SecurityOptions` selects one of three readings, and the difference is the whole reason the helper exists:
+
+`oi` is the latest defined open-interest level within the selected bucket, never
+a sum. It remains `null` when that bucket has no readings. Developing buckets
+cannot use a later source bar's level; zero remains a real observation.
 
 | Option | What bar `i` reads | Repaints live? |
 |---|---|---|
@@ -838,7 +910,7 @@ Buckets follow the chart's calendar: a day is a day in `timezone`, a week starts
 
 ## Coverage additions (2.4.0)
 
-Every item is optional and additive: a descriptor written against 2.3.2 computes and draws what it did, the 102 built-ins are untouched, and `colorBy` keeps its string return type.
+Every item is optional and additive: a descriptor written against 2.3.2 computes and draws what it did, existing built-ins retain their calculations, and `colorBy` keeps its string return type.
 
 - **`IndicatorPlot.offset`** paints a column `offset` bars to the right of its data (negative: left). The column stays one value per bar and the shared axis gains no bars; the last `offset` values land in the right margin past the newest candle, which is the displaced Ichimoku cloud or `plot(x, offset = n)`. A `fills` band between two plots follows the **first** plot's offset, autoscale ranges over what is painted in view, and the legend reads the value drawn under the cursor. The series-level form is `SeriesStyle.barOffset`, which `series.applyOptions({ barOffset: 6 })` sets on any series.
 - **Recompute guard and `IndicatorInputError`.** A `calc` (or hook) that throws once the indicator is on the chart no longer throws into the render loop or leaves the studies behind it stale for that frame. The runtime catches it, publishes `{ state: 'error', error }` on the instance's data status (`dataStatus()`, `subscribeDataStatus`, and the `indicator:data-status` chart event, the same channel a Tier-2 fetch failure uses), keeps the previous plots up, and publishes `ready` on the next pass that succeeds. The constructor's own pass is still unguarded on purpose: a descriptor that cannot compute at all is refused by `addIndicator`. Throw `new IndicatorInputError('Period must be greater than 0')` for a condition the user can fix, so a host can tell it from a bug; it is exported from the base entry.
@@ -878,8 +950,8 @@ Related: [core-api](./core-api.md), [chart-types](./chart-types.md), [scales-and
 
 ## Every built-in is also a named export
 
-The tier's import side effect registers all 102. You do not have to take all
-102. Each descriptor is exported individually under the UPPER_SNAKE form of its
+The tier's import side effect registers all 105. You do not have to take all
+105. Each descriptor is exported individually under the UPPER_SNAKE form of its
 id, so a bundle can register only what it draws:
 
 ```ts
@@ -972,7 +1044,7 @@ member. They are already included in the tier's own registration.
 ## Managed source status (2.1.6)
 
 Base exports `ChartDataContext`, `IndicatorDataChange` and `IndicatorDataStatus`.
-`ChartDataContext` has optional symbol/exchange/interval; `IndicatorDataChange`
+`ChartDataContext` has optional symbol/exchange/interval/hasOpenInterest; `IndicatorDataChange`
 is context/range. `Tier2Context.dataContext` and `signal` are optional. A descriptor
 may implement `supports(ctx)` to decline unavailable data before fetching.
 

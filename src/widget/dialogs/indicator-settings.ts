@@ -1,3 +1,4 @@
+import { widgetText } from '../localization';
 /**
  * Settings for one indicator instance: the descriptor's own `inputs` on one
  * tab and the generated per-plot appearance (`indicatorStyleInputs`) on the
@@ -51,10 +52,10 @@ export function resolveInstance(
   const id = opts.instanceId ?? anchor?.dataset.instanceId;
   if (id !== undefined) {
     const inst = all.find((i) => i.id === id) ?? null;
-    return inst === null ? { inst: null, why: 'That indicator is no longer on the chart' } : { inst, why: null };
+    return inst === null ? { inst: null, why: widgetText(ctx, 'That indicator is no longer on the chart') } : { inst, why: null };
   }
   if (all.length === 1) return { inst: all[0], why: null };
-  return { inst: null, why: all.length === 0 ? 'No indicator on the chart to configure' : 'Pick an indicator from the legend first' };
+  return { inst: null, why: all.length === 0 ? widgetText(ctx, 'No indicator on the chart to configure') : widgetText(ctx, 'Pick an indicator from the legend first') };
 }
 
 /** A handle for a dialog that never opened, so a caller can `close()` it regardless. */
@@ -68,15 +69,15 @@ export function mountIndicatorSettings(
 ): PanelHandle {
   const doc = ctx.document;
   const resolved = resolveInstance(ctx, anchor, opts);
-  if (resolved.inst === null) return declined(ctx, resolved.why ?? 'No indicator to configure');
+  if (resolved.inst === null) return declined(ctx, resolved.why ?? widgetText(ctx, 'No indicator to configure'));
   const inst: IndicatorApi = resolved.inst;
   const descriptor: IndicatorDescriptor = getIndicator(inst.indicatorId);
 
   const tabs: Array<{ id: IndicatorSettingsTab; label: string; icon: string; inputs: readonly IndicatorInput[] }> = [];
-  if (descriptor.inputs.length > 0) tabs.push({ id: 'inputs', label: 'Inputs', icon: chromeIconSvg('settings'), inputs: descriptor.inputs });
+  if (descriptor.inputs.length > 0) tabs.push({ id: 'inputs', label: widgetText(ctx, 'Inputs'), icon: chromeIconSvg('settings'), inputs: descriptor.inputs });
   const style = indicatorStyleInputs(descriptor);
-  if (style.length > 0) tabs.push({ id: 'style', label: 'Style', icon: glyphSvg(STYLE_GLYPH), inputs: style });
-  if (tabs.length === 0) return declined(ctx, `${inst.name} has nothing to configure`);
+  if (style.length > 0) tabs.push({ id: 'style', label: widgetText(ctx, 'Style'), icon: glyphSvg(STYLE_GLYPH), inputs: style });
+  if (tabs.length === 0) return declined(ctx, widgetText(ctx, '{name} has nothing to configure', { name: inst.name }));
 
   const before = inst.settings();
   const dirty = new Set<string>();
@@ -94,7 +95,7 @@ export function mountIndicatorSettings(
     opts.onChange?.(inst);
   };
 
-  const frame = dialogFrame(doc, { title: `${inst.name} settings`, className: 'oac-indset', onClose: () => cancel() });
+  const frame = dialogFrame(doc, { translate: ctx.translate, title: widgetText(ctx, '{name} settings', { name: inst.name }), className: 'oac-indset', onClose: () => cancel() });
   const body = el(doc, 'div', 'oac-indset__pane');
   // One tab needs no tab list: the form alone says what it is.
   if (tabs.length > 1) {
@@ -106,8 +107,8 @@ export function mountIndicatorSettings(
   function renderPane(): void {
     const tab = tabs.find((t) => t.id === activeTab) ?? tabs[0];
     body.innerHTML = '';
-    form = renderForm(body, controlsFromInputs(tab.inputs), {
-      values: values(),
+    form = renderForm(body, controlsFromInputs(tab.inputs, { translate: ctx.translate, scope: `indicator.${descriptor.id}` }), {
+      values: values(), translate: ctx.translate,
       idPrefix: `oac-ind-${inst.id}`,
       live: true,
       onChange: (key, value) => {
@@ -121,15 +122,15 @@ export function mountIndicatorSettings(
   renderPane();
 
   frame.lead.appendChild(button(doc, {
-    label: 'Defaults',
+    label: widgetText(ctx, 'Defaults'),
     onClick: () => {
       const tab = tabs.find((t) => t.id === activeTab) ?? tabs[0];
       write(inputDefaults(tab.inputs));
       renderPane();
     },
   }));
-  frame.actions.appendChild(button(doc, { label: 'Cancel', onClick: () => cancel() }));
-  frame.actions.appendChild(button(doc, { label: 'OK', variant: 'primary', onClick: () => ok() }));
+  frame.actions.appendChild(button(doc, { label: widgetText(ctx, 'Cancel'), onClick: () => cancel() }));
+  frame.actions.appendChild(button(doc, { label: widgetText(ctx, 'OK'), variant: 'primary', onClick: () => ok() }));
 
   // Escape and the scrim are the shell's, and both mean Cancel.
   const handle = openPanel(ctx, frame.el, { placement: 'center', modal: true }, () => cancel());

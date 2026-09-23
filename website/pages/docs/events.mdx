@@ -45,12 +45,14 @@ it on teardown (component unmount, route change) so listeners never leak.
 | `ready` | `{}` | Once, on the microtask after `createChart` returns. |
 | `destroy` | `{}` | Once, at the end of `chart.destroy()`, with the chart already torn down. Anything holding a chart it did not create lets go of it here. |
 | `crosshair:move` | `{ time, index, price, bar, point, paneIndex, pressed, modifiers, pointerType, pressure, samples? }` | The pointer moves over the plot (all-null when it leaves). `pressed` is true while a pointer is held: the only way to observe a drag in progress, since placement mode suppresses panning. `samples` is present only then and lists every coalesced position since the last move. |
-| `click` | `{ id, price, time, paneIndex, point, modifiers, pointerType, pressure }` | The plot was clicked. `id` is the hit primitive's `externalId`, or **`null`** for a click on empty chart space. `point` is container-relative media px. `pressure` is the press pressure, since a release always reads 0. |
+| `click` | `{ id, price, time, paneIndex, point, modifiers, pointerType, pressure }` | The plot was clicked. `id` is the hit primitive's `externalId`, or **`null`** for a click on empty chart space. `point` uses container x and pane-local y in media pixels. `pressure` is the press pressure, since a release always reads 0. |
 | `hover` | `{ id }` | The pointer enters (`id` = `externalId`) or leaves (`id` = `null`) a hit-testable primitive. |
 | `dblclick` | `{}` | The plot is double-clicked. The chart also resets the scale on this, *unless* a drawing tool is armed. There a double-click finishes the shape instead. |
 | `contextmenu` | `{ paneIndex, point, price, time, index, target, preventDefault }` | The plot is right-clicked. `target` classifies what is under the pointer, so an app can raise its own menu. See below. |
-| `drag` | `{ id, price, time, paneIndex, fromPrice, fromTime, point, samples, modifiers, pointerType, pressure }` | A draggable primitive is being moved. `from*` is the grab origin, so a delta starts at the press rather than the first move. `point` is container x with pane-local y; `samples` lists every coalesced position since the last move in that space, the last equal to `point`. |
-| `drag:end` | `{ id, price, time, paneIndex, point, modifiers, pointerType, pressure }` | The drag gesture finished. Pair with `drag` to snapshot once per gesture (undo wants the pre-drag state, not an intermediate frame). |
+| `drag:start` | `ChartDragEndEvent` | A draggable primitive accepts the press, before movement. Capture the original value here. |
+| `drag` | `{ id, price, time, paneIndex, fromPrice, fromTime, point, samples, modifiers, pointerType, pressure }` | A draggable primitive is being moved. `from*` is the grab origin. `point` is container x with y local to the pane where the drag started, including when the pointer crosses another pane. `samples` uses the same space. |
+| `drag:end` | `ChartDragEndEvent` | The gesture ends. A legacy end event can follow cancellation; check `drag:cancel` before committing. |
+| `drag:cancel` | `{ id, paneIndex, reason }` | An accepted gesture is cancelled. `reason` is `pointercancel`, `pinch` or `escape`. See [Primitive drag lifecycle](#primitive-drag-lifecycle). |
 | `pan` | `{ from, to, logicalFrom, logicalTo }` | The user pans (drag, two-finger, kinetic glide). |
 | `zoom` | `{ from, to, logicalFrom, logicalTo }` | The user zooms (wheel or pinch). |
 | `resize` | `{ width, height }` | The container size changes (CSS px). |
@@ -58,11 +60,13 @@ it on teardown (component unmount, route change) so listeners never leak.
 | `priceAxisMoved` | `{ paneIndex, from, to }` | A pane's price axis moved to the other strip, via `chart.movePriceAxis`. The scale object travels with it, so a menu holding a `scaleId` should follow. |
 | `paneRemoved` / `paneMaximized` / `paneResized` | `{ paneIndex }` | The pane layout changed through a legend button or a divider drag. `paneMoved` reports `{ from, to }` instead. |
 | `indicatorRemoved` / `indicatorSettings` | `{ instanceId, indicatorId, paneIndex }` | An indicator legend's close or gear button was pressed. |
+| `indicatorSource` | `{ instanceId, indicatorId, paneIndex }` | The source button of a descriptor with `hasSource: true` was pressed. The [host supplies the code and viewer](/docs/indicators#source-access-and-legend-controls). |
 | `indicator:alert` | `IndicatorAlertPayload` | A condition an indicator descriptor declared came true on a new bar. See [Indicator alerts](#indicator-alerts). |
 | `indicator:data-status` | `{ id, indicatorId, status: IndicatorDataStatus }` | An indicator's managed data state changed: a Tier-2 fetch is loading, ready, empty, unsupported or failed, and since 2.4.0 a `calc` that threw (`{ state: 'error', error }`) or recovered (`ready`). |
 | `pick:start` / `pick:end` | `{ kind }` / `{ kind, value }` | `chart.beginPick` armed, and then resolved or was cancelled (`value` is `null` when cancelled). See [Picking a price or a bar](/docs/interactions#picking-a-price-or-a-bar). |
 | `replay:*` | `ReplayState` | The [market replay](/docs/market-replay) playhead starts, moves, plays, pauses, ends or stops. |
 | `trading:*` | see [Trading events](#trading-events) | The user interacts with a position, order, or bracket. |
+| `alert:triggered` / `alert:updated` / `alerts:changed` | see [Trader alerts](/docs/alerts) | An `AlertController` reports a trigger or a committed change. Drag previews do not emit saved changes. |
 
 `from` / `to` on the viewport and data events are **UTC seconds** (or `null`
 when the edge falls outside loaded data). `logicalFrom` / `logicalTo` are the raw
@@ -121,8 +125,11 @@ chart.on('crosshair:move', ({ time, price, bar, point }) => {
 });
 ```
 
-The typed helper `chart.subscribeCrosshairMove(cb)` delivers the same
-`CrosshairMoveEvent` if you prefer a single dedicated callback.
+The typed helper `chart.subscribeCrosshairMove(cb)` also delivers linked readouts
+with `source: 'linked'`, the follower's own bar and null pointer coordinates.
+Those readouts do not emit `crosshair:move` on the bus. Native hover takes
+precedence; clearing a link restores the latest-bar fallback. See
+[Chart linking](/docs/chart-linking#the-linked-crosshair).
 
 Every move also reports the pointer itself: `modifiers` (`{ shift, alt, ctrl, meta }`),
 `pointerType` (`'mouse' | 'touch' | 'pen'`) and `pressure` (0..1 as the pointer events
@@ -130,7 +137,25 @@ spec defines it: what the hardware measured, else 0.5 while a button is held, el
 While `pressed`, `samples` carries every position the pointer passed through since the
 last move, with its pressure, so a freehand stroke inks a fast gesture whole rather than
 one point per frame. `click`, `drag` and `drag:end` carry the same three pointer facts;
-`drag` adds `point` and `samples`.
+`drag` adds coalesced `samples`.
+
+### Primitive drag lifecycle
+
+`drag:start` and `drag:end` use `ChartDragEndEvent`: the primitive id, price,
+time, pane index, point and pointer facts. A press without movement can still
+produce both events, so a release alone does not prove a value changed.
+
+Use `drag:start` to capture a draft, `drag` to preview it, and `drag:cancel` to
+discard it. A browser `pointercancel` announces cancellation before the legacy
+`drag:end` event. A pinch cancels the primitive gesture as it becomes navigation.
+Escape cancels only primitives whose hit sets `cancelOnEscape: true`; other
+primitives retain their existing Escape behavior. Cancellation is not a commit.
+
+For a primitive on an independent scale, convert `point.y` through its own
+`series.priceScale().yToPrice(...)`; the payload's `price` follows the pane's
+readout scale. [Trader alerts](/docs/alerts) already own this draft lifecycle:
+listen for `alert:updated` to persist a released threshold instead of writing
+alert state from the generic drag events.
 
 ### click
 
@@ -230,11 +255,13 @@ chart.on('resize', ({ width, height }) => layoutOverlays(width, height));
 ```
 
 <Callout type="info">
-Use `pan` / `zoom` to save the user's camera. The window is not persisted for you by design.
+Use `pan` / `zoom` to decide when to save the user's camera. `chart.getState()`
+includes the viewport; writing that snapshot to storage remains the host's job.
 
 For keeping a second chart in lockstep, prefer [chart linking](/docs/chart-linking) over
-copying the range across by hand: `from` and `to` are **this** chart's logical indices, and
-a chart holding different bars needs the window converted through time at both ends.
+copying logical ranges across by hand. Event `from` and `to` are UTC seconds;
+`logicalFrom` and `logicalTo` belong to this chart's bar set. Linking converts
+between each member's own time and index spaces.
 </Callout>
 
 ## Data events
@@ -246,19 +273,26 @@ loader and `series.prependData(...)`, then call `chart.historyLoadComplete()` to
 re-arm the trigger. See [Data Loading](/docs/data-loading) for the full pattern.
 
 ```ts
-chart.setHistoryLoader(() => {
-  chart.on('lazy-load', async ({ to }) => {
-    const older = await fetchOlderBars(before(to));
+chart.setHistoryLoader(async () => {
+  try {
+    const oldest = series.getData()[0]?.time;
+    if (oldest === undefined) return;
+    const older = await fetchOlderBars(oldest);
     series.prependData(older);
+  } catch (error) {
+    showHistoryError(error);
+  } finally {
     chart.historyLoadComplete();
-  });
+  }
 });
 ```
 
 <Callout type="info">
 `setHistoryLoader` is the direct hook: it fires the loader with no payload.
 `lazy-load` is the observable form of the same trigger, carrying the time window
-so a single handler can serve multiple series.
+for observation. Register the loader once; a `lazy-load` listener alone does not
+arm history loading. The event's visible endpoints may be null, so fetch older
+history from the source series' earliest timestamp.
 </Callout>
 
 ## Replay events
@@ -275,10 +309,13 @@ so a single handler can serve multiple series.
 | `replay:stop` | Replay left; data and viewport restored. |
 
 ```ts
-chart.on('replay:frame', ({ index, total, bar }) => {
+import type { ReplayState } from 'openalgo-charts';
+
+chart.on('replay:frame', payload => {
+  const { index, total, bar } = payload as ReplayState;
   scrub.max = String(total - 1);
   scrub.value = String(index);
-  clock.textContent = new Date(bar.time * 1000).toLocaleString();
+  clock.textContent = bar ? new Date(bar.time * 1000).toLocaleString() : 'No available bar';
 });
 ```
 
@@ -312,9 +349,10 @@ chart.isDestroyed;   // true once it has run
 
 <Callout type="info">
 **Host events on the same bus.** `chart.emit(name, payload)` is public, so a host can put
-its own facts on the chart's bus and have the engine's own consumers pick them up. The
-`symbol` event is the documented case: the engine has no notion of an instrument, and a
-[link group](/docs/chart-linking) syncing symbols listens for exactly that.
+its own facts on the chart's bus and have consumers pick them up. A
+[link group](/docs/chart-linking) listens for host `symbol` and `interval` events.
+`chart.setDataContext(...)` separately declares the identity used by studies and
+alerts; emitting a link event does not load bars or update that context.
 
 ```ts
 chart.emit('symbol', 'RELIANCE');   // or { symbol: 'RELIANCE' }
@@ -403,10 +441,10 @@ event surface stays deliberately small and stable. Concerns that belong to your
 application layer are composed from the primitives above rather than shipped as
 built-in events:
 
-- **Menus, toolbars, dialogs and transport bars are yours.** The engine emits what it
+- **With a bare chart, menus, toolbars, dialogs and transport bars are yours.** The engine emits what it
   knows and draws none of the chrome: `contextmenu` classifies the right-click target,
   `indicatorSettings` fires when a legend's gear is pressed, and the `replay:*` events
-  drive a transport bar. You render the UI.
+  drive a transport bar. The optional [widget](/docs/widget) supplies a packaged UI.
 - **Annotations.** Build them as [primitives / plugins](/docs/primitives-and-plugins) and
   hit-test with `click`.
 - **Data-feed reconnection, gap-fill, timezone, theme families, undo/redo,

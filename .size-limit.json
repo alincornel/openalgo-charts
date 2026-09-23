@@ -1,8 +1,8 @@
 [
   {
-    "name": "Base engine (chart types + indicator registry + watermark + shortcuts + trading API)",
+    "name": "Base engine (chart types + indicator registry + watermark + shortcuts + trading API + alerts)",
     "path": "dist/openalgo-charts.mjs",
-    "limit": "81.6 kB",
+    "limit": "96.4 kB",
     "brotli": true
   },
   {
@@ -11,11 +11,11 @@
       "dist/openalgo-charts.mjs",
       "dist/openalgo-charts.trade.mjs"
     ],
-    "limit": "89.3 kB",
+    "limit": "104.5 kB",
     "brotli": true
   },
   {
-    "name": "Indicator tier (102 built-ins + Tier-2 contract)",
+    "name": "Indicator tier (105 built-ins + Tier-2 contract)",
     "path": "dist/openalgo-charts.indicators.mjs",
     "limit": "30 KB",
     "brotli": true
@@ -47,18 +47,24 @@
   {
     "name": "Widget tier (shell, top bar, drawing rail, status line, dialogs, keymap, styles)",
     "path": "dist/openalgo-charts.widget.mjs",
-    "limit": "43 kB",
+    "limit": "49.25 kB",
     "brotli": true
   },
   {
-    "name": "Widget terminal (base + draw + indicators + widget: what one createWidget call loads)",
+    "name": "Widget terminal (base + draw + indicators + widget, including built-in studies)",
     "path": [
       "dist/openalgo-charts.mjs",
       "dist/openalgo-charts.draw.mjs",
       "dist/openalgo-charts.indicators.mjs",
       "dist/openalgo-charts.widget.mjs"
     ],
-    "limit": "187.7 kB",
+    "limit": "210.75 kB",
+    "brotli": true
+  },
+  {
+    "name": "Workspace tier (validated documents and asynchronous catalog storage)",
+    "path": "dist/openalgo-charts.workspace.mjs",
+    "limit": "6 kB",
     "brotli": true
   },
   {
@@ -71,9 +77,10 @@
       "dist/openalgo-charts.indicators.mjs",
       "dist/openalgo-charts.draw.mjs",
       "dist/openalgo-charts.webgl.mjs",
-      "dist/openalgo-charts.widget.mjs"
+      "dist/openalgo-charts.widget.mjs",
+      "dist/openalgo-charts.workspace.mjs"
     ],
-    "limit": "223.3 kB",
+    "limit": "252.3 kB",
     "brotli": true
   }
 ]

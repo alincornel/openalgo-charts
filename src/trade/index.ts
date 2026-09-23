@@ -44,6 +44,9 @@ export {
   type ValidationResult,
   type ValidationCode,
 } from './validation';
+export { orderConstraintsForInstrument } from './instrument';
+export { checkTradingCapability, assertTradingCapability, TradingCapabilityError } from 'openalgo-charts';
+export type { TradingOperation, TradingCapabilities, TradingCapabilityRequest, TradingCapabilitySource, TradingCapabilityResult } from 'openalgo-charts';
 export {
   DomLadder,
   ladderCapability,

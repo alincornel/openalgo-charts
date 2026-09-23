@@ -23,6 +23,9 @@
  */
 export const WIDGET_TIER = 'widget' as const;
 
+export { widgetText } from './localization';
+export type { WidgetBuiltinMessage, WidgetMessageKey, WidgetMessageValues, WidgetMessageParameters, WidgetTranslator, WidgetTranslationOptions } from './localization';
+
 export { createWidget, stripView, resolveTheme, loadWindow, DEFAULT_INTERVALS, DEFAULT_LOOKBACK_BARS, SAVE_DEBOUNCE_MS, STATE_KEY, WIDGET_STATE_VERSION } from './widget';
 export type { Widget, WidgetOptions, WidgetState, WidgetChartState, WidgetRestoreReport, WidgetEventName } from './widget';
 export { mountObjectsPanel, OBJECTS_PANEL_CSS } from './objects-panel';
@@ -68,18 +71,22 @@ export { WIDGET_CSS, WIDGET_STYLE_ID, injectWidgetStyles } from './styles';
 export { mountMobile } from './mobile';
 export type { MobileMode, MobileOptions, MobileHandle } from './mobile';
 
-// The dialog tier. Importing it registers the seven mounts with the shell's
+// The dialog tier. Importing it registers the mounts with the shell's
 // registry, which is what lights up the top bar's settings and indicator
 // buttons; the widget's stylesheet carries DIALOG_CSS for the same reason.
 export {
   mountSettingsDialog, mountIndicatorPicker, mountIndicatorSettings, mountDrawingProperties,
   mountLevelEditor, mountTextEditor, mountContextMenu, attachContextMenu, contextMenuEntries,
   WIDGET_DIALOGS, DIALOG_CSS,
+  mountAlertEditor, mountAlertsPanel,
 } from './dialogs/index';
 export type {
   SettingsDialogOptions, IndicatorPickerOptions, IndicatorSettingsOptions, IndicatorSettingsTab,
   DrawingPropertiesOptions, LevelEditorOptions, TextEditorOptions, TextEditorHandle,
   ContextMenuHooks, ContextMenuOptions, MenuEntry, MenuItem, OrderRequest, PanelHandle,
+  AlertEditorOptions, AlertsPanelOptions,
 } from './dialogs/index';
 export { renderForm, controlsFromInputs, controlsFromFields } from './form';
-export type { FormControl, FormKind, FormOptions, FormHandle } from './form';
+export type { FormControl, FormKind, FormOptions, FormHandle, FormTranslationOptions } from './form';
+export { createAlertUi } from './alert-ui';
+export type { AlertUi, AlertUiOptions } from './alert-ui';

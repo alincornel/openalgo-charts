@@ -53,6 +53,13 @@ export interface EvaluateOptions {
    * leg produces a gap rather than a guess.
    */
   primary?: string;
+  /**
+   * Omitted by default. 'sum' reports the activity of distinct expression legs,
+   * once each, without price coefficients or signs. This is combined leg
+   * activity, not a traded quantity of the synthetic instrument. All matched
+   * legs must have finite nonnegative volume; otherwise volume stays absent.
+   */
+  volume?: 'sum';
 }
 
 // ── syntax tree ───────────────────────────────────────────────────────────
@@ -360,8 +367,9 @@ function evalNode(n: ExpressionNode, leg: (s: string) => Iv | null): Iv {
  * chart.addSeries('line').setData(bars);
  * ```
  *
- * `volume` is deliberately absent from the result. The volume of a ratio is not
- * a quantity anyone traded, and picking one leg's would be arbitrary.
+ * Volume is absent by default. Opt into `volume: 'sum'` to report the combined
+ * activity of the matched legs, independently of the price expression.
+ * Open interest is always absent: an expression has no single contract position.
  */
 export function evaluateExpression(
   expr: SymbolExpression,
@@ -418,7 +426,20 @@ export function evaluateExpression(
       hi = Math.max(hi, r.hi);
       lo = Math.min(lo, r.lo);
     }
-    out.push({ time: pb.time, open: open.lo, high: hi, low: lo, close: close.lo });
+    const result: Bar = { time: pb.time, open: open.lo, high: hi, low: lo, close: close.lo };
+    if (options.volume === 'sum') {
+      let volume = 0;
+      for (const symbol of expr.symbols) {
+        const amount = cur.get(symbol)?.volume;
+        if (amount === undefined || !Number.isFinite(amount) || amount < 0) {
+          volume = NaN;
+          break;
+        }
+        volume += amount;
+      }
+      if (Number.isFinite(volume)) result.volume = volume;
+    }
+    out.push(result);
   }
   return out;
 }

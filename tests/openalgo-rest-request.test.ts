@@ -6,6 +6,25 @@ const request = { symbol: 'NIFTY', exchange: 'NFO', interval: '1m', from: 100, t
 afterEach(() => vi.useRealTimers());
 
 describe('history cancellation and deadlines', () => {
+  it('omits unsupported OI using request-scoped host metadata without erasing genuine zero', async () => {
+    const feed = new OpenAlgoDataFeed({
+      baseUrl: 'https://feed.test', apiKey: 'fixture',
+      hasOpenInterest: req => req.exchange === 'NFO' ? true : req.exchange === 'NSE' ? false : undefined,
+      fetchImpl: (async () => ({ ok: true, json: async () => ({ data: [
+        { timestamp: 100, open: 100, high: 101, low: 99, close: 100, oi: 0 },
+        { timestamp: 200, open: 100, high: 101, low: 99, close: 100, oi: 140 },
+      ] }) }) as Response) as typeof fetch,
+    });
+    const [cash, contract, unknown] = await Promise.all([
+      feed.getBars({ ...request, exchange: 'NSE' }),
+      feed.getBars(request),
+      feed.getBars({ ...request, exchange: 'CUSTOM' }),
+    ]);
+    expect(cash.every(bar => !Object.prototype.hasOwnProperty.call(bar, 'oi'))).toBe(true);
+    expect(contract.map(bar => bar.oi)).toEqual([0, 140]);
+    expect(unknown.map(bar => bar.oi)).toEqual([0, 140]);
+  });
+
   it('cancels an outstanding body read, even if the injected fetch ignores cancellation', async () => {
     let signal: AbortSignal | null | undefined;
     const feed = new OpenAlgoDataFeed({ baseUrl: 'https://feed.test', apiKey: 'fixture', fetchImpl: (async (_url, init) => {

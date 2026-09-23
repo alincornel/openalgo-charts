@@ -10,7 +10,7 @@ The full, authoritative changelog lives in
 
 ## Unreleased
 
-Upstream 2.0.2 through 2.4.0 merged into the fork, and a footprint that reads as a ladder
+Upstream 2.0.2 through 2.4.8 merged into the fork, and a footprint that reads as a ladder
 instead of a hairline mesh.
 
 **Merged**
@@ -48,6 +48,12 @@ instead of a hairline mesh.
   marker shapes and pane positions, price-pane fills, per-bar wick and border colours,
   tooltips on label and box drawings, interval and time inputs, and a bars provider. The
   fork's reserved `lastValueVisible` setting sits beside upstream's `barOffset`.
+- **Upstream 2.4.5 - 2.4.8**: CSV export, the workspace tier, alerts with draggable lines,
+  price-anchored study markers, legend source buttons, the primitive drag lifecycle
+  (`drag:start`, `drag:cancel` with a `reason`, opt-in Escape) and mouse panning without
+  inertia. The fork's cancel semantics ride on upstream's event: a pinch or a
+  `pointercancel` emits upstream's `drag:cancel` once and calls `onDragCancel`, and a host
+  that registered `onDragCancel` does not also receive the legacy `drag:end`.
 
 **Added**
 
@@ -71,6 +77,230 @@ instead of a hairline mesh.
   from the bar's own metadata; `'behind'` is the older delta-coloured range bar; `'gutter'`
   draws a real OHLC candle in a strip beside the ladder, read from the **pane's** price
   series instead. `showCandle: false` still turns all of them off.
+
+## 2.4.8
+
+2026-09-21
+
+Hold the chart to move it; release to stop. Clearer setup and integration guides.
+
+### Fixed
+
+- Plot panning shows a grabbing hand while the pointer is held. Mouse and pen
+  movement stops immediately on release instead of continuing with inertia.
+- Hover-only legend buttons remain visible and clickable when a held press
+  spans a repaint. Their pointer cursor stays separate from the plot grab.
+- Releasing outside the plot, pointer cancellation and lost pointer capture cannot
+  leave a mouse pan active. Drawing placement and primitive drag controls keep
+  their own gestures. Touch flicks retain momentum.
+
+### Documentation
+
+- Added dedicated guides for alerts, open interest, workspaces and CSV export.
+- Corrected order-preview examples so broker modification is requested only after
+  release; documented cancellation, preserved indicator IDs and host-owned settings.
+- Clarified live-data refresh, calendar cache rules, linked intervals, loading
+  timestamps, chart lifecycle and the difference between chart canvases and controls.
+- Simplified the README introduction and installation, refreshed measured sizes
+  and fixed the API reference's navigation example link.
+
+## 2.4.7
+
+2026-09-21
+
+Move alert thresholds directly on the chart, with a live preview and one saved
+change on release.
+
+### Added
+
+- Price and study-threshold alert lines support mouse, pen and touch dragging.
+  Movement previews the selected bound; release commits it once. Preview values
+  do not change stored alerts or the thresholds used for live evaluation.
+- Range bounds move independently and stop at the other bound. Study thresholds
+  use their plot's scale, including separate panes and independent or left axes.
+- Primitive gestures announce `drag:start` and `drag:cancel`. Cancellation reports
+  `pointercancel`, `pinch` or `escape`; existing drag callbacks remain compatible.
+- A live alert-dragging example and reference-host instructions demonstrate
+  threshold edits, cancellation and saved-value feedback.
+
+### Changed
+
+- Armed alert badges read "Alert". Triggered, Expired, Disabled and Paused retain
+  their existing labels. Stored lifecycle state names remain unchanged.
+- Drawing-anchored alert lines let the drawing receive its own gestures.
+  Disabled, paused, expired and triggered lines do not accept threshold edits.
+
+### Fixed
+
+- Cancelled and obsolete gestures cannot overwrite alerts after pause, replay,
+  source or context changes, restore, update or removal. A click saves nothing.
+- Preview levels keep the committed autoscale bounds. Alerts on an independent
+  study scale never expand the candle scale, including on their first frame,
+  and omit the primary right-axis tag when its units differ.
+- Drag coordinates and coalesced samples remain relative to the grabbed pane
+  when the pointer crosses into another pane.
+- Alert expiry parsing shares the chart's timezone conversion helper while
+  preserving the editor's captured timezone and calendar-based default.
+
+## 2.4.6
+
+2026-09-21
+
+Indicator source access, readable legend controls, reliable signal placement
+and consistent dialog fields.
+
+### Added
+
+- The yfinance reference host includes an opt-in Source signal sample study,
+  a read-only source viewer for each chart, and a chart-local legend button size
+  in Readout settings. Legend size survives chart rebuilds and saved layouts.
+- `IndicatorDescriptor.hasSource` adds a source button beside the legend's
+  settings button. It emits `indicatorSource` with
+  `{ instanceId, indicatorId, paneIndex }`. The host owns and displays the code;
+  descriptors without the flag, including built-ins, have no source button.
+- `IndicatorDescriptor.markerAnchor: 'price'` anchors overlay signals to the
+  primary series' candles. `aboveBar` uses the high and `belowBar` the low.
+  The default `'plot'` continues to use the first plot. Indicators outside
+  pane 0 and charts without a primary series fall back to the first plot.
+- `ChartOptions.legendIconSize`, `applyOptions({ legendIconSize })` and
+  `setLegendIconSize(size)` apply one button size to existing and later legends,
+  including host-added rows. `legendIconSize()` reads the configured value.
+  `PaneLegendOptions.iconSize` defaults to 16 media pixels and draws within
+  12..28; larger controls increase the row height. Nonfinite chart sizes are
+  ignored, and an explicit chart size takes precedence over individual rows.
+
+### Changed
+
+- The alert editor labels expiry with the chart timezone captured when it opens.
+  That zone remains fixed for the draft, preserving the instant if the host
+  changes the chart timezone. New drafts default to two chart calendar months
+  ahead, clamped at month end. Clearing expiry still creates an indefinite
+  alert, and editing other fields preserves an existing expiry and its seconds.
+  Programmatic alert defaults and stored UTC timestamps are unchanged.
+
+### Fixed
+
+- Fully transparent plot colors no longer leave invisible numbers and blank
+  gaps in legend readings, including CSS `transparent` and supported zero-alpha
+  hex and `rgba()` forms. Unknown color syntax retains its reading.
+- Legend glyphs scale with their buttons instead of their text. The default
+  glyphs are larger while the default row height stays unchanged.
+- Gap markers recognize null plot values represented as NaN points. Instrument
+  bars supply a missing anchor only on pane 0 when the plot and primary series
+  share a price scale. Finite plot anchors still win, and oscillator panes or
+  independent scales never receive instrument-price fallback.
+- Series markers use their bound series' scale, including left or moved axes.
+  Indicator marker layers rebind when the selected plot or primary series is
+  replaced, and fallback checks use the current primary series.
+- Each signal label starts its own canvas path, so a later label cannot recolor
+  an earlier label's tail.
+- Dialog inputs and buttons respect `--oac-radius` and `--oac-ctl-h`, including
+  the date field. Text, number, date and select fields share one control column.
+- Select chevrons overlay their own field instead of consuming row width.
+- Expiry labels preserve schema translations and keyboard-accessible help.
+  Existing typed translation catalogs remain compatible.
+- An open alert list refreshes its timestamp readings when the chart timezone
+  changes, without altering the stored expiry instant.
+
+## 2.4.5
+
+2026-09-20
+
+Chart workspaces, coordinated replay, open interest and trader alerts, with
+optional host contracts for instrument rules, localization and trading support.
+Existing hosts retain their defaults; the workspace tier is a separate import.
+
+### Added
+
+- Versioned workspace and indicator-template documents in
+  `openalgo-charts/workspace`, with detached validation, atomic asynchronous
+  catalog storage, account namespaces, migration and revision conflict handling.
+  Documents exclude credentials and trading account state.
+- Named layouts and templates in the reference host: create, save, open, rename,
+  duplicate, delete, recent layouts, autosave and portable import/export. Layout
+  transitions stage source data before installation and recover failed changes.
+- One reference workspace toolbar targets the selected chart. Shared replay
+  offers focused/all-chart modes with a common clock, explicit candle availability
+  and guarded transitions. Replay does not expose future history or enable orders.
+- Optional candle-center crosshair snapping, independent interval synchronization,
+  a configurable volume moving average and multi-symbol percentage comparisons.
+- `exportChartDataCsv` exports installed primary bars, OI, configured study plots
+  and aligned comparisons. Missing values remain blank; replay exports only its
+  installed prefix. Reference and widget menus download the captured chart.
+- Immutable `Instrument` metadata for source identity, supported intervals, IANA
+  calendars and exceptions, price formatting, quantity steps and OI capability.
+  `orderConstraintsForInstrument` preserves the order adapter's quantity units.
+- Optional widget translation with typed keys, safe named interpolation, English
+  fallback and translated accessibility labels. Host content remains literal.
+- Shared trading capabilities for engine, adapter and widget integrations, with
+  explicit unknown/unsupported states, callback-time checks and replay guards.
+  `isReplaying(chart)` reports active replay, including paused sessions.
+- Trader alert evaluation for prices, study plots, drawing levels and named
+  candle conditions, with explicit bar-close or intrabar timing, repeat,
+  cooldown and expiry. Delivery is event-based and remains the host's job.
+- The widget owns an alert controller and provides a draft editor, live list,
+  lifecycle toasts and price/study/drawing context actions. Study identity,
+  plot and drawing level are explicit; missing observations never become zero.
+- `createAlertUi` mounts the shared alert dialogs in custom hosts. The yfinance
+  reference page exposes Alerts for either chart, preserves alerts and their
+  study/drawing identities through rebuilds and reloads, and delivers local
+  notices. Replay selection, history loading and playback pause evaluation.
+- Versioned alert persistence restores drawings and study identities before
+  their alert anchors. Missing anchors are dropped with a removal reason.
+  Triggered once alerts remain visible after reload, without historical delivery.
+- Open Interest, Open Interest Change and Open Interest Buildup studies, with
+  missing-data gaps, adjacent changes and four configurable candle regimes.
+- Explicit `ChartDataContext.hasOpenInterest` and `chart.hasOpenInterest`
+  capability, independent of observations. The optional OI status-line reading
+  defaults off, preserves zero and disables unsupported instrument controls.
+- Request-scoped OpenAlgo history capability removes unsupported placeholder
+  OI before caching. The reference host reads optional OI and retains supplied
+  instrument capability through chart-type and interval changes.
+- Optional `Bar.oi`, `Tick.oi`, `AggTick.oi` and `SecuritySeries.oi`. Open interest
+  is a level, not a flow: historical folds take the latest defined reading in a
+  bucket, never sum it. Zero and absence remain distinct. One-to-one transforms
+  preserve the field; price-generated and expression bars omit it.
+- History mapping and durable-cache validation preserve finite optional open
+  interest. Live ticks without a reading clear the forming level. History repair
+  preserves newer live observations, and partial replay exposes only readings
+  already reached by the playhead.
+
+### Fixed
+
+- Candle readouts and volume direction remain consistent with their source bars,
+  including transforms and replay. Comparisons keep their own price units and
+  shared baselines; source changes and exports retain the selected chart owner.
+- Market event timestamps take precedence over quote delivery time. Cancelled
+  workspace and history requests cannot install data into a replacement source.
+- Alert restoration preserves stable drawing/study anchors and fired-once state.
+  Missing anchors produce removal events, and history loading sends no alerts.
+- Instrument ticks reach the primary series on right, left and hidden scales
+  while oscillator units remain independent.
+- Quantity validation rejects fractional off-grid values at large magnitudes
+  instead of letting a relative tolerance grow to half a lot or more.
+- Rejected trading preflight preserves existing broker state. Capability checks
+  run again after asynchronous mode selection and before queued modification.
+- Submitted requests are detached from caller and confirmation callback edits.
+  Late modify/cancel responses cannot replace newer broker settlement or
+  reconciliation state.
+- Base and trading imports share the same capability-error constructor, so a
+  host can catch refused operations consistently across package entries.
+- A comparison correction to whitespace removes its earlier reading and moves
+  the common percentage baseline to the next actual shared observation.
+- Entering replay selection pauses pending reference autosaves without blocking
+  later named-layout saves after selection is cancelled.
+
+### Integration and validation
+
+- Broker and crypto conformance fixtures exercise real production adapters with
+  deterministic transport, including repair, cancellation, failure and cleanup.
+  These fixtures are synthetic evidence, not certification against every venue.
+- A repeatable browser endurance harness records declared workloads, frame and
+  pointer timings, paint output, retained heap and teardown gates. Reports name
+  the browser, machine, renderer, bundle hashes and measurement limitations.
+- Added compatibility/deprecation and support boundaries in `COMPATIBILITY.md`.
+  Host delivery of alerts, account authentication and broker order authority
+  remain host responsibilities. See `docs/upgrading-to-2.4.5.md` for adoption.
 
 ## 2.4.0
 

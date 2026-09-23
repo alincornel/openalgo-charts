@@ -589,7 +589,7 @@ describe('dialogs and the toolbar', () => {
     const capture = root.querySelector('.oac-topbar .oac-btn[aria-label="Capture chart"]') as FakeElement;
     capture.click();
     const rows = root.querySelectorAll('.oac-menu .oac-menu__row');
-    expect(rows.map((r) => r.querySelector('.oac-menu__label')?.textContent)).toEqual(['Download PNG', 'Download SVG', 'Copy image']);
+    expect(rows.map((r) => r.querySelector('.oac-menu__label')?.textContent)).toEqual(['Download PNG', 'Download SVG', 'Copy image', 'Download chart data (CSV)']);
     // No clipboard in this runtime: the row says so and is disabled rather than dead.
     expect(rows[2].getAttribute('aria-disabled')).toBe('true');
     rows[0].click();
@@ -600,6 +600,15 @@ describe('dialogs and the toolbar', () => {
     expect(svg).toHaveBeenCalledTimes(1);
     // Node has Blob but no object URLs: the row reports rather than throws.
     expect(root.querySelector('.oac-statusline__msg')?.textContent).toMatch(/Saved an SVG|cannot save files/);
+  });
+
+  it('disables CSV while its managed source is loading even with retained bars', () => {
+    const { w, root } = make({ feed: { getBars: () => new Promise(() => {}) }, symbol: 'PENDING' });
+    w.series.setData(bars(3));
+    (root.querySelector('.oac-topbar .oac-btn[aria-label="Capture chart"]') as FakeElement).click();
+    const item = root.querySelectorAll('.oac-menu .oac-menu__row')
+      .find(row => row.querySelector('.oac-menu__label')?.textContent === 'Download chart data (CSV)');
+    expect(item?.getAttribute('aria-disabled')).toBe('true');
   });
 
   it('lists the price-series chart types in the menu and applies a pick', () => {
@@ -650,6 +659,42 @@ describe('dialogs and the toolbar', () => {
 });
 
 describe('the status line', () => {
+  it.each([true, false])('preserves instrument capability across interval changes (managed feed: %s)', managed => {
+    const { w } = make({ symbol: 'CONTRACT', exchange: 'NFO',
+      ...(managed ? { feed: { getBars: async () => bars(2) } } : {}),
+    });
+    w.chart.setDataContext({ ...w.chart.getDataContext(), hasOpenInterest: true });
+    w.setInterval('5m');
+    expect(w.chart.hasOpenInterest).toBe(true);
+    expect(w.chart.getDataContext()?.interval).toBe('5m');
+    w.setSymbol('CASH', 'NSE');
+    expect(w.chart.hasOpenInterest).toBeUndefined();
+  });
+
+  it('shows an opted-in OI zero, hides missing readings and reacts to instrument capability', () => {
+    const { w, root } = make({ locale: 'en-US' });
+    const bar = { ...bars(1)[0], oi: 0 };
+    const field = () => root.querySelector('.oac-statusline__oi') as FakeElement;
+    const hover = (b: Bar) => w.chart.emit('crosshair:move', {
+      time: b.time, index: 0, price: b.close, bar: b, point: { x: 10, y: 10 }, paneIndex: 0,
+    });
+    hover(bar);
+    expect(field()).not.toBeNull();
+    expect(field().hidden).toBe(true);
+    w.chart.setStatusLineOptions({ openInterest: true });
+    hover({ ...bar });
+    expect(field().hidden).toBe(false);
+    expect(root.querySelector('.oac-statusline__oi b')?.textContent).toBe('0');
+    w.chart.setDataContext({ hasOpenInterest: false });
+    expect(field().hidden).toBe(true);
+    w.chart.setDataContext({ hasOpenInterest: true });
+    expect(field().hidden).toBe(false);
+    hover({ ...bar, oi: undefined });
+    expect(field().hidden).toBe(true);
+    hover({ ...bar, oi: 1_500_000 });
+    expect(root.querySelector('.oac-statusline__oi b')?.textContent).toBe('1.5M');
+  });
+
   it('shows the hovered bar in the engine fields and follows the chart switches', () => {
     const { w, root } = make({ locale: 'de-DE' });
     w.series.setData(bars(20));

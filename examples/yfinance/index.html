@@ -163,7 +163,8 @@
            the bar you start from is the whole premise of the exercise, so it is
            chosen, not guessed at from the viewport. -->
       <div id="replaypick" role="status" hidden>
-        <span><strong>Select a bar</strong> <span class="hint">to replay from</span></span>
+        <button id="rp-pick-scope" type="button" aria-label="Replay scope: Chart 1" aria-pressed="false">Chart 1</button>
+        <span><strong>Select a bar</strong> <span class="hint">then replay from its close</span></span>
         <span class="hint" id="rp-picked"></span>
         <button id="rp-pick-cancel">Cancel</button>
       </div>
@@ -189,7 +190,6 @@
       <div class="p2bar" id="p2bar" role="toolbar" aria-label="Second chart toolbar"></div>
       <div class="p2plot">
         <div id="chart2" role="region" aria-label="Second chart"></div>
-        <div class="p2legend" id="p2legend"></div>
       </div>
     </aside>
   </div>
@@ -233,6 +233,58 @@
         <button id="set-reset" class="btn btn--ghost set-lead">Defaults</button>
         <button id="set-ok" class="btn btn--primary">Apply</button>
       </div>
+    </div>
+  </div>
+
+  <div id="indsource" hidden>
+    <div class="set-card source-card" role="dialog" aria-modal="true" aria-labelledby="indsource-title">
+      <div class="set-head"><span id="indsource-title">Indicator source</span><button id="indsource-close" type="button">Close</button></div>
+      <div class="set-body">
+        <p id="indsource-owner" class="ws-hint"></p>
+        <p class="ws-hint">Read-only host source. This deterministic example alternates every 12 bars to demonstrate labels and plot gaps.</p>
+        <pre id="indsource-code" tabindex="0" aria-label="Indicator source code"></pre>
+      </div>
+    </div>
+  </div>
+
+  <div id="templatemodal" hidden>
+    <div class="set-card ws-card" role="dialog" aria-modal="true" aria-labelledby="tp-title">
+      <div class="set-head"><span id="tp-title">Indicator templates</span><button id="tp-close" type="button">Close</button></div>
+      <div class="set-body ws-body">
+        <p id="tp-owner" class="ws-hint"></p>
+        <div class="set-row"><label for="tp-select">Saved templates</label><div class="set-ctl"><select id="tp-select"></select></div></div>
+        <div class="set-row"><label for="tp-name">Template name</label><div class="set-ctl"><input id="tp-name" type="text" maxlength="120" autocomplete="off" /></div></div>
+        <p id="tp-summary" class="ws-hint"></p>
+        <div class="ws-actions"><button id="tp-new" class="btn" type="button">Save new template</button><button id="tp-update" class="btn" type="button">Update selected</button><button id="tp-rename" class="btn" type="button">Rename</button><button id="tp-duplicate" class="btn" type="button">Duplicate</button></div>
+        <p class="ws-hint">Replace changes this chart's studies. Append keeps existing studies and adds separate copies.</p>
+        <div class="ws-actions"><button id="tp-import" class="btn btn--ghost" type="button">Import file</button><button id="tp-export" class="btn btn--ghost" type="button">Export selected</button><button id="tp-delete" class="btn btn--ghost" type="button">Delete selected</button></div>
+        <input id="tp-file" type="file" accept="application/json,.json" hidden />
+        <div id="tp-confirm" class="ws-confirm" hidden><p id="tp-delete-name"></p><div class="ws-actions"><button id="tp-keep" class="btn" type="button">Keep template</button><button id="tp-confirm-delete" class="btn" type="button">Confirm delete</button></div></div>
+        <p id="tp-error" class="ws-error" role="alert" hidden></p><p id="tp-notice" class="ws-hint" role="status" aria-live="polite"></p>
+      </div>
+      <div class="set-foot"><button id="tp-refresh" class="btn btn--ghost set-lead" type="button">Reload templates</button><button id="tp-append" class="btn" type="button">Append studies</button><button id="tp-replace" class="btn btn--primary" type="button">Replace studies</button></div>
+    </div>
+  </div>
+
+  <div id="workspacemodal" hidden>
+    <div class="set-card ws-card" role="dialog" aria-modal="true" aria-labelledby="ws-title">
+      <div class="set-head"><span id="ws-title">Layouts</span><button id="ws-close" type="button">Close</button></div>
+      <div class="set-body ws-body">
+        <p id="ws-current">Current: Unnamed</p>
+        <div class="set-row"><label for="ws-select">Saved layouts</label><div class="set-ctl"><select id="ws-select"></select></div></div>
+        <div class="set-row"><label for="ws-name">Layout name</label><div class="set-ctl"><input id="ws-name" type="text" maxlength="120" autocomplete="off" /></div></div>
+        <div class="ws-actions"><button id="ws-new" class="btn" type="button">New from current</button><button id="ws-save" class="btn" type="button">Save current</button><button id="ws-rename" class="btn" type="button">Rename</button><button id="ws-duplicate" class="btn" type="button">Duplicate</button></div>
+        <div id="ws-recent-row"><p class="set-group">Recent layouts</p><div id="ws-recent" class="ws-actions"></div></div>
+        <label class="ws-autosave"><input id="ws-autosave" type="checkbox" /> Autosave current layout</label>
+        <p class="ws-hint">With autosave off, reload restores the last saved version. Session recovery is kept separately.</p>
+        <div class="ws-actions"><button id="ws-import" class="btn btn--ghost" type="button">Import file</button><button id="ws-export" class="btn btn--ghost" type="button">Export selected</button><button id="ws-delete" class="btn btn--ghost" type="button">Delete selected</button></div>
+        <input id="ws-file" type="file" accept="application/json,.json" hidden />
+        <div class="ws-actions"><button id="ws-data" class="btn btn--ghost" type="button" aria-describedby="ws-data-source">Download chart data (CSV)</button></div>
+        <p id="ws-data-source" class="ws-hint"></p>
+        <div id="ws-confirm" hidden><p id="ws-delete-name"></p><div class="ws-actions"><button id="ws-keep" class="btn" type="button">Keep layout</button><button id="ws-confirm-delete" class="btn" type="button">Confirm delete</button></div></div>
+        <p id="ws-error" role="alert" hidden></p><p id="ws-notice" role="status" aria-live="polite"></p>
+      </div>
+      <div class="set-foot"><button id="ws-refresh" class="btn btn--ghost set-lead" type="button">Reload saved layouts</button><button id="ws-open" class="btn btn--primary" type="button">Open selected</button></div>
     </div>
   </div>
 
@@ -295,6 +347,9 @@
 
   <!-- Right-click menu: order entry at the price under the cursor, drawings, settings. -->
   <div id="ctxmenu" role="menu" aria-label="Chart menu" hidden>
+    <button role="menuitem" data-act="alert-create">Create alert</button>
+    <button role="menuitem" data-act="alert-list">Alerts</button>
+    <hr data-sec="alerts">
     <button class="buy" role="menuitem" data-side="BUY" data-type="MARKET">Buy Market</button>
     <button class="sell" role="menuitem" data-side="SELL" data-type="MARKET">Sell Market</button>
     <hr data-sec="order">

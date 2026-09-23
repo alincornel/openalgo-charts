@@ -17,6 +17,28 @@ const bar = (time: number) => ({ time, open: 23800, high: 23804, low: 23798, clo
 const settle = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
 
 describe('explicit chart data context', () => {
+  it('keeps OI capability independent of observations and publishes capability-only changes', () => {
+    const chart = mount();
+    const changes: unknown[] = [];
+    chart.on('data:context', context => changes.push(context));
+    const price = chart.addSeries('candlestick');
+    price.setData([{ ...bar(100), oi: 0 }]);
+    expect(chart.hasOpenInterest).toBeUndefined();
+    chart.setDataContext({ symbol: 'CONTRACT', hasOpenInterest: true });
+    expect(chart.hasOpenInterest).toBe(true);
+    price.update(bar(200));
+    expect(chart.hasOpenInterest).toBe(true);
+    chart.setDataContext({ symbol: 'CONTRACT', hasOpenInterest: false });
+    expect(chart.hasOpenInterest).toBe(false);
+    chart.setDataContext({ symbol: 'CONTRACT' });
+    expect(chart.hasOpenInterest).toBeUndefined();
+    expect(changes).toEqual([
+      { symbol: 'CONTRACT', hasOpenInterest: true },
+      { symbol: 'CONTRACT', hasOpenInterest: false },
+      { symbol: 'CONTRACT' },
+    ]);
+  });
+
   it('passes the current instrument to external studies and refreshes older ranges', async () => {
     const calls: { symbol?: string; from: number; to: number }[] = [];
     const id = 'context-study';

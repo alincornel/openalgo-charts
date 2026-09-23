@@ -4,21 +4,25 @@ import { fakeDom, fakeStorage } from './helpers.js';
 // Restoring a layout reaches into the modules that own the comparisons, the
 // volume flag, the zone and the chrome. None of them is under test here, and
 // each keeps its own `app`, so they are stood in for and their calls read back.
-vi.mock('../src/volume.js', () => ({ volumeShown: vi.fn(() => true), setVolumeShown: vi.fn() }));
+vi.mock('../src/volume.js', async importOriginal => ({ ...await importOriginal(), volumeShown: vi.fn(() => true), setVolumeShown: vi.fn(),
+  volumeSettings: vi.fn(() => ({ 'volume.visible': true })), applyVolumeSettings: vi.fn() }));
 vi.mock('../src/timezone.js', () => ({ DEFAULT_TZ: 'Asia/Kolkata', syncTimezoneFromChart: vi.fn() }));
-vi.mock('../src/compare.js', () => ({ removeComparison: vi.fn(), syncComparisons: vi.fn() }));
+vi.mock('../src/compare.js', async importOriginal => ({ ...await importOriginal(), syncComparisons: vi.fn() }));
 vi.mock('../src/indicators.js', () => ({ renderIndicatorChips: vi.fn() }));
-vi.mock('../src/toolbar.js', () => ({ renderToolbar: vi.fn() }));
+vi.mock('../src/toolbar.js', async importOriginal => ({ ...await importOriginal(), renderToolbar: vi.fn() }));
 
 import { CHART_STATE_VERSION } from '/dist/openalgo-charts.mjs';
 import {
   LAYOUT_KEY, LEGACY_LAYOUT_KEY, QUARANTINE_PREFIX, QUARANTINE_KEEP, LAYOUT_SCHEMA, SAVE_DEBOUNCE_MS,
   LayoutError, MIGRATIONS, schemaOf, upgradeLayout, quarantine, quarantinedKeys, readLayout, writeLayout,
   storageDegraded, migrateStorage, layoutSnapshot, stripView, applyLayout, persistLayoutNow, autosave, flushAutosave,
-  exportLayout, parseLayoutFile, importLayoutFile, initPersist, datasetKey,
+  exportLayout, parseLayoutFile, importLayoutFile, initPersist, datasetKey, primaryLayoutSelection, restorePrimarySelection,
 } from '../src/persist.js';
 import { setVolumeShown } from '../src/volume.js';
-import { removeComparison, syncComparisons } from '../src/compare.js';
+import { initCompare, syncComparisons } from '../src/compare.js';
+import { ReferenceWorkspaceCatalog } from '../src/workspace-catalog.js';
+import { workspaceFromLayout } from '../src/workspace-document.js';
+import { workspaceUnavailable } from '../src/workspace-host.js';
 
 /** A storage the quarantine can enumerate: `fakeStorage` has no `length` or `key`. */
 function storageWithKeys() {
@@ -63,10 +67,12 @@ function fakeChart() {
 }
 
 function freshApp() {
-  return {
+  const app = {
     chart: fakeChart(), req: { symbol: 'AAPL', interval: '1d', period: '1y' },
     comparisons: [], cmpMode: 'percentage', activeIndicators: [], draw: { fromJSON: vi.fn() }, replay: null,
   };
+  initCompare(app);
+  return app;
 }
 
 const toastsShown = (dom) => dom.get('toasts').children.map((n) => n.textContent);
@@ -234,6 +240,53 @@ describe('storage', () => {
     expect(setItem).not.toHaveBeenCalled();
   });
 
+  it.each(['workspaceLoading', 'loading2', 'loadFailed2', 'loadFailed', 'chartSettingsEditing', 'replayPicking'])('does not autosave transient state while %s is set', flag => {
+    const app = freshApp();
+    initPersist(app);
+    autosave();
+    app[flag] = true;
+    flushAutosave();
+    expect(store.has(LAYOUT_KEY)).toBe(false);
+    autosave();
+    vi.advanceTimersByTime(SAVE_DEBOUNCE_MS);
+    expect(store.has(LAYOUT_KEY)).toBe(false);
+  });
+
+  it('keeps named autosave usable after replay selection interrupts a queued recovery save', async () => {
+    const app = freshApp();
+    initPersist(app);
+    let named = null;
+    const catalog = new ReferenceWorkspaceCatalog({
+      storage: { read: async () => structuredClone(named), write: async (_key, next) => { named = structuredClone(next); } },
+      namespace: 'reference-replay-test', id: () => 'saved-owner', now: () => 1,
+      snapshot: () => {
+        if (workspaceUnavailable(app)) throw new Error('Finish loading, replay or settings changes before saving layouts');
+        return workspaceFromLayout({ version: 1, request: { ...app.req }, chartType: 'candlestick' });
+      },
+      open: async () => {},
+    });
+    await catalog.initialize();
+    await catalog.create('Desk');
+    await catalog.setAutosave(true);
+    app.onLayoutPersisted = () => catalog.requestAutosave();
+
+    autosave();
+    app.replayPicking = true;
+    vi.advanceTimersByTime(SAVE_DEBOUNCE_MS);
+    await catalog.flushAutosave();
+    expect.soft(store.has(LAYOUT_KEY)).toBe(false);
+    expect.soft(catalog.autosaveBlocked).toBe(false);
+    expect.soft(catalog.error).toBe('');
+
+    app.replayPicking = false;
+    app.req.symbol = 'MSFT';
+    autosave();
+    vi.advanceTimersByTime(SAVE_DEBOUNCE_MS);
+    await catalog.flushAutosave();
+    expect(named.workspaces[0].panes[0].symbol).toBe('MSFT');
+    expect(catalog.autosaveBlocked).toBe(false);
+  });
+
   it('flushes a pending save when the page goes away', () => {
     const app = freshApp();
     initPersist(app);
@@ -279,7 +332,8 @@ describe('storage', () => {
 function layoutSnapshotFor(app) {
   return {
     schema: LAYOUT_SCHEMA, ...app.chart.getState(), dataset: datasetKey(app.req),
-    comparisons: [], compareMode: app.cmpMode, volume: true,
+    request: { ...app.req }, chartType: 'candlestick', pfmode: 'atr', legendIconSize: 16,
+    comparisons: [], compareMode: app.cmpMode, volume: true, volumeSettings: { 'volume.visible': true }, focusPane: 1,
   };
 }
 
@@ -300,9 +354,82 @@ describe('applying a layout', () => {
     const snap = layoutSnapshot();
     expect(snap.schema).toBe(LAYOUT_SCHEMA);
     expect(snap.version).toBe(CHART_STATE_VERSION);
-    expect(snap.comparisons).toEqual([{ symbol: 'MSFT', color: '#f00' }]);
+    expect(snap.comparisons).toEqual([{ symbol: 'MSFT', color: '#f00', hidden: false }]);
     expect(snap.compareMode).toBe('indexed');
     expect(snap.dataset).toBe('AAPL|1d|1y');
+  });
+
+  it('saves both chart legend sizes and restores the primary without changing the secondary', () => {
+    let size = 24;
+    app.chart.legendIconSize = () => size;
+    app.chart.setLegendIconSize = value => { size = value; };
+    app.chart2 = { ...fakeChart(), legendIconSize: () => 12, setLegendIconSize: vi.fn() };
+    app.p2 = { symbol: 'MSFT', interval: '1d', period: '1y' };
+    const snap = layoutSnapshot();
+    expect(snap.legendIconSize).toBe(24);
+    expect(snap.secondary.legendIconSize).toBe(12);
+    size = 28;
+    expect(applyLayout(snap).applied).toBe(true);
+    expect(size).toBe(24);
+    expect(app.chart2.setLegendIconSize).not.toHaveBeenCalled();
+    const legacy = { ...snap }; delete legacy.legendIconSize;
+    expect(applyLayout(legacy).applied).toBe(true);
+    expect(size).toBe(16);
+  });
+
+  it('captures the primary request, transform and box mode without extra request fields', () => {
+    app.req = { symbol: 'TSLA', interval: '15m', period: '1mo', account: 'private' };
+    dom.get('ctype').value = 't:point-figure'; dom.get('pfmode').value = 'percent';
+    expect(layoutSnapshot()).toMatchObject({ request: { symbol: 'TSLA', interval: '15m', period: '1mo' },
+      chartType: 't:point-figure', pfmode: 'percent' });
+    expect(layoutSnapshot().request).not.toHaveProperty('account');
+  });
+
+  it('recovers an unambiguous legacy request and keeps state-only layouts usable', () => {
+    expect(primaryLayoutSelection(V1_DOC).request).toEqual({ symbol: 'AAPL', interval: '1d', period: '1y' });
+    expect(primaryLayoutSelection({ version: 1 }).request).toBeNull();
+    expect(primaryLayoutSelection({ dataset: 'A|B|1d|1y' }).request).toBeNull();
+    expect(primaryLayoutSelection({ dataset: 'AAPL|unsupported|1y' }).request).toBeNull();
+  });
+
+  it('rejects invalid explicit selection instead of falling back to an old dataset key', () => {
+    const doc = { ...V1_DOC, request: { symbol: 'TSLA', interval: '15m', period: '1mo' } };
+    for (const patch of [{ request: null }, { request: { ...doc.request, symbol: '' } },
+      { request: { ...doc.request, interval: 'unknown' } }, { chartType: 'unknown' },
+      { pfmode: 'unknown' }, { timezone: 'Invalid/Zone' }]) {
+      expect(() => upgradeLayout({ ...doc, ...patch })).toThrow(LayoutError);
+    }
+  });
+
+  it('initializes every primary control and the folding timezone before a chart exists', () => {
+    app.chart = null;
+    const request = { symbol: 'TSLA', interval: '15m', period: '1mo' };
+    expect(restorePrimarySelection({ schema: 2, version: 1, request, chartType: 't:point-figure',
+      pfmode: 'percent', timezone: 'America/New_York' })).toBe(true);
+    expect(app.req).toEqual(request);
+    expect(app.chartTimezone).toBe('America/New_York');
+    expect(['symbol', 'interval', 'period', 'ctype', 'pfmode'].map(id => dom.get(id).value))
+      .toEqual(['TSLA', '15m', '1mo', 't:point-figure', 'percent']);
+  });
+
+  it('validates the complete selection before writing any controls and refuses to redirect a live chart', () => {
+    const doc = { request: { symbol: 'TSLA', interval: '15m', period: '1mo' }, chartType: 'line' };
+    expect(restorePrimarySelection(doc)).toBe(false);
+    app.chart = null;
+    const before = ['symbol', 'interval', 'period', 'ctype', 'pfmode'].map(id => dom.get(id).value);
+    expect(() => restorePrimarySelection({ ...doc, timezone: 'Invalid/Zone' })).toThrow(LayoutError);
+    expect(['symbol', 'interval', 'period', 'ctype', 'pfmode'].map(id => dom.get(id).value)).toEqual(before);
+    expect(app.req.symbol).toBe('AAPL');
+  });
+
+  it('captures independent secondary chart controls and explicit selection', () => {
+    app.chart2 = fakeChart();
+    app.p2 = { symbol: 'TSLA', interval: '15m', period: '1mo', chartType: 't:point-figure', pfmode: 'percent' };
+    app.focusPane = 2;
+    const snap = layoutSnapshot();
+    expect(snap.focusPane).toBe(2);
+    expect(snap.secondary).toMatchObject({ chartType: 't:point-figure', pfmode: 'percent',
+      request: { symbol: 'TSLA', interval: '15m', period: '1mo' } });
   });
 
   it('drops the view, and only the view, for another dataset', () => {
@@ -326,11 +453,12 @@ describe('applying a layout', () => {
     expect(report.applied).toBe(true);
     expect(app.chart.restored).toHaveLength(1);
     expect(app.chart.restored[0].viewport).toBeUndefined();
-    expect(app.activeIndicators).toEqual([{ indicatorId: 'rsi', settings: { length: 14 } }]);
-    expect(app.draw.fromJSON).toHaveBeenCalledWith(doc.drawings);
-    expect(setVolumeShown).toHaveBeenCalledWith(false);
-    expect(removeComparison).toHaveBeenCalledWith(live);
-    expect(app.comparisons).toEqual([{ symbol: 'MSFT', color: '#f00', bars: [] }]);
+    expect(app.activeIndicators).toEqual(doc.indicators);
+    expect(app.activeIndicators[0]).not.toBe(doc.indicators[0]);
+    expect(app.activeIndicators[0].settings).not.toBe(doc.indicators[0].settings);
+    expect(app.draw.fromJSON).not.toHaveBeenCalled();
+    expect(setVolumeShown).toHaveBeenCalledWith(false, 1);
+    expect(app.comparisons).toEqual([{ symbol: 'MSFT', color: '#f00', bars: [], hidden: false }]);
     expect(syncComparisons).toHaveBeenCalledTimes(1);
   });
 
@@ -341,11 +469,10 @@ describe('applying a layout', () => {
     applyLayout(doc, { keepView: true, replaceComparisons: false });
     expect(app.chart.restored[0].viewport).toEqual({ from: 10, to: 90 });
     expect(app.comparisons).toEqual([live]);
-    expect(removeComparison).not.toHaveBeenCalled();
     expect(syncComparisons).not.toHaveBeenCalled();
     app.comparisons = [];
     applyLayout(doc, { keepView: true, replaceComparisons: false });
-    expect(app.comparisons).toEqual([{ symbol: 'MSFT', color: '#f00', bars: [] }]);
+    expect(app.comparisons).toEqual([{ symbol: 'MSFT', color: '#f00', bars: [], hidden: false }]);
     expect(syncComparisons).not.toHaveBeenCalled();
   });
 
@@ -392,7 +519,7 @@ describe('layout files', () => {
     expect(await importLayoutFile(JSON.stringify({ layout: doc }))).toBe(true);
     // Captured on another dataset: the workspace comes over, the view does not.
     expect(app.chart.restored[0].viewport).toBeUndefined();
-    expect(app.draw.fromJSON).toHaveBeenCalledTimes(1);
+    expect(app.draw.fromJSON).not.toHaveBeenCalled();
     expect(JSON.parse(store.get(LAYOUT_KEY)).schema).toBe(LAYOUT_SCHEMA);
     expect(toastsShown(dom).pop()).toContain('imported');
     // Garbage is reported, not thrown, and changes nothing.

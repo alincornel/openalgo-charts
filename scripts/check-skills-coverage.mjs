@@ -30,6 +30,7 @@ const TIERS = {
   trade: 'openalgo-charts.trade.mjs',
   webgl: 'openalgo-charts.webgl.mjs',
   widget: 'openalgo-charts.widget.mjs',
+  workspace: 'openalgo-charts.workspace.mjs',
 }
 
 const mods = {}

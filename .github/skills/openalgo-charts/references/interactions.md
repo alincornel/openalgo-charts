@@ -242,3 +242,20 @@ Reveal is driven by an explicit `setPointer(plotLocalPoint | null)` from the cha
 ## Related
 
 [core-api](core-api.md) · [scales-and-panes](scales-and-panes.md) · [events-and-state](events-and-state.md) · [drawing-tools](drawing-tools.md) · [primitives-and-plugins](primitives-and-plugins.md) · [react-integration](react-integration.md) · [pitfalls](pitfalls.md)
+# Candle-center crosshair
+
+`createChart(element, { crosshairSnapToBar: true })` aligns the vertical line
+with the nearest bar center. `chart.applyOptions({ crosshairSnapToBar: false })`
+restores pointer-following immediately; `chart.crosshairSnapToBar()` reads it.
+The option defaults to false, survives `getState` / `restoreState`, and is exposed
+as `canvas.crosshairSnapToBar` in the chart settings schema. It is independent of
+`crosshairMode: 'magnet'`, which controls horizontal OHLC snapping. Event points
+and drawing hit tests retain the raw pointer. Empty and future space do not snap.
+
+## Plot grab and release (2.4.8)
+
+A primary-button press on the plot shows the `grabbing` cursor. Mouse and pen pan
+time and price by default and stop immediately on release. Lost pointer capture
+and cancellation abandon the pan; drawing placement and primitive drags keep their
+own gestures. Touch flicks retain momentum. `navigation.mousePan: 'horizontal'`
+continues to restrict mouse and pen movement to time. No host cursor handler is needed.

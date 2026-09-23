@@ -50,6 +50,18 @@ describe('the bracket', () => {
     expect(dom.get('bk-entry').querySelector('[data-act="place"]').textContent).toBe('1-Click Buy');
   });
 
+  it('does not create or reprice a bracket while replay history is loading', () => {
+    app.replayLoading = true;
+    makeBracket('BUY');
+    expect(app.bracket).toBeNull();
+    app.replayLoading = false;
+    makeBracket('BUY');
+    const saved = { ...app.bracket };
+    app.replayLoading = true;
+    setBracketPrice('entry', 150);
+    expect(app.bracket).toEqual(saved);
+  });
+
   it('keeps the exits on the right side of the entry and moves the whole bracket with it', () => {
     makeBracket('BUY');
     setBracketPrice('tp', 100.5);

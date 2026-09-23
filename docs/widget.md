@@ -4,12 +4,14 @@
 with a top bar (symbol, interval, chart type, theme, settings, indicators, objects), a drawing
 rail down the left, a status line, the dialogs behind each of those buttons, keyboard
 shortcuts with a `?` panel that lists them, and optional persistence of the layout. It
-is the eighth loadable tier, and it is the only one that builds DOM.
+is one of nine loadable tiers and the only tier that supplies application controls.
 
-## The engine still ships no DOM
+<a id="the-engine-still-ships-no-dom"></a>
 
-`openalgo-charts` and the six tiers beneath the widget contain no toolbar, no dialog, no menu and no
-stylesheet. They touch the document only to own their canvases. The widget is a host,
+## Engine and interface separation
+
+`openalgo-charts` and the seven non-widget optional tiers contain no toolbar, no dialog, no menu and no
+stylesheet. The engine creates canvas and container elements; it does not provide application controls. The widget is a host,
 packaged: everything it draws in HTML it drives through the same public API a host of
 your own would use (`createChart`, `DrawingController`, `chartSettingsSchema`, the
 `contextmenu` event, the indicator registry).
@@ -38,7 +40,7 @@ npm install openalgo-charts
 
 The widget entry imports `openalgo-charts` and `openalgo-charts/draw` itself. The
 indicator picker offers whatever the indicator registry holds, so import
-`openalgo-charts/indicators` alongside it for the 102 built-ins; without that import the
+`openalgo-charts/indicators` alongside it for the 105 built-ins; without that import the
 picker offers only what you registered yourself.
 
 ## One call
@@ -282,8 +284,8 @@ Budgets from `.size-limit.json`, Brotli, enforced by `npm run size`:
 
 | Row | Files | Budget |
 |---|---|---|
-| Widget tier | `openalgo-charts.widget.mjs` | 42 KB |
-| Widget terminal | base + draw + indicators + widget | 170 KB |
+| Widget tier | `openalgo-charts.widget.mjs` | 49.25 kB |
+| Widget terminal | base + draw + indicators + widget | 207.75 kB |
 
 The widget is a tier because of these rows. A host that never calls `createWidget`
 downloads none of it, and the base engine's own budget is unchanged. Measure, do not

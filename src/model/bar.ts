@@ -16,6 +16,28 @@ export interface Bar {
   close: number;
   volume?: number;
   /**
+   * Open interest: contracts outstanding at the end of this bar. Optional,
+   * because only a derivatives feed carries it; on a cash instrument it is
+   * absent, and absent is not zero. Zero is a real reading on a contract nobody
+   * holds.
+   *
+   * **It is a level, not a flow, and that is the whole reason it needs saying
+   * here.** Volume is a quantity traded *during* the bar, so folding five
+   * one-minute bars into a five-minute bar adds five volumes together. Open
+   * interest is a position *as at* the bar, so the same fold takes the last
+   * one and adding them would produce a number five times too large that still
+   * looks entirely plausible on a chart.
+   *
+   * Every aggregation path in this library therefore treats the two
+   * differently: `mergeBars`, the higher-timeframe fold in `securitySeries`,
+   * and the tick-to-bar builders all sum volume and carry the latest open
+   * interest. A transform that maps one source bar to one output bar passes it
+   * through; one that invents bars from price alone (Renko, Point and Figure)
+   * does not carry it at all, because a synthetic bar has no instant to be the
+   * position as at.
+   */
+  oi?: number;
+  /**
    * Per-bar colour override, honoured by every Family-A renderer: candles and
    * OHLC bars take it on body, border and wick together, histogram and column
    * on the bar, and line, step, area and the HLC-area close line split their

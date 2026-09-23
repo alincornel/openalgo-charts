@@ -3,8 +3,8 @@ import terser from '@rollup/plugin-terser';
 import dts from 'rollup-plugin-dts';
 
 // One entry point per loadable tier (see ARCHITECTURE.md section 2). The widget
-// is the eighth: the only tier that ships DOM, and the only one that builds on
-// other tiers rather than on the base alone.
+// is the only tier that ships DOM. Workspace documents/storage are separate
+// so persistence does not increase the base engine or widget download.
 const entries = {
   index: 'src/index.ts',
   trade: 'src/trade/index.ts',
@@ -14,6 +14,7 @@ const entries = {
   draw: 'src/draw/index.ts',
   webgl: 'src/webgl/index.ts',
   widget: 'src/widget/index.ts',
+  workspace: 'src/workspace/index.ts',
 };
 
 const outFile = {
@@ -25,6 +26,7 @@ const outFile = {
   draw: 'openalgo-charts.draw',
   webgl: 'openalgo-charts.webgl',
   widget: 'openalgo-charts.widget',
+  workspace: 'openalgo-charts.workspace',
 };
 
 const typesFile = {
@@ -36,6 +38,7 @@ const typesFile = {
   draw: 'draw/index',
   webgl: 'webgl/index',
   widget: 'widget/index',
+  workspace: 'workspace/index',
 };
 
 /**

@@ -1,23 +1,28 @@
 import { el, esc, currentTheme, toggleTheme } from './ui.js';
 import { attachTip, hideTip } from './hover.js';
-import { cycleMagnet, magnetMode } from './rail.js';
+import { cycleMagnet, magnetMode, focusChart } from './rail.js';
 import { INTERVALS, intervalLabel, intervalName, periodsFor, clampPeriod } from './intervals.js';
 import { popupMenu } from './menus.js';
-import { openCompare } from './compare.js';
+import { openCompare, comparisonState } from './compare.js';
 import { enterReplay, askExitReplay } from './replay.js';
-import { openSnapMenu } from './snapshot.js';
+import { openSnapMenu, downloadSnapshot } from './snapshot.js';
 import { isSplit, openSplit, closeSplit } from './split.js';
 import { describeLink, openLinkMenu } from './link.js';
 import { openCacheMenu } from './feed.js';
 import { openChartSettings } from './chart-settings.js';
+import { openAlerts } from './alerts.js';
+import { capturePaneTarget, selectedPane } from './pane-target.js';
+import { LONG_NAMES } from './status.js';
+import { autosave } from './persist.js';
+import { addIndicator } from './indicators.js';
 
 let app;
 
 // ══ toolbar shell ══════════════════════════════════════════════════════
 // Buttons and popup menus rather than native <select>s: a select cannot show
 // an icon per row, cannot group, and looks like a form control on a chart.
-// The old fields still exist (hidden) so every existing handler keeps working;
-// the shell just drives them.
+// Primary legacy fields remain available; shared actions capture their pane
+// instead of treating those fields as the selected chart's state.
 export const TOOLBAR_ICON = {
   search: '<circle cx="9" cy="9" r="5.5"/><path d="M13 13l4 4"/>',
   download: '<path d="M10 3v9m0 0 3.2-3.2M10 12 6.8 8.8"/><path d="M3.5 14v2.5h13V14"/>',
@@ -103,21 +108,23 @@ export function brandingLink(chart) {
 }
 
 /* ── chart-only full screen ────────────────────────────────────────────
-   Full-screens the stage (rail + chart + legend) rather than the page, so
-   the toolbar and the hint strip drop away and the plot gets the whole
-   display. The chart's own ResizeObserver picks up the new box, so there is
-   nothing to re-measure by hand. */
+   Keep the toolbar and dialogs in the fullscreen subtree while only the
+   selected plot is shown. Its ResizeObserver measures the new chart box. */
 export const stageEl = () => document.querySelector('main.stage');
-export const isChartFull = () => document.fullscreenElement === stageEl();
+export const isChartFull = () => document.fullscreenElement === document.body;
+let fullscreenControlHomes = [];
 
 export function toggleChartFullscreen() {
-  const stage = stageEl();
-  if (!stage) return;
   if (document.fullscreenElement) {
-    document.exitFullscreen();
-  } else if (stage.requestFullscreen) {
+    document.exitFullscreen().catch(error => { el('status').textContent = error.message; });
+  } else if (document.body.requestFullscreen) {
+    const target = capturePaneTarget(app);
+    if (!target?.current()) return;
+    app.fullscreenPane = target.pane;
     // Fullscreen is user-gesture gated and blocked outright in some embeds.
-    stage.requestFullscreen().catch((e) => {
+    document.body.requestFullscreen().catch((e) => {
+      app.fullscreenPane = null;
+      syncFullscreenChrome();
       el('status').textContent = 'full screen unavailable: ' + (e && e.message ? e.message : e);
     });
   } else {
@@ -125,32 +132,74 @@ export function toggleChartFullscreen() {
   }
 }
 
-// The toolbar goes with the page, so the only way back would be Esc. Put a
-// matching exit chip inside the stage, which is the part still on screen.
+// Moving existing drawing controls preserves their state and listeners.
 export function syncFullscreenChrome() {
-  const stage = stageEl();
-  if (!stage) return;
-  let chip = el('fsexit');
-  if (isChartFull()) {
-    if (!chip) {
-      chip = document.createElement('button');
-      chip.id = 'fsexit';
-      chip.className = 'fsexit';
-      chip.innerHTML = ticon('fullscreenExit');
-      attachTip(chip, { title: 'Exit full screen', chord: 'Esc', side: 'bottom' });
-      chip.addEventListener('click', toggleChartFullscreen);
-      stage.appendChild(chip);
-    }
-  } else if (chip) {
-    chip.remove();
+  if (!fullscreenControlHomes.length) {
+    fullscreenControlHomes = ['rail', 'mobilebar'].map(id => { const node = el(id); return [node, node?.parentNode]; });
+  }
+  if (isChartFull() && app.fullscreenPane === 2 && !app.chart2) {
+    app.fullscreenPane = null;
+    document.exitFullscreen().catch(() => {});
+  }
+  const pane = isChartFull() ? app.fullscreenPane : null;
+  if (pane) document.body.dataset.fullscreenPane = String(pane);
+  else {
+    delete document.body.dataset.fullscreenPane;
+  }
+  const secondary = pane === 2 ? el('chart2')?.parentElement : null;
+  for (const [node, home] of fullscreenControlHomes) {
+    const parent = secondary || home;
+    if (node && parent && node.parentNode !== parent) parent.appendChild(node);
   }
 }
 
 
-/** Rebuild the top toolbar from the current state of the hidden controls. */
+function currentTarget(target) {
+  if (target?.current()) return true;
+  el('status').textContent = 'chart changed; open the control again';
+  return false;
+}
+
+function changeRequest(target, patch) {
+  if (!currentTarget(target)) return;
+  const request = { ...target.request, ...patch };
+  request.period = clampPeriod(request.interval, request.period);
+  if (target.pane === 2) {
+    Object.assign(app.p2, request);
+    app.loadSecondary();
+  } else {
+    for (const key of ['symbol', 'interval', 'period']) el(key).value = request[key];
+    app.load();
+  }
+  renderToolbar();
+}
+
+function changeType(target, chartType, pfmode) {
+  if (!currentTarget(target)) return;
+  const busy = target.pane === 2 ? app.loading2 || app.loadFailed2 : app.loading || app.loadFailed;
+  if (busy) { el('status').textContent = 'wait for chart history before changing its type'; return; }
+  if (target.pane === 2) {
+    app.p2.chartType = chartType;
+    app.p2.pfmode = pfmode;
+    app.rebuildSecondary({ typeChanged: true });
+  } else {
+    el('ctype').value = chartType;
+    el('pfmode').value = pfmode;
+    app.render();
+  }
+  renderToolbar();
+  autosave();
+}
+
+/** Rebuild shared controls from their explicitly selected chart. */
 export function renderToolbar() {
+  syncFullscreenChrome();
   const bar = el('shellbar');
-  const ctype = el('ctype').value;
+  const pane = selectedPane(app);
+  const target = capturePaneTarget(app, pane);
+  const request = target?.request || app.req || {};
+  const ctype = pane === 2 ? app.p2.chartType || 'candlestick' : el('ctype').value;
+  const pfmode = pane === 2 ? app.p2.pfmode || 'atr' : el('pfmode').value;
   // #status starts in the hidden legacy bar and gets moved in here on the
   // first render -- so from the second call on it is a child of `bar`, and
   // wiping the bar would destroy it. Every el('status') after that returns
@@ -161,7 +210,7 @@ export function renderToolbar() {
   if (statusText.parentElement) statusText.parentElement.removeChild(statusText);
   bar.innerHTML = '';
 
-  const link = brandingLink(app.chart);
+  const link = brandingLink(target?.chart);
   const brand = document.createElement(link ? 'a' : 'div');
   brand.className = 'brand';
   brand.title = link ? link.label : 'OpenAlgo Charts yfinance demo';
@@ -178,13 +227,27 @@ export function renderToolbar() {
   bar.appendChild(brand);
   bar.appendChild(divider());
 
+  if (isSplit()) {
+    const selection = tbtn('Chart ' + pane, 'Selected chart');
+    selection.classList.add('tbtn--chart');
+    selection.addEventListener('click', () => popupMenu(selection, [1, 2].map(index => ({
+      label: 'Chart ' + index, on: pane === index,
+      onSelect: () => {
+        if (isChartFull()) { app.fullscreenPane = index; syncFullscreenChrome(); }
+        focusChart(index);
+        el(index === 2 ? 'chart2' : 'chart').focus();
+      },
+    }))));
+    bar.appendChild(selection);
+  }
+
   // symbol
-  const sym = tbtn(ticon('search') + '<b>' + esc((el('symbol').value || '').toUpperCase()) + '</b>', 'Change symbol');
+  const sym = tbtn(ticon('search') + '<b>' + esc((request.symbol || '').toUpperCase()) + '</b>', 'Change symbol');
   sym.addEventListener('click', () => {
-    const box = el('symbol');
-    box.classList.add('is-live');
-    box.focus();
-    box.select();
+    popupMenu(sym, Object.entries(LONG_NAMES).map(([symbol, name]) => ({
+      label: symbol + '  ' + name, on: request.symbol === symbol,
+      onSelect: () => changeRequest(target, { symbol }),
+    })), { find: 'Symbol or expression', onSubmit: symbol => changeRequest(target, { symbol }) });
   });
   bar.appendChild(sym);
   bar.appendChild(divider());
@@ -196,42 +259,39 @@ export function renderToolbar() {
     const b = document.createElement('button');
     b.textContent = intervalLabel(iv);
     b.title = intervalName(iv);
-    b.className = el('interval').value === iv ? 'is-on' : '';
-    b.addEventListener('click', () => {
-      el('interval').value = iv;
-      el('period').value = clampPeriod(iv, el('period').value);
-      app.load();
-      renderToolbar();
-    });
+    b.className = request.interval === iv ? 'is-on' : '';
+    b.addEventListener('click', () => changeRequest(target, { interval: iv }));
     ig.appendChild(b);
   }
   bar.appendChild(ig);
 
   // range menu
-  const range = tbtn('<span>' + esc(el('period').value) + '</span>' + ticon('chevron'), 'History range');
+  const range = tbtn('<span>' + esc(request.period || '') + '</span>' + ticon('chevron'), 'History range');
   // Only offer ranges this interval can actually serve: an unavailable one
   // comes back empty from Yahoo, which reads as a broken chart.
-  range.addEventListener('click', () => popupMenu(range, periodsFor(el('interval').value).map((p) => ({
-    label: p, on: p === el('period').value,
-    onSelect: () => { el('period').value = p; app.load(); renderToolbar(); },
+  range.addEventListener('click', () => popupMenu(range, periodsFor(request.interval).map((p) => ({
+    label: p, on: p === request.period,
+    onSelect: () => changeRequest(target, { period: p }),
   }))));
   bar.appendChild(range);
   bar.appendChild(divider());
 
   // chart type menu
   const ct = tbtn(ticon(chartTypeIcon(ctype)) + '<span>' + esc(chartTypeLabel(ctype)) + '</span>' + ticon('chevron'), 'Chart type');
+  ct.disabled = Boolean(pane === 2 ? app.loading2 || app.loadFailed2 : app.loading || app.loadFailed);
   ct.addEventListener('click', () => popupMenu(ct, CHART_TYPES.map((t) => (t.group ? { group: t.group } : {
     label: t.label, icon: t.icon, on: t.v === ctype,
-    onSelect: () => { el('ctype').value = t.v; el('ctype').dispatchEvent(new Event('change')); renderToolbar(); },
+    onSelect: () => changeType(target, t.v, pfmode),
   }))));
   bar.appendChild(ct);
 
   // P&F box mode, only when it applies
   if (ctype === 't:point-figure') {
-    const pf = tbtn('<span>' + esc(el('pfmode').selectedOptions[0].textContent) + '</span>' + ticon('chevron'), 'P&F box sizing');
+    const modeLabel = [...el('pfmode').options].find(option => option.value === pfmode)?.textContent || pfmode;
+    const pf = tbtn('<span>' + esc(modeLabel) + '</span>' + ticon('chevron'), 'P&F box sizing');
     pf.addEventListener('click', () => popupMenu(pf, [...el('pfmode').options].map((o) => ({
-      label: o.textContent, on: o.selected,
-      onSelect: () => { el('pfmode').value = o.value; el('pfmode').dispatchEvent(new Event('change')); renderToolbar(); },
+      label: o.textContent, on: o.value === pfmode,
+      onSelect: () => changeType(target, ctype, o.value),
     }))));
     bar.appendChild(pf);
   }
@@ -246,25 +306,38 @@ export function renderToolbar() {
       if (g && g !== group) { group = g; rows.push({ group: g }); }
       rows.push({
         label: o.textContent,
-        onSelect: () => { el('indpick').value = o.value; el('indadd').click(); },
+        onSelect: () => addIndicator(o.value, target),
       });
     }
     popupMenu(ind, rows, { find: 'Search ' + (rows.length - new Set(rows.filter((r) => r.group).map((r) => r.group)).size) + ' indicators' });
   });
   bar.appendChild(ind);
+  const templates = tbtn('Templates', 'Indicator templates');
+  templates.setAttribute('aria-label', 'Templates'); templates.setAttribute('aria-haspopup', 'dialog');
+  templates.setAttribute('aria-controls', 'templatemodal');
+  templates.addEventListener('click', () => { templates.focus(); app.openTemplates?.(); });
+  bar.appendChild(templates);
 
   // compare: a second instrument on the price pane
+  const comparisons = comparisonState(target?.pane).items;
   const cmp = tbtn(ticon('compare') + '<span>Compare</span>',
-    app.comparisons.length ? `Comparing ${app.comparisons.map((c) => c.symbol).join(', ')}` : 'Compare a second symbol');
-  if (app.comparisons.length) cmp.classList.add('is-on');
-  cmp.addEventListener('click', openCompare);
+    comparisons.length ? `Comparing ${comparisons.map((c) => c.symbol).join(', ')}` : 'Compare a second symbol');
+  if (comparisons.length) cmp.classList.add('is-on');
+  cmp.disabled = !target?.current() || Boolean(app[pane === 2 ? 'loading2' : 'loading'] || app[pane === 2 ? 'loadFailed2' : 'loadFailed']);
+  cmp.addEventListener('click', () => openCompare(target));
   bar.appendChild(cmp);
+
+  const alerts = tbtn('<span>Alerts</span>', 'Alerts');
+  alerts.addEventListener('click', () => openAlerts(app));
+  bar.appendChild(alerts);
 
   // replay: enter the session bar by bar, or leave and get the chart back
   const rp = tbtn(ticon('replay') + '<span>Replay</span>',
-    app.replay ? 'Exit replay' : app.replayPicking ? 'Cancel bar selection' : 'Replay this session bar by bar');
-  if (app.replay || app.replayPicking) rp.classList.add('is-on');
-  rp.addEventListener('click', () => ((app.replay || app.replayPicking) ? askExitReplay() : enterReplay()));
+    app.replay ? 'Exit replay' : app.replayLoading ? 'Cancel replay loading' : app.replayPicking ? 'Cancel bar selection' : 'Replay this session bar by bar');
+  if (app.replay || app.replayPicking || app.replayLoading) rp.classList.add('is-on');
+  rp.disabled = !app.replay && !app.replayPicking && !app.replayLoading
+    && (!target?.current() || Boolean(app[pane === 2 ? 'loading2' : 'loading'] || app[pane === 2 ? 'loadFailed2' : 'loadFailed']));
+  rp.addEventListener('click', () => ((app.replay || app.replayPicking || app.replayLoading) ? askExitReplay() : enterReplay()));
   bar.appendChild(rp);
 
   // Snapshot. The chart is a picture people share, and the two things they
@@ -304,17 +377,23 @@ export function renderToolbar() {
   bar.appendChild(divider());
 
   // view + layout icons
-  bar.appendChild(iconBtn('fit', 'Reset view', () => app.chart && app.chart.resetScale()));
+  bar.appendChild(iconBtn('fit', 'Reset view', () => { if (currentTarget(target)) target.chart.resetScale(); }));
   // Anchor on the button that was clicked: by the time the handler runs,
   // bar.lastChild is whatever the toolbar appended last, not this button.
   bar.appendChild(iconBtn('grid', 'Grid', (ev) => {
-    const v = el('vgrid'), h = el('hgrid');
+    if (!currentTarget(target)) return;
+    const grid = target.chart.gridOptions();
     popupMenu(ev.currentTarget, [
-      { label: 'Both', on: v.checked && h.checked, onSelect: () => { v.checked = h.checked = true; v.dispatchEvent(new Event('change')); h.dispatchEvent(new Event('change')); } },
-      { label: 'Horizontal', on: !v.checked && h.checked, onSelect: () => { v.checked = false; h.checked = true; v.dispatchEvent(new Event('change')); h.dispatchEvent(new Event('change')); } },
-      { label: 'Vertical', on: v.checked && !h.checked, onSelect: () => { v.checked = true; h.checked = false; v.dispatchEvent(new Event('change')); h.dispatchEvent(new Event('change')); } },
-      { label: 'None', on: !v.checked && !h.checked, onSelect: () => { v.checked = h.checked = false; v.dispatchEvent(new Event('change')); h.dispatchEvent(new Event('change')); } },
-    ]);
+      ['Both', true, true], ['Horizontal', false, true], ['Vertical', true, false], ['None', false, false],
+    ].map(([label, vertLines, horzLines]) => ({
+      label, on: grid.vertLines === vertLines && grid.horzLines === horzLines,
+      onSelect: () => {
+        if (!currentTarget(target)) return;
+        target.chart.setGridOptions({ vertLines, horzLines });
+        if (target.pane === 1) { el('vgrid').checked = vertLines; el('hgrid').checked = horzLines; }
+        autosave();
+      },
+    })));
   }));
   // The magnet is the rail's three-way mode (off, weak, strong); this button
   // cycles it, so the shell and the rail can never disagree.
@@ -322,7 +401,7 @@ export function renderToolbar() {
     'snaps anchors to O/H/L/C; off, weak, strong');
   if (magnetMode() !== 'off') mg.classList.add('is-on');
   bar.appendChild(mg);
-  bar.appendChild(iconBtn('camera', 'Save PNG', () => el('save').click()));
+  bar.appendChild(iconBtn('camera', 'Save PNG', () => downloadSnapshot(target)));
   const fs = iconBtn(isChartFull() ? 'fullscreenExit' : 'fullscreen',
     isChartFull() ? 'Exit full screen (Esc)' : 'Full screen chart', toggleChartFullscreen);
   if (isChartFull()) fs.classList.add('is-on');
@@ -336,24 +415,26 @@ export function renderToolbar() {
   // user had no way to reach them, which also stranded the Trading tab's
   // entry and exit colours with nothing on the chart to recolour.
   bar.appendChild(divider());
-  const buy = tbtn('<b>Buy</b>', 'Place a Buy OCO bracket: entry, target and stop');
+  const buy = tbtn('<b>Buy</b>', 'Place a Buy OCO bracket: entry, target and stop', pane === 2 ? 'Trading simulation is available on chart 1' : undefined);
+  buy.disabled = pane === 2;
   buy.classList.add('tbtn--buy');
-  buy.addEventListener('click', () => el('buy').click());
+  buy.addEventListener('click', () => { if (pane === 1 && currentTarget(target)) el('buy').click(); });
   bar.appendChild(buy);
-  const sell = tbtn('<b>Sell</b>', 'Place a Sell OCO bracket: entry, target and stop');
+  const sell = tbtn('<b>Sell</b>', 'Place a Sell OCO bracket: entry, target and stop', pane === 2 ? 'Trading simulation is available on chart 1' : undefined);
+  sell.disabled = pane === 2;
   sell.classList.add('tbtn--sell');
-  sell.addEventListener('click', () => el('sell').click());
+  sell.addEventListener('click', () => { if (pane === 1 && currentTarget(target)) el('sell').click(); });
   bar.appendChild(sell);
 
   bar.appendChild(divider());
-  bar.appendChild(iconBtn('gear', 'Chart settings (or right-click the chart)', () => openChartSettings()));
+  bar.appendChild(iconBtn('gear', 'Chart settings (or right-click the chart)', () => openChartSettings(undefined, target)));
   bar.appendChild(iconBtn('save', 'Save layout', () => el('lsave').click()));
-  bar.appendChild(iconBtn('restore', 'Restore layout', () => el('lload').click()));
-  // The layout as a file, both ways. The legacy buttons own the work
-  // (persist.js wires them); these only reach them, since the legacy bar
-  // is display:none and a hidden button is one nobody can click.
-  bar.appendChild(iconBtn('download', 'Export layout file', () => el('lexport').click()));
-  bar.appendChild(iconBtn('upload', 'Import layout file', () => el('limport').click()));
+  const layouts = tbtn('Layouts', 'Named layouts');
+  layouts.setAttribute('aria-label', 'Layouts');
+  layouts.setAttribute('aria-haspopup', 'dialog');
+  layouts.setAttribute('aria-controls', 'workspacemodal');
+  layouts.addEventListener('click', () => { layouts.focus(); app.openLayouts?.(); });
+  bar.appendChild(layouts);
 
   const status = document.createElement('div');
   status.className = 'status';
@@ -364,6 +445,7 @@ export function renderToolbar() {
   // assign to #status directly and every one of them would have to remember.
   status.addEventListener('pointerenter', () => { status.title = statusText.textContent; });
   bar.appendChild(status);
+  app.refreshWorkspaceControls?.();
 }
 
 export function tbtn(html, title, sub) {
@@ -389,5 +471,8 @@ export function divider() {
 
 export function initToolbar(a) {
   app = a;
-  document.addEventListener('fullscreenchange', () => { hideTip(); syncFullscreenChrome(); renderToolbar(); });
+  document.addEventListener('fullscreenchange', () => {
+    if (!isChartFull()) app.fullscreenPane = null;
+    hideTip(); syncFullscreenChrome(); renderToolbar();
+  });
 }

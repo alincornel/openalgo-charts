@@ -12,6 +12,7 @@
  * plots its own maths pays nothing for the catalog.
  */
 import type { Bar } from './bar';
+import type { AlertEventPayload } from '../alerts/types';
 import type { SeriesType } from './chart-type-registry';
 import type { SeriesStyle } from '../render/series-style';
 import type { PriceScaleId, PriceFormat } from './series';
@@ -494,24 +495,21 @@ export interface IndicatorBarsRequest {
 export type IndicatorBarsProvider = (request: IndicatorBarsRequest) => Promise<readonly Bar[]>;
 
 /** Payload of the `'indicator:alert'` event on the chart's own bus. */
-export interface IndicatorAlertPayload {
+export interface IndicatorAlertPayload extends AlertEventPayload {
   /** Descriptor id, e.g. `'macd'`. */
   indicatorId: string;
   /** Instance id, so a host can tell three EMAs apart. */
   instanceId: string;
-  alertId: string;
-  title: string;
   message: string;
-  /** The bar that triggered it: UTC seconds, and its index in `bars`. */
-  time: number;
-  index: number;
 }
 
-/** Optional instrument identity supplied by the host. */
+/** Optional instrument identity and capability supplied by the host. */
 export interface ChartDataContext {
   symbol?: string;
   exchange?: string;
   interval?: string;
+  /** Instrument capability, independent of readings: false unsupported, absent unknown. */
+  hasOpenInterest?: boolean;
 }
 
 /** Source identity changed, or the available source-bar range changed. */
@@ -615,6 +613,20 @@ export interface IndicatorDescriptor {
   category?: string;
   /** `'onchart'` overlays the price pane; `'pane'` gets its own pane. */
   placement: 'onchart' | 'pane';
+  /**
+   * This indicator was written from code the host can show the user.
+   *
+   * Its legend row then carries a source button beside the gear, and pressing
+   * it emits `indicatorSource` with the same payload `indicatorSettings`
+   * carries. The engine does not hold the code and does not want to: a
+   * descriptor may be compiled from a script, generated, or written by hand in
+   * the host's own bundle, and only the host knows which of those it can put in
+   * front of somebody. So this says a button is worth offering, and the host
+   * decides what the button opens.
+   *
+   * Absent or false draws no button, which is every built-in study.
+   */
+  hasSource?: boolean;
   inputs: readonly IndicatorInput[];
   plots: readonly IndicatorPlot[];
   /**
@@ -641,7 +653,7 @@ export interface IndicatorDescriptor {
   ): IndicatorValues;
   /**
    * Optional per-instance lifecycle, for indicators whose data is not derived
-   * from the chart's bars (open interest, CVD, an external feed). Called once
+   * from the chart's bars (CVD, PCR, an external feed). Called once
    * when the instance is created; return a teardown function.
    *
    * Fetch into `ctx.store`, then call `ctx.requestRecompute()` — `calc` runs
@@ -680,6 +692,24 @@ export interface IndicatorDescriptor {
     values: IndicatorValues;
     settings: Readonly<IndicatorSettings>;
   }): readonly SeriesMarker[];
+  /**
+   * What `aboveBar` and `belowBar` are measured against.
+   *
+   * `'plot'`, the default, is this study's own first plot, which is right for a
+   * mark that belongs to the line: an arrow on a moving average sits against
+   * the average.
+   *
+   * `'price'` is the instrument's candles, so above is above the high and below
+   * is below the low. That is what a buy or sell signal on an overlay study
+   * means, and anchoring one to the study's own column instead puts it wherever
+   * that column happens to sit: a study that anchors its marks to a mid-body
+   * line draws every "below" mark through the middle of the candle.
+   *
+   * Ignored by a study in its own pane, which has no candles to measure
+   * against, and ignored when the chart has no primary series yet. Both fall
+   * back to the first plot rather than dropping the marker.
+   */
+  markerAnchor?: 'plot' | 'price';
   /**
    * Optional summary grid pinned to a corner of the pane.
    *

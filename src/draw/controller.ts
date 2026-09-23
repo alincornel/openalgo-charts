@@ -18,7 +18,7 @@
 // is a different type, and a consumer passing the real one got "separate
 // declarations of a private property". The entry is external to tier builds,
 // so this survives as `from 'openalgo-charts'` and stays one identity.
-import type { IPrimitive, DataLayer } from 'openalgo-charts';
+import type { IPrimitive, DataLayer, AlertDrawingValue, AlertDrawingInfo } from 'openalgo-charts';
 import type {
   Drawing, DrawingInput, DrawingPatch, DrawingPoint, DrawingStyle, DrawingTool, DrawingsDocument,
   MagnetMode, ScreenPoint,
@@ -329,6 +329,7 @@ export class DrawingController {
     this._off.push(chart.on('drag:end', () => this._onDragEnd()));
     this._off.push(chart.on('drag:cancel', () => this._onDragCancel()));
     this._off.push(chart.on('dblclick', () => { this.finish(); }));
+    this._off.push(chart.on('drawings:restore', document => this.fromJSON(document)));
     // Restore anything a previous session left in the chart state. A 1.9.x
     // save is a bare array; the migration upgrades it in place.
     const saved = chart.drawingState();
@@ -407,6 +408,41 @@ export class DrawingController {
 
   public get(id: string): Drawing | undefined {
     return this._drawings.find((d) => d.id === id);
+  }
+
+  /** Supported numeric levels, independent of whether the queried time lies on the shape. */
+  public alertInfo(id: string): AlertDrawingInfo {
+    const drawing = this.get(id);
+    if (!drawing || !hasDrawingTool(drawing.tool)) return { available: false, reason: 'Drawing is unavailable', levels: [] };
+    const tool = getDrawingTool(drawing.tool);
+    if (!tool.alertValue) return { available: false, reason: 'This tool has no numeric alert value', paneIndex: drawing.paneIndex, levels: [] };
+    const levels = tool.alertLevels?.(drawing) ?? [{ id: 'line', title: 'Line' }];
+    if (!this._chart.timeToCoordinate || !this._chart.priceToCoordinate || !this._chart.coordinateToPrice) {
+      return { available: false, reason: 'Drawing coordinate maps are unavailable', levels: [], paneIndex: drawing.paneIndex };
+    }
+    return { available: levels.length > 0, reason: levels.length ? undefined : 'No active drawing levels',
+      paneIndex: drawing.paneIndex, levels: levels.map(level => ({ ...level })) };
+  }
+
+  /** Numeric drawing value using the actual pane projection and collapsed time axis. */
+  public valueAt(id: string, time: number, level?: string): AlertDrawingValue | undefined {
+    const drawing = this.get(id);
+    if (!drawing || !hasDrawingTool(drawing.tool) || !Number.isFinite(time)) return undefined;
+    const tool = getDrawingTool(drawing.tool);
+    const toX = this._chart.timeToCoordinate;
+    const fromY = this._chart.coordinateToPrice;
+    if (!tool.alertValue || !toX || !fromY) return undefined;
+    const pts: ScreenPoint[] = [];
+    for (const point of drawing.points) {
+      const pixel = this._toPixel(point, drawing.paneIndex);
+      if (!pixel) return undefined;
+      pts.push(pixel);
+    }
+    const x = toX.call(this._chart, time);
+    if (!Number.isFinite(x)) return undefined;
+    const value = tool.alertValue({ drawing, pts, time, x, fromY: y => fromY.call(this._chart, y, drawing.paneIndex) }, level);
+    if (!value || !Number.isFinite(value.price) || (value.upperPrice !== undefined && !Number.isFinite(value.upperPrice))) return undefined;
+    return { ...value, paneIndex: drawing.paneIndex };
   }
 
   /** Add a fully-specified drawing (import, or a host-authored one). */

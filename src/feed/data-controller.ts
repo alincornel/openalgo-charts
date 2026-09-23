@@ -310,6 +310,8 @@ export class DataLoadingController {
         byTime.set(live.time, historical ? { ...historical,
           high: Math.max(historical.high, live.high), low: Math.min(historical.low, live.low), close: live.close,
           volume: historical.volume === undefined && live.volume === undefined ? undefined : Math.max(historical.volume ?? 0, live.volume ?? 0),
+          // Absence on the newer observation must not inherit an older level.
+          oi: live.oi,
         } : live);
       }
       this._bars = normalize([...byTime.values()]);

@@ -1,16 +1,41 @@
 # OpenAlgo Charts - Architecture & Design Document
 
 > A from-scratch, canvas-based financial charting engine for OpenAlgo.
-> Target: **< 50 KB Brotli** for the full package (engine + trade overlay), no runtime dependencies. *(Brotli is the size metric we hold the budget against - see §11. Gzip runs ~10-15% larger.)*
+> Historical pre-implementation target: **< 50 KB Brotli** for the full package (engine + trade overlay), no runtime dependencies. *(Brotli is the size metric we hold the budget against - see §11. Gzip runs ~10-15% larger.)*
 > Goal: professional-grade interactive financial-chart rendering + advanced on-chart trading & trade management.
 
-> **Status: implemented in 2.2.0.** Version 2.2.0 expands the drawing registry to 85 tools, adds native curve geometry and guided multi-point placement, and tightens label, volume-window and hit-test work. Version 2.1.9 adds chart-owned vector branding, optional persisted text watermarks and guarded logo gestures.  Version 2.1.8 normalizes trackpad and wheel input, routes gestures by axis, eases automatic price projections and adds dedicated mobile widget controls. Version 2.1.7 adds shared object management, a searchable Objects panel and dialogs sized to their host. Version 2.1.6 adds shared history ownership, request scheduling, resilient cache snapshots, managed external-study context and visible widget retry states. The design below includes the footprint styles, configurable statistics table and quantity/lot display. Version 2.1.4 restores two-axis mouse and pen panning by default, while retaining horizontal-only panning as an explicit preference. Version 2.1.3 added saved navigation preferences and a reset control. Version 2.1.2 isolates external-study data contexts, strengthens history/live recovery, accepts current OpenAlgo protocol frames and adds optional widget stylesheet nonces. The pre-implementation size estimates in this document have been superseded by measured `size-limit` (Brotli) figures, which live in the README size budget and are re-measured on every release: on the 2.2.0 build the base engine is **76.22 KB**, base + trade **83.83 KB**, and everything (all eight tiers) **212.52 KB**. The original "under 50 KB" target below is kept as history; the budgets that are enforced are the per-tier rows in `.size-limit.json`. See the *Revision log* for the point-by-point mapping and §13a for the honest deferred list.
+> **Current release: 2.4.8.** Nine independently loadable tiers include optional workspace documents and asynchronous catalog storage. Alert threshold drafts preview separately from evaluation and commit once on release. The 2.4.8 build measures **92.94 kB** base, **100.95 kB** base + trade and **246.63 kB** for all tiers (decimal Brotli sizes). Current measurements are in the README size budget; historical estimates and release measurements below remain labeled as such.
+>
+> **Earlier implementation history.** Version 2.2.0 expands the drawing registry to 85 tools, adds native curve geometry and guided multi-point placement, and tightens label, volume-window and hit-test work. Version 2.1.9 adds chart-owned vector branding, optional persisted text watermarks and guarded logo gestures.  Version 2.1.8 normalizes trackpad and wheel input, routes gestures by axis, eases automatic price projections and adds dedicated mobile widget controls. Version 2.1.7 adds shared object management, a searchable Objects panel and dialogs sized to their host. Version 2.1.6 adds shared history ownership, request scheduling, resilient cache snapshots, managed external-study context and visible widget retry states. The design below includes the footprint styles, configurable statistics table and quantity/lot display. Version 2.1.4 restores two-axis mouse and pen panning by default, while retaining horizontal-only panning as an explicit preference. Version 2.1.3 added saved navigation preferences and a reset control. Version 2.1.2 isolates external-study data contexts, strengthens history/live recovery, accepts current OpenAlgo protocol frames and adds optional widget stylesheet nonces. The pre-implementation size estimates in this document have been superseded by measured `size-limit` (Brotli) figures, which live in the README size budget and are re-measured on every release: on the 2.2.0 build the base engine is **76.22 KB**, base + trade **83.83 KB**, and everything (all eight tiers) **212.52 KB**. The original "under 50 KB" target below is kept as history; the budgets that are enforced are the per-tier rows in `.size-limit.json`. See the *Revision log* for the point-by-point mapping and §13a for the honest deferred list.
 
 <p align="center">
-  <img src="docs/architecture-diagram.svg" alt="OpenAlgo Charts layered architecture" width="900" />
+  <img src="docs/architecture-diagram.svg" alt="OpenAlgo Charts 2.4.8: host boundary, base engine data flow and controllers, and eight optional capability tiers" width="900" />
 </p>
 
+The diagram separates host orchestration from the base engine and its eight optional
+tiers. Alerts, replay groups, comparison and shared loading belong to base. The
+workspace tier supplies portable documents and storage; the host builds and activates
+the grid. Brokers remain authoritative for execution, and the host delivers alert
+notifications. Pipeline arrows show data flow, not package dependencies.
+
 ---
+
+## Current integration map
+
+For 2.4.8 integrations, start with these current guides and implementation
+boundaries. The numbered design sections below retain historical plans and
+explicitly labeled estimates; use the current API types for implementation.
+
+| Responsibility | Current implementation | Guide |
+|---|---|---|
+| Loading and metadata | Shared data controller, instrument adapter, request pool and closed-bar cache; host applies snapshots to series | [Data loading](https://marketcalls.github.io/openalgo-charts/docs/data-loading/) |
+| Open interest | Optional `Bar.oi`, latest-observation aggregation and separate instrument capability | [Open interest](docs/open-interest.md) |
+| Trader alerts | Base `AlertController`, committed evaluation thresholds, durable lifecycle and host-owned delivery | [Trader alerts](https://marketcalls.github.io/openalgo-charts/docs/alerts/) |
+| Replay and linking | Base `ReplayController`, `ReplayGroup` and `LinkGroup`; availability clock and host callbacks | [Replay](https://marketcalls.github.io/openalgo-charts/docs/market-replay/) |
+| Workspaces | Optional portable documents, revisioned repository and async storage; host builds and activates charts | [Workspaces](docs/workspaces.md) |
+| Chart export | Loaded or revealed bars, study values and comparison closes; host delivers the CSV | [Chart data](docs/chart-data-export.md) |
+| Custom studies | Descriptor registry in base; optional built-ins and external-data helpers | [Indicators](https://marketcalls.github.io/openalgo-charts/docs/indicators/) |
+| Host interface | Canvas containers in base; toolbar, dialogs and translated controls in the widget | [Widget](docs/widget.md) |
 
 ## 0. Why from scratch (and the principles we follow)
 
@@ -26,7 +51,7 @@ We are writing our own engine from scratch, with no external charting dependency
 | **Renderers are pure functions of draw-data** | Renderer takes a plain data object + canvas context, draws, returns. No state, easy to test, tree-shakeable. |
 | **Primitive/plugin extension API** with views + lifecycle + z-order + hit-test | The trade layer (order lines, DOM ladder) and markers/events are *primitives*, not hardcoded, keeps core lean. See §8. |
 
-What we explicitly **leave out** to hit the size budget: yield-curve charts, options-mode chart, multiple horizontal-scale behaviors, full i18n. **We keep line/area/baseline/HLC-area**: they're cheap Family-A renderers (see §6A) and are in the requested type list. Heavy chart types (footprint/orderflow/profile) and the trade layer are opt-in tiers (§2).
+The original scope excluded yield-curve charts, an options-mode chart and multiple horizontal-scale behaviors. The widget now supplies typed translation keys with English fallback; hosts translate their own content and supply provider data. **We keep line/area/baseline/HLC-area**: they're cheap Family-A renderers (see §6A) and are in the requested type list. Heavy chart types (footprint/orderflow/profile) and the trade layer are opt-in tiers (§2).
 
 ### 0.1 Licensing & attribution (decision: locked)
 
@@ -77,7 +102,7 @@ src/
 │   ├── chart.ts             # top-level orchestrator (owns panes, scales, model)
 │   └── pane.ts              # a stacked drawing region (price pane, volume pane…)
 ├── model/
-│   ├── data-store.ts        # shared DataLayer: merge-by-time, logical indices, prepend/merge (§4)
+│   ├── data-layer.ts        # shared DataLayer: merge-by-time, logical indices, prepend/merge (§4)
 │   ├── bar.ts               # bar/point types, plot-row shape
 │   └── series.ts            # one series (data + style + which renderer)
 ├── scale/
@@ -136,13 +161,13 @@ src/
     └── dialogs/             # settings, indicator picker and settings, drawing properties, levels, text, context menu
 ```
 
-> **model/ note:** `data-store.ts` is the *shared* DataLayer (merges all series by time to logical indices), not a per-series store, see §4. Per-series plot rows hang off it.
+> **model/ note:** `data-layer.ts` is the *shared* DataLayer (merges all series by time to logical indices), not a per-series store, see §4. Per-series plot rows hang off it.
 
 ### Size budget (raw minified to est. Brotli)
 
 > **Methodology (point of record):** numbers are **Brotli-compressed**. Since we have zero runtime dependencies, nothing is excluded from the measurement. Raw-minified ≈ 3 to 3.5× the Brotli figure; gzip ≈ 1.1 to 1.15× Brotli. **All figures below are pre-implementation estimates** and the first deliverable of Phase 1 is to wire `size-limit` and replace them with measured values.
 
-We split the package into **eight loadable tiers** so the base stays tiny and heavy features are opt-in (dynamic `import()` / separate entry points). This keeps the base engine at 76.22 KB Brotli while supporting 102 indicators, 85 drawing tools, 15 chart types, footprint/TPO/orderflow, a GPU render backend and, in the eighth tier, the chrome itself (§8.5). Measured sizes for every tier are in the README size budget.
+The current package has **nine loadable tiers**, selected through separate entry points or dynamic `import()`: base, trade, transform, profile, indicators, draw, webgl, widget and workspace. The widget supplies interface controls (§8.5); workspace supplies validated portable documents, indicator templates, revisioned catalogs and asynchronous storage without DOM or registration side effects. Measured sizes for every tier are in the README size budget. The three groups below preserve the original pre-implementation estimates.
 
 **Tier 1, Base bundle (always loaded):**
 
@@ -327,7 +352,15 @@ Conversion rules (in `feed/`, never in the core):
 - WS epoch ms, `floor(ms / 1000)`, to `UTC seconds`.
 - Intraday bar timestamps are the **bar-open** time, bucketed by the candle builder (§10.2).
 
-### 4.1 Shared DataLayer (`model/data-store.ts`): review point 3
+### 4.1 Shared DataLayer (`model/data-layer.ts`): review point 3
+
+`Bar.oi?: number` carries open interest at the bar's timestamp. It is a level,
+where volume is a flow: historical conflation and higher-timeframe buckets take
+the latest defined open-interest reading and sum volume. Missing open interest
+remains missing, including an entire bucket with no readings; zero is a valid
+observation. One-to-one transforms preserve it and price-generated bars omit it.
+Live builders clear a prior level when the current tick has no reading, and
+partial replay cannot read the completed bar's level before it is revealed.
 
 The store is **not per series.** There is one `DataLayer` per chart that merges *all* series (price, volume, every indicator, across every pane) onto a single time axis. This is what guarantees pane sync (§3.3) and correct alignment of price + volume + indicators.
 
@@ -703,7 +736,7 @@ The engine ships no DOM, so every toolbar, dialog, rail and popover a user meets
 
 ### 8.5 The widget tier (`widget/`): the chrome as a package
 
-Every claim in 8.4 about the host still holds for the engine: `openalgo-charts` and the six tiers beneath the widget ship no DOM. What 8.4 left every host to write, though, is the same toolbar, rail, settings dialog and right-click menu, and a host that only wanted a terminal was rebuilding the demo. `openalgo-charts/widget` is that host, packaged: `createWidget(container, options)` puts a `.oac-widget` root into the container with a top bar, a stage (the rail beside the chart) and a status line, creates the chart and the drawing controller inside it, and hands every mounted piece one `WidgetContext`. It is a tier rather than a base feature for the same reason the trade layer is: a host that never calls it downloads none of it, and the base row in `.size-limit.json` did not move.
+Every claim in 8.4 about the host still holds for the engine: the base creates chart containers and canvases, while application controls remain outside the eight non-widget tiers. What 8.4 left every host to write, though, is the same toolbar, rail, settings dialog and right-click menu, and a host that only wanted a terminal was rebuilding the demo. `openalgo-charts/widget` is that host, packaged: `createWidget(container, options)` puts a `.oac-widget` root into the container with a top bar, a stage (the rail beside the chart) and a status line, creates the chart and the drawing controller inside it, and hands every mounted piece one `WidgetContext`. It is a tier rather than a base feature for the same reason the trade layer is: a host that never calls it downloads none of it, and the base row in `.size-limit.json` did not move.
 
 - **It drives the engine only through the public API, and the build proves it.** The widget imports `openalgo-charts` and `openalgo-charts/draw` by their package specifiers and nothing by path; the ESLint tier ACL rejects a relative import of `../core` or `../draw` in `src/widget/` (which would inline a second `Chart` or `DrawingController` into the bundle) and rejects any import of the widget from another tier. Rollup marks every `openalgo-charts/<tier>` specifier external and emits sibling paths, `check-dts.mjs` fails a widget declaration file that declares `DrawingController`, and `check-shake.mjs` asserts the `oac-widget` CSS scope is absent from a chart-only build. The skills coverage script imports the built tier under Node, so a module-scope `document` access fails the release: only `createWidget` may touch the DOM.
 - **Every dialog is generated, never hand-listed.** Chart settings come from `chartSettingsSchema`, indicator settings from the descriptor's inputs and generated style keys, drawing properties from `drawingSettingsSchema`, the right-click menu from the `contextmenu` payload and `priceAxisState`. One control renderer (`form.ts`) draws them all, which is how the paired up/down colour row, the styled checkbox and select and the swatch size from the UI standard are decided once. A control therefore exists only where the engine has something behind it, which is the defect CLAUDE.md names.
@@ -988,19 +1021,18 @@ reader of that version sees. Three rules fell out of getting this wrong:
 
 ## 13a. Deferred / not-yet-implemented (honest status)
 
-These are designed-for but **not implemented** as of 2.0.0. They are documented
-here so the architecture doesn't over-promise:
+The current implementation keeps these boundaries in 2.4.8:
 
 - **Separate price/time axis-widget canvases** - axes draw within the pane
   canvas by design (small-engine simplification).
 - **Primitive price/time axis *views*** - primitives draw in the pane + hit-test
   + autoscale + lifecycle; dedicated fixed axis-label views are future work.
-- **OpenAlgo adapter wire schemas** (REST order fields, WS message shape) - the
-  adapters exist with injectable transports + offline tests, but the exact field
-  names should be verified against a running OpenAlgo build before production.
-- **One hidden overlay scale per pane** - every symbol comparison on a pane
-  shares one baseline; a second comparison on the same pane is quoted against
-  the first instrument's price until the overlay scales are keyed.
+- **OpenAlgo adapter conformance**: injectable transports and offline fixtures
+  cover REST and WebSocket wire fields. Validate each connected provider's
+  capabilities, timestamps, session rules and reconnect behavior in the host.
+- **Independent comparison scales are implemented.** Each comparison retains its
+  source units and baseline through named scales. Comparisons are no longer
+  restricted to one shared hidden overlay scale per pane.
 - **Theme awareness in the profile primitives** - only `Footprint` reads
   `rc.theme`; `VolumeProfile`, `MarketProfile` and `HorizontalProfile` carry
   dark-tuned defaults and need explicit colours on a light theme.

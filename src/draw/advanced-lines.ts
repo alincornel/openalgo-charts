@@ -1,5 +1,6 @@
 /** Channels, pitchforks and dedicated line tools. Geometry stays in media pixels. */
 import type { DrawContext, DrawingPoint, DrawingTool, FibLevel, HitContext, ScreenPoint } from './types';
+import { channelAlertValue, channelAlertLevels, fibAlertValue, fibAlertLevels, lineAlertValue } from './alert-values';
 import { composeSettings, EXTEND_FIELDS, FILL_FIELDS, FONT_FIELDS, LEVEL_FIELDS, LINE_FIELDS, SHOW_LABELS_FIELD } from './schema';
 import { cloneLevels, formatRatio, levelColor } from './levels';
 import {
@@ -38,11 +39,13 @@ function channel(c: HitContext, lower: ScreenPoint[]): DrawingGeometry {
 
 const disjoint = geometryTool({
   id: 'disjoint-channel', name: 'Disjoint Channel', points: 4,
+  alertValue: channelAlertValue('disjoint'), alertLevels: channelAlertLevels,
   defaultStyle: { fill: true }, settings: CHANNEL_SETTINGS,
 }, c => c.pts.length < 4 ? empty() : channel(c, c.pts.slice(2, 4)));
 
 const flat = geometryTool({
   id: 'flat-top-bottom', name: 'Flat Top/Bottom', points: 3,
+  alertValue: channelAlertValue('flat'), alertLevels: channelAlertLevels,
   defaultStyle: { fill: true }, settings: CHANNEL_SETTINGS,
   constrain(points) {
     const out = points.map(p => ({ ...p }));
@@ -168,6 +171,7 @@ const info = geometryTool({ id: 'info-line', name: 'Info Line', points: 2, angle
 });
 
 const angle = geometryTool({ id: 'trend-angle', name: 'Trend Angle', points: 2, angleLock: true,
+  alertValue: lineAlertValue(),
   defaultStyle: { showLabels: true }, settings: composeSettings([LINE_FIELDS, SHOW_LABELS_FIELD, FONT_FIELDS]),
 }, c => {
   if (c.pts.length < 2) return empty();
@@ -178,6 +182,7 @@ const angle = geometryTool({ id: 'trend-angle', name: 'Trend Angle', points: 2, 
 });
 
 const extension = geometryTool({ id: 'fib-extension-two-point', name: 'Fib Extension (Two Point)', points: 2,
+  alertValue: fibAlertValue(2, EXTENSION_LEVELS), alertLevels: fibAlertLevels(EXTENSION_LEVELS),
   defaultStyle: { levels: cloneLevels(EXTENSION_LEVELS), showLabels: true, fill: true, fillOpacity: 0.06 },
   settings: composeSettings([LINE_FIELDS, LEVEL_FIELDS, FILL_FIELDS, EXTEND_FIELDS, FONT_FIELDS]),
 }, c => {

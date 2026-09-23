@@ -137,6 +137,9 @@ export function toast(kind, message, opts = {}) {
  */
 export const OVERLAY_CLOSE = {
   setmodal: '#set-x', cmpmodal: '#cmp-x', chartset: '#cset-x',
+  workspacemodal: '#ws-close',
+  templatemodal: '#tp-close',
+  indsource: '#indsource-close',
   replayleave: '#rp-leave-stay',
   snapmenu: 'hide', ctxmenu: 'hide', axmenu: 'hide',
 };
@@ -270,6 +273,7 @@ export function closeTopOverlay() {
  * that, and Tab stays inside it.
  */
 export function overlayKeydown(e) {
+  if (app?.alertUi?.isOpen() || app?.alertUi2?.isOpen()) return;
   const top = stack[stack.length - 1];
   if (!top) return;
   if (e.key === 'Escape') {

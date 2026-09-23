@@ -23,6 +23,7 @@ const INIT = {
   'feed.js': 'initFeed',
   'hover.js': 'initHover',
   'indicators.js': 'initIndicators',
+  'indicator-source.js': 'initIndicatorSource',
   'link.js': 'initLink',
   'menus.js': 'initMenus',
   'orders.js': 'initOrders',
@@ -35,22 +36,23 @@ const INIT = {
   'timezone.js': 'initTimezone',
   'toolbar.js': 'initToolbar',
   'volume.js': 'initVolume',
+  'workspaces.js': 'initWorkspaces',
+  'templates.js': 'initTemplates',
 };
 
 describe('demo modules', () => {
   it('lists the modules the README documents', () => {
     expect(MODULES).toEqual([
-      'axis-chrome.js', 'bracket.js', 'chart-settings.js', 'clipboard.js', 'compare.js',
-      'drawing.js', 'expression.js', 'feed.js', 'hover.js', 'indicators.js', 'intervals.js', 'level-editor.js',
-      'link.js', 'menus.js', 'orders.js', 'persist.js', 'properties.js', 'rail-flyout.js',
-      'rail.js', 'replay.js', 'snapshot.js', 'split.js', 'status.js', 'text-editor.js',
-      'timezone.js', 'toolbar.js', 'transforms.js', 'ui.js', 'volume.js',
+      'alerts.js', 'axis-chrome.js', 'bracket.js', 'chart-data.js', 'chart-settings.js', 'clipboard.js', 'compare.js',
+      'drawing.js', 'expression.js', 'feed.js', 'hover.js', 'indicator-source.js', 'indicator-templates.js', 'indicators.js', 'intervals.js', 'level-editor.js',
+      'link.js', 'menus.js', 'orders.js', 'pane-target.js', 'persist.js', 'properties.js', 'rail-flyout.js',
+      'rail.js', 'replay-timing.js', 'replay.js', 'snapshot.js', 'split.js', 'status.js', 'templates.js', 'text-editor.js',
+      'timezone.js', 'toolbar.js', 'transforms.js', 'ui.js', 'volume.js', 'workspace-catalog.js', 'workspace-document.js', 'workspace-host.js', 'workspace-transition.js', 'workspaces.js',
     ]);
   });
 
-  it('uses engine branding once and keeps both chart contexts current', () => {
+  it('uses engine branding once and snapshots it before teardown', () => {
     const main = readFileSync(SRC + 'main.js', 'utf8');
-    const split = readFileSync(SRC + 'split.js', 'utf8');
 
     expect(main).not.toContain("from './watermark.js'");
     expect(main).not.toContain("id === 'watermark'");
@@ -58,9 +60,7 @@ describe('demo modules', () => {
     expect(snapshot).toBeGreaterThan(-1);
     expect(snapshot).toBeLessThan(main.indexOf('app.chart.destroy()'));
     expect(main).toContain('...decorations,');
-    expect(main).toContain("app.chart.setDataContext({ symbol: app.req.symbol, interval: app.req.interval });");
     expect(main).toContain("app.chart.on('branding:changed', renderToolbar)");
-    expect(split).toContain("app.chart2.setDataContext({ symbol: app.p2.symbol, interval: app.p2.interval });");
   });
 
   for (const file of MODULES) {

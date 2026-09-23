@@ -459,6 +459,11 @@ function readoutControls(chart: Chart): Control[] {
     statusSwitch('chartValues', 'Open, high, low, close', 'Show'),
     statusSwitch('barChange', 'Bar change', 'Show'),
     statusSwitch('volume', 'Volume', 'Show'),
+    boolCtl(
+      'statusLine.openInterest', 'Open interest', 'Show', false,
+      (c) => c.statusLineOptions().openInterest === true,
+      (c, v) => c.setStatusLineOptions({ openInterest: v }),
+    ),
     statusSwitch('lastDayChange', 'Change since previous close', 'Show'),
     statusSwitch('lastValueLabel', 'Indicator values', 'Show'),
     // The plate is the one switch that is off by default: the row has never had
@@ -653,6 +658,8 @@ function appearanceControls(chart: Chart): Control[] {
 
     selectCtl('canvas.crosshairMode', 'Mode', 'Crosshair', 'normal', CROSSHAIR_MODES,
       (c) => c.crosshairMode(), (c, v) => c.applyOptions({ crosshairMode: v === 'magnet' ? 'magnet' : 'normal' })),
+    boolCtl('canvas.crosshairSnapToBar', 'Snap to candle center', 'Crosshair', false,
+      (c) => c.crosshairSnapToBar(), (c, v) => c.applyOptions({ crosshairSnapToBar: v })),
     colorCtl('canvas.crosshair.color', 'Color', 'Crosshair', t.crosshair,
       (c) => cross(c).color ?? t.crosshair, (c, v) => c.setCanvasOptions({ crosshair: { color: v } })),
     selectCtl('canvas.crosshair.style', 'Style', 'Crosshair', t.crosshairStyle ?? 'dashed', LINE_STYLES,

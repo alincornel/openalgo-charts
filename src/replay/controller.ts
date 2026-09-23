@@ -18,6 +18,8 @@
 import type { Bar } from '../model/bar';
 import type { SeriesApi } from '../model/series';
 import { clamp } from '../helpers/math';
+import { setReplayWindow } from '../model/replay-window';
+import { ReplayTimeline, type ReplayTiming } from './timeline';
 
 /** Schedules a repeating callback and returns its canceller. Inject in tests. */
 export type ReplayScheduler = (cb: () => void, intervalMs: number) => () => void;
@@ -63,7 +65,7 @@ export interface ReplayChartHost {
 
 /** Everything a transport bar and a clock need, in one object. */
 export interface ReplayState {
-  /** 0-based index of the newest bar currently on the chart. */
+  /** 0-based newest bar; -1 before the first observation in timed replay. */
   index: number;
   /** Bars in the replay set (the scrub bar's maximum is `total - 1`). */
   total: number;
@@ -88,6 +90,12 @@ export interface ReplayState {
 }
 
 export interface ReplayOptions {
+  /** Explicit candle availability for time-aligned replay. Omitted preserves index-based replay. */
+  timing?: ReplayTiming;
+  /** Initial UTC availability time. Requires timing; otherwise startIndex selects a completed candle. */
+  startTime?: number;
+  /** False prepares and validates the snapshot without changing the chart. Default true. */
+  autoStart?: boolean;
   /**
    * The series replay drives. The first one owns the timeline; any others (a
    * volume histogram, a comparison line) are truncated to the same instant by
@@ -162,13 +170,17 @@ function mergeSubBars(subs: readonly Bar[], from: number, to: number, time: numb
   let high = first.high;
   let low = first.low;
   let volume = first.volume ?? 0;
+  let oi = first.oi;
   for (let i = from + 1; i <= to; i++) {
     const b = subs[i];
     if (b.high > high) high = b.high;
     if (b.low < low) low = b.low;
     volume += b.volume ?? 0;
+    if (b.oi !== undefined) oi = b.oi;
   }
-  return { time, open: first.open, high, low, close: subs[to].close, volume };
+  return { time, open: first.open, high, low, close: subs[to].close, volume,
+    ...(oi === undefined ? {} : { oi }),
+  };
 }
 
 export class ReplayController {
@@ -183,6 +195,10 @@ export class ReplayController {
   private readonly _schedule: ReplayScheduler;
   private readonly _barMs: number;
   private readonly _startIndex: number;
+  private readonly _timeline: ReplayTimeline | null;
+  private readonly _startTime: number | null;
+  private _time: number | null = null;
+  private _pointIndex = -1;
   private readonly _subBars: readonly Bar[];
   /**
    * For each displayed bar, where its sub-bars start in `_subBars` and how many
@@ -237,6 +253,13 @@ export class ReplayController {
     this._subCount = buckets.count;
     this._startIndex = clamp(Math.floor(options.startIndex ?? 0), 0, Math.max(0, this._bars.length - 1));
     this._index = this._startIndex;
+    this._timeline = options.timing ? new ReplayTimeline(this._bars, this._subBars, options.timing) : null;
+    if (options.startTime !== undefined && (!this._timeline || !Number.isFinite(options.startTime))) {
+      throw new Error('openalgo-charts: replay start time must be finite and requires timing');
+    }
+    this._startTime = options.startTime ?? this._timeline?.ends[this._startIndex] ?? null;
+    this._time = this._startTime;
+    if (this._timeline) this._index = -1;
     const barMs = options.barMs ?? 1000;
     this._barMs = barMs > 0 ? barMs : 1000;
     const speed = options.speed ?? 1;
@@ -247,7 +270,11 @@ export class ReplayController {
     // Opening on a half-formed candle is not a position anyone asked for, so
     // entering replay lands on the last step of `startIndex`, the same place a
     // `seek` there would.
-    this._apply(this._startIndex, this._steps(this._startIndex) - 1);
+    if (options.autoStart !== false) {
+      if (this._timeline) {
+        if (this._startTime !== null) this.seekTime(this._startTime);
+      } else this._apply(this._startIndex, this._steps(this._startIndex) - 1);
+    }
   }
 
   /**
@@ -279,6 +306,7 @@ export class ReplayController {
 
   /** How many steps the bar at `index` takes. At least one, always. */
   private _steps(index: number): number {
+    if (this._timeline) return this._timeline.steps[index] ?? 1;
     if (!this._intra) return 1;
     return Math.max(1, this._subCount[index]);
   }
@@ -293,7 +321,38 @@ export class ReplayController {
    * the same slider position mean different things on the way past.
    */
   public seek(index: number): void {
+    if (this._timeline) {
+      const end = this._timeline.ends[clamp(Math.floor(index), 0, Math.max(0, this._bars.length - 1))];
+      if (end !== undefined) this.seekTime(end);
+      return;
+    }
     this._apply(index, this._steps(clamp(Math.floor(index), 0, Math.max(0, this._bars.length - 1))) - 1);
+  }
+
+  /** Project only observations available by these UTC seconds. Requires timing. */
+  public seekTime(time: number): void {
+    if (!this._timeline) throw new Error('openalgo-charts: replay seekTime requires timing');
+    if (!Number.isFinite(time)) throw new Error('openalgo-charts: replay time must be finite');
+    const pointIndex = this._timeline.at(time);
+    this._time = time;
+    if (this._active && pointIndex === this._pointIndex) return;
+    const first = !this._active, point = this._timeline.points[pointIndex];
+    this._active = true;
+    this._pointIndex = pointIndex;
+    this._index = point?.index ?? -1;
+    this._sub = point?.subIndex ?? 0;
+    const shown = this._bars.slice(0, this._index + 1);
+    if (point) shown[this._index] = point.bar;
+    this._write(shown, !!point && point.subIndex < point.subSteps - 1, first);
+  }
+
+  /** Availability clock in timed mode; the displayed bar's timestamp in legacy mode. */
+  public time(): number | null { return this._timeline ? this._time : this.state().bar?.time ?? null; }
+
+  /** Observation timestamps for a shared clock. Requires timing; returns a copy. */
+  public timePoints(): readonly number[] {
+    if (!this._timeline) throw new Error('openalgo-charts: replay timePoints requires timing');
+    return this._timeline.points.map(point => point.time);
   }
 
   /**
@@ -320,6 +379,15 @@ export class ReplayController {
    * partial first bucket, has no constant steps-per-bar to divide by.
    */
   private _advance(delta: number): void {
+    if (this._timeline) {
+      if (!Number.isFinite(delta)) throw new Error('openalgo-charts: replay step must be finite');
+      const steps = Math.trunc(delta);
+      if (steps === 0 || (steps < 0 && this._pointIndex < 0)) return;
+      const next = clamp(this._pointIndex + steps, 0, this._timeline.points.length - 1);
+      const point = this._timeline.points[next];
+      if (point) this.seekTime(point.time);
+      return;
+    }
     if (!this._intra) {
       this._apply(this._index + delta, 0);
       return;
@@ -349,7 +417,9 @@ export class ReplayController {
     const speed = options.speed;
     if (speed !== undefined && speed > 0) this._speed = speed;
     if (this._bars.length === 0) return;
-    this._apply(this._index, this._sub); // a host may go straight to play() after stop()
+    if (this._timeline) {
+      if (this._time !== null) this.seekTime(this._time);
+    } else this._apply(this._index, this._sub); // a host may go straight to play() after stop()
     if (this._atEnd()) {
       this._end();
       return;
@@ -383,6 +453,14 @@ export class ReplayController {
     this._active = false;
     this._index = this._startIndex;
     this._sub = 0;
+    if (this._timeline) {
+      this._time = this._startTime;
+      this._pointIndex = this._time === null ? -1 : this._timeline.at(this._time);
+      const point = this._timeline.points[this._pointIndex];
+      this._index = point?.index ?? -1;
+      this._sub = point?.subIndex ?? 0;
+    }
+    setReplayWindow(this._chart);
     for (let i = 0; i < this._series.length; i++) this._series[i].setData(this._restore[i]);
     // Bar spacing and right offset *are* the viewport: the visible logical
     // range is (baseIndex + rightOffset) back by width / barSpacing, and
@@ -397,7 +475,9 @@ export class ReplayController {
     const total = this._bars.length;
     const steps = total === 0 ? 1 : this._steps(this._index);
     let bar: Bar | null = null;
-    if (total > 0) {
+    if (this._timeline) {
+      bar = this._timeline.points[this._pointIndex]?.bar ?? null;
+    } else if (total > 0) {
       bar = this._bars[this._index];
       if (this._intra && this._sub < steps - 1 && this._subCount[this._index] > 0) {
         const from = this._subStart[this._index];
@@ -443,6 +523,15 @@ export class ReplayController {
       const from = this._subStart[next];
       shown[next] = mergeSubBars(this._subBars, from, from + nextSub, this._bars[next].time);
     }
+    const forming = this._intra && nextSub < steps - 1;
+    this._write(shown, forming, first);
+  }
+
+  private _write(shown: Bar[], forming: boolean, first: boolean): void {
+    // Other data owners must know the boundary before the primary write can
+    // paint or notify a host. A comparison added later reads the same boundary.
+    const lastTime = shown[shown.length - 1]?.time ?? Number.NEGATIVE_INFINITY;
+    setReplayWindow(this._chart, { time: lastTime, forming });
     this._series[0].setData(shown);
     // Followers cut by time, not by count: a volume series may be shorter than
     // the price series, or start later. Under intra-bar replay they stop at the
@@ -450,10 +539,9 @@ export class ReplayController {
     // candle are not the same operation and the controller is not told which it
     // has. A host that wants its follower to grow with the forming bar writes it
     // from `ReplayState.bar`, which `onFrame` hands over below.
-    const forming = this._intra && nextSub < steps - 1;
     const cutoff = forming
-      ? (next > 0 ? this._bars[next - 1].time : Number.NEGATIVE_INFINITY)
-      : this._bars[next].time;
+      ? (shown[shown.length - 2]?.time ?? Number.NEGATIVE_INFINITY)
+      : lastTime;
     for (let i = 1; i < this._series.length; i++) {
       const snap = this._restore[i];
       this._series[i].setData(snap.slice(0, countUpTo(snap, cutoff)));
@@ -486,6 +574,7 @@ export class ReplayController {
 
   /** True on the last step of the last bar, which is where playback stops. */
   private _atEnd(): boolean {
+    if (this._timeline) return this._pointIndex >= this._timeline.points.length - 1;
     const last = this._bars.length - 1;
     return this._index >= last && this._sub >= this._steps(last) - 1;
   }

@@ -28,6 +28,125 @@ function mount(options: Partial<ChartOptions> = {}, load = true) {
 }
 
 describe('mouse panning preferences', () => {
+  it.each(['mouse', 'pen'])('shows a grabbing hand only while a %s holds the plot', (pointerType) => {
+    const { chart, el } = mount();
+    el.dispatch('pointerdown', pointer('down', 400, 220, { pointerType }));
+    expect(el.style.cursor).toBe('grabbing');
+    el.dispatch('pointerleave', {});
+    expect(el.style.cursor).toBe('grabbing');
+    el.dispatch('pointermove', pointer('move', 450, 260, { pointerType }));
+    el.dispatch('pointerup', pointer('up', 450, 260, { pointerType }));
+    expect(el.style.cursor).toBe('');
+    const offset = chart.timeScale.rightOffset;
+    const range = { ...chart.panes()[0].priceScale.priceRange() };
+    el.dispatch('pointermove', pointer('up', 500, 300, { pointerType }));
+    expect(chart.timeScale.rightOffset).toBe(offset);
+    expect(chart.panes()[0].priceScale.priceRange()).toEqual(range);
+  });
+
+  it.each(['mouse', 'pen', 'touch'])('keeps release momentum exclusive to touch (%s)', (pointerType) => {
+    let time = 0;
+    let nextId = 0;
+    const frames = new Map<number, () => void>();
+    const frame = () => {
+      time += 16;
+      const batch = [...frames.values()];
+      frames.clear();
+      batch.forEach((cb) => cb());
+    };
+    const { chart, el } = mount({ now: () => time, animZoom: false,
+      raf: { schedule: (cb) => { frames.set(++nextId, cb); return nextId; }, cancel: (id) => { frames.delete(id); } },
+    });
+    frame();
+    el.dispatch('pointerdown', pointer('down', 400, 220, { pointerType }));
+    frame();
+    el.dispatch('pointermove', pointer('move', 490, 270, { pointerType }));
+    frame();
+    const offset = chart.timeScale.rightOffset;
+    const range = { ...chart.panes()[0].priceScale.priceRange() };
+    el.dispatch('pointerup', pointer('up', 490, 270, { pointerType }));
+    for (let i = 0; i < 60; i++) frame();
+    if (pointerType === 'touch') expect(chart.timeScale.rightOffset).toBeLessThan(offset);
+    else expect(chart.timeScale.rightOffset).toBe(offset);
+    expect(chart.panes()[0].priceScale.priceRange()).toEqual(range);
+  });
+
+  it.each(['pointercancel', 'lostpointercapture', 'missed-release'])('ends a held pan on %s', (end) => {
+    const { chart, el } = mount();
+    const clicks = vi.fn();
+    chart.on('click', clicks);
+    el.dispatch('pointerdown', pointer('down', 400, 220));
+    el.dispatch('pointermove', pointer('move', 450, 260));
+    if (end === 'missed-release') el.dispatch('pointermove', pointer('up', 450, 260));
+    else el.dispatch(end, pointer('up', 450, 260, { type: end }));
+    expect(el.style.cursor).toBe('');
+    const offset = chart.timeScale.rightOffset;
+    const range = { ...chart.panes()[0].priceScale.priceRange() };
+    el.dispatch('pointermove', pointer('move', 500, 300));
+    el.dispatch('pointerup', pointer('up', 500, 300));
+    expect(chart.timeScale.rightOffset).toBe(offset);
+    expect(chart.panes()[0].priceScale.priceRange()).toEqual(range);
+    expect(clicks).not.toHaveBeenCalled();
+  });
+
+  it('does not turn axis resizing or drawing placement into a plot grab', () => {
+    const { chart, el } = mount();
+    el.dispatch('pointerdown', pointer('down', 780, 220));
+    expect(el.style.cursor).not.toBe('grabbing');
+    el.dispatch('pointerup', pointer('up', 780, 220));
+    chart.setPlacementMode(true);
+    el.dispatch('pointerdown', pointer('down', 400, 220));
+    expect(el.style.cursor).not.toBe('grabbing');
+    el.dispatch('pointerup', pointer('up', 400, 220));
+  });
+
+  it.each(['plot', 'line'])('ignores another pen hovering or releasing during a held %s gesture', (target) => {
+    const { chart, el } = mount();
+    const end = vi.fn();
+    const click = vi.fn();
+    chart.on('click', click);
+    chart.subscribeDrag(vi.fn(), end);
+    if (target === 'line') chart.addPriceLine({ id: 'test-line', price: 100, color: '#336699', cursor: 'ns-resize' });
+    const y = target === 'line' ? chart.priceToCoordinate(100)! : 220;
+    el.dispatch('pointerdown', pointer('down', 400, y));
+    const cursor = el.style.cursor;
+    const offset = chart.timeScale.rightOffset;
+    const range = { ...chart.panes()[0].priceScale.priceRange() };
+    el.dispatch('pointermove', pointer('up', 500, y + 50, { pointerId: 2, pointerType: 'pen' }));
+    el.dispatch('pointerup', pointer('up', 500, y + 50, { pointerId: 2, pointerType: 'pen' }));
+    expect(end).not.toHaveBeenCalled();
+    expect(click).not.toHaveBeenCalled();
+    expect(el.style.cursor).toBe(cursor);
+    expect(chart.timeScale.rightOffset).toBe(offset);
+    expect(chart.panes()[0].priceScale.priceRange()).toEqual(range);
+    el.dispatch('pointermove', pointer('move', 440, y + 20));
+    el.dispatch('pointerup', pointer('up', 440, y + 20));
+    if (target === 'line') expect(end).toHaveBeenCalledOnce();
+    else expect(chart.timeScale.rightOffset).not.toBe(offset);
+  });
+
+  it('clears a plot grab when a drawing tool is armed during the held gesture', () => {
+    const { chart, el } = mount();
+    el.dispatch('pointerdown', pointer('down', 400, 220));
+    el.dispatch('pointermove', pointer('move', 450, 260));
+    chart.setPlacementMode(true);
+    el.dispatch('pointerup', pointer('up', 450, 260));
+    expect(el.style.cursor).toBe('');
+  });
+
+  it('shows a grabbing hand when a passive plot guide is under the press', () => {
+    const { chart, el } = mount();
+    chart.addPriceLine({ id: 'guide', price: 100, color: '#336699', cursor: 'crosshair' });
+    const y = chart.priceToCoordinate(100)!;
+    el.dispatch('pointerdown', pointer('down', 400, y));
+    expect(el.style.cursor).toBe('grabbing');
+    const offset = chart.timeScale.rightOffset;
+    el.dispatch('pointermove', pointer('move', 450, y + 20));
+    expect(chart.timeScale.rightOffset).not.toBe(offset);
+    el.dispatch('pointerup', pointer('up', 450, y + 20));
+    expect(el.style.cursor).toBe('');
+  });
+
   it.each(['mouse', 'pen'])('pans time and price by default with a %s', (pointerType) => {
     const { chart, el } = mount();
     const scale = chart.panes()[0].priceScale;

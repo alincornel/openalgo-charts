@@ -1,4 +1,10 @@
 import { test, expect, type Page } from '@playwright/test';
+import type { AlertController, Chart } from '../../src/index';
+
+type AlertDragHost = Window & {
+  __oac: { app: { chart: Chart; alerts: AlertController; loading: boolean } };
+  __referenceAlertDrag: { writes: number; updates: number };
+};
 
 // The yfinance demo, the reference host, in a real browser.
 //
@@ -246,7 +252,7 @@ test('the theme switch flips the shell and keeps the choice, without throwing', 
   expect(errors).toEqual([]);
 });
 
-test('replay opens on a picked bar and steps forward one bar', async ({ page }) => {
+test('replay opens on a picked bar and steps forward one observation', async ({ page }) => {
   const errors = watchErrors(page);
   await openDemo(page);
   await page.locator('#shellbar button', { hasText: 'Replay' }).click();
@@ -261,20 +267,22 @@ test('replay opens on a picked bar and steps forward one bar', async ({ page }) 
 
   const state = () => page.evaluate(() => {
     const r = (window as any).__oac.app.replay;
-    return r ? (r.state() as { index: number; total: number; subIndex: number; subSteps: number }) : null;
+    return r ? (r.state() as { index: number; total: number; time: number;
+      members: { state: { index: number; bar: { time: number } } }[] }) : null;
   });
   const s0 = await state();
   expect(s0).not.toBeNull();
   expect(s0!.total).toBeGreaterThan(s0!.index + 1);
   await expect(page.locator('#rp-count')).toHaveText(`${s0!.index + 1} / ${s0!.total}`);
 
-  // The playhead opens on a complete bar, so one step forward is the next bar.
+  // An observation can be a finer update within the next displayed candle.
   await page.locator('#rp-fwd').click();
   const s1 = await state();
   expect(s1!.index).toBe(s0!.index + 1);
   await expect(page.locator('#rp-count')).toHaveText(`${s1!.index + 1} / ${s1!.total}`);
   // The series shows the session so far and nothing past the playhead.
-  expect(await page.evaluate(() => (window as any).__oac.app.price.getData().length as number)).toBe(s1!.index + 1);
+  expect(await page.evaluate(() => (window as any).__oac.app.price.getData().length as number)).toBe(s1!.members[0].state.index + 1);
+  expect(s1!.members[0].state.bar.time).toBeLessThanOrEqual(s1!.time);
   expect(errors).toEqual([]);
 });
 
@@ -288,7 +296,7 @@ test('a symbol the source cannot serve leaves the shell up and says so', async (
 
   // The symbol box is raised by the toolbar's symbol button; Enter loads.
   await page.locator('#shellbar button', { hasText: 'AAPL' }).click();
-  const sym = page.locator('#symbol');
+  const sym = page.getByPlaceholder('Symbol or expression');
   await expect(sym).toBeFocused();
   await sym.fill('FAIL');
   await sym.press('Enter');
@@ -311,4 +319,73 @@ test('a symbol the source cannot serve leaves the shell up and says so', async (
   expect(await page.evaluate(() => Boolean((window as any).__oac.chart))).toBe(true);
   expect(await page.evaluate(() => (window as any).__oac.app.currentBars.length as number)).toBe(barsBefore);
   expect(pageErrors).toEqual([]);
+});
+
+test('an alert line drag previews without saving and persists once when released', async ({ page }, info) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1360, height: 900 });
+  await page.route('**/api/history?**', route => route.fulfill({ json: Array.from({ length: 48 }, (_, index) => ({
+    time: 1735689600 + index * 86400, open: 99, high: 102, low: 98, close: 100, volume: 1000,
+  })) }));
+  await openDemo(page);
+  await page.waitForFunction(() => !(window as unknown as AlertDragHost).__oac.app.loading);
+  await page.evaluate(() => {
+    const { chart } = (window as unknown as AlertDragHost).__oac.app;
+    chart.setVisibleLogicalRange({ from: -2, to: 50 });
+    chart.panes()[0].priceScale.setFixedRange({ min: 80, max: 140 });
+  });
+  await page.getByRole('button', { name: 'Alerts', exact: true }).click();
+  await page.getByRole('button', { name: 'Create alert', exact: true }).click();
+  const editor = page.getByRole('dialog', { name: 'Create alert', exact: true });
+  await editor.getByLabel('Name', { exact: true }).fill('Saved drag threshold');
+  await editor.getByLabel('Threshold', { exact: true }).fill('110');
+  await editor.getByRole('button', { name: 'Save', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Alerts', exact: true }).getByRole('button', { name: 'Close', exact: true }).click();
+  const savedPrice = () => page.evaluate(() => {
+    const layout = JSON.parse(localStorage.getItem('oa-charts:layout') ?? '{}');
+    return layout.alerts?.alerts?.find((alert: { title: string }) => alert.title === 'Saved drag threshold')?.source.price;
+  });
+  await expect.poll(savedPrice).toBe(110);
+  const before = await page.evaluate(() => {
+    const host = window as unknown as AlertDragHost;
+    const record = host.__referenceAlertDrag = { writes: 0, updates: 0 };
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key: string, value: string): void {
+      original.call(this, key, value);
+      if (this === localStorage && key === 'oa-charts:layout') record.writes++;
+    };
+    host.__oac.app.chart.on('alert:updated', () => { record.updates++; });
+    return localStorage.getItem('oa-charts:layout');
+  });
+  const geometry = await page.evaluate(() => {
+    const { chart } = (window as unknown as AlertDragHost).__oac.app;
+    const box = document.getElementById('chart')!.getBoundingClientRect();
+    return { x: box.left + box.width * 0.6, y: box.top + chart.priceToCoordinate(110)!, targetY: box.top + chart.priceToCoordinate(120)! };
+  });
+  const labelY = () => page.evaluate(() => {
+    const { chart } = (window as unknown as AlertDragHost).__oac.app;
+    const svg = new DOMParser().parseFromString(chart.exportSVG(), 'image/svg+xml');
+    return [...svg.querySelectorAll('text')].find(text => text.textContent === 'Saved drag threshold')!.getAttribute('y');
+  });
+  const originalY = await labelY();
+  await page.mouse.move(geometry.x, geometry.y);
+  await page.mouse.down();
+  await page.mouse.move(geometry.x, geometry.targetY, { steps: 8 });
+  await expect.poll(labelY).not.toBe(originalY);
+  // Hold beyond the host's 250ms debounce to expose any preview write.
+  await page.waitForTimeout(350);
+  expect(await page.evaluate(() => localStorage.getItem('oa-charts:layout'))).toBe(before);
+  expect(await page.evaluate(() => (window as unknown as AlertDragHost).__referenceAlertDrag)).toEqual({ writes: 0, updates: 0 });
+  expect(await page.evaluate(() => (window as unknown as AlertDragHost).__oac.app.alerts.list()[0].source)).toEqual({ kind: 'price', price: 110 });
+  await page.screenshot({ path: info.outputPath('reference-alert-drag-preview.png') });
+  await page.mouse.up();
+  await expect.poll(savedPrice).toBeCloseTo(120, 1);
+  expect(await page.evaluate(() => (window as unknown as AlertDragHost).__referenceAlertDrag)).toEqual({ writes: 1, updates: 1 });
+  await page.reload();
+  await page.waitForFunction(() => Boolean((window as unknown as AlertDragHost).__oac?.app.alerts?.list().length)
+    && !(window as unknown as AlertDragHost).__oac.app.loading);
+  expect(await page.evaluate(() => (window as unknown as AlertDragHost).__oac.app.alerts.list()[0].source))
+    .toMatchObject({ kind: 'price', price: expect.closeTo(120, 1) });
+  await page.screenshot({ path: info.outputPath('reference-alert-drag-restored.png') });
+  expect(errors).toEqual([]);
 });

@@ -7,7 +7,7 @@
  * behind it.
  *
  * Every mount function takes the widget context and an optional anchor, and
- * returns a handle with `close()`. Importing this module registers the seven
+ * returns a handle with `close()`. Importing this module registers the mounts
  * with the shell's dialog registry; `DIALOG_CSS` is the stylesheet they need,
  * appended to the widget's one `<style>`.
  */
@@ -19,6 +19,8 @@ import { mountIndicatorSettings } from './indicator-settings';
 import { mountLevelEditor } from './level-editor';
 import { mountSettingsDialog } from './settings';
 import { mountTextEditor } from './text-editor';
+import { mountAlertEditor, mountAlertsPanel } from './alerts';
+export { mountAlertEditor, mountAlertsPanel, type AlertEditorOptions, type AlertsPanelOptions } from './alerts';
 
 export { mountSettingsDialog, tabDefaults, type SettingsDialogOptions } from './settings';
 export { mountIndicatorPicker, filterIndicators, groupIndicators, type IndicatorPickerOptions } from './indicator-picker';
@@ -45,7 +47,7 @@ export {
 } from './context-menu';
 export type { PanelHandle } from '../form';
 
-/** The seven mounts under the names the shell's registry knows them by. */
+/** The mounts under the names the shell's registry knows them by. */
 export const WIDGET_DIALOGS = {
   settings: mountSettingsDialog,
   indicatorPicker: mountIndicatorPicker,
@@ -54,6 +56,8 @@ export const WIDGET_DIALOGS = {
   contextMenu: mountContextMenu,
   levelEditor: mountLevelEditor,
   textEditor: mountTextEditor,
+  alertEditor: mountAlertEditor,
+  alerts: mountAlertsPanel,
 } satisfies Record<string, DialogMount>;
 
 registerWidgetDialogs(WIDGET_DIALOGS);
@@ -67,6 +71,18 @@ const v = (name: string): string => `var(--oac-${name})`;
  * shell's and is not restated here.
  */
 export const DIALOG_CSS = `
+.oac-widget .oac-alert-editor { width: 480px; }
+.oac-widget .oac-alerts { width: 560px; }
+.oac-widget .oac-alerts__row { padding: 10px 0; border-bottom: 1px solid ${v('bd-soft')}; }
+.oac-widget .oac-alerts__summary { white-space: pre-line; overflow-wrap: anywhere; line-height: 1.5; }
+.oac-widget .oac-alerts__status { color: ${v('mut')}; font-size: 11px; line-height: 1.5; margin: 4px 0 8px; overflow-wrap: anywhere; }
+.oac-widget .oac-alerts__actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.oac-widget .oac-alert-context { margin: 0 0 8px; color: ${v('mut')}; overflow-wrap: anywhere; }
+.oac-widget .oac-alert-help { color: ${v('mut')}; font-size: 11px; line-height: 1.5; margin: 10px 0 0; }
+.oac-widget .oac-alert-error { color: ${v('danger')}; font-size: 12px; margin: 6px 0 0; overflow-wrap: anywhere; }
+.oac-widget .oac-alert-editor input[type=datetime-local] { width: 100%; min-width: 0; color-scheme: inherit;
+  height: ${v('ctl-h')}; padding: 0 8px; border: 1px solid ${v('bd')}; border-radius: ${v('radius')};
+  background: ${v('elev')}; color: ${v('tx')}; font: inherit; }
 /* Panels: the card a dialog or a popover is built on. */
 .oac-widget .oac-panel { display: flex; flex-direction: column; min-width: 0; max-width: calc(100% - 24px);
   max-height: calc(100% - 24px); background: ${v('panel')}; border: 1px solid ${v('bd')}; border-radius: 12px;
@@ -82,10 +98,21 @@ export const DIALOG_CSS = `
 .oac-widget .oac-form .oac-row { gap: 8px; min-height: 30px; padding: 1px 0; }
 .oac-widget .oac-row__sw { width: 15px; flex: none; }
 .oac-widget .oac-row__label { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; color: ${v('mut')}; cursor: pointer; }
-.oac-widget .oac-row__ctl { display: flex; align-items: center; justify-content: flex-end; gap: 6px; width: min(164px, 48%); min-width: 0; flex: none; }
+/* Every row's control occupies the same column, and the column is one width.
+   It was not: a select filled it, a lone number sat at 72px against its right
+   edge, and one row widened the column for itself. Reading down the form, the
+   left edge of the controls stepped in and out by ninety pixels, which is the
+   kind of wrongness a reader feels before they can name it. The column is wide
+   enough for a date and time, which is the widest control any of these forms
+   puts in it. */
+.oac-widget .oac-row__ctl { display: flex; align-items: center; justify-content: flex-end; gap: 6px; width: min(232px, 58%); min-width: 0; flex: none; }
+/* A number that is the only thing in its column fills it like every other
+   control, keeping its digits right aligned. One paired with a slider keeps
+   its own width, because there the narrow box is the point. */
 .oac-widget .oac-row__ctl input[type=number] { width: 72px; max-width: 100%; min-width: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.oac-widget .oac-row__ctl > input[type=number]:only-child { width: 100%; }
 .oac-widget .oac-row__ctl input[type=text] { width: 100%; min-width: 0; }
-.oac-widget .oac-row__ctl .oac-select, .oac-widget .oac-row__ctl select { width: 164px; min-width: 0; max-width: 100%; }
+.oac-widget .oac-row__ctl .oac-select, .oac-widget .oac-row__ctl select { width: 100%; min-width: 0; max-width: 100%; }
 .oac-widget .oac-opacity { min-width: 0; max-width: 100%; display: inline-flex; align-items: center; gap: 6px; }
 .oac-widget .oac-opacity input[type=range] { width: 110px; min-width: 0; }
 .oac-widget .oac-out { min-width: 36px; text-align: right; color: ${v('mut')}; font-variant-numeric: tabular-nums; }

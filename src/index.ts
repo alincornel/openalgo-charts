@@ -15,6 +15,8 @@ export type {
 // a host can run its own primitives or a bare renderer into one.
 export { SvgContext, SvgLinearGradient } from './render/svg-export';
 export type { SvgContextOptions } from './render/svg-export';
+export { exportChartDataCsv } from './model/chart-data-export';
+export type { ChartDataCsvOptions } from './model/chart-data-export';
 export { Pane } from './core/pane';
 export { ChartObjects } from './model/chart-objects';
 export type {
@@ -136,14 +138,18 @@ export type {
 
 // headless market replay (host renders its own transport bar)
 export { ReplayController } from './replay/controller';
+export { isReplaying } from './model/replay-window';
 export type {
   ReplayOptions, ReplayState, ReplayScheduler, ReplayChartHost, ReplayViewport,
 } from './replay/controller';
+export type { ReplayTiming, ReplayBarEndTime } from './replay/timeline';
+export { ReplayGroup } from './replay/group';
+export type { ReplayScope, ReplayGroupChartHost, ReplayGroupMember, ReplayGroupOptions, ReplayGroupState } from './replay/group';
 
 // headless multi-symbol comparison (host renders its own symbol chips)
 export { addComparison, comparisonController, ComparisonController } from './compare/controller';
 export type {
-  ComparisonOptions, ComparisonHandle, ComparisonMode,
+  ComparisonOptions, ComparisonHandle, ComparisonMode, ComparisonBaseline,
   ComparisonControllerOptions, ComparisonChartHost, ComparisonPane,
 } from './compare/controller';
 export { alignToPrimary } from './compare/align';
@@ -223,6 +229,10 @@ export type { Bar, LinePoint, Whitespace, SeriesDataItem, UTCSeconds, OriginalTi
 export { isWhitespace, toBar } from './model/bar';
 
 export type { DataFeed, TradeFeed, BarsRequest, BarsPageRequest, BarsPage, BarSubscriptionOptions, LiveBarMeta, MarketDepth, DepthLevel, OrderSide, OrderType, PlaceOrder, UnsubscribeFn } from './feed/types';
+export { Instrument } from './feed/instrument';
+export type { InstrumentMetadata, InstrumentCalendar, InstrumentSession } from './feed/instrument';
+export { checkTradingCapability, assertTradingCapability, TradingCapabilityError } from './feed/trading-capabilities';
+export type { TradingOperation, TradingCapabilities, TradingCapabilityRequest, TradingCapabilitySource, TradingCapabilityResult } from './feed/trading-capabilities';
 export { HistoryRequestPool, sharedHistoryRequests } from './feed/request-pool';
 export type { HistoryRequestPoolOptions } from './feed/request-pool';
 export { DataLoadingController } from './feed/data-controller';
@@ -349,3 +359,17 @@ export type {
 
 export { beginPick } from './input/pick';
 export type { PickKind, PickHost } from './input/pick';
+
+export { AlertController } from './alerts/controller';
+export { alertSettingsSchema } from './alerts/schema';
+export type {
+  Alert, AlertChartHost, AlertCondition, AlertControllerOptions, AlertInput, AlertPatch,
+  AlertPolicy, AlertRepeat, AlertScope, AlertSource, AlertState, AlertTriggeredPayload, ChartDataUpdate,
+  AlertAvailability, AlertEventPayload, PriceAlertSource, IndicatorAlertSource, BarConditionAlertSource,
+  BarCondition, BarConditionContext,
+  AlertDrawingValue, AlertDrawingLevel, AlertDrawingInfo, AlertDrawingProvider,
+  DrawingAlertSource,
+  AlertsDocument,
+} from './alerts/types';
+export { parseAlertsDocument } from './alerts/document';
+export { registerBarCondition, unregisterBarCondition, getBarCondition, registeredBarConditions } from './alerts/bar-conditions';

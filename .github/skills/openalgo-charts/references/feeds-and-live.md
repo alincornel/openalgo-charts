@@ -112,7 +112,9 @@ Wire format (pure formatters, exported where noted):
 | heartbeat | inbound `'ping'` or `{ type: 'ping' }` -> replies `{ action: 'pong' }` |
 | inbound data | `{ type: 'market_data', symbol, exchange, mode, data: { ... } }`; legacy `topic` is also accepted |
 
-`parseMessage(raw)` (exported) normalizes inbound frames. It reads payload fields from `data` but tolerates a flat shape, accepts `ltp` or `last_price`, `ltq` or `last_trade_quantity`, maps `depth.buy`/`depth.sell` (`{ price, quantity, orders? }`) into `MarketDepth.bids`/`asks`, and coerces `timestamp` from epoch s, epoch ms, or ISO-8601. Anything it cannot classify returns `null` and is surfaced to `onControl` instead.
+`parseMessage(raw)` (exported) normalizes inbound frames. It reads payload fields from `data` but tolerates a flat shape, accepts `ltp` or `last_price`, `ltq` or `last_trade_quantity`, and maps `depth.buy`/`depth.sell` (`{ price, quantity, orders? }`) into `MarketDepth.bids`/`asks`. Anything it cannot classify returns `null` and is surfaced to `onControl` instead.
+
+Market time uses the first valid positive value in `last_trade_time`, `ltt`, `exchange_timestamp`, then `timestamp`. This keeps a cached quote's later proxy delivery time from replacing its known market event time. Epoch seconds, milliseconds, numeric strings and ISO-8601 strings are accepted. An unknown time remains `0` for LTP or absent for depth; hosts still own unknown-time and trading-session policies. Parsing a timestamp alone does not prove that the event occurred inside a trading session.
 
 Symbol and exchange resolve independently from non-empty `data` fields, then top-level envelope fields, then the legacy `topic`. Empty nested identity fields do not hide usable top-level identity. This applies to LTP, Quote and Depth frames.
 

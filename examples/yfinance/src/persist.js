@@ -1,11 +1,14 @@
 import * as engine from '/dist/openalgo-charts.mjs';
 import * as drawTier from '/dist/openalgo-charts.draw.mjs';
 import { el, toast } from './ui.js';
-import { volumeShown, setVolumeShown } from './volume.js';
+import { volumeShown, setVolumeShown, volumeSettings, applyVolumeSettings } from './volume.js';
 import { syncTimezoneFromChart } from './timezone.js';
-import { removeComparison, syncComparisons } from './compare.js';
+import { comparisonSnapshot, restoreComparisons, syncComparisons } from './compare.js';
 import { renderIndicatorChips } from './indicators.js';
-import { renderToolbar } from './toolbar.js';
+import { CHART_TYPES, renderToolbar } from './toolbar.js';
+import { INTERVALS, PERIODS } from './intervals.js';
+import { withoutViewportSync } from './split.js';
+import { normalizeLegendIconSize, restorePrimaryStyle } from './chart-settings.js';
 
 // Both read off their namespaces: a dist/ built before either shipped must
 // still read and write layouts, and a layout on such a build simply keeps
@@ -64,6 +67,57 @@ export class LayoutError extends Error {
 
 const isRecord = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
 
+function layoutRequest(value) {
+  if (!isRecord(value) || typeof value.symbol !== 'string' || !value.symbol.trim()
+    || !INTERVALS.includes(value.interval) || !PERIODS.includes(value.period)) return null;
+  return { symbol: value.symbol.trim(), interval: value.interval, period: value.period };
+}
+
+function validTimezone(value) {
+  if (typeof value !== 'string' || !value) return false;
+  if (engine.isValidTimezone) return engine.isValidTimezone(value);
+  try { new Intl.DateTimeFormat('en', { timeZone: value }); return true; }
+  catch { return false; }
+}
+
+/** Read only host selection fields, before any controls or history are changed. */
+export function primaryLayoutSelection(doc) {
+  if (!isRecord(doc)) throw new LayoutError('not a layout document');
+  let request = null;
+  if (Object.prototype.hasOwnProperty.call(doc, 'request')) {
+    request = layoutRequest(doc.request);
+    if (!request) throw new LayoutError('invalid primary chart request');
+  } else if (typeof doc.dataset === 'string') {
+    // A separator in an expression makes the old key ambiguous. Keep its chart
+    // state usable, but do not guess which instrument the user intended.
+    const fields = doc.dataset.split('|');
+    if (fields.length === 3) request = layoutRequest({ symbol: fields[0], interval: fields[1], period: fields[2] });
+  }
+  const { chartType, pfmode, timezone } = doc;
+  if (chartType !== undefined && !CHART_TYPES.some(type => type.v === chartType)) {
+    throw new LayoutError('unsupported primary chart type');
+  }
+  if (pfmode !== undefined && !['atr', 'percent', 'fixed'].includes(pfmode)) {
+    throw new LayoutError('unsupported primary box mode');
+  }
+  if (timezone !== undefined && !validTimezone(timezone)) throw new LayoutError('unsupported chart timezone');
+  return { request, chartType, pfmode, timezone };
+}
+
+/** Initialize startup selection. Switching a live chart needs a staged load. */
+export function restorePrimarySelection(doc = readLayout()) {
+  if (!doc || app.chart) return false;
+  const { request, chartType, pfmode, timezone } = primaryLayoutSelection(doc);
+  if (request) {
+    app.req = request;
+    for (const [key, value] of Object.entries(request)) el(key).value = value;
+  }
+  if (chartType !== undefined) el('ctype').value = chartType;
+  if (pfmode !== undefined) el('pfmode').value = pfmode;
+  if (timezone !== undefined) app.chartTimezone = timezone;
+  return true;
+}
+
 /**
  * One step per schema version, keyed by the version it upgrades FROM. A
  * document at N runs `MIGRATIONS[N]`, then `MIGRATIONS[N + 1]`, until it is
@@ -111,6 +165,7 @@ export function upgradeLayout(input) {
   if (typeof CHART_STATE_VERSION === 'number' && typeof doc.version === 'number' && doc.version > CHART_STATE_VERSION) {
     throw new LayoutError(`chart state version ${doc.version} is newer than this engine (${CHART_STATE_VERSION})`);
   }
+  primaryLayoutSelection(doc);
   return doc;
 }
 
@@ -262,15 +317,33 @@ export function migrateStorage() {
  * the symbol and the feed), so they ride alongside `dataset`.
  */
 export function layoutSnapshot() {
+  const measuredWidth = app.chart2
+    ? 100 * el('pane2').getBoundingClientRect().width / el('split').getBoundingClientRect().width : 0;
   return {
     schema: LAYOUT_SCHEMA,
     ...app.chart.getState(),
     dataset: datasetKey(app.req),
-    comparisons: app.comparisons.map((c) => ({ symbol: c.symbol, color: c.color })),
-    compareMode: app.cmpMode,
+    request: { symbol: app.req.symbol, interval: app.req.interval, period: app.req.period },
+    chartType: el('ctype').value || 'candlestick',
+    pfmode: el('pfmode').value || 'atr',
+    legendIconSize: normalizeLegendIconSize(app.chart.legendIconSize?.()),
+    ...comparisonSnapshot(1),
     // Demo-owned like the comparisons: `render()` builds the histogram from
     // this flag, so without it a hidden volume comes back on a reload.
-    volume: volumeShown(),
+    volume: volumeShown(1),
+    volumeSettings: volumeSettings(1),
+    focusPane: app.focusPane === 2 && app.chart2 ? 2 : 1,
+    linkOptions: app.linkGroup?.options(),
+    secondary: app.chart2 ? {
+      request: { symbol: app.p2.symbol, interval: app.p2.interval, period: app.p2.period },
+      chartType: app.p2.chartType || 'candlestick',
+      pfmode: app.p2.pfmode || 'atr',
+      legendIconSize: normalizeLegendIconSize(app.chart2.legendIconSize?.()),
+      volumeSettings: volumeSettings(2),
+      ...comparisonSnapshot(2),
+      state: app.chart2.getState(),
+      width: parseFloat(el('pane2').style.flexBasis) || (Number.isFinite(measuredWidth) && measuredWidth > 0 ? measuredWidth : 50),
+    } : undefined,
   };
 }
 
@@ -305,34 +378,54 @@ export function stripView(doc) {
  */
 export function applyLayout(doc, { keepView = true, replaceComparisons = true } = {}) {
   if (!app.chart) return { applied: false, series: [], indicators: 0, reason: 'no chart' };
+  const primary = app.chart;
+  const primaryRequest = datasetKey(app.req);
   const state = keepView ? doc : stripView(doc);
   // Mirror the restored indicators into our own spec list so a later chart
   // rebuild (type switch / reload) keeps them.
-  app.activeIndicators = (state.indicators || []).map((i) => ({ indicatorId: i.indicatorId, settings: i.settings }));
+  app.activeIndicators = (state.indicators || []).map(study => ({ ...study, settings: { ...study.settings } }));
   const report = app.chart.restoreState(state);
   if (!report.applied) {
     toast('error', 'The layout could not be restored: ' + report.reason);
     return report;
   }
   syncTimezoneFromChart();   // the saved zone is the engine's to apply, ours to remember
-  // The controller reads the chart's drawing slot when it is built, not on
-  // every restore, so the document has to be handed to it directly. The
-  // controller runs its own migration, which is what makes a 1.x save
-  // usable here at all.
-  if (app.draw) app.draw.fromJSON(state.drawings === undefined ? [] : state.drawings);
-  if (replaceComparisons) {
-    // Comparisons are ours to swap: take the live ones off, put the saved set
-    // on, and let syncComparisons() fetch the bars in the background.
-    for (const c of app.comparisons.slice()) removeComparison(c);
-    app.comparisons = (state.comparisons || []).map((c) => ({ symbol: c.symbol, color: c.color, bars: [] }));
-  } else if (!app.comparisons.length && Array.isArray(state.comparisons)) {
-    app.comparisons = state.comparisons.map((c) => ({ symbol: c.symbol, color: c.color, bars: [] }));
-  }
-  if (state.compareMode) app.cmpMode = state.compareMode;
-  if (state.volume !== undefined) setVolumeShown(state.volume !== false);
+  restorePrimaryStyle(app.chart, state);
+  app.chart.setLegendIconSize?.(normalizeLegendIconSize(state.legendIconSize));
+  // The engine restores drawings before alerts. A second drawing restore
+  // would remove the anchors underneath the alerts that just returned.
+  restoreComparisons(state, 1, replaceComparisons);
+  if (state.volume !== undefined) setVolumeShown(state.volume !== false, 1);
+  if (state.volumeSettings) applyVolumeSettings(1, state.volumeSettings);
   if (replaceComparisons) syncComparisons();
   renderIndicatorChips();
   renderToolbar();
+  if (app.restoreSecondary) {
+    const links = state.linkOptions || app.linkGroup?.options() || {};
+    const options = {};
+    for (const key of ['crosshair', 'viewport', 'symbol', 'interval']) {
+      if (typeof links[key] === 'boolean') options[key] = links[key];
+    }
+    if (links.whenMissing === 'nearest' || links.whenMissing === 'hide') options.whenMissing = links.whenMissing;
+    app.linkGroup?.setOptions({ symbol: false, interval: false });
+    report.secondaryReady = Promise.resolve(app.restoreSecondary(state.secondary, state.focusPane)).then(restored => {
+      if (!restored || app.chart !== primary || datasetKey(app.req) !== primaryRequest) return false;
+      // Opening the split resizes the primary chart after its state was applied.
+      // Restore its logical window once both chart boxes have settled.
+      if (state.viewport) {
+        withoutViewportSync(() => primary.setVisibleLogicalRange(state.viewport));
+      }
+      if (!app.linkGroup) return restored;
+      const secondary = state.focusPane === 2 && app.chart2;
+      const chart = secondary || app.chart;
+      const request = secondary ? app.p2 : app.req;
+      app.linkGroup.setSymbol(chart, request.symbol);
+      app.linkGroup.setInterval?.(chart, request.interval);
+      app.linkGroup.setOptions(options);
+      renderToolbar();
+      return restored;
+    });
+  }
   return report;
 }
 
@@ -345,16 +438,18 @@ let saveTimer = 0;
 
 /** Write the current layout now. Returns what `writeLayout` did. */
 export function persistLayoutNow(opts) {
-  if (!app.chart) return 'unchanged';
-  return writeLayout(layoutSnapshot(), opts);
+  if (!app.chart || app.workspaceLoading || app.applyingTemplate) return 'unchanged';
+  const result = writeLayout(layoutSnapshot(), opts);
+  app.onLayoutPersisted?.();
+  return result;
 }
 
 export function autosave() {
   // Not while replaying: the chart is showing a prefix of the session and a
   // viewport captured over it would restore the user into a truncated chart.
-  if (!app.chart || app.replay) return;
+  if (!app.chart || app.workspaceLoading || app.applyingTemplate || app.replay || app.replayPicking || app.replayLoading || app.loading || app.loadFailed || app.loading2 || app.loadFailed2 || app.restoringSecondary || app.chartSettingsEditing) return;
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => { saveTimer = 0; persistLayoutNow(); }, SAVE_DEBOUNCE_MS);
+  saveTimer = setTimeout(flushAutosave, SAVE_DEBOUNCE_MS);
 }
 
 /** Run a pending autosave now, for the moment the page is going away. */
@@ -362,7 +457,7 @@ export function flushAutosave() {
   if (!saveTimer) return;
   clearTimeout(saveTimer);
   saveTimer = 0;
-  if (app.chart && !app.replay) persistLayoutNow();
+  if (app.chart && !app.workspaceLoading && !app.applyingTemplate && !app.replay && !app.replayPicking && !app.replayLoading && !app.loading && !app.loadFailed && !app.loading2 && !app.loadFailed2 && !app.restoringSecondary && !app.chartSettingsEditing) persistLayoutNow();
 }
 
 // ── files ──────────────────────────────────────────────────────────────
@@ -422,6 +517,7 @@ export async function importLayoutFile(file) {
   }
   const report = applyLayout(doc, { keepView: doc.dataset === datasetKey(app.req), replaceComparisons: true });
   if (!report.applied) return false;
+  if (report.secondaryReady && !await report.secondaryReady) return false;
   persistLayoutNow();
   toast('success', `Layout imported: ${report.indicators} indicator(s), ${(doc.drawings && doc.drawings.drawings || []).length} drawing(s).`);
   return true;
@@ -440,6 +536,7 @@ export function initPersist(a) {
   try { lastWritten = localStorage.getItem(LAYOUT_KEY); } catch (_) {}
   el('lsave').addEventListener('click', () => {
     if (!app.chart) return;
+    if (app.workspaceCatalog?.currentId && app.saveNamedLayout) { app.saveNamedLayout(); return; }
     const did = persistLayoutNow({ retryStorage: true });
     el('status').textContent = did === 'memory'
       ? 'layout kept in memory only (storage refused the write)'

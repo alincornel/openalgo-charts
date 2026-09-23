@@ -59,6 +59,12 @@ export interface SecuritySeries {
   close: (number | null)[];
   /** Null on a bucket none of whose bars carried volume. */
   volume: (number | null)[];
+  /**
+   * Open interest as at the last source bar of the bucket, null where no bar in
+   * it carried any. A level rather than a flow, so it is the latest reading and
+   * never the sum the way `volume` is.
+   */
+  oi: (number | null)[];
   /** Time of the first source bar in the bucket being read, UTC seconds. */
   bucketStart: (number | null)[];
   /** True on the first source bar of each bucket. */
@@ -72,6 +78,7 @@ interface Bucket {
   low: number;
   close: number;
   volume: number | null;
+  oi: number | null;
 }
 
 const WEEK = 604800;
@@ -123,9 +130,10 @@ export function securitySeries(
   const low = new Array<number | null>(n).fill(null);
   const close = new Array<number | null>(n).fill(null);
   const volume = new Array<number | null>(n).fill(null);
+  const oi = new Array<number | null>(n).fill(null);
   const bucketStart = new Array<number | null>(n).fill(null);
   const isNew = new Array<boolean>(n).fill(false);
-  if (n === 0) return { open, high, low, close, volume, bucketStart, isNew };
+  if (n === 0) return { open, high, low, close, volume, oi, bucketStart, isNew };
 
   // One pass groups the bars, which are time-sorted, into contiguous buckets
   // and folds each bucket's final values. A second pass reads them out.
@@ -140,6 +148,7 @@ export function securitySeries(
         start: bar.time,
         open: bar.open, high: bar.high, low: bar.low, close: bar.close,
         volume: bar.volume === undefined ? null : bar.volume,
+        oi: bar.oi === undefined ? null : bar.oi,
       });
       isNew[i] = true;
     } else {
@@ -149,6 +158,9 @@ export function securitySeries(
       if (finite(bar.low) && (!finite(k.low) || bar.low < k.low)) k.low = bar.low;
       if (finite(bar.close)) k.close = bar.close;
       if (bar.volume !== undefined) k.volume = (k.volume ?? 0) + bar.volume;
+      // Replaced, not accumulated: see Bar.oi. The bucket's open interest is
+      // the position as at its last bar.
+      if (bar.oi !== undefined) k.oi = bar.oi;
     }
     of[i] = buckets.length - 1;
     prevKey = key;
@@ -157,6 +169,7 @@ export function securitySeries(
   let runHigh = NaN;
   let runLow = NaN;
   let runVolume: number | null = null;
+  let runOi: number | null = null;
   for (let i = 0; i < n; i++) {
     const bar = bars[i];
     const bi = of[i];
@@ -165,28 +178,34 @@ export function securitySeries(
       if (src < 0) continue;
       const k = buckets[src];
       open[i] = k.open; high[i] = k.high; low[i] = k.low; close[i] = k.close;
-      volume[i] = k.volume; bucketStart[i] = k.start;
+      volume[i] = k.volume; oi[i] = k.oi; bucketStart[i] = k.start;
       continue;
     }
     const k = buckets[bi];
     bucketStart[i] = k.start;
     if (lookahead) {
-      open[i] = k.open; high[i] = k.high; low[i] = k.low; close[i] = k.close; volume[i] = k.volume;
+      open[i] = k.open; high[i] = k.high; low[i] = k.low; close[i] = k.close;
+      volume[i] = k.volume; oi[i] = k.oi;
       continue;
     }
     if (isNew[i]) {
       runHigh = bar.high; runLow = bar.low;
       runVolume = bar.volume === undefined ? null : bar.volume;
+      runOi = bar.oi === undefined ? null : bar.oi;
     } else {
       if (finite(bar.high) && (!finite(runHigh) || bar.high > runHigh)) runHigh = bar.high;
       if (finite(bar.low) && (!finite(runLow) || bar.low < runLow)) runLow = bar.low;
       if (bar.volume !== undefined) runVolume = (runVolume ?? 0) + bar.volume;
+      // The developing bucket's open interest is the newest reading in it, on
+      // the same level-not-flow rule the completed bucket follows.
+      if (bar.oi !== undefined) runOi = bar.oi;
     }
     open[i] = k.open;
     high[i] = finite(runHigh) ? runHigh : null;
     low[i] = finite(runLow) ? runLow : null;
     close[i] = finite(bar.close) ? bar.close : null;
     volume[i] = runVolume;
+    oi[i] = runOi;
   }
-  return { open, high, low, close, volume, bucketStart, isNew };
+  return { open, high, low, close, volume, oi, bucketStart, isNew };
 }

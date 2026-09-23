@@ -231,6 +231,10 @@ interface RawData {
   ltq?: number;
   volume?: number; // cumulative day volume (Quote mode)
   timestamp?: number | string;
+  /** Market event times can precede the proxy's delivery timestamp. */
+  ltt?: number | string;
+  last_trade_time?: number | string;
+  exchange_timestamp?: number | string;
   depth?: { buy?: DepthLevel[]; sell?: DepthLevel[] };
 }
 interface RawMsg {
@@ -242,10 +246,22 @@ interface RawMsg {
 
 /** Coerce a WS timestamp (epoch s/ms or ISO-8601 string) to UTC seconds. */
 function toSec(ts: number | string | undefined): number {
-  if (typeof ts === 'number') return ts > 1e12 ? epochMsToUtcSeconds(ts) : Math.floor(ts);
+  if (typeof ts === 'string' && /^[+-]?\d+(?:\.\d+)?(?:e[+-]?\d+)?$/i.test(ts.trim())) ts = Number(ts);
+  if (typeof ts === 'number') return Number.isFinite(ts) && ts > 0
+    ? (ts > 1e12 ? epochMsToUtcSeconds(ts) : Math.floor(ts)) : 0;
   if (typeof ts === 'string' && ts.trim() !== '') {
     const ms = Date.parse(ts); // ISO-8601 with 'Z' is unambiguous UTC
-    if (!Number.isNaN(ms)) return Math.floor(ms / 1000);
+    if (Number.isFinite(ms) && ms > 0) return Math.floor(ms / 1000);
+  }
+  return 0;
+}
+
+function marketTimeSec(data: RawData): number {
+  // Replayed/cached quotes may be delivered today but describe an earlier
+  // session. Delivery time must not turn that snapshot into a new candle.
+  for (const value of [data.last_trade_time, data.ltt, data.exchange_timestamp, data.timestamp]) {
+    const seconds = toSec(value);
+    if (seconds > 0) return seconds;
   }
   return 0;
 }
@@ -360,14 +376,14 @@ export function parseMessage(raw: unknown): { kind: 'ltp'; event: LtpEvent } | {
     const bids = (d.depth.buy ?? []).map((b) => ({ price: b.price, qty: b.quantity }));
     const asks = (d.depth.sell ?? []).map((a) => ({ price: a.price, qty: a.quantity }));
     const ltp = d.ltp ?? d.last_price ?? (bids[0]?.price ?? 0);
-    const timeSec = toSec(d.timestamp);
+    const timeSec = marketTimeSec(d);
     return { kind: 'depth', symbol, exchange, depth: { bids, asks, ltp,
       ...(Number.isFinite(timeSec) && timeSec > 0 ? { timeSec } : {}),
     } };
   }
   const price = d.ltp ?? d.last_price;
   if (typeof price === 'number') {
-    return { kind: 'ltp', event: { symbol, exchange, ltp: price, ltq: d.last_trade_quantity ?? d.ltq, volume: d.volume, timeSec: toSec(d.timestamp) } };
+    return { kind: 'ltp', event: { symbol, exchange, ltp: price, ltq: d.last_trade_quantity ?? d.ltq, volume: d.volume, timeSec: marketTimeSec(d) } };
   }
   return null;
 }

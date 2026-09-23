@@ -1,0 +1,80 @@
+---
+title: Upgrading to 2.4.8
+description: Adopt workspace, open-interest, alert and host contracts while preserving existing integrations.
+---
+
+# Upgrading to 2.4.8
+
+Version 2.4.8 shows a grabbing hand while you hold the plot. Mouse and pen panning
+stops on release, including a release outside the chart. Touch flicks keep their
+momentum. Two-axis panning remains the default; saved horizontal-only preferences
+still apply. No API or saved-state migration is required. See the
+[2.4.8 release notes](/docs/release-notes#248).
+
+Price and study-threshold alerts now support dragging through the existing alert
+controller. No additional drag callback is required. Preview only moves the line;
+`alert:updated` and saved state change once on release. Cancel with Escape or a
+touch cancellation. Pause, replay, source changes and restoring or updating an
+alert discard an unfinished gesture. Drawing-anchored levels still move with
+their drawing. An armed badge reads "Alert"; persisted state is still `armed`.
+
+If your host consumes raw primitive gestures, `drag:start` uses the same payload
+shape as `drag:end`. `drag:cancel` carries `{ id, paneIndex, reason }`, with reason
+`pointercancel`, `pinch` or `escape`. For compatibility, pointer cancellation
+still delivers the existing end notification after cancellation; discard your
+draft on `drag:cancel` before considering a later release. Custom primitives
+opt into Escape rollback with `PrimitiveHit.cancelOnEscape: true` and must
+handle cancellation without requiring an end notification.
+
+See [Trader alerts](/docs/alerts), the [alert example](/examples#alert-threshold-dragging) and
+[2.4.7 release notes](/docs/release-notes#247).
+
+## Existing 2.4.6 integrations
+
+Version 2.4.6 preserves default plot anchoring. To place an overlay's signals
+outside candle highs and lows, set `markerAnchor: 'price'` on its descriptor.
+This uses the primary series and its current price scale. Separate-pane studies
+keep their own plot anchors. Instrument bars fill plot gaps only when the plot
+and primary series share the price scale.
+
+Set `hasSource: true` only when your host handles `indicatorSource`. The event
+identifies the descriptor, instance and pane; your host resolves and displays
+the source. Use `legendIconSize` or `chart.setLegendIconSize()` to set a common
+button size across existing and future legend rows. See the
+[indicator guide](/docs/indicators) and [release notes](/docs/release-notes#246).
+
+The 2.4.6 alert editor uses its opening chart timezone for expiry and prefills
+new drafts two calendar months ahead. Clearing the field keeps an alert
+indefinite. Existing saved alerts and programmatic defaults are unchanged.
+Hosts with translation catalogs should add the new zone-neutral expiry
+messages; previous typed keys remain accepted. Dialog fields also respect
+`--oac-ctl-h` and `--oac-radius` and share a consistent control column.
+
+## Adopting the 2.4.5 host contracts
+
+Existing chart options keep their defaults. Update the package and lockfile,
+then run your host's source-switch, persistence, replay and trading guard checks.
+The optional APIs require explicit host wiring; a dependency update alone does
+not add workspace controls to an existing terminal.
+
+- Import [named layout and template contracts](/docs/workspaces) from `openalgo-charts/workspace`.
+  Keep account namespaces separate and show rejected saves or revision conflicts.
+  Portable documents exclude credentials, live orders, positions and armed state.
+- Treat [open interest](/docs/open-interest) (`Bar.oi`) as a level: folds take the latest defined reading, never a sum.
+  Preserve missing observations and real zero separately. Declare instrument OI
+  support independently of whether the current bar has an observation.
+- Restore drawing and study identities before their alerts. Triggered once alerts
+  survive reloads, and restoration sends no historical notifications. Alert
+  delivery remains your host's responsibility.
+- Use [Instrument](/docs/instruments) for validated calendar, supported interval,
+  formatting and quantity rules. Keep request cancellation and quantity units at
+  your adapter boundary.
+- Supply optional [widget translation and trading capabilities](/docs/widget)
+  when needed. Capability checks complement server authorization and broker
+  authority. Keep order entry locked through replay selection and transitions,
+  as well as active or paused replay.
+
+The [complete integration guide](https://github.com/marketcalls/openalgo-charts/blob/master/docs/upgrading-to-2.4.5.md)
+includes data, persistence and validation details. Read the
+[compatibility policy](/docs/compatibility) for public API and support boundaries,
+and the [release notes](/docs/release-notes#245) for the full change list.

@@ -16,7 +16,8 @@ interface DataFeed {
   getBarsPage?(req: BarsPageRequest): Promise<BarsPage>;
   getCachedBars?(req: BarsRequest): Promise<Bar[] | undefined>;
   // optional: live updates to the last bar, or a new last bar
-  subscribeBars?(req: BarsRequest, onBar: (bar: Bar) => void, opts?: BarSubscriptionOptions): () => void;
+  subscribeBars?(req: BarsRequest, onBar: (bar: Bar, meta?: LiveBarMeta) => void, opts?: BarSubscriptionOptions): () => void;
+  subscribeDepth?(req: BarsRequest, onDepth: (depth: MarketDepth) => void, opts?: { depthLevel?: number }): () => void;
 }
 
 interface BarsRequest {
@@ -36,12 +37,25 @@ interface BarSubscriptionOptions {
   cumDayVolumeSoFar?: number;
   onResync?: () => void;
 }
+
+interface LiveBarMeta {
+  provisional?: boolean;
+}
 ```
 
-`DataFeed`, `BarsRequest`, and `BarSubscriptionOptions` are exported from
+`DataFeed`, `BarsRequest`, `BarSubscriptionOptions`, `LiveBarMeta` and `MarketDepth` are exported from
 `openalgo-charts`. The third subscription argument is optional; existing feeds with
 two-argument `subscribeBars` implementations remain compatible. A history-only feed
 omits `subscribeBars` so hosts can detect whether live data is available.
+
+Pass `meta.provisional` when a live builder opened a bucket after missing its
+earlier ticks. `DataLoadingController` uses that flag to retain an authoritative
+history open during repair. Depth is separately optional; the requested level
+is broker-dependent.
+
+`Bar.oi` carries an optional open-interest observation. Preserve zero, omit a
+missing reading, and declare instrument support separately through
+`ChartDataContext.hasOpenInterest`. See [Open interest](/docs/open-interest).
 
 `interval` is a **code your feed and the engine both have to agree on**. The built-in tokens
 (`5s`, `1m`, `1h`, `D`, `W`) resolve on their own; anything else, including a monthly bar or

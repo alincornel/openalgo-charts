@@ -1,3 +1,4 @@
+import { widgetText } from './localization';
 /**
  * The status line: one row under the chart with the engine's status-line
  * fields in HTML, so a host that turns the on-canvas legend off still has a
@@ -86,12 +87,13 @@ export function mountStatusline(ctx: WidgetContext, host: HTMLElement, opts: Sta
     host.appendChild(el);
     return { el, val: b };
   };
-  const open = field('O', 'oac-statusline__o');
-  const high = field('H', 'oac-statusline__h');
-  const low = field('L', 'oac-statusline__l');
-  const close = field('C', 'oac-statusline__c');
+  const open = field(widgetText(ctx, 'O'), 'oac-statusline__o');
+  const high = field(widgetText(ctx, 'H'), 'oac-statusline__h');
+  const low = field(widgetText(ctx, 'L'), 'oac-statusline__l');
+  const close = field(widgetText(ctx, 'C'), 'oac-statusline__c');
   const chg = field('', 'oac-statusline__chg');
-  const vol = field('Vol', 'oac-statusline__vol');
+  const vol = field(widgetText(ctx, 'Vol'), 'oac-statusline__vol');
+  const oi = field(widgetText(ctx, 'OI'), 'oac-statusline__oi');
   const time = h(doc, 'span', 'oac-statusline__time');
   host.appendChild(time);
   const msg = h(doc, 'span', 'oac-statusline__msg');
@@ -135,6 +137,10 @@ export function mountStatusline(ctx: WidgetContext, host: HTMLElement, opts: Sta
     const volume = sw.volume !== false && bar !== null && typeof bar.volume === 'number';
     show(vol.el, volume);
     if (volume && bar !== null) write(vol.val, compact.format(bar.volume as number));
+    const openInterest = sw.openInterest === true && chart.hasOpenInterest !== false
+      && bar?.oi !== undefined && Number.isFinite(bar.oi);
+    show(oi.el, openInterest);
+    if (openInterest && bar?.oi !== undefined) write(oi.val, compact.format(bar.oi));
     write(time, barTime !== null && bar !== null ? formatZonedCrosshairLabel(barTime, chart.timezone()) : '');
     write(tz, chart.timezone());
   };
@@ -160,6 +166,7 @@ export function mountStatusline(ctx: WidgetContext, host: HTMLElement, opts: Sta
     setBar(l.bar, l.time);
   };
   const off = chart.on('crosshair:move', onMove);
+  const offContext = chart.on('data:context', paint);
   const offData = chart.on('resize', () => { if (bar === null) { const l = lastBar(); setBar(l.bar, l.time); } });
 
   const handle: StatuslineHandle = {
@@ -179,6 +186,7 @@ export function mountStatusline(ctx: WidgetContext, host: HTMLElement, opts: Sta
     },
     destroy: () => {
       off();
+      offContext();
       offData();
       host.textContent = '';
     },

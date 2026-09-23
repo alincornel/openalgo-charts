@@ -8,7 +8,7 @@ description: >-
 
 # OpenAlgo Charts skill
 
-`openalgo-charts` is a from-scratch, dependency-free HTML5-canvas charting engine: a canvas rendering pipeline with vector export, no DOM per bar, eight lazy-loaded bundle tiers, zero runtime dependencies.
+`openalgo-charts` is a from-scratch, dependency-free HTML5-canvas charting engine: a canvas rendering pipeline with vector export, no DOM per bar, nine bundle entry points, zero runtime dependencies.
 
 Works the same whether the project is a downstream npm consumer app or an upstream `openalgo-charts` source checkout. Detect which one you are in and resolve every API name from whatever typings are locally available.
 
@@ -18,7 +18,7 @@ Do not assume you are inside the upstream source repository.
 
 1. In a consumer app, inspect the installed package first:
    - `node_modules/openalgo-charts/package.json` for the actual version.
-   - `node_modules/openalgo-charts/dist/index.d.ts` for the base API surface, and `dist/{trade,draw,indicators,transform,profile,webgl,widget}/index.d.ts` for each tier.
+   - `node_modules/openalgo-charts/dist/index.d.ts` for the base API surface, and `dist/{trade,draw,indicators,transform,profile,webgl,widget,workspace}/index.d.ts` for each tier.
 2. In the upstream repo, inspect `dist/index.d.ts` first, then `src/` if generated output is unavailable.
 3. `ARCHITECTURE.md` and `website/pages/docs/*.mdx` are supporting evidence, but local typings win when they disagree.
 
@@ -54,7 +54,7 @@ Eight layers, in dependency order. Most bugs come from confusing one for another
 npm install openalgo-charts
 ```
 
-Import only what you use. Each tier is a separate entry point that registers into the base engine, so a feature you do not load costs zero bytes.
+Import only what you use. Each tier is a separate entry point, so a feature you do not load costs zero bytes. The workspace tier is pure configuration and persistence; it registers nothing.
 
 | Import | Contents | Brotli limit |
 |---|---|---|
@@ -66,6 +66,7 @@ Import only what you use. Each tier is a separate entry point that registers int
 | `openalgo-charts/trade` | Order engine, state machine, order/position/bracket lines, DOM ladder | 85 KB with base |
 | `openalgo-charts/webgl` | The WebGL2 series backend behind `renderer: 'auto' \| 'webgl2'`; composites into the pane's canvas, falls back to 2D for the session on context loss | 7 KB |
 | `openalgo-charts/widget` | `createWidget`: the chart with a top bar, drawing rail, responsive mobile controls, status line, settings and indicator dialogs, drawing properties, right-click menu, keymap and optional persistence. The only tier that ships DOM; imports the draw tier itself | 43 KB |
+| `openalgo-charts/workspace` | Portable workspace/template documents, asynchronous catalog repository and atomic IndexedDB adapter; no UI or market data | 6 KB |
 
 Limits are the CI-enforced budgets in `.size-limit.json`. This reference targets 2.2.0.
 In a source checkout, run `npm run size` before quoting byte counts. In a consumer app,
@@ -122,6 +123,7 @@ Detailed reference for each topic is in `references/`. Read the one that matches
 | [data-and-time](references/data-and-time.md) | `Bar` shape, UTC seconds, the chart timezone and the time helpers, setData/update/prependData, the logical-index model, history paging, tick and volume bars |
 | [feeds-and-live](references/feeds-and-live.md) | `DataFeed` contract, OpenAlgo REST/WS/live feeds, `CandleBuilder`, the interval registry, `withBarCache` warm loading, writing a custom feed |
 | [events-and-state](references/events-and-state.md) | The full event catalogue with payloads, `getState`/`restoreState`, saved layouts |
+| [alerts](references/alerts.md) | Headless trader alerts, confirmed versus intrabar timing, lifecycle, expiry and host delivery |
 | [indicators](references/indicators.md) | The 102 built-ins with exact ids, placements and input defaults, the settings model, levels/ranges/fills, signal markers, `registerIndicator`, the Tier-2 external-data contract |
 | [transforms](references/transforms.md) | Heikin Ashi, Renko, Range, Line Break, Point and Figure, Kagi |
 | [drawing-tools](references/drawing-tools.md) | The 85 tools, `DrawingController`, anchors, magnet, undo, copy/cut/paste and the clipboard payload, persistence, shortcuts, custom tools |
@@ -135,6 +137,7 @@ Detailed reference for each topic is in `references/`. Read the one that matches
 | [react-integration](references/react-integration.md) | React and Next.js lifecycle, keeping orchestration out of React, SSR, resize |
 | [bundling-and-tiers](references/bundling-and-tiers.md) | Entry points, registry identity, tree-shaking, script/ESM/import-map loading, size budget |
 | [widget](references/widget.md) | `createWidget` and the widget tier: options, the handle, events, the context every dialog is handed, the keymap scopes, the tokens, every exported mount and helper, packaging |
+| [workspaces](references/workspaces.md) | Portable multi-chart workspaces, indicator templates, async catalog transactions, account namespaces and atomic browser storage |
 | [interactions](references/interactions.md) | Two-axis panning, optional horizontal mouse/pen pan, axis drag, navigator reset, default visible bars, keyboard and accessibility |
 | [host-integration](references/host-integration.md) | Hidden-tab startup, paging/replay isolation, stale async work, registration readiness, and upstream browser validation |
 | [pitfalls](references/pitfalls.md) | The verified foot-gun list. Read this when something behaves unexpectedly |
@@ -181,7 +184,7 @@ Detailed reference for each topic is in `references/`. Read the one that matches
 | Previous close, session high/low, bid/ask lines | `PriceLevels` | one primitive, one options group per level, `line` and `label` together | a `PriceLine` per level with its own tag bookkeeping |
 | A level or axis row with no data | `available(kind)`, `state.active` | render it disabled with its state visible | hiding the control |
 | Corner clock, bar-close countdown | `ChartOptions.axisChrome` | `{ sessionClock: true, barCountdown: true }`, plus a `clock` for a delayed feed | a DOM overlay positioned over the axis |
-| Saved layouts | `getState` / `restoreState` | one JSON payload | hand-rolled serialisation |
+| Named multi-chart layouts and templates | [workspaces](references/workspaces.md) | `WorkspaceRepository` plus a storage adapter; each pane carries `getState()` | treating a single chart snapshot as the whole host workspace |
 | React lifecycle | where the chart instance lives | create in an effect, hold in a ref, `chart.destroy()` on cleanup | chart instance in state |
 | Bundle size | which tiers are imported | drop the unused tier import | code-splitting the base |
 

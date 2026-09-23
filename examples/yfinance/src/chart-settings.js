@@ -3,11 +3,13 @@ import { el, esc } from './ui.js';
 import { renderInputRows } from './indicators.js';
 import { descriptionOf, exchangeOf, marketStatusReading, previousSessionClose } from './status.js';
 import { syncTimezoneFromChart } from './timezone.js';
+import { exitReplay } from './replay.js';
 import { syncAxisChromeFromChart, syncStatusLineFromChart, syncTradeChoiceFromChart } from './axis-chrome.js';
 import { foldedInterval } from './intervals.js';
-import { loadPane2 } from './split.js';
 import { restyleTradeChrome } from './orders.js';
 import { autosave } from './persist.js';
+import { capturePaneTarget } from './pane-target.js';
+import { VOLUME_TAB, volumeSettings, applyVolumeSettings } from './volume.js';
 
 // Read off the namespace rather than named above on purpose: a missing named
 // import fails the whole module at link time, and a demo served against a
@@ -25,8 +27,10 @@ let app;
 let chartSetTab = null;
 let chartSetBefore = null;          // values as they were when the dialog opened
 const chartSetDirty = new Set();    // keys this session touched, for Cancel
+let chartSetTarget = null;
+let disposeSettings = null;
 
-/** Branding and watermark options that must outlive a chart-type rebuild. */
+/** Host display options that must outlive a chart-type rebuild. */
 export function chartDecorationsForRebuild(chart) {
   const options = {};
   if (chart && typeof chart.brandingOptions === 'function') {
@@ -35,7 +39,19 @@ export function chartDecorationsForRebuild(chart) {
   if (chart && typeof chart.watermarkOptions === 'function') {
     options.watermark = chart.watermarkOptions();
   }
+  const size = chart?.legendIconSize?.();
+  if (Number.isFinite(size)) options.legendIconSize = normalizeLegendIconSize(size);
   return options;
+}
+
+export const normalizeLegendIconSize = value => Number.isFinite(value) ? Math.max(12, Math.min(28, value)) : 16;
+
+/** Series are host-owned, so the engine's state restore only returns their styles. */
+export function restorePrimaryStyle(chart, state) {
+  const primary = state?.series?.[0];
+  if (primary && primary.type === chart.primarySeriesInfo?.()?.type && primary.style && typeof primary.style === 'object') {
+    chart.primarySeries()?.applyOptions(primary.style);
+  }
 }
 
 /**
@@ -52,39 +68,62 @@ const CSET_ICON = {
 };
 const cseticon = (id) => '<svg viewBox="0 0 20 20">' + (CSET_ICON[id] || '') + '</svg>';
 
-export function openChartSettings(tabId) {
-  if (!app.chart) return;
+const settingsTabs = chart => [...chartSettingsSchema(chart).map(tab => tab.id === 'readout'
+  ? { ...tab, inputs: [...tab.inputs, { key: 'legend.iconSize', label: 'Legend button size', type: 'number',
+    default: 16, min: 12, max: 28, step: 1 }] } : tab), VOLUME_TAB];
+const settingsValues = target => ({ ...readChartSettings(target.chart), ...volumeSettings(target.pane),
+  'legend.iconSize': normalizeLegendIconSize(target.chart.legendIconSize?.()) });
+function writeSettings(target, patch) {
+  if (patch['time.timezone'] !== undefined && patch['time.timezone'] !== target.chart.timezone()) exitReplay(target.pane);
+  const chartPatch = Object.fromEntries(Object.entries(patch).filter(([key]) => !key.startsWith('volume.') && key !== 'legend.iconSize'));
+  if (Object.keys(chartPatch).length) applyChartSettings(target.chart, chartPatch);
+  if (patch['legend.iconSize'] !== undefined) target.chart.setLegendIconSize(normalizeLegendIconSize(patch['legend.iconSize']));
+  applyVolumeSettings(target.pane, patch);
+  afterChartSettingsWrite(target);
+}
+
+export function openChartSettings(tabId, target = capturePaneTarget(app)) {
+  if (!target?.current()) return;
+  if (target.pane === 2 ? app.loading2 || app.loadFailed2 : app.loading || app.loadFailed) {
+    el('status').textContent = 'load chart history before changing its settings';
+    return;
+  }
   if (!chartSettingsSchema) { el('status').textContent = 'chart settings are not in this build of dist/'; return; }
-  const tabs = chartSettingsSchema(app.chart);
-  chartSetBefore = readChartSettings(app.chart);
+  if (chartSetTarget) closeChartSettings(true);
+  chartSetTarget = target;
+  const tabs = settingsTabs(target.chart);
+  chartSetBefore = settingsValues(target);
   chartSetDirty.clear();
   chartSetTab = tabId || (tabs[0] && tabs[0].id);
+  app.chartSettingsEditing = true;
+  disposeSettings = target.chart.on('destroy', discardChartSettings);
   renderChartSettings();
   el('chartset').hidden = false;
 }
 
 export function renderChartSettings() {
-  if (!app.chart) return;
-  const tabs = chartSettingsSchema(app.chart);
+  const target = settingsOwner();
+  if (!target) return;
+  const tabs = settingsTabs(target.chart);
   // Re-read on every paint: edits apply live, so switching tabs and coming
   // back has to show what the chart is actually drawing now.
-  const values = readChartSettings(app.chart);
+  const values = settingsValues(target);
   const nav = el('cset-tabs');
   nav.innerHTML = '';
   for (const t of tabs) {
     const b = document.createElement('button');
     b.className = 'cset-tab' + (t.id === chartSetTab ? ' is-on' : '');
-    b.innerHTML = cseticon(t.id) + '<span>' + esc(t.label) + '</span>';
+    b.innerHTML = cseticon(t.id === 'volume' ? 'price' : t.id) + '<span>' + esc(t.label) + '</span>';
     b.addEventListener('click', () => { chartSetTab = t.id; renderChartSettings(); });
     nav.appendChild(b);
   }
   const tab = tabs.find((t) => t.id === chartSetTab) || tabs[0];
   if (!tab) return;
   renderInputRows(el('cset-body'), tab.inputs, values, (key, value) => {
+    if (!settingsOwner()) return;
     chartSetDirty.add(key);
-    applyChartSettings(app.chart, { [key]: value });
-    afterChartSettingsWrite();
-  }, chartSettingUnavailable);
+    writeSettings(target, { [key]: value });
+  }, (key, option) => chartSettingUnavailable(key, option, target));
 }
 
 /**
@@ -95,17 +134,26 @@ export function renderChartSettings() {
  * yet", where an enabled swatch that changes no pixels says "this is broken".
  * Place a bracket or fill a market order and the same swatches come alive.
  */
-export function chartSettingUnavailable(key, option) {
+export function chartSettingUnavailable(key, option, target = chartSetTarget || capturePaneTarget(app)) {
+  if (!target) return 'No chart is available';
+  if (key.startsWith('volume.') && !app[target.pane === 2 ? 'volume2' : 'volume']) {
+    return 'Volume is unavailable for this transformed chart';
+  }
+  const symbol = target.request.symbol || '';
+  if (key === 'statusLine.openInterest' && target.chart.hasOpenInterest === false) {
+    return 'Open interest is unavailable for this instrument.';
+  }
   if (key === 'statusLine.titleMode' && option === 'description') {
-    return descriptionOf(app.req.symbol || '') ? null
-      : 'no long name for ' + (app.req.symbol || 'this symbol').toUpperCase() + ' in this demo';
+    return descriptionOf(symbol) ? null
+      : 'no long name for ' + (symbol || 'this symbol').toUpperCase() + ' in this demo';
   }
-  if (key === 'statusLine.marketStatus' && marketStatusReading() === undefined) {
-    return 'no session hours for ' + exchangeOf(app.req.symbol || '');
+  if (key === 'statusLine.marketStatus' && marketStatusReading(symbol) === undefined) {
+    return 'no session hours for ' + exchangeOf(symbol);
   }
-  if (key === 'statusLine.lastDayChange' && previousSessionClose() == null) {
+  if (key === 'statusLine.lastDayChange' && previousSessionClose(target.chart.primaryBars(), target.chart.timezone()) == null) {
     return 'no previous session in the loaded range';
   }
+  if (target.pane === 2 && key.startsWith('trading.')) return 'Trading simulation is available on chart 1';
   const longPos = app.position && app.position.netQty > 0;
   const shortPos = app.position && app.position.netQty < 0;
   switch (key) {
@@ -130,25 +178,18 @@ export function chartSettingUnavailable(key, option) {
  * the controls chose. Reading them back beats mirroring the control, because
  * `setTimezone` refuses a zone the runtime does not know.
  */
-export function afterChartSettingsWrite() {
-  const zoneBefore = app.chartTimezone;
+export function afterChartSettingsWrite(target = chartSetTarget || capturePaneTarget(app)) {
+  if (!target?.current()) return;
+  if (target.pane === 2) {
+    app.p2.timezone = target.chart.timezone();
+    app.p2.legendIconSize = normalizeLegendIconSize(target.chart.legendIconSize?.());
+    return;
+  }
   syncTimezoneFromChart();
-  const zoneMoved = app.chartTimezone !== zoneBefore;
   syncAxisChromeFromChart();
   syncStatusLineFromChart();
   syncTradeChoiceFromChart();
   if (app.priceLevels) app.priceLevels.setOptions({ timezone: app.chartTimezone });
-  // A timezone change moves a calendar bucket's boundary, so a folded frame
-  // has to be recomputed rather than relabelled: a month that starts at
-  // local midnight in Kolkata does not start at local midnight in New York.
-  // Guarded on the zone actually moving, or every colour edit would refetch.
-  if (zoneMoved) {
-    if (app.chart2 && typeof app.chart2.setTimezone === 'function') {
-      try { app.chart2.setTimezone(app.chartTimezone); } catch (_) { /* zone the runtime rejects */ }
-      if (foldedInterval(app.p2.interval)) loadPane2();
-    }
-    if (foldedInterval(el('interval').value)) app.load();
-  }
   // The demo draws its own orders, bracket and position, so a Trading-tab
   // edit reaches them only because this asks it to.
   restyleTradeChrome();
@@ -161,8 +202,9 @@ export function afterChartSettingsWrite() {
  * what is on screen.
  */
 export function restoreChartSettingsTab() {
-  if (!app.chart) return;
-  const tab = chartSettingsSchema(app.chart).find((t) => t.id === chartSetTab);
+  const target = settingsOwner();
+  if (!target) return;
+  const tab = settingsTabs(target.chart).find((t) => t.id === chartSetTab);
   if (!tab) return;
   const patch = {};
   for (const input of tab.inputs) {
@@ -177,8 +219,7 @@ export function restoreChartSettingsTab() {
   // Marked dirty so Cancel still undoes it: a restore is an edit like any
   // other, not a new baseline.
   for (const key of Object.keys(patch)) chartSetDirty.add(key);
-  applyChartSettings(app.chart, patch);
-  afterChartSettingsWrite();
+  writeSettings(target, patch);
   renderChartSettings();
   el('status').textContent = tab.label.toLowerCase() + ' settings restored to defaults';
 }
@@ -189,23 +230,46 @@ export function restoreChartSettingsTab() {
  * the user dragged or a scale they switched while the dialog was open.
  */
 export function closeChartSettings(revert) {
-  if (revert && app.chart && chartSetBefore) {
+  const target = settingsOwner();
+  if (!target) return;
+  const zoneBefore = chartSetBefore['time.timezone'];
+  if (revert && chartSetBefore) {
     const back = {};
     for (const key of chartSetDirty) back[key] = chartSetBefore[key];
-    applyChartSettings(app.chart, back);
-    afterChartSettingsWrite();
+    writeSettings(target, back);
   }
   // The toolbar's grid switches drive a fresh chart's `grid` option, so they
   // have to follow whatever the Appearance tab left behind.
-  if (app.chart && readChartSettings) {
-    const now = readChartSettings(app.chart);
+  if (target.pane === 1 && readChartSettings) {
+    const now = readChartSettings(target.chart);
     el('vgrid').checked = now['canvas.grid.vertLines'] !== false;
     el('hgrid').checked = now['canvas.grid.horzLines'] !== false;
   }
+  const refold = target.chart.timezone() !== zoneBefore && foldedInterval(target.request.interval);
+  discardChartSettings();
+  // Calendar bars need new boundaries after an accepted zone change. Wait for
+  // the dialog decision so Cancel can restore its owner without racing history.
+  if (refold) {
+    if (target.pane === 2) app.loadSecondary();
+    else app.load();
+  }
+  autosave();
+}
+
+function settingsOwner() {
+  if (chartSetTarget?.current()) return chartSetTarget;
+  discardChartSettings();
+  return null;
+}
+
+function discardChartSettings() {
+  disposeSettings?.();
+  disposeSettings = null;
   el('chartset').hidden = true;
   chartSetBefore = null;
+  chartSetTarget = null;
   chartSetDirty.clear();
-  autosave();
+  app.chartSettingsEditing = false;
 }
 
 export function initChartSettings(a) {

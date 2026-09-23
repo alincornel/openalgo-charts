@@ -15,30 +15,36 @@ import { initHover } from './hover.js';
 import { fillIntervalSelect, clampPeriod } from './intervals.js';
 import { initFeed, fetchBars, fetchNote, feedErrorState } from './feed.js';
 import { applyTransform } from './transforms.js';
-import { isExpression, fetchExpressionBars, mountOperatorKeypad } from './expression.js';
+import { isExpression, fetchExpressionBars, mountOperatorKeypad, referenceDataContext } from './expression.js';
 import { initStatus, nameOf, symbolStatus } from './status.js';
 import { DEFAULT_TZ, initTimezone } from './timezone.js';
 import { initAxisChrome, applyAxisChrome, applyStatusLineChoice, applyTradeChoice } from './axis-chrome.js';
-import { initVolume, volumeShown, setVolumeShown, setLegend } from './volume.js';
+import { initVolume, attachVolume, refreshVolume, setVolumeShown, setLegend, applyVolumeSettings } from './volume.js';
 import {
   initOrders, saveState, restoreState, cancelOrder, attachOrderLines, removeAllOrders,
-  updatePositionLine, restyleTradeChrome, clearPosition,
+  updatePositionLine, restyleTradeChrome, clearPosition, executionAllowed,
 } from './orders.js';
 import { initBracket, attachBracketLines, setBracketPrice, updateBracket, removeBracket } from './bracket.js';
-import { initIndicators, fillIndicatorPicker, renderIndicatorChips, openSettings } from './indicators.js';
-import { chartDecorationsForRebuild, initChartSettings } from './chart-settings.js';
-import { initCompare, attachComparison, removeComparison, syncComparisons } from './compare.js';
+import { initIndicators, fillIndicatorPicker, renderIndicatorChips, openSettings, rememberIndicators } from './indicators.js';
+import { chartDecorationsForRebuild, initChartSettings, normalizeLegendIconSize, restorePrimaryStyle } from './chart-settings.js';
+import { bindIndicatorSource, initIndicatorSource } from './indicator-source.js';
+import { initCompare, attachComparison, invalidateComparisons, syncComparisons, restoreComparisons } from './compare.js';
 import { initSnapshot } from './snapshot.js';
-import { initReplay, exitReplay, syncReplayBar, lastBar, movePick, startReplayAt } from './replay.js';
-import { initSplit, joinLink } from './split.js';
+import { initReplay, exitReplay, attachReplay, syncReplayAlertPause } from './replay.js';
+import { initSplit, joinLink, installSecondaryWorkspace } from './split.js';
 import { initLink } from './link.js';
 import { initClipboard } from './clipboard.js';
 import { initMenus, openContextMenu } from './menus.js';
-import { initPersist, datasetKey, readLayout, applyLayout } from './persist.js';
+import { initPersist, datasetKey, applyLayout, stripView, autosave, restorePrimarySelection, primaryLayoutSelection } from './persist.js';
+import { attachAlerts, detachAlerts } from './alerts.js';
 import { initToolbar, renderToolbar } from './toolbar.js';
-import { initRail, buildRail, initMobile } from './rail.js';
+import { initRail, buildRail, initMobile, focusChart, setMagnetMode, setStayMode } from './rail.js';
+import { initWorkspaceHost } from './workspace-host.js';
+import { initWorkspaces } from './workspaces.js';
+import { initTemplates } from './templates.js';
 import { mountPropertiesBar } from './properties.js';
 import { initDrawing, attachDrawing } from './drawing.js';
+import { capturePaneTarget } from './pane-target.js';
 
 // Price-level family (previous close, session extremes, extended hours,
 // bid/ask). Read off the namespace rather than named above on purpose: a
@@ -115,14 +121,18 @@ const app = {
   // a chart rebuild and a saved layout; the handle and legend do not.
   comparisons: [],
   cmpMode: 'percentage',
+  comparisons2: [],
+  cmpMode2: 'percentage',
   // Market replay: the controller, and the pick state while the user is
   // choosing the bar to start from. One shade per pane, because the future
   // has to be hidden on all of them.
   replay: null,
+  replayTarget: null,
+  replayTargets: [],
+  replayScope: 'focused',
+  replayLoading: false,
   replayPicking: false,
   replayPickIndex: null,
-  replayShades: [],
-  replayMark: null,
   // The link group and the second chart of the split view. A different
   // instrument AND a different timeframe from the main chart on purpose: an
   // hourly follower beside a daily leader is the only way to see that the
@@ -132,7 +142,7 @@ const app = {
   volume2: null,
   draw2: null,
   p2: { symbol: 'MSFT', interval: '1h', period: '1mo', note: '' },
-  focusPane: 1,          // which plot the pointer is over, so a clipboard chord knows its target
+  focusPane: 1,          // selected chart for shared controls and clipboard shortcuts
   // The main chart's drawing controller, and the tool id -> chord table the
   // rail labels its rows from once the draw tier has answered.
   draw: null,
@@ -142,6 +152,7 @@ const app = {
   load: null,            // set below: the modules reach the loader through the app
 };
 app.load = load;
+app.render = render;
 
 // The e2e suite drives the page through this handle, and only when asked to:
 // a demo should not put its internals on window by default.
@@ -150,24 +161,25 @@ if (new URLSearchParams(location.search).get('test') === '1') {
 }
 
 // (Re)build the chart for the currently selected type using cached bars.
-function render() {
+function render({ keepView = true, state } = {}) {
   // Leave replay first: stop() hands the driven series their real data back,
   // and it has to reach the chart that is about to be thrown away.
-  exitReplay();
+  exitReplay(1);
+  const previousState = state || app.chart?.getState();
+  const rebuildState = previousState && (keepView ? previousState : stripView(previousState));
   const decorations = chartDecorationsForRebuild(app.chart);
+  if (state) decorations.legendIconSize = normalizeLegendIconSize(state.legendIconSize);
+  const dataContext = referenceDataContext(app.req, app.chart?.getDataContext());
   if (app.offBranding) { app.offBranding(); app.offBranding = null; }
+  detachAlerts(app);
+  if (app.draw) { app.draw.destroy(); app.draw = null; }
   if (app.chart) app.chart.destroy();
-  // The primitives belonged to the destroyed chart; a stale handle would
-  // leave the next selection updating a shade nothing draws.
-  app.replayShades = [];
-  app.replayMark = null;
-  // The handles belong to the destroyed chart; the specs outlive it.
-  for (const c of app.comparisons) { c.handle = null; c.legend = null; }
   el('chart').innerHTML = '';
   app.chart = createChart(el('chart'), {
     // DEFAULT_THEME is the light palette; the shell's switch decides which.
     theme: chartTheme(),
     priceAxisWidth: 72, // free crosshair (follows pointer)
+    legendIconSize: 16,
     grid: { vertLines: el('vgrid').checked, horzLines: el('hgrid').checked },
     // A chart-type switch builds a new chart; the zone the user picked is
     // the demo's to carry across, like activeIndicators.
@@ -175,7 +187,7 @@ function render() {
     ...chartMotionOptions(),
     ...decorations,
   });
-  app.chart.setDataContext({ symbol: app.req.symbol, interval: app.req.interval });
+  app.chart.setDataContext(dataContext);
   app.offBranding = app.chart.on('branding:changed', renderToolbar);
   applyAxisChrome();
   applyStatusLineChoice();   // before the legends: a row added later obeys the switches
@@ -188,7 +200,9 @@ function render() {
   // titles, the session state and the change since the previous close. The
   // legend draws nothing for a field with no data, so these switches are live
   // only because this hands them something.
-  app.symbolLegend = new PaneLegend({ id: 'symbol', title: '', params: '', row: 0, actions: [], status: symbolStatus });
+  app.symbolLegend = new PaneLegend({ id: 'symbol', title: '', params: '', row: 0, actions: [],
+    status: () => symbolStatus({ symbol: app.req.symbol, bars: app.chart.primaryBars(), timezone: app.chart.timezone() }),
+  });
   app.chart.addPrimitive(app.symbolLegend, 0);
 
   // Previous close, session high/low and the rest. Off the namespace, so a
@@ -205,8 +219,8 @@ function render() {
   el('pfmode').hidden = sel !== 't:point-figure';
 
   // Family-B transforms replace the plotted series with derived elements, so
-  // the volume pane and trading overlay are hidden for them (a Renko brick or
-  // a P&F column has no single source bar to hang volume off).
+  // Trading uses real prices. Volume also needs a source-bar mapping, which
+  // Heikin Ashi retains but price-bucket transforms do not provide.
   const { type, data } = isTransform
     ? applyTransform(sel.slice(2), app.currentBars)
     : { type: sel, data: app.currentBars };
@@ -228,40 +242,12 @@ function render() {
   // so plainly. A real host reads it from its own instrument master, the way
   // OpenAlgo reads tick_size out of its symbol table, rather than guessing.
   app.chart.setPriceScaleOptions({ minMove: tickFor(app.req.symbol) });
+  attachVolume(1, !isTransform || sel === 't:heikin-ashi');
   if (!isTransform) {
-    // Volume rides an OVERLAY price scale inside the price pane
-    // (priceScaleId: '') rather than a pane of its own: it autoscales
-    // independently but draws no axis, so the right-hand column stays a
-    // clean price ladder instead of stacking a second numeric scale. The
-    // 82% top margin pins the bars to the bottom fifth, and the `volume`
-    // price format renders 200M rather than 200000000.
-    app.volume = app.chart.addSeries('histogram', {
-      paneIndex: 0,
-      priceScaleId: '',
-      style: { color: '#33415e', base: 0 },
-      priceFormat: { type: 'volume' },
-    });
-    app.volume.priceScale().setOptions({ marginTop: 0.82, marginBottom: 0 });
-    // A rebuild makes a fresh series, so the checkbox has to be re-applied
-    // rather than assumed -- a chart-type switch would show it again.
-    if (!volumeShown()) app.volume.applyOptions({ visible: false });
-    app.volume.setData(app.currentBars.map((b) => ({ time: b.time, open: 0, high: b.volume, low: 0, close: b.volume })));
-    // The eye is the only control the volume histogram has on the chart
-    // itself, and it is the one a reader reaches for: the row is already
-    // sitting over the bars it governs. No trash alongside it, because
-    // volume here is a fixture of the price pane rather than a study that
-    // can be re-added from a list, so a delete would only be a second
-    // spelling of hide.
-    app.volLegend = new PaneLegend({
-      id: 'volume', title: 'Vol', params: '', actions: ['hide'], hidden: !volumeShown(),
-    });
-    app.chart.addPrimitive(app.volLegend, 0);
-    app.markersApi = app.price.createMarkers(); // executed-fill arrows
+    app.markersApi = app.price.createMarkers();
     app.markersApi.setMarkers(app.fills);
   } else {
-    app.volume = null;
-    app.markersApi = null; // the old handle belongs to the destroyed chart
-    app.volLegend = null;  // transforms have no per-bar volume to report
+    app.markersApi = null;
   }
 
   // Indicators come from the lazy 'openalgo-charts/indicators' tier. The chart
@@ -269,21 +255,35 @@ function render() {
   // draws declared reference levels (RSI 70/30), pins a declared fixed range
   // (RSI 0..100), and recomputes on every data change.
   if (!isTransform) {
-    for (const spec of app.activeIndicators) {
-      try { app.chart.addIndicator(spec.indicatorId, spec.settings); }
+    for (const spec of rebuildState ? [] : app.activeIndicators) {
+      try {
+        const instance = app.chart.addIndicator(spec.indicatorId, spec.settings, { paneIndex: spec.paneIndex });
+        if (spec.visible === false) instance.setVisible(false);
+      }
       catch (e) { console.warn('indicator', spec.indicatorId, e.message); }
     }
   }
   renderIndicatorChips();
-  // Comparisons go on after the indicators, so their legend rows land under
-  // the indicator rows rather than in the middle of them.
-  for (const c of app.comparisons) attachComparison(c);
   attachDrawing();
+  attachAlerts(app);
+  if (rebuildState) {
+    // The new series type is the user's selection; carry studies and anchors
+    // through the engine's ordered restore without applying the old series style.
+    const report = app.chart.restoreState({ ...rebuildState, series: [] });
+    if (state && !report.applied) throw new Error('The primary chart state could not be restored');
+    restorePrimaryStyle(app.chart, rebuildState);
+    refreshVolume(1);
+    renderIndicatorChips();
+  }
+
+  // Restore the price pane before attaching comparisons, which own a temporary scale mode.
+  for (const c of app.comparisons) attachComparison(c, 1);
 
   // Chart trading: one drag handler routes both - drag a bracket leg -> move
   // that leg; drag a resting order line -> re-price that order. Both are redrawn
   // on the freshly-rebuilt chart.
   app.chart.subscribeDrag((externalId, p) => {
+    if (!executionAllowed()) return;
     if (externalId.startsWith('bk-')) { setBracketPrice(externalId.slice(3), p); return; }
     if (externalId.startsWith('order:')) {
       const o = app.orders.find((x) => `order:${x.id}` === externalId);
@@ -295,20 +295,9 @@ function render() {
     if (id === 'position::close') { clearPosition(); saveState(); el('status').textContent = 'position closed'; return; }
     // The volume row's eye. Ahead of the `::close` fallthrough below, which
     // reads any other `::close` as an order line's cancel box.
-    if (id === 'volume::hide') { setVolumeShown(!volumeShown()); return; }
-    // A comparison's legend row carries the same hide/close buttons every
-    // other source's row does, so route them before the order lines.
-    if (id.startsWith('cmp:')) {
-      const spec = app.comparisons.find((c) => id.startsWith('cmp:' + c.symbol + '::'));
-      if (!spec) return;
-      if (id.endsWith('::close')) { removeComparison(spec); el('status').textContent = `removed ${spec.symbol}`; return; }
-      if (id.endsWith('::hide')) {
-        spec.hidden = spec.hidden !== true;
-        spec.handle.series.applyOptions({ visible: !spec.hidden });
-        spec.legend.setOptions({ hidden: spec.hidden });
-      }
-      return;
-    }
+    if (id === 'volume::hide') return;
+    // Comparison legend actions are handled by their chart-owned event listener.
+    if (id.startsWith('cmp:')) return;
     if (id.endsWith('::close')) cancelOrder(id.slice(0, -'::close'.length));
   });
   attachOrderLines();
@@ -325,11 +314,13 @@ function render() {
 
   // The gear on a pane legend has no built-in dialog (the engine ships no
   // DOM), so it emits and we render the generated form.
-  app.chart.on('indicatorSettings', ({ instanceId }) => openSettings(instanceId));
+  app.chart.on('indicatorSettings', ({ instanceId }) => openSettings(instanceId, capturePaneTarget(app, 1)));
+  bindIndicatorSource(app.chart, 1);
   // The close and trash buttons on a legend removes the indicator inside the chart, so
   // mirror that into our own spec list and refresh the chips.
-  app.chart.on('indicatorRemoved', ({ indicatorId }) => {
-    app.activeIndicators = app.activeIndicators.filter((s) => s.indicatorId !== indicatorId);
+  app.chart.on('indicatorRemoved', () => {
+    if (app.applyingTemplate) return;
+    rememberIndicators();
     renderIndicatorChips();
   });
   // Any change to the pane stack moves which pane is the bottom one.
@@ -337,9 +328,7 @@ function render() {
   // Replay is headless: the controller emits, the transport bar and the
   // legend follow. `replay:stop` is here too, so the bar is correct for the
   // instant between stop() and exitReplay() tearing it down.
-  for (const ev of ['replay:start', 'replay:frame', 'replay:play', 'replay:pause', 'replay:end', 'replay:stop']) {
-    app.chart.on(ev, (s) => { syncReplayBar(); if (s && s.bar) setLegend(s.bar); });
-  }
+  attachReplay(app.chart, 1, setLegend);
 
   // Right-click. The chart classifies what is under the pointer and hands
   // over the price, so one menu covers order entry, drawings and settings,
@@ -350,16 +339,9 @@ function render() {
   // OHLC legend tracks the crosshair. The position P&L does NOT - it marks to
   // the LTP (the latest close here; with a live feed, update it on each tick).
   app.chart.subscribeCrosshairMove((e) => {
-    setLegend(e.bar ?? lastBar());
-    movePick(e.index);
+    setLegend(e.bar ?? app.chart.primaryBars().at(-1));
   });
-  // The pick is committed on a plain click. `subscribeClick` reports the
-  // primitive that was hit, which is the wrong question here: the shade
-  // deliberately reports no hit so the bar under it stays reachable.
-  el('chart').addEventListener('click', () => {
-    if (app.replayPicking && app.replayPickIndex !== null) startReplayAt(app.replayPickIndex);
-  });
-  setLegend(lastBar());
+  setLegend(app.chart.primaryBars().at(-1));
   // Last, because the chart that just replaced the destroyed one has to be
   // the one in the group: the old entry is a corpse the group prunes on its
   // next broadcast, and a linked grid that stops following after a
@@ -372,8 +354,55 @@ function render() {
   window.__cache = () => app.cache;
 }
 
+let loadRevision = 0;
+
+function installWorkspace({ layout, bars }) {
+  const selection = primaryLayoutSelection(layout);
+  if (!selection.request || !bars[0]?.length || (layout.secondary && !bars[1]?.length)) {
+    throw new Error('Every workspace chart needs prepared history');
+  }
+  loadRevision++;
+  app.linkGroup?.setOptions({ crosshair: false, viewport: false, symbol: false, interval: false });
+  invalidateComparisons(1);
+  removeBracket(); removeAllOrders(); clearPosition();
+  app.req = { ...selection.request };
+  for (const [key, value] of Object.entries(app.req)) el(key).value = value;
+  el('ctype').value = selection.chartType || 'candlestick';
+  el('pfmode').value = selection.pfmode || 'atr';
+  app.chartTimezone = selection.timezone || DEFAULT_TZ;
+  app.currentBars = bars[0].map(bar => ({ ...bar }));
+  app.idxByTime.clear();
+  app.currentBars.forEach((bar, index) => app.idxByTime.set(bar.time, index));
+  app.activeIndicators = (layout.indicators || []).map(study => ({ ...study, settings: { ...study.settings } }));
+  applyVolumeSettings(1, layout.volumeSettings || { 'volume.visible': layout.volume !== false });
+  restoreComparisons(layout, 1);
+  restoreState(app.req.symbol);
+  setMagnetMode(layout.magnet || 'off');
+  setStayMode(layout.stay === true);
+  // Set split geometry before creating the primary chart so its saved viewport
+  // is applied against the final plot width, without a later resize correction.
+  installSecondaryWorkspace(layout.secondary, bars[1]);
+  render({ state: layout });
+  focusChart(layout.focusPane);
+  const focused = app.focusPane === 2 ? app.chart2 : app.chart;
+  const request = app.focusPane === 2 ? app.p2 : app.req;
+  app.linkGroup?.setSymbol(focused, request.symbol);
+  app.linkGroup?.setInterval?.(focused, request.interval);
+  app.linkGroup?.setOptions(layout.linkOptions || {});
+  setChartState('ready', app.req);
+  el('status').textContent = `Layout loaded: ${app.req.symbol}${app.chart2 ? ' / ' + app.p2.symbol : ''}`;
+  renderToolbar();
+}
+
 async function load(opts) {
+  const revision = ++loadRevision;
+  exitReplay(1);
+  invalidateComparisons(1);
+  app.loading = true;
+  app.loadFailed = false;
+  app.alerts?.setPaused(true);
   const status = el('status');
+  const hadChart = Boolean(app.chart);
   // Clamp here too, not just at the interval buttons: a saved layout or a
   // hand-set select can otherwise ask for a range the interval cannot serve.
   const interval = el('interval').value;
@@ -382,7 +411,7 @@ async function load(opts) {
   if (period !== wanted) el('period').value = period;
   const prev = app.req || {};
   app.req = { symbol: el('symbol').value.trim(), interval, period };
-  if (app.chart) app.chart.setDataContext({ symbol: app.req.symbol, interval: app.req.interval });
+  if (app.chart) app.chart.setDataContext(referenceDataContext(app.req, app.chart.getDataContext()));
   // A different instrument or timeframe means the bars on screen are about to
   // be replaced rather than refreshed, so the stage blanks under the loading
   // dots. A reload of the same request keeps them: they are still correct,
@@ -394,6 +423,7 @@ async function load(opts) {
   // even with symbol sync off, so switching it on later converges on this
   // instrument rather than on a stale one.
   if (app.linkGroup && app.chart) app.linkGroup.setSymbol(app.chart, app.req.symbol);
+  if (app.chart) app.linkGroup?.setInterval?.(app.chart, app.req.interval);
   status.textContent = `loading ${app.req.symbol} ${app.req.interval}...`;
   setChartState('loading', { ...app.req, blank: identityChanged || !app.chart });
   try {
@@ -409,27 +439,27 @@ async function load(opts) {
     // the line at the end would report the comparison's verdict as this
     // symbol's.
     const note = fetchNote();
+    if (revision !== loadRevision) return;
     app.currentBars = bars;
     app.idxByTime.clear();
     bars.forEach((b, i) => app.idxByTime.set(b.time, i));
     removeBracket(); removeAllOrders(); clearPosition(); // detach old chart's lines + reset vars
     restoreState(app.req.symbol);                            // repopulate this symbol's saved orders/bracket/position
-    // A comparison fetched at another interval has timestamps that cannot
-    // match these bars, so drop the cache and let syncComparisons() refetch
-    // rather than drawing a chart of pure whitespace on the way there.
-    for (const c of app.comparisons) c.bars = [];
-    render();
+    render({ keepView: !identityChanged });
     setChartState(bars.length ? 'ready' : 'empty', app.req);
     // Re-apply the saved layout now the series exists: a logical viewport
     // means nothing on an empty chart, and the drawing controller reads its
-    // model back out of the restored state. readLayout() upgrades an old
-    // document and sets a corrupt one aside, so nothing here can throw.
-    const saved = readLayout();
+    // model back out of the restored state. Startup already selected the
+    // saved named document or the validated session recovery snapshot.
+    const saved = hadChart ? null : app.startupLayout;
     if (saved) {
-      applyLayout(saved, { keepView: saved.dataset === datasetKey(app.req), replaceComparisons: false });
+      const report = applyLayout(saved, { keepView: saved.dataset === datasetKey(app.req), replaceComparisons: false });
+      await report.secondaryReady;
     }
+    app.startupLayout = null;
     // After the restore, so a comparison saved in the layout is fetched too.
-    await syncComparisons();
+    await syncComparisons(1);
+    if (revision !== loadRevision) return;
     renderToolbar();
     status.textContent = `${app.req.symbol} · ${bars.length} bars · ${app.req.interval}/${app.req.period}`
       + (period !== wanted ? `  (${wanted} unavailable at ${interval})` : '')
@@ -439,9 +469,18 @@ async function load(opts) {
     const fault = feedErrorState(e);
     // A superseded load has nothing to report: the newer one owns the readout.
     if (fault.state === 'aborted') return;
+    if (revision !== loadRevision) return;
+    app.loadFailed = true;
     status.textContent = 'error: ' + fault.message;
     setChartState('error', { ...app.req, message: fault.message, retry: () => load(opts) });
     toast('error', `Could not load ${app.req.symbol}: ${fault.message}`);
+  } finally {
+    if (revision === loadRevision) {
+      app.loading = false;
+      syncReplayAlertPause();
+      renderToolbar();
+      if (!app.loadFailed) autosave();
+    }
   }
 }
 
@@ -457,6 +496,7 @@ initVolume(app);
 initOrders(app);
 initBracket(app);
 initIndicators(app);
+initIndicatorSource();
 
 // The operator keypad lives beside the symbol field. Mounted once: it writes
 // into the field and the ordinary Enter handler does the loading, so nothing
@@ -488,35 +528,39 @@ el('save').addEventListener('click', () => {
 // switching chart type / P&F box mode re-renders cached bars (no network round-trip)
 ['ctype', 'pfmode'].forEach((id) => el(id).addEventListener('change', () => { if (app.currentBars.length) render(); }));
 // toggle grid lines live (no rebuild needed)
-// The second chart is part of the same workspace, so a workspace switch
-// reaches it too: a grid that is on in one pane and off in the other looks
-// like a bug in the split, not like two charts.
+// These legacy fields belong to the primary chart; the shared toolbar captures its owner.
 const applyGrid = () => {
   const o = { vertLines: el('vgrid').checked, horzLines: el('hgrid').checked };
   if (app.chart) app.chart.setGridOptions(o);
-  if (app.chart2) app.chart2.setGridOptions(o);
 };
 el('vgrid').addEventListener('change', applyGrid);
 el('hgrid').addEventListener('change', applyGrid);
 // Volume is hidden, not removed: the series keeps its data and its overlay
 // price scale, so switching it back on is instant.
-el('volshow').addEventListener('change', () => setVolumeShown(el('volshow').checked));
+el('volshow').addEventListener('change', () => setVolumeShown(el('volshow').checked, 1));
 initPersist(app);
 
 // Escape is the overlay stack's (ui.js): one layer per press, each closed
 // through its own close control, so chart settings still revert.
 initToolbar(app);
+app.onFocusPane = () => { renderToolbar(); renderIndicatorChips(); autosave(); };
 // The rail mounts the properties bar for the selected drawing on the stage,
 // so a bar docked to it comes along into chart-only full screen.
 initRail(app, { mountPropertiesBar });
 initDrawing(app);
 initMobile(app);
 fillIntervalSelect();
+initWorkspaceHost(app, installWorkspace);
+app.startupLayout = await initWorkspaces(app);
+initTemplates(app);
+restorePrimarySelection(app.startupLayout);
+if (app.startupLayout?.magnet) setMagnetMode(app.startupLayout.magnet);
+if (typeof app.startupLayout?.stay === 'boolean') setStayMode(app.startupLayout.stay);
 
 buildRail();
 fillIndicatorPicker();
 renderToolbar();
-// The symbol box is a floating editor raised by the toolbar button.
+// Keep legacy field events available to embedded examples and test harnesses.
 el('symbol').addEventListener('blur', () => { el('symbol').classList.remove('is-live'); renderToolbar(); });
 el('symbol').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' || e.key === 'Escape') { el('symbol').classList.remove('is-live'); renderToolbar(); }

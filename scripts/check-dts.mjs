@@ -28,6 +28,7 @@ const FORBIDDEN = [
   'declare class TimeScale',
   'declare class PriceScale',
   'declare class DataLayer',
+  'declare class TradingCapabilityError',
 ];
 
 /**
@@ -42,6 +43,7 @@ const TIERS = {
   'dist/transform/index.d.ts': [],
   'dist/profile/index.d.ts': [],
   'dist/webgl/index.d.ts': [],
+  'dist/workspace/index.d.ts': [],
   'dist/widget/index.d.ts': ['declare class DrawingController', 'declare class DrawingLayer'],
 };
 
@@ -71,5 +73,31 @@ for (const [file, ownForbidden] of Object.entries(TIERS)) {
   }
 }
 
+// A structurally compatible declaration can still hide a second error constructor.
+// Check the built entries too, because hosts catch refusals across these imports.
+try {
+  const [base, trade] = await Promise.all([
+    import('../dist/openalgo-charts.mjs'),
+    import('../dist/openalgo-charts.trade.mjs'),
+  ]);
+  if (base.TradingCapabilityError !== trade.TradingCapabilityError) {
+    console.error('check-dts: base and trade export different TradingCapabilityError constructors');
+    failed = true;
+  }
+  for (const [name, entry] of [['base', base], ['trade', trade]]) {
+    let refusal;
+    try { entry.assertTradingCapability({ place: false }, { operation: 'place' }); }
+    catch (error) { refusal = error; }
+    if (!(refusal instanceof base.TradingCapabilityError)
+      || !(refusal instanceof trade.TradingCapabilityError) || refusal.preflight !== true) {
+      console.error(`check-dts: ${name} capability refusal does not match both public error constructors`);
+      failed = true;
+    }
+  }
+} catch (error) {
+  console.error(`check-dts: cannot verify shared capability runtime: ${error.message}`);
+  failed = true;
+}
+
 if (failed) process.exit(1);
-console.log(`check-dts: ${Object.keys(TIERS).length} tier declarations clean`);
+console.log(`check-dts: ${Object.keys(TIERS).length} tier declarations and shared capability identity clean`);

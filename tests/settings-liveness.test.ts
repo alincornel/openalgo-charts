@@ -120,6 +120,7 @@ function mount(type: SeriesType, enableWatermark = true): Harness {
     { label: 'C', text: '111.00', field: 'ohlc' },
     { text: '+0.90 (+0.82%)', field: 'change' },
     { label: 'Vol', text: '2.07M', field: 'volume' },
+    { label: 'OI', text: '1.50M', field: 'openInterest' },
     { text: '111.00' }, // untagged: the row's own last value
   ]);
   chart.addPrimitive(legend, 0);

@@ -199,10 +199,16 @@ chart.on('contextmenu', (e) => {
 | `price` | `number \| null` | `null` off the plot. |
 | `time` | `number \| null` | UTC seconds; `null` when there is no data. |
 | `index` | `number \| null` | Logical bar index. |
-| `target` | `ContextMenuTarget` | `{ kind, id, instanceId?, seriesType?, side?, scaleId? }`. |
+| `target` | `ContextMenuTarget` | `{ kind, id, instanceId?, plotKey?, seriesType?, side?, scaleId? }`. |
 | `preventDefault` | `() => void` | Call it to show your own menu. |
 
 `ContextMenuTargetKind` is `'drawing' | 'indicator' | 'legend' | 'primitive' | 'series' | 'price-scale' | 'time-scale' | 'empty'`. `instanceId` is set for `indicator` (feed it to `chart.removeIndicator` or your settings form), `seriesType` for `series`.
+
+A plotted study series also supplies `plotKey`. Use it with `instanceId` when
+opening an alert editor so a multi-plot study selects the clicked plot. Legend
+hits omit `plotKey`; the host can choose a plot in that pane. Hidden series and
+missing observations do not hit, and the last painted series wins an overlap.
+Drawing and other primitive hits keep their priority over series.
 
 **A `price-scale` hit says which axis it was.** `side` is the strip that was clicked (`'right'` or `'left'`), and `scaleId` is the scale that strip acts on: `'right'`, `'left'`, or `''` when the side carries no series of its own and the pane's values are all on the hidden overlay scale. Both are the arguments the `priceAxis*` calls below take, so pass them straight through instead of assuming pane 0's right scale.
 

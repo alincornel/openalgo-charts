@@ -89,6 +89,8 @@ const INSTANCE_PALETTE: readonly string[] = [
   '#26c6da', '#8bc34a', '#ff7043', '#5c6bc0',
 ];
 import { IndicatorInstance, type IndicatorApi, type IndicatorHost } from '../model/indicator-instance';
+import type { AlertsDocument } from '../alerts/types';
+import { copyAlert, parseAlertsDocument, validateAlert } from '../alerts/document';
 import type { ChartDataContext } from '../model/indicator-registry';
 import {
   CHART_STATE_VERSION,
@@ -250,6 +252,8 @@ export interface ChartOptions {
    * bar under the cursor (price pane only).
    */
   crosshairMode?: CrosshairMode;
+  /** Snap the vertical crosshair to the nearest primary bar's center. Default false; independent of the price magnet. */
+  crosshairSnapToBar?: boolean;
   /**
    * Size controls painted on the canvas — order pills, their buttons — for a
    * finger rather than a mouse cursor. The chart cannot decide this itself: a
@@ -344,6 +348,11 @@ export interface ChartOptions {
   canvas?: CanvasOptions;
   /** Per-field status-line switches applied to every pane legend on the chart. */
   statusLine?: LegendStatusLineOptions;
+  /**
+   * Square side of a legend action button in media px. Default 16, held to
+   * 12..28. Applied to every pane legend, because the rows stack against it.
+   */
+  legendIconSize?: number;
   /** Accessible label for the chart container (screen readers). */
   ariaLabel?: string;
   /**
@@ -446,6 +455,8 @@ export function compactVolume(v: number): string {
  * floating tooltip. See `subscribeCrosshairMove`.
  */
 export interface CrosshairMoveEvent {
+  /** Linked readouts have no physical pointer position and are not pointer gestures. */
+  source?: 'linked';
   /** UTC seconds of the hovered bar, or null when off the data / pointer left. */
   time: number | null;
   /** Logical index under the cursor, or null. */
@@ -504,7 +515,7 @@ export interface PointerSample {
 
 /**
  * What the engine reports about the physical pointer behind a gesture.
- * `crosshair:move`, `click`, `drag` and `drag:end` all carry these keys.
+ * `crosshair:move`, `click`, `drag:start`, `drag` and `drag:end` all carry these keys.
  */
 export interface PointerInfo {
   modifiers: PointerModifiers;
@@ -555,7 +566,7 @@ export interface ChartDragEvent extends PointerInfo {
   samples: PointerSample[];
 }
 
-/** Payload of the `drag:end` event: the release that finished a primitive drag. */
+/** Payload of `drag:start` (press) and `drag:end` (release) for a primitive drag. */
 export interface ChartDragEndEvent extends PointerInfo {
   id: string;
   price: number;
@@ -611,6 +622,8 @@ export interface ContextMenuTarget {
   id: string | null;
   /** Indicator instance id, when `kind` is 'indicator'. */
   instanceId?: string;
+  /** Exact plot key when a study's plotted series was hit rather than its legend. */
+  plotKey?: string;
   /** Series type, when `kind` is 'series'. */
   seriesType?: SeriesType;
   /** Which axis strip was hit, when `kind` is 'price-scale'. */
@@ -736,6 +749,7 @@ export class Chart {
   /** Size canvas-painted controls for a finger; set by the host, see `ChartOptions`. */
   private _touchTargets: boolean | number = false;
   private _lastPriceLineExtent: 'full' | 'fromLastBar' = 'full';
+  private _crosshairSnapToBar: boolean;
   private _shortcuts: ShortcutManager | null = null;
   private _trading: TradingController | null = null;
   private _pointerInside = false;
@@ -763,6 +777,8 @@ export class Chart {
   private readonly _canvas: CanvasOptions = {};
   /** Status-line switches pushed onto every pane legend, host-added ones included. */
   private readonly _statusLine: LegendStatusLineOptions = {};
+  /** Legend action-button side in media px; undefined leaves the primitive's default. */
+  private _legendIconSize: number | undefined;
   /** Axis-strip chrome switches. Empty is the shipped chart: neither drawn. */
   // Both switches explicitly off rather than absent: "off" is the shipped
   // default and a state capture should say so, so that turning one on and off
@@ -823,6 +839,7 @@ export class Chart {
   private readonly _firstDataId: { value: number | null } = { value: null };
   /** Handle + record of the primary price series (see `primarySeries`). */
   private _primary: { api: SeriesApi; record: SeriesRecord } | null = null;
+  private readonly _seriesRecords = new WeakMap<SeriesApi, SeriesRecord>();
   private readonly _indicators: IndicatorInstance[] = [];
   private _dataContext: Readonly<ChartDataContext> | undefined;
   private _barsProvider: IndicatorBarsProvider | null = null;
@@ -842,6 +859,7 @@ export class Chart {
   private _barColorAnchor = 0;
   /** Opaque drawing-tier payload, round-tripped through get/restoreState. */
   private _drawingState: unknown = undefined;
+  private _alertState: AlertsDocument | undefined;
   /** Pane currently maximized, and the weights to restore when it un-maximizes. */
   private _maximizedPane: number | null = null;
   /** Legend rows per pane, so new ones stack below existing ones. */
@@ -852,6 +870,7 @@ export class Chart {
   private _loadingHistory = false;
   private _clickCb: ((externalId: string) => void) | null = null;
   private _crosshairCb: ((e: CrosshairMoveEvent) => void) | null = null;
+  private _readoutTime: number | null = null;
   private _pointerMoved = false;
   /** While true, pointer gestures place anchors instead of panning. */
   private _placementMode = false;
@@ -863,6 +882,7 @@ export class Chart {
   /** Pressure at the press; a click reports this, since its release always reads 0. */
   private _downPressure = 0;
   private _dragId: string | null = null; // externalId of the primitive being dragged
+  private _dragCancelOnEscape = false;
   private _hoverId: string | null = null; // externalId of the primitive under the pointer
   /** Whether that primitive draws below the overlay, so leaving it must repaint the base. */
   private _hoverOnBase = false;
@@ -953,6 +973,7 @@ export class Chart {
     this._crosshairMode = options.crosshairMode ?? 'normal';
     this._touchTargets = options.touchTargets ?? false;
     this._lastPriceLineExtent = options.lastPriceLineExtent ?? 'full';
+    this._crosshairSnapToBar = options.crosshairSnapToBar === true;
     // Assigned rather than pushed through `setAxisChromeOptions`: the setter
     // asks for a repaint, and the render loop does not exist yet.
     Object.assign(this._axisChrome, options.axisChrome);
@@ -988,6 +1009,7 @@ export class Chart {
     Object.assign(this._canvas, options.canvas);
     if (options.grid) this._canvas.grid = { ...this._canvas.grid, ...options.grid };
     Object.assign(this._statusLine, options.statusLine);
+    if (typeof options.legendIconSize === 'number' && Number.isFinite(options.legendIconSize)) this._legendIconSize = options.legendIconSize;
     // Margins are the price scale's own state in fraction units; the canvas
     // block only carries the dialog's percentages. Fold them in before the
     // first pane exists, so `_addPane` applies both together.
@@ -1067,6 +1089,12 @@ export class Chart {
 
   public get dataLayer(): DataLayer {
     return this._dataLayer;
+  }
+
+  /** Readonly source bars, without allocating a history copy on each live update. */
+  public primaryBars(): readonly Bar[] {
+    const id = this._firstDataId.value;
+    return id === null ? [] : this._dataLayer.seriesBars(id);
   }
 
   public get timeScale(): TimeScale {
@@ -1270,11 +1298,14 @@ export class Chart {
         this._timeScale.setBaseIndex(this._dataLayer.baseIndex);
         this._recomputeAxisColumns();
         this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
-        if (primary) this.emit('objects:change', {});
+        if (primary) {
+          this.emit('data:update', { kind: 'reset' });
+          this.emit('objects:change', {});
+        }
       },
       priceScale: (): PriceScale => pane.scaleOf(record),
-      createMarkers: (): SeriesMarkers => {
-        const m = new SeriesMarkers(dataId);
+      createMarkers: (fallbackBars?: () => readonly Bar[]): SeriesMarkers => {
+        const m = new SeriesMarkers(dataId, fallbackBars, () => pane.scaleOf(record));
         // Resolved now, not at creation: primitives are addressed by slot, and
         // this series' slot may have shifted since.
         this._addPrimitive(this._panes.indexOf(pane), m);
@@ -1285,6 +1316,7 @@ export class Chart {
       this._primary = { api, record };
       this.emit('objects:change', {});
     }
+    this._seriesRecords.set(api, record);
     return api;
   }
 
@@ -1398,6 +1430,8 @@ export class Chart {
       descriptor,
       this._distinctColors(descriptor, settings),
       options.paneIndex,
+      undefined,
+      new Set(this._indicators.map(item => item.id)),
     );
     this._indicators.push(instance);
     this.emit('objects:change', {});
@@ -1470,11 +1504,18 @@ export class Chart {
     return this._dataContext;
   }
 
+  /** Instrument capability from the host. A missing bar reading does not change it. */
+  public get hasOpenInterest(): boolean | undefined {
+    return this._dataContext?.hasOpenInterest;
+  }
+
   /** Clear the previous source bars before changing context, then load the new source. */
   public setDataContext(context: ChartDataContext | undefined): void {
     if (this._dataContext?.symbol === context?.symbol && this._dataContext?.exchange === context?.exchange
+      && this._dataContext?.hasOpenInterest === context?.hasOpenInterest
       && this._dataContext?.interval === context?.interval && !!this._dataContext === !!context) return;
     this._dataContext = context ? Object.freeze({ ...context }) : undefined;
+    for (const entry of this._legends) entry.legend.setOptions({ hasOpenInterest: this.hasOpenInterest });
     this._syncWatermark();
     this.emit('data:context', this._dataContext);
   }
@@ -1552,6 +1593,7 @@ export class Chart {
 
   private _indicatorHost(): IndicatorHost {
     return {
+      legendIndex: () => this._readoutIndex(),
       indicatorRemoved: (id): void => this._forgetIndicator(id),
       flushIndicators: (): void => this._flushIndicators(),
       // The scale that draws the ladder is the one that decides how a number on
@@ -1566,6 +1608,10 @@ export class Chart {
           o.row === 0 && o.paneIndex > 0
             ? ['hide', 'settings', 'up', 'down', 'maximize', 'close']
             : ['hide', 'settings', 'close'];
+        // The source button sits next to the gear, because the two are the
+        // same errand at different depths: what this study is set to, and what
+        // it is. Only a descriptor that says it has source gets one.
+        if (o.hasSource === true) paneActions.splice(paneActions.indexOf('settings') + 1, 0, 'source');
         // _syncLegendOffsets decides which pane wears the offset, and runs on
         // every relayout; this is just the initial placement.
         const legend = new PaneLegend({ ...o, actions: paneActions });
@@ -1577,6 +1623,7 @@ export class Chart {
         this._restackLegends();
       },
       legendRowsOn: (paneIndex): number => this._legends.filter((l) => l.paneIndex === paneIndex).length,
+      primarySeries: (): SeriesApi | null => this.primarySeries(),
       addIndicatorSeries: (type, paneIndex, style, priceScaleId, priceFormat): SeriesApi =>
         this._createSeries(
           type as SeriesType,
@@ -1780,10 +1827,32 @@ export class Chart {
   /**
    * Subscribe to crosshair movement for an OHLC legend / tooltip. The callback
    * fires with the hovered bar of the primary price series on every move, and
-   * with all-null fields when the pointer leaves the plot.
+   * with all-null fields when the pointer leaves the plot. A linked crosshair
+   * also updates the readout, with source 'linked' and no pointer coordinates.
    */
   public subscribeCrosshairMove(cb: (e: CrosshairMoveEvent) => void): void {
     this._crosshairCb = cb;
+  }
+
+  /**
+   * Update the readout under a link group's separately drawn crosshair. The
+   * physical pointer takes precedence. This never emits a pointer move event,
+   * so hosts do not interpret it as drawing input or echo it to another group.
+   */
+  public setLinkedCrosshairIndex(index: number | null): void {
+    if (this.isDestroyed || this._cursor !== null) return;
+    const time = index === null ? null : this._dataLayer.indexToTime(index) ?? null;
+    if (time === this._readoutTime) return;
+    this._readoutTime = time;
+    for (const indicator of this._indicators) indicator.updateLegendValues(index ?? undefined);
+    const bar = index === null || this._firstDataId.value === null ? null
+      : this._dataLayer.visibleBars(this._firstDataId.value, index, index)[0]?.bar ?? null;
+    this._crosshairCb?.({ source: 'linked', time, index,
+      bar, price: null, point: null, paneIndex: null });
+  }
+
+  private _readoutIndex(): number | undefined {
+    return this._readoutTime === null ? undefined : this._dataLayer.timeToIndex(this._readoutTime);
   }
 
   /**
@@ -1842,9 +1911,10 @@ export class Chart {
   // ── unified event bus ─────────────────────────────────────────────────────
   // One `on(name, cb)` surface for every chart event, complementing the typed
   // `subscribe*` helpers. Names emitted by the core: 'ready', 'crosshair:move',
-  // 'click', 'dblclick', 'hover', 'drag', 'drag:end', 'drag:cancel', 'pan', 'zoom', 'resize',
+  // 'click', 'dblclick', 'hover', 'drag:start', 'drag', 'drag:end', 'drag:cancel', 'pan', 'zoom', 'resize',
   // 'lazy-load', 'paneAdded', 'paneRemoved', 'paneMoved', 'paneMaximized', 'paneResized',
-  // 'priceAxisMoved', 'indicatorRemoved', 'indicatorSettings', 'renderer:fallback',
+  // 'priceAxisMoved', 'indicatorRemoved', 'indicatorSettings', 'indicatorSource',
+  // 'renderer:fallback',
   // 'branding:changed', 'destroy'. The
   // trading layer routes its 'trading:*' events through here too, and the draw
   // tier emits 'draw:*' plus the 2.0 pair 'drawing:select' and 'drawing:change'
@@ -2163,7 +2233,7 @@ export class Chart {
       mode: scale.options.mode,
       scaled: scale.scaled,
       lockRatio: pane.ratioLocked(scaleId),
-      movable: scaleId !== '' && pane.usesScale(scaleId) && !pane.usesScale(other),
+      movable: (scaleId === 'right' || scaleId === 'left') && pane.usesScale(scaleId) && !pane.usesScale(other),
     };
   }
 
@@ -2255,6 +2325,25 @@ export class Chart {
   }
 
   /**
+   * How large a legend's action buttons are drawn, in media px.
+   *
+   * Chart-wide rather than per legend: the rows stack against the height the
+   * buttons need, so two sizes on one pane would stack against two different
+   * heights and overlap. The primitive holds it to a range it can actually
+   * draw.
+   */
+  public setLegendIconSize(size: number): void {
+    if (!Number.isFinite(size)) return;
+    this._legendIconSize = size;
+    for (const entry of this._legends) entry.legend.setOptions({ iconSize: size });
+    this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
+  }
+
+  public legendIconSize(): number | undefined {
+    return this._legendIconSize;
+  }
+
+  /**
    * Turn the axis-strip chrome on or off, and hand it a clock. Merges field by
    * field, so switching the countdown on leaves the corner clock alone.
    */
@@ -2284,6 +2373,11 @@ export class Chart {
   /** Crosshair behaviour ('normal' or 'magnet'). Set it via `applyOptions`. */
   public crosshairMode(): CrosshairMode {
     return this._crosshairMode;
+  }
+
+  /** Whether the vertical crosshair snaps to an existing primary bar's center. */
+  public crosshairSnapToBar(): boolean {
+    return this._crosshairSnapToBar;
   }
 
   /** The active palette. Swap it with `setTheme`. */
@@ -2429,6 +2523,7 @@ export class Chart {
     // symbol/OHLC row) and indicator legends must stack beneath it.
     if (primitive instanceof PaneLegend) {
       this._legends.push({ legend: primitive, paneIndex });
+      primitive.setOptions({ hasOpenInterest: this.hasOpenInterest });
       // A row added after the switches were set still obeys them; a legend that
       // brought its own `statusLine` keeps whatever it set on top. Skipped when
       // the chart has no switches to push, which is the usual case: `setOptions`
@@ -2437,6 +2532,10 @@ export class Chart {
       if (Object.keys(this._statusLine).length > 0) {
         const own = primitive.options().statusLine;
         primitive.setOptions({ statusLine: { ...this._statusLine, ...own } });
+      }
+      // A chart-wide size also governs host rows so their row heights agree.
+      if (this._legendIconSize !== undefined) {
+        primitive.setOptions({ iconSize: this._legendIconSize });
       }
       this._restackLegends();
     }
@@ -2525,6 +2624,7 @@ export class Chart {
     if (dataId === this._firstDataId.value) this._invalidateIndicators();
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
     this._updateAccessibleSummary();
+    if (dataId === this._firstDataId.value) this.emit('data:update', { kind: 'update', time: bar.time });
   }
 
   private _ensurePane(index: number): void {
@@ -2574,6 +2674,7 @@ export class Chart {
     }
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
     this._updateAccessibleSummary();
+    if (dataId === this._firstDataId.value) this.emit('data:update', { kind: 'reset' });
   }
 
   /** History paging: merge older bars, preserving the viewport (§4.2). */
@@ -2585,6 +2686,7 @@ export class Chart {
     if (dataId === this._firstDataId.value) this._invalidateIndicators();
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
     this._updateAccessibleSummary();
+    if (dataId === this._firstDataId.value) this.emit('data:update', { kind: 'prepend' });
   }
 
   /**
@@ -2745,6 +2847,7 @@ export class Chart {
     grid?: Partial<GridOptions>;
     canvas?: CanvasOptions;
     statusLine?: LegendStatusLineOptions;
+    legendIconSize?: number;
     priceScale?: Partial<PriceScaleOptions>;
     priceFormatter?: ((price: number) => string) | null;
     timeFormatter?: ((utcSeconds: number, tickMark?: TickMarkType) => string) | undefined;
@@ -2752,11 +2855,13 @@ export class Chart {
     crosshairMode?: CrosshairMode;
     touchTargets?: boolean | number;
     lastPriceLineExtent?: 'full' | 'fromLastBar';
+    crosshairSnapToBar?: boolean;
   }): void {
     if (opts.theme) this.setTheme(opts.theme);
     if (opts.grid) this.setGridOptions(opts.grid);
     if (opts.canvas) this.setCanvasOptions(opts.canvas);
     if (opts.statusLine) this.setStatusLineOptions(opts.statusLine);
+    if (opts.legendIconSize !== undefined) this.setLegendIconSize(opts.legendIconSize);
     if (opts.priceScale) this.setPriceScaleOptions(opts.priceScale);
     if (opts.priceFormatter !== undefined) this.setPriceFormatter(opts.priceFormatter);
     if ('timeFormatter' in opts) this.setTimeFormatter(opts.timeFormatter);
@@ -2764,6 +2869,10 @@ export class Chart {
     if (opts.crosshairMode) this._crosshairMode = opts.crosshairMode;
     if (opts.touchTargets !== undefined) this._touchTargets = opts.touchTargets;
     if (opts.lastPriceLineExtent !== undefined) this._lastPriceLineExtent = opts.lastPriceLineExtent;
+    if (typeof opts.crosshairSnapToBar === 'boolean') {
+      this._crosshairSnapToBar = opts.crosshairSnapToBar;
+      this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Cursor));
+    }
   }
 
   public panes(): readonly Pane[] {
@@ -2797,7 +2906,8 @@ export class Chart {
     const series: SeriesState[] = [];
     this._panes.forEach((pane, paneIndex) => {
       for (const record of pane.series()) {
-        series.push({ type: record.type, style: { ...record.style }, paneIndex, priceScaleId: record.scaleId });
+        const style = Object.fromEntries(Object.entries(record.style).filter(([, value]) => value !== undefined));
+        series.push({ type: record.type, style, paneIndex, priceScaleId: record.scaleId });
       }
     });
 
@@ -2825,16 +2935,19 @@ export class Chart {
       },
       events: this.eventOptions(),
       crosshairMode: this._crosshairMode,
+      crosshairSnapToBar: this._crosshairSnapToBar,
       panes,
       series,
       indicators: this._indicators.map((i) => ({
         indicatorId: i.indicatorId,
+        instanceId: i.id,
         settings: i.settings(),
         paneIndex: i.paneIndex,
         visible: i.visible(),
       })),
     };
     if (this._drawingState !== undefined) state.drawings = this._drawingState;
+    if (this._alertState !== undefined) state.alerts = parseAlertsDocument(this._alertState);
     return state;
   }
 
@@ -2861,6 +2974,31 @@ export class Chart {
       return { applied: false, series: [], indicators: 0, reason: `state version ${s.version} is newer than ${CHART_STATE_VERSION}` };
     }
 
+    let alerts: AlertsDocument | undefined;
+    const reservedIds = new Set<string>();
+    try {
+      if (s.alerts !== undefined) alerts = parseAlertsDocument(s.alerts);
+      if (s.indicators !== undefined) {
+        if (!Array.isArray(s.indicators)) throw new Error('Invalid indicator list');
+        for (const spec of s.indicators) {
+          if (spec.instanceId === undefined) continue;
+          if (typeof spec.instanceId !== 'string' || !spec.instanceId.trim() || reservedIds.has(spec.instanceId)) {
+            throw new Error('Invalid or duplicate indicator instance id');
+          }
+          reservedIds.add(spec.instanceId);
+        }
+      }
+    } catch (error) {
+      return { applied: false, series: [], indicators: 0, reason: error instanceof Error ? error.message : 'Invalid saved alerts or identities' };
+    }
+    this.emit('state:restore:start', {});
+    try { return this._restoreState(s, alerts, reservedIds); }
+    finally { this.emit('state:restore:end', {}); }
+  }
+
+  private _restoreState(s: ChartState & ChartSettingsState & { timezone?: unknown }, alerts: AlertsDocument | undefined,
+    reservedIds: Set<string>): RestoreReport {
+
     if (s.grid) this.setGridOptions(s.grid);
     // Canvas before the panes: its margins are chart-wide, and a pane's own
     // saved marginTop/marginBottom is the more specific answer, so it must land
@@ -2873,6 +3011,7 @@ export class Chart {
     if (s.navigation && typeof s.navigation === 'object') this._patchNavigation(s.navigation);
     if (s.events) this.setEventOptions(s.events);
     if (s.crosshairMode) this._crosshairMode = s.crosshairMode;
+    if (typeof s.crosshairSnapToBar === 'boolean') this._crosshairSnapToBar = s.crosshairSnapToBar;
     // A saved zone is data of unknown provenance, so an unrecognised name is
     // skipped rather than thrown: the rest of the layout is still restorable,
     // and a whole saved workspace should not be lost to one stale zone name.
@@ -2908,7 +3047,9 @@ export class Chart {
         const descriptor = getIndicator(spec.indicatorId);
         const instance = new IndicatorInstance(
           this._indicatorHost(), descriptor, spec.settings, spec.paneIndex,
+          spec.instanceId, reservedIds,
         );
+        reservedIds.add(instance.id);
         this._indicators.push(instance);
         if (spec.visible === false) instance.setVisible(false);
         indicators += 1;
@@ -2960,9 +3101,12 @@ export class Chart {
     // state carrying only a spacing moved it just as much as one carrying a
     // range, and that case emitted nothing at all before.
     const beforeView = this._timeScale.visibleRange();
+    this._alertState = alerts;
     if (s.barSpacing !== undefined) this._timeScale.setBarSpacing(s.barSpacing);
     if (s.viewport && this._dataLayer.length > 0) this._timeScale.setVisibleLogicalRange(s.viewport);
     this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Full));
+    this.emit('drawings:restore', s.drawings ?? []);
+    this.emit('alerts:restore', alerts ?? { version: 1, alerts: [] });
     this._emitViewportIfMoved(beforeView);
     this.emit('objects:change', {});
     return { applied: true, series: s.series ?? [], indicators };
@@ -2979,6 +3123,20 @@ export class Chart {
   public setDrawingState(value: unknown): void {
     this._drawingState = value;
     this.emit('objects:change', {});
+  }
+
+  /** Detached JSON state, also available when no alert controller is attached. */
+  public alertState(): AlertsDocument | undefined {
+    return this._alertState === undefined ? undefined : parseAlertsDocument(this._alertState);
+  }
+
+  /** Runtime snapshot. JSON safety of opaque payloads is checked when state is read. */
+  public setAlertState(document: AlertsDocument | undefined): void {
+    if (document !== undefined) {
+      if (document.version !== 1) throw new Error('Unsupported alert document');
+      for (const alert of document.alerts) validateAlert(alert);
+    }
+    this._alertState = document === undefined ? undefined : { version: 1, alerts: document.alerts.map(copyAlert) };
   }
 
   public invalidate(build: (mask: InvalidateMask) => void): void {
@@ -3297,6 +3455,12 @@ export class Chart {
       case 'settings':
         this.emit('indicatorSettings', { instanceId, indicatorId: indicator.indicatorId, paneIndex });
         return true;
+      // Same payload as the gear, and for the same reason: the engine holds no
+      // code and no DOM, so it says which indicator was asked about and the
+      // host decides what to show.
+      case 'source':
+        this.emit('indicatorSource', { instanceId, indicatorId: indicator.indicatorId, paneIndex });
+        return true;
       default: return false;
     }
   }
@@ -3440,6 +3604,17 @@ export class Chart {
     const fraction = this._autoscaleTime === null || ++this._autoscaleFrames >= 90
       ? 1 : 1 - Math.exp(-Math.max(1, now - this._autoscaleTime) / 80);
     if (this._autoscaleTime !== null) this._autoscaleTime = now;
+    // Keep the actual pointer untouched for drawing and hit tests. Resolve at
+    // paint time so toggling the option or changing the viewport takes effect
+    // without waiting for another pointer event, across every pane at once.
+    let crosshairX = this._cursor?.x ?? 0;
+    const snapSeries = this._firstDataId.value ?? this._panes[0]?.series()[0]?.dataId;
+    if (this._cursor !== null && this._crosshairSnapToBar && snapSeries !== undefined) {
+      const index = Math.round(this._timeScale.xToIndex(crosshairX));
+      if (this._dataLayer.visibleBars(snapSeries, index, index).length > 0) {
+        crosshairX = this._timeScale.indexToX(index);
+      }
+    }
     for (let i = 0; i < this._panes.length; i++) {
       const pane = this._panes[i];
       const perPane = mask.paneInvalidation(i);
@@ -3456,7 +3631,7 @@ export class Chart {
         // pane draws the date tag.
         const cross = this._cursor === null
           ? null
-          : { x: this._cursor.x, yLocal: i === this._cursorPane ? this._cursor.y : null, showTimeTag: isBottom };
+          : { x: crosshairX, yLocal: i === this._cursorPane ? this._cursor.y : null, showTimeTag: isBottom };
         pane.paintTop(cross, ctx);
       }
     }
@@ -3483,6 +3658,7 @@ export class Chart {
     el.addEventListener('pointermove', this._onPointerMove);
     el.addEventListener('pointerup', this._onPointerUpNative);
     el.addEventListener('pointercancel', this._onPointerCancel);
+    el.addEventListener('lostpointercapture', this._onLostPointerCapture);
     el.addEventListener('pointerleave', this._onPointerLeave);
     el.addEventListener('wheel', this._onWheel, { passive: false });
     el.addEventListener('dblclick', this._onDblClick);
@@ -3599,8 +3775,17 @@ export class Chart {
       if (id.endsWith('::row')) return { kind: 'legend', id };
       return { kind: 'primitive', id };
     }
-    const type = index === null ? null : this._seriesAt(p.pane, index, p.localY);
-    return type === null ? { kind: 'empty', id: null } : { kind: 'series', id: null, seriesType: type };
+    const record = index === null ? null : this._seriesAt(p.pane, index, p.localY);
+    if (record === null) return { kind: 'empty', id: null };
+    for (const instance of this._indicators) {
+      for (const plot of getIndicator(instance.indicatorId).plots) {
+        const series = instance.series(plot.key);
+        if (series && this._seriesRecords.get(series) === record) {
+          return { kind: 'indicator', id: `indicator:${instance.id}`, instanceId: instance.id, plotKey: plot.key };
+        }
+      }
+    }
+    return { kind: 'series', id: null, seriesType: record.type };
   }
 
   /**
@@ -3621,11 +3806,14 @@ export class Chart {
    * autoscale extents for the bar under the cursor and test the band they span,
    * with a few px of slack so a 1px line is still a target.
    */
-  private _seriesAt(paneIndex: number, index: number, localY: number): SeriesType | null {
+  private _seriesAt(paneIndex: number, index: number, localY: number): SeriesRecord | null {
     const pane = this._panes[paneIndex];
     if (pane === undefined) return null;
     const tol = 3;
-    for (const record of pane.series()) {
+    // Later series paint above earlier series, so their context actions win overlaps.
+    const records = pane.series();
+    for (let position = records.length - 1; position >= 0; position--) {
+      const record = records[position];
       if (record.style.visible === false) continue;
       const bars = this._dataLayer.visibleBars(record.dataId, index, index);
       if (bars.length === 0) continue;
@@ -3634,7 +3822,7 @@ export class Chart {
       const scale = pane.scaleOf(record);
       const a = scale.priceToY(ext.max);
       const b = scale.priceToY(ext.min);
-      if (localY >= Math.min(a, b) - tol && localY <= Math.max(a, b) + tol) return record.type;
+      if (localY >= Math.min(a, b) - tol && localY <= Math.max(a, b) + tol) return record;
     }
     return null;
   }
@@ -3674,7 +3862,7 @@ export class Chart {
     const out: PointerSample[] = [];
     for (const s of events) {
       const p = this._project(s.clientX - rect.left, s.clientY - rect.top, layout);
-      out.push({ x: p.x, y: p.localY, pressure: pointerPressure(s) });
+      out.push({ x: p.x, y: this._dragId === null ? p.localY : p.y - (layout[this._downPane]?.top ?? 0), pressure: pointerPressure(s) });
     }
     return out;
   }
@@ -3787,6 +3975,7 @@ export class Chart {
     // form is the original price-line path and still needs `subscribeDrag`.
     if (hit && (hit.draggable === true || (hit.cursor === 'ns-resize' && this._dragCb !== null))) {
       this._dragId = hit.externalId;
+      this._dragCancelOnEscape = hit.cancelOnEscape === true;
       this._dragMoved = false;
       this._ensureScaled(p.pane);
       this._dragFrom = {
@@ -3798,9 +3987,15 @@ export class Chart {
       // grab point reads as a phantom second line (the axis tag tracks price).
       this._cursor = null;
       this._cursorPane = null;
+      this._readoutTime = null;
       this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Cursor));
       this._dragging = false;
       this._pointerMoved = false;
+      const start: ChartDragEndEvent = {
+        id: hit.externalId, ...this._dragFrom, paneIndex: this._downPane,
+        point: { x: p.x, y: p.localY }, ...pointerInfo(e),
+      };
+      this.emit('drag:start', start);
       return;
     }
 
@@ -3866,6 +4061,8 @@ export class Chart {
     }
 
     this._dragging = true;
+    // Hover-only controls must survive a repaint between press and release.
+    this._setHover(hit ?? null);
     this._pointerMoved = false;
     this._dragStartX = p.x;
     this._dragStartY = p.y;
@@ -3878,9 +4075,11 @@ export class Chart {
 
   private readonly _onPointerMove = (e: PointerEvent): void => {
     this._unfreezeOverlay();
+    // Hover from a second device must not move or release the pointer that owns the gesture.
+    if (this._pointers.size > 0 && !this._pointers.has(e.pointerId)) return;
     // Safety: if the primary button is no longer held (missed pointerup — e.g.
     // released over a context menu or outside the window), end any drag now.
-    if (e.pointerType === 'mouse' && (e.buttons & 1) === 0
+    if ((e.pointerType === 'mouse' || e.pointerType === 'pen') && (e.buttons & 1) === 0
       && (this._dragging || this._dragId !== null || this._axisDrag !== null || this._brandingPress !== null)) {
       if (this._brandingPress !== null) this._brandingPress.moved = true;
       this._onPointerUp(e);
@@ -3978,8 +4177,9 @@ export class Chart {
       return;
     }
     if (this._dragId !== null) {
-      if (Math.abs(p.x - this._downX) > 3 || Math.abs(p.localY - this._downLocalY) > 3) this._dragMoved = true;
-      const price = this._panes[this._downPane].yToPrice(p.localY);
+      const localY = p.y - (this._paneLayout()[this._downPane]?.top ?? 0);
+      if (Math.abs(p.x - this._downX) > 3 || Math.abs(localY - this._downLocalY) > 3) this._dragMoved = true;
+      const price = this._panes[this._downPane].yToPrice(localY);
       const time = this._xToTime(p.x);
       this._dragCb?.(this._dragId, price, time);
       const drag: ChartDragEvent = {
@@ -3987,7 +4187,7 @@ export class Chart {
         // The grab origin, so a consumer's delta starts at the press instead of
         // the first move — otherwise the shape lags the cursor by one event.
         fromPrice: this._dragFrom.price, fromTime: this._dragFrom.time,
-        point: { x: p.x, y: p.localY },
+        point: { x: p.x, y: localY },
         samples: this._dragSamples(e),
         ...pointerInfo(e),
       };
@@ -3998,6 +4198,7 @@ export class Chart {
       this._beginAutoscaleMotion();
       const dx = p.x - this._dragStartX;
       if (Math.abs(dx) > 3 || Math.abs(p.y - this._dragStartY) > 3) this._pointerMoved = true;
+      if (this._pointerMoved && this._hoverId !== null) this._setHover(null);
       // horizontal: scroll time
       this._timeScale.setRightOffset(this._dragStartOffset - dx / this._timeScale.barSpacing);
       // Horizontal-only mode preserves autoscale when the pointer moves vertically.
@@ -4035,6 +4236,7 @@ export class Chart {
    * is cancelled rather than committed at the finger's price.
    */
   private readonly _onPointerUp = (e: PointerEvent, cancelled = false): void => {
+    if (this._pointers.size > 0 && !this._pointers.has(e.pointerId)) return;
     try { this._container.releasePointerCapture?.(e.pointerId); } catch { /* already released */ }
     // A gesture ends once. `_onPointerMove` calls this directly when it finds the
     // button already released, because a release over a context menu or outside
@@ -4093,25 +4295,29 @@ export class Chart {
       this._axisDragScale = null;
       return;
     }
-    if (this._dragId !== null && cancelled) {
+    if (this._dragId !== null && cancelled && this._dragCancelCb !== null) {
       // The same cancel a pinch gives a drag (`_beginPinch`): the host puts the
       // line back where the order is, and no click fires for a still press.
+      // `drag:cancel` was already emitted by `_onPointerCancel`. A host that
+      // registered a cancel callback understands cancellation, so it does NOT
+      // also get the legacy release (`drag:end` / `onDragEnd`) that would
+      // commit the line at the finger's price; a host without one still does.
       const dragged = this._dragId;
       this._dragId = null;
-      this._dragCancelCb?.(dragged);
-      this.emit('drag:cancel', { id: dragged });
+      this._dragCancelCb(dragged);
       this._setHover(null);
       this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Light));
       return;
     }
     if (this._dragId !== null) {
       const p = this._localPoint(e);
-      const price = this._panes[this._downPane].yToPrice(p.localY);
+      const localY = p.y - (this._paneLayout()[this._downPane]?.top ?? 0);
+      const price = this._panes[this._downPane].yToPrice(localY);
       const time = this._xToTime(p.x);
       this._dragEndCb?.(this._dragId, price, time);
       const end: ChartDragEndEvent = {
         id: this._dragId, price, time, paneIndex: this._downPane,
-        point: { x: p.x, y: p.localY },
+        point: { x: p.x, y: localY },
         ...pointerInfo(e),
       };
       this.emit('drag:end', end);
@@ -4140,15 +4346,18 @@ export class Chart {
       this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Light));
       return;
     }
+    const wasPanning = this._dragging;
     this._dragging = false;
     // Everything below is what a release MEANS — a placement, a click, a fling.
-    if (cancelled) return;
+    // A cancelled pan still drops its grabbing hand.
+    if (cancelled) { if (wasPanning) this._setHover(null); return; }
     // Placement mode: a press-drag-release is how every charting UI draws a
     // two-point shape, but the click branch below is gated on the pointer having
     // stayed still, so the gesture used to place nothing at all. Replay it as the
     // two clicks it means — press point, then release point. `viaDrag` lets the
     // host ignore the second one for single-anchor tools it already completed.
     if (this._placementMode && this._pointerMoved) {
+      if (wasPanning) this._setHover(null);
       const p = this._localPoint(e);
       this._ensureScaled(this._downPane);
       const info = this._clickInfo(e);
@@ -4184,6 +4393,7 @@ export class Chart {
       // clearing it here took that price away one line before the click that
       // needed it was delivered. The host dismisses it itself when it is done.
       if (hit == null && this._crosshairSticky) this.hideCrosshair();
+      if (wasPanning) this._setHover(e.pointerType === 'touch' ? null : hit ?? null);
       // Pane-legend buttons are the chart's own chrome — handle them here so
       // the host doesn't have to re-implement remove/hide/move/maximize.
       if (hit && this._handleLegendAction(hit.externalId)) return;
@@ -4205,7 +4415,10 @@ export class Chart {
       this.emit('click', click);
       return;
     }
-    if (KineticAnimation.shouldAnimate(this._dragVelocity)) this._startKinetic(this._dragVelocity);
+    if (wasPanning) this._setHover(null);
+    // A mouse or pen release places the viewport precisely; only a touch flick coasts.
+    if (e.pointerType === 'touch' && e.type !== 'pointercancel'
+      && KineticAnimation.shouldAnimate(this._dragVelocity)) this._startKinetic(this._dragVelocity);
   };
 
   /**
@@ -4256,8 +4469,22 @@ export class Chart {
   }
 
   private readonly _onPointerCancel = (e: PointerEvent): void => {
+    // Existing hosts still receive their end notification; transactional consumers
+    // discard the draft first so cancellation can never become a saved edit.
+    this._cancelPrimitiveDrag('pointercancel');
+    if (this._dragging) this._pointerMoved = true;
     if (this._brandingPress?.pointerId === e.pointerId) this._brandingPress.moved = true;
     this._onPointerUp(e, true);
+  };
+
+  private readonly _onLostPointerCapture = (e: PointerEvent): void => {
+    // Another element can take capture before release. Abandon the pan without a click or fling.
+    if (!this._dragging || !this._pointers.has(e.pointerId)) return;
+    this._dragging = false;
+    this._pointerMoved = true;
+    this._pointers.delete(e.pointerId);
+    this._endedPointers.add(e.pointerId);
+    this._setHover(null);
   };
 
   private _brandingHit(paneIndex: number, x: number, y: number): boolean {
@@ -4432,6 +4659,7 @@ export class Chart {
 
   // ── multi-touch pinch (zoom + two-finger pan) ─────────────────────────────
   private _beginPinch(): void {
+    this._cancelPrimitiveDrag('pinch');
     this._brandingPress = null;
     const pts = [...this._pointers.values()];
     this._pinch = pinchState(pts[0], pts[1]);
@@ -4451,11 +4679,10 @@ export class Chart {
     // pointerups that follow are swallowed by the pinch branch in
     // `_onPointerUp`, so nothing else would ever tell it the drag was over: the
     // line would keep the price the finger left it at for as long as it lives,
-    // lying about where the order actually sits.
-    if (dragged !== null) {
-      this._dragCancelCb?.(dragged);
-      this.emit('drag:cancel', { id: dragged });
-    }
+    // lying about where the order actually sits. `drag:cancel` (reason 'pinch')
+    // was emitted by `_cancelPrimitiveDrag` above; the callback half is here.
+    if (dragged !== null) this._dragCancelCb?.(dragged);
+    this._setHover(null);
   }
 
   private _updatePinch(): void {
@@ -4474,8 +4701,27 @@ export class Chart {
   }
 
   // ── keyboard navigation (focus the chart, then arrows / +- / Home) ────────
+  private _cancelPrimitiveDrag(reason: 'pointercancel' | 'pinch' | 'escape'): void {
+    if (this._dragId === null) return;
+    this._dragMoved = true;
+    this.emit('drag:cancel', { id: this._dragId, paneIndex: this._downPane, reason });
+  }
+
   private readonly _onKeyDown = (e: KeyboardEvent): void => {
     this._unfreezeOverlay();
+    // Opt-in drafts own Escape without stranding legacy consumers that require a release.
+    if (e.key === 'Escape' && this._dragCancelOnEscape && this._dragId !== null && !ShortcutManager.shouldIgnore(e.target)) {
+      this._cancelPrimitiveDrag('escape');
+      this._dragId = null;
+      this._dragging = false;
+      this._pointerMoved = true;
+      for (const id of this._pointers.keys()) this._endedPointers.add(id);
+      this._pointers.clear();
+      this._setHover(null);
+      this.invalidate((m) => m.invalidateGlobal(InvalidationLevel.Light));
+      e.preventDefault();
+      return;
+    }
     const sc = this._shortcuts;
     if (sc === null || ShortcutManager.shouldIgnore(e.target) || !this._shortcutsActive()) return;
     const cmd = sc.resolve(e);
@@ -4578,7 +4824,7 @@ export class Chart {
    */
   private _setHover(hit: PrimitiveHit | null): void {
     const id = hit?.externalId ?? null;
-    this._container.style.cursor = hit?.cursor ?? '';
+    this._container.style.cursor = this._dragging && hit?.cursor !== 'pointer' ? 'grabbing' : hit?.cursor ?? '';
     if (id === this._hoverId) return;
     // Hover-styled primitives on the base canvas need a light repaint, no
     // rescale. A change that touches only 'top' primitives (leaving a drawing
@@ -4634,6 +4880,7 @@ export class Chart {
     }
     this._cursorPane = paneIndex;
     this._cursor = { x: plotX, y }; // plot-relative; the crosshair line is drawn inside the plot shift
+    this._readoutTime = hoveredBar?.time ?? null;
     // Legend rows read the bar under the crosshair, like every charting package.
     for (const indicator of this._indicators) indicator.updateLegendValues(index);
     // global crosshair → repaint every pane's overlay (cheap; base untouched)
@@ -4760,6 +5007,7 @@ export class Chart {
       el.removeEventListener('pointermove', this._onPointerMove);
       el.removeEventListener('pointerup', this._onPointerUpNative);
       el.removeEventListener('pointercancel', this._onPointerCancel);
+      el.removeEventListener('lostpointercapture', this._onLostPointerCapture);
       el.removeEventListener('pointerleave', this._onPointerLeave);
       el.removeEventListener('wheel', this._onWheel);
       el.removeEventListener('dblclick', this._onDblClick);

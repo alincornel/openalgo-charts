@@ -18,6 +18,28 @@ const bar = (time: number, o: number, h: number, l: number, c: number): Bar =>
 /** A flat bar, for the cases where only the close matters. */
 const flat = (time: number, v: number): Bar => bar(time, v, v, v, v);
 
+describe('optional combined leg volume', () => {
+  it.each(['A+B', 'A-B', '2*A+B', 'A+A+B', 'A/B'])(
+    'sums each distinct leg once for %s without weighting its traded activity', source => {
+      const expr = parseExpression(source);
+      const legs = { A: [{ ...flat(60, 10), volume: 20 }], B: [{ ...flat(60, 5), volume: 30 }] };
+      expect(evaluateExpression(expr, legs)[0]).not.toHaveProperty('volume');
+      expect(evaluateExpression(expr, legs, { volume: 'sum' })[0].volume).toBe(50);
+    },
+  );
+  it('retains zero but does not invent volume for a missing, invalid or overflowing leg amount', () => {
+    const expr = parseExpression('A+B');
+    for (const value of [undefined, NaN, Infinity, -1]) {
+      const legs = { A: [{ ...flat(60, 10), volume: 20 }], B: [{ ...flat(60, 5), volume: value }] };
+      expect(evaluateExpression(expr, legs, { volume: 'sum' })[0]).not.toHaveProperty('volume');
+    }
+    for (const [amount, expected] of [[0, 0], [Number.MAX_VALUE, undefined]]) {
+      const legs = { A: [{ ...flat(60, 10), volume: amount }], B: [{ ...flat(60, 5), volume: amount }] };
+      expect(evaluateExpression(expr, legs, { volume: 'sum' })[0].volume).toBe(expected);
+    }
+  });
+});
+
 describe('parseExpression', () => {
   it('reports the symbols it needs, in first-seen order, before any fetch', () => {
     expect(parseExpression('NIFTY1!/NSE:RELIANCE').symbols).toEqual(['NIFTY1!', 'NSE:RELIANCE']);

@@ -17,6 +17,12 @@ export interface OpenAlgoConfig {
   apiKey: string;
   /** Injectable fetch (defaults to global fetch); lets the adapter be tested offline. */
   fetchImpl?: typeof fetch;
+  /**
+   * Instrument capability from host metadata. Explicit false omits the API's
+   * placeholder OI column before it can become a misleading cash reading.
+   * Missing/unknown capability preserves finite observations, including zero.
+   */
+  hasOpenInterest?(request: Readonly<BarsRequest>): boolean | undefined;
 }
 
 interface HistoryRow {
@@ -27,6 +33,8 @@ interface HistoryRow {
   low: number;
   close: number;
   volume?: number;
+  /** Present on a derivatives response; the platform always sends the column. */
+  oi?: number;
 }
 
 interface HistoryResponse {
@@ -54,7 +62,7 @@ export function rowTimeToUtcSeconds(value: number | string): number {
 }
 
 /** Pure: map an OpenAlgo history response into sorted internal bars. */
-export function mapHistoryResponse(json: HistoryResponse): Bar[] {
+export function mapHistoryResponse(json: HistoryResponse, hasOpenInterest?: boolean): Bar[] {
   if (json.status === 'error') throw new Error(json.message ?? 'OpenAlgo history request failed');
   const rows = json.data ?? [];
   const bars: Bar[] = [];
@@ -68,6 +76,7 @@ export function mapHistoryResponse(json: HistoryResponse): Bar[] {
       low: r.low,
       close: r.close,
       volume: r.volume,
+      ...(hasOpenInterest !== false && Number.isFinite(r.oi) ? { oi: r.oi } : {}),
     });
   }
   return bars.sort((a, b) => a.time - b.time);
@@ -87,6 +96,7 @@ export class OpenAlgoDataFeed implements DataFeed {
   }
 
   public async getBars(req: BarsRequest): Promise<Bar[]> {
+    const hasOpenInterest = this._config.hasOpenInterest?.(req);
     // OpenAlgo /api/v1/history requires start_date/end_date as IST YYYY-MM-DD
     // (mandatory). Convert the internal UTC-seconds range to IST date strings.
     const { from, to } = req;
@@ -108,7 +118,7 @@ export class OpenAlgoDataFeed implements DataFeed {
         }),
       });
       if (!res.ok) throw new Error(`openalgo-charts: history request failed (${res.status})`);
-      return mapHistoryResponse((await res.json()) as HistoryResponse);
+      return mapHistoryResponse((await res.json()) as HistoryResponse, hasOpenInterest);
     });
   }
 

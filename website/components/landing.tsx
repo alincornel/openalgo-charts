@@ -58,7 +58,7 @@ export function Hero() {
       <div className="oac-capability-strip" aria-label="Chart capabilities">
         <span>More ways to see the market</span>
         <div><strong>15</strong> chart styles</div>
-        <div><strong>102</strong> indicators</div>
+        <div><strong>105</strong> indicators</div>
         <div><strong>85</strong> drawing tools</div>
       </div>
     </section>
@@ -119,7 +119,7 @@ export function Features() {
       <div className="oac-features">
         <Reveal className="oac-feature">
           <FeatureArt type="indicators" />
-          <div className="oac-feature__copy"><span className="oac-feature__index">01 / DISCOVER</span><h3>Look beneath the surface.</h3><p>Bring price, momentum, and volatility into focus with 102 indicators. Layer your favorites and explore the bigger picture.</p><Link href="/examples#custom-indicators" className="oac-text-link">Explore indicators <Arrow /></Link></div>
+          <div className="oac-feature__copy"><span className="oac-feature__index">01 / DISCOVER</span><h3>Look beneath the surface.</h3><p>Bring price, momentum, and volatility into focus with 105 indicators. Layer your favorites and explore the bigger picture.</p><Link href="/examples#custom-indicators" className="oac-text-link">Explore indicators <Arrow /></Link></div>
         </Reveal>
         <Reveal className="oac-feature">
           <FeatureArt type="drawings" />

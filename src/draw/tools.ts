@@ -19,6 +19,7 @@
 import type {
   DrawContext, Drawing, DrawingPoint, DrawingText, DrawingTool, ExpandContext, FibLevel, ScreenPoint,
 } from './types';
+import { lineAlertValue, horizontalAlertValue, channelAlertValue, channelAlertLevels, fibAlertValue, fibAlertLevels } from './alert-values';
 import {
   distToSegment, distToLine, distToHorizontal, distToVertical,
   distToRect, distToEllipse, distToPolyline, rectOf, boundsOf, extendSegment,
@@ -463,6 +464,7 @@ function fibText(lv: FibLevel): string {
 function lineTool(id: string, name: string, left: boolean, right: boolean): DrawingTool {
   return {
     id, name, points: 2, angleLock: true,
+    alertValue: lineAlertValue(left, right),
     defaultStyle: { extendLeft: left, extendRight: right },
     settings: composeSettings([LINE_FIELDS, EXTEND_FIELDS, STATS_FIELD]),
     draw: (c) => {
@@ -512,6 +514,7 @@ export const ARROW: DrawingTool = {
 
 export const HORIZONTAL_LINE: DrawingTool = {
   id: 'horizontal-line', name: 'Horizontal Line', points: 1, shortcut: 'Alt+H',
+  alertValue: horizontalAlertValue(),
   defaultStyle: { showLabels: true },
   settings: composeSettings([LINE_FIELDS, PRICE_TAG_FIELD, FONT_FIELDS]),
   draw: (c) => {
@@ -531,6 +534,7 @@ export const HORIZONTAL_LINE: DrawingTool = {
 
 export const HORIZONTAL_RAY: DrawingTool = {
   id: 'horizontal-ray', name: 'Horizontal Ray', points: 1, shortcut: 'Alt+J',
+  alertValue: horizontalAlertValue(true),
   defaultStyle: { showLabels: true },
   settings: composeSettings([LINE_FIELDS, PRICE_TAG_FIELD, FONT_FIELDS]),
   draw: (c) => {
@@ -627,6 +631,7 @@ export const ELLIPSE: DrawingTool = {
 
 export const PARALLEL_CHANNEL: DrawingTool = {
   id: 'parallel-channel', name: 'Parallel Channel', points: 3,
+  alertValue: channelAlertValue('parallel'), alertLevels: channelAlertLevels,
   defaultStyle: { fill: true },
   settings: SHAPE_SETTINGS,
   draw: (c) => {
@@ -667,6 +672,7 @@ const FIB_SETTINGS: SettingsSchema = composeSettings([LINE_FIELDS, LEVEL_FIELDS,
 function fibTool(id: string, name: string, anchors: 2 | 3): DrawingTool {
   return {
     id, name, points: anchors,
+    alertValue: fibAlertValue(anchors, DEFAULT_FIB), alertLevels: fibAlertLevels(DEFAULT_FIB),
     defaultStyle: { showLabels: true, levels: cloneLevels(DEFAULT_FIB), fill: true, fillOpacity: 0.06 },
     settings: FIB_SETTINGS,
     draw: (c) => {
@@ -2439,6 +2445,7 @@ const LADDER_SETTINGS: SettingsSchema = composeSettings([LINE_WIDTH_FIELD, LINE_
 /** Fib channel: fib levels spread across a trend leg, parallel to it. */
 export const FIB_CHANNEL: DrawingTool = {
   id: 'fib-channel', name: 'Fib Channel', points: 3,
+  alertValue: fibAlertValue('channel', DEFAULT_FIB), alertLevels: fibAlertLevels(DEFAULT_FIB),
   defaultStyle: { showLabels: true, levels: cloneLevels(DEFAULT_FIB) },
   settings: composeSettings([LINE_WIDTH_FIELD, LINE_STYLE_FIELD, LEVEL_FIELDS, EXTEND_FIELDS, FONT_FIELDS]),
   draw: (c) => {

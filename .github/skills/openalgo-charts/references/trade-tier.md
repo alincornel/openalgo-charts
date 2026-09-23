@@ -1,5 +1,11 @@
 # Trade tier (`openalgo-charts/trade`)
 
+`orderConstraintsForInstrument(instrument)` maps a validated base `Instrument` to
+the existing `OrderConstraints`: price tick, quantity grid and fractional quantity
+support. Steps remain in the adapter's order units, without multiplying lots.
+Use `validateQuantity`/`validatePrice` for advisory checks and add host price-band
+or freeze limits when available. See [instrument metadata](../../../../docs/instruments.md).
+
 *When to read this: placing, modifying or cancelling real orders from the chart, the order engine, its state machine, pre-trade validation, OCO brackets and the depth ladder.*
 
 Source of truth: every file in `src/trade/`, plus `src/feed/openalgo-trade.ts` (the `OrderFeed` adapter) and `src/feed/types.ts` (`MarketDepth`). Tests: `tests/trade.test.ts`, `tests/order-engine.test.ts`, `tests/dom-ladder.test.ts`. Demos: `examples/phase8-trade.html`, `examples/phase9-chart-trading.html`, `examples/phase10-dom.html`.
@@ -307,3 +313,49 @@ the user's to fix and the order never existed, so retrying is safe and no reconc
 against the broker is needed.
 
 `TRADE_TIER` is the tier's identity constant (`'trade'`).
+
+## Trading capability contract
+
+`TradingCapabilities`, `TradingCapabilitySource`, `TradingCapabilityRequest`,
+`TradingCapabilityResult` and `TradingOperation` are available from both base
+and trade entry points. The declaration has optional `place`, `modify` and
+`cancel` fields (`boolean | 'unknown'`), plus `orderTypes` and `modes` lists
+for new orders. Omitted declarations/fields preserve legacy behavior. False,
+explicit unknown support and empty placement lists block the relevant action.
+A configured synchronous provider returning undefined or throwing declares
+unavailable support and blocks delivery.
+
+Use `checkTradingCapability(source, request)` to hide or disable unsupported
+controls. A request names `operation`, with optional `symbol`, `exchange`,
+`orderId`, `type` and `mode`. A declared type/mode list requires that qualifier;
+no broker mode is inferred. `assertTradingCapability(source, request)` raises
+`TradingCapabilityError` with `preflight: true` and `operation` before delivery.
+This refusal does not resolve a previous ambiguous order or release its token.
+
+`OrderFeed.capabilities` advertises feed restrictions.
+`OrderEngineOptions.capabilities` adds host restrictions; either source can
+refuse. The engine rechecks after confirmation and before queued modify flush.
+`OpenAlgoTradeConfig.capabilities` protects direct feed calls, including a
+recheck after asynchronous mode verification. `OpenAlgoTradeFeed.capabilities`
+exposes that source. Unsupported modify/cancel operations preserve the existing
+order state; the engine reports them through `onValidationError`. Order-type
+placement restrictions do not prevent cancellation of an existing order.
+
+Use a dynamic provider to combine capability metadata with host-owned replay
+selection and workspace locks. The base `isReplaying(chart)` query detects
+active replay. The widget accepts `tradingCapabilities`, `tradingMode` and
+`tradingLocked` and rechecks capability and replay state before calling
+`onOrder`; the direct feed/engine must receive the same host restrictions.
+Unknown book rows and ambiguous delivered intents remain unresolved until
+broker reconciliation establishes their status. Capabilities never acknowledge
+an order or change the broker's mode.
+
+Full examples and verification boundaries: `docs/trading-capabilities.md`.
+
+Placement requests are snapshotted before confirmation or asynchronous mode
+checks. The confirmation callback receives a separate copy, so caller/callback
+mutation cannot replace the validated request. Modify options and feed patches
+are detached as well. New broker updates, reconciliation and later writes
+supersede pending modify/cancel completions; late responses cannot overwrite
+their intent or broker authority. This does not cancel an in-flight request or
+establish its broker outcome.

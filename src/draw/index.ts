@@ -156,6 +156,7 @@ export type {
   // `DrawingTool.expand` receives this; a custom tool cannot type its own
   // implementation without it.
   ExpandContext,
+  DrawingValueContext,
 } from './types';
 
 // What `new DrawingController(chart)` accepts. Exported so a host wiring the

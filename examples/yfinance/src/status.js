@@ -85,11 +85,11 @@ const zoneParts = (() => {
  * holiday calendar behind this, so it says "market closed" on Republic Day
  * for the same reason it does on a Sunday.
  */
-export function marketStatusReading() {
-  const venue = exchangeOf(app.req.symbol || '');
+export function marketStatusReading(symbol = app.req.symbol || '') {
+  const venue = exchangeOf(symbol);
   if (!(venue in SESSIONS)) return undefined;    // no hours for this venue
   if (SESSIONS[venue] === null) return { text: 'Open 24x7', color: UP };
-  return venueLive(app.req.symbol) ? { text: 'Market open', color: UP } : { text: 'Market closed' };
+  return venueLive(symbol) ? { text: 'Market open', color: UP } : { text: 'Market closed' };
 }
 
 /**
@@ -128,24 +128,26 @@ const dayKey = (() => {
  * it on every frame and a five-day one-minute chart is a few hundred
  * `Intl.format` calls per answer.
  */
-let prevCloseMemo = { bars: null, zone: null, value: null };
-export function previousSessionClose() {
-  if (prevCloseMemo.bars === app.currentBars && prevCloseMemo.zone === app.chartTimezone) return prevCloseMemo.value;
+const prevCloseMemo = new WeakMap();
+export function previousSessionClose(bars = app.currentBars, zone = app.chartTimezone) {
+  const cached = prevCloseMemo.get(bars);
+  if (cached?.zone === zone && cached.length === bars.length
+    && cached.last === bars.at(-1) && cached.previous === bars.at(-2)) return cached.value;
   let value = null;
-  if (app.currentBars.length >= 2) {
-    const last = dayKey(app.currentBars[app.currentBars.length - 1].time, app.chartTimezone);
-    for (let i = app.currentBars.length - 2; i >= 0; i--) {
-      if (dayKey(app.currentBars[i].time, app.chartTimezone) !== last) { value = app.currentBars[i].close; break; }
+  if (bars.length >= 2) {
+    const last = dayKey(bars[bars.length - 1].time, zone);
+    for (let i = bars.length - 2; i >= 0; i--) {
+      if (dayKey(bars[i].time, zone) !== last) { value = bars[i].close; break; }
     }
   }
-  prevCloseMemo = { bars: app.currentBars, zone: app.chartTimezone, value };
+  prevCloseMemo.set(bars, { zone, value, length: bars.length, last: bars.at(-1), previous: bars.at(-2) });
   return value;
 }
 
-export function dayChangeReading() {
-  const prev = previousSessionClose();
-  if (prev == null || !app.currentBars.length) return undefined;
-  const d = app.currentBars[app.currentBars.length - 1].close - prev;
+export function dayChangeReading(bars = app.currentBars, zone = app.chartTimezone) {
+  const prev = previousSessionClose(bars, zone);
+  if (prev == null || !bars.length) return undefined;
+  const d = bars[bars.length - 1].close - prev;
   const sign = d >= 0 ? '+' : '';
   const pct = prev ? (d / prev) * 100 : 0;
   return { label: '1D', text: `${sign}${fmt(d)} (${sign}${pct.toFixed(2)}%)`, color: d >= 0 ? UP : DOWN };
@@ -189,14 +191,13 @@ export function symbolLogo(sym) {
  * time of day, so it has to be right on the frame it is drawn rather than on
  * the frame the demo last patched options.
  */
-export function symbolStatus() {
-  const sym = app.req.symbol || '';
+export function symbolStatus({ symbol: sym = app.req.symbol || '', bars = app.currentBars, timezone = app.chartTimezone } = {}) {
   if (!sym) return null;
   return {
     logo: symbolLogo(sym),
     description: descriptionOf(sym) || undefined,
     ticker: exchangeOf(sym) + ':' + nameOf(sym),
-    marketStatus: marketStatusReading(),
-    lastDayChange: dayChangeReading(),
+    marketStatus: marketStatusReading(sym),
+    lastDayChange: dayChangeReading(bars, timezone),
   };
 }

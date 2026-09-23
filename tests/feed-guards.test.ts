@@ -71,6 +71,16 @@ describe('feed-level quantity guard (reaches a caller that skips OrderEngine)', 
     await expect(feed.place(order({ qty: 150 }))).resolves.toBeTruthy();
   });
 
+  it('rejects large fractional grid violations before delivery and preserves valid adapter units', async () => {
+    const { feed, calls } = feedFor({ constraints: () => ({ tickSize: 0.01, lotSize: 0.001, allowFractionalQty: true }) });
+    await expect(feed.place(order({ qty: 1000.0005, clientToken: 'large-grid' }))).rejects.toMatchObject({ preflight: true });
+    expect(calls).toHaveLength(0);
+    expect(feed.tokenState('large-grid')).toBe('unknown');
+    await feed.place(order({ qty: 1000.001, clientToken: 'large-grid' }));
+    expect(calls).toHaveLength(1);
+    expect(calls[0].quantity).toBe(1000.001);
+  });
+
   it('a refusal is pre-flight, so the caller knows nothing was sent', async () => {
     const { feed } = feedFor();
     await expect(feed.place(order({ qty: -1 }))).rejects.toMatchObject({ preflight: true });

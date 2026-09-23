@@ -22,7 +22,7 @@ Save this as `chart.html` and open it. No npm, no bundler, no server.
     <div id="chart" style="width:100vw;height:100vh"></div>
 
     <script type="module">
-      import { createChart } from 'https://unpkg.com/openalgo-charts@2.4.0/dist/openalgo-charts.mjs';
+      import { createChart } from 'https://unpkg.com/openalgo-charts@2.4.8/dist/openalgo-charts.mjs';
 
       const chart = createChart(document.getElementById('chart'), {
         timezone: 'Asia/Kolkata',
@@ -47,7 +47,7 @@ so the library needs no build step to be used.
 Use an exact version in anything you leave running:
 
 ```html
-https://unpkg.com/openalgo-charts@2.4.0/dist/openalgo-charts.mjs
+https://unpkg.com/openalgo-charts@2.4.8/dist/openalgo-charts.mjs
 ```
 
 The unversioned URL always resolves to the newest release. That is convenient for
@@ -57,7 +57,7 @@ release changes what your page loads without you touching it.
 jsDelivr serves the identical files if you prefer it:
 
 ```html
-https://cdn.jsdelivr.net/npm/openalgo-charts@2.4.0/dist/openalgo-charts.mjs
+https://cdn.jsdelivr.net/npm/openalgo-charts@2.4.8/dist/openalgo-charts.mjs
 ```
 
 ## Adding indicators and drawing tools
@@ -69,7 +69,7 @@ registers itself into the engine you already loaded.
 
 ```html
 <script type="module">
-  const CDN = 'https://unpkg.com/openalgo-charts@2.4.0/dist';
+  const CDN = 'https://unpkg.com/openalgo-charts@2.4.8/dist';
 
   const { createChart, registeredIndicators } = await import(`${CDN}/openalgo-charts.mjs`);
   const { registerBuiltinIndicators } = await import(`${CDN}/openalgo-charts.indicators.mjs`);
@@ -84,20 +84,23 @@ registers itself into the engine you already loaded.
   chart.addIndicator('supertrend');
   chart.addIndicator('rsi');
 
-  console.log(registeredIndicators().length); // 102
+  console.log(registeredIndicators().length); // 105
 </script>
 ```
 
 Every tier is a file under `/dist`:
 
-| Import | File | What it registers |
+| Import | File | Contents |
 |---|---|---|
 | base | `openalgo-charts.mjs` | The engine, 13 chart types, both registries, primitives, feeds |
-| indicators | `openalgo-charts.indicators.mjs` | 102 built-ins plus the Tier-2 contract |
+| indicators | `openalgo-charts.indicators.mjs` | 105 built-ins plus the Tier-2 contract |
 | drawing | `openalgo-charts.draw.mjs` | 85 tools and the headless controller |
 | transforms | `openalgo-charts.transform.mjs` | Heikin Ashi, Renko, Range, Line Break, and 2 more chart types |
 | profiles | `openalgo-charts.profile.mjs` | Volume Profile, Market Profile (TPO), Footprint, order flow |
 | trading | `openalgo-charts.trade.mjs` | Order, position and bracket lines, DOM ladder |
+| webgl | `openalgo-charts.webgl.mjs` | Optional WebGL2 series backend |
+| widget | `openalgo-charts.widget.mjs` | Packaged toolbar, drawing rail, dialogs, translated controls and shortcuts |
+| workspace | `openalgo-charts.workspace.mjs` | Validated documents, named catalogs and asynchronous storage adapters |
 
 Loading the transform tier is what takes `registeredChartTypes()` from 13 to 15:
 Point and Figure and Kagi are registered by it.
@@ -109,7 +112,7 @@ terminal is still one file:
 
 ```html
 <script type="module">
-  const CDN = 'https://unpkg.com/openalgo-charts@2.4.0/dist';
+  const CDN = 'https://unpkg.com/openalgo-charts@2.4.8/dist';
   const { createChart, OpenAlgoRestFeed } = await import(`${CDN}/openalgo-charts.mjs`);
   const { registerBuiltinIndicators } = await import(`${CDN}/openalgo-charts.indicators.mjs`);
   registerBuiltinIndicators();
@@ -143,7 +146,7 @@ If you cannot use `<script type="module">` at all, there is a classic script tha
 defines a `OpenAlgoCharts` global:
 
 ```html
-<script src="https://unpkg.com/openalgo-charts@2.4.0/dist/openalgo-charts.standalone.js"></script>
+<script src="https://unpkg.com/openalgo-charts@2.4.8/dist/openalgo-charts.standalone.js"></script>
 <script>
   const chart = OpenAlgoCharts.createChart(document.getElementById('chart'));
   chart.addSeries('candlestick').setData(bars);
@@ -160,10 +163,9 @@ to reach for otherwise.
 The advice you will find for putting a library on a CDN usually includes two
 steps that do not apply here:
 
-- **There is no stylesheet.** The engine ships no DOM and no CSS: everything it
-  draws goes on a canvas, and every toolbar, dialog and menu belongs to your app.
-  A `<link rel="stylesheet" href=".../openalgo-charts.css">` would 404, because
-  there is no such file and there is not meant to be.
+- **There is no separate stylesheet to load.** The engine draws on canvas. The
+  optional widget tier supplies interface controls and injects its scoped styles;
+  custom hosts supply their own interface. There is no `openalgo-charts.css` file.
 - **There is no separate CDN deployment.** unpkg and jsDelivr mirror npm. A
   release is on both the moment it is published; there is no account to create
   and no upload step.
@@ -171,9 +173,9 @@ steps that do not apply here:
 ## Checking a version is live
 
 ```sh
-curl -sI https://unpkg.com/openalgo-charts@2.4.0/dist/openalgo-charts.mjs | head -1
+curl -sI https://unpkg.com/openalgo-charts@2.4.8/dist/openalgo-charts.mjs | head -1
 npm view openalgo-charts version
 ```
 
 Browse everything a release contains at
-[`unpkg.com/openalgo-charts@2.4.0/dist/`](https://unpkg.com/browse/openalgo-charts@2.4.0/dist/).
+[`unpkg.com/openalgo-charts@2.4.8/dist/`](https://unpkg.com/browse/openalgo-charts@2.4.8/dist/).

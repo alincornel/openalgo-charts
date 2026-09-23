@@ -24,6 +24,13 @@ chart.off('crosshair:move');            // drop every listener for the name
 
 ## Event catalogue
 
+Primary source updates emit `data:update` with `ChartDataUpdate`:
+`{ kind: 'update' | 'reset' | 'prepend', time?: number }`. Live updates name the
+updated UTC bar time; resets include primary-series removal. Indicator and
+secondary-series writes do not emit it. Read `chart.primaryBars()` for the
+readonly source history without copying it. The event follows indicator
+invalidation; `chart.indicators()` flushes studies when a host needs their values.
+
 Every name emitted by the engine, verified against the `emit(` call sites in `src/core/chart.ts`, `src/core/trading-controller.ts`, `src/draw/controller.ts`, and `src/replay/controller.ts`.
 
 | Event | Payload | Fires when |
@@ -34,8 +41,10 @@ Every name emitted by the engine, verified against the `emit(` call sites in `sr
 | `click` | `{ id, price, time, paneIndex, point: { x, y }, shiftKey, ctrlKey, metaKey, modifiers, pointerType, pressure, viaDrag? }` | A clean click anywhere in the plot. `id` is the hit primitive's `externalId`, or `null` on empty plot. `pressure` is the press pressure (a release always reads 0). |
 | `dblclick` | `{}` | Plot double-clicked. Also resets the scale unless a drawing tool is armed. |
 | `hover` | `{ id }` | Pointer enters (`id` = `externalId`) or leaves (`id` = `null`) a hit-testable primitive. State-change rate, not pointer rate. |
-| `drag` | `{ id, price, time, paneIndex, fromPrice, fromTime, point, samples, modifiers, pointerType, pressure }` | A draggable primitive is being moved. `from*` is the grab origin, so deltas start at the press. `point` is container x with pane-local y; `samples` lists every coalesced position since the last move in that space, the last one equal to `point`. |
+| `drag:start` | `ChartDragEndEvent`: `{ id, price, time, paneIndex, point, modifiers, pointerType, pressure }` | A primitive press arms a drag, before any movement. |
+| `drag` | `{ id, price, time, paneIndex, fromPrice, fromTime, point, samples, modifiers, pointerType, pressure }` | A draggable primitive is being moved. `from*` is the grab origin, so deltas start at the press. `point` is container x with y local to the grabbed pane even after crossing a pane boundary; `samples` lists every coalesced position since the last move in that space, the last one equal to `point`. |
 | `drag:end` | `{ id, price, time, paneIndex, point, modifiers, pointerType, pressure }` | The drag gesture released. |
+| `drag:cancel` | `{ id, paneIndex, reason: 'pointercancel' \| 'pinch' \| 'escape' }` | The gesture was cancelled. Discard transactional drafts. For existing hosts, pointer cancellation still sends `drag:end` afterwards. Pinch and opt-in Escape discard the gesture without an end. Escape requires `PrimitiveHit.cancelOnEscape: true`; existing primitives retain their release path. |
 | `pan` | `{ from, to, logicalFrom, logicalTo }` | The user pans, **or** a programmatic move that changed the window without changing its span. |
 | `zoom` | `{ from, to, logicalFrom, logicalTo }` | Wheel or pinch zoom, **dragging the time axis** to stretch or compress the bars, **or** a programmatic move that changed the span. |
 | `resize` | `{ width, height }` | Container size changed (CSS px); also emitted by an explicit `applySize` that actually changes size. |
@@ -97,8 +106,8 @@ It also disposes itself on chart destruction. See
 
 The callback's `ChartObjectSnapshot.id` is the inventory identity, while `sourceId`
 is the existing subsystem's identity. Removal or replacement can invalidate an ID;
-read the latest snapshot instead of retaining an indicator instance ID across
-layout restore. `objects.destroy()` and the disposer returned by `subscribe`
+read the latest snapshot after removal or template replacement. Workspace restore
+preserves saved indicator instance IDs. `objects.destroy()` and the disposer returned by `subscribe`
 release observations without removing chart objects. Drawing actions still pass
 through the drawing controller's undo history. Host provider state needs its own
 subscription or an explicit `objects.refresh()` after a host-side change.
@@ -117,8 +126,9 @@ subscription or an explicit `objects.refresh()` after a host-side change.
 | `crosshairMode` `'normal' \| 'magnet'` | yes |
 | `timezone` (IANA name) | yes, but a name this runtime does not recognise is **skipped**, not thrown, so one stale zone cannot cost the whole layout |
 | `panes[]`: `weight`, and per-pane `priceScale` `{ marginTop, marginBottom, minMove, mode, inverted, autoScale, range? }` | yes; panes are created as needed, `range` only present when `autoScale` is false |
-| `indicators[]`: `{ indicatorId, settings, paneIndex, visible? }` | yes, replaced not appended; omitted legacy visibility restores as visible |
+| `indicators[]`: `{ indicatorId, instanceId?, settings, paneIndex, visible? }` | yes, replaced not appended; saved identities are stable, legacy entries receive new IDs |
 | `drawings` | round-tripped opaquely; only present when a drawing state has been set. The draw tier writes a `DrawingsDocument` (`{ version: 2, drawings }`) here and reads a 1.9.x bare array too |
+| `alerts` | optional `AlertsDocument`; lifecycle, scope, anchors and consumed bars survive reload; unsupported runtime payloads reject serialization |
 | `series[]`: `{ type, style, paneIndex, priceScaleId }` | **no**, reported back to you |
 | series **data** | **no**, never captured |
 
@@ -180,7 +190,13 @@ chart.setDrawingState(value);  // write it
 
 `DrawingController` (`src/draw/controller.ts`) drives both ends automatically: it reads `chart.drawingState()` in its constructor and restores anything it finds, and it writes `chart.setDrawingState(this.toJSON())` after every mutation. So an app that already persists `getState()` keeps drawings for free once the tier is loaded, no extra storage plumbing.
 
-Ordering matters when the controller already exists: `restoreState` overwrites the slot but does not push it into a live controller. Either construct the controller after the restore, or call `controller.fromJSON(chart.drawingState())` yourself. See [drawing-tools](drawing-tools.md).
+Restoration emits `drawings:restore` before `alerts:restore`. Attached controllers
+restore automatically in that order; do not repeat `fromJSON` afterward.
+`state:restore:start` and `state:restore:end` bracket the operation so transient
+inventory changes cannot evaluate alerts or delete anchors prematurely.
+Invalid alert documents and duplicate study identities reject before mutation.
+Missing restored drawing or plot anchors emit removal reasons. See
+[drawing-tools](drawing-tools.md) and [alerts](alerts.md).
 
 ## Related
 

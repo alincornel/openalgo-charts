@@ -1,6 +1,6 @@
 import * as engine from '/dist/openalgo-charts.mjs';
 import { el, fmt, round2, rupee } from './ui.js';
-import { saveState, tradeColors, TRADE_EXTENT, removeAllOrders, clearPosition } from './orders.js';
+import { saveState, tradeColors, TRADE_EXTENT, removeAllOrders, clearPosition, executionAllowed } from './orders.js';
 
 let app;
 
@@ -8,6 +8,7 @@ let app;
 const chartTop = () => el('chart').getBoundingClientRect().top;
 
 export function makeBracket(side) {
+  if (!executionAllowed()) return;
   if (!app.currentBars.length) return;
   const entry = round2(app.currentBars[app.currentBars.length - 1].close);
   const qty = Math.max(1, Number(el('qty').value) || 1);
@@ -42,6 +43,7 @@ export function attachBracketLines() {
 // Move one leg (or the whole bracket via the entry) and keep TP/SL on the
 // correct side of entry, then refresh lines, labels and pill positions.
 export function setBracketPrice(which, raw) {
+  if (!executionAllowed()) return;
   if (!app.bracket) return;
   const p = round2(raw);
   const buy = app.bracket.side === 'BUY';
@@ -146,6 +148,7 @@ export function initBracket(a) {
     if (!act || !app.bracket) return;
     if (act === 'cancel') { removeBracket(); saveState(); el('status').textContent = 'bracket cancelled'; }
     else if (act === 'place') {
+      if (!executionAllowed()) return;
       el('status').textContent = `placed ${app.bracket.side} OCO bracket - ${app.bracket.qty} entry ${fmt(app.bracket.entry)} · TP ${fmt(app.bracket.target)} · SL ${fmt(app.bracket.stop)} (target/stop are OCO)`;
     } else if (act === 'modify') {
       const rr = (Math.abs(app.bracket.target - app.bracket.entry) / Math.max(1e-9, Math.abs(app.bracket.entry - app.bracket.stop))).toFixed(2);

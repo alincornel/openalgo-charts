@@ -33,6 +33,36 @@ Importing the module touches no DOM; only `createWidget` does (it injects the st
 
 ## Exports
 
+### Translation contract (`localization.ts`)
+
+`widgetText(ctx, key, values?)` resolves typed English source messages, interpolates
+named values once and falls back for missing, blank, malformed or throwing host
+translations. `WidgetBuiltinMessage`, `WidgetMessageKey`, `WidgetMessageValues`,
+`WidgetMessageParameters`, `WidgetTranslator` and `WidgetTranslationOptions` are
+the exported types. `WidgetOptions.translate`, `WidgetContext.translate` and
+`AlertUiOptions.translate` share the optional synchronous callback. The callback
+receives `(key, fallback, values)` and returns a translated template or undefined.
+
+Generated metadata uses `schema.*` keys with descriptor text as fallback.
+`FormTranslationOptions` adds a stable `scope` for `controlsFromInputs` and
+`controlsFromFields`; `FormOptions.translate` localizes form furniture. Symbol and
+interval codes, user alert/drawing text, object names, configured branding and
+provider errors remain literal. `locale` independently formats status-line
+numbers. Recreate a widget to change every mounted control's language.
+See [widget localization](../../../../docs/widget-localization.md) for key shapes,
+fallback rules and async persistence guidance.
+
+The existing `WorkspaceRepository`/`WorkspaceStorage` API supplies asynchronous
+account persistence. Keep each repository's namespace fixed, create another for
+an account change, and fence stale restores in the host. Widget `persist` remains
+synchronous preference storage. Do not put credentials in portable documents.
+
+`WidgetOptions` and `ContextMenuHooks` also accept `tradingCapabilities?:
+TradingCapabilitySource`, `tradingMode` and `tradingLocked`. Unsupported order
+routes are hidden; replay and host selection locks disable placement. Callbacks
+recheck capabilities, replay and chart context immediately before `onOrder`.
+Throwing capability/lock providers refuse the action. Execution remains host-owned.
+
 Everything `src/widget/index.ts` exports at runtime. The shell (`createWidget` and the handle) is what a host uses; the rest is exported so a host that wants one piece of the chrome and its own for the rest can have it, or so a dialog module of the host's own can register with the shell.
 
 ### The shell (`widget.ts`)
@@ -122,6 +152,13 @@ The sprite is injected once per document on the body (`id="oac-rail-sprite"`), s
 | `SEARCH_DEBOUNCE_MS` | const `150` | Quiet before `symbolSearch` runs. |
 | `TopbarOptions`, `TopbarHandle`, `TopbarState`, `SymbolMatch`, `SymbolSearch`, `MenuRow`, `MenuOptions` | types | |
 
+The Capture menu includes **Download chart data (CSV)**, using the base
+`exportChartDataCsv` API. It captures source identity when opened and refuses a
+changed, empty or loading source. The widget supplies source readiness; custom
+`mountTopbar` hosts can supply `TopbarOptions.dataAvailable()` for their own loading
+boundary. Active replay exports only installed rows. File failures surface in
+the status line and download resources are released after handoff or failure.
+
 ### Status line, toasts, tokens, styles
 
 | Export | Kind | Purpose |
@@ -161,15 +198,34 @@ Every mount takes the context and an optional anchor element (so it satisfies `D
 | `mountLevelEditor(ctx, anchor?, { ids? })` | function | Per-level ratio, colour and visibility for the fib and gann tools. |
 | `mountTextEditor(ctx, anchor?, { id?, onDone? })` | function | In-place editing laid over the painted text. Returns a `TextEditorHandle` with `commit()` and `cancel()`; an outside press commits, Escape cancels. |
 | `mountContextMenu(ctx, anchor?, { event?, hooks? })` | function | The right-click menu for the chart's `contextmenu` payload: trade rows when `onOrder` is given, drawing actions on a drawing, scale modes on a price axis, paste, fit, indicators, settings. |
+| `mountAlertEditor(ctx, anchor?, opts?: AlertEditorOptions)` | function | Draft editor seeded by `source` or editing `alertId`. Save validates source identities, finite bounds and expiry in the labelled chart timezone. Cancel never arms an alert. |
+| `mountAlertsPanel(ctx, anchor?, opts?: AlertsPanelOptions)` | function | Live alert list with lifecycle, scope, timing, availability, last delivery, edit, enable/disable and delete. Both options types accept `onClose`. |
 | `attachContextMenu(ctx, hooks?)` | function | Subscribe to the chart's `contextmenu`, `preventDefault`, mount the menu. Returns the unsubscriber. `createWidget` does this itself. |
 | `contextMenuEntries(ctx, event, hooks)` | function | The `MenuEntry[]` the menu is built from, for a host composing its own. |
-| `WIDGET_DIALOGS` | const | The seven mounts under the registry names: `settings`, `indicatorPicker`, `indicatorSettings`, `drawingProperties`, `contextMenu`, `levelEditor`, `textEditor`. Registered on import. |
+| `WIDGET_DIALOGS` | const | Registry mounts: `settings`, `indicatorPicker`, `indicatorSettings`, `drawingProperties`, `contextMenu`, `levelEditor`, `textEditor`, `alertEditor`, `alerts`. Registered on import. |
 | `renderForm(host, controls, opts)` | function | One control renderer for every generated form: switch column, label, control column; `colorPair` on one row. Returns a `FormHandle`. |
 | `controlsFromInputs(inputs)` | function | `ChartSettingsInput[]` (the engine's settings schema) to `FormControl[]`. |
 | `controlsFromFields(fields)` | function | A drawing tool's `SettingsField[]` to `FormControl[]`. |
 | `SettingsDialogOptions`, `IndicatorPickerOptions`, `IndicatorSettingsOptions`, `IndicatorSettingsTab`, `DrawingPropertiesOptions`, `LevelEditorOptions`, `TextEditorOptions`, `TextEditorHandle`, `ContextMenuHooks`, `ContextMenuOptions`, `MenuEntry`, `MenuItem`, `OrderRequest`, `PanelHandle`, `FormControl`, `FormKind`, `FormOptions`, `FormHandle` | types | |
 
 `OrderRequest` is `{ side: 'BUY' | 'SELL'; type: 'MARKET' | 'LIMIT' | 'SL'; price: number | null; paneIndex: number }`; `price` is null for a market order.
+
+Alert panels use optional `WidgetContext.alerts`, supplied automatically by
+`createWidget`. Custom contexts without a controller show an unavailable reason.
+Draft numeric forms set `FormOptions.preserveInvalidNumbers` so an empty field
+stays empty and Save can report it. Live settings forms retain their previous
+behavior of restoring the last valid numeric value. Alert expiry is entered in
+the chart timezone captured and labelled when the editor opens; changing the
+chart timezone does not reinterpret the draft. New alerts default to two chart
+calendar months ahead, clamped to the last day of the target month. Clearing the
+field means no expiry. Editing another field preserves the stored UTC instant,
+including its seconds. Programmatically added alerts retain their existing
+defaults; the two-month prefill belongs to the editor.
+Context changes or removed anchors prevent stale drafts from being saved.
+
+Text, number, select and date fields share one control column. Their height
+uses `--oac-ctl-h`, and their outer corners and button corners use `--oac-radius`.
+Color swatches stay compact. Theme overrides should target these tokens.
 
 ## `WidgetOptions`
 
@@ -230,6 +286,7 @@ widget.draw;                         // DrawingController
 widget.root;                         // the .oac-widget element
 widget.context;                      // the WidgetContext every mounted piece was handed
 widget.objects;                      // the owned base-tier ChartObjects inventory
+widget.alerts;                       // the owned AlertController, including drawing anchors
 widget.series;                       // the primary SeriesApi, replaced by setChartType
 widget.symbol(); widget.exchange(); widget.interval(); widget.chartType(); widget.theme();
 widget.setSymbol(symbol, exchange?);
@@ -239,7 +296,8 @@ widget.setTheme('dark' | 'light' | theme);
 widget.openSettings();               // false when no dialog is registered under 'settings'
 widget.openIndicatorPicker();
 widget.openObjects();                // false after destruction; focuses the existing panel when open
-widget.getState();                   // WidgetState, JSON-safe
+widget.openAlerts();                 // desktop Alerts and mobile More use the same live list
+widget.getState();                   // WidgetState; rejects nonportable alert payloads
 widget.restoreState(state);          // WidgetRestoreReport
 await widget.reload();               // fetch again for the current symbol and interval
 widget.on(event, cb);                // returns the unsubscriber
@@ -335,6 +393,19 @@ An empty or whitespace-only SSR `<style id="oac-widget-css" nonce="...">` is fil
 `registerDrawingTool` from `openalgo-charts/draw` **before** `createWidget`, then name the id in `rail.tools` (and `rail.favorites` to pin it). The rail reads the registry once when it builds: an id it cannot find is not shown, and an unknown favourite is dropped. A custom id appears in the rail only where `RAIL_GROUPS` places it, so a tool outside every group is reachable by pin, chord or `draw.setTool`. The rail labels the button with the tool's `name`; a glyph is drawn when `DRAWING_TOOL_ICONS` has the id. A tool's `shortcut` is bound through the widget keymap and listed in the `?` panel; a conflicting binding is reported, not silently overridden. Its `settings` schema decides what the properties dialog shows, so a control exists only for a field the tool's `draw` reads.
 
 ## Packaging facts
+
+`createAlertUi(container, options: AlertUiOptions): AlertUi` mounts the shared
+alert editor and list over an existing chart. Supply the host-owned `chart`,
+`draw` and `alerts` controllers and a positioned container with a real size.
+It exposes `openList`, `openEditor`, `close`, `isOpen`, `setTheme` and `destroy`.
+`onOpenChange` follows the whole nested dialog stack, so capture-phase host
+shortcuts can stay suspended until every dialog closes. `theme`, `chartTheme`,
+`locale` and `styleNonce` are optional. Destroying this UI leaves its chart and
+controllers alive; destroying the chart disposes the UI automatically.
+Delivery and persistence remain the host's responsibility. Observe
+`alert:triggered` for delivery and `alerts:checkpoint` plus lifecycle events for
+persistence. Restore the complete chart document once, with the drawing and
+alert controllers already attached. Do not restore drawings again afterward.
 
 - `package.json` `exports['./widget']`: `types: ./dist/widget/index.d.ts`, `import: ./dist/openalgo-charts.widget.mjs`. Listed in `sideEffects` (importing registers the dialogs).
 - `rollup.config.js`: `openalgo-charts` and every `openalgo-charts/<tier>` are external for tier builds and emitted as sibling paths (`./openalgo-charts.mjs`, `./openalgo-charts.draw.mjs`), so `dist/` serves with no import map. The widget must never inline the base or the draw tier; `check-dts.mjs` fails a build whose `dist/widget/index.d.ts` declares `Chart` or `DrawingController`.

@@ -71,6 +71,40 @@ describe('whole-quantity and lot-size grid', () => {
   });
 });
 
+describe('quantity grids at floating-point boundaries', () => {
+  it.each([
+    { qty: 1000.0005, step: 0.001 },
+    { qty: 1_000_000.5, step: 1 },
+    { qty: 1_000_000_000_000.25, step: 1 },
+  ])('rejects fractional steps without increasing slack with quantity: %j', ({ qty, step }) => {
+    const constraints = { tickSize: 0.01, lotSize: step, allowFractionalQty: true };
+    expect(validateQuantity(qty, constraints)).toMatchObject({ ok: false, code: 'QTY_STEP' });
+    expect(validateOrder(undefined, qty, constraints)).toMatchObject({ ok: false, code: 'QTY_STEP' });
+  });
+
+  it.each([
+    { qty: 0.3, step: 0.1 },
+    { qty: 0.1 + 0.2, step: 0.1 },
+    { qty: 1000.001, step: 0.001 },
+    { qty: 10.00000001, step: 0.00000001 },
+    { qty: 10000000000000.1, step: 0.1 },
+  ])('accepts representable decimal multiples without changing quantity: %j', ({ qty, step }) => {
+    const constraints = { tickSize: 0.01, lotSize: step, allowFractionalQty: true };
+    expect(validateQuantity(qty, constraints)).toEqual({ ok: true });
+  });
+
+  it('rejects a positive quantity smaller than one grid step instead of rounding it to zero', () => {
+    expect(validateQuantity(1e-20, { tickSize: 0.05 })).toMatchObject({ ok: false, code: 'QTY_STEP' });
+    expect(validateQuantity(Number.MIN_VALUE, { tickSize: 0.05, lotSize: 0.001 })).toMatchObject({ ok: false, code: 'QTY_STEP' });
+  });
+
+  it('rejects grid counts outside safe integer precision and division overflow', () => {
+    expect(validateQuantity(Number.MAX_SAFE_INTEGER, { tickSize: 0.05 })).toEqual({ ok: true });
+    expect(validateQuantity(Number.MAX_SAFE_INTEGER + 1, { tickSize: 0.05 })).toMatchObject({ ok: false, code: 'QTY_STEP' });
+    expect(validateQuantity(1, { tickSize: 0.05, lotSize: Number.MIN_VALUE })).toMatchObject({ ok: false, code: 'QTY_STEP' });
+  });
+});
+
 describe('quantity validation is independent of price', () => {
   it('exposes validateQuantity so a market order can be checked on its own', () => {
     expect(validateQuantity(10, C).ok).toBe(true);

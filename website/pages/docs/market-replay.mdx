@@ -32,6 +32,124 @@ replay.seek(240);
 replay.stop();               // leave replay, put the chart back
 ```
 
+## Replay by availability time
+
+An opening timestamp does not make a candle's final high, low, close or volume
+available. Pass `timing` when aligning replay across different histories or
+intervals:
+
+```ts
+const replay = new ReplayController(chart, {
+  timing: {
+    barEndTime: bar => bar.time + 300,
+    subBarEndTime: bar => bar.time + 60,
+  },
+  subBars: oneMinuteBars,
+  startTime: selectedUtcSeconds,
+});
+replay.seekTime(nextUtcSeconds);
+```
+
+This example assumes fixed five-minute and one-minute buckets. Supply end times
+from your feed/calendar for session exceptions or variable-duration buckets;
+replay does not infer closure from the next recorded opening. `ReplayTiming`
+uses `ReplayBarEndTime`, a `(bar, index) => utcSeconds` callback. End times must be
+finite, ordered, at or after the opening and no later than the next opening.
+Explicitly close-stamped data can return `bar.time`.
+
+Before the first available observation, the chart is empty and `state()` returns
+`index: -1` and `bar: null`. Finer bars build a partial candle only while they
+cover a contiguous prefix. A missing or straddling finer bar leaves the last
+known prefix until the full candle becomes available. At its declared end, the
+original candle replaces the aggregate exactly. OI retains the last available
+reading and is never summed or copied early from the final candle. Comparisons
+and independent followers withhold forming closes.
+
+`seek(index)` still selects a complete primary candle. Step/play move through
+available observations. `time()` reports the UTC playhead; `timePoints()` returns
+a copy of the observation times. `autoStart: false` prepares a validated snapshot
+without changing the chart, for a host coordinating several participants. Invalid
+timing fails before mutation. Existing index-based replay keeps its defaults.
+The host must fence live chart writes and trading before selection or loading
+begins. `AlertController` suspends evaluation and threshold dragging when it
+receives `replay:start`; call `alerts.setPaused(true)` for the earlier selection
+and loading phases too. See [Alerts](/docs/alerts).
+
+## One clock across charts
+
+The yfinance reference host demonstrates this with a scope button in both the
+bar picker and the replay transport. Choose its captured chart or all charts.
+Playback starts at the selected candle's close, and the slider advances through
+available observations. Both scopes' controls span the workspace and remain visible
+when either chart enters fullscreen. Each chart retains its own volume and
+readout; a later history stays empty until its first observation.
+
+The host captures request identities and timezones, cancels each history request
+on exit, and keeps trading and alerts paused throughout selection, loading and
+playback. Scope changes preserve UTC time. Missing finer history visibly falls
+back to completed candles. Closing or changing an active chart ends the session
+and restores survivors; an inactive chart can change without ending focused replay.
+
+`ReplayGroup` coordinates explicit availability times across a set of charts.
+Different histories and intervals advance by UTC time. A chart with no available
+observation remains empty; a coarse candle waits for its final data or forms from
+known finer observations.
+
+```ts
+import { ReplayGroup } from 'openalgo-charts';
+
+const replay = new ReplayGroup([
+  { id: 'left', chart: leftChart, options: {
+    timing: { barEndTime: bar => bar.time + 60 },
+  } },
+  { id: 'right', chart: rightChart, options: {
+    timing: { barEndTime: bar => bar.time + 300 },
+  } },
+], {
+  scope: 'all',
+  startTime: selectedUtcSeconds,
+  onChange: state => renderTransport(state),
+});
+
+replay.play({ speed: 2 });
+replay.setScope('focused', 'right');
+replay.setScope('all');
+replay.destroy();
+```
+
+These callbacks assume fixed one-minute and five-minute buckets. Use your feed's
+calendar-aware end times for session exceptions or variable-duration buckets.
+The default scope is `focused`, on the first member unless `focusedId` is supplied.
+Moving toolbar focus alone does not redirect a captured replay. Explicit scope
+changes preserve the playhead time and restore charts leaving replay. A chart
+entering replay captures its current data, preserving bars received while inactive.
+
+The group owns one timer. `barMs` defaults to 1000 and speed to 1; `now` and
+`scheduler` can be injected. `state()` reports the UTC time, index/total in the
+union of active observations, scope, focused member, playing/speed, active/destroyed
+flags and each member's ReplayState. Use `seek(index)` for the group scrubber,
+`seekTime(utcSeconds)` for an absolute jump, and `step()`, `stepBack()`, `play()` or
+`pause()` for transport. Empty histories have a null time and index -1.
+
+`stop()` restores data and viewports, retaining the initial time for re-entry.
+`destroy()` also releases snapshots, ownership and listeners. Call it during host
+teardown. Chart destruction is observed automatically: an active participant
+ending tears down the group and restores survivors; an inactive participant is
+removed. Membership stays reserved until destruction, preventing two groups from
+owning the same chart.
+
+Preparation failures and invalid control arguments leave the running session
+intact. Runtime projection/callback failures stop playback, attempt restoration
+on every surviving chart, release ownership and rethrow. Group `onChange` and
+member `onFrame` callbacks run after the full frame reaches all active members;
+use those callbacks for transport decisions. Stop/destroy may interrupt a chart
+frame, while other recursive transport changes there are rejected.
+
+The group ships no UI or feed transport. Hosts load history first, pause live
+writes on active charts, and keep trading and alert evaluation guarded throughout
+selection, loading and replay. Recapture participants when their source identity
+changes. Existing standalone replay remains available with its original defaults.
+
 ## Indicators come along for free
 
 Replay does not fake a moment in time. It feeds the chart a **prefix** of the bar array
@@ -41,8 +159,10 @@ legend reading: each is exactly what it was at that bar, because it is computed 
 exactly the bars that existed then.
 
 That also means `chart.dataLayer.length` shrinks to the replayed count, so nothing holds
-the shared time axis open at bars in the future. There is no replay-aware code anywhere in
-the indicator tier, and none is needed in yours.
+the shared time axis open at bars in the future. Pure calculations need no
+separate replay implementation. External studies must still respect observation
+availability; use the [managed external-data contract](/docs/indicators#tier-2-indicators-with-their-own-data)
+and avoid reading future values from a host history cache.
 
 <Callout type="info">
 The right edge of the view anchors to the newest bar plus `rightOffset`, so the chart
@@ -226,7 +346,11 @@ It is safe to call twice, and a later `seek`, `step` or `play` re-enters replay 
 controller.
 
 <Callout type="info">
-**Live data and replay do not mix.** While replay owns the series, a `series.update(bar)`
-from your feed lands on the prefix and is wiped by the next frame. Unsubscribe the feed
-when replay starts (`replay:start`) and resubscribe on `replay:stop`.
+**Fence live writes while replay owns the series.** With a
+[`DataLoadingController`](/docs/data-loading), call `data.setPaused(true)` before
+entering replay. Its live store continues collecting updates while the display
+stays frozen. Stop replay before `data.setPaused(false)` publishes the live
+snapshot. A direct feed binding must instead suspend chart writes, retain live
+observations, and refresh missed history before resuming. Keep trading and alert
+delivery guarded through selection, loading and teardown as well as playback.
 </Callout>

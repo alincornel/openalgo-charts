@@ -17,6 +17,10 @@ through a small `OrderFeed` interface (`place` / `modify` / `cancel`) - the Open
 Try the [simulated live depth ladder](/docs/depth-of-market) to explore bid/ask
 quantities, configurable price grouping and different book depths.
 
+[Trader alerts](/docs/alerts) use the base-tier `AlertController`. Their draggable
+thresholds and `alert:triggered` notifications do not place or modify broker orders.
+Keep alert delivery separate from the trading write path.
+
 <Callout type="info">
 Two trade interfaces exist and are easy to confuse. The trade tier's `OrderFeed`
 (`place` / `modify` / `cancel`, from `openalgo-charts/trade`) is the broker write
@@ -38,12 +42,31 @@ chart.addSeries('candlestick').setData(bars);
 const last = bars[bars.length - 1].close;
 // Broker-style segmented pill groups on the line - [badge][qty][label][x] -
 // draggable, with the x segment routing as a cancel/exit click.
-chart.addPriceLine({ price: last, color: '#3b82f6', lineWidth: 2, id: 'entry',
+const entry = chart.addPriceLine({ price: last, color: '#3b82f6', lineWidth: 2, id: 'entry',
   extentFromRight: 0.30, badge: 'BUY', qty: 10, leftLabel: 'LIMIT', closeButton: true, cursor: 'ns-resize' });
-chart.addPriceLine({ price: last * 0.98, color: '#ef5350', lineWidth: 1, dashed: true, id: 'sl',
+const stop = chart.addPriceLine({ price: last * 0.98, color: '#ef5350', lineWidth: 1, dashed: true, id: 'sl',
   extentFromRight: 0.30, badge: 'SL', qty: 10, closeButton: true, cursor: 'ns-resize' });
-chart.addPriceLine({ price: last * 1.03, color: '#26a69a', lineWidth: 1, dashed: true, id: 'tp',
+const target = chart.addPriceLine({ price: last * 1.03, color: '#26a69a', lineWidth: 1, dashed: true, id: 'tp',
   extentFromRight: 0.30, badge: 'TP', qty: 10, closeButton: true, cursor: 'ns-resize' });
+
+const lines = new Map([['entry', entry], ['sl', stop], ['tp', target]]);
+let original = null;
+chart.on('drag:start', ({ id }) => {
+  const line = lines.get(id);
+  original = line ? { id, price: line.price } : null;
+});
+chart.on('drag:cancel', ({ id }) => {
+  if (original?.id === id) lines.get(id)?.setPrice(original.price);
+  original = null;
+});
+chart.subscribeDrag((id, price) => lines.get(id)?.setPrice(price), () => { original = null; });
+chart.subscribeClick(id => {
+  if (!id?.endsWith('::close')) return;
+  const key = id.slice(0, -7);
+  const line = lines.get(key);
+  if (line) chart.removePrimitive(line);
+  lines.delete(key);
+});
 
 chart.timeScale.fitContent(bars.length);
 return chart;`} caption="Entry, stop-loss and target as segmented, draggable pill groups - solid badge, boxed qty, and an integrated x to cancel/exit." />
@@ -169,11 +192,35 @@ Wire chart drags to the engine. Modify on **release**, not on every pixel, so yo
 the broker:
 
 ```ts
+const draftPrices = new Map<string, number>();
+chart.on('drag:cancel', payload => {
+  const { id } = payload as { id: string };
+  if (!draftPrices.delete(id)) return;
+  restoreOrderPreview(id);
+});
 chart.subscribeDrag(
-  (id, price) => eng.requestModify(clientId(id), price),  // preview while dragging
-  (id, price) => eng.commitModify(clientId(id)),          // commit on release
+  (id, price) => {
+    const line = orderLines.get(id);
+    if (!line) return;
+    draftPrices.set(id, price);
+    line.setPrice(price);
+  },
+  (id) => {
+    const price = draftPrices.get(id);
+    draftPrices.delete(id);
+    if (price === undefined) return;
+    eng.requestModify(clientId(id), price);
+    void eng.commitModify(clientId(id));
+  },
 );
 ```
+
+`orderLines`, `clientId` and `restoreOrderPreview` belong to the host. The last
+restores the broker-confirmed level after cancellation. `requestModify` can
+send immediately and rate-limits subsequent requests; it is not a visual-preview
+API. `commitModify` flushes any queued patch. Call them only when the host has
+accepted the edit. The [drag lifecycle](/docs/events#primitive-drag-lifecycle)
+explains why cancellation must be handled before a legacy end callback.
 
 ## Interaction feedback (hover, drag, ghost)
 
@@ -198,9 +245,19 @@ The chart renders the interaction states itself (no app code needed):
 drive `PriceLine`s yourself via `chart.subscribeDrag`, set it explicitly:
 
 ```ts
+chart.on('drag:cancel', payload => {
+  const { id } = payload as { id: string };
+  const line = lines.get(id);
+  const original = dragFrom.get(id);
+  if (!line || original === undefined) return;
+  line.setPrice(original);
+  line.setDragGhost(null);
+  dragFrom.delete(id);
+});
 chart.subscribeDrag(
   (id, price) => {
     const line = lines.get(id);
+    if (!line) return;
     if (dragFrom.get(id) === undefined) {
       dragFrom.set(id, line.price);
       line.setDragGhost(line.price);   // show the pre-drag reference
@@ -208,7 +265,9 @@ chart.subscribeDrag(
     line.setPrice(price);
   },
   (id, price) => {
-    lines.get(id).setDragGhost(null);  // clear on release
+    const line = lines.get(id);
+    if (!line || !dragFrom.has(id)) return;
+    line.setDragGhost(null);  // clear on release
     dragFrom.delete(id);
     commitToBroker(id, price);
   },

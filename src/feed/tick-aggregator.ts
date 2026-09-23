@@ -21,6 +21,11 @@ export interface AggTick {
   time: number;
   price: number;
   qty: number;
+  /**
+   * Open interest as at this tick, where the feed carries it. Carried onto the
+   * bar as the latest reading rather than accumulated: see `Bar.oi`.
+   */
+  oi?: number;
 }
 
 export interface BarUpdate {
@@ -82,6 +87,7 @@ export class TickBarAggregator {
       // time-keyed at all, so bucketStartOf hands back the opening tick's time.
       const time = bucketStartOf(this._tf, tick.time, this._zone);
       this._cur = { time, open: tick.price, high: tick.price, low: tick.price, close: tick.price, volume: tick.qty };
+      if (tick.oi !== undefined && Number.isFinite(tick.oi)) this._cur.oi = tick.oi;
       this._count = 1;
       return { bar: { ...this._cur }, isNew: true };
     }
@@ -91,6 +97,8 @@ export class TickBarAggregator {
     if (tick.price < c.low) c.low = tick.price;
     c.close = tick.price;
     c.volume = (c.volume ?? 0) + tick.qty;
+    if (tick.oi !== undefined && Number.isFinite(tick.oi)) c.oi = tick.oi;
+    else delete c.oi;
     this._count += 1;
     return { bar: { ...c }, isNew: false };
   }

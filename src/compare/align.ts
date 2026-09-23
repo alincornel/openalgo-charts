@@ -61,9 +61,10 @@ export function alignToPrimary(
   const byTime = new Map<UTCSeconds, Bar>();
   for (const item of comparison) {
     const bar = toBar(item);
-    // A whitespace item in the comparison's own data is already a gap, and
-    // folding it in would make `matched` claim an overlap that draws nothing.
+    // A correction can retract a prior reading. Its gap wins without claiming
+    // overlap or counting a removed print as a dropped trade.
     if (isFinite(bar.close)) byTime.set(bar.time, bar);
+    else byTime.delete(bar.time);
   }
   const items: SeriesDataItem[] = [];
   let matched = 0;

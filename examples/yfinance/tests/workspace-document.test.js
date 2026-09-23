@@ -1,0 +1,135 @@
+import { describe, it, expect } from 'vitest';
+import { parseAlertsDocument } from '/dist/openalgo-charts.mjs';
+import { workspaceFromLayout, layoutFromWorkspace, validateReferenceWorkspace } from '../src/workspace-document.js';
+
+function state(symbol = 'AAPL') {
+  return { version: 1, timezone: 'America/New_York', viewport: { from: 4, to: 45 }, barSpacing: 7,
+    grid: { vertLines: false, horzLines: true }, crosshairSnapToBar: true,
+    indicators: [
+      { instanceId: 'fast', indicatorId: 'ema', settings: { period: 9, 'plot.ema.color': '#ff0000' }, paneIndex: 0, visible: true },
+      { instanceId: 'slow', indicatorId: 'ema', settings: { period: 21 }, paneIndex: 0, visible: false },
+      { instanceId: 'custom', indicatorId: 'host-study', settings: { length: 5 }, paneIndex: 2 },
+    ],
+    drawings: { version: 2, drawings: [{ id: 'level', tool: 'hline', points: [{ time: 1700000000, price: 101 }] }] },
+    alerts: parseAlertsDocument({ version: 1, alerts: [{ id: 'fired', source: { kind: 'drawing', drawingId: 'level' },
+      scope: { symbol, interval: '1d' }, state: 'triggered', repeat: 'once' }] }),
+  };
+}
+
+function layout() {
+  return { schema: 2, ...state(), dataset: 'AAPL|1d|1y',
+    request: { symbol: 'AAPL', interval: '1d', period: '1y', account: 'private' },
+    chartType: 't:point-figure', pfmode: 'percent', volume: false,
+    volumeSettings: { 'volume.visible': false, 'volume.showMA': true, 'volume.maPeriod': 14, 'volume.maColor': '#aabbcc' },
+    comparisons: [{ symbol: 'MSFT', color: '#abcdef', hidden: true }],
+    compareMode: 'indexed-to-100', compareBaseMode: 'logarithmic', focusPane: 2,
+    linkOptions: { crosshair: true, viewport: false, symbol: false, interval: true, whenMissing: 'hide' },
+    secondary: { request: { symbol: 'TSLA', interval: '15m', period: '1mo' }, chartType: 'line', pfmode: 'fixed', width: 35,
+      state: { ...state('TSLA'), timezone: 'Asia/Kolkata' },
+      volumeSettings: { 'volume.visible': true, 'volume.showMA': false },
+      comparisons: [{ symbol: 'GOOGL', color: '#123456', hidden: false }], compareMode: 'none', compareBaseMode: 'linear' },
+    orders: [{ id: 'private' }], positions: [{ symbol: 'AAPL' }], credentials: { key: 'private' },
+  };
+}
+
+describe('reference workspace documents', () => {
+  it('round-trips independent legend button sizes and defaults legacy layouts', () => {
+    const original = layout();
+    original.legendIconSize = 24;
+    original.secondary.legendIconSize = 12;
+    const saved = workspaceFromLayout(original);
+    expect(saved.panes.map(pane => pane.settings['reference.legendIconSize'])).toEqual([24, 12]);
+    expect(layoutFromWorkspace(saved)).toMatchObject({ legendIconSize: 24, secondary: { legendIconSize: 12 } });
+    expect(layoutFromWorkspace(workspaceFromLayout(layout())).legendIconSize).toBe(16);
+  });
+
+  it.each([11, 29, '24', null])('rejects invalid named workspace legend sizes (%s)', value => {
+    const saved = workspaceFromLayout(layout());
+    saved.panes[0].settings['reference.legendIconSize'] = value;
+    expect(() => validateReferenceWorkspace(saved)).toThrow();
+  });
+  it('round-trips both source selections, host settings, ownership and split geometry', () => {
+    const original = layout();
+    const document = workspaceFromLayout(original, { magnet: 'strong', stay: true });
+    expect(document.layout.columnWeights).toEqual([65, 35]);
+    expect(document.activePaneId).toBe(document.layout.slots[1].paneId);
+    const restored = layoutFromWorkspace(document);
+    expect(restored).toMatchObject({ request: { symbol: 'AAPL', interval: '1d', period: '1y' },
+      chartType: original.chartType, pfmode: 'percent', timezone: 'America/New_York',
+      compareMode: 'indexed-to-100', compareBaseMode: 'logarithmic', comparisons: original.comparisons,
+      focusPane: 2, linkOptions: original.linkOptions, volume: false, volumeSettings: original.volumeSettings,
+      magnet: 'strong', stay: true,
+      secondary: { ...original.secondary, volumeSettings: original.secondary.volumeSettings } });
+    expect(workspaceFromLayout(restored, { magnet: restored.magnet, stay: restored.stay })).toEqual(document);
+  });
+
+  it('preserves repeated/custom study identities, styles, grouping and triggered anchored alerts without sharing objects', () => {
+    const original = layout();
+    const saved = workspaceFromLayout(original);
+    const restored = layoutFromWorkspace(saved);
+    expect(restored.indicators).toEqual(original.indicators);
+    expect(restored.drawings).toEqual(original.drawings);
+    expect(restored.alerts).toEqual(original.alerts);
+    expect(restored.secondary.state.alerts.alerts[0]).toMatchObject({ state: 'triggered', repeat: 'once', source: { drawingId: 'level' } });
+    original.indicators[0].settings.period = 100;
+    restored.indicators[1].settings.period = 200;
+    expect(saved.panes[0].chart.indicators.map(item => item.settings.period)).toEqual([9, 21, undefined]);
+    expect(JSON.stringify(saved)).not.toMatch(/private|credentials|orders|positions|account/);
+  });
+
+  it('uses slots rather than pane-array order and rejects geometry the host cannot render', () => {
+    const saved = workspaceFromLayout(layout());
+    saved.panes.reverse(); saved.layout.slots.reverse();
+    expect(layoutFromWorkspace(saved)).toMatchObject({ request: { symbol: 'AAPL' }, secondary: { request: { symbol: 'TSLA' } }, focusPane: 2 });
+    saved.layout.rows = 2; saved.layout.columns = 1; delete saved.layout.columnWeights;
+    saved.layout.slots.forEach((slot, i) => { slot.row = i; slot.column = 0; });
+    expect(() => layoutFromWorkspace(saved)).toThrow(/horizontal|geometry/i);
+  });
+
+  it('supports one chart and legacy dataset recovery without inventing a missing source', () => {
+    const source = layout(); delete source.secondary; delete source.request; delete source.chartType; delete source.pfmode;
+    const saved = workspaceFromLayout(source);
+    expect(saved.panes).toHaveLength(1);
+    expect(saved.panes[0]).toMatchObject({ symbol: 'AAPL', chartType: 'candlestick', historyPeriod: '1y' });
+    expect(layoutFromWorkspace(saved)).toMatchObject({ focusPane: 1, request: { symbol: 'AAPL', interval: '1d', period: '1y' } });
+    expect(layoutFromWorkspace(saved).secondary).toBeUndefined();
+    expect(() => workspaceFromLayout({ ...source, dataset: 'A|B|1d|1y' })).toThrow(/source|request/i);
+  });
+
+  it('keeps legacy volume visibility when a partial settings object does not repeat it', () => {
+    const source = layout(); delete source.volumeSettings['volume.visible'];
+    expect(workspaceFromLayout(source).panes[0].volume).toBe(false);
+  });
+
+  it.each([18.01, 33.333333333333, 42.857142857142854, 77.99])('keeps fractional split widths stable across repeated saves (%s)', width => {
+    const source = layout(); source.secondary.width = width;
+    const saved = workspaceFromLayout(source);
+    expect(workspaceFromLayout(layoutFromWorkspace(saved))).toEqual(saved);
+  });
+
+  it.each([
+    pane => { pane.interval = '2m'; },
+    pane => { pane.historyPeriod = '2y'; },
+    pane => { pane.historyPeriod = '1y'; pane.interval = '5m'; },
+    pane => { pane.chartType = 'unavailable'; },
+    pane => { pane.chart.timezone = 'Unknown/Zone'; },
+    pane => { pane.exchange = 'unsupported-exchange'; },
+    pane => { pane.comparisons[0].exchange = 'unsupported-exchange'; },
+    pane => { pane.settings['reference.pfmode'] = 'unknown'; },
+    pane => { pane.settings['reference.compareMode'] = 'unknown'; },
+    pane => { pane.settings['reference.futureOption'] = true; },
+    pane => { pane.settings['volume.maPeriod'] = 0; },
+  ])('rejects unsupported source or host settings before restoration', change => {
+    const saved = workspaceFromLayout(layout()); change(saved.panes[0]);
+    expect(() => validateReferenceWorkspace(saved)).toThrow();
+  });
+
+  it('rejects layouts whose shared drawing rail or comparison sources cannot be represented honestly', () => {
+    const saved = workspaceFromLayout(layout());
+    saved.panes[1].magnet = 'weak';
+    expect(() => validateReferenceWorkspace(saved)).toThrow(/shared.*rail/i);
+    saved.panes[1].magnet = saved.panes[0].magnet;
+    saved.panes[0].comparisons.push({ ...saved.panes[0].comparisons[0], id: 'duplicate', symbol: 'msft' });
+    expect(() => validateReferenceWorkspace(saved)).toThrow(/duplicate.*comparison/i);
+  });
+});

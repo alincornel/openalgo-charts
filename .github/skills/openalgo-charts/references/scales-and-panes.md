@@ -124,17 +124,23 @@ keep in sync.
 
 Per frame, for each active scale on a pane: skip if `autoScale` is false; scan only visible bars of series matching that scale id and not `visible: false`; take `min`/`max` from the chart type's `extents(bar, style)`. **Only the `'right'` scale also folds in primitive `autoscaleInfo()`**: a `PriceLine` widens the right axis but never the left or overlay one.
 
-## The three scale ids
+## Price scale ids
 
-`PriceScaleId` is `'right' | 'left' | ''`.
+`PriceScaleId` accepts `'right'`, `'left'`, `''` and names beginning with `overlay:`.
 
 | Id | Axis drawn | Autoscales | Typical use |
 |---|---|---|---|
 | `'right'` | Right strip | Independently | Default for every series. |
 | `'left'` | Left strip | Independently | A second instrument or spread at a different magnitude. |
 | `''` | None (hidden) | Independently | Volume pinned inside the price pane. |
+| `'overlay:name'` | None (hidden) | Independently per name | Multiple comparison instruments without sharing price units. |
 
 A pane creates the left and overlay scales lazily, on the first `addSeries` that names them (`Pane._scaleFor`). When any pane has a live left scale, the chart reserves a chart-wide left column of `priceAxisWidth` px and shifts every plot right by it.
+
+Series using the same named overlay on the same pane share its scale. Named
+overlays add no axis column and are released when their last series is removed.
+They participate in `pane.scales()` and scale options with scope `'all'`, while
+`pane.axisScales()` excludes them. Existing empty-overlay behaviour is unchanged.
 
 ```ts
 const vol = chart.addSeries('histogram', {

@@ -9,17 +9,16 @@
  *
  * Three decisions carry the design:
  *
- * 1. **The comparison never touches the primary's axis.** It goes on the pane's
- *    hidden overlay scale (`priceScaleId: ''`, see `Pane._scaleFor`), which
- *    autoscales on its own and draws no ticks, so a 46,000 instrument next to a
- *    22,000 one cannot compress the primary's candles or relabel its ladder.
+ * 1. **Each comparison owns a scale.** A free legacy overlay or left scale
+ *    preserves the first source's placement; additional sources use named
+ *    hidden scales so their different price units cannot affect one another.
  *
  * 2. **Comparability comes from the scale, not from the data.** The bars handed
  *    over are stored as the instrument's own prices, so the legend, the
  *    crosshair and any live update still speak in real prices. What makes the
  *    lines readable together is the pane mode: `percentage` and
- *    `indexed-to-100` give every scale its own baseline (the first *visible*
- *    bar, so panning re-bases), and `_mirror` then gives the overlay the same
+ *    `indexed-to-100` give every scale its own baseline (its first visible
+ *    close, or an explicit common timestamp), and `_mirror` gives it the same
  *    band of percent the primary's axis is showing. Without that mirror each
  *    scale would autoscale to its own data and a 1% mover would look exactly
  *    like a 10% mover, both filling the pane.
@@ -27,18 +26,16 @@
  * 3. **Alignment is by timestamp** and lives in `./align`, which documents what
  *    happens in each direction of mismatch.
  *
- * Known limit: a pane has exactly *one* hidden overlay scale, so every
- * comparison on a pane shares one baseline. That is exactly right for one
- * comparison, which is the common case, and it is why a second comparison in
- * the same pane is quoted against the first instrument's price. Keyed overlay
- * scales in `Pane` are the fix; until then, put further instruments on their
- * own pane with `paneIndex`.
+ * Each comparison owns a scale and baseline. Further instruments use keyed
+ * hidden scales so their absolute prices cannot change another source's units.
  */
-import type { PriceScale, PriceScaleMode } from '../scale/price-scale';
+import { autoscaleRange, type PriceScale, type PriceScaleMode } from '../scale/price-scale';
 import type { PriceScaleId, SeriesApi } from '../model/series';
-import type { SeriesType } from '../model/chart-type-registry';
+import { getChartType, type SeriesType } from '../model/chart-type-registry';
 import type { SeriesStyle } from '../render/series-style';
 import type { Bar, SeriesDataItem } from '../model/bar';
+import { toBar } from '../model/bar';
+import { observeReplayWindow, replayWindow } from '../model/replay-window';
 import type { IPrimitive } from '../primitives/primitive';
 import type { AddSeriesOptions } from '../core/chart';
 import { alignToPrimary, EMPTY_ALIGNMENT, type ComparisonAlignment } from './align';
@@ -49,6 +46,8 @@ import { alignToPrimary, EMPTY_ALIGNMENT, type ComparisonAlignment } from './ali
  * pane's own mode alone, for a host that wants the raw overlay.
  */
 export type ComparisonMode = 'percentage' | 'indexed-to-100' | 'none';
+/** Independent first-visible closes, or the first visible timestamp shared by all visible sources. */
+export type ComparisonBaseline = 'first-visible' | 'common';
 
 export interface ComparisonOptions {
   /** Instrument label, e.g. 'BANKNIFTY'. Carried on the handle for the host's UI. */
@@ -68,6 +67,8 @@ export interface ComparisonOptions {
 export interface ComparisonControllerOptions {
   /** Pane mode applied while any comparison is on it. Default 'percentage'. */
   mode?: ComparisonMode;
+  /** Baseline policy. Default 'first-visible' preserves existing integrations. */
+  baseline?: ComparisonBaseline;
 }
 
 /** What `addComparison` hands back: one instrument on the chart. */
@@ -84,6 +85,8 @@ export interface ComparisonHandle {
   priceScale(): PriceScale;
   /** How the last alignment against the primary's bars went. */
   alignment(): ComparisonAlignment;
+  /** Eligible aligned bar in its own price units; null for gaps, suppressed baselines or forming replay candles. */
+  barAt(time: number): Readonly<Bar> | null;
   /** Replace the instrument's bars (a longer history, a refreshed fetch). */
   setBars(bars: readonly SeriesDataItem[]): void;
   /** Take this instrument off the chart. Safe to call twice. */
@@ -99,7 +102,7 @@ export interface ComparisonHandle {
  */
 export interface ComparisonPane {
   readonly priceScale: PriceScale;
-  series(): readonly { readonly scaleId: string }[];
+  series(): readonly { readonly scaleId: string; readonly style?: SeriesStyle }[];
 }
 
 /**
@@ -112,19 +115,20 @@ export interface ComparisonChartHost {
   addPrimitive(primitive: IPrimitive, paneIndex?: number): void;
   removePrimitive(primitive: IPrimitive): void;
   primarySeries(): SeriesApi | null;
-  /** Only `length` is read: it changes exactly when the shared time axis does. */
-  readonly dataLayer: { readonly length: number };
+  /** Avoids allocating a primary history copy when the host provides it. */
+  primaryBars?(): readonly Bar[];
+  getVisibleLogicalRange?(): { from: number; to: number };
+  on?(event: string, callback: (payload: unknown) => void): () => void;
+  /** The shared logical axis locates visible primary bars even when another series adds times. */
+  readonly dataLayer: { readonly length: number; indexToTime?(index: number): number | undefined };
 }
 
-/** Per-pane state: the scale the comparisons share and the mode we swapped in. */
+/** The primary mode is shared by a pane and restored after its last comparison. */
 interface PaneEntry {
   readonly paneIndex: number;
-  readonly scaleId: PriceScaleId;
-  readonly scale: PriceScale;
-  /** The pane's own price axis. Read to mirror it, never written. */
+  /** The pane's own price axis; its mode is temporarily rebased. */
   readonly primary: PriceScale;
   readonly savedPrimaryMode: PriceScaleMode;
-  readonly savedScaleMode: PriceScaleMode;
   /** The mode we put in force, or null if we left the pane alone. */
   applied: PriceScaleMode | null;
   readonly sync: IPrimitive;
@@ -134,7 +138,17 @@ interface PaneEntry {
 interface ItemState {
   readonly series: SeriesApi;
   readonly entry: PaneEntry;
+  readonly scale: PriceScale;
+  readonly savedScaleMode: PriceScaleMode;
+  readonly savedInverted: boolean;
+  appliedInverted: boolean | null;
+  readonly scaleId: PriceScaleId;
+  readonly type: SeriesType;
+  readonly style: SeriesStyle;
   bars: readonly SeriesDataItem[];
+  items: SeriesDataItem[];
+  values: Map<number, Bar>;
+  suppressed: boolean;
   alignment: ComparisonAlignment;
   removed: boolean;
 }
@@ -142,27 +156,39 @@ interface ItemState {
 export class ComparisonController {
   private readonly _chart: ComparisonChartHost;
   private _mode: ComparisonMode;
+  private _baseline: ComparisonBaseline;
   private readonly _panes = new Map<number, PaneEntry>();
   /** Insertion-ordered, and the handle is the key so `remove` is a lookup. */
   private readonly _items = new Map<ComparisonHandle, ItemState>();
-  /**
-   * `dataLayer.length` as of the last alignment. Alignment depends only on the
-   * primary's set of *times*, and that set is what the length counts, so this
-   * is an O(1) staleness check for a per-frame hook (see `sync`).
-   */
+  /** Axis length plus primary identity and boundaries avoid scanning history each frame. */
   private _alignedAt = -1;
   /** Guards `realign` against re-entry through its own `setData` repaint. */
   private _realigning = false;
+  private _nextScale = 0;
+  private _syncing = false;
+  private _alignedPrimary: readonly Bar[] | null = null;
+  private _primaryLength = -1;
+  private _primaryFirst: number | undefined;
+  private _primaryLast: number | undefined;
+  private readonly _off: (() => void)[] = [];
+  private _destroyed = false;
 
   public constructor(chart: ComparisonChartHost, options: ComparisonControllerOptions = {}) {
     this._chart = chart;
     this._mode = options.mode ?? 'percentage';
+    this._baseline = options.baseline ?? 'first-visible';
+    this._off.push(observeReplayWindow(chart, () => this.realign()));
+    if (chart.on) {
+      this._off.push(chart.on('data:update', () => { if (this._needsAlignment()) this.realign(); }));
+      this._off.push(chart.on('destroy', () => this._dispose()));
+    }
   }
 
   // ── public API ──────────────────────────────────────────────────────────
 
   /** Put an instrument on the chart alongside the primary series. */
   public add(options: ComparisonOptions): ComparisonHandle {
+    if (this._destroyed) throw new Error('openalgo-charts: comparison controller is destroyed');
     if (this._chart.primarySeries() === null) {
       throw new Error('openalgo-charts: a comparison needs a primary series to align against');
     }
@@ -170,30 +196,39 @@ export class ComparisonController {
     const style: SeriesStyle = { ...options.style };
     if (style.color === undefined && options.color !== undefined) style.color = options.color;
     const existing = this._panes.get(paneIndex);
-    const scaleId = existing?.scaleId ?? this._scaleIdFor(paneIndex);
+    const scaleId = this._scaleIdFor(paneIndex);
     const series = this._chart.addSeries(options.type ?? 'line', { paneIndex, style, priceScaleId: scaleId });
-    const entry = existing ?? this._openPane(paneIndex, scaleId, series.priceScale());
+    const entry = existing ?? this._openPane(paneIndex);
     entry.count++;
 
     const state: ItemState = {
-      series, entry, bars: options.bars, alignment: EMPTY_ALIGNMENT, removed: false,
+      series, entry, scale: series.priceScale(), savedScaleMode: series.priceScale().options.mode,
+      savedInverted: series.priceScale().options.inverted, appliedInverted: null,
+      scaleId, type: options.type ?? 'line', style, items: [], values: new Map(), suppressed: false,
+      bars: options.bars, alignment: EMPTY_ALIGNMENT, removed: false,
     };
+    if (this._mode !== 'none') state.scale.setOptions({ mode: this._mode });
     const handle: ComparisonHandle = {
       symbol: options.symbol,
       series,
       paneIndex,
-      priceScale: () => entry.scale,
+      priceScale: () => state.scale,
       alignment: () => state.alignment,
+      barAt: (time): Readonly<Bar> | null => {
+        const bar = state.values.get(time);
+        return !state.removed && !state.suppressed && bar && Number.isFinite(bar.close) ? bar : null;
+      },
       setBars: (bars: readonly SeriesDataItem[]): void => {
+        if (state.removed) return;
         state.bars = bars;
-        if (!state.removed) this._align(state, this._primaryBars());
+        this._align(state, this._primaryBars());
       },
       remove: (): void => { this.remove(handle); },
       list: () => this.list(),
     };
     this._items.set(handle, state);
     this._align(state, this._primaryBars());
-    this._alignedAt = this._chart.dataLayer.length;
+    this._rememberAlignment();
     return handle;
   }
 
@@ -201,6 +236,7 @@ export class ComparisonController {
   public remove(handle: ComparisonHandle): boolean {
     const state = this._items.get(handle);
     if (state === undefined || state.removed) return false;
+    this._restoreScale(state);
     state.removed = true;
     this._items.delete(handle);
     // The pane is put back first, then the series goes: dropping the series
@@ -229,10 +265,14 @@ export class ComparisonController {
   public setMode(mode: ComparisonMode): void {
     if (mode === this._mode) return;
     this._mode = mode;
-    for (const entry of this._panes.values()) {
-      this._restoreMode(entry);
-      this._applyMode(entry);
-    }
+    this._syncing = true;
+    try {
+      for (const entry of this._panes.values()) {
+        this._restoreMode(entry);
+        this._applyMode(entry);
+      }
+      for (const state of this._items.values()) this._setSuppressed(state, false);
+    } finally { this._syncing = false; }
     this._repaint();
   }
 
@@ -240,22 +280,42 @@ export class ComparisonController {
     return this._mode;
   }
 
+  /** Select a shared timestamp without changing the instruments' stored price units. */
+  public setBaseline(baseline: ComparisonBaseline): void {
+    if (baseline === this._baseline) return;
+    this._baseline = baseline;
+    this._syncing = true;
+    try {
+      for (const state of this._items.values()) this._setSuppressed(state, false);
+    } finally { this._syncing = false; }
+    this._repaint();
+  }
+
+  public get baseline(): ComparisonBaseline { return this._baseline; }
+
+  /** Shared baseline timestamp, or null for no overlap, no visible sources, or independent baselines. */
+  public baselineTime(paneIndex = 0): number | null {
+    const entry = this._panes.get(paneIndex);
+    return this._baseline === 'common' && this._mode !== 'none' && entry && entry.primary.options.mode === entry.applied
+      ? this._commonAnchor(entry, this._visiblePrimary())?.time ?? null : null;
+  }
+
   /**
-   * Re-project every instrument onto the primary's current bars. Called for
-   * free when the shared time axis changes (see `sync`); a host only needs it
-   * after replacing the primary's data with a *different* set of the same
-   * length, which the length check cannot see.
+   * Re-project onto the primary's current bars. Chart handles data replacement
+   * and replay automatically. A structural host without data events or primary
+   * history identity can call this after replacing its timestamps.
    */
   public realign(): void {
-    if (this._realigning) return;
+    if (this._realigning || this._destroyed || !this._items.size) return;
     this._realigning = true;
-    const bars = this._primaryBars();
-    for (const state of this._items.values()) this._align(state, bars);
-    // After the writes, not before: a comparison losing bars the primary no
-    // longer has shortens the axis, and the length we want recorded is the one
-    // the next frame will read.
-    this._alignedAt = this._chart.dataLayer.length;
-    this._realigning = false;
+    const syncing = this._syncing;
+    this._syncing = true;
+    try {
+      const bars = this._primaryBars();
+      for (const state of this._items.values()) this._align(state, bars);
+      this._rememberAlignment();
+    } finally { this._realigning = false; this._syncing = syncing; }
+    if (!syncing) this._repaint();
   }
 
   /**
@@ -271,42 +331,74 @@ export class ComparisonController {
    * which is what `realign`'s guard is for.
    */
   public sync(): void {
-    if (this._chart.dataLayer.length !== this._alignedAt) this.realign();
-    for (const entry of this._panes.values()) this._mirror(entry);
+    if (this._syncing) return;
+    this._syncing = true;
+    try {
+      if (this._needsAlignment()) this.realign();
+      for (const entry of this._panes.values()) this._mirror(entry);
+    } finally { this._syncing = false; }
   }
 
   /** Remove every comparison and forget the chart. */
   public destroy(): void {
+    if (this._destroyed) return;
     this.clear();
+    this._dispose();
+  }
+
+  private _dispose(): void {
+    if (this._destroyed) return;
+    this._destroyed = true;
+    for (const off of this._off.splice(0)) off();
+    for (const state of this._items.values()) {
+      state.removed = true; state.bars = []; state.items = []; state.values.clear();
+    }
+    this._items.clear(); this._panes.clear(); this._alignedPrimary = null;
     controllers.delete(this._chart);
+  }
+
+  private _needsAlignment(): boolean {
+    if (this._destroyed || !this._items.size) return false;
+    const primary = this._chart.primaryBars?.();
+    return this._chart.dataLayer.length !== this._alignedAt || Boolean(primary && (
+      primary !== this._alignedPrimary || primary.length !== this._primaryLength
+      || primary[0]?.time !== this._primaryFirst || primary[primary.length - 1]?.time !== this._primaryLast
+    ));
+  }
+
+  private _rememberAlignment(): void {
+    this._alignedAt = this._chart.dataLayer.length;
+    this._alignedPrimary = this._chart.primaryBars?.() ?? null;
+    this._primaryLength = this._alignedPrimary?.length ?? -1;
+    this._primaryFirst = this._alignedPrimary?.[0]?.time;
+    this._primaryLast = this._alignedPrimary?.[this._primaryLength - 1]?.time;
   }
 
   // ── plumbing ────────────────────────────────────────────────────────────
 
   /**
-   * Where a comparison can sit on a pane. The hidden overlay is the right
-   * answer, but there is only one of it per pane and the volume histogram in
-   * the price pane is usually already on it (that is what `priceScaleId: ''`
-   * is best known for). Sharing it would autoscale price and volume together
-   * and flatten both, so when it is taken the comparison goes to the left axis
-   * instead: a visible second ladder is a far smaller surprise than an
-   * invisible line at the bottom of the pane.
+   * Preserve the first comparison's legacy placement when the scale is free.
+   * Additional comparisons need their own baselines, and an occupied volume
+   * or left scale must keep its source and units.
    */
   private _scaleIdFor(paneIndex: number): PriceScaleId {
     const pane = this._chart.panes()[paneIndex];
-    if (pane === undefined) return '';
-    return pane.series().some((s) => s.scaleId === '') ? 'left' : '';
+    const used = (id: string): boolean => pane?.series().some(s => s.scaleId === id) ?? false;
+    if (!this._panes.has(paneIndex)) {
+      if (!used('')) return '';
+      if (!used('left')) return 'left';
+    }
+    let id: PriceScaleId;
+    do { id = `overlay:comparison-${++this._nextScale}`; } while (used(id));
+    return id;
   }
 
-  private _openPane(paneIndex: number, scaleId: PriceScaleId, scale: PriceScale): PaneEntry {
+  private _openPane(paneIndex: number): PaneEntry {
     const primary = this._chart.panes()[paneIndex].priceScale;
     const entry: PaneEntry = {
       paneIndex,
-      scaleId,
-      scale,
       primary,
       savedPrimaryMode: primary.options.mode,
-      savedScaleMode: scale.options.mode,
       applied: null,
       // A primitive that paints nothing, used purely as a frame hook.
       // `afterAutoscale` runs once every scale on the pane has been measured and
@@ -338,17 +430,31 @@ export class ComparisonController {
     // under an axis that no longer does. `chart.setPriceScaleOptions` leaves
     // overlays out of a mode change for the opposite (and correct) reason: it
     // cannot tell a comparison from a volume histogram.
-    entry.scale.setOptions({ mode: this._mode });
+    for (const state of this._items.values()) {
+      if (state.entry === entry) state.scale.setOptions({ mode: this._mode });
+    }
+  }
+
+  private _restoreScale(state: ItemState): void {
+    if (state.entry.applied !== null && state.scale.options.mode === state.entry.applied) {
+      state.scale.setOptions({ mode: state.savedScaleMode });
+    }
+    if (state.appliedInverted !== null && state.scale.options.inverted === state.appliedInverted) {
+      state.scale.setOptions({ inverted: state.savedInverted });
+    }
+    state.appliedInverted = null;
   }
 
   private _restoreMode(entry: PaneEntry): void {
     const applied = entry.applied;
     if (applied === null) return;
+    for (const state of this._items.values()) {
+      if (state.entry === entry) this._restoreScale(state);
+    }
     entry.applied = null;
     // Only put back what is still ours: a user who switched the pane to log
     // while comparing keeps their choice instead of having it silently undone.
     if (entry.primary.options.mode === applied) entry.primary.setOptions({ mode: entry.savedPrimaryMode });
-    if (entry.scale.options.mode === applied) entry.scale.setOptions({ mode: entry.savedScaleMode });
   }
 
   /**
@@ -356,8 +462,8 @@ export class ComparisonController {
    * equal moves land on equal pixels and the divergence between two
    * instruments is the thing you see.
    *
-   * Both scales rebase against a baseline of their own (the first visible bar
-   * on each), and a rebase maps price to the ratio `price / baseline`. So the
+   * Each scale has its own price baseline, and rebasing maps price to the
+   * ratio `price / baseline`. So the
    * two scales agree exactly when their ranges hold the same ratios, which is
    * one multiplication: the primary's range times `baseline_overlay /
    * baseline_primary`. It holds for `indexed-to-100` and `percentage` alike,
@@ -379,22 +485,117 @@ export class ComparisonController {
     // to be the same thing only by accident, and a baseline that outlived its
     // mode kept this mirroring a percentage ladder the user had switched off.
     if (entry.applied === null) return;
+    const states = Array.from(this._items.values()).filter(state => state.entry === entry);
+    if (entry.primary.options.mode !== entry.applied) {
+      for (const state of states) this._setSuppressed(state, false);
+      return;
+    }
+    if (this._baseline === 'common' && entry.primary.options.mode === entry.applied) {
+      const bars = this._visiblePrimary();
+      const anchor = this._commonAnchor(entry, bars);
+      for (const state of states) {
+        const value = anchor && state.values.get(anchor.time)?.close;
+        this._setSuppressed(state, !value || !Number.isFinite(value) || value <= 0);
+      }
+      if (anchor === null) return;
+      entry.primary.setBaseline(anchor.close);
+      const range = entry.primary.priceRange();
+      for (const state of states) {
+        const value = state.values.get(anchor.time)?.close;
+        state.scale.setBaseline(value && value > 0 ? value : null);
+        if (!entry.primary.autoScale || !value || value <= 0 || !this._visible(state)) continue;
+        // Fit relative moves, not absolute prices. Manual primary ranges stay owned by the user.
+        const renderer = getChartType(state.type);
+        const style = this._record(state)?.style ?? state.style;
+        let low = Infinity, high = -Infinity;
+        for (const bar of bars) {
+          const own = state.values.get(bar.time);
+          if (!own) continue;
+          const extents = renderer.extents(own, style);
+          if (!Number.isFinite(extents.min) || !Number.isFinite(extents.max)) continue;
+          low = Math.min(low, extents.min); high = Math.max(high, extents.max);
+        }
+        if (!(low <= high)) continue;
+        const fitted = autoscaleRange(low, high, entry.primary.options.marginTop, entry.primary.options.marginBottom);
+        const factor = anchor.close / value;
+        range.min = Math.min(range.min, fitted.min * factor);
+        range.max = Math.max(range.max, fitted.max * factor);
+      }
+      if (entry.primary.autoScale) entry.primary.setPriceRange(range);
+    }
     const bp = entry.primary.baseline;
-    const bc = entry.scale.baseline;
-    if (bp === null || bc === null || !entry.primary.scaled) return;
-    const k = bc / bp;
+    if (bp === null || !Number.isFinite(bp) || bp <= 0 || !entry.primary.scaled) return;
     const range = entry.primary.priceRange();
-    entry.scale.setPriceRange({ min: range.min * k, max: range.max * k });
+    for (const state of this._items.values()) {
+      if (state.entry !== entry) continue;
+      const bc = state.scale.baseline;
+      if (bc === null || !Number.isFinite(bc) || bc <= 0) continue;
+      const k = bc / bp;
+      state.appliedInverted = entry.primary.options.inverted;
+      state.scale.setOptions({ inverted: state.appliedInverted });
+      state.scale.setPriceRange({ min: range.min * k, max: range.max * k });
+    }
   }
 
   private _primaryBars(): readonly Bar[] {
-    return this._chart.primarySeries()?.getData() ?? [];
+    return this._chart.primaryBars?.() ?? this._chart.primarySeries()?.getData() ?? [];
+  }
+
+  private _record(state: ItemState): ReturnType<ComparisonPane['series']>[number] | undefined {
+    return this._chart.panes()[state.entry.paneIndex]?.series().find(record => record.scaleId === state.scaleId);
+  }
+
+  private _visible(state: ItemState): boolean { return this._record(state)?.style?.visible !== false; }
+
+  private _visiblePrimary(): readonly Bar[] {
+    const bars = this._primaryBars();
+    const range = this._chart.getVisibleLogicalRange?.();
+    if (!range) return bars;
+    const lo = Math.max(0, Math.floor(range.from));
+    const hi = Math.min(this._chart.dataLayer.length - 1, Math.ceil(range.to));
+    if (lo > hi) return [];
+    const from = this._chart.dataLayer.indexToTime?.(lo) ?? bars[lo]?.time;
+    const to = this._chart.dataLayer.indexToTime?.(hi) ?? bars[hi]?.time;
+    if (from === undefined || to === undefined) return [];
+    let left = 0, right = bars.length;
+    while (left < right) {
+      const mid = (left + right) >>> 1;
+      if (bars[mid].time < from) left = mid + 1;
+      else right = mid;
+    }
+    let end = left;
+    while (end < bars.length && bars[end].time <= to) end++;
+    return bars.slice(left, end);
+  }
+
+  private _commonAnchor(entry: PaneEntry, bars: readonly Bar[]): Bar | null {
+    const active = Array.from(this._items.values()).filter(state => state.entry === entry && this._visible(state));
+    if (!active.length) return null;
+    return bars.find(bar => Number.isFinite(bar.close) && bar.close > 0 && active.every(state => {
+      const value = state.values.get(bar.time)?.close;
+      return value !== undefined && Number.isFinite(value) && value > 0;
+    })) ?? null;
+  }
+
+  private _setSuppressed(state: ItemState, suppressed: boolean): void {
+    if (suppressed === state.suppressed) return;
+    state.suppressed = suppressed;
+    this._write(state);
+  }
+
+  private _write(state: ItemState): void {
+    state.series.setData(state.suppressed ? state.items.map(item => ({ time: item.time })) : state.items);
   }
 
   private _align(state: ItemState, primary: readonly Bar[]): void {
-    const result = alignToPrimary(primary, state.bars);
+    const window = replayWindow(this._chart);
+    const shown = window ? primary.filter(bar => bar.time <= window.time) : primary;
+    const source = window?.forming ? state.bars.filter(bar => bar.time !== window.time) : state.bars;
+    const result = alignToPrimary(shown, source);
     state.alignment = result.alignment;
-    state.series.setData(result.items);
+    state.items = result.items;
+    state.values = new Map(result.items.map(item => { const bar = toBar(item); return [bar.time, bar]; }));
+    this._write(state);
   }
 
   /**
@@ -412,6 +613,11 @@ export class ComparisonController {
 
 /** One controller per chart, so `addComparison` can be called as a free function. */
 const controllers = new WeakMap<ComparisonChartHost, ComparisonController>();
+
+/** Exporting data must not create a controller or subscribe to chart events. */
+export function existingComparisonHandles(chart: ComparisonChartHost): readonly ComparisonHandle[] {
+  return controllers.get(chart)?.list() ?? [];
+}
 
 /**
  * The controller for a chart, created on first use. Use it to change the mode

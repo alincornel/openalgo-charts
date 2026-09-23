@@ -1171,6 +1171,7 @@ export class BarCache implements DataFeed {
     if (!Number.isInteger(bar.time)) return false;
     if (![bar.open, bar.high, bar.low, bar.close].every(Number.isFinite)) return false;
     if (bar.volume !== undefined && !Number.isFinite(bar.volume)) return false;
+    if (bar.oi !== undefined && !Number.isFinite(bar.oi)) return false;
     return bar.color === undefined || typeof bar.color === 'string';
   }
 

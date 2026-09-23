@@ -54,6 +54,8 @@ export interface PrimitiveHit {
    * declares it here, and the drag callbacks receive time as well as price.
    */
   draggable?: boolean;
+  /** Opt into Escape cancellation without a release. Listen for `drag:cancel` to discard the preview. */
+  cancelOnEscape?: boolean;
 }
 
 /** Injected when a primitive is attached; lets it request a repaint. */

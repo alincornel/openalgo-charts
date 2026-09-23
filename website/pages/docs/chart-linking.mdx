@@ -64,17 +64,16 @@ missing get opposite answers. `whenMissing` chooses between them for the crossha
 | Where the leader's instant falls | `nearest` (default) | `hide` |
 |---|---|---|
 | Exactly on one of the follower's bars | that bar | that bar |
-| Inside the follower's history, between two of its bars | the closest bar **in time** | nothing |
+| Inside the follower's history, between two of its bars | the last bar whose opening is at or before that instant | nothing |
 | Before the follower's first bar, or after its last | nothing | nothing |
 
 The two rows below the first are different situations, not degrees of the same one:
 
 - **Inside the range with no bar** is a missing bar: the sessions either side of it are real
-  and the hole is a holiday, a halt, or a coarser interval. Snapping to the nearest bar in
-  time reads as "this one lines up"; a line floating between two candles reads as belonging
-  to neither. Nearest is measured in **time**, not in index, because the bars either side of
-  a gap can be hours or days apart. Choose `hide` when a linked crosshair in your workspace
-  is a data claim that must not be approximated.
+  and the hole is a holiday, a halt, or a coarser interval. Despite the option's
+  name, `nearest` selects the previous opening, never a future candle that is
+  arithmetically closer. A Saturday instant between Friday and Monday maps to
+  Friday. Choose `hide` when only an exact timestamp match is acceptable.
 - **Outside the coverage** is an absence: the follower does not cover that period at all.
   Both policies refuse it, because pinning the crosshair to the first or last bar would
   assert an alignment that does not exist.
@@ -152,7 +151,7 @@ const destroy = left.destroy.bind(left);
 left.destroy = function () { group.destroy(); right.destroy(); destroy(); };
 return left;`} caption="The readout over the daily chart is group.crosshairIndex(right): its own bar number, resolved from the hourly chart's instant." />
 
-## The three channels
+## The four channels
 
 Each channel is switchable on its own, because a user routinely wants one without the
 others: mirror the cursor across four timeframes but keep each zoom, or slave every chart's
@@ -163,6 +162,7 @@ symbol while each keeps its own window.
 | `crosshair` | on | one instant | the member's `crosshair:move` event |
 | `viewport` | on | a wall-clock window | the member's `pan` and `zoom` events |
 | `symbol` | off | an instrument name | the member's `symbol` event, or `setSymbol` |
+| `interval` | off | an interval token | the member's `interval` event, or `setInterval` |
 
 ### The linked crosshair
 
@@ -181,6 +181,13 @@ Two deliberate differences from the native crosshair:
 - **It draws at reduced opacity** (`LINK_CROSSHAIR_ALPHA`, 0.55) in the follower's own
   crosshair colour, so it reads as a reflection of a cursor somewhere else rather than as a
   second cursor in this chart.
+
+On `Chart`, the linked selection also reaches `subscribeCrosshairMove` with
+`source: 'linked'`, the follower's own bar, and null pointer coordinates. It does
+not emit a synthetic `crosshair:move` bus event. Native pointer hover takes
+precedence, and clearing or disabling the link restores the latest-bar readout.
+Use the subscriber for host OHLC legends; retain the selected timestamp through
+live updates and history prepends rather than replacing it with the latest raw bar.
 
 ### Viewport
 
@@ -214,9 +221,9 @@ so the mapped span collapses and the group leaves that chart alone rather than g
 
 ### Symbol
 
-**The engine has no notion of a symbol**, and inventing one inside a link group would put an
-instrument concept in a charting engine that deliberately does not have one. So the host
-participates at both ends:
+The host owns symbol selection and loading. `chart.setDataContext(...)` declares
+the identity used by studies and alerts, while the link group relays a host's
+selection. A symbol event does not fetch data or change that context by itself:
 
 ```ts
 const group = createLinkGroup({ symbol: true });
@@ -251,6 +258,34 @@ every linked line at once. `viewport` has no equivalent: nothing in the group sa
 window the others should have adopted, so it takes effect on the next pan or zoom.
 </Callout>
 
+### Interval
+
+Timeframe linking is opt-in and uses the same host boundary as symbols:
+
+```ts
+const group = createLinkGroup({ interval: true });
+group.add(chartA, {
+  interval: '5m',
+  onInterval: (interval, member) => {
+    if (!supportedIntervals.has(interval)) return false;
+    loadInterval(member, interval);
+    return true;
+  },
+});
+group.add(chartB, { interval: '5m', onInterval: applyIntervalToSecondChart });
+
+group.setInterval(chartA, '1h');
+// Equivalent host event: chartA.emit('interval', '1h').
+group.interval(); // the group's current token, or null
+```
+
+`onInterval` accepts or refuses the token synchronously; return `false` for an
+unsupported interval. Start asynchronous loading inside the host callback and
+discard obsolete responses when selection changes again. A member without the
+callback can broadcast its own interval but does not follow others. Enabling
+the channel converges members on the current token. The group does not persist
+its settings; [workspaces](/docs/workspaces) can carry that host state.
+
 ## API
 
 ### `createLinkGroup(options?)` and `LinkGroup`
@@ -265,6 +300,8 @@ window the others should have adopted, so it takes effect on the next pan or zoo
 | `setOptions(patch)` | Flip channels at runtime. See the callout above for what takes effect immediately. |
 | `symbol()` | The instrument the group has agreed on, or `null` if nobody declared one. |
 | `setSymbol(chart, symbol)` | The imperative twin of emitting `symbol` on that chart's bus. |
+| `interval()` | The current interval token, or `null` when none has been declared. |
+| `setInterval(chart, interval)` | Report an interval selection to following members. |
 | `crosshairIndex(chart)` | The member's own logical index its linked crosshair is marking, or `null`. |
 | `destroy()` | Unlink everything: listeners off, linked crosshairs detached, references dropped. |
 
@@ -275,6 +312,7 @@ window the others should have adopted, so it takes effect on the next pan or zoo
 | `crosshair` | `boolean` | `true` | Mirror the hovered instant onto every other member. |
 | `viewport` | `boolean` | `true` | Mirror pan and zoom as a wall-clock window. |
 | `symbol` | `boolean` | `false` | Mirror the instrument, through each member's `onSymbol`. |
+| `interval` | `boolean` | `false` | Mirror the interval, through each member's `onInterval`. |
 | `whenMissing` | `'nearest' \| 'hide'` | `'nearest'` | What a follower does with an instant it has no bar for. |
 
 ### `LinkMemberOptions`
@@ -283,13 +321,15 @@ window the others should have adopted, so it takes effect on the next pan or zoo
 |---|---|---|
 | `symbol` | `string` | The instrument this chart is showing right now, if the host tracks one. |
 | `onSymbol` | `(symbol, chart) => void` | Load `symbol` into this chart. Omit to make the member symbol-read-only. |
+| `interval` | `string` | The current host interval token. |
+| `onInterval` | `(interval, chart) => boolean \| void` | Accept the token synchronously, or return `false` to refuse it. The host loads its data. |
 
 ## Lifecycle and loops
 
 **Echoes are dropped by one group-wide guard.** A syncs B, B echoes back to A, and the pair
 either oscillates forever or blows the stack. Any member event that arrives *while the group
 is broadcasting* is an echo of that broadcast by definition, since a human cannot pan two
-charts in one call stack, so it is dropped. The guard covers all three channels together
+charts in one call stack, so it is dropped. The guard covers all four channels together
 rather than one each: a symbol change that reloads data can move a viewport, and that
 second-order echo is the same bug wearing a different hat.
 
@@ -339,8 +379,10 @@ const r = followerRange(leader.dataLayer, follower.dataLayer, leader.getVisibleL
 if (r !== null) follower.setVisibleLogicalRange(r);
 ```
 
-Both return `null` rather than guessing when the answer would be meaningless: an empty
-chart, a single-bar follower, a non-finite endpoint, or an instant outside coverage.
+`followerIndex` returns `null` outside the follower's coverage or for an empty
+history. `followerRange` rejects empty histories, a follower with fewer than two
+bars, and invalid endpoints. It can extrapolate a valid time window beyond the
+follower's loaded data; that chart then shows empty space for the uncovered period.
 
 ## Related
 

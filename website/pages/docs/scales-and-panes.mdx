@@ -214,7 +214,8 @@ show/hide, move, maximize, and delete without wiring anything.
 The first legend on a non-price pane also carries the pane-level controls (move, maximize),
 so extra rows on the same pane stay uncluttered.
 
-The engine ships no DOM, so the gear has no built-in dialog: it emits and you render one.
+The base engine has no built-in settings dialog: the gear emits an event for the host.
+The optional widget supplies the dialog through that public API.
 Everything needed to *generate* a settings form already lives on the descriptor's `inputs`:
 
 ```ts
@@ -330,6 +331,11 @@ Assign a series to a price axis with `priceScaleId`:
   independently: spot price on one side, a premium or spread on the other.
 - **`''`** (empty string) is a hidden overlay scale with no axis, autoscaled on its own:
   the standard way to pin a volume histogram inside the price pane.
+- **`'overlay:name'`** creates an independent hidden scale. Series with the same
+  name share its range and baseline; different names keep separate price units.
+  The scale is released when its last series is removed. Named overlays are
+  included in pane-wide scale operations, excluded from axis-only operations,
+  and reserve no visible axis column.
 
 Reach a series' scale with `series.priceScale()` and tune it via `.setOptions(...)`.
 

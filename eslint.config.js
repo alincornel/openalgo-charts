@@ -22,7 +22,7 @@ import tseslint from 'typescript-eslint';
  * one tier allowed to build DOM (a toolbar, a rail, dialogs); everything else
  * under src/ touches the document only to own its canvases.
  */
-const LAZY_TIERS = ['indicators', 'draw', 'transform', 'profile', 'trade', 'webgl', 'widget'];
+const LAZY_TIERS = ['indicators', 'draw', 'transform', 'profile', 'trade', 'webgl', 'widget', 'workspace'];
 
 /**
  * Base-tier directories. Everything here lands in `openalgo-charts.mjs`, so an
@@ -30,7 +30,7 @@ const LAZY_TIERS = ['indicators', 'draw', 'transform', 'profile', 'trade', 'webg
  */
 const BASE_DIRS = [
   'core', 'render', 'scale', 'model', 'primitives',
-  'input', 'feed', 'replay', 'compare', 'link', 'helpers',
+  'input', 'feed', 'replay', 'compare', 'link', 'helpers', 'alerts',
 ];
 
 const crossTier = (tiers, why) => ({

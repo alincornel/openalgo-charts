@@ -1,3 +1,4 @@
+import { widgetText } from '../localization';
 /**
  * The chart settings dialog, generated from `chartSettingsSchema`.
  *
@@ -86,11 +87,11 @@ export function mountSettingsDialog(
     opts.onApply?.(patch);
   };
 
-  const frame = dialogFrame(doc, { title: 'Chart settings', className: 'oac-settings', onClose: () => cancel() });
+  const frame = dialogFrame(doc, { translate: ctx.translate, title: widgetText(ctx, 'Chart settings'), className: 'oac-settings', onClose: () => cancel() });
   const main = el(doc, 'div', 'oac-settings__main');
   const pane = el(doc, 'div', 'oac-settings__pane');
   frame.body.appendChild(main);
-  const nav = tabList(doc, tabs.map((t) => ({ id: t.id, label: t.label, icon: glyphSvg(TAB_GLYPH[t.id] ?? '') })),
+  const nav = tabList(doc, tabs.map((t) => ({ id: t.id, label: widgetText(ctx, `schema.settings.tab.${t.id}`, {}, t.label), icon: glyphSvg(TAB_GLYPH[t.id] ?? '') })),
     activeTab, 'rail', (id) => { activeTab = id; renderPane(); });
   main.appendChild(nav.el);
 
@@ -99,16 +100,17 @@ export function mountSettingsDialog(
     pane.innerHTML = '';
     form = null;
     if (tab === undefined) {
-      pane.appendChild(el(doc, 'div', 'oac-empty', 'Nothing to configure on this chart yet.'));
+      pane.appendChild(el(doc, 'div', 'oac-empty', widgetText(ctx, 'Nothing to configure on this chart yet.')));
       return;
     }
     // Re-read on every paint: edits apply live, so a tab left and returned to
     // has to show what the chart is drawing now, not what it drew when opened.
-    form = renderForm(pane, controlsFromInputs(tab.inputs), {
-      values: readChartSettings(chart),
+    form = renderForm(pane, controlsFromInputs(tab.inputs, { translate: ctx.translate, scope: 'settings' }), {
+      values: readChartSettings(chart), translate: ctx.translate,
       idPrefix: 'oac-cset',
       live: true,
-      unavailable: opts.unavailable,
+      unavailable: (key, option) => key === 'statusLine.openInterest' && chart.hasOpenInterest === false
+        ? widgetText(ctx, 'Open interest is unavailable for this instrument.') : opts.unavailable?.(key, option) ?? null,
       onChange: (key, value) => {
         write({ [key]: value as ChartSettingsValues[string] });
         // One write can move a neighbour (a scale mode changes what auto-fit
@@ -122,7 +124,7 @@ export function mountSettingsDialog(
   renderPane();
 
   frame.lead.appendChild(button(doc, {
-    label: 'Restore this tab',
+    label: widgetText(ctx, 'Restore this tab'),
     onClick: () => {
       const tab = tabs.find((t) => t.id === activeTab);
       if (tab === undefined) return;
@@ -131,11 +133,12 @@ export function mountSettingsDialog(
       renderPane();
     },
   }));
-  frame.actions.appendChild(button(doc, { label: 'Cancel', onClick: () => cancel() }));
-  frame.actions.appendChild(button(doc, { label: 'OK', variant: 'primary', onClick: () => ok() }));
+  frame.actions.appendChild(button(doc, { label: widgetText(ctx, 'Cancel'), onClick: () => cancel() }));
+  frame.actions.appendChild(button(doc, { label: widgetText(ctx, 'OK'), variant: 'primary', onClick: () => ok() }));
 
   // Escape and the scrim are the shell's, and both mean Cancel.
-  const handle = openPanel(ctx, frame.el, { placement: 'center', modal: true }, () => cancel());
+  const offContext = chart.on('data:context', renderPane);
+  const handle = openPanel(ctx, frame.el, { placement: 'center', modal: true, onClose: offContext }, () => cancel());
 
   function revert(): void {
     if (committed || dirty.size === 0) return;

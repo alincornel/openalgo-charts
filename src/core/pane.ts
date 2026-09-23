@@ -138,7 +138,7 @@ export class Pane {
   private _rightScale = new PriceScale();
   /** Extra scales created on demand: left axis and a hidden overlay (volume). */
   private _leftScale: PriceScale | null = null;
-  private _overlayScale: PriceScale | null = null;
+  private readonly _overlayScales = new Map<string, PriceScale>();
   /**
    * Scales whose price-per-bar ratio is pinned, with the geometry the ratio was
    * last held against. A lock stores that geometry rather than a number,
@@ -231,7 +231,11 @@ export class Pane {
   /** The PriceScale for a scale id, creating the left/overlay scale on first use. */
   private _scaleFor(id: PriceScaleId): PriceScale {
     if (id === 'left') return (this._leftScale ??= new PriceScale());
-    if (id === '') return (this._overlayScale ??= new PriceScale());
+    if (id === '' || id.startsWith('overlay:')) {
+      let scale = this._overlayScales.get(id);
+      if (!scale) { scale = new PriceScale(); this._overlayScales.set(id, scale); }
+      return scale;
+    }
     return this._rightScale;
   }
 
@@ -338,7 +342,7 @@ export class Pane {
   public scales(): PriceScale[] {
     const out: PriceScale[] = [this.priceScale];
     if (this._leftScale !== null) out.push(this._leftScale);
-    if (this._overlayScale !== null) out.push(this._overlayScale);
+    out.push(...this._overlayScales.values());
     return out;
   }
 
@@ -375,6 +379,7 @@ export class Pane {
     // the next occupant is measured on its own terms, or not labelled at all.
     if (!this._series.some((s) => s.scaleId === record.scaleId)) {
       this._scaleFor(record.scaleId).reset();
+      if (record.scaleId !== '' && this._overlayScales.delete(record.scaleId)) this._ratioLocks.delete(record.scaleId);
     }
     return true;
   }
@@ -482,7 +487,7 @@ export class Pane {
   public setScaleHeights(plotHeight: number): void {
     this.priceScale.setHeight(plotHeight);
     this._leftScale?.setHeight(plotHeight);
-    this._overlayScale?.setHeight(plotHeight);
+    for (const scale of this._overlayScales.values()) scale.setHeight(plotHeight);
   }
 
   private _layout(ctx: PaneRenderContext): PlotLayout {
@@ -504,7 +509,9 @@ export class Pane {
     // Right scale also expands for primitives (price lines etc.).
     easing = this._autoscaleScale(this.priceScale, (s) => s.scaleId === 'right', true, ctx, layout.plotHeight, range, progress) || easing;
     if (this._leftScale) easing = this._autoscaleScale(this._leftScale, (s) => s.scaleId === 'left', false, ctx, layout.plotHeight, range, progress) || easing;
-    if (this._overlayScale) easing = this._autoscaleScale(this._overlayScale, (s) => s.scaleId === '', false, ctx, layout.plotHeight, range, progress) || easing;
+    for (const [id, scale] of this._overlayScales) {
+      easing = this._autoscaleScale(scale, (s) => s.scaleId === id, false, ctx, layout.plotHeight, range, progress) || easing;
+    }
     // After the measuring pass and before anything reads a range: a locked
     // scale is manual, so nothing above touched it, and the correction has to
     // land before the axis is labelled from it.

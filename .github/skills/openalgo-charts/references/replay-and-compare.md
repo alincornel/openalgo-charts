@@ -1,5 +1,10 @@
 # Replay and comparison
 
+`isReplaying(chart)` reports whether the shared replay boundary currently owns the
+chart, including paused playback. Hosts can combine it with their own selection
+or grid-transition lock before exposing or delivering trading actions. A false
+result does not grant broker permission or cover a host's pending replay picker.
+
 *When to read this: building a market-replay transport bar, or putting a second instrument on the chart to read against the primary one.*
 
 Source of truth: `src/replay/controller.ts`, `src/compare/controller.ts`, `src/compare/align.ts`. Both ship in the **base** bundle, so neither needs a tier import.
@@ -16,7 +21,7 @@ chart.on('replay:frame', (p) => renderTransport(p as ReplayState));
 replay.play({ speed: 2 });
 ```
 
-**Constructing the controller enters replay.** It snapshots each driven series' data plus `barSpacing` and `rightOffset`, then shows `startIndex` immediately. The snapshot is taken before anything moves, which is what lets `stop()` put the user back exactly where they were.
+**By default, constructing the controller enters replay.** It snapshots each driven series' data plus `barSpacing` and `rightOffset`, then shows `startIndex` immediately. The snapshot is taken before anything moves, which is what lets `stop()` put the user back exactly where they were. Pass `autoStart: false` to prepare the snapshot without entering yet.
 
 ### ReplayOptions
 
@@ -31,6 +36,9 @@ replay.play({ speed: 2 });
 | `onFrame` | `(state: ReplayState) => void` | none | Called after the chart is updated, alongside the event. |
 | `now` | `() => number` | `performance.now` | Injectable clock. |
 | `scheduler` | `(cb, ms) => () => void` | `setInterval` | Injectable timer; returns its canceller. |
+| `timing` | `ReplayTiming` | none | Explicit candle availability for time-aligned replay. `barEndTime: ReplayBarEndTime` returns UTC seconds; `subBarEndTime` is required with finer bars. |
+| `startTime` | `number` | selected candle's end | Requires `timing`. Before the first observation the chart is empty, `index` is -1 and `bar` is null. |
+| `autoStart` | `boolean` | `true` | False validates and captures data/viewport without changing the chart; seek or play enters later. |
 
 ### Transport
 
@@ -43,6 +51,79 @@ replay.play({ speed: 2 });
 | `pause` | `() => void` | Leaves the playhead where it is. |
 | `stop` | `() => void` | Restores data **and** viewport. Safe twice; a later `seek`/`step`/`play` re-enters from `startIndex`. |
 | `state` | `() => ReplayState` | `{ index, total, playing, speed, bar, subIndex, subSteps }`: everything a transport bar and a clock need. |
+| `seekTime` | `(utcSeconds: number) => void` | Requires `timing`; projects only observations available by that time. |
+| `time` | `() => number \| null` | Availability clock with `timing`; displayed bar timestamp otherwise. |
+| `timePoints` | `() => readonly number[]` | Requires `timing`; a copy of observation timestamps for an external shared clock. |
+
+`ReplayBarEndTime` is `(bar: Bar, index: number) => number`. The host supplies
+calendar-aware candle availability; replay does not infer a close from the next
+recorded bar across a session gap. Times must be finite, ordered and at or after
+the candle opening, without overlapping the next candle. Close-stamped data may
+explicitly return `bar.time`. Invalid timing fails before chart mutation.
+
+In timed mode, `seek(index)` still selects a completed primary candle. Step and
+play advance observation times. Partial candles use only a contiguous finer
+prefix starting at the primary opening; after a missing/straddling finer bar,
+the last known prefix remains until the declared close. The exact recorded
+primary candle replaces it at that close. OI takes the last reading, never a sum;
+absent OI is not filled from the completed candle. Followers and comparisons
+withhold forming closes. Hosts retain feed ownership and must pause live writes,
+alert evaluation and trading while replay owns the chart.
+
+## One clock for several charts
+
+`ReplayGroup` is an opt-in coordinator over prepared `ReplayController` instances.
+It drives the union of active observation times with one timer. Ordinary charts
+and standalone replay keep their defaults.
+
+```ts
+const group = new ReplayGroup([
+  { id: 'minute', chart: minuteChart, options: { timing: { barEndTime: bar => bar.time + 60 } } },
+  { id: 'five', chart: fiveMinuteChart, options: { timing: { barEndTime: bar => bar.time + 300 } } },
+], { scope: 'all', startTime: selectedUtcSeconds, onChange: renderTransport });
+group.play({ speed: 2 });
+group.setScope('focused', 'five');
+group.setScope('all');
+group.destroy();
+```
+
+Public contracts: `ReplayScope` is `'focused' | 'all'`. `ReplayGroupMember` supplies
+unique `id`, `chart: ReplayGroupChartHost`, and `options` containing `timing` plus
+optional `series`, `bars`, `subBars`, `onFrame`. `ReplayGroupChartHost` extends
+`ReplayChartHost` with optional `isDestroyed` and `on('destroy', callback)`; Chart
+provides both. Custom hosts without lifecycle hooks must call `destroy()` themselves.
+
+`ReplayGroupOptions` accepts `scope` (focused), `focusedId` (first member),
+`startTime` (first active observation), `barMs` (1000), `speed` (1), `now`,
+`scheduler`, and `onChange`. The native timer interval is clamped to its supported
+range while the logical clock retains the requested cadence and caps catch-up
+at ten observations per tick. Clock parameters must be finite and positive.
+
+`ReplayGroupState` contains `active`, `destroyed`, `scope`, `focusedId`, `time`,
+`index`, `total`, `playing`, `speed`, and `members: { id, active, state: ReplayState }[]`.
+The group index/total address observation times, not a member's bar indices.
+An empty active history has time null; before the first observation index is -1.
+Methods: `state()`, `seek(index)`, `seekTime(time)`, `step(n?)`, `stepBack(n?)`,
+`play({speed?}?)`, `pause()`, `setScope(scope, focusedId?)`, `stop()`, `destroy()`.
+
+Scope changes preserve UTC time and restore charts leaving replay. Entering charts
+capture fresh data, including bars received while inactive. Preparation/validation
+failure preserves the running session. `stop()` restores active charts and retains
+the captured initial time for re-entry; `destroy()` also releases membership,
+snapshots and lifecycle listeners. Ownership remains reserved until destruction,
+so another group cannot overwrite the same chart. Destroying an active chart ends
+the group and restores survivors; an inactive chart is simply removed.
+
+Member `onFrame` and group `onChange` callbacks run after all active charts reach
+the frame. Member replay events report the shared speed/playing state. A runtime
+projection or callback failure cancels the timer, attempts restoration on every
+survivor, releases ownership and rethrows the error. Invalid control arguments
+leave the current session intact. Stop/destroy can interrupt a frame; recursive
+transport changes from a chart's own frame event are rejected. Use `onChange` for
+transport decisions after a complete group update. The host still owns history
+loading, pausing live writes on active members, and workspace-wide trading/alert
+guards, including loading and scope transitions. Source changes require a fresh
+member capture rather than replaying a different instrument under an old identity.
 
 ## Intra-bar replay
 
@@ -120,17 +201,33 @@ bn.remove();
 | `type` | `SeriesType` | `'line'` | Any registered series type. |
 | `paneIndex` | `number` | `0` | The price pane by default. |
 
-`ComparisonHandle`: `symbol`, `series`, `paneIndex`, `priceScale()`, `alignment()`, `setBars(bars)`, `remove()`, `list()`.
+`ComparisonHandle`: `symbol`, `series`, `paneIndex`, `priceScale()`, `alignment()`, `barAt(time)`, `setBars(bars)`, `remove()`, `list()`.
 
-`ComparisonController`: `add(options)`, `remove(handle)`, `list()`, `clear()`, `setMode(mode)`, `mode`, `realign()`, `sync()`, `destroy()`. `ComparisonMode` is `'percentage'` (default), `'indexed-to-100'` or `'none'`.
+Use `barAt(time)` for host readouts. It returns the eligible aligned bar in the
+instrument's own prices, or null for a gap, an unavailable common baseline, a
+forming replay candle or a removed handle. Reading the original history cache
+instead can reveal a completed candle while replay is still forming it.
+
+`ComparisonController`: `add(options)`, `remove(handle)`, `list()`, `clear()`, `setMode(mode)`, `mode`, `setBaseline(policy)`, `baseline`, `baselineTime(paneIndex?)`, `realign()`, `sync()`, `destroy()`. `ComparisonMode` is `'percentage'` (default), `'indexed-to-100'` or `'none'`. `ComparisonBaseline` is `'first-visible'` (default) or `'common'`; `ComparisonControllerOptions` accepts both `mode` and `baseline`.
+
+`baseline: 'common'` chooses the first visible timestamp with positive finite
+closes on the primary and all visible comparisons. `baselineTime()` returns that
+timestamp, or null when no shared start is available. Comparisons then draw gaps;
+prices are never carried forward. Hiding a source removes it from the anchor
+requirement. Panning and data changes recompute the anchor. Common mode expands
+an automatic primary range to fit relative moves; a manually set range is kept.
 
 ### How the two lines become comparable
 
-1. **The comparison never touches the primary's axis.** It goes on the pane's hidden overlay scale (`priceScaleId: ''`), which autoscales alone and draws no ticks, so a 46,000 instrument cannot compress a 22,000 one's candles.
+1. **Each comparison has its own scale.** The first uses a free legacy overlay or left axis; further sources use independent named hidden scales. An occupied volume or left scale is never taken over.
 2. **Comparability comes from the scale, not the data.** Bars stay the instrument's real prices, so the legend and crosshair still read in prices; the pane switches to `percentage` or `indexed-to-100` while a comparison is on it.
 3. **A per-frame pass mirrors the range**, giving the overlay the primary's range scaled by `baselineOverlay / baselinePrimary`, so equal ratios land on equal pixels. Without it each scale autoscales to its own data and a 1% mover looks exactly like a 10% mover.
 
-The hook is a `bottom` z-order primitive that paints nothing, because that is the only window between the pane's autoscale pass (where a rebasing scale gets its baseline) and the series draw. It also does an O(1) `dataLayer.length` check and re-aligns when the shared axis moves underneath (live bars, history paging, replay).
+The hook runs after autoscaling and before painting. It checks primary history
+identity, length and boundary timestamps as well as the shared axis. Primary data
+events also re-align immediately. Comparison replay data follows the completed
+candle boundary, including sources added while replay is active, so a forming
+candle cannot reveal its completed comparison close. Stop restores full data.
 
 ### Alignment (`alignToPrimary`)
 
@@ -145,11 +242,12 @@ Matching is on the **exact** timestamp; two instruments on the same interval agr
 
 ### Gotchas
 
-- **A pane has exactly one hidden overlay scale**, so every comparison on a pane shares one baseline. Right for the common single comparison; a second one is quoted against the first instrument's price. Put further instruments on their own pane with `paneIndex`.
-- **The volume histogram usually owns that overlay already.** When `priceScaleId: ''` is taken the comparison falls back to the **left** axis rather than autoscaling price and volume together.
+- **The legacy empty overlay is still shared by its users.** Named overlays give comparisons independent baselines; each handle's `priceScale()` is distinct.
+- **The volume histogram usually owns the empty overlay.** A first comparison uses the left axis only when it is free; otherwise it uses a named hidden scale.
 - **Use the handle, not the series, for data and teardown.** `series.setData` skips alignment; `series.remove()` leaves the pane rebased with nothing on it.
 - **A user's own mode change is respected.** The pane's saved mode is only restored if it is still the one the controller applied, so switching the pane to log while comparing keeps that choice.
-- `realign()` is only needed by hand after replacing the primary's data with a *different* set of the same length, which the O(1) length check cannot see.
+- `Chart` handles same-length primary replacement automatically. Custom structural hosts without primary history identity or data events may call `realign()` after replacing their timestamps.
+- Chart destruction drops subscriptions and comparison history. Explicit `destroy()` removes the live series and restores the pane; create a new controller for later use.
 
 ## Related
 

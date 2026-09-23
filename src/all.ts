@@ -14,3 +14,4 @@ export * from './profile/index';
 export * from './indicators/index'; // side effect: registers the 102 Tier-1 built-ins
 export * from './draw/index'; // side effect: registers the built-in drawing tools
 export * from './webgl/index'; // side effect: registers the 'webgl2' render backend
+export * from './workspace/index';

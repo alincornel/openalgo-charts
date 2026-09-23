@@ -1,0 +1,181 @@
+import { afterEach, describe, expect, it } from 'vitest';
+import { Instrument, type InstrumentMetadata } from '../src/feed/instrument';
+import { orderConstraintsForInstrument } from '../src/trade/instrument';
+import { validatePrice, validateQuantity } from '../src/trade/validation';
+import { CandleBuilder } from '../src/feed/candle-builder';
+import { Chart } from '../src/core/chart';
+import type { PriceScaleId } from '../src/model/series';
+import { fakeDocument } from './helpers/fake-dom';
+import '../src/indicators/index';
+
+const cash = (): InstrumentMetadata => ({
+  symbol: 'CASH', exchange: 'NSE', timezone: 'Asia/Kolkata',
+  priceTick: 0.05, pricePrecision: 2, quantityStep: 1,
+  intervals: ['1m', '1h', 'D'], hasOpenInterest: false,
+  calendar: { sessions: ['0915-1530:23456'], exceptions: { '2026-01-26': [], '2026-01-27': ['1000-1300'] } },
+});
+const time = (iso: string): number => Date.parse(iso) / 1000;
+const charts: Chart[] = [];
+afterEach(() => { for (const chart of charts.splice(0)) chart.destroy(); });
+function chart(priceScaleId: PriceScaleId = 'right') {
+  const doc = fakeDocument();
+  const c = new Chart(doc.createElement('div'), { document: doc, shortcuts: false, raf: { schedule: () => 0 } });
+  charts.push(c); c.applySize(800, 600); c.addSeries('candlestick', { priceScaleId }); return c;
+}
+
+describe('instrument metadata', () => {
+  it('detaches and freezes metadata while omitting unrelated source fields', () => {
+    const source = { ...cash(), apiKey: 'not-metadata', intervals: ['1m', '1h', 'D'],
+      calendar: { sessions: ['0915-1530:23456'], exceptions: { '2026-01-26': [] } } };
+    const instrument = new Instrument(source);
+    source.calendar.sessions[0] = '0000-0000'; source.intervals.push('5m');
+    expect(instrument.metadata.calendar.sessions).toEqual(['0915-1530:23456']);
+    expect(instrument.metadata.intervals).toEqual(['1m', '1h', 'D']);
+    expect(instrument.metadata).not.toHaveProperty('apiKey');
+    expect(Object.isFrozen(instrument.metadata)).toBe(true);
+    expect(Object.isFrozen(instrument.metadata.calendar.exceptions!['2026-01-26'])).toBe(true);
+  });
+
+  it.each([
+    { symbol: '' }, { timezone: 'Mars/City' }, { priceTick: 0 }, { priceTick: Infinity },
+    { pricePrecision: -1 }, { pricePrecision: 1 }, { quantityStep: NaN }, { quantityStep: 0 },
+    { intervals: [] }, { intervals: ['0m'] }, { intervals: ['1m', '1m'] }, { hasOpenInterest: 'yes' },
+    { calendar: { sessions: ['9999-9999'] } },
+    { calendar: { sessions: [], exceptions: { '2026-02-30': [] } } },
+  ])('rejects invalid contract before use: %j', patch => {
+    expect(() => new Instrument({ ...cash(), ...patch })).toThrow();
+  });
+
+  it('preserves explicit and unknown OI capabilities independently of observations', () => {
+    expect(new Instrument(cash()).metadata.hasOpenInterest).toBe(false);
+    expect(new Instrument({ ...cash(), hasOpenInterest: true }).metadata.hasOpenInterest).toBe(true);
+    const source = { ...cash(), hasOpenInterest: undefined };
+    expect(new Instrument(source).metadata.hasOpenInterest).toBeUndefined();
+  });
+
+  it('matches exact provider interval tokens without confusing case or aliases', () => {
+    const instrument = new Instrument(cash());
+    expect(instrument.supportsInterval('1m')).toBe(true);
+    expect(instrument.supportsInterval('1M')).toBe(false);
+    expect(instrument.supportsInterval('1d')).toBe(false);
+    expect(instrument.supportsInterval('D')).toBe(true);
+  });
+});
+
+describe('instrument calendar', () => {
+  it('honors opening-date closures and short sessions with half-open ends', () => {
+    const instrument = new Instrument(cash());
+    expect(instrument.sessionAt(time('2026-01-26T05:00:00Z'))).toBeNull();
+    expect(instrument.sessionAt(time('2026-01-27T04:29:59Z'))).toBeNull();
+    expect(instrument.sessionAt(time('2026-01-27T04:30:00Z'))).toEqual({
+      date: '2026-01-27', open: time('2026-01-27T04:30:00Z'), close: time('2026-01-27T07:30:00Z'),
+    });
+    expect(instrument.sessionAt(time('2026-01-27T07:30:00Z'))).toBeNull();
+    expect(instrument.sessionAt(time('2026-01-25T05:00:00Z'))).toBeNull();
+  });
+
+  it('keeps lunch breaks absent and overnight sessions on their opening date', () => {
+    const split = new Instrument({ ...cash(), timezone: 'UTC', calendar: { sessions: ['0900-1200:23456', '1300-1600:23456'] } });
+    expect(split.sessionAt(time('2026-01-28T12:30:00Z'))).toBeNull();
+    expect(split.sessionAt(time('2026-01-28T13:00:00Z'))?.open).toBe(time('2026-01-28T13:00:00Z'));
+    const overnight = new Instrument({ ...cash(), timezone: 'UTC', calendar: {
+      sessions: ['2200-0200:23456'], exceptions: { '2026-01-27': [] },
+    } });
+    expect(overnight.sessionAt(time('2026-01-27T01:00:00Z'))?.date).toBe('2026-01-26');
+    expect(overnight.sessionAt(time('2026-01-28T01:00:00Z'))).toBeNull();
+  });
+
+  it('supports continuous crypto sessions across weekends and UTC midnight', () => {
+    const instrument = new Instrument({ ...cash(), timezone: 'UTC', calendar: { sessions: ['0000-0000'] } });
+    expect(instrument.sessionAt(time('2026-01-25T23:59:59Z'))?.date).toBe('2026-01-25');
+    expect(instrument.sessionAt(time('2026-01-26T00:00:00Z'))).toEqual({
+      date: '2026-01-26', open: time('2026-01-26T00:00:00Z'), close: time('2026-01-27T00:00:00Z'),
+    });
+  });
+
+  it('uses IANA offsets per boundary instead of assuming a 24-hour day', () => {
+    const instrument = new Instrument({ ...cash(), timezone: 'America/New_York', calendar: { sessions: ['0000-0000'] } });
+    const spring = instrument.sessionAt(time('2026-03-08T12:00:00Z'))!;
+    const fall = instrument.sessionAt(time('2026-11-01T12:00:00Z'))!;
+    expect(spring.close - spring.open).toBe(23 * 3600);
+    expect(fall.close - fall.open).toBe(25 * 3600);
+  });
+
+  it('keeps a session active when the autumn clock repeats an earlier wall time', () => {
+    const instrument = new Instrument({ ...cash(), timezone: 'America/New_York', calendar: { sessions: ['0150-0400'] } });
+    expect(instrument.sessionAt(time('2026-11-01T06:15:00Z'))).toEqual({
+      date: '2026-11-01', open: time('2026-11-01T05:50:00Z'), close: time('2026-11-01T09:00:00Z'),
+    });
+  });
+
+  it('rejects nonexistent session boundaries and overlapping active sessions', () => {
+    const skipped = new Instrument({ ...cash(), timezone: 'America/New_York', calendar: { sessions: ['0230-0400'] } });
+    expect(() => skipped.sessionAt(time('2026-03-08T07:45:00Z'))).toThrow(/boundary/i);
+    expect(skipped.sessionAt(time('2026-03-09T07:00:00Z'))?.date).toBe('2026-03-09');
+    const overlap = new Instrument({ ...cash(), timezone: 'UTC', calendar: { sessions: ['0900-1200', '1100-1400'] } });
+    expect(() => overlap.sessionAt(time('2026-01-28T11:30:00Z'))).toThrow(/overlap/i);
+    expect(() => overlap.sessionAt(NaN)).toThrow();
+  });
+
+  it('feeds a real candle builder with the resolved session open', () => {
+    const instrument = new Instrument(cash()), tickTime = time('2026-01-28T04:50:00Z');
+    const session = instrument.sessionAt(tickTime)!;
+    const builder = new CandleBuilder({ intervalSec: 3600, sessionAnchorSec: session.open });
+    const update = builder.onTick({ time: tickTime, price: 100, ltq: 5, oi: 70 });
+    expect(update?.bar.time).toBe(time('2026-01-28T04:45:00Z'));
+    expect(update?.bar.oi).toBe(70);
+  });
+});
+
+describe('instrument chart and quantity integration', () => {
+  it.each(['left', ''] as const)('applies the tick to the actual primary scale %j', priceScaleId => {
+    const c = chart(priceScaleId); c.addIndicator('rsi');
+    const oscillator = c.panes()[1].priceScale;
+    const before = { ...oscillator.options };
+    new Instrument(cash()).applyTo(c, '1m');
+    expect(c.primarySeries()!.priceScale().options.minMove).toBe(0.05);
+    expect(c.primarySeries()!.priceScale().format(100.1)).toBe('100.10');
+    expect(oscillator.options).toEqual(before);
+  });
+
+  it('sets only the instrument price formatting and keeps oscillator units', () => {
+    const c = chart(); c.addIndicator('rsi');
+    const before = c.panes()[1].priceScale.format(62.24);
+    const instrument = new Instrument({ ...cash(), pricePrecision: 4, hasOpenInterest: true });
+    instrument.applyTo(c, '1h');
+    expect(c.timezone()).toBe('Asia/Kolkata');
+    expect(c.getDataContext()).toMatchObject({ symbol: 'CASH', exchange: 'NSE', interval: '1h', hasOpenInterest: true });
+    expect(c.primarySeries()!.priceScale().format(100.1)).toBe('100.1000');
+    expect(c.primarySeries()!.priceScale().options.minMove).toBe(0.05);
+    expect(c.panes()[1].priceScale.format(62.24)).toBe(before);
+  });
+
+  it('rejects stale source application and unsupported intervals before any chart mutation', () => {
+    const c = chart(), instrument = new Instrument(cash());
+    const before = c.getState();
+    expect(() => instrument.applyTo(c, '5m')).toThrow(/interval/i);
+    expect(c.getState()).toEqual(before); expect(c.getDataContext()).toBeUndefined();
+    c.setDataContext({ symbol: 'OTHER', exchange: 'NSE', interval: '1m' });
+    c.primarySeries()!.setData([{ time: 60, open: 1, high: 2, low: 1, close: 2 }]);
+    expect(() => instrument.applyTo(c, '1m')).toThrow(/clear/i);
+    expect(c.getDataContext()?.symbol).toBe('OTHER');
+    c.primarySeries()!.setData([]); instrument.applyTo(c, '1m');
+    expect(c.getDataContext()?.symbol).toBe('CASH');
+  });
+
+  it('formats tiny crypto prices without changing stored values or quantity units', () => {
+    const instrument = new Instrument({ ...cash(), symbol: 'COIN', exchange: 'CRYPTO', priceTick: 0.00000001,
+      pricePrecision: 8, quantityStep: 0.001, timezone: 'UTC', calendar: { sessions: ['0000-0000'] } });
+    const c = chart(); instrument.applyTo(c, '1m');
+    const price = 0.123456789;
+    c.primarySeries()!.setData([{ time: 60, open: price, high: price, low: price, close: price }]);
+    expect(c.primaryBars()[0].close).toBe(price);
+    expect(instrument.formatPrice(price)).toBe('0.12345679');
+    expect(instrument.formatPrice(NaN)).toBe('');
+    const constraints = orderConstraintsForInstrument(instrument);
+    expect(validateQuantity(0.003, constraints).ok).toBe(true);
+    expect(validateQuantity(0.0035, constraints).code).toBe('QTY_STEP');
+    expect(validatePrice(0.123456789, constraints).price).toBeCloseTo(0.12345679, 10);
+    expect(orderConstraintsForInstrument(new Instrument({ ...cash(), quantityStep: 75 })).lotSize).toBe(75);
+  });
+});

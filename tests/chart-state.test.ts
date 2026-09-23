@@ -80,6 +80,18 @@ describe('DataLayer fractional time mapping', () => {
 });
 
 describe('chart.getState / restoreState', () => {
+  it('omits cleared optional series styles from its portable snapshot', () => {
+    const chart = makeChart();
+    const series = chart.addSeries('line', { style: { title: 'Profile', color: '#123456' } });
+    series.setData(bars(20));
+    series.applyOptions({ title: undefined });
+    const state = chart.getState();
+    expect(state.series?.[0].style).not.toHaveProperty('title');
+    expect(state.series?.[0].style.color).toBe('#123456');
+    expect(state).toEqual(JSON.parse(JSON.stringify(state)));
+    chart.destroy();
+  });
+
   it('captures a JSON-safe snapshot', () => {
     const chart = makeChart();
     chart.addSeries('candlestick', { style: { upColor: '#123456' } }).setData(bars(50));

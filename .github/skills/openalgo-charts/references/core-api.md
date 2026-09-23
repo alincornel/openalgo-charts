@@ -22,6 +22,19 @@ chart.fitContent();
 
 `createChart(container, options?)` returns a `Chart`; `new Chart(container, options?)` is equivalent and also exported.
 
+**CSV data export.** `exportChartDataCsv(chart, options?: ChartDataCsvOptions)`
+returns all installed primary bars as `time,open,high,low,close,volume,oi`, followed
+by declared study plots and registered comparison closes. Time is UTC seconds;
+missing/nonfinite readings are blank, zero remains zero and OI is never summed.
+Repeated study columns include instance identity; hidden studies are included.
+`indicators: false` omits studies. `comparisons` overrides the registered handles,
+for example with an explicitly managed controller's `list()` or `[]` to omit them.
+Comparisons retain original price units and their existing calendar/replay gaps.
+Only the installed replay prefix is read; transforms retain installed OHLC and
+study values precede visual plot offsets. This helper is DOM-free and does not
+download, fetch or serialize trading state. See `docs/chart-data-export.md` for
+the complete format and captured-source host guards.
+
 **Rendering needs a measurable container.** A hidden chart may receive data before it has
 width or height. Since 2.1.3, its initial default fit remains pending until the first
 usable layout, including when `ResizeObserver` reveals the tab. Give the container a real
@@ -86,7 +99,7 @@ const vol = chart.addSeries('histogram', {
 |---|---|---|---|
 | `paneIndex` | `number` | `0` | Panes are created on demand; pane 0 gets weight 1, later panes 0.32. |
 | `style` | `SeriesStyle` | `{}` | Merged over the chart type's `defaultStyle`. See [chart-types](chart-types.md). |
-| `priceScaleId` | `'right' \| 'left' \| ''` | `'right'` | `''` is a hidden overlay scale with no axis. |
+| `priceScaleId` | `PriceScaleId` | `'right'` | `'right'` and `'left'` draw axes. `''` is the legacy hidden overlay; `overlay:name` names an independent hidden scale. |
 | `priceFormat` | `PriceFormat`: `{ type: 'price', precision?, minMove? } \| { type: 'volume' } \| { type: 'percent', precision? } \| { type: 'custom', formatter }` | none | Applied to the series' *price scale*, not the series. `percent` suffixes the value at `precision` decimals (default 2) and does **not** scale it, so 0.62 reads `0.62%`. The type is exported as `PriceFormat`, and `IndicatorPlot.priceFormat` takes the same union. |
 
 The first `addSeries` call whose type has `isPriceSeries: true` becomes the primary series: it drives the magnet crosshair, `CrosshairMoveEvent.bar`, the last-price line/tag, and the bars indicators compute from. Indicator-created series never claim it.
@@ -300,7 +313,7 @@ chart.subscribeDrag(
 
 Core event names: `ready`, `crosshair:move`, `click`, `hover`, `drag`, `drag:end`, `pan`, `zoom`, `resize`, `dblclick`, `contextmenu`, `lazy-load`, `paneResized`, `paneMoved`, `paneMaximized`, `paneRemoved`, `indicatorRemoved`, `indicatorSettings`. `ReplayController` adds `replay:start|frame|play|pause|end|stop`, and the trading tier routes `trading:*` through the same bus. See [events-and-state](events-and-state.md).
 
-`CrosshairMoveEvent`: `time: number | null`, `index: number | null`, `price: number | null`, `bar: Bar | null`, `point: { x, y } | null`, `paneIndex?: number | null`, and on a move (not the all-null leave payload) `pressed: boolean`, `modifiers: PointerModifiers` (`{ shift, alt, ctrl, meta }`), `pointerType: PointerKind` (`'mouse' | 'touch' | 'pen'`), `pressure` (0..1 as the pointer events spec defines it: measured, else 0.5 while a button is held, else 0) and, only while pressed, `samples: PointerSample[]` (`{ x, y, pressure }` per coalesced position, container x and pane-local y). The same three pointer facts (`PointerInfo`) ride on `ChartClickEvent`, `ChartDragEvent` (which adds `point` and `samples`) and `ChartDragEndEvent` (which adds `point`); all seven types are exported from the base entry.
+`CrosshairMoveEvent`: `time: number | null`, `index: number | null`, `price: number | null`, `bar: Bar | null`, `point: { x, y } | null`, `paneIndex?: number | null`, and on a move (not the all-null leave payload) `pressed: boolean`, `modifiers: PointerModifiers` (`{ shift, alt, ctrl, meta }`), `pointerType: PointerKind` (`'mouse' | 'touch' | 'pen'`), `pressure` (0..1 as the pointer events spec defines it: measured, else 0.5 while a button is held, else 0) and, only while pressed, `samples: PointerSample[]` (`{ x, y, pressure }` per coalesced position, container x and pane-local y). The same three pointer facts (`PointerInfo`) ride on `ChartClickEvent`, `ChartDragEvent` (which adds `point` and `samples`) and `ChartDragEndEvent` (which adds `point` and also describes `drag:start`); all seven types are exported from the base entry.
 
 Two pure helpers from the input and render layers are exported for a host that wants the same feel outside the chart: `ZoomGlide` (with `DEFAULT_ZOOM_GLIDE_OPTIONS`, a `ZoomGlideOptions`) is the eased wheel zoom, a closed-form exponential approach in log space that the chart samples per frame, so a wheel tick glides the way a flick already does; `candleTier(bodyW, wickW, style)` says whether a candle this narrow still shows a body (`'full'`) or only its wick (`'wick'`), which the candle renderer uses to skip a body the wick has already painted, and which a custom renderer can use to draw the same pixels.
 

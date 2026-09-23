@@ -7,7 +7,8 @@ import { Callout } from 'nextra/components'
 
 # Settings & menus
 
-The engine ships no DOM. No dialog, no menu, no toolbar. Every consumer therefore has to
+The base engine creates chart canvases and containers, but no dialog, menu or toolbar.
+A custom host therefore has to
 build this chrome itself, and the engine's job is to make that a rendering exercise rather
 than a research project. Three surfaces do it:
 

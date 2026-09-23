@@ -1,3 +1,4 @@
+import { widgetText } from './localization';
 import { registeredDrawingTools } from 'openalgo-charts/draw';
 import { h, type WidgetContext } from './context';
 import type { RailHandle } from './rail';
@@ -25,6 +26,7 @@ export interface MobileOptions {
   onSettings(anchor: HTMLElement): boolean;
   onIndicators(anchor: HTMLElement): boolean;
   onObjects(anchor: HTMLElement): boolean;
+  onAlerts?(anchor: HTMLElement): boolean;
   onProperties(anchor: HTMLElement): boolean;
   settingsAvailable(): boolean;
   indicatorsAvailable(): boolean;
@@ -143,7 +145,7 @@ export function mountMobile(ctx: WidgetContext, opts: MobileOptions): MobileHand
     const head = h(doc, 'div', 'oac-mobile-sheet__head oac-dialog__head');
     const heading = h(doc, 'strong', 'oac-mobile-sheet__title');
     heading.textContent = title;
-    const closeButton = makeAction('close', 'Close', () => closeSheet());
+    const closeButton = makeAction('close', widgetText(ctx, 'Close'), () => closeSheet());
     head.append(heading, closeButton);
     const body = h(doc, 'div', 'oac-mobile-sheet__body');
     panel.append(head, body);
@@ -179,9 +181,9 @@ export function mountMobile(ctx: WidgetContext, opts: MobileOptions): MobileHand
 
   let intervalButton: HTMLButtonElement | null = null;
   if (opts.topbar) {
-    const header = h(doc, 'div', 'oac-mobile__header', { role: 'toolbar', 'aria-label': 'Chart header' });
+    const header = h(doc, 'div', 'oac-mobile__header', { role: 'toolbar', 'aria-label': widgetText(ctx, 'Chart header') });
     symbolInput = h(doc, 'input', 'oac-mobile__symbol', {
-      type: 'text', 'aria-label': 'Symbol', placeholder: 'Symbol', autocomplete: 'off', spellcheck: 'false',
+      type: 'text', 'aria-label': widgetText(ctx, 'Symbol'), placeholder: widgetText(ctx, 'Symbol'), autocomplete: 'off', spellcheck: 'false',
     });
     if (opts.search !== undefined) {
       symbolInput.setAttribute('aria-autocomplete', 'list');
@@ -189,7 +191,7 @@ export function mountMobile(ctx: WidgetContext, opts: MobileOptions): MobileHand
       symbolInput.setAttribute('aria-expanded', 'false');
     }
     intervalButton = makeAction('interval', '', (anchor) => {
-      openSheet('Interval', anchor, (body, close) => {
+      openSheet(widgetText(ctx, 'Interval'), anchor, (body, close) => {
         for (const code of opts.intervals) {
           const button = makeAction('pick-interval', intervalLabel(code), () => {
             opts.onInterval(code);
@@ -211,11 +213,11 @@ export function mountMobile(ctx: WidgetContext, opts: MobileOptions): MobileHand
     };
     const ensureSearchPanel = (): HTMLElement => {
       if (searchPanel !== null) return searchPanel;
-      const panel = h(doc, 'section', 'oac-mobile-results', { role: 'region', 'aria-label': 'Symbol search results' });
+      const panel = h(doc, 'section', 'oac-mobile-results', { role: 'region', 'aria-label': widgetText(ctx, 'Symbol search results') });
       const head = h(doc, 'div', 'oac-mobile-results__head');
       const title = h(doc, 'strong');
-      title.textContent = 'Symbols';
-      head.append(title, makeAction('close-search', 'Close', () => clearSearch()));
+      title.textContent = widgetText(ctx, 'Symbols');
+      head.append(title, makeAction('close-search', widgetText(ctx, 'Close'), () => clearSearch()));
       const list = h(doc, 'div', 'oac-mobile-results__list', { role: 'listbox' });
       list.id = `oac-mobile-results-${++mobileSearchId}`;
       panel.append(head, list);
@@ -247,7 +249,7 @@ export function mountMobile(ctx: WidgetContext, opts: MobileOptions): MobileHand
       if (searchList === null) return;
       searchList.textContent = '';
       const status = h(doc, 'div', 'oac-mobile-results__status', { role: 'status' });
-      status.textContent = 'Searching';
+      status.textContent = widgetText(ctx, 'Searching');
       searchList.appendChild(status);
     };
     const showMatches = (matches: readonly SymbolMatch[]): void => {
@@ -303,19 +305,19 @@ export function mountMobile(ctx: WidgetContext, opts: MobileOptions): MobileHand
   }
 
   const footer = h(doc, 'div', 'oac-mobile__footer');
-  const selection = h(doc, 'div', 'oac-mobile__selection', { role: 'toolbar', 'aria-label': 'Selected drawing' });
+  const selection = h(doc, 'div', 'oac-mobile__selection', { role: 'toolbar', 'aria-label': widgetText(ctx, 'Selected drawing') });
   let propertiesButton: HTMLButtonElement | null = null;
   let lockButton: HTMLButtonElement | null = null;
   let deleteButton: HTMLButtonElement | null = null;
   if (opts.rail !== null) {
-    propertiesButton = makeAction('properties', 'Properties', (anchor) => { opts.onProperties(anchor); });
-    lockButton = makeAction('lock', 'Lock', () => {
+    propertiesButton = makeAction('properties', widgetText(ctx, 'Properties'), (anchor) => { opts.onProperties(anchor); });
+    lockButton = makeAction('lock', widgetText(ctx, 'Lock'), () => {
       const ids = ctx.draw.selection();
       const lock = !ids.every((id) => ctx.draw.get(id)?.locked === true);
       for (const id of ids) ctx.draw.update(id, { locked: lock });
       refresh();
     });
-    deleteButton = makeAction('delete', 'Delete', () => {
+    deleteButton = makeAction('delete', widgetText(ctx, 'Delete'), () => {
       ctx.draw.removeMany(ctx.draw.selection());
       refresh();
     });
@@ -323,21 +325,21 @@ export function mountMobile(ctx: WidgetContext, opts: MobileOptions): MobileHand
     footer.appendChild(selection);
   }
 
-  const bar = h(doc, 'nav', 'oac-mobile__bar', { 'aria-label': 'Chart controls' });
+  const bar = h(doc, 'nav', 'oac-mobile__bar', { 'aria-label': widgetText(ctx, 'Chart controls') });
   let drawButton: HTMLButtonElement | null = null;
   let studiesButton: HTMLButtonElement | null = null;
   if (opts.rail !== null) {
-    drawButton = makeAction('draw', 'Draw', (anchor) => {
-      openSheet('Drawing', anchor, (body) => {
+    drawButton = makeAction('draw', widgetText(ctx, 'Draw'), (anchor) => {
+      openSheet(widgetText(ctx, 'Drawing'), anchor, (body) => {
         const active = ctx.draw.activeTool();
         if (active !== null) {
           const controls = h(doc, 'div', 'oac-mobile-sheet__controls');
           controls.append(
-            makeAction('finish', 'Finish', () => { ctx.draw.finish(); refresh(); }),
-            makeAction('cancel', 'Cancel', () => { ctx.draw.cancel(); refresh(); }),
-            makeAction('undo', 'Undo', () => { ctx.draw.undo(); refresh(); }),
-            makeAction('magnet', `Magnet: ${opts.rail?.magnetMode() ?? 'off'}`, () => { opts.rail?.cycleMagnet(); refresh(); }),
-            makeAction('stay', `Stay: ${opts.rail?.stayMode() ? 'on' : 'off'}`, () => {
+            makeAction('finish', widgetText(ctx, 'Finish'), () => { ctx.draw.finish(); refresh(); }),
+            makeAction('cancel', widgetText(ctx, 'Cancel'), () => { ctx.draw.cancel(); refresh(); }),
+            makeAction('undo', widgetText(ctx, 'Undo'), () => { ctx.draw.undo(); refresh(); }),
+            makeAction('magnet', widgetText(ctx, 'Magnet: {mode}', { mode: widgetText(ctx, `schema.magnet.${opts.rail?.magnetMode() ?? 'off'}`, {}, opts.rail?.magnetMode() ?? 'off') }), () => { opts.rail?.cycleMagnet(); refresh(); }),
+            makeAction('stay', widgetText(ctx, 'Stay: {mode}', { mode: opts.rail?.stayMode() ? widgetText(ctx, 'on') : widgetText(ctx, 'off') }), () => {
               if (opts.rail !== null) opts.rail.setStayMode(!opts.rail.stayMode());
               refresh();
             }),
@@ -347,7 +349,7 @@ export function mountMobile(ctx: WidgetContext, opts: MobileOptions): MobileHand
         const allowed = opts.tools === undefined ? null : new Set(opts.tools);
         for (const tool of registeredDrawingTools()) {
           if (allowed !== null && !allowed.has(tool.id)) continue;
-          const button = makeAction('tool', tool.name, () => {
+          const button = makeAction('tool', widgetText(ctx, `schema.drawing.${tool.id}.name`, {}, tool.name), () => {
             ctx.draw.setTool(tool.id);
             closeSheet();
           });
@@ -361,25 +363,29 @@ export function mountMobile(ctx: WidgetContext, opts: MobileOptions): MobileHand
     bar.appendChild(drawButton);
   }
   if (opts.topbar && opts.indicators) {
-    studiesButton = makeAction('studies', 'Studies', (anchor) => { opts.onIndicators(anchor); });
+    studiesButton = makeAction('studies', widgetText(ctx, 'Studies'), (anchor) => { opts.onIndicators(anchor); });
     bar.appendChild(studiesButton);
   }
   if (opts.topbar) {
-    bar.appendChild(makeAction('objects', 'Objects', (anchor) => { opts.onObjects(anchor); }));
-    bar.appendChild(makeAction('more', 'More', (anchor) => {
-      openSheet('More', anchor, (body, close) => {
-        const theme = makeAction('theme', opts.state().theme === 'dark' ? 'Light theme' : 'Dark theme', () => {
+    bar.appendChild(makeAction('objects', widgetText(ctx, 'Objects'), (anchor) => { opts.onObjects(anchor); }));
+    bar.appendChild(makeAction('more', widgetText(ctx, 'More'), (anchor) => {
+      openSheet(widgetText(ctx, 'More'), anchor, (body, close) => {
+        if (opts.onAlerts) body.appendChild(makeAction('alerts', widgetText(ctx, 'Alerts'), () => {
+          close();
+          opts.onAlerts?.(anchor);
+        }));
+        const theme = makeAction('theme', opts.state().theme === 'dark' ? widgetText(ctx, 'Light theme') : widgetText(ctx, 'Dark theme'), () => {
           opts.onTheme();
           close();
         });
         body.appendChild(theme);
-        const settings = makeAction('settings', 'Chart settings', () => {
+        const settings = makeAction('settings', widgetText(ctx, 'Chart settings'), () => {
           close();
           opts.onSettings(anchor);
         });
         settings.setAttribute('aria-disabled', String(!opts.settingsAvailable()));
         body.appendChild(settings);
-        const link = brandingLink(ctx.chart);
+        const link = brandingLink(ctx.chart, ctx);
         if (link !== null) {
           const branding = h(doc, 'a', 'oac-mobile__action oac-mobile__branding', {
             href: link.href, target: '_blank', rel: 'noopener noreferrer', 'aria-label': link.label,
@@ -389,10 +395,10 @@ export function mountMobile(ctx: WidgetContext, opts: MobileOptions): MobileHand
           body.appendChild(branding);
         }
         const heading = h(doc, 'div', 'oac-head');
-        heading.textContent = 'Chart type';
+        heading.textContent = widgetText(ctx, 'Chart type');
         body.appendChild(heading);
         for (const id of chartTypeChoices()) {
-          const button = makeAction('chart-type', chartTypeLabel(id), () => {
+          const button = makeAction('chart-type', widgetText(ctx, `schema.chartType.${id}`, {}, chartTypeLabel(id)), () => {
             opts.onChartType(id);
             close();
           });
@@ -418,7 +424,7 @@ export function mountMobile(ctx: WidgetContext, opts: MobileOptions): MobileHand
       selection.hidden = ids.length === 0;
       if (ids.length > 0 && lockButton !== null) {
         const locked = ids.every((id) => ctx.draw.get(id)?.locked === true);
-        lockButton.textContent = locked ? 'Unlock' : 'Lock';
+        lockButton.textContent = locked ? widgetText(ctx, 'Unlock') : widgetText(ctx, 'Lock');
         lockButton.setAttribute('aria-pressed', String(locked));
       }
       if (propertiesButton !== null) propertiesButton.setAttribute('aria-disabled', String(ids.length === 0));

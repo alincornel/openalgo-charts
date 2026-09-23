@@ -1,0 +1,221 @@
+# Named workspaces and indicator templates
+
+The optional `openalgo-charts/workspace` entry point provides portable configuration
+documents, a catalog repository and an IndexedDB storage adapter. It creates no UI,
+chart or market-data subscription. Hosts own their layout controls, data loading,
+template application and save notifications.
+
+```ts
+import {
+  WorkspaceRepository, createIndexedDbWorkspaceStorage,
+  parseWorkspacePayload, parseWorkspaceDocument,
+} from 'openalgo-charts/workspace';
+
+// Browser initialization. Use an opaque namespace for the authenticated user.
+const storage = createIndexedDbWorkspaceStorage(window.indexedDB);
+const repository = new WorkspaceRepository(storage, 'user-42');
+const payload = parseWorkspacePayload({
+  layout: {
+    rows: 1, columns: 1,
+    slots: [{ paneId: 'p0', row: 0, column: 0, rowSpan: 1, columnSpan: 1 }],
+  },
+  panes: [{
+    id: 'p0', symbol: 'RELIANCE', exchange: 'NSE', interval: '5m',
+    chartType: 'candlestick', chart: chart.getState(),
+    settings: {}, volume: true, magnet: 'off', stay: false,
+    comparisons: [], comparisonMode: 'percent',
+  }],
+  activePaneId: 'p0',
+  sync: { crosshair: true, viewport: true, symbol: false, interval: false },
+});
+
+const saved = await repository.createWorkspace('Morning desk', payload);
+await repository.openWorkspace(saved.id);
+// Capture fresh host state before saving again.
+await repository.saveWorkspace(saved.id, {
+  ...payload,
+  panes: [{ ...payload.panes[0], chart: chart.getState() }],
+});
+const template = await repository.createTemplate('My studies', chart.getState().indicators ?? []);
+await repository.saveTemplate(template.id, chart.getState().indicators ?? []);
+
+const exported = await repository.exportDocument('workspace', saved.id);
+const checked = parseWorkspaceDocument(exported);
+const imported = await repository.importDocument(checked); // always a new ID
+console.log(imported.id, (await repository.load()).recentWorkspaceIds);
+
+// At host disposal, release the browser database connection.
+await storage.close();
+```
+
+## Portable documents
+
+`WORKSPACE_VERSION` is `1`. `parseWorkspaceDocument`, `parseWorkspacePayload`,
+`parseIndicatorTemplate` and `parseIndicatorStates` accept unknown input, detach
+the supported configuration and reject malformed documents with
+`WorkspaceDocumentError`. JSON text is accepted for complete documents and arrays.
+Unsupported versions are rejected before a host changes its charts.
+
+`WorkspaceDocument` adds `kind`, `version`, `id`, `name`, `createdAt` and `updatedAt`
+to a `WorkspacePayload`. Metadata timestamps are epoch **milliseconds**. Bar and
+drawing times retain the engine's UTC **seconds** convention.
+
+A payload contains a grid, independent panes, the focused pane ID and four sync
+preferences. Slots use zero-based row/column coordinates with positive spans.
+Optional `layout.rowWeights` and `layout.columnWeights` preserve unequal track
+sizes, such as `[1.4, 1]` for a wider left column. Each list must match its row or
+column count and contain positive finite numbers no greater than 1,000. Omitted
+lists mean equal tracks. Hosts render these as relative fractions; a preset name
+does not override explicit geometry or weights.
+Each pane retains its instrument, interval, chart type, chart snapshot, host
+settings, volume preference, drawing magnet/stay preference, comparison definitions
+and optional `historyPeriod`. `WorkspaceChartState` preserves `ChartState`,
+`ChartSettingsState` and timezone, including drawings, repeated indicators,
+indicator styles/visibility/pane placement, price scales and viewport.
+
+`WorkspaceSettings` is a flat map of string, finite-number or boolean values.
+Use namespaced host keys such as `volume.maPeriod`; do not put account data there.
+Comparisons carry stable IDs, symbols, exchanges, optional colors and visibility.
+Neither primary bars nor comparison bars belong in these documents.
+
+Indicator templates contain `IndicatorState[]`. Repeated descriptor IDs are
+separate instances. Empty templates are valid. Unknown custom descriptor IDs are
+retained so an export does not destroy configuration from another installation.
+The applying host must load/register required studies, check availability and
+report missing studies before replacing the current set. The repository does not
+apply a template to a chart or choose append versus replace.
+
+`planIndicatorTemplate(current, incoming, mode, available, nextPaneIndex)` prepares
+a detached `IndicatorState[]` before the host changes its chart. `mode` uses the
+`IndicatorTemplateMode` type: `replace` or `append`. Supply the registered descriptor
+IDs as a `ReadonlySet<string>` and the current `chart.panes().length` as the append
+boundary. The planner rejects missing descriptors, overlapping append boundaries,
+more than 256 studies and pane indices above 31 before returning a plan.
+
+Replacement preserves incoming pane grouping and accepts an empty study list.
+Append retains current studies and their instance identities, keeps incoming
+overlays on pane zero, and maps each positive incoming pane group to a separate
+new pane. Repeated studies remain separate even when their settings match.
+Incoming instance identities are discarded so reusable templates cannot claim
+existing alert anchors. Settings, plot styles and visibility are detached copies.
+
+Apply the plan to the chart owner captured when the user opened the template
+controls. Validate that owner again after asynchronous work. A `restoreState`
+application must also supply the current drawings and alert document to retain
+them; omitted fields clear those slots. Verify the restore report and indicator
+count, and restore the previous studies/drawings/alerts if application fails.
+Template application does not require reloading source bars or restoring a
+different symbol, price series, viewport or trading state.
+
+### Limits and excluded data
+
+- Up to 16 charts, grid dimensions up to 8 by 8, exactly one non-overlapping slot
+  per pane and a valid focused pane.
+- Up to 256 study instances, 32 comparison definitions per chart, 32 internal
+  chart panes and 512 series style descriptors.
+- Document names of 1-120 characters; document IDs of 1-100 characters.
+- At most 5 MiB of UTF-8 JSON, depth 32 and 100,000 JSON nodes. The complete
+  catalog is subject to the same total size limit.
+- No accessors, executable functions, cycles, class instances or non-finite
+  numbers. The parser projects recognized document/chart fields and removes
+  reserved credential and execution keys from nested records.
+
+Credentials, account balances, orders, positions and an armed trading state are
+not workspace data. The reserved-key filter is defense in depth, not a secret
+scanner: arbitrary drawing text and custom study values are user data. Hosts
+must never insert secrets into those values. Keep trade execution state in a
+separate store and disarm on workspace restoration. Treat imported text as text,
+not HTML or executable expressions. Parsing is a data validation boundary, not
+a sandbox for hostile JavaScript objects such as proxies.
+
+## Catalog transactions and storage
+
+`WorkspaceRepository` supports `load`, `createWorkspace`, `saveWorkspace`,
+`createTemplate`, `saveTemplate`, `rename`, `duplicate`, `remove`, `openWorkspace`, `setAutosave`,
+`importDocument` and `exportDocument`. The `namespace` getter is immutable.
+Constructor options can supply `now` and `id` factories; the defaults are
+`Date.now` and `crypto.randomUUID`.
+
+`saveTemplate(id, indicators)` updates an existing template while preserving its
+ID, name and creation time. It strips reusable study instance identities, captures
+detached inputs when called and advances the update timestamp monotonically.
+Empty updates are valid. Missing template IDs, invalid input and failed atomic
+writes reject without replacing the stored template.
+
+The catalog permits 100 workspaces, 100 templates and 10 unique recent workspace
+IDs. Creating or importing does not open a workspace. `openWorkspace` records
+the active document and moves it to the front of the recent list; it returns the
+document. Prepare the host's replacement charts before calling it. Deleting the active workspace chooses the
+newest remaining recent ID or null. Duplicate/import create fresh identities
+and metadata timestamps, leaving the original intact.
+
+Each repository serializes mutations and reads the latest stored catalog before
+every mutation. A mutation increments `revision` once and reports success only
+after storage resolves. A rejected write leaves the existing saved catalog
+intact, rejects to the caller and does not poison the queue. Invalid stored
+catalogs are reported, never replaced with an empty catalog.
+
+`openWorkspace(id, { signal, expectedRevision })` accepts optional
+`WorkspaceOpenOptions`. Capture the catalog revision when preparing a grid and
+pass it as `expectedRevision`: a changed catalog rejects with
+`WorkspaceConflictError`, so a grid cannot open under a newer saved definition.
+The signal field is shared with storage's `WorkspaceOperationOptions`.
+The repository checks cancellation before queued work, after the catalog read
+and before handing the write to storage. The browser adapter aborts a pending
+write transaction when the signal aborts, preserving the previous active/recent
+selection and revision. Abort a preparation's controller when its owner changes
+or a newer open supersedes it. Cancellation cannot undo an already committed
+transaction; retain host generation checks when publishing the prepared grid.
+
+`setAutosave` stores a preference. Hosts must debounce actual saves, suppress
+them during restoration and replay, cancel pending timers on account changes,
+and show success only after the returned promise resolves. Use a new repository
+when the authenticated account changes. An in-flight save remains bound to the
+old repository's namespace; guard completion notifications against stale owners.
+
+`createIndexedDbWorkspaceStorage(indexedDB, databaseName?)` stores a catalog per
+namespace in the `catalogs` object store. It compares and writes revisions in
+one readwrite transaction, including across browser tabs. `close()` releases its
+connection and rejects new work; existing transactions may finish. A database
+version change closes the adapter automatically. Create a new adapter afterward.
+Blocked opens, quota errors and aborted transactions reject to the host, with no
+silent localStorage or memory fallback.
+
+Server persistence uses the same `WorkspaceStorage` interface:
+
+```ts
+interface WorkspaceStorage {
+  read(namespace: string): Promise<unknown | null>;
+  write(namespace: string, catalog: WorkspaceCatalog,
+        expectedRevision: number, options?: WorkspaceOperationOptions): Promise<void>;
+}
+```
+
+The adapter must compare the current revision and write **atomically**, rejecting
+stale writes with `WorkspaceConflictError`. A localStorage get/set pair is not
+atomic across tabs. For remote persistence, authorize the namespace server-side
+and use a database transaction or conditional version update. Namespace separation
+alone is not authorization. After a conflict, reload and let the user decide
+whether to retry; do not silently overwrite another session's changes.
+When a write receives an abort signal, a custom adapter must reject cancellation
+before commit without changing storage. Do not acknowledge cancellation after
+committing a write. A remote adapter needs an explicit transactional cancellation
+protocol to provide this guarantee; aborting only its HTTP response is insufficient.
+
+## Migration and restoration
+
+`migrateWidgetWorkspace(widgetState, { id, name, now })` converts the existing
+version-1 single-widget envelope into a one-pane workspace. It retains the chart
+snapshot, instrument, interval, chart type, theme (`settings['widget.theme']`)
+and magnet/stay preferences. Widget rail favorites and last-used tool choices
+remain application preferences. This function does not migrate a host's other
+storage schemas or delete the old entry.
+
+Before restoration, validate the document and host capabilities: grid capacity,
+supported intervals/chart types, custom studies and comparison support. Obtain
+fresh market data from the host's adapter and restore configuration only after
+the appropriate series exist. Apply focused pane and sync settings deliberately;
+never let construction-time synchronization overwrite independently saved panes.
+Keep the previous workspace recoverable if loading fails, and hold trading
+disabled throughout the transition. Loading a layout must not import orders,
+positions, API keys or an armed flag.

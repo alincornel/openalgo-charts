@@ -80,8 +80,8 @@ describe('calc helpers', () => {
 });
 
 describe('indicator registry', () => {
-  it('registers all 102 built-ins', () => {
-    expect(BUILTIN_INDICATORS).toHaveLength(102);
+  it('registers all 105 built-ins', () => {
+    expect(BUILTIN_INDICATORS).toHaveLength(105);
     const ids = registeredIndicators().map((d) => d.id);
     for (const d of BUILTIN_INDICATORS) expect(ids).toContain(d.id);
   });

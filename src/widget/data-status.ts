@@ -1,3 +1,4 @@
+import { widgetText } from './localization';
 import type { DataLoadingController, DataLoadingSnapshot } from 'openalgo-charts';
 import { h, type WidgetContext } from './context';
 
@@ -29,22 +30,22 @@ export function mountDataStatus(
       const symbol = state.request?.symbol ?? '';
       const interval = state.request?.interval ?? '';
       switch (state.status) {
-        case 'loading': rows.push({ text: `Loading ${symbol} ${interval}` }); break;
-        case 'refreshing': rows.push({ text: `Refreshing ${symbol} ${interval}` }); break;
-        case 'empty': rows.push({ text: `No bars for ${symbol} ${interval}`, label: 'Retry chart data', retry }); break;
-        case 'stale': rows.push({ text: `History is stale for ${symbol} ${interval}`, label: 'Retry chart data', retry }); break;
-        case 'error': rows.push({ text: `Could not load ${symbol} ${interval}`, label: 'Retry chart data', retry }); break;
+        case 'loading': rows.push({ text: widgetText(ctx, 'Loading {symbol} {interval}', { symbol, interval }) }); break;
+        case 'refreshing': rows.push({ text: widgetText(ctx, 'Refreshing {symbol} {interval}', { symbol, interval }) }); break;
+        case 'empty': rows.push({ text: widgetText(ctx, 'No bars for {symbol} {interval}', { symbol, interval }), label: widgetText(ctx, 'Retry chart data'), retry }); break;
+        case 'stale': rows.push({ text: widgetText(ctx, 'History is stale for {symbol} {interval}', { symbol, interval }), label: widgetText(ctx, 'Retry chart data'), retry }); break;
+        case 'error': rows.push({ text: widgetText(ctx, 'Could not load {symbol} {interval}', { symbol, interval }), label: widgetText(ctx, 'Retry chart data'), retry }); break;
       }
-      if (state.historyStatus === 'limited') rows.push({ text: 'History retention limit reached' });
-      else if (state.historyStatus === 'loading') rows.push({ text: 'Loading older history' });
-      else if (state.historyStatus === 'error') rows.push({ text: 'Could not load older history',
-        label: 'Retry older history', retry: () => { void controller?.loadMore(); } });
+      if (state.historyStatus === 'limited') rows.push({ text: widgetText(ctx, 'History retention limit reached') });
+      else if (state.historyStatus === 'loading') rows.push({ text: widgetText(ctx, 'Loading older history') });
+      else if (state.historyStatus === 'error') rows.push({ text: widgetText(ctx, 'Could not load older history'),
+        label: widgetText(ctx, 'Retry older history'), retry: () => { void controller?.loadMore(); } });
     }
     for (const indicator of ctx.chart.indicators()) {
       const status = indicator.dataStatus();
       if (status === null || status.state === 'ready') continue;
-      const label = { loading: 'Loading', empty: 'No data', unsupported: 'Unsupported', error: 'Could not load' }[status.state];
-      rows.push({ text: `${indicator.name}: ${label}`, label: `Retry ${indicator.name}`,
+      const label = { loading: widgetText(ctx, 'Loading'), empty: widgetText(ctx, 'No data'), unsupported: widgetText(ctx, 'Unsupported'), error: widgetText(ctx, 'Could not load') }[status.state];
+      rows.push({ text: `${indicator.name}: ${label}`, label: widgetText(ctx, 'Retry {name}', { name: indicator.name }),
         retry: status.state === 'loading' ? undefined : () => indicator.retryData() });
     }
     const next = JSON.stringify(rows.map(row => [row.text, row.label, !!row.retry]));
@@ -59,7 +60,7 @@ export function mountDataStatus(
       line.appendChild(text);
       if (row.retry) {
         const button = h(ctx.document, 'button', 'oac-btn');
-        button.textContent = 'Retry';
+        button.textContent = widgetText(ctx, 'Retry');
         button.type = 'button';
         button.setAttribute('aria-label', row.label!);
         button.addEventListener('click', row.retry);

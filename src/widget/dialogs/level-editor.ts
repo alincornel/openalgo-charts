@@ -1,3 +1,4 @@
+import { widgetText } from '../localization';
 /**
  * The level editor: a popover listing a ladder tool's levels (retracement,
  * extension, channel, fan, time zone, the Gann pair) one row each, with the
@@ -73,7 +74,7 @@ export function mountLevelEditor(ctx: WidgetContext, anchor?: HTMLElement, opts:
   const ids = opts.ids ?? ctx.draw.selection();
   const { drawings, schema } = ladderDrawings(ctx, ids);
   if (schema === null) {
-    ctx.toast('Select a drawing with levels first', 'info');
+    ctx.toast(widgetText(ctx, 'Select a drawing with levels first'), 'info');
     return { el: doc.createElement('div'), close: () => {}, isOpen: () => false };
   }
   const primary = drawings[0];
@@ -109,12 +110,12 @@ export function mountLevelEditor(ctx: WidgetContext, anchor?: HTMLElement, opts:
 
   const root = el(doc, 'div', 'oac-panel oac-levels');
   root.setAttribute('role', 'dialog');
-  root.setAttribute('aria-label', 'Levels');
+  root.setAttribute('aria-label', widgetText(ctx, 'Levels'));
   root.tabIndex = -1;
   stopOwnKeys(root);
 
   const head = el(doc, 'div', 'oac-levels__head');
-  head.appendChild(el(doc, 'b', 'oac-levels__title', 'Levels'));
+  head.appendChild(el(doc, 'b', 'oac-levels__title', widgetText(ctx, 'Levels')));
   let labelsBox: HTMLInputElement | null = null;
   if (labelsField !== undefined) {
     const lab = el(doc, 'label', 'oac-levels__labels');
@@ -125,10 +126,10 @@ export function mountLevelEditor(ctx: WidgetContext, anchor?: HTMLElement, opts:
     const box = labelsBox;
     box.addEventListener('change', () => apply({ [labelsField.path]: box.checked }));
     lab.appendChild(box);
-    lab.appendChild(el(doc, 'span', undefined, 'Show labels'));
+    lab.appendChild(el(doc, 'span', undefined, widgetText(ctx, 'Show labels')));
     head.appendChild(lab);
   }
-  head.appendChild(button(doc, { label: 'Close', icon: 'close', iconOnly: true, onClick: () => handle.close() }));
+  head.appendChild(button(doc, { label: widgetText(ctx, 'Close'), icon: 'close', iconOnly: true, onClick: () => handle.close() }));
   root.appendChild(head);
 
   const rows = el(doc, 'div', 'oac-levels__rows');
@@ -140,7 +141,7 @@ export function mountLevelEditor(ctx: WidgetContext, anchor?: HTMLElement, opts:
     const on = el(doc, 'input');
     on.type = 'checkbox';
     on.checked = lv.enabled !== false;
-    on.setAttribute('aria-label', 'Enabled');
+    on.setAttribute('aria-label', widgetText(ctx, 'Enabled'));
     on.addEventListener('change', () => {
       // `true` is the default, so an enabled level carries no flag at all.
       if (on.checked) delete list[i].enabled; else list[i].enabled = false;
@@ -153,7 +154,7 @@ export function mountLevelEditor(ctx: WidgetContext, anchor?: HTMLElement, opts:
     ratio.type = 'number';
     ratio.step = '0.001';
     ratio.value = String(lv.ratio);
-    ratio.setAttribute('aria-label', 'Ratio');
+    ratio.setAttribute('aria-label', widgetText(ctx, 'Ratio'));
     ratio.addEventListener('change', () => {
       const n = Number(ratio.value);
       // A blank or unparseable ratio would drop the level on coercion; keep
@@ -168,7 +169,7 @@ export function mountLevelEditor(ctx: WidgetContext, anchor?: HTMLElement, opts:
     const color = el(doc, 'input');
     color.type = 'color';
     color.value = toHexColor(lv.color) ?? toHexColor(primary.style.color) ?? toHexColor(levelColor(lv.ratio)) ?? LEVEL_NEUTRAL;
-    color.setAttribute('aria-label', 'Color');
+    color.setAttribute('aria-label', widgetText(ctx, 'Color'));
     color.addEventListener('change', () => { list[i].color = color.value; emit(); });
     r.appendChild(color);
 
@@ -176,7 +177,7 @@ export function mountLevelEditor(ctx: WidgetContext, anchor?: HTMLElement, opts:
     label.type = 'text';
     label.value = lv.label ?? '';
     label.placeholder = fmt(lv.ratio);
-    label.setAttribute('aria-label', 'Label');
+    label.setAttribute('aria-label', widgetText(ctx, 'Label'));
     label.setAttribute('spellcheck', 'false');
     label.addEventListener('change', () => {
       const v = label.value.trim();
@@ -188,7 +189,7 @@ export function mountLevelEditor(ctx: WidgetContext, anchor?: HTMLElement, opts:
     const x = el(doc, 'button', 'oac-levels__x');
     x.type = 'button';
     x.innerHTML = CLOSE;
-    x.setAttribute('aria-label', 'Remove level');
+    x.setAttribute('aria-label', widgetText(ctx, 'Remove level'));
     x.addEventListener('click', (e) => { e.stopPropagation(); list.splice(i, 1); paint(); emit(); });
     r.appendChild(x);
     return r;
@@ -197,7 +198,7 @@ export function mountLevelEditor(ctx: WidgetContext, anchor?: HTMLElement, opts:
   function paint(): void {
     rows.innerHTML = '';
     if (list.length === 0) {
-      rows.appendChild(el(doc, 'div', 'oac-empty', 'No levels. Add one, or reset to the defaults.'));
+      rows.appendChild(el(doc, 'div', 'oac-empty', widgetText(ctx, 'No levels. Add one, or reset to the defaults.')));
       return;
     }
     list.forEach((lv, i) => rows.appendChild(row(lv, i)));
@@ -206,7 +207,7 @@ export function mountLevelEditor(ctx: WidgetContext, anchor?: HTMLElement, opts:
 
   const foot = el(doc, 'div', 'oac-levels__foot');
   foot.appendChild(button(doc, {
-    label: 'Add level', icon: 'plus',
+    label: widgetText(ctx, 'Add level'), icon: 'plus',
     onClick: () => {
       const r = nextRatio(list);
       const lv: FibLevel = { ratio: r };
@@ -218,7 +219,7 @@ export function mountLevelEditor(ctx: WidgetContext, anchor?: HTMLElement, opts:
     },
   }));
   foot.appendChild(el(doc, 'span', 'oac-spacer'));
-  foot.appendChild(button(doc, { label: 'Reset', onClick: () => { list = cloneLevels(defaults); paint(); emit(); } }));
+  foot.appendChild(button(doc, { label: widgetText(ctx, 'Reset'), onClick: () => { list = cloneLevels(defaults); paint(); emit(); } }));
   root.appendChild(foot);
 
   // An edit from elsewhere (an undo, the properties dialog) repaints the rows,

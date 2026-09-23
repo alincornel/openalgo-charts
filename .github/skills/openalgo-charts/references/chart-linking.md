@@ -77,7 +77,13 @@ Each channel switches on its own because a user routinely wants one without the 
 | `crosshairIndex` | `(chart: LinkChart) => number \| null` | That member's **own** logical index its linked crosshair is marking, or `null`. |
 | `destroy` | `() => void` | No listeners, no linked crosshairs, no references. |
 
-`crosshairIndex` is how a host builds a linked OHLC readout: take the index, then `chart.dataLayer.indexToTime(i)` and read that bar, exactly as a native crosshair readout does. Do not read the leader's bar and print it on the follower.
+`Chart` updates its study legends and `subscribeCrosshairMove` readout automatically
+through `setLinkedCrosshairIndex(index)`. Linked callbacks carry `source: 'linked'`
+and null pointer coordinates. They do not emit `crosshair:move` on the event bus.
+Native hover takes precedence; clearing the link restores the latest-bar readout.
+The optional method on structural `LinkChart` adapters enables the same behavior.
+For adapters without it, `crosshairIndex` returns the follower's logical index:
+map it through that chart's `dataLayer.indexToTime(i)` and read its own bar.
 
 `setOptions` convergence, which is deliberate and asymmetric:
 
@@ -139,5 +145,19 @@ Since 1.4.0 the programmatic viewport paths (`setVisibleLogicalRange`, `fitConte
 - **Do not copy `getVisibleLogicalRange()` from one chart to another.** It is the exact bug this module exists to prevent. Use the group, or `followerRange`.
 - **A fresh follower should not broadcast its own `fitContent`.** Loading bars into a newly opened chart and fitting them throws the leader off the window the user was on. Suspend viewport sync for the load (`setOptions({ viewport: false })`, load, restore) and let the two converge on the first pan.
 - **`LinkChart` is structural, not `Chart`.** A stub with `on`, `getVisibleLogicalRange`, `setVisibleLogicalRange`, `dataLayer`, `panes`, `addPrimitive` and `removePrimitive` is a valid member, which is how the group is tested. `isDestroyed` is optional for that reason.
-- **A linked crosshair is not the chart's crosshair.** `chart.subscribeCrosshairMove` still reports only the local pointer. Read `group.crosshairIndex(chart)` for the linked one.
+- **A linked readout is not pointer input.** Check `source: 'linked'` before handling replay picking or other pointer gestures in a readout callback. The group still draws its own vertical marker separately from the physical pointer crosshair.
 - **Symbol sync does nothing on its own.** With no `onSymbol` on any member, turning the switch on changes nothing visible, because there is no code anywhere that loads bars.
+# Interval linking
+
+`createLinkGroup({ interval: true })` adds an independent timeframe channel,
+off by default. Supply the member's current `interval` and an `onInterval`
+callback to `group.add(chart, ...)`. Report subsequent choices through
+`group.setInterval(chart, token)` or `chart.emit('interval', { interval: token })`.
+`group.interval()` reads the latest selection, even while interval sync is off.
+Enabling sync or joining an enabled group adopts its latest interval.
+
+The callback applies the host's interval synchronously and starts its usual data
+load. Return `false` for an unsupported interval; this preserves the member's
+previous interval. Async fetching stays with the host and its cancellation rules.
+Callbacks cannot recursively overwrite the leader's interval by echoing a token.
+Removing or destroying a member releases the interval listener with other links.

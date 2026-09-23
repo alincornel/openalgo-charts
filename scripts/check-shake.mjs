@@ -80,7 +80,39 @@ const BUNDLE = new URL('../dist/openalgo-charts.mjs', import.meta.url).pathname.
 // wick/border colours and bar offsets are core-chart code, and upstream's own
 // chart-only build went 49.01 -> 49.86 KiB on it. The fork moved 51.06 ->
 // 51.92 KiB on the same merge, i.e. the same 0.85 KiB and nothing of its own.
-const LIMIT_BYTES = 52.1 * 1024;
+//
+// Selected candle readouts survive recalculation and history prepends, and linked
+// markers update the follower's OHLC and study legends without pointer echoes.
+// The measured chart-only cost is 0.21 KiB: 49.92 KiB at 2f6b54c to 50.13 KiB.
+// Keep one readout timestamp shared by native and linked hover. These corrections
+// belong to core chart hosts; allow 50.25 KiB while retaining every tier budget.
+// Primary source reads and the history/live update event serve headless hosts.
+// Their measured chart-only cost is 0.04 KiB (50.25 to 50.29); the optional
+// alert controller must still disappear, checked by MUST_BE_SHAKEN below.
+// Alert documents also round-trip on charts without a controller. Atomic input
+// validation, JSON-safe payloads and stable study identities add 1.56 KiB:
+// 50.26 to 51.82 KiB. The controller, registry, UI and drawing tier stay optional.
+// Independent named overlays belong to chart-only hosts, including multiple
+// price units in one pane. Measured 51.89 to 51.96 KiB (0.07 KiB); allow 52.10.
+// Common-start comparison and replay alignment remain optional and must shake.
+// Whole-reading legend fitting and plot-bounded actions serve raw chart hosts.
+// Measured 51.96 to 52.32 KiB (0.36 KiB); optional tiers still must shake below.
+// The legend row belongs to every chart host: a source button a descriptor can
+// ask for, a button size the row stacks against, and readings that skip a plot
+// drawn in a fully transparent colour. Measured 52.35 to 52.66 KiB (0.31 KiB);
+// The reviewed 2.4.6 renderer also resolves each marker's live series scale,
+// rebinds replaced anchors and rejects NaN gaps and invisible legend readings.
+// Final measurement is 52.75 KiB, 0.41 KiB above the 2.4.5 release's 52.34.
+// Allow 53 KiB while every optional tier still shakes out below.
+// Primitive start/cancel notifications and pane-local gesture coordinates in
+// 2.4.7 raise the chart-only build to 53.00 KiB. Alert evaluation and visuals
+// still shake out; allow 53.25 KiB for the core gesture lifecycle.
+//
+// Fork on upstream 2.4.8: upstream's chart-only build is 53.00 KiB, the fork's
+// 55.27 KiB (2.27 KiB of its own touch/cancel/wheel input work, against 2.06
+// on 2.4.0 — the extra is the fork's cancel paths sitting beside upstream's
+// new primitive drag lifecycle). Allow 55.5 KiB.
+const LIMIT_BYTES = 55.5 * 1024;
 
 // Absent from a chart-only build. Each is a string that appears in the adapter
 // source and nowhere in the rendering core.
@@ -97,6 +129,12 @@ const MUST_BE_SHAKEN = [
   // wanted a chart can never receive a toolbar. The string is the CSS scope
   // every widget rule is written under, and nothing in the engine paints HTML.
   ['widget tier', 'oac-widget'],
+  ['trader alert controller', 'An alert controller already owns this chart'],
+  ['bar condition registry', 'Bar condition id already registered'],
+  ['comparison controller', 'a comparison needs a primary series to align against'],
+  ['replay controller', 'replay needs a series to drive'],
+  ['replay availability timeline', 'replay timing needs subBarEndTime'],
+  ['replay group', 'openalgo-charts: replay group '],
 ];
 
 const virtual = {
