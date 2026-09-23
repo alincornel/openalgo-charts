@@ -23,7 +23,10 @@ on:
       - 'scripts/check-data-loading-website.mjs'
       - 'scripts/check-objects-website.mjs'
       - 'scripts/check-drawing-demo.mjs'
+      - 'scripts/check-analysis-website.mjs'
       - 'scripts/check-alert-drag-website.mjs'
+      - 'scripts/check-table-website.mjs'
+      - 'scripts/check-alert-lifecycle-website.mjs'
       - 'docs/api-introduction.md'
       - 'docs/architecture-diagram.svg'
       - '.github/workflows/deploy-docs.yml'
@@ -86,7 +89,10 @@ jobs:
           node scripts/check-data-loading-website.mjs
           node scripts/check-objects-website.mjs
           node scripts/check-drawing-demo.mjs
+          OAC_WEBSITE_BROWSERS=chromium node scripts/check-analysis-website.mjs
           OAC_WEBSITE_BROWSERS=chromium node scripts/check-alert-drag-website.mjs
+          OAC_WEBSITE_BROWSERS=chromium node scripts/check-table-website.mjs
+          OAC_WEBSITE_BROWSERS=chromium node scripts/check-alert-lifecycle-website.mjs
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         if: failure()
         with:

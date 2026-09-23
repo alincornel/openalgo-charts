@@ -112,7 +112,15 @@ const BUNDLE = new URL('../dist/openalgo-charts.mjs', import.meta.url).pathname.
 // 55.27 KiB (2.27 KiB of its own touch/cancel/wheel input work, against 2.06
 // on 2.4.0 — the extra is the fork's cancel paths sitting beside upstream's
 // new primitive drag lifecycle). Allow 55.5 KiB.
-const LIMIT_BYTES = 55.5 * 1024;
+// Automatic table measurement and clipping remain available to a chart-only host.
+// 2.5.0 measures 53.36 KiB; optional tiers and the alert controller must still shake out.
+// Grouped event markers and appearance notifications serve headless chart hosts.
+// 2.5.2 measures 54.67 KiB; drawing calculations and the details popup stay optional.
+//
+// Fork on upstream 2.5.2: upstream measures 54.67 KiB, the fork 56.81 KiB — the
+// same ~2.1-2.3 KiB of fork input work carried since 2.3.2, nothing new of its
+// own. Allow 57 KiB.
+const LIMIT_BYTES = 57 * 1024;
 
 // Absent from a chart-only build. Each is a string that appears in the adapter
 // source and nowhere in the rendering core.

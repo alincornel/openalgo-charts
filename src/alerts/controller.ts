@@ -1,3 +1,4 @@
+import { roundToTick } from '../helpers/math';
 import type { Bar } from '../model/bar';
 import { getIndicator, hasIndicator } from '../model/indicator-registry';
 import { numericMatch, touchMatch } from './conditions';
@@ -41,15 +42,21 @@ const scopeOf = (chart: AlertChartHost): AlertScope => {
   const context = chart.getDataContext();
   return { symbol: context?.symbol, exchange: context?.exchange, interval: context?.interval };
 };
+const sameInstrument = (a: AlertScope, b: AlertScope): boolean =>
+  a.symbol === b.symbol && a.exchange === b.exchange;
 const sameScope = (a: AlertScope, b: AlertScope): boolean =>
-  a.symbol === b.symbol && a.exchange === b.exchange && a.interval === b.interval;
+  sameInstrument(a, b) && a.interval === b.interval;
 
 /** Headless, chart-owned trader alerts. Hosts subscribe to alert:triggered for delivery. */
 export class AlertController {
   private readonly _records = new Map<string, RecordState>();
+  /** The alert whose line the pointer is over, for a key that acts on it. */
+  private _hovered: string | undefined;
   private readonly _off: (() => void)[];
   private readonly _now: () => number;
   private readonly _drawings: AlertDrawingProvider | undefined;
+  /** Whether a spent alert keeps its line; the host's choice, default 'show'. */
+  private readonly _spentLines: 'show' | 'hide';
   private readonly _visuals: AlertVisuals | undefined;
   private _timer: ReturnType<typeof setTimeout> | undefined;
   private _timerAt: number | undefined;
@@ -64,6 +71,7 @@ export class AlertController {
     if (owners.has(_chart)) throw new Error('An alert controller already owns this chart');
     this._now = options.now ?? (() => Date.now() / 1000);
     this._drawings = options.drawings;
+    this._spentLines = options.spentLines ?? 'show';
     this._visuals = options.visuals === false ? undefined : new AlertVisuals(_chart);
     owners.add(_chart);
     this._off = [
@@ -71,13 +79,21 @@ export class AlertController {
       _chart.on('data:context', () => this._seedAll()),
       _chart.on('objects:change', () => this._onObjects()),
       _chart.on('paneMoved', () => this._onObjects()),
-      _chart.on('state:restore:start', () => { this._cancelDrag(); this._restoring = true; this._revision++; }),
+      _chart.on('state:restore:start', () => { this._hovered = undefined; this._cancelDrag(); this._restoring = true; this._revision++; }),
       _chart.on('state:restore:end', () => { this._restoring = false; this._seedAll(); }),
       _chart.on('alerts:restore', document => this.fromJSON(document)),
       _chart.on('replay:start', () => { this._replay = true; this._seedAll(); }),
       _chart.on('replay:stop', () => { this._replay = false; this._seedAll(); }),
       _chart.on('destroy', () => this.destroy()),
       _chart.on('drag:start', payload => this._startDrag(payload as AlertDragEvent)),
+      // Which alert the pointer is over, so a key can act on it. The drawing
+      // tier keeps the same fact for the same reason: Delete has to know what
+      // it would be deleting before anybody presses it.
+      _chart.on('hover', payload => {
+        const id = (payload as { id?: unknown } | undefined)?.id;
+        const parsed = typeof id === 'string' ? parseAlertLineId(id) : null;
+        this._hovered = parsed !== null && this._records.has(parsed.id) ? parsed.id : undefined;
+      }),
       _chart.on('drag', payload => this._onDrag(payload as AlertDragEvent, false)),
       _chart.on('drag:end', payload => this._onDrag(payload as AlertDragEvent, true)),
       _chart.on('drag:cancel', payload => {
@@ -100,11 +116,58 @@ export class AlertController {
     return this.availability(record.alert.id);
   }
 
-  private _dragPrice(payload: AlertDragEvent, externalId: string): number | undefined {
+  /**
+   * The alert the pointer is over, or none.
+   *
+   * Offered so a host can bind a key to it. The controller does not bind keys
+   * itself: it owns no input and a chart embedded without the widget shell has
+   * its own idea of what a keystroke means.
+   */
+  public hovered(): string | undefined {
+    const record = this._hovered === undefined ? undefined : this._records.get(this._hovered);
+    return record && this._dragAvailability(record, 0).available ? record.alert.id : undefined;
+  }
+
+  private _dragPrice(payload: AlertDragEvent, externalId: string, paneIndex?: number): number | undefined {
     const y = payload.point?.y;
     const converted = typeof y === 'number' && Number.isFinite(y) ? this._visuals?.coordinateToPrice(externalId, y) : undefined;
     const price = converted ?? payload.price;
-    return typeof price === 'number' && Number.isFinite(price) ? price : undefined;
+    if (typeof price !== 'number' || !Number.isFinite(price)) return undefined;
+    const parsed = parseAlertLineId(externalId);
+    const source = parsed && this._records.get(parsed.id)?.alert.source;
+    const scale = source?.kind === 'price' ? this._chart.primarySeries?.()?.priceScale()
+      : source?.kind === 'indicator'
+        ? this._chart.indicators?.().find(item => item.id === source.instanceId)?.series(source.plotKey)?.priceScale()
+        : undefined;
+    const pane = paneIndex ?? payload.paneIndex;
+    // The source scale owns both units and tick size, even on a left or overlay axis.
+    const snapped = scale ? roundToTick(price, scale.options.minMove)
+      : typeof pane === 'number' ? this._chart.snapPrice?.(pane, price) ?? price : price;
+    let result = Number.isFinite(snapped) ? snapped : price;
+    if (parsed && (source?.kind === 'price' || source?.kind === 'indicator')) {
+      const bound = parsed.index === 0
+        ? source.kind === 'price' ? source.upperPrice : source.upperValue
+        : source.kind === 'price' ? source.price : source.value;
+      if (bound !== undefined && (parsed.index === 0 ? result > bound : result < bound)) {
+        result = bound;
+        const step = scale?.options.minMove ?? 0;
+        if (step > 0) {
+          result = roundToTick(bound, step);
+          const tolerance = Number.EPSILON * Math.max(1, Math.abs(bound)) * 4;
+          if (Math.abs(result - bound) <= tolerance) result = bound;
+          // A manually entered opposite bound may itself sit between ticks.
+          else if (parsed.index === 0 ? result > bound : result < bound) {
+            result = roundToTick(bound + (parsed.index === 0 ? -step : step), step);
+          }
+        } else if (!scale && typeof pane === 'number' && this._chart.snapPrice) {
+          result = this._chart.snapPrice(pane, bound);
+          // A callback without tick metadata cannot find an adjacent tick safely.
+          // Reject this move instead of inventing a tick or crossing the range.
+          if (!Number.isFinite(result) || (parsed.index === 0 ? result > bound : result < bound)) return undefined;
+        }
+      }
+    }
+    return result;
   }
 
   private _startDrag(payload: AlertDragEvent): void {
@@ -114,7 +177,7 @@ export class AlertController {
     const record = parsed && this._records.get(parsed.id);
     if (!parsed || !record) return;
     const available = this._dragAvailability(record, parsed.index);
-    const price = this._dragPrice(payload, payload.id);
+    const price = this._dragPrice(payload, payload.id, available.paneIndex);
     if (!available.available || available.paneIndex === undefined || price === undefined
       || (payload.paneIndex !== undefined && payload.paneIndex !== available.paneIndex)) return;
     this._drag = { externalId: payload.id, record, index: parsed.index, paneIndex: available.paneIndex,
@@ -137,7 +200,7 @@ export class AlertController {
     const available = this._dragAvailability(drag.record, drag.index);
     if (!available.available || available.paneIndex !== drag.paneIndex
       || (payload.paneIndex !== undefined && payload.paneIndex !== drag.paneIndex)) { this._cancelDrag(); return; }
-    const proposed = this._dragPrice(payload, drag.externalId);
+    const proposed = this._dragPrice(payload, drag.externalId, drag.paneIndex);
     if (proposed === undefined) { if (done) this._cancelDrag(); return; }
     const y = payload.point?.y;
     drag.moved ||= drag.startY !== undefined && typeof y === 'number' ? y !== drag.startY : proposed !== drag.startPrice;
@@ -207,6 +270,7 @@ export class AlertController {
     if (!record) return false;
     this._cancelDrag(id);
     this._records.delete(id);
+    if (this._hovered === id) this._hovered = undefined;
     this._visuals?.remove(id);
     this._scheduleExpiry();
     this._saveState();
@@ -247,6 +311,7 @@ export class AlertController {
     this._cancelDrag();
     this._revision++;
     this._visuals?.destroy();
+    this._hovered = undefined;
     this._records.clear();
     for (const [id, record] of next) { this._records.set(id, record); this._syncVisual(record); }
     this._scheduleExpiry();
@@ -267,7 +332,11 @@ export class AlertController {
     const record = this._records.get(id);
     if (!record) return { available: false, reason: 'Alert is unavailable' };
     if (this._paused || this._replay) return { available: false, reason: 'Alerts are paused' };
-    if (!sameScope(record.alert.scope, scopeOf(this._chart))) return { available: false, reason: 'Instrument context differs' };
+    const context = scopeOf(this._chart);
+    if (!sameInstrument(record.alert.scope, context)) return { available: false, reason: 'Instrument context differs' };
+    if (record.alert.scope.interval !== context.interval) return {
+      available: false, reason: `Switch to ${record.alert.scope.interval ?? 'the original timeframe'} to evaluate this alert`,
+    };
     const { source } = record.alert;
     const bars = this._chart.primaryBars();
     if (source.kind === 'drawing') {
@@ -307,6 +376,7 @@ export class AlertController {
     for (const off of this._off) off();
     this._clearTimer();
     this._visuals?.destroy();
+    this._hovered = undefined;
     this._records.clear();
     owners.delete(this._chart);
   }
@@ -316,6 +386,13 @@ export class AlertController {
   }
 
   private _seed(record: RecordState): void {
+    // Finer bars from another timeframe must not consume an original-timeframe close.
+    if (!sameScope(record.alert.scope, scopeOf(this._chart))) {
+      record.tail = undefined;
+      record.value = undefined;
+      record.plotPane = undefined;
+      return;
+    }
     const bars = this._chart.primaryBars();
     const tail = bars[bars.length - 1];
     record.tail = tail ? { ...tail } : undefined;
@@ -361,9 +438,24 @@ export class AlertController {
     if (!this._visuals) return;
     const { alert } = record;
     const { source } = alert;
+    // A host that asked for it draws nothing for an alert that is finished
+    // with. `triggered` is reached only by `repeat: 'once'`, which `_trigger`
+    // sets under exactly that condition, so a repeating alert goes on firing
+    // and keeps its line; `expired` is spent in the same way. The record is
+    // untouched, which is what stops a once-only alert firing again after a
+    // host reloads it.
+    if (this._spentLines === 'hide' && (alert.state === 'triggered' || alert.state === 'expired')) {
+      this._visuals.update(alert, undefined, true);
+      return;
+    }
+    const context = scopeOf(this._chart);
+    const matches = sameScope(alert.scope, context);
     let value: AlertDrawingValue | undefined;
-    if (sameScope(alert.scope, scopeOf(this._chart))) {
-      if (source.kind === 'price') value = { price: source.price, upperPrice: source.upperPrice, paneIndex: 0 };
+    // A fixed price remains meaningful across timeframes; study and drawing values may not.
+    if (source.kind === 'price' && sameInstrument(alert.scope, context)) {
+      value = { price: source.price, upperPrice: source.upperPrice, paneIndex: 0 };
+    }
+    if (matches) {
       if (source.kind === 'indicator') {
         if (record.plotPane !== undefined) value = { price: source.value, upperPrice: source.upperValue, paneIndex: record.plotPane };
       }
@@ -372,7 +464,8 @@ export class AlertController {
         value = this._drawingValue(alert, bars[bars.length - 1]?.time);
       }
     }
-    this._visuals.update(alert, value, this._paused || this._replay);
+    this._visuals.update(alert, value, this._paused || this._replay || (!matches && alert.state === 'armed'),
+      matches ? undefined : alert.scope.interval ?? 'original timeframe');
   }
 
   private _onData(update: ChartDataUpdate): void {
@@ -391,11 +484,12 @@ export class AlertController {
     for (const record of [...this._records.values()]) {
       if (this._destroyed || revision !== this._revision) break;
       if (this._records.get(record.alert.id) !== record) continue;
+      if (!sameScope(record.alert.scope, scope)) continue;
       const previous = record.tail;
       record.tail = { ...tail };
       if (record.alert.source.kind === 'drawing' && previous?.time !== tail.time) this._syncVisual(record);
       if (this._destroyed || revision !== this._revision) break;
-      if (record.alert.state !== 'armed' || !sameScope(record.alert.scope, scope) || !previous) continue;
+      if (record.alert.state !== 'armed' || !previous) continue;
       const { alert } = record;
       if (alert.policy === 'onBarClose') {
         const index = bars.length - 2;

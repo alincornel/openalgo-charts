@@ -10,7 +10,7 @@ The full, authoritative changelog lives in
 
 ## Unreleased
 
-Upstream 2.0.2 through 2.4.8 merged into the fork, and a footprint that reads as a ladder
+Upstream 2.0.2 through 2.5.2 merged into the fork, and a footprint that reads as a ladder
 instead of a hairline mesh.
 
 **Merged**
@@ -54,6 +54,10 @@ instead of a hairline mesh.
   inertia. The fork's cancel semantics ride on upstream's event: a pinch or a
   `pointercancel` emits upstream's `drag:cancel` once and calls `onDragCancel`, and a host
   that registered `onDragCancel` does not also receive the legacy `drag:end`.
+- **Upstream 2.5.0 - 2.5.2**: alert and table fixes, grouped timeline events, the Anchored
+  VWAP and Fixed Range Volume Profile drawings, and drawings linked across charts. A drawing
+  drag cancelled by a pinch or `pointercancel` is reverted through upstream's
+  `cancelDrag()`, leaving no undo step, as before.
 
 **Added**
 
@@ -77,6 +81,79 @@ instead of a hairline mesh.
   from the bar's own metadata; `'behind'` is the older delta-coloured range bar; `'gutter'`
   draws a real OHLC candle in a strip beside the ladder, read from the **pane's** price
   series instead. `showCandle: false` still turns all of them off.
+
+## 2.5.2
+
+2026-09-23
+
+- Place an **Anchored VWAP** or a **Fixed Range Volume Profile** using drawing
+  anchors. Adjust settings, move the anchors, undo changes and save the drawing.
+  Volume profiles estimate volume from candles; missing volume is not zero.
+- Share drawings between charts of the same instrument, including different
+  timeframes. Live previews, changes, deletion and undo follow without sharing
+  alerts or orders. Appearance settings have their own opt-in linking switch.
+- Group timeline events, hide a group and its children, and cluster nearby markers.
+  Open plain-text event details from a marker, including all members of a cluster.
+  Your app supplies event data and any additional detail loader.
+- Try these controls in the yfinance reference host or the
+  [linked analysis example](/examples#linked-analysis-and-timeline-events).
+
+These additions keep existing defaults and add no runtime dependencies.
+
+## 2.5.1
+
+2026-09-21
+
+### Added
+
+- `AlertControllerOptions.spentLines: 'hide'` hides the lines of triggered and
+  expired alerts. The default, `'show'`, preserves existing behavior.
+- Hidden alerts retain their records, lifecycle and saved runtime, so once-only
+  alerts cannot fire again merely because their lines are hidden or restored.
+  Re-arming restores the line. Armed, repeating and disabled lines stay visible.
+- Added restore, re-arm and range browser coverage, a live lifecycle example,
+  and host integration guidance. No saved-alert migration is required.
+
+## 2.5.0
+
+2026-09-21
+
+Keep price alerts visible across timeframes, move them to valid ticks, and fit
+chart tables to their text.
+
+### Added
+
+- `ChartTableOptions.cellWidth: 'auto'` measures each column from its widest
+  cell, including padding, bold text and per-cell font overrides. Empty columns
+  retain a 28 px minimum. Percentage widths preserve measured proportions.
+- `AlertController.hovered()` lets custom hosts delete the alert under the
+  pointer. The widget and yfinance example support Delete and Backspace while
+  preserving drawing selection, placement and text-input priority.
+- `Chart.snapPrice(paneIndex, price)` rounds to the pane's right-axis tick.
+  Alert drags use the primary or study source scale, including left and
+  independent axes. Hosts can use a series' scale for its own tick rules.
+
+### Fixed
+
+- Fixed price levels stay visible across timeframes for the same symbol and
+  exchange. Another timeframe shows the original interval and pauses armed
+  alerts. Triggered, disabled and expired records retain their lifecycle badge.
+- All alert evaluation remains bound to the original timeframe, including
+  intrabar alerts. Study and drawing levels remain scoped to that timeframe.
+  Loading another interval cannot consume the original evaluated-bar checkpoint.
+  Restoring or returning to a timeframe never replays historical signals.
+- Alert previews and release use the same snapped threshold. Range bounds stop
+  at the nearest valid tick inside the opposite bound. A scale without a tick
+  leaves values unrounded. Context changes and restore clear stale hover state.
+- Every table cell clips its text, preventing long readings from covering the
+  next column. Automatic widths measure the font actually drawn in short or
+  weighted rows, and measurement preserves the canvas state for other primitives.
+
+### Documentation
+
+- Updated alert, table, upgrade and integration guides, the yfinance reference
+  host, and live website examples. Saved alerts need no migration. Price alerts
+  on an unseen timeframe stay paused; background delivery remains the host's job.
 
 ## 2.4.8
 

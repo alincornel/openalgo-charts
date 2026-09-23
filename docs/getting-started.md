@@ -1,8 +1,8 @@
 # Getting started
 
 OpenAlgo Charts is a dependency-free, canvas-based financial charting engine.
-The base engine is **92.94 kB Brotli**; all nine tiers total **246.63 kB Brotli**,
-measured with `size-limit` on the 2.4.8 build. Optional tiers are separate imports.
+The base engine is **95.04 kB Brotli**; all nine tiers total **256.08 kB Brotli**,
+measured with `size-limit` on the 2.5.2 build. Optional tiers are separate imports.
 
 ## Install
 
@@ -59,12 +59,12 @@ Only pay for what you use: each of the nine tiers is a separate entry point.
 
 | Import | Contents |
 |---|---|
-| `openalgo-charts` | base chart engine, registries, feeds, alerts, replay, comparisons, chart state and exports |
+| `openalgo-charts` | base chart engine, registries, feeds, alerts, replay, comparisons, appearance linking, grouped timeline events, chart state and exports |
 | `openalgo-charts/trade` | order/position/bracket lines, DOM ladder, order engine |
 | `openalgo-charts/transform` | Renko, Range, Point &amp; Figure, Kagi, Line Break, Heikin Ashi |
 | `openalgo-charts/profile` | Volume Profile, Market Profile (TPO), Footprint, order flow |
 | `openalgo-charts/indicators` | 105 built-in indicators (SMA/EMA/MACD/Bollinger/RSI/ADX/...) + the Tier-2 contract |
-| `openalgo-charts/draw` | 85 drawing tools + a headless drawing controller |
+| `openalgo-charts/draw` | 87 drawing tools, including Anchored VWAP and fixed-range Volume Profile, a headless controller and opt-in drawing linking |
 | `openalgo-charts/webgl` | the WebGL2 series backend behind `renderer: 'auto'` |
 | `openalgo-charts/workspace` | portable layouts, indicator templates, revisioned catalogs and asynchronous storage |
 | `openalgo-charts/widget` | the chart with its chrome in one `createWidget` call: top bar, drawing rail, status line, dialogs, shortcuts, persistence. The only tier that supplies application controls |
@@ -125,3 +125,6 @@ demos live in [`../examples`](../examples/index.html).
 - [Trader alerts](https://marketcalls.github.io/openalgo-charts/docs/alerts/): standalone controller, restoration and host delivery.
 - [Workspaces](workspaces.md): portable layouts, templates and asynchronous storage.
 - [Chart data export](chart-data-export.md): loaded/revealed rows and host-owned CSV delivery.
+- [Drawing tools](https://marketcalls.github.io/openalgo-charts/docs/drawing-tools/): time-anchored analysis drawings, volume requirements and editing.
+- [Chart linking](https://marketcalls.github.io/openalgo-charts/docs/chart-linking/): independent appearance and drawing switches, with instrument identity checks.
+- [Timeline events](https://marketcalls.github.io/openalgo-charts/docs/events/): host-supplied groups, clustering and widget details.

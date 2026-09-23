@@ -89,6 +89,10 @@ export const RAIL_GROUPS: readonly RailGroup[] = [
     { head: 'Forecasting' },
     { tool: 'long-position' }, { tool: 'short-position' }, { tool: 'forecast' },
   ] },
+  { id: 'analysis', title: 'Volume studies', items: [
+    { head: 'Volume studies' },
+    { tool: 'anchored-vwap' }, { tool: 'fixed-range-volume-profile' },
+  ] },
   { id: 'measure', title: 'Measurers', items: [
     { head: 'Measurers' },
     { tool: 'price-range' }, { tool: 'date-range' }, { tool: 'measure' },

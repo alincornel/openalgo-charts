@@ -1,7 +1,7 @@
 import * as engine from '/dist/openalgo-charts.mjs';
 import { createChart, PaneLegend } from '/dist/openalgo-charts.mjs';
 import { attachAlerts, detachAlerts } from './alerts.js';
-import { DrawingController } from '/dist/openalgo-charts.draw.mjs';
+import { DrawingController, DrawingLinkGroup } from '/dist/openalgo-charts.draw.mjs';
 import { el, fmt, fmtVol, UP, DOWN, chartTheme, chartMotionOptions, toast } from './ui.js';
 import { clipboardPort } from './clipboard.js';
 import { armCursor, magnetMode, stayMode, syncMobileControls, observeMobileControls, focusChart } from './rail.js';
@@ -20,6 +20,7 @@ import { openSettings, renderIndicatorChips } from './indicators.js';
 import { capturePaneTarget } from './pane-target.js';
 import { symbolStatus, exchangeOf, nameOf } from './status.js';
 import { attachReplay, exitReplay, syncReplayAlertPause } from './replay.js';
+import { attachTimeline } from './timeline.js';
 
 // 1.3 surfaces: chart linking, the bar cache and the interval registry.
 // Same namespace read for the same reason: this page must still draw
@@ -48,6 +49,7 @@ let pane2Controller = null;
 
 export function initSplit(a) {
   app = a;
+  app.drawingLinkGroup = new DrawingLinkGroup();
   app.restoreSecondary = restoreSecondaryLayout;
   app.loadSecondary = loadPane2;
   app.rebuildSecondary = buildChart2;
@@ -114,6 +116,7 @@ export function joinLink() {
   if (!app.linkGroup) return;
   if (app.chart) {
     app.linkGroup.add(app.chart, {
+      appearance: appearanceAdapter(app.chart),
       symbol: app.req.symbol,
       interval: app.req.interval,
       onInterval: interval => {
@@ -134,6 +137,7 @@ export function joinLink() {
   }
   if (app.chart2) {
     app.linkGroup.add(app.chart2, {
+      appearance: appearanceAdapter(app.chart2),
       symbol: app.p2.symbol,
       interval: app.p2.interval,
       onInterval: interval => {
@@ -149,6 +153,19 @@ export function joinLink() {
       },
     });
   }
+  if (app.chart && app.draw) app.drawingLinkGroup.add(app.chart, app.draw, drawingContextReader(app.chart));
+  if (app.chart2 && app.draw2) app.drawingLinkGroup.add(app.chart2, app.draw2, drawingContextReader(app.chart2));
+}
+
+// Qualified feed tickers are unique within this host's data namespace.
+export const drawingLinkContext = request => ({ symbol: request.symbol, exchange: 'YFINANCE' });
+const drawingContextReader = chart => () => drawingLinkContext(chart.getDataContext() || {});
+
+function appearanceAdapter(chart) {
+  return {
+    read: () => engine.readChartSettings(chart),
+    apply: values => engine.applyChartSettings(chart, values),
+  };
 }
 
 export async function openSplit() {
@@ -311,6 +328,7 @@ export function buildChart2({ keepView = true, typeChanged = false, state } = {}
     }
   });
   joinLink();
+  attachTimeline(app, 2, bars2);
 }
 
 export async function loadPane2() {
@@ -329,15 +347,21 @@ export async function loadPane2() {
   app.alerts2?.setPaused(true);
   app.p2.period = clampPeriod(app.p2.interval, app.p2.period);
   const request = { ...app.p2 };
-  const keepView = chart.primaryBars().length > 0
-    && before?.symbol === request.symbol && before?.interval === request.interval;
+  const identityChanged = before?.symbol !== request.symbol || before?.interval !== request.interval;
+  const keepView = chart.primaryBars().length > 0 && !identityChanged;
+  // Clear while the old context still owns these bars; a refresh keeps its view.
+  if (identityChanged) {
+    bars2 = [];
+    price2.setData([]);
+    app.volume2?.setData([]);
+    setPane2Legend(null);
+  }
   app.chart2.setDataContext(referenceDataContext(app.p2, app.chart2.getDataContext()));
   if (app.linkGroup) app.linkGroup.setSymbol(chart, request.symbol);
   app.linkGroup?.setInterval?.(chart, request.interval);
-  bars2 = [];
-  price2.setData([]);
-  app.volume2?.setData([]);
-  setPane2Legend(null);
+  app.drawingLinkGroup?.setContext(chart, drawingLinkContext(request));
+  // Context cleanup may remove copies received for the previous instrument.
+  state.drawings = chart.drawingState();
   setPane2Note('loading ' + app.p2.symbol + ' ' + intervalLabel(app.p2.interval) + '...');
   renderToolbar();
   try {

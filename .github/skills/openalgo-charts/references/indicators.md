@@ -483,10 +483,18 @@ registerIndicator({
 
 Cells take `text`, `bgColor`, `textColor`, `align`, `fontSize` and `bold`; `textColor` is
 derived from `bgColor` for contrast when omitted. Options take `position` (nine keywords),
-`margin`, `cellWidth` (number or per-column array), `cellHeight`, `widthPercent`,
+`margin`, `cellWidth` (number, per-column array, or `'auto'`), `cellHeight`, `widthPercent`,
 `heightPercent`, `rowWeights`, `fontSize`, `borderColor`, `borderWidth`, `background` and
 `id`. The percentage sizes stretch the grid to a share of the plot while preserving the
 column proportions; `rowWeights` keeps a separator row thin when it does.
+
+
+From 2.5.0, `cellWidth: 'auto'` measures each column at its rendered font size,
+including bold and per-cell overrides. Short rows clamp the measured font just
+as they clamp drawing. Empty columns retain 28 px. With `fontSize: 'auto'`,
+unoverridden cells use an 11 px baseline for width measurement to avoid circular
+sizing; drawing can still shrink to the final cell. `widthPercent` scales those
+measured proportions. Text always clips to its own cell, including fixed widths.
 
 One built-in uses the hook: `seasonality`, whose entire output is the grid.
 

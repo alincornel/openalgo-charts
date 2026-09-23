@@ -440,7 +440,9 @@ starts from, so spreading one keeps your override honest when a new key is added
 **Primitives you can attach directly.** Both implement `IPrimitive`, so they follow
 the rules in [primitives-and-plugins](./primitives-and-plugins.md).
 
-- `ChartTable` - a grid pinned to a pane corner. What an indicator's `table` hook
+- `ChartTable` - a grid pinned to a pane corner. `cellWidth: 'auto'` fits each
+  column to its widest rendered cell; fixed widths and per-column arrays remain
+  supported. Every cell clips its own text. What an indicator's `table` hook
   builds for you; attach it yourself when the table is not tied to a study.
 - `IndicatorDrawings` - the primitive behind a descriptor's `draws` hook. One
   primitive holds the whole shape list, because a descriptor rebuilds its shapes on

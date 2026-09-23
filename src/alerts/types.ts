@@ -1,3 +1,4 @@
+import type { SeriesApi } from '../model/series';
 import type { Bar } from '../model/bar';
 import type { ChartDataContext } from '../model/indicator-registry';
 import type { IndicatorApi } from '../model/indicator-instance';
@@ -12,6 +13,8 @@ export interface ChartDataUpdate {
 /** Minimum headless chart surface needed to evaluate alerts. */
 export interface AlertChartHost {
   primaryBars(): readonly Bar[];
+  /** Owning price scale for primary-price drag snapping, including a left axis. */
+  primarySeries?(): Pick<SeriesApi, 'priceScale'> | null;
   getDataContext(): Readonly<ChartDataContext> | undefined;
   on(event: string, callback: (payload: unknown) => void): () => void;
   emit(event: string, payload: unknown): void;
@@ -21,6 +24,13 @@ export interface AlertChartHost {
   removePrimitive?(primitive: IPrimitive): void;
   alertState?(): AlertsDocument | undefined;
   setAlertState?(document: AlertsDocument | undefined): void;
+  /**
+   * A price rounded to the tick the pane's scale is written in.
+   *
+   * Optional, and unrounded is the fallback: a host that declares no tick has
+   * nothing to round to, and inventing one would move a price somebody chose.
+   */
+  snapPrice?(paneIndex: number, price: number): number;
 }
 
 export type AlertCondition = 'crossing' | 'crossingUp' | 'crossingDown'
@@ -102,7 +112,11 @@ export interface BarCondition {
   when(context: BarConditionContext): boolean;
 }
 
-/** An alert belongs to the instrument and interval present when it was armed. */
+/**
+ * Evaluation belongs to the instrument and interval present when the alert was armed.
+ * Fixed price levels remain visible on other intervals of the same instrument,
+ * labelled with their original timeframe and paused until it is displayed again.
+ */
 export interface AlertScope {
   symbol?: string;
   exchange?: string;
@@ -173,4 +187,21 @@ export interface AlertControllerOptions {
   drawings?: AlertDrawingProvider;
   /** PriceLine visuals are enabled on chart hosts; disable for a model-only consumer. */
   visuals?: boolean;
+  /**
+   * Whether a spent alert keeps its line. Defaults to `'show'`.
+   *
+   * A triggered or expired alert is no longer watching anything, and the two
+   * defensible things to do with its line are opposites. Keeping it is this
+   * library's default and is why each lifecycle state has its own badge and
+   * colour: the line says what became of the level, which is worth knowing on a
+   * chart somebody has just come back to.
+   *
+   * `'hide'` is for the host where that reading does not pay. A terminal left
+   * open through a session accumulates levels that will never fire again, and
+   * past a certain number the ones still watching are the hardest to pick out
+   * of them. The alert itself is untouched either way: it stays in `list()`,
+   * keeps its lifecycle state, still refuses to fire twice, and gets its line
+   * back if a host re-arms it. Only the drawing goes.
+   */
+  spentLines?: 'show' | 'hide';
 }

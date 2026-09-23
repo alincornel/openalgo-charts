@@ -56,6 +56,8 @@ const quickTools = [
   ['fib-retracement', 'Fibonacci', 'Click the swing low and high to place a retracement.'],
   ['long-position', 'Long position', 'Click entry, then target; drag the stop or target to adjust.'],
   ['measure', 'Measure', 'Click two points to measure price, time and volume.'],
+  ['anchored-vwap', 'Anchored VWAP', 'Click the candle where the volume-weighted calculation should begin.'],
+  ['fixed-range-volume-profile', 'Volume profile', 'Click the beginning and end of a time range. Volume is estimated from candles.'],
   ['brush', 'Brush', 'Press, draw a stroke, and release.'],
 ];
 const tools = [quickTools[0], ...lib.registeredDrawingTools().map(tool => [

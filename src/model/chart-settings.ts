@@ -39,6 +39,7 @@ import type { LegendStatusLineOptions, LegendTitleMode } from '../primitives/pan
 import type { TradingColors, TradingSettings } from '../core/trading-controller';
 import type { PriceScaleMode } from '../scale/price-scale';
 import { DEFAULT_TIMEZONE, isValidTimezone } from '../feed/time';
+import { filterLinkAppearance } from '../link/appearance';
 
 /**
  * Tabs of the settings dialog. Five groups, chosen so a trader finds a setting
@@ -766,6 +767,7 @@ export function readChartSettings(chart: Chart): ChartSettingsValues {
  */
 export function applyChartSettings(chart: Chart, patch: Readonly<Partial<ChartSettingsValues>>): void {
   const byKey = new Map<string, Field>();
+  const applied: ChartSettingsValues = {};
   for (const tab of buildTabs(chart)) {
     for (const control of tab.controls) {
       for (const field of control.fields) byKey.set(field.key, field);
@@ -774,6 +776,11 @@ export function applyChartSettings(chart: Chart, patch: Readonly<Partial<ChartSe
   for (const key of Object.keys(patch)) {
     const value = patch[key];
     if (value === undefined) continue;
-    byKey.get(key)?.write(chart, value);
+    const field = byKey.get(key);
+    if (!field) continue;
+    field.write(chart, value);
+    applied[key] = field.read(chart);
   }
+  const appearance = filterLinkAppearance(applied);
+  if (Object.keys(appearance).length) chart.emit('style:change', appearance);
 }

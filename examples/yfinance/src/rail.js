@@ -90,6 +90,10 @@ export const RAIL_GROUPS = [
     { head: 'Forecasting' },
     { tool: 'long-position' }, { tool: 'short-position' }, { tool: 'forecast' },
   ] },
+  { id: 'analysis', title: 'Volume studies', items: [
+    { head: 'Volume studies' },
+    { tool: 'anchored-vwap' }, { tool: 'fixed-range-volume-profile' },
+  ] },
   { id: 'measure', title: 'Measurers', items: [
     { head: 'Measurers' },
     { tool: 'price-range' }, { tool: 'date-range' }, { tool: 'measure' },
@@ -759,7 +763,18 @@ function onGlobalKey(e) {
     editingText: false,
     placing: d.activeTool() !== null,
   });
-  if (!action) return;
+  if (!action) {
+    // The focused chart's alert is a fallback only after drawing ownership.
+    const alerts = d === app.draw2 ? app.alerts2 : app.alerts;
+    const alertId = alerts?.hovered();
+    if (alertId === undefined || d.activeTool() !== null
+        || (e.key !== 'Delete' && e.key !== 'Backspace')
+        || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+    alerts.remove(alertId);
+    claim();
+    refreshControls();
+    return;
+  }
   const targets = () => {
     const sel = selectionOf(d);
     if (sel.length) return sel;

@@ -188,6 +188,7 @@ examples/yfinance/
   requirements.txt    yfinance, the one dependency, needed only outside --fixture
   src/
     alerts.js         alert controller ownership, shared editor/list and local event delivery
+    timeline.js       labelled sample timeline events, group filters and event details
     main.js           composition root: the shared app state, render(), load(), boot
     ui.js             el(), number and text formatting, the candle palette, toasts, the overlay stack (focus trap, one Escape per layer), the chart loading, empty and error card, the theme switch
     hover.js          the one hover label every icon-only control shares
@@ -342,6 +343,24 @@ exists to show one engine surface carrying real use, not just being present.
 | `indicator-templates.js`, `templates.js` | Capture repeated studies with parameters, styles, visibility and pane grouping. Apply shared replace/append planning to the captured chart while preserving drawings and valid alert anchors. Save named templates in the same revision-aware catalog as layouts, with explicit application after import. |
 | `chart-data.js` | Download the captured chart's loaded OHLC/volume/OI, study plots and eligible comparison closes through the shared CSV serializer. Reject obsolete/loading owners and release file resources on success or failure. |
 | `alerts.js` | The Alerts toolbar button opens the focused chart's lifecycle list and source editor. Price, study plots, supported drawing levels and registered candle conditions use the same controls as the packaged widget. Local notices display fired events; the demo does not send notifications or orders for an alert. |
+| `timeline.js` | The Events menu enables labelled sample events, clustering and group visibility. Click a marker to read its details. These are demonstration events, not a company calendar feed. |
+
+### Analysis and linking in 2.5.2
+
+The Volume studies drawing group contains Anchored VWAP (one anchor) and Fixed
+Range Volume Profile (two anchors). Move their anchors and open drawing properties
+to change the price source, bands, rows or value area. Profiles estimate volume
+from candle ranges. Missing volume and incomplete loaded history are labelled.
+
+Open two charts, select the same ticker, then enable **Drawings (same instrument)**
+in the linking menu. Different intervals are supported. Use **Share existing
+drawings from selected chart** for drawings made before linking. Appearance has
+its own switch for supported chart settings. Both switches start off. The feed
+namespace used for drawing matching does not change saved alert scopes.
+
+The Events button opens sample timeline controls. Enable **Show sample events**,
+then click a marker or clustered count to read details. Group filters include
+child groups. Your production host must supply its own event data.
 
 Click or focus a chart, or use the Chart selector, to select it for symbol,
 interval, history range, chart type, study, grid, drawing, alert and snapshot
@@ -411,10 +430,29 @@ priority over other prices, lower-priority fields disappear as whole readings,
 and long source names shorten. Hover actions stay out of the price axis. Widening
 the pane restores its full readout.
 
+From 2.5.1, custom hosts may construct `AlertController` with
+`{ spentLines: 'hide' }` to hide triggered and expired lines without removing
+saved records. This reference host keeps the default `'show'` behavior in both
+panes. Apply the option at each controller's construction if adapting the demo.
+Keep the saved runtime when restoring alerts, and reapply this constructor policy.
+See the website's finished-alert-lines example for both display choices.
+
 Alerts default to confirmed bar closes. Intrabar touch can fire on a wick that
 the provider later removes from final history. Absent study readings remain
 unavailable, including OI on this OHLCV-only provider. Alerts keep their symbol,
 exchange and interval scope, and loading history never evaluates past signals.
+In 2.5.0, alert drags snap to the source scale's tick in preview and on release.
+Hover an armed alert line and press Delete or Backspace to remove it. Selected
+or hovered drawings and active drawing tools keep their shortcut priority;
+editing a field never removes an alert.
+
+In 2.5.0, fixed price levels stay visible after an interval change. Their labels
+show the original interval, with a Paused badge while another interval is open.
+Return to the original interval to resume evaluation or drag the threshold.
+Study and drawing levels stay on their original interval; all records remain
+in the Alerts list. Switching intervals does not retime a saved alert.
+To test this, create a price alert on 1D, select 5M, reload, then return to 1D.
+The level stays visible on 5M without firing for its loaded history.
 Expiry is entered in the labelled chart timezone, stored as UTC epoch seconds,
 and progresses while the page is open, even without ticks.
 Triggered once alerts remain visible after a reload. Evaluation stops during

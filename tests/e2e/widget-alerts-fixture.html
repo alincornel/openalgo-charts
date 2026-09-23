@@ -30,6 +30,8 @@ const bars = savedBars ? JSON.parse(savedBars) : Array.from({ length: 100 }, (_,
   return { time: 1735689600 + i * 60, open: close - 0.3, high: close + 1, low: close - 1, close, volume: 100 + i,
     ...(i < 99 ? { oi: 1000 + i * 8 } : {}) };
 });
+// Page-exit handlers may be skipped; sample seeding must survive a reload.
+localStorage.setItem(prefix + 'bars', JSON.stringify(bars));
 const widget = createWidget(document.querySelector('#host'), {
   symbol: 'ALERT DEMO', exchange: 'SIM', interval: '1m', intervals: ['1m'],
   storage, persist: true, timeNavigator: false, theme: 'dark',
@@ -50,6 +52,7 @@ function tick(delta, next = false) {
   const bar = next ? { time: tail.time + 60, open: close, high: close, low: close, close, volume: 0 }
     : { ...tail, close, high: Math.max(tail.high, close), low: Math.min(tail.low, close) };
   if (next) bars.push(bar); else bars[bars.length - 1] = bar;
+  localStorage.setItem(prefix + 'bars', JSON.stringify(bars));
   widget.series.update(bar);
   document.querySelector('#price').textContent = close.toFixed(2);
 }

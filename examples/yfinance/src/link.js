@@ -3,6 +3,7 @@ import { renderToolbar } from './toolbar.js';
 import { popupMenu } from './menus.js';
 import { isSplit, openSplit, closeSplit } from './split.js';
 import { autosave } from './persist.js';
+import { capturePaneTarget } from './pane-target.js';
 
 let app;
 export function initLink(a) { app = a; }
@@ -12,7 +13,8 @@ export function initLink(a) { app = a; }
 export function describeLink() {
   if (!app.linkGroup) return 'unavailable';
   const o = app.linkGroup.options();
-  const on = ['crosshair', 'viewport', 'symbol', 'interval'].filter((k) => o[k]);
+  const on = ['crosshair', 'viewport', 'symbol', 'interval', 'appearance'].filter((k) => o[k]);
+  if (app.drawingLinkGroup?.options().enabled) on.push('drawings');
   return on.length ? on.join(' + ') : 'nothing synced';
 }
 
@@ -45,6 +47,19 @@ export function openLinkMenu(anchor) {
     { label: 'Interval', on: o.interval, disabled: typeof app.linkGroup.setInterval !== 'function',
       reason: typeof app.linkGroup.setInterval !== 'function' ? 'This build has no interval linking' : '',
       onSelect: () => setLink({ interval: !o.interval }) },
+    { label: 'Appearance', on: o.appearance, onSelect: () => setLink({ appearance: !o.appearance }) },
+    { label: 'Drawings (same instrument)', on: app.drawingLinkGroup?.options().enabled,
+      onSelect: () => {
+        app.drawingLinkGroup?.setOptions({ enabled: !app.drawingLinkGroup.options().enabled });
+        renderToolbar();
+      } },
+    { label: 'Share existing drawings from selected chart',
+      disabled: !app.drawingLinkGroup?.options().enabled || !isSplit(),
+      reason: 'Enable drawing sync and open the second chart',
+      onSelect: () => {
+        const target = capturePaneTarget(app);
+        if (target?.current()) app.drawingLinkGroup.share(target.chart);
+      } },
     { group: 'When the follower has no such bar' },
     { label: 'Snap to the nearest bar', on: o.whenMissing === 'nearest', onSelect: () => setLink({ whenMissing: 'nearest' }) },
     { label: 'Draw nothing', on: o.whenMissing === 'hide', onSelect: () => setLink({ whenMissing: 'hide' }) },

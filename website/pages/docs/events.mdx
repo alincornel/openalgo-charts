@@ -1,6 +1,6 @@
 ---
 title: Events
-description: React to interaction, viewport changes, data paging, and lifecycle with one unified chart.on(...) bus.
+description: Timeline event markers, grouped details and the chart interaction, viewport, data and lifecycle bus.
 ---
 
 import { Callout } from 'nextra/components'
@@ -46,6 +46,8 @@ it on teardown (component unmount, route change) so listeners never leak.
 | `destroy` | `{}` | Once, at the end of `chart.destroy()`, with the chart already torn down. Anything holding a chart it did not create lets go of it here. |
 | `crosshair:move` | `{ time, index, price, bar, point, paneIndex, pressed, modifiers, pointerType, pressure, samples? }` | The pointer moves over the plot (all-null when it leaves). `pressed` is true while a pointer is held: the only way to observe a drag in progress, since placement mode suppresses panning. `samples` is present only then and lists every coalesced position since the last move. |
 | `click` | `{ id, price, time, paneIndex, point, modifiers, pointerType, pressure }` | The plot was clicked. `id` is the hit primitive's `externalId`, or **`null`** for a click on empty chart space. `point` uses container x and pane-local y in media pixels. `pressure` is the press pressure, since a release always reads 0. |
+| `event:click` | `ChartEventClick`: `{ id, cluster, events, point, paneIndex }` | A chart-owned timeline badge was clicked. `events` contains independent copies of every cluster member. |
+| `events:change` | `undefined` | Chart-owned event data, type visibility or group visibility changes. Hosts can dismiss stale detail views. |
 | `hover` | `{ id }` | The pointer enters (`id` = `externalId`) or leaves (`id` = `null`) a hit-testable primitive. |
 | `dblclick` | `{}` | The plot is double-clicked. The chart also resets the scale on this, *unless* a drawing tool is armed. There a double-click finishes the shape instead. |
 | `contextmenu` | `{ paneIndex, point, price, time, index, target, preventDefault }` | The plot is right-clicked. `target` classifies what is under the pointer, so an app can raise its own menu. See below. |
@@ -77,6 +79,113 @@ logical bar indices, handy when you drive your own paging math.
 work in the handler (update a legend, a readout). Defer heavy work to
 `requestAnimationFrame` or a debounce.
 </Callout>
+
+## Timeline event markers
+
+Supply a timeline with `chart.setEvents(events)`. Each `ChartEvent` requires
+`time` in UTC seconds, `type` and the short badge `label`. The optional `id`
+remains the hit handle for a single event when that ID is unique. Anonymous events,
+duplicate IDs and clusters receive generated handles; details preserve the original
+event IDs. You can also supply `color`, `title`,
+`group` and `details`. Details accept a string or a `ChartEventDetails` object
+containing `summary` and a list of `{ label, value }` text fields.
+
+```ts
+chart.setEventGroups([
+  { id: 'calendar', label: 'Calendar' },
+  { id: 'company', label: 'Company', parentId: 'calendar' },
+]);
+chart.setEvents([
+  {
+    id: 'sample-results', time: 1705315500, type: 'earnings', label: 'E',
+    title: 'Sample results announcement', group: 'company',
+    details: {
+      summary: 'Demonstration data supplied by this application.',
+      fields: [{ label: 'Period', value: 'Quarter 3' }],
+    },
+  },
+]);
+chart.setEventMarkerOptions({ clustering: true, clusterRadius: 18 });
+chart.setEventGroupVisible('calendar', false);
+chart.setEventGroupVisible('calendar', true);
+chart.setEventOptions({ news: false });
+```
+
+Clustering defaults to **false**, preserving individual badges. When enabled,
+events within `clusterRadius` CSS pixels share a count badge, and zooming in
+separates them. The radius defaults to 18 and accepts values from 1 to 200.
+Group visibility includes descendants: showing a child cannot override a hidden
+parent. Duplicate group IDs, missing parents and cycles are rejected before the
+existing hierarchy changes. Ungrouped events and groups not yet configured remain
+visible. The existing type switches continue to apply alongside group visibility.
+
+Events do not need an exact candle timestamp. The primitive interpolates chart
+time across candle and session gaps, retaining the original timestamp in every
+returned member. Nonfinite timestamps are rejected. Input events, group definitions
+and returned details are copied, so callers can edit their own objects safely.
+Changing the chart's symbol or exchange clears chart-owned events; the host supplies
+the next instrument's calendar. Group and visibility preferences remain available.
+
+### Click details and custom hosts
+
+```ts
+import type { ChartEventClick } from 'openalgo-charts';
+
+const off = chart.on('event:click', payload => {
+  const { id, cluster, events } = payload as ChartEventClick;
+  showEventDetails({ id, cluster, events });
+});
+```
+
+`ChartEventClick` contains the badge `id`, a `cluster` boolean, all member `events`,
+the click `point` and `paneIndex`. Cluster handles remain stable while membership
+stays the same. Read `chart.eventMarkers()?.detailsForHit(id)` for the latest drawn
+hit; outdated handles return `null` after layout or model changes. The primitive
+also exposes `events()`, `groups()`, `options()` and `isGroupVisible(id)`.
+
+For a host-owned primitive, call
+`chart.addEventMarkers(paneIndex, { clustering: true })` and keep its return value.
+Use `setEvents`, `setGroups`, `setGroupVisible` and `setOptions` on that primitive,
+then resolve ordinary chart `click` or `hover` IDs through its `detailsForHit`.
+`event:click` is emitted for the strip managed by `chart.setEvents`.
+
+### Widget popup and host loaders
+
+The widget opens an accessible details popup when a chart-owned badge is clicked.
+Cluster members are selectable buttons. All titles, summaries and field values
+are rendered as text. Escape and Close dismiss it, Tab stays within its controls,
+and closing returns focus to the opener when appropriate.
+
+```ts
+import { createWidget } from 'openalgo-charts/widget';
+
+const widget = createWidget(container, {
+  eventDetails: {
+    loadDetails: async (event, { signal }) => {
+      return calendarDetails.load(event.id, { signal });
+    },
+  },
+});
+widget.chart.setEvents(sampleEvents);
+```
+
+`EventDetailsLoader` returns a promise of a detail string, a `ChartEventDetails`
+object, or `null` to retain supplied details. The popup aborts the previous signal
+on selection changes, closure and disposal, and ignores late results even when
+the host loader cannot cancel its work. A failed lookup keeps supplied details
+visible. The host owns its feed, request authentication and cancellation support;
+the engine and widget make no calendar requests themselves.
+
+Set `eventDetails: false` to provide your own detail view. A custom host can also
+create `new EventDetailsPopup(container, options)` from the widget tier, call
+`open(details, { x, y })` with container-relative CSS coordinates, and call
+`destroy()` at teardown. `EventDetailsPopupOptions` accepts `labels`, `formatTime`,
+`styleNonce`, a shared `overlays` stack and `injectStyles: false` for hosts that
+already include `EVENT_DETAILS_CSS`. Standalone time formatting defaults to
+`Asia/Kolkata`; supply `formatTime` for another timezone or locale.
+
+The [linked analysis example](/examples) uses explicitly labelled sample events.
+No live calendar source is bundled.
 
 ## Live demo
 

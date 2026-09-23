@@ -1,6 +1,6 @@
 ---
 title: Drawing Tools
-description: 85 drawing tools, a headless controller, undo/redo, and persistence.
+description: 87 drawing tools, a headless controller, undo/redo, and persistence.
 ---
 
 import { Callout } from 'nextra/components'
@@ -8,7 +8,7 @@ import DrawingToolsDemo from '../../components/DrawingToolsDemo'
 
 # Drawing Tools
 
-`openalgo-charts/draw` is a lazy tier (**35.43 kB** Brotli in 2.4.8) with 85 tools and a headless
+`openalgo-charts/draw` is a lazy tier (**40.73 kB** Brotli in 2.5.2) with 87 tools and a headless
 controller. It ships **no UI**: no toolbar, no dialogs. It owns the model and the
 interactions; your app supplies the buttons.
 
@@ -42,7 +42,7 @@ draw.setTool('trend-line');   // the next two clicks place it
 
 ## The tools
 
-**85 built-in tools**, all registered when the tier is imported.
+**87 built-in tools**, all registered when the tier is imported.
 
 | Group | `id` | Anchors |
 |---|---|---|
@@ -66,6 +66,7 @@ draw.setTool('trend-line');   // the next two clicks place it
 | Cycles | `cyclic-lines`, `time-cycles`, `sine-line` | 2 |
 | Text and notes | `text`, `price-label`, `flag-mark`, `note`, `balloon`, `comment`, `signpost`, `price-note`, `table`; `callout` | 1; 2 |
 | Brushes | `brush`, `highlighter` | n |
+| Analysis | `anchored-vwap`; `fixed-range-volume-profile` | 1; 2 |
 
 `long-position` and `short-position` place in two clicks: the entry, then the target.
 The second click is also the direction: release above the entry and the trade is a long,
@@ -101,6 +102,90 @@ the ellipse that differing axis scales would otherwise produce. `arc` passes *th
 middle anchor; `curve` treats that anchor as a control handle, so the path only leans toward
 it. `highlighter` is `path` with a fat translucent stroke, and is grabbable anywhere across
 its width.
+
+## Anchored analysis
+
+`anchored-vwap` places with one click and accumulates from the first loaded candle
+at or after that timestamp through the latest candle. `fixed-range-volume-profile`
+uses two clicks to choose an inclusive time range; either anchor order works.
+Both use the primary OHLCV series of their owning pane, retain UTC timestamps
+when history changes, and support the usual selection, dragging, properties,
+undo, deletion and JSON restore. Moving an anchor's price moves its handle;
+the calculation depends on its time and the series data.
+
+```ts
+draw.setTool('anchored-vwap');
+// Or add a known range directly:
+const profile = draw.add({
+  tool: 'fixed-range-volume-profile', paneIndex: 0,
+  points: [{ time: startTime, price: startPrice }, { time: endTime, price: endPrice }],
+  style: { color: '#4f8cff', fillOpacity: 0.4 },
+  props: { rows: 48, valueArea: 70, width: 35, side: 'left' },
+});
+draw.update(profile.id, { props: { rows: 64, showPoc: true } });
+```
+
+The profile is an **estimate from candles**: each candle's volume is distributed
+uniformly over its low-to-high range. It does not represent exchange
+trade-by-trade volume. Its point of control is the midpoint of the largest
+volume row. The value area grows contiguously around that row until it reaches
+the selected percentage, choosing the larger adjacent row first and the lower
+row on ties.
+
+| Drawing | `props` setting | Default | Bounds or choices |
+|---|---|---|---|
+| Anchored VWAP | `source` | `hlc3` | `hlc3`, `close`, `hl2`, `ohlc4` |
+| Anchored VWAP | `showBands` | `true` | Boolean |
+| Anchored VWAP | `bandMultiplier` | `1` | 0 to 5; volume-weighted population standard deviation |
+| Volume profile | `rows` | `48` | Requested count rounded to 4 to 200; fewer rows when distinct price edges cannot be represented, one for flat prices |
+| Volume profile | `valueArea` | `70` | 1 to 100 percent |
+| Volume profile | `width` | `35` | 5 to 100 percent of the anchored screen span |
+| Volume profile | `side` | `left` | `left` or `right` |
+| Volume profile | `showPoc` | `true` | Boolean |
+| Volume profile | `showValueArea` | `true` | Boolean |
+
+Both expose line color, width, dash and label font settings. Profile histogram
+opacity is `style.fillOpacity` (default `0.4`). `drawingSettingsSchema()` supplies
+the controls; `readDrawingSettings()` returns their effective declared defaults
+when the drawing has no override. Calculation settings are bounded even when
+loaded directly from JSON. Histogram row lookups use at most 200 boundaries;
+interior rows are accumulated without visiting every row for each candle. Narrow
+price ranges merge indistinguishable boundaries and distribute volume using the
+remaining row widths. The forming candle is recalculated on every call and paint.
+
+Missing, negative or nonfinite volume is unavailable. Zero volume is a known
+observation with no weight. A result with some unavailable observations is
+labelled partial; a wholly unavailable or zero-volume range shows that state
+instead of a valid measurement. These notices remain visible when optional
+labels are hidden, and the anchor marks keep an unavailable drawing selectable.
+
+If the requested anchor or range start precedes the earliest supplied candle,
+`historyPartial` is true and an otherwise usable result has `status: 'partial'`.
+The drawing explicitly reports partial history, separately from missing volume.
+Load history through the anchor to obtain the full measurement; prepending those
+bars recalculates the result without changing the stored timestamps.
+
+The draw tier also exports the DOM-free calculators and descriptors:
+
+```ts
+import {
+  anchoredVwapAnalysis, fixedRangeVolumeProfileAnalysis,
+  ANCHORED_VWAP, FIXED_RANGE_VOLUME_PROFILE,
+} from 'openalgo-charts/draw';
+
+const vwap = anchoredVwapAnalysis(bars, anchorTime, { source: 'hlc3' });
+const histogram = fixedRangeVolumeProfileAnalysis(bars, startTime, endTime, {
+  rows: 48, valueArea: 70,
+});
+```
+
+Pass bars sorted by ascending timestamp. Results report `status`, `historyPartial`,
+`missingVolumeBars` and `invalidPriceBars`. VWAP `points` carry `time`, `value`,
+`deviation` and `breakBefore` for omitted observations. Profile `rows` carry
+`low`, `high`, `volume` and `valueArea`, alongside `totalVolume`, `poc`,
+`valueAreaLow` and `valueAreaHigh`. A status can be `ready`, `partial`,
+`missing-volume`, `zero-volume`, `empty` or `invalid-data`; unavailable profile
+levels are `null`. These helpers need neither the indicators tier nor the profile tier.
 
 ## Advanced drawings in 2.2.0
 

@@ -25,6 +25,66 @@ async function ink(page: Page, rgb: readonly number[]) {
   }, [...rgb]);
 }
 
+test('price alerts remain visible across timeframes while their original evaluation stays paused', async ({ page }, info) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.setViewportSize({ width: 1360, height: 900 });
+  await page.goto('/tests/e2e/alerts-fixture.html');
+  await page.waitForFunction(() => !!window.__alertsDemo);
+  await page.evaluate(() => {
+    const { chart, series, alerts, bars } = window.__alertsDemo;
+    const document = alerts.toJSON();
+    series.setData([]);
+    chart.setDataContext({ symbol: 'ALERT FIXTURE', exchange: 'SIM', interval: '5m' });
+    series.setData(bars.filter((_, index) => index % 5 === 0));
+    alerts.fromJSON(document);
+    chart.fitContent();
+  });
+  await expect.poll(() => page.evaluate(() => window.__alertsDemo.chart.exportSVG().includes('Confirmed threshold (1m)'))).toBe(true);
+  const paused = await page.evaluate(() => {
+    const { chart, alerts, ids, fired } = window.__alertsDemo;
+    return { svg: chart.exportSVG(), availability: alerts.availability(ids.close), fired: fired.length, count: alerts.list().length };
+  });
+  expect(paused.availability).toMatchObject({ available: false, reason: expect.stringContaining('1m') });
+  expect(paused.count).toBe(5);
+  expect(paused.fired).toBe(0);
+  expect(paused.svg).toContain('Paused');
+  expect(paused.svg).toContain('Disabled');
+  expect(paused.svg).toContain('Expired');
+  expect(paused.svg).not.toContain('Drawing threshold');
+  await expect.poll(() => ink(page, [59, 130, 246])).toBeGreaterThan(100);
+  const point = await page.evaluate(() => {
+    const { chart } = window.__alertsDemo;
+    const box = document.getElementById('chart')!.getBoundingClientRect();
+    return { x: box.left + 400, y: box.top + chart.priceToCoordinate(110)! };
+  });
+  await page.mouse.move(point.x, point.y);
+  expect(await page.locator('#chart').evaluate(node => node.style.cursor)).not.toBe('ns-resize');
+  await page.mouse.move(5, 5);
+  await page.screenshot({ path: info.outputPath('alerts-other-timeframe.png'), animations: 'disabled' });
+  await page.evaluate(() => {
+    const { chart, series, bars } = window.__alertsDemo;
+    series.setData([]);
+    chart.setDataContext({ symbol: 'ALERT FIXTURE', exchange: 'SIM', interval: '1m' });
+    series.setData(bars);
+    chart.fitContent();
+  });
+  expect(await page.evaluate(() => window.__alertsDemo.fired)).toEqual([]);
+  expect(await page.evaluate(() => window.__alertsDemo.alerts.availability(window.__alertsDemo.ids.close).available)).toBe(true);
+  expect(await page.evaluate(() => window.__alertsDemo.chart.exportSVG())).toContain('Drawing threshold');
+  await page.evaluate(() => {
+    const { series, bars } = window.__alertsDemo;
+    const tail = bars[bars.length - 1];
+    series.update({ ...tail, close: 112, high: 113 });
+    series.update({ ...tail, time: tail.time + 60, open: 112, close: 112, high: 113 });
+  });
+  expect(await page.evaluate(() => {
+    const { fired, ids } = window.__alertsDemo;
+    return fired.filter(event => event.alertId === ids.close).length;
+  })).toBe(1);
+  expect(errors).toEqual([]);
+});
+
 test('drawing alerts follow a real drag and render armed, triggered, disabled and expired levels', async ({ page }, info) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
@@ -106,42 +166,112 @@ test('clear plot space preserves pane panning and alert teardown removes every o
   for (const label of ['Intrabar threshold', 'Confirmed threshold', 'Drawing threshold', 'Disabled level', 'Expired level']) expect(svg).not.toContain(label);
 });
 
-test('a page reload restores drawing anchors and triggered once levels without new delivery', async ({ page }, info) => {
-  const errors: string[] = [];
-  page.on('pageerror', error => errors.push(error.message));
-  await page.setViewportSize({ width: 1360, height: 900 });
-  await page.goto('/tests/e2e/alerts-fixture.html');
-  await page.waitForFunction(() => !!window.__alertsDemo);
-  await page.evaluate(() => {
-    const { series, bars, chart } = window.__alertsDemo;
-    series.update({ ...bars[bars.length - 1], high: 114 });
-    sessionStorage.setItem('saved-alert-chart', JSON.stringify(chart.getState()));
+for (const spentLines of ['show', 'hide']) {
+  test(`a page reload restores drawing anchors without new delivery with spent lines ${spentLines}`, async ({ page }, info) => {
+    const errors: string[] = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.setViewportSize({ width: 1360, height: 900 });
+    await page.goto(`/tests/e2e/alerts-fixture.html?spentLines=${spentLines}`);
+    await page.waitForFunction(() => !!window.__alertsDemo);
+    await page.evaluate(() => {
+      const { series, bars, chart } = window.__alertsDemo;
+      series.update({ ...bars[bars.length - 1], high: 114 });
+      sessionStorage.setItem('saved-alert-chart', JSON.stringify(chart.getState()));
+    });
+    expect(await page.evaluate(() => window.__alertsDemo.fired.length)).toBe(2);
+    await page.reload();
+    await page.waitForFunction(() => !!window.__alertsDemo);
+    expect(await page.evaluate(() => window.__alertsDemo.chart.restoreState(JSON.parse(sessionStorage.getItem('saved-alert-chart')!)).applied)).toBe(true);
+    expect(await page.evaluate(() => window.__alertsDemo.alerts.list().map(alert => [alert.title, alert.state]))).toEqual([
+      ['Intrabar threshold', 'triggered'], ['Confirmed threshold', 'armed'], ['Drawing threshold', 'triggered'],
+      ['Disabled level', 'disabled'], ['Expired level', 'expired'],
+    ]);
+    expect(await page.evaluate(() => {
+      const { alerts, draw } = window.__alertsDemo;
+      const source = alerts.list().find(alert => alert.title === 'Drawing threshold')!.source;
+      return source.kind === 'drawing' && draw.get(source.drawingId)?.points[0].price;
+    })).toBe(108);
+    await page.evaluate(() => {
+      const { series, bars } = window.__alertsDemo;
+      const last = bars[bars.length - 1];
+      series.update({ ...last, high: 115 });
+      series.update({ ...last, time: last.time + 60 });
+    });
+    expect(await page.evaluate(() => window.__alertsDemo.fired)).toEqual([]);
+    if (spentLines === 'show') await expect.poll(() => ink(page, [34, 197, 94])).toBeGreaterThan(100);
+    else {
+      await expect.poll(() => ink(page, [34, 197, 94])).toBe(0);
+      await expect.poll(() => ink(page, [217, 119, 6])).toBe(0);
+      await expect.poll(() => ink(page, [232, 121, 249])).toBeGreaterThan(100);
+    }
+    const svg = await page.evaluate(() => window.__alertsDemo.chart.exportSVG());
+    for (const title of ['Intrabar threshold', 'Confirmed threshold', 'Drawing threshold', 'Disabled level', 'Expired level']) {
+      const hidden = spentLines === 'hide' && ['Intrabar threshold', 'Drawing threshold', 'Expired level'].includes(title);
+      expect(svg.split(title).length - 1).toBe(hidden ? 0 : 1);
+    }
+    await page.screenshot({ path: info.outputPath('alerts-restored.png'), animations: 'disabled' });
+    await page.evaluate(() => {
+      const { alerts, ids } = window.__alertsDemo;
+      alerts.enable(ids.touch);
+      alerts.update(ids.expired, { expiresAt: 2000, state: 'armed' });
+    });
+    const rearmed = await page.evaluate(() => window.__alertsDemo.chart.exportSVG());
+    expect(rearmed).toContain('Intrabar threshold');
+    expect(rearmed).toContain('Expired level');
+    expect(await page.evaluate(() => window.__alertsDemo.fired)).toEqual([]);
+    expect(errors).toEqual([]);
   });
-  expect(await page.evaluate(() => window.__alertsDemo.fired.length)).toBe(2);
-  await page.reload();
+}
+
+test('hidden spent ranges remove both bounds while repeating alerts keep their lines', async ({ page }, info) => {
+  await page.goto('/tests/e2e/alerts-fixture.html?spentLines=hide');
   await page.waitForFunction(() => !!window.__alertsDemo);
-  expect(await page.evaluate(() => window.__alertsDemo.chart.restoreState(JSON.parse(sessionStorage.getItem('saved-alert-chart')!)).applied)).toBe(true);
-  expect(await page.evaluate(() => window.__alertsDemo.alerts.list().map(alert => [alert.title, alert.state]))).toEqual([
-    ['Intrabar threshold', 'triggered'], ['Confirmed threshold', 'armed'], ['Drawing threshold', 'triggered'],
-    ['Disabled level', 'disabled'], ['Expired level', 'expired'],
-  ]);
-  expect(await page.evaluate(() => {
-    const { alerts, draw } = window.__alertsDemo;
-    const source = alerts.list().find(alert => alert.title === 'Drawing threshold')!.source;
-    return source.kind === 'drawing' && draw.get(source.drawingId)?.points[0].price;
-  })).toBe(108);
-  await page.evaluate(() => {
-    const { series, bars } = window.__alertsDemo;
-    const last = bars[bars.length - 1];
-    series.update({ ...last, high: 115 });
-    series.update({ ...last, time: last.time + 60 });
+  const states = await page.evaluate(() => {
+    const { alerts, series, bars } = window.__alertsDemo;
+    const range = alerts.add({ title: 'Finished band', source: { kind: 'price', price: 102, upperPrice: 107 },
+      condition: 'enteringRange', policy: 'onTouch' });
+    const repeat = alerts.add({ title: 'Repeating threshold', source: { kind: 'price', price: 103 },
+      condition: 'crossingUp', policy: 'onTouch', repeat: 'everyTime' });
+    series.update({ ...bars[bars.length - 1], close: 104, high: 104 });
+    return { range: alerts.list().find(item => item.id === range.id)?.state,
+      repeat: alerts.list().find(item => item.id === repeat.id)?.state };
   });
-  expect(await page.evaluate(() => window.__alertsDemo.fired)).toEqual([]);
-  await expect.poll(() => ink(page, [34, 197, 94])).toBeGreaterThan(100);
+  expect(states).toEqual({ range: 'triggered', repeat: 'armed' });
   const svg = await page.evaluate(() => window.__alertsDemo.chart.exportSVG());
-  for (const title of ['Intrabar threshold', 'Confirmed threshold', 'Drawing threshold', 'Disabled level', 'Expired level']) {
-    expect(svg.split(title).length - 1).toBe(1);
-  }
-  await page.screenshot({ path: info.outputPath('alerts-restored.png'), animations: 'disabled' });
-  expect(errors).toEqual([]);
+  expect(svg).not.toContain('Finished band');
+  expect(svg).toContain('Repeating threshold');
+  await expect.poll(() => ink(page, [59, 130, 246])).toBeGreaterThan(100);
+  await page.screenshot({ path: info.outputPath('spent-range-hidden-repeat-visible.png'), animations: 'disabled' });
 });
+
+for (const finish of ['trigger', 'expire']) {
+  test(`hiding an alert during a drag cancels its draft on ${finish}`, async ({ page }) => {
+    await page.goto('/tests/e2e/alerts-fixture.html?spentLines=hide');
+    await page.waitForFunction(() => !!window.__alertsDemo);
+    const point = await page.evaluate(() => {
+      const { chart } = window.__alertsDemo;
+      const box = document.getElementById('chart')!.getBoundingClientRect();
+      return { x: box.left + 500, y: box.top + chart.priceToCoordinate(105)! };
+    });
+    await page.mouse.move(point.x, point.y);
+    await expect.poll(() => page.evaluate(() => window.__alertsDemo.alerts.hovered()))
+      .toBe(await page.evaluate(() => window.__alertsDemo.ids.touch));
+    await page.mouse.down();
+    await page.mouse.move(point.x, point.y + 12, { steps: 4 });
+    await page.evaluate(finish => {
+      const { alerts, ids, series, bars } = window.__alertsDemo;
+      if (finish === 'expire') alerts.update(ids.touch, { expiresAt: 999 });
+      else series.update({ ...bars[bars.length - 1], high: 106 });
+    }, finish);
+    await page.mouse.up();
+    const result = await page.evaluate(() => {
+      const { alerts, ids, chart } = window.__alertsDemo;
+      return { alert: alerts.list().find(item => item.id === ids.touch), hovered: alerts.hovered(),
+        visible: chart.exportSVG().includes('Intrabar threshold') };
+    });
+    expect(result.alert).toMatchObject({ state: finish === 'expire' ? 'expired' : 'triggered',
+      source: { kind: 'price', price: 105 } });
+    expect(result.hovered).toBeUndefined();
+    expect(result.visible).toBe(false);
+  });
+}

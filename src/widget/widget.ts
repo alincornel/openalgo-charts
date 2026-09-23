@@ -45,6 +45,8 @@ import { attachContextMenu, DIALOG_CSS, mountIndicatorSettings, mountDrawingProp
 import { mountObjectsPanel, OBJECTS_PANEL_CSS } from './objects-panel';
 import { mountMobile, type MobileHandle, type MobileMode } from './mobile';
 import { widgetText, type WidgetTranslator } from './localization';
+import { EventDetailsPopup, EVENT_DETAILS_CSS, type EventDetailsPopupOptions } from './event-details';
+import type { ChartEventClick } from 'openalgo-charts';
 
 /** The intervals offered when the host names none: the registry's codes are appended. */
 export const DEFAULT_INTERVALS: readonly string[] = ['1m', '5m', '15m', '1h', '1d', '1w'];
@@ -57,6 +59,8 @@ export const STATE_KEY = 'state';
 export const WIDGET_STATE_VERSION = 1;
 
 export interface WidgetOptions extends Omit<ChartOptions, 'theme'> {
+  /** Event marker clicks open details. Set false to provide a host-owned view. */
+  eventDetails?: false | EventDetailsPopupOptions;
   /** Where bars come from. Without one the chart shows what the host sets on `widget.series` itself. */
   feed?: DataFeed;
   /** Shared history, paging and recovery options. `now` here uses UTC seconds. */
@@ -180,6 +184,7 @@ const WIDGET_ONLY_KEYS: ReadonlyArray<keyof WidgetOptions> = [
   'feed', 'symbol', 'exchange', 'interval', 'intervals', 'chartType', 'theme', 'rail', 'topbar', 'statusline',
   'mobile', 'loading', 'persist', 'storage', 'locale', 'translate', 'indicators', 'symbolSearch', 'lookbackBars', 'now', 'onOrder', 'styleNonce',
   'tradingCapabilities', 'tradingMode', 'tradingLocked',
+  'eventDetails',
 ];
 
 /**
@@ -329,7 +334,7 @@ class WidgetImpl implements Widget {
     }) : null;
     const doc = options.document ?? container.ownerDocument;
     this._doc = doc;
-    injectWidgetStyles(doc, DIALOG_CSS + OBJECTS_PANEL_CSS, options.styleNonce);
+    injectWidgetStyles(doc, DIALOG_CSS + OBJECTS_PANEL_CSS + EVENT_DETAILS_CSS, options.styleNonce);
 
     // ── persisted facts, before anything is built from them ────────────
     const ns = typeof options.persist === 'string' ? options.persist : 'default';
@@ -437,6 +442,27 @@ class WidgetImpl implements Widget {
       interval: () => this._interval,
     });
     this._cleanups.push(() => { tips.destroy(); overlays.destroy(); });
+    if (options.eventDetails !== false) {
+      const eventDetails = new EventDetailsPopup(chartEl, {
+        styleNonce: options.styleNonce, overlays: this.context.overlays,
+        formatTime: time => {
+          const date = new Date(time * 1000);
+          return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat(options.locale, {
+            timeZone: this.chart.timezone(), dateStyle: 'medium', timeStyle: 'short',
+          }).format(date) : String(time);
+        },
+        ...options.eventDetails,
+        // Reuse the host's shared stylesheet and its preserved CSP nonce.
+        injectStyles: false,
+      });
+      this._cleanups.push(this.chart.on('event:click', payload => {
+        const details = payload as ChartEventClick;
+        eventDetails.open(details, details.point);
+      }));
+      this._cleanups.push(this.chart.on('data:context', () => eventDetails.close()));
+      this._cleanups.push(this.chart.on('events:change', () => eventDetails.close()));
+      this._cleanups.push(() => eventDetails.destroy());
+    }
     this._dataStatus = mountDataStatus(this.context, stage, this.dataController, () => { void this.reload(); });
     // The right-click menu is the one dialog nothing in the chrome opens, so
     // the shell subscribes it to the chart itself.
@@ -845,7 +871,17 @@ class WidgetImpl implements Widget {
     // nothing right now is declined so the engine (an arrow pan) still gets it.
     const editing = (e: KeyEventLike): boolean => {
       const action = keyToDrawingAction(e, drawCtx());
-      if (action === null) return false;
+      // Alert deletion is a fallback: a drawing selection, hover or armed
+      // tool keeps ownership even when the pointer is over an alert line.
+      if (action === null) {
+        const alertId = this.alerts.hovered();
+        if (alertId !== undefined && draw.activeTool() === null && (e.key === 'Delete' || e.key === 'Backspace')) {
+          this.alerts.remove(alertId);
+          this._rail?.refresh();
+          return true;
+        }
+        return false;
+      }
       switch (action.type) {
         case 'undo': draw.undo(); break;
         case 'redo': draw.redo(); break;

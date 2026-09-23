@@ -22,6 +22,85 @@ async function openAlertEditor(page: Page, narrow = false): Promise<void> {
   await page.getByRole('button', { name: 'Create alert', exact: true }).click();
 }
 
+for (const key of ['Delete', 'Backspace']) {
+  test(`${key} gives drawings priority over hovered alerts and persists alert removal`, async ({ page }, info) => {
+    const errors: string[] = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.setViewportSize({ width: 1360, height: 900 });
+    await page.goto('/tests/e2e/widget-alerts-fixture.html');
+    await page.waitForFunction(() => !!window.__widgetAlerts);
+    const ids = await page.evaluate(() => {
+      const { widget, bars } = window.__widgetAlerts;
+      widget.draw.clear();
+      const drawing = widget.draw.add({ tool: 'horizontal-line', paneIndex: 0, style: {},
+        points: [{ time: bars[80].time, price: 99 }] });
+      const alert = widget.alerts.add({ title: 'Keyboard target', source: { kind: 'price', price: 102 } });
+      const kept = widget.alerts.add({ title: 'Retained alert', source: { kind: 'price', price: 101 } });
+      widget.draw.select(drawing.id);
+      return { drawing: drawing.id, alert: alert.id, kept: kept.id };
+    });
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    const point = await page.evaluate(() => {
+      const { widget } = window.__widgetAlerts;
+      const rect = widget.root.querySelector('.oac-chart')!.getBoundingClientRect();
+      return { x: Math.round(rect.left + rect.width * 0.65), y: Math.round(rect.top + widget.chart.priceToCoordinate(102)!) };
+    });
+    await page.mouse.move(point.x, point.y);
+    await expect.poll(() => page.evaluate(() => window.__widgetAlerts.widget.alerts.hovered())).toBe(ids.alert);
+    await page.keyboard.press(key);
+    expect(await page.evaluate(() => window.__widgetAlerts.widget.draw.drawings())).toEqual([]);
+    expect(await page.evaluate(() => window.__widgetAlerts.widget.alerts.list().map(item => item.id))).toEqual([ids.alert, ids.kept]);
+    await page.screenshot({ path: info.outputPath('drawing-deleted-alert-retained.png'), animations: 'disabled' });
+
+    await page.mouse.move(point.x, point.y + 20);
+    await page.mouse.move(point.x, point.y);
+    await expect.poll(() => page.evaluate(() => window.__widgetAlerts.widget.alerts.hovered())).toBe(ids.alert);
+    await page.keyboard.press(key);
+    expect(await page.evaluate(() => window.__widgetAlerts.widget.alerts.list().map(item => item.id))).toEqual([ids.kept]);
+    await page.screenshot({ path: info.outputPath('hovered-alert-deleted.png'), animations: 'disabled' });
+    // The fixture must not seed a new drawing if pagehide is skipped on reload.
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('oac-alert-preview:bars') ?? '[]').length)).toBe(100);
+    await page.reload();
+    await page.waitForFunction(() => !!window.__widgetAlerts);
+    expect(await page.evaluate(() => window.__widgetAlerts.widget.draw.drawings())).toEqual([]);
+    expect(await page.evaluate(() => window.__widgetAlerts.widget.alerts.list().map(item => item.id))).toEqual([ids.kept]);
+    expect(errors).toEqual([]);
+  });
+}
+
+test('Delete removes a dragged alert without moving the pointer off its line', async ({ page }, info) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.setViewportSize({ width: 1360, height: 900 });
+  await page.goto('/tests/e2e/widget-alerts-fixture.html');
+  await page.waitForFunction(() => !!window.__widgetAlerts);
+  const id = await page.evaluate(() => {
+    const { widget } = window.__widgetAlerts;
+    widget.draw.clear();
+    return widget.alerts.add({ title: 'Drag then delete', source: { kind: 'price', price: 102 } }).id;
+  });
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  const points = await page.evaluate(() => {
+    const { widget } = window.__widgetAlerts;
+    const rect = widget.root.querySelector('.oac-chart')!.getBoundingClientRect();
+    return { x: Math.round(rect.left + rect.width * 0.65),
+      from: Math.round(rect.top + widget.chart.priceToCoordinate(102)!),
+      to: Math.round(rect.top + widget.chart.priceToCoordinate(99.5)!) };
+  });
+  await page.mouse.move(points.x, points.from);
+  await expect.poll(() => page.evaluate(() => window.__widgetAlerts.widget.alerts.hovered())).toBe(id);
+  await page.mouse.down();
+  await page.mouse.move(points.x, points.to, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => window.__widgetAlerts.widget.alerts.list()[0].source))
+    .toMatchObject({ kind: 'price', price: expect.closeTo(99.5, 1) });
+  await expect.poll(() => page.evaluate(() => window.__widgetAlerts.widget.alerts.hovered())).toBe(id);
+  await page.screenshot({ path: info.outputPath('dragged-alert-hovered.png'), animations: 'disabled' });
+  await page.keyboard.press('Delete');
+  expect(await page.evaluate(() => window.__widgetAlerts.widget.alerts.list())).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
 for (const viewport of [{ width: 1360, height: 900 }, { width: 390, height: 844 }]) {
   test(`host form metrics keep controls aligned at ${viewport.width}px`, async ({ page }, info) => {
     await page.setViewportSize(viewport);

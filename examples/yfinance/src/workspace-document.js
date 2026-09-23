@@ -46,7 +46,8 @@ export function workspaceFromLayout(layout, { magnet = layout.magnet || 'off', s
       slots: panes.map((pane, column) => ({ paneId: pane.id, row: 0, column, rowSpan: 1, columnSpan: 1 })),
       ...(panes.length === 2 ? { columnWeights: [100 - width, width] } : {}) },
     sync: { crosshair: links.crosshair !== false, viewport: links.viewport !== false,
-      symbol: links.symbol === true, interval: links.interval === true } };
+      symbol: links.symbol === true, interval: links.interval === true,
+      ...(links.appearance === undefined ? {} : { appearance: links.appearance === true }) } };
   // getState() can contain absent optional fields. Normalize that trusted state
   // before the portable boundary, which deliberately accepts only JSON values.
   return validateReferenceWorkspace(JSON.parse(JSON.stringify(payload)));

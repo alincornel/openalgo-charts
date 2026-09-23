@@ -12,8 +12,12 @@ import { Callout } from 'nextra/components'
 with a top bar (symbol, interval, chart type, theme, settings, indicators, objects, alerts), a drawing rail
 down the left, a status line, the dialogs behind each of those buttons, keyboard shortcuts
 with a `?` panel that lists them, and optional persistence of the layout. It is one of nine
-loadable tiers (**49.03 kB** Brotli in 2.4.8) and the only tier that supplies
+loadable tiers (**51.06 kB** Brotli in 2.5.2) and the only tier that supplies
 application controls.
+
+The drawing rail includes Anchored VWAP and fixed-range Volume Profile. They use
+the chart's OHLCV data, participate in normal drawing edits and undo, and expose
+their settings through drawing properties. See [Drawing Tools](/docs/drawing-tools).
 
 The **Capture** menu offers **Download chart data (CSV)** alongside image export.
 CSV contains loaded OHLC, volume, OI, configured study plots and aligned comparison
@@ -420,7 +424,7 @@ createWidget('#terminal', {
 Register before you call `createWidget`: the rail reads the registry once when it builds,
 shows only ids it finds there, and drops a favourite it cannot resolve. The rail labels
 every button with the tool's `name` and draws a glyph when the draw tier's icon registry
-(`DRAWING_TOOL_ICONS`) has one for the id; the built-in 51 all do. A tool that declares
+(`DRAWING_TOOL_ICONS`) has one for the id. A tool that declares
 `shortcut` is bound by the widget's keymap and listed in the `?` panel, and a binding that
 collides with an existing one is reported rather than silently overridden. `settings`
 decides what the drawing properties dialog shows for the tool: a control appears only for
@@ -447,13 +451,13 @@ widget: a tier loaded beside it would import its own second engine. See
 
 ## Size
 
-Budgets from `.size-limit.json` and measurements from the 2.4.8 build, decimal
+Budgets from `.size-limit.json` and measurements from the 2.5.2 build, decimal
 Brotli kB, enforced by `npm run size`:
 
 | Row | Files | Budget | Measured |
 |---|---|--:|--:|
-| Widget tier | `openalgo-charts.widget.mjs` | 49.25 kB | 49.03 kB |
-| Widget terminal | base + draw + indicators + widget | 207.75 kB | 207.24 kB |
+| Widget tier | `openalgo-charts.widget.mjs` | 51.50 kB | 51.06 kB |
+| Widget terminal | base + draw + indicators + widget | 217.00 kB | 216.67 kB |
 
 The widget is a tier because of these rows. A host that never calls `createWidget`
 downloads none of it, and the base engine's own budget is unchanged.
@@ -480,6 +484,16 @@ on which it was captured. The history loader always releases its completion latc
 For a custom replay host, call `dataController.setPaused(true)` for the entire
 replay lifetime, including paused replay; stop replay before resuming delivery.
 See [data loading](/docs/data-loading) for the interactive failure/retry example.
+
+## Timeline event details
+
+For grouped timeline events, the widget opens an accessible text-only details
+popup when a marker or cluster is selected. Populate `widget.chart.setEvents(...)`
+and optionally `setEventGroups(...)`; the package supplies no calendar feed.
+`eventDetails: false` disables the popup. An `eventDetails.loadDetails` callback
+can retrieve additional host-owned data; its abort signal and stale-result guards
+prevent an old request from replacing a newer selection. The popup closes on
+Escape, context changes and event replacement. See [Events](/docs/events).
 
 ## Trader alerts
 

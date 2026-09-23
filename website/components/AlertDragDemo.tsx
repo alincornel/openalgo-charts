@@ -31,6 +31,7 @@ const bars = Array.from({ length: 72 }, (_, i) => {
 chart.addSeries('candlestick').setData(bars);
 let study = chart.addIndicator('website-alert-drag-study');
 chart.setVisibleLogicalRange({ from: -2, to: 76 });
+chart.panes()[0].priceScale.setOptions({ minMove: 0.25 });
 chart.panes()[0].priceScale.setFixedRange({ min: 80, max: 130 });
 chart.panes()[study.paneIndex].priceScale.setFixedRange({ min: 0, max: 100 });
 const alerts = new lib.AlertController(chart);
@@ -120,5 +121,5 @@ return { destroy() { delete el.dataset.alertDragReady; listeners.abort(); alerts
 
 export default function AlertDragDemo() {
   return <div id="alert-drag-demo"><RunnableExample height={560} code={code}
-    caption="Synthetic candles and study readings. Drag the price level, either price-band boundary, or the study level in the lower pane. The saved-value readout changes once on release; Escape cancels. No live feed or external delivery is connected." /></div>;
+    caption="Synthetic candles and study readings. Drag the price level, either price-band boundary, or the study level in the lower pane. Price previews snap to a 0.25 tick. The saved-value readout changes once on release; Escape cancels. No live feed or external delivery is connected." /></div>;
 }

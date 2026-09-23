@@ -4,7 +4,7 @@ All notable changes to OpenAlgo Charts.
 
 ## Unreleased
 
-Upstream 2.0.2 through 2.4.8 merged into the fork, and a footprint that reads
+Upstream 2.0.2 through 2.5.2 merged into the fork, and a footprint that reads
 as a ladder instead of a hairline mesh.
 
 ### Merged
@@ -160,6 +160,20 @@ as a ladder instead of a hairline mesh.
   (104.5), widget terminal 210.36 (210.75), everything 251.90 (252.3), against
   upstream's 92.94 / 100.95 / 207.24 / 246.63. Chart-only shake 55.27 KiB
   (55.5) against upstream's 53.00.
+- **Upstream 2.5.0 - 2.5.2** merged on top: alert fixes (tick-snapped drag,
+  Delete, optional finished-alert lines), table cell clipping and auto-size,
+  grouped timeline event markers with a details popup, the Anchored VWAP and
+  Fixed Range Volume Profile analysis drawings, and drawings linked across
+  charts. One conflict in `src/`: `DrawingController` now answers `drag:cancel`
+  with upstream's `cancelDrag()` (points restored from the gesture snapshot,
+  undo/redo stacks restored, no `draw:update`), which replaces the fork's
+  `_onDragCancel`: upstream's undo entries are no longer JSON strings, so the
+  fork's pop-and-parse would have broken, and `cancelDrag()` gives the same
+  revert-and-no-undo-step result the fork's tests pin.
+- Budgets re-measured: base engine 98.14 kB (limit 98.5), base + trade 106.22
+  (106.6), widget terminal 219.76 (220.2), everything 261.33 (261.75), against
+  upstream's 95.04 / 103.05 / 216.67 / 256.08. Chart-only shake 56.81 KiB (57)
+  against upstream's 54.67.
 
 ### Added
 
@@ -416,6 +430,85 @@ as a ladder instead of a hairline mesh.
 
 - Base engine budget 62 -> 63 kB, for the bar-indexed gates and the request
   adapter: 0.23 kB brotli measured against a 61.94 kB baseline.
+
+## 2.5.2
+
+2026-09-23
+
+### Added
+
+- Anchored VWAP and Fixed Range Volume Profile drawing tools, with editable time
+  anchors, settings, selection, undo and saved drawings. VWAP supports price sources
+  and deviation bands. The profile shows estimated candle volume, its point of
+  control and value area. Missing volume remains distinct from zero.
+- Opt-in drawing synchronization for the same symbol and exchange across chart
+  intervals. Linked drawings support live previews, edits, deletion and undo without
+  copying alerts, orders or local selections. Existing drawings can be shared explicitly.
+- Opt-in appearance synchronization through the chart settings API. Visual settings
+  can follow independently of symbol, timeframe, viewport and drawing links.
+- Timeline event groups, parent visibility and optional zoom-dependent clustering.
+  Clicks expose all cluster members. The widget adds accessible plain-text details,
+  with optional cancellable detail loading supplied by the host.
+- Reference-host controls and a live website example for the new drawing, linking
+  and timeline APIs. Event samples are labelled demonstration data.
+
+Existing drawing and appearance links remain off by default. Event clustering is
+off unless enabled. No runtime dependencies or additional package tiers are added.
+
+## 2.5.1
+
+2026-09-21
+
+### Added
+
+- `AlertControllerOptions.spentLines: 'hide'` hides the lines of triggered and
+  expired alerts. The default, `'show'`, preserves existing behavior.
+- Hidden alerts retain their records, lifecycle and saved runtime, so once-only
+  alerts cannot fire again merely because their lines are hidden or restored.
+  Re-arming restores the line. Armed, repeating and disabled lines stay visible.
+- Added restore, re-arm and range browser coverage, a live lifecycle example,
+  and host integration guidance. No saved-alert migration is required.
+
+## 2.5.0
+
+2026-09-21
+
+Keep price alerts visible across timeframes, move them to valid ticks, and fit
+chart tables to their text.
+
+### Added
+
+- `ChartTableOptions.cellWidth: 'auto'` measures each column from its widest
+  cell, including padding, bold text and per-cell font overrides. Empty columns
+  retain a 28 px minimum. Percentage widths preserve measured proportions.
+- `AlertController.hovered()` lets custom hosts delete the alert under the
+  pointer. The widget and yfinance example support Delete and Backspace while
+  preserving drawing selection, placement and text-input priority.
+- `Chart.snapPrice(paneIndex, price)` rounds to the pane's right-axis tick.
+  Alert drags use the primary or study source scale, including left and
+  independent axes. Hosts can use a series' scale for its own tick rules.
+
+### Fixed
+
+- Fixed price levels stay visible across timeframes for the same symbol and
+  exchange. Another timeframe shows the original interval and pauses armed
+  alerts. Triggered, disabled and expired records retain their lifecycle badge.
+- All alert evaluation remains bound to the original timeframe, including
+  intrabar alerts. Study and drawing levels remain scoped to that timeframe.
+  Loading another interval cannot consume the original evaluated-bar checkpoint.
+  Restoring or returning to a timeframe never replays historical signals.
+- Alert previews and release use the same snapped threshold. Range bounds stop
+  at the nearest valid tick inside the opposite bound. A scale without a tick
+  leaves values unrounded. Context changes and restore clear stale hover state.
+- Every table cell clips its text, preventing long readings from covering the
+  next column. Automatic widths measure the font actually drawn in short or
+  weighted rows, and measurement preserves the canvas state for other primitives.
+
+### Documentation
+
+- Updated alert, table, upgrade and integration guides, the yfinance reference
+  host, and live website examples. Saved alerts need no migration. Price alerts
+  on an unseen timeframe stay paused; background delivery remains the host's job.
 
 ## 2.4.8
 

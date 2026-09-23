@@ -114,7 +114,7 @@ import { beginPick, type PickKind } from '../input/pick';
 import type { IPrimitive, PrimitiveHost, PrimitiveHit, PrimitiveAnchor, PrimitivePlacement } from '../primitives/primitive';
 import { PriceLine, type PriceLineOptions } from '../primitives/price-line';
 import { SeriesMarkers } from '../primitives/markers';
-import { EventMarkers, type ChartEvent } from '../primitives/event-markers';
+import { EventMarkers, type ChartEvent, type EventGroup, type EventMarkersOptions, type EventMarkerDetails } from '../primitives/event-markers';
 import { PaneLegend, type PaneLegendAction, type LegendStatusLineOptions } from '../primitives/pane-legend';
 import { ChartTable } from '../primitives/table';
 import { TimeNavigator, type TimeNavigatorOptions } from '../primitives/time-navigator';
@@ -130,7 +130,7 @@ export interface ChartWatermarkOptions extends Partial<TextWatermarkOptions> {
 /** Defensive branding snapshot emitted synchronously after setBranding as `branding:changed`. */
 export type BrandingChangedEvent = false | LogoWatermarkOptions;
 import { DEFAULT_TIMEZONE, isValidTimezone } from '../feed/time';
-import { clamp } from '../helpers/math';
+import { clamp, roundToTick } from '../helpers/math';
 
 /** A zone name the runtime recognises, or a readable failure at the call site. */
 function checkedTimezone(zone: string): string {
@@ -544,6 +544,13 @@ export interface ChartClickEvent extends PointerInfo {
   shiftKey: boolean;
   ctrlKey: boolean;
   metaKey: boolean;
+}
+
+/** An event-strip click, including every member of a clustered marker. */
+export interface ChartEventClick extends EventMarkerDetails {
+  /** Chart-container CSS pixels, including the vertical offset of an event pane. */
+  point: { x: number; y: number };
+  paneIndex: number;
 }
 
 /** Payload of the `drag` event: a draggable primitive being moved. */
@@ -1365,8 +1372,8 @@ export class Chart {
   }
 
   /** Add an earnings/dividend/split event-marker strip to a pane. */
-  public addEventMarkers(paneIndex = 0): EventMarkers {
-    const em = new EventMarkers();
+  public addEventMarkers(paneIndex = 0, options: Partial<EventMarkersOptions> = {}): EventMarkers {
+    const em = new EventMarkers(options);
     this._addPrimitive(paneIndex, em);
     return em;
   }
@@ -1378,9 +1385,33 @@ export class Chart {
    * switches) turn a type off and back on without the host re-supplying data.
    */
   public setEvents(events: readonly ChartEvent[], paneIndex = 0): void {
-    this._events = events;
+    const markers = this._ensureEventMarkers();
+    markers.setEvents(events);
+    this._events = markers.events();
+    if (paneIndex !== this._eventPane) {
+      this.removePrimitive(markers);
+      this._addPrimitive(paneIndex, markers);
+    }
     this._eventPane = paneIndex;
     this._syncEvents();
+  }
+
+  /** The chart-owned strip, or null before events or strip options are supplied. */
+  public eventMarkers(): EventMarkers | null { return this._eventMarkers; }
+
+  /** Configure clustering without replacing event data or group visibility. */
+  public setEventMarkerOptions(options: Partial<EventMarkersOptions>): void {
+    this._ensureEventMarkers().setOptions(options);
+  }
+
+  public setEventGroups(groups: readonly EventGroup[]): void {
+    this._ensureEventMarkers().setGroups(groups);
+    this.emit('events:change', undefined);
+  }
+
+  public setEventGroupVisible(id: string, visible: boolean): void {
+    this._ensureEventMarkers().setGroupVisible(id, visible);
+    this.emit('events:change', undefined);
   }
 
   /** Turn event types on/off. Unlisted types stay visible. */
@@ -1393,14 +1424,27 @@ export class Chart {
     return { ...this._eventVisible };
   }
 
-  private _syncEvents(): void {
+  private _ensureEventMarkers(): EventMarkers {
     if (this._eventMarkers === null) {
-      if (this._events.length === 0) return; // nothing to show, nothing to build
       this._eventMarkers = new EventMarkers();
       this._addPrimitive(this._eventPane, this._eventMarkers);
+      this.on('click', payload => {
+        const click = payload as ChartClickEvent;
+        if (!click.id || click.viaDrag || click.paneIndex !== this._eventPane) return;
+        const details = this._eventMarkers?.detailsForHit(click.id);
+        if (details) this.emit('event:click', { ...details,
+          point: { x: click.point.x, y: click.point.y + (this._paneLayout()[click.paneIndex]?.top ?? 0) },
+          paneIndex: click.paneIndex } satisfies ChartEventClick);
+      });
     }
+    return this._eventMarkers;
+  }
+
+  private _syncEvents(): void {
+    if (this._eventMarkers === null && this._events.length === 0) return;
     const visible = this._eventVisible as Record<string, boolean | undefined>;
-    this._eventMarkers.setEvents(this._events.filter((e) => visible[e.type] !== false));
+    this._ensureEventMarkers().setEvents(this._events.filter((e) => visible[e.type] !== false));
+    this.emit('events:change', undefined);
   }
 
   /**
@@ -1514,7 +1558,13 @@ export class Chart {
     if (this._dataContext?.symbol === context?.symbol && this._dataContext?.exchange === context?.exchange
       && this._dataContext?.hasOpenInterest === context?.hasOpenInterest
       && this._dataContext?.interval === context?.interval && !!this._dataContext === !!context) return;
+    const instrumentChanged = this._dataContext?.symbol !== context?.symbol
+      || this._dataContext?.exchange !== context?.exchange;
     this._dataContext = context ? Object.freeze({ ...context }) : undefined;
+    if (instrumentChanged && this._events.length) {
+      this._events = [];
+      this._syncEvents();
+    }
     for (const entry of this._legends) entry.legend.setOptions({ hasOpenInterest: this.hasOpenInterest });
     this._syncWatermark();
     this.emit('data:context', this._dataContext);
@@ -3125,6 +3175,25 @@ export class Chart {
     this.emit('objects:change', {});
   }
 
+  /**
+   * A price rounded to the tick the pane's own axis is written with.
+   *
+   * A dragged alert's price comes from a pointer, and a pixel maps to a price
+   * with a dozen decimals behind it: dropped where the axis reads 1255.90 it
+   * was stored as 1255.8706204379562, a price the instrument cannot trade at
+   * and a number nothing in the interface could show. The scale already knows
+   * the tick, because it is the one the axis is written with, so this is the
+   * chart's answer rather than something every host works out again.
+   *
+   * A scale with no declared tick rounds nothing: there is no tick to round to
+   * and inventing one would move a price somebody chose.
+   */
+  public snapPrice(paneIndex: number, price: number): number {
+    if (!Number.isFinite(price)) return price;
+    const step = this._panes[paneIndex]?.priceScale.options.minMove ?? 0;
+    return step > 0 ? roundToTick(price, step) : price;
+  }
+
   /** Detached JSON state, also available when no alert controller is attached. */
   public alertState(): AlertsDocument | undefined {
     return this._alertState === undefined ? undefined : parseAlertsDocument(this._alertState);
@@ -3331,6 +3400,14 @@ export class Chart {
    */
   public removePane(index: number): boolean {
     if (index <= 0 || index >= this._panes.length) return false;
+    if (this._eventPane === index && this._eventMarkers !== null) {
+      this.removePrimitive(this._eventMarkers);
+      this._eventPane = 0;
+      this._addPrimitive(0, this._eventMarkers);
+      this.emit('events:change', undefined);
+    } else if (this._eventPane > index) {
+      this._eventPane -= 1;
+    }
     // Indicators own their series, so let them tear themselves down first —
     // otherwise their series rows would outlive the pane holding them.
     for (let i = this._indicators.length - 1; i >= 0; i--) {
@@ -3377,6 +3454,9 @@ export class Chart {
     if (index <= 0 || target <= 0 || index >= this._panes.length || target >= this._panes.length) return false;
     const panes = this._panes;
     [panes[index], panes[target]] = [panes[target], panes[index]];
+    if (this._eventPane === index) this._eventPane = target;
+    else if (this._eventPane === target) this._eventPane = index;
+    if (this._eventMarkers !== null) this.emit('events:change', undefined);
     // The target names a slot, and the two panes just swapped slots.
     if (this._maximizedPane === index) this._maximizedPane = target;
     else if (this._maximizedPane === target) this._maximizedPane = index;

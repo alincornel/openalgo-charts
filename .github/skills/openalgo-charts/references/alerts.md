@@ -42,11 +42,23 @@ predicate uses `{ kind: 'barCondition', id }`.
 A drawing uses `{ kind: 'drawing', drawingId, level?, input? }`.
 `AlertScope` captures symbol, exchange and interval from chart data context.
 Set that context before creating alerts; alerts do not migrate to a new market.
+From 2.5.0, price-source levels remain visible across intervals for the same
+symbol and exchange. On another interval they show the original timeframe;
+armed levels are paused and cannot drag. Triggered, disabled and expired levels
+retain their lifecycle badge. Study/drawing visuals still require the original
+scope. Evaluation for every source and policy remains original-interval-only;
+`availability` names the required timeframe. This does not provide background
+evaluation of an unseen interval. Hosts needing that must feed a separate
+evaluator and own delivery once.
+
+Clear primary bars before changing context, then load the new source. Only
+matching-scope bars can seed an alert's evaluated-bar checkpoint. Restore and
+returning to the original interval seed silently without replaying history.
 
 `Alert` is the normalized record, with a required id, defaults, scope,
 `AlertState` and optional lastTriggeredAt (UTC delivery seconds) and
 lastTriggeredTime (bar UTC seconds). `AlertState` is armed, triggered, disabled
-or expired. Once alerts stay visible as triggered. Every-time alerts stay armed.
+or expired. Once alerts keep a triggered record and show its line by default. Every-time alerts stay armed.
 `list()` and returned records detach mutable configuration; payload remains
 opaque and retains its original reference.
 
@@ -63,6 +75,21 @@ armed expiry, including on an idle feed. Disabled and once-triggered records do
 not keep an expiry timer. Destruction cancels it.
 `AlertChartHost` is the structural chart interface, allowing a host integration
 without a nominal dependency on a specific bundled Chart class.
+
+## Finished alert lines
+
+From 2.5.1, construct `new AlertController(chart, { spentLines: 'hide' })` to
+hide triggered and expired lines while retaining records and runtime state.
+The default is `'show'`. Armed, repeating and disabled lines retain their normal
+appearance; `enable(id)` re-arms a spent alert and restores its line. Clear or
+extend an elapsed `expiresAt` before re-arming an expired record.
+
+This is a constructor policy, not part of `toJSON()`. Pass it again when
+recreating the controller. Preserve the full saved document; deleting a spent
+record to hide its line loses its once-only firing protection. Hiding an alert
+anchored to a drawing does not remove the drawing. `visuals: false` still hides
+all alert visuals. The packaged widget and yfinance keep the default display;
+this option is for hosts that construct their own controller.
 
 ## Editor schema and widget ownership
 
@@ -271,3 +298,25 @@ delivery failures in the host. Existing indicator:alert behavior is preserved.
 AlertTriggeredPayload: alertId, title, message, time and index. Indicator-source
 trader triggers report the plot reading in price; predicate triggers report
 the evaluated bar's close.
+
+## Tick snapping and keyboard removal
+
+From 2.5.0, preview and release both snap alert thresholds to their source
+scale's tick: the primary series for price alerts, the chosen plot for study
+alerts. Left and independent scales keep their own units. A range bound stops
+at a valid tick inside the opposite bound. No declared tick means no rounding.
+Manually entered thresholds are preserved until you move them.
+
+`Chart.snapPrice(paneIndex, price)` uses that pane's right-axis tick. For another
+series scale, use `series.priceScale().snapToTick(price)`. A custom
+`AlertChartHost` may expose `primarySeries()` for the owning scale, or use the
+optional `snapPrice` fallback when it has no series handle. Without scale tick
+metadata, a callback that rounds the opposite bound outside the range cancels
+the move and keeps the saved threshold. Expose the source scale for exact inner
+tick snapping.
+
+`alerts.hovered()` returns the alert id under the pointer, or `undefined`.
+The widget and yfinance host bind Delete and Backspace to it only when a
+selected or hovered drawing, an active drawing tool, or text editing does not
+own the key. Custom hosts should keep the same priority and clear their saved
+record on `alert:removed`. The controller itself never installs keyboard input.

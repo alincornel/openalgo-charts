@@ -674,7 +674,7 @@ describe('the three switches are independent', () => {
 
   it('defaults to crosshair and viewport on, symbol off', () => {
     expect(createLinkGroup().options())
-      .toEqual({ crosshair: true, viewport: true, symbol: false, interval: false, whenMissing: 'nearest' });
+      .toEqual({ crosshair: true, viewport: true, symbol: false, interval: false, appearance: false, whenMissing: 'nearest' });
   });
 });
 

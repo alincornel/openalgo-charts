@@ -403,7 +403,7 @@ tabulate. A header row on its own reads as a broken table rather than an empty o
 |---|---|---|
 | `position` | `'bottom-right'` | One of nine keywords: `top`/`middle`/`bottom` crossed with `left`/`center`/`right`. |
 | `margin` | `8` | Gap from the pane edge, media px. |
-| `cellWidth` | `64` | Column width in media px. A per-column array sizes each one separately. |
+| `cellWidth` | `64` | Column width in media px, a per-column array, or `'auto'` to fit each column to its widest cell including padding. |
 | `cellHeight` | `18` | Row height in media px. |
 | `widthPercent` | unset | Total width as a percentage of the plot. Column proportions are preserved, so a per-column array still controls the relative widths. `0` or unset sizes from `cellWidth`. |
 | `heightPercent` | unset | Total height as a percentage of the plot. `0` or unset sizes from `cellHeight`. |
@@ -417,6 +417,14 @@ tabulate. A header row on its own reads as a broken table rather than an empty o
 The table is a screen-space primitive: it is pinned to the pane, not to bars, so it stays
 put while the chart pans underneath and survives a zoom untouched. It takes no part in
 autoscale.
+
+
+From 2.5.0, `cellWidth: 'auto'` measures each column at its rendered font size,
+including bold and per-cell overrides. Short rows clamp the measured font just
+as they clamp drawing. Empty columns retain 28 px. With `fontSize: 'auto'`,
+unoverridden cells use an 11 px baseline for width measurement to avoid circular
+sizing; drawing can still shrink to the final cell. `widthPercent` scales those
+measured proportions. Text always clips to its own cell, including fixed widths.
 
 One built-in uses the hook: `seasonality`, whose entire output is the grid. Its
 `tableWidth` and `tableHeight` inputs default to 100% and 95%, so it fills the pane.
