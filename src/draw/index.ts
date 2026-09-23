@@ -30,6 +30,15 @@ import { registerBuiltinDrawingTools } from './tools';
 
 export const DRAW_TIER = 'draw' as const;
 
+export { ANCHORED_VWAP, FIXED_RANGE_VOLUME_PROFILE } from './analysis-tools';
+export { anchoredVwapAnalysis, fixedRangeVolumeProfileAnalysis } from './analysis';
+export type {
+  AnalysisStatus, AnchoredVwapSource, AnchoredVwapOptions, AnchoredVwapPoint, AnchoredVwapResult,
+  FixedRangeVolumeProfileOptions, AnalysisProfileRow, FixedRangeVolumeProfileResult,
+} from './analysis';
+export { DrawingLinkGroup, createDrawingLinkGroup } from './drawing-link';
+export type { DrawingLinkContext, DrawingLinkContextSource, DrawingLinkOptions, DrawingLinkChart } from './drawing-link';
+
 registerBuiltinDrawingTools(); // side effect on tier import
 
 export {

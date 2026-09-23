@@ -8,6 +8,24 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 2.5.2
+
+2026-09-23
+
+- Place an **Anchored VWAP** or a **Fixed Range Volume Profile** using drawing
+  anchors. Adjust settings, move the anchors, undo changes and save the drawing.
+  Volume profiles estimate volume from candles; missing volume is not zero.
+- Share drawings between charts of the same instrument, including different
+  timeframes. Live previews, changes, deletion and undo follow without sharing
+  alerts or orders. Appearance settings have their own opt-in linking switch.
+- Group timeline events, hide a group and its children, and cluster nearby markers.
+  Open plain-text event details from a marker, including all members of a cluster.
+  Your app supplies event data and any additional detail loader.
+- Try these controls in the yfinance reference host or the
+  [linked analysis example](/examples#linked-analysis-and-timeline-events).
+
+These additions keep existing defaults and add no runtime dependencies.
+
 ## 2.5.1
 
 2026-09-21

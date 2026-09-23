@@ -18,17 +18,17 @@ describe('complete drawing catalog', () => {
     const tools = registeredDrawingTools();
     const ids = tools.map(tool => tool.id);
     for (const id of addedIds) expect(ids, id).toContain(id);
-    expect(new Set(ids).size).toBe(85);
-    expect(ids.length).toBe(85);
+    expect(new Set(ids).size).toBe(87);
+    expect(ids.length).toBe(87);
     expect(ids).toContain('fib-fan');
     expect(ids).toContain('fib-extension');
   });
 
-  it('keeps interactive analysis drawings outside the catalog', () => {
+  it('includes interactive volume studies and leaves viewport tools outside the catalog', () => {
     registerBuiltinDrawingTools();
     const ids = registeredDrawingTools().map(tool => tool.id);
-    expect(ids).not.toContain('anchored-vwap');
-    expect(ids).not.toContain('fixed-range-volume-profile');
+    expect(ids).toContain('anchored-vwap');
+    expect(ids).toContain('fixed-range-volume-profile');
     expect(ids).not.toContain('magnifier');
   });
 });

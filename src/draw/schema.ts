@@ -33,6 +33,8 @@ export interface SettingsField {
   /** For `select` and `lineStyle`: the values a host may offer. */
   options?: ReadonlyArray<{ value: string; label: string }>;
   group?: FieldGroup;
+  /** Value displayed when the drawing has not overridden this setting. */
+  defaultValue?: string | number | boolean;
 }
 
 export interface SettingsSchema {
@@ -224,13 +226,12 @@ export function readDrawingSetting(d: Drawing, path: string): unknown {
 }
 
 /**
- * Every field of a schema read off a drawing, keyed by path. Absent values
- * are present as `undefined`, so a host can iterate the schema and render
- * each control in its "default" state rather than guessing.
+ * Every field of a schema read off a drawing, keyed by path. Unset fields use
+ * their declared default value, or remain `undefined` when no default exists.
  */
 export function readDrawingSettings(d: Drawing, schema: SettingsSchema): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  for (const f of schema.fields) out[f.path] = readDrawingSetting(d, f.path);
+  for (const f of schema.fields) out[f.path] = readDrawingSetting(d, f.path) ?? f.defaultValue;
   return out;
 }
 

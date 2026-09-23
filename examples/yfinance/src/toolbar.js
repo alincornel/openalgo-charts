@@ -8,6 +8,7 @@ import { enterReplay, askExitReplay } from './replay.js';
 import { openSnapMenu, downloadSnapshot } from './snapshot.js';
 import { isSplit, openSplit, closeSplit } from './split.js';
 import { describeLink, openLinkMenu } from './link.js';
+import { openTimelineMenu } from './timeline.js';
 import { openCacheMenu } from './feed.js';
 import { openChartSettings } from './chart-settings.js';
 import { openAlerts } from './alerts.js';
@@ -363,6 +364,9 @@ export function renderToolbar() {
     () => openLinkMenu(lk));
   if (app.linkGroup && isSplit() && describeLink() !== 'nothing synced') lk.classList.add('is-on');
   bar.appendChild(lk);
+  const events = tbtn('Events', 'Timeline events (sample data)');
+  events.addEventListener('click', event => { event.stopPropagation(); openTimelineMenu(app, events); });
+  bar.appendChild(events);
 
   // Bar cache. The counter is the point: a feature you can only feel as
   // "that seemed quicker" is a feature nobody can check.

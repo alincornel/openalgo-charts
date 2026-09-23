@@ -40,12 +40,12 @@ async function mount(page: Page, mode: SheetMode = 'fresh', nonce: string | null
   }
   await page.evaluate(async ({ mode, nonce, hostNonce }) => {
     const moduleUrl = '/dist/openalgo-charts.widget.mjs';
-    const { createWidget, WIDGET_CSS, WIDGET_STYLE_ID, DIALOG_CSS } = await import(moduleUrl);
+    const { createWidget, WIDGET_CSS, WIDGET_STYLE_ID, DIALOG_CSS, EVENT_DETAILS_CSS } = await import(moduleUrl);
     if (mode === 'populated') {
       const sheet = document.createElement('style');
       sheet.id = WIDGET_STYLE_ID;
       sheet.nonce = hostNonce;
-      sheet.textContent = WIDGET_CSS + DIALOG_CSS + '.oac-widget { outline: 3px solid rgb(1, 2, 3); }';
+      sheet.textContent = WIDGET_CSS + DIALOG_CSS + EVENT_DETAILS_CSS + '.oac-widget { outline: 3px solid rgb(1, 2, 3); }';
       document.head.appendChild(sheet);
     }
     (window as any).__originalSheet = document.getElementById(WIDGET_STYLE_ID);
@@ -70,6 +70,7 @@ async function mount(page: Page, mode: SheetMode = 'fresh', nonce: string | null
 
 async function expectStyledWidgets(page: Page): Promise<void> {
   await expect(page.locator('style#oac-widget-css')).toHaveCount(1);
+  await expect(page.locator('style#oac-event-details-style')).toHaveCount(0);
   // The content attribute may be hidden or absent; the IDL property is authoritative.
   expect(await page.locator('style#oac-widget-css').evaluate((node: HTMLStyleElement) => node.nonce)).toBe(NONCE);
   for (const id of ['first', 'second']) {

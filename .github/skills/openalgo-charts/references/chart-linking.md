@@ -2,7 +2,7 @@
 
 *When to read this: driving a grid of charts as one workspace, so hovering, panning or changing the symbol on one moves the others.*
 
-Source of truth: `src/link/group.ts`, `src/link/align.ts`, `src/link/crosshair.ts`. Ships in the **base** bundle, so there is no tier import: `import { createLinkGroup } from 'openalgo-charts'`.
+Source of truth: `src/link/group.ts`, `src/link/appearance.ts`, `src/link/align.ts`, `src/link/crosshair.ts`, and `src/draw/drawing-link.ts`. General linking ships in the **base** bundle: `import { createLinkGroup } from 'openalgo-charts'`. Drawing synchronization is separate in `openalgo-charts/draw`.
 
 Headless in the same sense as `ReplayController` and `DrawingController`. The group owns the sync; the link badge, the colour chips and the menu of switches are the host's UI.
 
@@ -46,7 +46,7 @@ Inside the covered range with no bar at exactly that second, `whenMissing` decid
 
 | `whenMissing` | Behaviour |
 |---|---|
-| `'nearest'` (default) | Snap to the closest bar **in time**. Not the closest in index: the bars either side of a session break can be hours apart, so index distance is the wrong metric. |
+| `'nearest'` (default) | Use the last bar whose opening is at or before the instant. Never select a future candle merely because its timestamp is closer. |
 | `'hide'` | Draw nothing unless there is a bar at exactly that time. For a workspace where a linked crosshair is a data claim. |
 
 `followerRange` returns `null` rather than guessing when the answer would be meaningless: either layer empty, a follower with fewer than 2 bars (every time maps to index 0 and the span collapses), or a non-finite or inverted endpoint. A follower whose history does not overlap the window at all is **not** refused: `timeToIndexFloat` extrapolates at the edge bar spacing, so it scrolls into its own empty margin and shows nothing, which is the truth. Clamping it back onto its last bars would show a different period than the leader.
@@ -58,6 +58,8 @@ Inside the covered range with no bar at exactly that second, `whenMissing` decid
 | `crosshair` | `boolean` | `true` | Hovering one member marks the same instant on the others. |
 | `viewport` | `boolean` | `true` | Panning or zooming one moves the others to the same wall-clock window. |
 | `symbol` | `boolean` | `false` | Off by default: symbol sync needs host cooperation (see below). |
+| `interval` | `boolean` | `false` | Host-owned timeframe synchronization through `onInterval`. |
+| `appearance` | `boolean` | `false` | Supported visual settings through a `LinkAppearanceAdapter`. |
 | `whenMissing` | `'nearest' \| 'hide'` | `'nearest'` | What a follower does with an instant it has no bar for. |
 
 Each channel switches on its own because a user routinely wants one without the others: mirror the cursor across four timeframes but keep each zoom, or slave every chart's instrument but let each keep its own window.
@@ -74,6 +76,9 @@ Each channel switches on its own because a user routinely wants one without the 
 | `has` | `(chart: LinkChart) => boolean` | |
 | `setSymbol` | `(chart: LinkChart, symbol: string) => void` | The imperative twin of emitting `'symbol'` on that chart's bus. |
 | `symbol` | `() => string \| null` | The instrument the group has agreed on, `null` if nobody declared one. |
+| `setInterval` | `(chart: LinkChart, interval: string) => void` | Report an interval selection. |
+| `interval` | `() => string \| null` | Latest declared interval. |
+| `syncAppearance` | `(chart: LinkChart) => void` | Read and broadcast the member's visual settings when appearance is enabled. |
 | `crosshairIndex` | `(chart: LinkChart) => number \| null` | That member's **own** logical index its linked crosshair is marking, or `null`. |
 | `destroy` | `() => void` | No listeners, no linked crosshairs, no references. |
 
@@ -93,7 +98,7 @@ map it through that chart's `dataLayer.indexToTime(i)` and read its own bar.
 
 ## Symbol sync is a partnership
 
-**The engine has no instrument concept and linking does not invent one.** A `Chart` knows about bars, not about RELIANCE. So the host does two things:
+The host owns instrument selection and loading. `chart.setDataContext(...)` declares identity for studies and alerts; symbol linking reports a selection without loading data by itself. The host does two things:
 
 1. **Reports a change**, by emitting `'symbol'` on that chart's own bus (`chart.emit('symbol', { symbol: 'INFY' })`, or a bare string) or by calling `group.setSymbol(chart, 'INFY')`.
 2. **Performs a change**, through the per-member `onSymbol(symbol, chart)` callback, which fetches the bars and calls `series.setData`.
@@ -136,6 +141,8 @@ Everything comes off the chart's own event bus, so a host can drive it from anyw
 | `crosshair:move` | crosshair (reads `payload.time`; `null` clears) |
 | `pan`, `zoom` | viewport |
 | `symbol` | symbol (host-emitted; the core never emits it) |
+| `interval` | timeframe (host-emitted) |
+| `style:change` | appearance (emitted by `applyChartSettings`) |
 | `destroy` | pruning |
 
 Since 1.4.0 the programmatic viewport paths (`setVisibleLogicalRange`, `fitContent`, `resetScale`, and the keyboard pan/zoom shortcuts) also emit `'pan'` or `'zoom'`, so a linked grid follows an arrow key or a restored zoom and not only a gesture. They emit nothing when the window did not actually move, which is what keeps a clamped zoom or an already-fitted `fitContent` from re-broadcasting.
@@ -161,3 +168,101 @@ load. Return `false` for an unsupported interval; this preserves the member's
 previous interval. Async fetching stays with the host and its cancellation rules.
 Callbacks cannot recursively overwrite the leader's interval by echoing a token.
 Removing or destroying a member releases the interval listener with other links.
+
+## Appearance linking
+
+`LinkOptions.appearance` defaults to false. Each `LinkMemberOptions.appearance`
+accepts a synchronous `LinkAppearanceAdapter` with `read()` and `apply(values)`.
+`LinkAppearanceValues` is `Record<string, string | number | boolean>`.
+
+```ts
+import { createLinkGroup, readChartSettings, applyChartSettings } from 'openalgo-charts';
+
+const group = createLinkGroup({ appearance: true });
+for (const chart of [chartA, chartB]) {
+  group.add(chart, { appearance: {
+    read: () => readChartSettings(chart),
+    apply: values => applyChartSettings(chart, values),
+  } });
+}
+applyChartSettings(chartA, { 'symbol.upColor': '#008800' });
+```
+
+`applyChartSettings` emits `style:change` after a supported visual patch.
+Other host setters can call `group.syncAppearance(chart)` explicitly. The adapter
+reads supported chart-settings fields, so calling it after `setTheme` transfers
+those visual fields, not an entire theme object. `filterLinkAppearance(values)`
+returns a fresh allowlisted record: known series styling, readout visibility,
+scale presentation, grid, crosshair, watermark styling and axis chrome. It omits
+watermark text, instrument identity, interval, timezone, navigation, studies,
+event feeds, alerts and trading. No chart data or series type crosses. Each peer
+receives a separate record; callbacks cannot echo back through the group guard.
+Enabling appearance waits for the next edit or explicit notification.
+
+## Drawing linking (draw tier)
+
+```ts
+import { DrawingController, createDrawingLinkGroup } from 'openalgo-charts/draw';
+const group = createDrawingLinkGroup({ enabled: true });
+const a = new DrawingController(chartA);
+const b = new DrawingController(chartB);
+group.add(chartA, a, { symbol: 'INFY', exchange: 'NSE' });
+group.add(chartB, b, { symbol: 'INFY', exchange: 'NSE' });
+group.share(chartA, a.selection()); // explicit promotion of existing local drawings
+```
+
+Public exports: `DrawingLinkGroup`, `createDrawingLinkGroup`, `DrawingLinkOptions`,
+`DrawingLinkContext`, `DrawingLinkContextSource`, `DrawingLinkChart`. `DrawingLinkOptions.enabled` defaults to
+false. `DrawingLinkChart` is structural: `on`, optional `isDestroyed`, optional
+`getDataContext`. `DrawingLinkContext` has optional `symbol` and `exchange` strings;
+both must be known, nonblank and exactly equal before drawings can cross.
+
+| Method | Behavior |
+|---|---|
+| `add(chart, controller, context?)` | Register and reconnect only known persisted lineage. Existing local drawings stay local. Omitted context reads `getDataContext()`. `DrawingLinkContextSource` also accepts a resolver. |
+| `setContext(chart, context)` | Update identity, or pass `undefined` to stop eligibility. |
+| `share(chart, ids?)` | Send selected ids or every existing eligible drawing; returns their count. |
+| `setOptions({ enabled })` | Toggle sharing; off clears received drag previews. |
+| `options()` | Return a copy of the resolved flag. |
+| `has(chart)` | Test membership. |
+| `remove(chart)` | Unsubscribe and clear previews; committed copies remain. |
+| `destroy()` | Release every member. |
+
+New drawings, updates, deletion and local undo/redo propagate both ways. Time and
+price anchors cross unchanged, including between different intervals. Only pane
+`0` participates. Shared copies have independent objects and collision-safe local
+IDs. Local selection and local history stay local; undo edits only fields changed
+by that local command and preserves unrelated remote changes. Received previews
+paint over committed drawings without entering `toJSON()`.
+
+Restoring a document refreshes its associations. Unmarked local drawings stay local
+until `share`; joining does not copy older drawings the chart has never shared.
+Reserved `props['openalgo-charts/drawing-link']` metadata carries version, unique
+lineage ID and instrument context through JSON. When enabled, add and restore reconnect
+only matching persisted lineage under the same identity. Current peer values and
+ordering replace a stale saved copy, including a deletion still tracked by the peer.
+Explicit sharing also reuses matching copies without replacing unrelated local IDs.
+Duplication and paste discard old lineage.
+Preserve the reserved property through host persistence. A changed instrument removes received copies from the member,
+while the host owns its local per-instrument drawing persistence. `data:context`
+updates identity; a `symbol` event invalidates it until complete context arrives.
+Use `setContext` for another host identity source, or pass a resolver as the third
+`add` argument. The resolver runs on registration and `data:context`/`symbol` events;
+null, undefined, missing identity or a thrown error makes the chart ineligible. For
+example, `() => ({ symbol: chart.getDataContext()?.symbol, exchange: 'YFINANCE' })`
+provides a host namespace without changing the chart's context or its alert scopes.
+If a feed provides fully qualified
+symbols, an explicit stable feed namespace may serve as the exchange identity
+(the reference host uses `YFINANCE`); it is not actual exchange metadata.
+
+`DrawingController.cancelDrag()` rolls back a gesture and preserves prior undo/redo.
+The controller emits `draw:preview`, `draw:preview-clear`, `draw:restore`, and
+`draw:destroy` for lifecycle integration. History changes emit ordinary draw events
+with `history: true` plus `drawing:change` kinds `undo` or `redo`.
+`applyLinkedDrawing(id, drawingOrNull)` applies committed linked data without a local
+undo entry; `setLinkedPreview(id, drawingOrNull)` changes only the rendered preview.
+`reorderLinkedDrawings(ids)` changes the relative order of related drawings in their
+existing slots, leaving unrelated local drawings in place.
+These methods are used by the group. Cancellation, context change, unlink and
+destruction clear previews. The channel never copies alerts, orders or other
+primitives, and importing the base link group never imports the draw tier.

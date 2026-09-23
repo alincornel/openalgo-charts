@@ -14,12 +14,22 @@ import IndicatorSignalsDemo from '../components/IndicatorSignalsDemo'
 import AlertDragDemo from '../components/AlertDragDemo'
 import AlertLifecycleDemo from '../components/AlertLifecycleDemo'
 import TableSizingDemo from '../components/TableSizingDemo'
+import LinkedAnalysisDemo from '../components/LinkedAnalysisDemo'
 import { RangeSwitcherCard, LegendCard, SeriesCompareCard, IndicatorsCard, ChartTypeCard, ThemeCard, DataTooltipCard, EventMarkersCard, PriceScaleCard, CustomTypesCard, ScalesFormatCard, ScalesConfigCard, DataCard, CustomPluginsCard, PositionsCard, TradeMarkersCard } from '../components/gallery'
 
 # Live examples
 
 Every chart on this page is the real library running in your browser - the code shown
 is the code that ran. Try it, copy it, ship it.
+
+## Linked analysis and timeline events
+
+Place an anchored VWAP or a fixed-range volume profile, share it with a linked
+chart, and open details for clustered sample events. Appearance and drawing
+synchronization are separate opt-in controls. Volume profiles here estimate
+volume from candles.
+
+<LinkedAnalysisDemo />
 
 Jump to [depth of market](#depth-of-market), [drawing tools](#drawing-tools),
 [market profiles](#compact-market-profiles), [chart controls](#interactive),
@@ -101,7 +111,7 @@ Choose a tool, draw on the chart, then select it to move or delete it. Try undo
 and redo with the visible controls. See the [drawing tools guide](/docs/drawing-tools)
 for the full tool catalogue and integration API. Open the
 [full-size drawing gallery](/demos/drawings/index.html) to inspect editable samples
-of all 85 tools, including pitchforks, harmonic patterns and advanced geometry.
+of all 87 tools, including volume studies, pitchforks, harmonic patterns and advanced geometry.
 
 <DrawingToolsDemo />
 

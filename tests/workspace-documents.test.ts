@@ -13,6 +13,12 @@ const template = () => ({
 });
 
 describe('workspace documents', () => {
+  it('retains optional appearance sync and rejects invalid values', () => {
+    const fixture = workspaceFixture();
+    const input = { ...fixture, sync: { ...fixture.sync, appearance: true } };
+    expect(parseWorkspaceDocument(input).sync).toEqual(input.sync);
+    expect(() => parseWorkspaceDocument({ ...input, sync: { ...input.sync, appearance: 'yes' } })).toThrow();
+  });
   it('preserves the full state emitted by an actual chart, including its settings and timezone', () => {
     const doc = fakeDocument();
     const chart = new Chart(doc.createElement('div'), { document: doc, shortcuts: false, raf: { schedule: () => 0 } });

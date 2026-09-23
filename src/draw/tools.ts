@@ -41,6 +41,9 @@ import { ADVANCED_LINE_TOOLS } from './advanced-lines';
 import { ADVANCED_GEOMETRY_TOOLS } from './advanced-geometry';
 import { PATTERN_DRAWING_TOOLS } from './pattern-tools';
 import { drawingTextWidth } from './text-metrics';
+import { ANCHORED_VWAP, FIXED_RANGE_VOLUME_PROFILE } from './analysis-tools';
+export { ANCHORED_VWAP, FIXED_RANGE_VOLUME_PROFILE } from './analysis-tools';
+export { anchoredVwapAnalysis, fixedRangeVolumeProfileAnalysis } from './analysis';
 
 const registry = new Map<string, DrawingTool>();
 
@@ -2676,6 +2679,7 @@ export const BUILTIN_DRAWING_TOOLS: readonly DrawingTool[] = [
   ...ADVANCED_LINE_TOOLS,
   ...ADVANCED_GEOMETRY_TOOLS,
   ...PATTERN_DRAWING_TOOLS,
+  ANCHORED_VWAP, FIXED_RANGE_VOLUME_PROFILE,
 ];
 
 let _registered = false;

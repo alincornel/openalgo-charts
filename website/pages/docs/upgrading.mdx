@@ -1,9 +1,30 @@
 ---
-title: Upgrading to 2.5.1
+title: Upgrading to 2.5.2
 description: Adopt workspace, open-interest, alert and host contracts while preserving existing integrations.
 ---
 
-# Upgrading to 2.5.1
+# Upgrading to 2.5.2
+
+Version 2.5.2 adds Anchored VWAP and Fixed Range Volume Profile to the drawing
+registry. Existing drawing records still load. Both tools need candle volume;
+missing observations stay missing, and a profile is a candle-based estimate,
+not a record of traded volume at each price. See [Drawing tools](/docs/drawing-tools).
+Custom toolbars with a fixed tool list must add `anchored-vwap` and
+`fixed-range-volume-profile` to expose them. The widget and reference host already do.
+
+Drawing and appearance synchronization are opt-in. Use `DrawingLinkGroup` from
+`openalgo-charts/draw` for price-pane drawings on the same symbol and exchange.
+Persist its drawing metadata to reconnect saved copies, and call `share()` to
+include existing local drawings. Appearance links use the chart settings adapter;
+they do not copy instrument, timezone, alerts or orders. See [Chart linking](/docs/chart-linking).
+
+Timeline events retain their existing marker behavior. Enable clustering and
+groups through the new event APIs. The widget opens plain-text event details by
+default; set `eventDetails: false` if your host supplies its own popup. Calendar
+data and optional detail loading remain the host's responsibility. See
+[Timeline events](/docs/events) and the [2.5.2 release notes](/docs/release-notes#252).
+Set the new instrument context before supplying its events: symbol or exchange
+changes clear the previous calendar, while interval changes preserve it.
 
 Version 2.5.1 adds the opt-in controller setting `spentLines: 'hide'` to hide
 triggered and expired alert lines. The default remains `'show'`. The alert stays

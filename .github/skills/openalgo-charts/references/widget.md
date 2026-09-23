@@ -6,11 +6,19 @@ Source of truth: `src/widget/index.ts` (the export list), `src/widget/widget.ts`
 
 ## What it is
 
-`openalgo-charts/widget` is the eighth tier and the only one that builds DOM. `createWidget(container, options)` returns a `Widget` that owns a `Chart`, a `DrawingController`, and the chrome around them: top bar (symbol box, interval pills, chart type, indicators, capture, settings, theme), drawing rail, status line, the settings dialog, the indicator picker and per-indicator settings, drawing properties, a level editor for the fib and gann family, an in-place text editor for the text tools, a right-click menu, a keymap with a `?` shortcuts panel, toasts, one injected stylesheet, and optional layout persistence.
+`openalgo-charts/widget` is one of nine tiers and the only one that builds DOM. `createWidget(container, options)` returns a `Widget` that owns a `Chart`, a `DrawingController`, and the chrome around them: top bar (symbol box, interval pills, chart type, indicators, capture, settings, theme), drawing rail, status line, the settings dialog, the indicator picker and per-indicator settings, drawing properties, a level editor for the fib and gann family, an in-place text editor for the text tools, a right-click menu, a keymap with a `?` shortcuts panel, toasts, one injected stylesheet, and optional layout persistence.
 
-**The engine still ships no DOM.** Rule 12 of the hub skill stands for `openalgo-charts` and the six other tiers. The widget is the exception by design: it is a host, packaged, and it drives the engine only through the public API (`createChart`, `DrawingController`, `chartSettingsSchema`, `drawingSettingsSchema`, the `contextmenu` event, the registries). Enforced by the ESLint tier ACL (nothing under `src/` except `src/widget/` may import it; the widget reaches the engine and the draw tier only through `openalgo-charts` and `openalgo-charts/draw`), by `npm run shake` (a chart-only import is asserted free of the `oac-widget` CSS scope), and by the size rows (the base row did not move).
+**The engine still ships no DOM.** Rule 12 of the hub skill stands for `openalgo-charts` and the seven other DOM-free tiers. The widget is the exception by design: it is a host, packaged, and it drives the engine only through the public API (`createChart`, `DrawingController`, `chartSettingsSchema`, `drawingSettingsSchema`, the `contextmenu` event, the registries). Enforced by the ESLint tier ACL (nothing under `src/` except `src/widget/` may import it; the widget reaches the engine and the draw tier only through `openalgo-charts` and `openalgo-charts/draw`), by `npm run shake` (a chart-only import is asserted free of the `oac-widget` CSS scope), and by the size rows.
 
 ## Setup
+
+From 2.5.2, chart-owned event markers open `EventDetailsPopup` automatically.
+Use `WidgetOptions.eventDetails` for its detail loader, labels and formatter, or
+`eventDetails: false` for host-owned event UI. The default formatter uses the
+chart's current timezone and widget locale. Event data is supplied through
+`widget.chart.setEvents()`, with optional groups and clustering controls.
+Symbol changes, replaced events and widget disposal close the popup and cancel
+pending detail loading. See the timeline section in `primitives-and-plugins.md`.
 
 ```ts
 import { createWidget } from 'openalgo-charts/widget';

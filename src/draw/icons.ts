@@ -173,6 +173,8 @@ export const DRAWING_TOOL_ICONS: Readonly<Record<string, string>> = {
 
   // ── measure and range ───────────────────────────────────────────────────
   measure: 'M4 16h16M4 12v8M20 12v8M8 4h8M12 4v6',
+  'anchored-vwap': 'M4 4v16M4 15 8 12 12 14 16 8 20 6M2 4h4',
+  'fixed-range-volume-profile': 'M4 3v18M4 5h8v3H4M4 10h16v3H4M4 15h12v3H4',
   'price-range': 'M12 4v16M8 8l4-4 4 4M8 16l4 4 4-4',
   'date-range': 'M4 12h16M8 8l-4 4 4 4M16 8l4 4-4 4',
   'date-price-range': 'M4 6h16v12H4zM4 12h16M12 6v12',

@@ -42,6 +42,7 @@ import { rdpSimplify } from './freehand';
  * members is structural, so the real `Chart` satisfies it with nothing to cast.
  */
 export interface DrawingChartHost {
+  readonly isDestroyed?: boolean;
   /**
    * The event bus. The controller listens for `click`, `crosshair:move`,
    * `drag`, `drag:end` and `dblclick`, and for `hover` (`{ id }`, the hit id
@@ -127,7 +128,7 @@ export interface DrawingControllerOptions {
 }
 
 /** What `drawing:change` reports happened to the listed ids. */
-export type DrawingChangeKind = 'add' | 'update' | 'remove' | 'reorder';
+export type DrawingChangeKind = 'add' | 'update' | 'remove' | 'reorder' | 'undo' | 'redo';
 
 /**
  * The pointer facts the chart attaches to every gesture payload. Read
@@ -259,12 +260,34 @@ const pointerKindOf = (p: PointerFacts): DrawingPointerKind =>
 type ControllerOptions = Required<Omit<DrawingControllerOptions, 'defaultStyle' | 'clipboard' | 'clipboardFallbackToMemory' | 'magnet'>>
   & { defaultStyle: DrawingStyle; magnet: MagnetMode };
 
+interface DrawingHistoryEntry { before: string; after: string }
+
+/** @internal Reserved persistence metadata; a duplicate is a new drawing lineage. */
+export const DRAWING_LINK_METADATA_KEY = 'openalgo-charts/drawing-link';
+
+function historyPatch(current: unknown, before: unknown, after: unknown): unknown {
+  if (JSON.stringify(before) === JSON.stringify(after)) return current;
+  if (before === null || after === null || typeof before !== 'object' || typeof after !== 'object'
+    || Array.isArray(before) || Array.isArray(after)) return after;
+  const left = before as Record<string, unknown>;
+  const right = after as Record<string, unknown>;
+  const result = { ...(current as Record<string, unknown> | undefined) };
+  for (const key of new Set([...Object.keys(left), ...Object.keys(right)])) {
+    if (JSON.stringify(left[key]) === JSON.stringify(right[key])) continue;
+    if (!(key in right)) delete result[key];
+    else result[key] = historyPatch(result[key], left[key], right[key]);
+  }
+  return result;
+}
+
 export class DrawingController {
   private readonly _chart: DrawingChartHost;
   private _opts: ControllerOptions;
   private readonly _clipboard: DrawingClipboard;
   private readonly _layers = new Map<number, PaneLayers>();
   private _drawings: Drawing[] = [];
+  private readonly _linkedPreviews = new Map<string, Drawing>();
+  private _destroyed = false;
   private _tool: string | null = null;
   private _pending: DrawingPoint[] = [];
   private _pendingPane = 0;
@@ -284,8 +307,9 @@ export class DrawingController {
   /** The device behind the last pointer report, for target sizing. */
   private _pointerKind: DrawingPointerKind = 'mouse';
   /** Snapshots for undo/redo; each is a full drawing list (they are small). */
-  private _undo: string[] = [];
-  private _redo: string[] = [];
+  private _undo: DrawingHistoryEntry[] = [];
+  private _redo: DrawingHistoryEntry[] = [];
+  private _pendingHistory: DrawingHistoryEntry | null = null;
   /**
    * One gesture's starting state. `items` are ids rather than objects because
    * an undo mid-drag replaces every drawing object, and a stale reference
@@ -296,6 +320,8 @@ export class DrawingController {
     handle: number | null;
     from: DrawingPoint;
     items: { id: string; paneIndex: number; points: DrawingPoint[] }[];
+    undo: DrawingHistoryEntry[];
+    redo: DrawingHistoryEntry[];
   } | null = null;
   private readonly _off: (() => void)[] = [];
   private _lastCursor: { time: number; price: number; paneIndex: number } | null = null;
@@ -327,6 +353,8 @@ export class DrawingController {
     this._off.push(chart.on('hover', (p) => this._onHover(p as { id?: string | null })));
     this._off.push(chart.on('drag', (p) => this._onDrag(p as DragPayload)));
     this._off.push(chart.on('drag:end', () => this._onDragEnd()));
+    this._off.push(chart.on('drag:cancel', () => { this.cancelDrag(); }));
+    this._off.push(chart.on('data:context', () => { this.cancelDrag(); }));
     this._off.push(chart.on('dblclick', () => { this.finish(); }));
     this._off.push(chart.on('drawings:restore', document => this.fromJSON(document)));
     // Restore anything a previous session left in the chart state. A 1.9.x
@@ -343,6 +371,7 @@ export class DrawingController {
     if (toolId !== null && !hasDrawingTool(toolId)) {
       throw new Error(`openalgo-charts: unknown drawing tool "${toolId}"`);
     }
+    this.cancelDrag();
     this._tool = toolId;
     this._pending = [];
     this._setPlacementMode(toolId !== null);
@@ -409,6 +438,48 @@ export class DrawingController {
     return this._drawings.find((d) => d.id === id);
   }
 
+  public get isDestroyed(): boolean { return this._destroyed; }
+
+  /** Apply a linked commit without adding to this chart's local undo history. */
+  public applyLinkedDrawing(id: string, drawing: Drawing | null): void {
+    if (this._destroyed || this._chart.isDestroyed === true) return;
+    if (this._dragStart?.items.some(item => item.id === id)) this.cancelDrag();
+    const index = this._drawings.findIndex(item => item.id === id);
+    this._linkedPreviews.delete(id);
+    if (drawing === null) {
+      if (index < 0) return;
+      this._drawings.splice(index, 1);
+      this._pruneSelection();
+    } else {
+      const copy = cloneDrawing({ ...drawing, id });
+      if (index < 0) this._drawings.push(copy);
+      else this._drawings[index] = copy;
+    }
+    this._sync();
+    this._chart.emit('drawing:change', { ids: [id], kind: drawing === null ? 'remove' : index < 0 ? 'add' : 'update', linked: true });
+  }
+
+  /** A linked drag paints over its committed drawing without changing saved state. */
+  public setLinkedPreview(id: string, drawing: Drawing | null): void {
+    if (this._destroyed || this._chart.isDestroyed === true) return;
+    if (drawing === null) this._linkedPreviews.delete(id);
+    else if (this.get(id) !== undefined) this._linkedPreviews.set(id, cloneDrawing({ ...drawing, id }));
+    this._sync();
+  }
+
+  /** Reorder related drawings inside their existing slots, preserving unrelated local order. */
+  public reorderLinkedDrawings(ids: readonly string[]): void {
+    if (this._destroyed || this._chart.isDestroyed === true) return;
+    const ordered = [...new Set(ids)].map(id => this.get(id)).filter((d): d is Drawing => d !== undefined);
+    const selected = new Set(ordered.map(d => d.id));
+    let index = 0;
+    const next = this._drawings.map(d => selected.has(d.id) ? ordered[index++] : d);
+    if (next.every((d, i) => d === this._drawings[i])) return;
+    this._drawings = next;
+    this._sync();
+    this._chart.emit('drawing:change', { ids: ordered.map(d => d.id), kind: 'reorder', linked: true });
+  }
+
   /** Supported numeric levels, independent of whether the queried time lies on the shape. */
   public alertInfo(id: string): AlertDrawingInfo {
     const drawing = this.get(id);
@@ -472,6 +543,10 @@ export class DrawingController {
       zIndex: Number.isFinite(drawing.zIndex) ? (drawing.zIndex as number) : 0,
       createdAt: drawing.createdAt ?? Date.now(),
     };
+    if (created.props?.[DRAWING_LINK_METADATA_KEY] !== undefined) {
+      created.props = { ...created.props };
+      delete created.props[DRAWING_LINK_METADATA_KEY];
+    }
     if (drawing.text !== undefined || tool.defaultText !== undefined) {
       created.text = { value: '', ...tool.defaultText, ...drawing.text };
     }
@@ -609,6 +684,10 @@ export class DrawingController {
   }
 
   private _emitChange(ids: readonly string[], kind: DrawingChangeKind): void {
+    if (this._pendingHistory !== null) {
+      this._pendingHistory.after = JSON.stringify(this._drawings);
+      this._pendingHistory = null;
+    }
     this._chart.emit('drawing:change', { ids: ids.slice(), kind });
   }
 
@@ -858,23 +937,62 @@ export class DrawingController {
   // ── history and persistence ─────────────────────────────────────────────
 
   public undo(): boolean {
+    this._onDragEnd();
     const snap = this._undo.pop();
     if (snap === undefined) return false;
-    this._redo.push(JSON.stringify(this._drawings));
-    this._drawings = JSON.parse(snap) as Drawing[];
-    this._pruneSelection();
-    this._sync();
+    this._redo.push(snap);
+    this._applyHistory(snap.after, snap.before, 'undo');
     return true;
   }
 
   public redo(): boolean {
+    this._onDragEnd();
     const snap = this._redo.pop();
     if (snap === undefined) return false;
-    this._undo.push(JSON.stringify(this._drawings));
-    this._drawings = JSON.parse(snap) as Drawing[];
+    this._undo.push(snap);
+    this._applyHistory(snap.before, snap.after, 'redo');
+    return true;
+  }
+
+  private _applyHistory(from: string, to: string, kind: 'undo' | 'redo'): void {
+    const before = JSON.parse(from) as Drawing[];
+    const after = JSON.parse(to) as Drawing[];
+    const left = new Map(before.map(d => [d.id, d]));
+    const right = new Map(after.map(d => [d.id, d]));
+    const beforeOrder = before.filter(d => right.has(d.id)).map(d => d.id);
+    const afterOrder = after.filter(d => left.has(d.id)).map(d => d.id);
+    const ids = [...new Set([...left.keys(), ...right.keys()])].filter(id =>
+      JSON.stringify(left.get(id)) !== JSON.stringify(right.get(id))
+      || beforeOrder.indexOf(id) !== afterOrder.indexOf(id));
+    const changed = new Set(ids);
+    const previous = new Map(this._drawings.map(d => [d.id, d]));
+    // Property history patches in place. Removing and reinserting every edited
+    // shape would also undo a later reorder performed on another chart.
+    this._drawings = this._drawings.filter(d => !changed.has(d.id) || right.has(d.id))
+      .map(d => changed.has(d.id) ? historyPatch(d, left.get(d.id), right.get(d.id)) as Drawing : d);
+    for (let i = 0; i < after.length; i++) {
+      const drawing = after[i];
+      // An edit cannot resurrect somebody else's deletion. Only history which
+      // actually removed an id can restore it here.
+      if (!changed.has(drawing.id) || previous.has(drawing.id) || left.has(drawing.id)) continue;
+      const next = after.slice(i + 1).find(d => this.get(d.id) !== undefined);
+      const at = next === undefined ? this._drawings.length : this._drawings.findIndex(d => d.id === next.id);
+      this._drawings.splice(at, 0, drawing);
+    }
+    const reordered = afterOrder.filter(id => beforeOrder.indexOf(id) !== afterOrder.indexOf(id))
+      .map(id => this.get(id)).filter((d): d is Drawing => d !== undefined);
+    const moving = new Set(reordered.map(d => d.id));
+    let position = 0;
+    this._drawings = this._drawings.map(d => moving.has(d.id) ? reordered[position++] : d);
     this._pruneSelection();
     this._sync();
-    return true;
+    for (const id of ids) {
+      const drawing = this.get(id);
+      const old = previous.get(id);
+      if (drawing !== undefined) this._chart.emit(old === undefined ? 'draw:add' : 'draw:update', { drawing, history: true });
+      else if (old !== undefined) this._chart.emit('draw:remove', { drawing: old, history: true });
+    }
+    this._emitChange(ids, kind);
   }
 
   /** Drop selected ids the model no longer holds, after a history jump. */
@@ -897,14 +1015,23 @@ export class DrawingController {
    * load. Clears the selection and history.
    */
   public fromJSON(data: unknown): void {
+    this.cancelDrag();
+    this._linkedPreviews.clear();
     this._drawings = migrateDrawings(data).drawings;
     this._undo = [];
     this._redo = [];
+    this._pendingHistory = null;
     this._setSelection([]);
     this._sync();
+    this._chart.emit('draw:restore', {});
   }
 
   public destroy(): void {
+    if (this._destroyed) return;
+    this.cancelDrag();
+    this._destroyed = true;
+    this._linkedPreviews.clear();
+    this._chart.emit('draw:destroy', { controller: this });
     this._setPlacementMode(false);   // never leave the chart unable to pan
     for (const off of this._off) off();
     this._off.length = 0;
@@ -1155,6 +1282,7 @@ export class DrawingController {
    * did nothing.
    */
   public cancel(): boolean {
+    if (this.cancelDrag()) return true;
     if (this._tool === null) return false;
     const hadPending = this._pending.length > 0;
     this._pending = [];
@@ -1310,9 +1438,12 @@ export class DrawingController {
         : [d];
       // Snapshot once per gesture so undo restores the pre-drag position, not
       // an intermediate frame.
+      const undo = this._undo.slice();
+      const redo = this._redo.slice();
       this._pushUndo();
       this._dragStart = {
         id: rawId, handle,
+        undo, redo,
         from: { time: p.fromTime ?? p.time, price: p.fromPrice ?? p.price },
         items: moving.map((m) => ({ id: m.id, paneIndex: m.paneIndex, points: m.points.map((q) => ({ ...q })) })),
       };
@@ -1327,10 +1458,35 @@ export class DrawingController {
       this._moveDrag(p, d, handle);
       if (lifted) this._sync();
       else this._syncDrag();
+      this._emitDragPreview();
       return;
     }
     this._moveDrag(p, d, handle);
     this._syncDrag();
+    this._emitDragPreview();
+  }
+
+  private _emitDragPreview(): void {
+    const drawings = this._dragStart?.items.map(item => this.get(item.id)).filter((d): d is Drawing => d !== undefined) ?? [];
+    this._chart.emit('draw:preview', { drawings: drawings.map(cloneDrawing) });
+  }
+
+  /** Roll back an interrupted drag and leave the pre-gesture undo/redo stacks intact. */
+  public cancelDrag(): boolean {
+    const start = this._dragStart;
+    if (start === null) return false;
+    this._dragStart = null;
+    for (const item of start.items) {
+      const drawing = this.get(item.id);
+      if (drawing !== undefined) drawing.points = item.points.map(point => ({ ...point }));
+    }
+    this._undo = start.undo;
+    this._redo = start.redo;
+    this._pendingHistory = null;
+    this._lifted.clear();
+    if (this._chart.isDestroyed !== true) this._sync();
+    this._chart.emit('draw:preview-clear', { ids: start.items.map(item => item.id) });
+    return true;
   }
 
   /** Apply one drag frame to the model, from the gesture's snapshot. */
@@ -1426,6 +1582,7 @@ export class DrawingController {
     if (this._dragStart === null) return;
     const moved = this._dragStart.items.map((i) => this.get(i.id)).filter((m): m is Drawing => m !== undefined);
     this._dragStart = null;
+    this._chart.emit('draw:preview-clear', { ids: moved.map(d => d.id) });
     // Whatever was lifted for the gesture goes back under the series.
     if (this._lifted.size > 0) {
       this._lifted.clear();
@@ -1464,7 +1621,8 @@ export class DrawingController {
   /** Push the current list into each pane's layers and into the chart state. */
   private _sync(): void {
     const byPane = new Map<number, { below: Drawing[]; above: Drawing[] }>();
-    for (const d of this._drawings) {
+    for (const committed of this._drawings) {
+      const d = this._linkedPreviews.get(committed.id) ?? committed;
       let lists = byPane.get(d.paneIndex);
       if (lists === undefined) {
         lists = { below: [], above: [] };
@@ -1552,7 +1710,10 @@ export class DrawingController {
   }
 
   private _pushUndo(): void {
-    this._undo.push(JSON.stringify(this._drawings));
+    this._onDragEnd();
+    const before = JSON.stringify(this._drawings);
+    this._pendingHistory = { before, after: before };
+    this._undo.push(this._pendingHistory);
     if (this._undo.length > this._opts.historyLimit) this._undo.shift();
     this._redo = []; // a new edit invalidates the redo branch
   }

@@ -151,7 +151,7 @@ const destroy = left.destroy.bind(left);
 left.destroy = function () { group.destroy(); right.destroy(); destroy(); };
 return left;`} caption="The readout over the daily chart is group.crosshairIndex(right): its own bar number, resolved from the hourly chart's instant." />
 
-## The four channels
+## The independent channels
 
 Each channel is switchable on its own, because a user routinely wants one without the
 others: mirror the cursor across four timeframes but keep each zoom, or slave every chart's
@@ -163,6 +163,8 @@ symbol while each keeps its own window.
 | `viewport` | on | a wall-clock window | the member's `pan` and `zoom` events |
 | `symbol` | off | an instrument name | the member's `symbol` event, or `setSymbol` |
 | `interval` | off | an interval token | the member's `interval` event, or `setInterval` |
+| `appearance` | off | visual chart settings | `style:change`, or `syncAppearance` |
+| drawings (draw tier) | off | drawing time and price anchors, properties and edits | `DrawingLinkGroup` and its controllers |
 
 ### The linked crosshair
 
@@ -286,6 +288,106 @@ callback can broadcast its own interval but does not follow others. Enabling
 the channel converges members on the current token. The group does not persist
 its settings; [workspaces](/docs/workspaces) can carry that host state.
 
+### Appearance
+
+Supply a settings adapter for each member, then enable the independent appearance
+switch. Settings patches emit `style:change`; a host that changes appearance through
+other setters can call `syncAppearance(chart)` explicitly.
+
+```ts
+import { createLinkGroup, readChartSettings, applyChartSettings } from 'openalgo-charts';
+
+const group = createLinkGroup({ appearance: true });
+for (const chart of [chartA, chartB]) {
+  group.add(chart, {
+    appearance: {
+      read: () => readChartSettings(chart),
+      apply: values => applyChartSettings(chart, values),
+    },
+  });
+}
+applyChartSettings(chartA, { 'canvas.grid.vertColor': '#303744' });
+// Both charts now use that grid color.
+```
+
+`LinkAppearanceAdapter` has synchronous `read()` and `apply(values)` methods.
+`LinkAppearanceValues` is a flat record of string, number and boolean settings.
+`filterLinkAppearance(values)` returns a fresh record containing supported visual
+keys: series styling, readout visibility, scale presentation, grid, crosshair,
+watermark styling and axis chrome. It excludes watermark text, instrument identity,
+interval, timezone, navigation, studies, event feeds, alerts and trading settings.
+It does not transfer chart data or the primary series type. Enabling the channel
+waits for the next edit or an explicit `syncAppearance`; it does not choose a leader.
+
+### Drawings
+
+Drawing synchronization lives in `openalgo-charts/draw`, keeping drawing code out
+of the base link group. Both the switch and each chart's instrument identity must
+be explicit. Symbol and exchange must match exactly; unknown or blank identity is
+ineligible. Intervals may differ because anchors remain UTC timestamps.
+
+```ts
+import { DrawingController, createDrawingLinkGroup } from 'openalgo-charts/draw';
+
+const drawings = createDrawingLinkGroup({ enabled: true });
+const drawA = new DrawingController(chartA);
+const drawB = new DrawingController(chartB);
+const context = { symbol: 'INFY', exchange: 'NSE' };
+drawings.add(chartA, drawA, context);
+drawings.add(chartB, drawB, context);
+
+// New price-pane drawings and subsequent edits now reach both charts.
+drawA.add({
+  tool: 'trend-line', paneIndex: 0, style: { color: '#52a8ff' },
+  points: [{ time: 1700438400, price: 1450 }, { time: 1700524800, price: 1490 }],
+});
+
+// Existing local drawings require this separate action.
+drawings.share(chartA); // or drawings.share(chartA, drawA.selection())
+drawings.setOptions({ enabled: false });
+drawings.destroy();
+```
+
+Only pane `0` participates. Indicator panes have no shared identity, and alerts,
+orders and other primitives never join this channel. Updates, drag previews,
+deletion and local undo/redo propagate in either direction. Each chart retains its
+selection and its own undo history. Received previews paint temporarily without
+entering the saved drawing document; cancellation, context changes, unlinking and
+destruction clear them.
+
+Existing local drawings stay local until explicitly shared, and a joining chart
+does not automatically receive older drawings it has never shared. A reserved JSON-safe drawing property,
+`props['openalgo-charts/drawing-link']`, preserves lineage and instrument identity.
+With drawing sync enabled, adding a rebuilt chart or restoring a document reconnects
+matching persisted lineage under the same instrument identity. The current peer's
+committed values and ordering take precedence over an older saved copy. Repeated
+`share` calls reuse those copies; an unrelated drawing with the same local ID remains
+untouched. Duplicating or pasting
+a drawing starts a new lineage. Preserve the reserved property when saving documents.
+Removing a member leaves committed copies in place. Changing its instrument removes
+drawings it received from peers; the host still owns restoring its local
+instrument-specific drawings.
+
+`add` uses `chart.getDataContext()` when its context argument is omitted.
+`data:context` changes update eligibility automatically. A symbol-only host event
+invalidates a static drawing identity until a complete context is supplied. Hosts
+with another identity source can pass a resolver as the third `add` argument, or
+call `setContext(chart, { symbol, exchange })` when the instrument changes:
+
+```ts
+drawings.add(chartA, drawA, () => ({
+  symbol: chartA.getDataContext()?.symbol,
+  exchange: 'YFINANCE',
+}));
+```
+
+The resolver is called on registration and subsequent context or symbol events.
+A null result, missing identity or thrown error makes that member ineligible.
+It leaves the chart's own context, including existing alert scopes, untouched.
+A feed-qualified symbol can use a stable feed namespace as the
+exchange field, as the reference host does with `YFINANCE`; that identifies the
+host's symbol namespace and is not exchange metadata.
+
 ## API
 
 ### `createLinkGroup(options?)` and `LinkGroup`
@@ -302,6 +404,7 @@ its settings; [workspaces](/docs/workspaces) can carry that host state.
 | `setSymbol(chart, symbol)` | The imperative twin of emitting `symbol` on that chart's bus. |
 | `interval()` | The current interval token, or `null` when none has been declared. |
 | `setInterval(chart, interval)` | Report an interval selection to following members. |
+| `syncAppearance(chart)` | Copy the member adapter's supported visual settings when appearance linking is enabled. |
 | `crosshairIndex(chart)` | The member's own logical index its linked crosshair is marking, or `null`. |
 | `destroy()` | Unlink everything: listeners off, linked crosshairs detached, references dropped. |
 
@@ -313,6 +416,7 @@ its settings; [workspaces](/docs/workspaces) can carry that host state.
 | `viewport` | `boolean` | `true` | Mirror pan and zoom as a wall-clock window. |
 | `symbol` | `boolean` | `false` | Mirror the instrument, through each member's `onSymbol`. |
 | `interval` | `boolean` | `false` | Mirror the interval, through each member's `onInterval`. |
+| `appearance` | `boolean` | `false` | Copy supported visual settings through each member's adapter. |
 | `whenMissing` | `'nearest' \| 'hide'` | `'nearest'` | What a follower does with an instant it has no bar for. |
 
 ### `LinkMemberOptions`
@@ -323,13 +427,27 @@ its settings; [workspaces](/docs/workspaces) can carry that host state.
 | `onSymbol` | `(symbol, chart) => void` | Load `symbol` into this chart. Omit to make the member symbol-read-only. |
 | `interval` | `string` | The current host interval token. |
 | `onInterval` | `(interval, chart) => boolean \| void` | Accept the token synchronously, or return `false` to refuse it. The host loads its data. |
+| `appearance` | `LinkAppearanceAdapter` | Synchronous `read()` and `apply(values)` for visual settings. |
+
+### `createDrawingLinkGroup(options?)` and `DrawingLinkGroup`
+
+| Member | Description |
+|---|---|
+| `add(chart, controller, context?)` | Join using a structural `DrawingLinkChart` and its controller, reconnecting known persisted lineage only. `DrawingLinkContextSource` accepts a static context or resolver. Repeated calls update the identity without duplicate listeners. |
+| `setContext(chart, context)` | Set `DrawingLinkContext` (`symbol`, `exchange`), or `undefined` to make the member ineligible. |
+| `share(chart, ids?)` | Explicitly send selected or all existing price-pane drawings. Returns the number shared. |
+| `setOptions({ enabled })` | Change the opt-in `DrawingLinkOptions` switch. Disabling clears previews. |
+| `options()` | Return a copy of the resolved enabled flag. |
+| `has(chart)` | Test membership. |
+| `remove(chart)` | Unsubscribe and clear previews, leaving committed drawings in place. |
+| `destroy()` | Remove every member and its listeners. |
 
 ## Lifecycle and loops
 
 **Echoes are dropped by one group-wide guard.** A syncs B, B echoes back to A, and the pair
 either oscillates forever or blows the stack. Any member event that arrives *while the group
 is broadcasting* is an echo of that broadcast by definition, since a human cannot pan two
-charts in one call stack, so it is dropped. The guard covers all four channels together
+charts in one call stack, so it is dropped. The guard covers all base channels together
 rather than one each: a symbol change that reloads data can move a viewport, and that
 second-order echo is the same bug wearing a different hat.
 

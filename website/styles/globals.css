@@ -373,8 +373,8 @@ body { font-family: var(--oac-font); color: var(--oac-text); background: var(--o
 .nextra-content > main { padding-top: 32px; }
 .nextra-content h1 { color: var(--oac-text); font-size: clamp(33px, 3.3vw, 47px); line-height: 1.15; letter-spacing: -.045em; font-weight: 600; margin-top: 17px; margin-bottom: 24px; }
 .nextra-content > h1 { padding-top: 30px; }
-.nextra-content h2 { color: var(--oac-text); border-color: var(--oac-card-border); letter-spacing: -.035em; font-weight: 550; margin-top: 52px; padding-bottom: 14px; font-size: 26px; }
-.nextra-content h3 { color: var(--oac-text); font-weight: 550; letter-spacing: -.025em; }
+.nextra-content h2:not(.oac-event-details__heading) { color: var(--oac-text); border-color: var(--oac-card-border); letter-spacing: -.035em; font-weight: 550; margin-top: 52px; padding-bottom: 14px; font-size: 26px; }
+.nextra-content h3:not(.oac-event-details__title) { color: var(--oac-text); font-weight: 550; letter-spacing: -.025em; }
 .nextra-content > p, .nextra-content > main > p, .nextra-content > main > ul, .nextra-content > main > ol { color: color-mix(in srgb, var(--oac-text) 86%, var(--oac-muted)); font-size: 15px; line-height: 1.9; }
 .nextra-content > h1 + p, .nextra-content > main > h1 + p { font-size: 17px; line-height: 1.8; color: var(--oac-muted); }
 .nextra-content :not(pre) > code { border: 1px solid var(--oac-card-border); background: var(--oac-elevated); border-radius: 5px; font-size: .84em; padding: .12em .35em; color: var(--oac-text); }

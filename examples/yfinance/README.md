@@ -188,6 +188,7 @@ examples/yfinance/
   requirements.txt    yfinance, the one dependency, needed only outside --fixture
   src/
     alerts.js         alert controller ownership, shared editor/list and local event delivery
+    timeline.js       labelled sample timeline events, group filters and event details
     main.js           composition root: the shared app state, render(), load(), boot
     ui.js             el(), number and text formatting, the candle palette, toasts, the overlay stack (focus trap, one Escape per layer), the chart loading, empty and error card, the theme switch
     hover.js          the one hover label every icon-only control shares
@@ -342,6 +343,24 @@ exists to show one engine surface carrying real use, not just being present.
 | `indicator-templates.js`, `templates.js` | Capture repeated studies with parameters, styles, visibility and pane grouping. Apply shared replace/append planning to the captured chart while preserving drawings and valid alert anchors. Save named templates in the same revision-aware catalog as layouts, with explicit application after import. |
 | `chart-data.js` | Download the captured chart's loaded OHLC/volume/OI, study plots and eligible comparison closes through the shared CSV serializer. Reject obsolete/loading owners and release file resources on success or failure. |
 | `alerts.js` | The Alerts toolbar button opens the focused chart's lifecycle list and source editor. Price, study plots, supported drawing levels and registered candle conditions use the same controls as the packaged widget. Local notices display fired events; the demo does not send notifications or orders for an alert. |
+| `timeline.js` | The Events menu enables labelled sample events, clustering and group visibility. Click a marker to read its details. These are demonstration events, not a company calendar feed. |
+
+### Analysis and linking in 2.5.2
+
+The Volume studies drawing group contains Anchored VWAP (one anchor) and Fixed
+Range Volume Profile (two anchors). Move their anchors and open drawing properties
+to change the price source, bands, rows or value area. Profiles estimate volume
+from candle ranges. Missing volume and incomplete loaded history are labelled.
+
+Open two charts, select the same ticker, then enable **Drawings (same instrument)**
+in the linking menu. Different intervals are supported. Use **Share existing
+drawings from selected chart** for drawings made before linking. Appearance has
+its own switch for supported chart settings. Both switches start off. The feed
+namespace used for drawing matching does not change saved alert scopes.
+
+The Events button opens sample timeline controls. Enable **Show sample events**,
+then click a marker or clustered count to read details. Group filters include
+child groups. Your production host must supply its own event data.
 
 Click or focus a chart, or use the Chart selector, to select it for symbol,
 interval, history range, chart type, study, grid, drawing, alert and snapshot

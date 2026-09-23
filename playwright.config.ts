@@ -14,6 +14,8 @@ import { defineConfig, devices } from '@playwright/test';
 
 const DEMO_PORT = 8124;
 const DEMO_URL = `http://127.0.0.1:${DEMO_PORT}`;
+const ENGINE_PORT = process.env.OAC_E2E_ENGINE_PORT || '4173';
+const ENGINE_URL = `http://127.0.0.1:${ENGINE_PORT}`;
 
 /** The first Python 3 on PATH, as the command to run it by, or null. */
 function pythonOnPath(): string | null {
@@ -36,12 +38,13 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? 'github' : 'list',
-  use: { baseURL: 'http://127.0.0.1:4173' },
+  use: { baseURL: ENGINE_URL },
   webServer: [
     {
       command: 'node tests/e2e/serve.cjs',
-      url: 'http://127.0.0.1:4173/dist/openalgo-charts.mjs',
-      reuseExistingServer: !process.env.CI,
+      env: { OAC_E2E_PORT: ENGINE_PORT },
+      url: `${ENGINE_URL}/dist/openalgo-charts.mjs`,
+      reuseExistingServer: false,
       timeout: 30_000,
     },
     {
@@ -66,7 +69,7 @@ export default defineConfig({
     { name: 'chromium', use: { ...devices['Desktop Chrome'] }, testIgnore: /(?:yfinance(?:-(?:mobile|templates|indicator-source))?|widget-data-loading|widget-localization|widget-alerts|chart-data-export|instruments|indicator-source-markers|alert-line-drag|table-layout)\.spec\.ts/ },
     ...(['chromium', 'firefox', 'webkit'] as const).map(browserName => ({
       name: `widget-loading-${browserName}`,
-      testMatch: /(?:widget-data-loading|widget-localization|widget-alerts|drawing-future|drawing-catalog|widget-objects|navigation-wheel|widget-mobile|branding-watermark|crosshair-snap|workspace-storage|open-interest|alerts|alert-line-drag|table-layout|replay-time|chart-data-export|instruments|indicator-source-markers)\.spec\.ts/,
+      testMatch: /(?:widget-data-loading|widget-localization|widget-alerts|drawing-future|drawing-catalog|analysis-linked-events|widget-objects|navigation-wheel|widget-mobile|branding-watermark|crosshair-snap|workspace-storage|open-interest|alerts|alert-line-drag|table-layout|replay-time|chart-data-export|instruments|indicator-source-markers)\.spec\.ts/,
       use: { browserName, baseURL: 'http://127.0.0.1:4176' },
     })),
     // The demo, against its own server. Kept in the list even with no

@@ -2,6 +2,30 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 2.5.2
+
+2026-09-23
+
+### Added
+
+- Anchored VWAP and Fixed Range Volume Profile drawing tools, with editable time
+  anchors, settings, selection, undo and saved drawings. VWAP supports price sources
+  and deviation bands. The profile shows estimated candle volume, its point of
+  control and value area. Missing volume remains distinct from zero.
+- Opt-in drawing synchronization for the same symbol and exchange across chart
+  intervals. Linked drawings support live previews, edits, deletion and undo without
+  copying alerts, orders or local selections. Existing drawings can be shared explicitly.
+- Opt-in appearance synchronization through the chart settings API. Visual settings
+  can follow independently of symbol, timeframe, viewport and drawing links.
+- Timeline event groups, parent visibility and optional zoom-dependent clustering.
+  Clicks expose all cluster members. The widget adds accessible plain-text details,
+  with optional cancellable detail loading supplied by the host.
+- Reference-host controls and a live website example for the new drawing, linking
+  and timeline APIs. Event samples are labelled demonstration data.
+
+Existing drawing and appearance links remain off by default. Event clustering is
+off unless enabled. No runtime dependencies or additional package tiers are added.
+
 ## 2.5.1
 
 2026-09-21
