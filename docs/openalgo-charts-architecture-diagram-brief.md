@@ -42,9 +42,9 @@ The map must preserve these distinctions:
   belong to the base registry; the indicator tier adds built-ins and helpers.
 
 Measurements were rechecked with `npm run size` and the built registries on
-2.5.2: base 95.04 kB, indicators 29.84 kB, draw 40.70 kB, profile 14.96 kB,
+2.5.2: base 95.04 kB, indicators 29.84 kB, draw 40.73 kB, profile 14.96 kB,
 transform 4.50 kB, trade 8.01 kB, workspace 5.55 kB, webgl 6.39 kB and widget
-51.06 kB, all decimal Brotli. All tiers total 256.05 kB. Registry counts are
+51.06 kB, all decimal Brotli. All tiers total 256.08 kB. Registry counts are
 105 indicators, 87 drawing tools and 15 chart types with the transform tier loaded.
 
 Source references: `src/index.ts`, `src/feed/data-controller.ts`,

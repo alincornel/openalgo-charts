@@ -6,7 +6,7 @@ import { DataLayer } from '../src/model/data-layer';
 import type { DrawingChartHost } from '../src/draw/controller';
 import type { Drawing } from '../src/draw/types';
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 function host(interval = 60) {
   const listeners = new Map<string, Set<(p: unknown) => void>>();
   const primitives: DrawingLayer[] = [];
@@ -37,6 +37,31 @@ const drag = (chart: DrawingChartHost, id: string) => chart.emit('drag', {
 });
 
 describe('drawing linking', () => {
+  it('uses all 128 cryptographic bits for lineage when randomUUID is unavailable', async () => {
+    vi.resetModules();
+    vi.stubGlobal('crypto', { getRandomValues(bytes: Uint8Array) {
+      bytes.set([0, 1, 2, 3, 4, 5, 6, 7, 248, 249, 250, 251, 252, 253, 254, 255]);
+      return bytes;
+    } });
+    const { DrawingLinkGroup: IsolatedGroup } = await import('../src/draw/drawing-link');
+    const a = host(); const b = host(); const group = new IsolatedGroup({ enabled: true });
+    group.add(a.chart, a.draw, identity); group.add(b.chart, b.draw, identity);
+    const first = add(a.draw); const second = add(a.draw);
+    const lineage = (id: string) => a.draw.get(id)?.props?.['openalgo-charts/drawing-link'];
+    expect(lineage(first.id)).toMatchObject({ id: '0001020304050607f8f9fafbfcfdfeff:1' });
+    expect(lineage(second.id)).toMatchObject({ id: '0001020304050607f8f9fafbfcfdfeff:2' });
+    expect(b.draw.get(first.id)?.props).toEqual(a.draw.get(first.id)?.props);
+    b.draw.update(second.id, { style: { color: '#123456' } });
+    expect(a.draw.get(second.id)?.style.color).toBe('#123456');
+    group.destroy();
+  });
+
+  it('refuses to create a lineage namespace without Web Crypto', async () => {
+    vi.resetModules();
+    vi.stubGlobal('crypto', undefined);
+    await expect(import('../src/draw/drawing-link')).rejects.toThrow(/crypto/i);
+  });
+
   it('requires opt-in and exact known symbol and exchange, regardless of interval', () => {
     const members = [host(), host(300), host(), host(), host()];
     const group = new DrawingLinkGroup();

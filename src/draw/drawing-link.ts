@@ -43,8 +43,12 @@ function resolveContext(source: DrawingLinkContextSource | undefined): DrawingLi
 }
 
 let nextLinkedId = 1;
-const sessionId = typeof globalThis.crypto?.randomUUID === 'function'
-  ? globalThis.crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+const sessionId = (() => {
+  const crypto = globalThis.crypto;
+  if (typeof crypto?.randomUUID === 'function') return crypto.randomUUID();
+  if (typeof crypto?.getRandomValues !== 'function') throw new Error('Drawing links require Web Crypto');
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('');
+})();
 let nextLineage = 1;
 
 function lineageOf(drawing: Drawing, context: string): string | undefined {

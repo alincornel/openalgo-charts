@@ -15,7 +15,7 @@ Source of truth: `package.json` (`exports`, `sideEffects`, `files`), `rollup.con
 | `openalgo-charts/transform` | `dist/openalgo-charts.transform.mjs` | Renko, Range, Point & Figure, Kagi, Line Break, Heikin Ashi, `runTransform`, symbol arithmetic (`parseExpression`, `evaluateExpression`) | 4.50 kB / 6 kB | **yes**, registers the `point-figure` and `kagi` chart types |
 | `openalgo-charts/profile` | `dist/openalgo-charts.profile.mjs` | Volume Profile, TPO / Market Profile, Footprint, orderflow | 14.96 kB / 15 kB | no |
 | `openalgo-charts/indicators` | `dist/openalgo-charts.indicators.mjs` | 105 Tier-1 built-ins plus the Tier-2 contract | 29.84 kB / 30 kB | **yes**, registers all 105 descriptors |
-| `openalgo-charts/draw` | `dist/openalgo-charts.draw.mjs` | 87 drawing tools including Anchored VWAP and fixed-range Volume Profile, `DrawingController`, `DrawingLinkGroup`, `DrawingLayer` | 40.70 kB / 41 kB | **yes**, registers every built-in tool |
+| `openalgo-charts/draw` | `dist/openalgo-charts.draw.mjs` | 87 drawing tools including Anchored VWAP and fixed-range Volume Profile, `DrawingController`, `DrawingLinkGroup`, `DrawingLayer` | 40.73 kB / 41 kB | **yes**, registers every built-in tool |
 | `openalgo-charts/webgl` | `dist/openalgo-charts.webgl.mjs` | the WebGL2 series backend, `createWebGL2Backend`, `isWebGL2Supported`, `WebGL2Backend`, `GlDevice` | 6.39 kB / 7 kB | **yes**, registers the `webgl2` render backend |
 | `openalgo-charts/widget` | `dist/openalgo-charts.widget.mjs` | `createWidget`, the chrome (top bar, rail, status line, toasts), the dialogs, event details, the keymap, the tokens and stylesheet; the only tier that ships DOM. Imports `openalgo-charts/draw` itself | 51.06 kB / 51.50 kB | **yes**, registers the seven dialog mounts with the shell |
 | `openalgo-charts/workspace` | `dist/openalgo-charts.workspace.mjs` | Validated workspace and template documents, `WorkspaceRepository`, revision conflicts and an IndexedDB adapter | 5.55 kB / 6 kB | no |
@@ -141,14 +141,14 @@ Enforced by `npm run size` (`size-limit`, Brotli, `@size-limit/file`), from `.si
 | Base engine | `openalgo-charts.mjs` | 95.50 kB | 95.04 kB |
 | Base + trade layer | base + `trade.mjs` | 103.50 kB | 103.05 kB |
 | Indicator tier | `indicators.mjs` | 30 kB | 29.84 kB |
-| Draw tier | `draw.mjs` | 41 kB | 40.70 kB |
+| Draw tier | `draw.mjs` | 41 kB | 40.73 kB |
 | Transform tier | `transform.mjs` | 6 kB | 4.50 kB |
 | Profile tier | `profile.mjs` | 15 kB | 14.96 kB |
 | WebGL2 tier | `webgl.mjs` | 7 kB | 6.39 kB |
 | Widget tier | `widget.mjs` | 51.50 kB | 51.06 kB |
-| Widget terminal | base + `draw.mjs` + `indicators.mjs` + `widget.mjs` | 217.00 kB | 216.64 kB |
+| Widget terminal | base + `draw.mjs` + `indicators.mjs` + `widget.mjs` | 217.00 kB | 216.67 kB |
 | Workspace tier | `workspace.mjs` | 6 kB | 5.55 kB |
-| Everything | all nine bundles | 256.75 kB | 256.05 kB |
+| Everything | all nine bundles | 256.75 kB | 256.08 kB |
 
 Version 2.1.2 raises the full-package budget from 187 KB to 188 KB for the feed, indicator lifecycle and recovery fixes. Version 2.1.3 raises base, widget and widget-terminal ceilings to 68 KB, 37 KB and 157 KB for navigation controls, and the chart-only tree-shaking ceiling to 45 KiB. Version 2.1.6 raises the base, base-plus-trade, widget-terminal and total ceilings
 to 73 KB, 81 KB, 165 KB and 197 KB for shared loading, resilient caching and
@@ -261,7 +261,7 @@ The alert controller and optional tiers must still disappear from that import.
 Version 2.5.2 adds the grouped timeline-event contract and appearance-link
 adapters to base; analysis-drawing math and drawing links stay in the draw tier,
 and event details stay in the widget. Measured all-tier Brotli grows from
-247.32 kB in 2.5.1 to 256.05 kB. The ceilings are 95.5 kB base,
+247.32 kB in 2.5.1 to 256.08 kB. The ceilings are 95.5 kB base,
 103.5 kB base plus trade, 41 kB draw, 51.5 kB widget, 217 kB widget terminal
 and 256.75 kB for all tiers. The chart-only import measures 54.67 KiB against
 a 55 KiB ceiling. Optional tiers still shake out of that import, and the package

@@ -38,7 +38,8 @@ Design: ../specs/2026-09-23-chart-analysis-252-design.md
 
 - Implemented all three feature groups and resolved independent review findings,
   including linked restore/undo, partial history, duplicate event IDs and CSP styles.
-- Full package verification passed: 6,021 engine tests in 256 files, 416 reference-host
+  CodeQL also prompted cryptographic lineage IDs in environments without randomUUID.
+- Full package verification passed: 6,023 engine tests in 256 files, 416 reference-host
   tests, endurance-harness tests, declarations, bundle limits and tree shaking.
 - Public reference coverage is 941/941. Built registries report 105 indicators,
   87 drawing tools and 15 chart types. TypeDoc generated without warnings.
@@ -52,6 +53,7 @@ Design: ../specs/2026-09-23-chart-analysis-252-design.md
   require entries for the new tools in the host's fixed catalogue. An external copy
   passes both with the companion patch. Consumer source remains unchanged.
 - Final archive contains 33 files. README line endings are normalized to match CI;
-  all 32 other files match the archive used for consumer execution.
+  every file hash is recorded externally for the registry comparison. The ID fallback
+  correction also passed all 16 focused browser cases on the rebuilt package.
 - Live-broker and physical-device acceptance are not claimed. Registry publication,
   provenance verification and deployed website checks follow the commit and CI gates.
