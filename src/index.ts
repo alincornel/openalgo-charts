@@ -9,7 +9,7 @@ export type {
   ContextMenuEvent, ContextMenuTarget, ContextMenuTargetKind, PriceAxisState,
   AxisChromeOptions, ZoomAnchor, DoubleClickAction, DoubleClickEvent, ExportSvgOptions,
   PointerModifiers, PointerKind, PointerSample, PointerInfo,
-  ChartClickEvent, ChartDragEvent, ChartDragEndEvent, RendererFallbackEvent,
+  ChartClickEvent, ChartEventClick, ChartDragEvent, ChartDragEndEvent, RendererFallbackEvent,
 } from './core/chart';
 // vector export: the serialising context behind `chart.exportSVG`, exported so
 // a host can run its own primitives or a bare renderer into one.
@@ -158,10 +158,11 @@ export type { ComparisonAlignment } from './compare/align';
 // chart linking (headless: the host draws its own link badge and colour chips).
 // Everything crosses a chart boundary as a time, never as a logical index, so a
 // daily chart and an hourly one stay on the same instant.
-export { LinkGroup, createLinkGroup, followerIndex, followerRange, LinkCrosshair, LINK_CROSSHAIR_ALPHA } from './link/index';
+export { LinkGroup, createLinkGroup, followerIndex, followerRange, LinkCrosshair, LINK_CROSSHAIR_ALPHA, filterLinkAppearance } from './link/index';
 export type {
   LinkChart, LinkOptions, LinkMemberOptions, ResolvedLinkOptions,
   LinkDataLayer, LinkMissingPolicy,
+  LinkAppearanceAdapter, LinkAppearanceValues,
 } from './link/index';
 
 export { CandleBuilder, DEFAULT_CANDLE_BUILDER_OPTIONS } from './feed/candle-builder';
@@ -211,7 +212,7 @@ export type {
 export { TimeNavigator, DEFAULT_TIME_NAVIGATOR_OPTIONS } from './primitives/time-navigator';
 export type { TimeNavigatorOptions, TimeNavigatorAction } from './primitives/time-navigator';
 export { EventMarkers } from './primitives/event-markers';
-export type { ChartEvent } from './primitives/event-markers';
+export type { ChartEvent, ChartEventDetails, EventDetailField, EventGroup, EventMarkersOptions, EventMarkerDetails } from './primitives/event-markers';
 
 // indicators
 export { ema, emaSeries } from './indicators/ema';

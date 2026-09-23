@@ -5,7 +5,7 @@
  * ships no DOM, so the host draws its own link badge / colour chips and decides
  * which charts belong to which group.
  *
- * Four channels sync, each switchable on its own because a user routinely
+ * Each channel switches independently because a user routinely
  * wants one without the others (mirror the cursor across four timeframes but
  * keep each zoom; or slave every chart's symbol but let each keep its own
  * window):
@@ -14,6 +14,7 @@
  * - **viewport**: panning or zooming one moves the others to the same window.
  * - **symbol**: changing the instrument on one changes it on the others.
  * - **interval**: changing a timeframe asks each following host to adopt it.
+ * - **appearance**: visual settings pass through a structural host adapter.
  *
  * Four decisions carry the design.
  *
@@ -26,7 +27,7 @@
  *    The engine's crosshair belongs to the pointer inside that chart; a linked
  *    one is a second, weaker mark that must not fight it. See `./crosshair`.
  *
- * 3. **One re-entrancy guard covers all three channels.** A syncs B, B echoes
+ * 3. **One re-entrancy guard covers every channel.** A syncs B, B echoes
  *    back to A, and the pair either oscillates forever or blows the stack. Any
  *    member event that arrives *while the group is broadcasting* is an echo of
  *    that broadcast by definition (a human cannot pan two charts in one call
@@ -42,9 +43,7 @@
  *    dropped on the spot, which matters because `addPrimitive` on a destroyed
  *    chart would resurrect a pane.
  *
- * **The engine has no notion of a symbol**, and inventing one here would put an
- * instrument concept in a charting engine that deliberately does not have one.
- * So the host participates: it tells the group an instrument changed (by
+ * The host owns instrument selection and loading. It tells the group a selection changed (by
  * emitting `'symbol'` on the chart's own event bus, or by calling `setSymbol`),
  * and it supplies the per-member `onSymbol` callback that actually loads the
  * new instrument's bars. A member without `onSymbol` broadcasts symbol changes
@@ -54,6 +53,7 @@ import type { IPrimitive } from '../primitives/primitive';
 import type { LogicalRange } from '../scale/time-scale';
 import { LinkCrosshair } from './crosshair';
 import { followerIndex, followerRange, type LinkDataLayer, type LinkMissingPolicy } from './align';
+import { filterLinkAppearance, type LinkAppearanceAdapter } from './appearance';
 
 /**
  * The slice of the chart a link group drives. `Chart` satisfies it; declaring
@@ -90,11 +90,15 @@ export interface LinkOptions {
   symbol?: boolean;
   /** Mirror the timeframe, via each member's `onInterval`. Default false. */
   interval?: boolean;
+  /** Copy visual chart settings through each member's adapter. Default false. */
+  appearance?: boolean;
   /** What a follower does with an instant it has no bar for. Default 'nearest'. */
   whenMissing?: LinkMissingPolicy;
 }
 
 export interface LinkMemberOptions {
+  /** Visual settings only; no instrument, timeframe, study or trading state is copied. */
+  appearance?: LinkAppearanceAdapter;
   /** The instrument this chart is showing right now, if the host tracks one. */
   symbol?: string;
   /**
@@ -117,11 +121,13 @@ const DEFAULT_OPTIONS: ResolvedLinkOptions = {
   viewport: true,
   symbol: false,
   interval: false,
+  appearance: false,
   whenMissing: 'nearest',
 };
 
 interface Member {
   chart: LinkChart;
+  appearance: LinkAppearanceAdapter | null;
   symbol: string | null;
   onSymbol: ((symbol: string, chart: LinkChart) => void) | null;
   interval: string | null;
@@ -234,11 +240,13 @@ export class LinkGroup {
       if (member.onSymbol !== undefined) existing.onSymbol = member.onSymbol;
       if (validInterval(member.interval)) existing.interval = member.interval;
       if (member.onInterval !== undefined) existing.onInterval = member.onInterval;
+      if (member.appearance !== undefined) existing.appearance = member.appearance;
       if (this._options.interval) this._convergeInterval();
       return;
     }
     const entry: Member = {
       chart,
+      appearance: member.appearance ?? null,
       symbol: member.symbol ?? null,
       onSymbol: member.onSymbol ?? null,
       interval: validInterval(member.interval) ? member.interval : null,
@@ -251,6 +259,7 @@ export class LinkGroup {
       chart.on('pan', () => this._onViewport(entry)),
       chart.on('zoom', () => this._onViewport(entry)),
       chart.on('symbol', (p) => this._onSymbolEvent(entry, p)),
+      chart.on('style:change', () => this.syncAppearance(chart)),
       chart.on('interval', (p) => {
         const interval = typeof p === 'string' ? p : (p as { interval?: unknown } | null)?.interval;
         if (validInterval(interval)) this._applyInterval(entry, interval);
@@ -291,6 +300,16 @@ export class LinkGroup {
   public setInterval(chart: LinkChart, interval: string): void {
     const entry = this._find(chart);
     if (entry !== null && validInterval(interval)) this._applyInterval(entry, interval);
+  }
+
+  /** Report an appearance edit. `style:change` does this automatically for settings patches. */
+  public syncAppearance(chart: LinkChart): void {
+    if (this._destroyed || this._broadcasting || !this._options.appearance || !alive(chart)) return;
+    const from = this._find(chart);
+    if (from?.appearance === null || from === null) return;
+    const values = filterLinkAppearance(from.appearance.read());
+    if (Object.keys(values).length === 0) return;
+    this._broadcast(from, target => target.appearance?.apply({ ...values }));
   }
 
   /** Unlink everything: no listeners, no linked crosshairs, no references. */

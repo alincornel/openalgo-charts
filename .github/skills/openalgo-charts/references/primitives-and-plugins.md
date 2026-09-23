@@ -114,7 +114,8 @@ Namespacing convention used by the built-ins, one primitive, several targets:
 | `BuySellButtons` | `${id}:buy` / `${id}:sell` / `${id}:qty` |
 | `TimeNavigator` | `${id}::zoomIn` / `::zoomOut` / `::panLeftBar` / `::panRightBar` |
 | `DrawingLayer` | `draw:<drawingId>`, `draw:<drawingId>#<anchorIndex>` |
-| `SeriesMarkers` / `EventMarkers` | the caller's `marker.id` / `event.id` (no hit at all when absent) |
+| `SeriesMarkers` | the caller's `marker.id` (no hit when absent) |
+| `EventMarkers` | a unique caller `event.id` for a single event; a generated stable handle for anonymous events, duplicate IDs and clusters; details retain original event IDs |
 
 Record hit geometry during `draw` and read it in `hitTest`, that is how `PriceLine`, `BuySellButtons`, and `PaneLegend` stay in sync with what was actually painted, and it means a primitive that has not drawn yet correctly reports no hit.
 
@@ -133,7 +134,7 @@ Keep it cheap: it runs on every `Full` invalidation, which includes every `serie
 | `PriceLine` | `normal` | Horizontal level with a right-axis tag and an optional broker-style pill group. | `price`, `color`, `lineWidth`, `dashed`, `id`, `label`, `badge`, `qty`, `leftLabel`, `extentFromRight`, `closeButton`, `cursor`; `setPrice`, `setOptions`, `setLeftLabel`, `setDragGhost`, `options()` |
 | `PriceLevels` | `normal` | The ten **derived** reference levels (previous close, session high / low, last price, four extended-hours levels, bid, ask), each a line plus an axis tag. It computes its own prices from the bars and the viewport; you do not set them. | `levels` (per-kind `{ line, label, color, lineWidth, lineStyle, text, extentFromRight }`), `timezone`, `marketPhase`, `quote`; `setLevel`, `setOptions`, `setQuote`, `values()`, `available(kind)`, `level(kind)`. See below |
 | `SeriesMarkers` | `normal` | Bar-anchored signal glyphs, visible-range culled and stacked per bar. `MarkerShape` covers `arrowUp`/`arrowDown`, `circle`, `square`, `triangleUp`/`triangleDown`, `diamond`, `flag`, `text`, and the `labelUp`/`labelDown` text plates (tail pointing at the anchor price, `text` required). | `setMarkers(SeriesMarker[])`; renderers `drawShape`, `drawLabel`, `markerSizePx`, `effectiveMarkerPx` |
-| `EventMarkers` | `normal` | Corporate-action badge strip near the plot bottom. | `setEvents(ChartEvent[])` |
+| `EventMarkers` | `normal` | Timeline badge strip with optional group filtering and clustering. | `setEvents`, `events`, `setGroups`, `groups`, `setGroupVisible`, `isGroupVisible`, `setOptions`, `options`, `detailsForHit` |
 | `LogoWatermark` | `top` (option) | Corner brand mark with an optional hover-revealed label and link. | `src`/`image`, `position`, `height` (28), `margin` (12), `opacity` (0.7), `tint`, `label`, `padding`, `href`; `setOptions`, `href()` |
 | `TextWatermark` | `bottom` (option) | A word stamped faintly across the plot to say what mode the chart is in, `Replay` being the case it exists for. Shrinks to fit a narrow pane, hit-tests to nothing, and is captured by `takeScreenshot()` because it is drawn on the canvas. | `text`, `fontSize` (64), `opacity` (0.08), `color`, `font`, `zOrder`; `setOptions` |
 | `ReplayShade` | `top` (option) | Dims every bar after `index` and rules a line at the cut. Used while a replay start bar is being chosen: picking one while the next twenty bars are readable is picking on hindsight. Add one per pane, or a bright volume pane gives away what the price pane is hiding. | `index` (null draws nothing), `color`, `lineColor`, `lineWidth`, `lineVisible`; `setOptions` |
@@ -150,7 +151,7 @@ chart.addPrimitive(primitive, paneIndex = 0);
 chart.removePrimitive(primitive);
 
 chart.addPriceLine({ price, color, lineWidth, dashed, id }, paneIndex = 0); // returns PriceLine
-chart.addEventMarkers(paneIndex = 0);                                       // returns EventMarkers
+chart.addEventMarkers(paneIndex = 0, { clustering: false });                // returns EventMarkers
 series.createMarkers();                                                     // returns SeriesMarkers, wired to that series
 chart.tradeHost(paneIndex = 0);                                             // { addPrimitive, removePrimitive } for the trade tier
 ```
@@ -166,6 +167,99 @@ configured `actions` fit, the end of that list stays visible. Full-width rows ke
 their existing content and ordering.
 
 **`id` on `PriceLine` is not patchable.** `setOptions` accepts `Partial<Omit<PriceLineOptions, 'id'>>`, because swapping the routing handle mid-drag would strand the gesture.
+
+## Timeline events and details
+
+`ChartEvent` keeps the existing `time`, `type`, `label`, `id?` and `color?` fields
+and adds optional `title`, `group` and `details`. `time` is finite UTC seconds.
+Events between candles and inside session gaps use fractional chart time; stored
+timestamps are never moved to a candle. `details` is a string or `ChartEventDetails`
+with `summary?: string` and `fields?: readonly EventDetailField[]`, where each field
+has text `label` and `value` strings. Events and nested detail fields are copied on
+assignment and on return.
+
+`EventGroup` is `{ id, label, parentId?, visible? }`. `setGroups` replaces the
+hierarchy atomically, rejecting empty or duplicate IDs, missing parents and cycles.
+`setGroupVisible(id, visible)` sets local visibility; a hidden ancestor hides every
+descendant. `isGroupVisible(id)` reports effective visibility. Ungrouped events and
+unconfigured group IDs remain visible. Event type filters are independent.
+
+```ts
+chart.setEventGroups([
+  { id: 'calendar', label: 'Calendar' },
+  { id: 'company', label: 'Company', parentId: 'calendar' },
+]);
+chart.setEvents([
+  { id: 'sample-results', time: 1705315500, type: 'earnings', label: 'E',
+    group: 'company', title: 'Sample results', details: 'Demonstration data.' },
+]);
+chart.setEventMarkerOptions({ clustering: true, clusterRadius: 18 });
+chart.setEventGroupVisible('calendar', false);
+chart.setEventGroupVisible('calendar', true);
+chart.setEventOptions({ news: false });
+```
+
+`EventMarkersOptions` has `clustering` (default false) and `clusterRadius` (default
+18, from 1 to 200 CSS pixels). The constructor and `setOptions` accept partial
+options. Clusters split as zoom increases the members' pixel separation. Their
+identity depends on their members, so panning and reordering distinct caller IDs
+do not change a cluster handle while its membership is unchanged. The original
+badge appearance and individual event IDs remain the default.
+
+`EventMarkerDetails` is `{ id, cluster, events }`; every member is an independent
+`ChartEvent` copy. `detailsForHit(id)` resolves the latest drawn layout and returns
+`null` for a stale or unknown handle. Hit areas and drawing output stop at the plot
+edges. `events()`, `groups()` and `options()` return independent snapshots.
+
+Chart conveniences:
+
+| API | Contract |
+|---|---|
+| `setEvents(events, paneIndex = 0)` | Owns the event data and applies `setEventOptions` type filters. |
+| `eventMarkers()` | Returns that chart-owned primitive, or null before data/options install it. |
+| `setEventMarkerOptions(options)` | Configures clustering on the chart-owned strip. |
+| `setEventGroups(groups)` / `setEventGroupVisible(id, visible)` | Configures its hierarchy and visibility. |
+| `addEventMarkers(paneIndex = 0, options = {})` | Creates a separately owned primitive; the host supplies its data and filters. |
+
+For chart-owned markers, `chart.on('event:click', handler)` delivers `ChartEventClick`,
+which extends `EventMarkerDetails` with `point: { x, y }` and `paneIndex`. A custom
+primitive resolves the existing `click` or `hover` ID through its own
+`detailsForHit`. `events:change` lets hosts dismiss details after event data or
+visibility changes. Chart data-context changes clear chart-owned events when the
+symbol or exchange changes; an interval change alone retains them. The host owns
+the calendar feed and supplies new instrument events.
+
+### Widget details popup
+
+The widget tier exports `EventDetailsPopup`, `EVENT_DETAILS_CSS`, `EventDetailsLoader`,
+`EventDetailsLabels` and `EventDetailsPopupOptions`. `createWidget` opens details
+for chart-owned markers by default. `WidgetOptions.eventDetails: false` disables
+the popup; an options object customizes it:
+
+```ts
+const widget = createWidget(container, {
+  eventDetails: {
+    loadDetails: (event, { signal }) => calendarDetails.load(event.id, { signal }),
+    labels: { title: 'Calendar details', close: 'Close' },
+  },
+});
+```
+
+`EventDetailsLoader` returns `Promise<ChartEventDetails | string | null>`.
+`null` retains supplied details. Selection changes, close and destruction abort
+the prior signal and invalidate late results, including loaders that ignore abort.
+Errors retain supplied text and show a generic status. There is no built-in fetch
+or live calendar service. Label demonstration data explicitly.
+
+Custom hosts can use `new EventDetailsPopup(container, options)`, then
+`open(details, { x, y })`, `close()` and `destroy()`. Anchor coordinates are CSS
+pixels relative to that container. `element` exposes the dialog element.
+Options accept `formatTime`, `labels`, `styleNonce`, a shared widget `overlays`
+stack and `injectStyles: false` if the host bundles `EVENT_DETAILS_CSS` itself.
+`EventDetailsLabels` supplies `title`, `close`, `events`, `loading`, `empty` and
+`error`. Standalone time formatting defaults to `Asia/Kolkata`. All supplied
+content is rendered as text. Cluster-member buttons, focus containment, focus
+restoration, Escape/Close and pointer isolation are built in.
 
 ## `PriceLevels`: the reference-level family
 

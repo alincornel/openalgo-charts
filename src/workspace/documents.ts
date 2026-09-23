@@ -22,7 +22,7 @@ export interface WorkspacePane {
 export interface WorkspacePayload {
   layout: { rows: number; columns: number; slots: WorkspaceSlot[]; preset?: string; rowWeights?: number[]; columnWeights?: number[] };
   panes: WorkspacePane[]; activePaneId: string;
-  sync: { crosshair: boolean; viewport: boolean; symbol: boolean; interval: boolean };
+  sync: { crosshair: boolean; viewport: boolean; symbol: boolean; interval: boolean; appearance?: boolean };
 }
 interface DocumentMetadata {
   version: 1; id: string; name: string; createdAt: number; updatedAt: number;
@@ -181,6 +181,7 @@ function payload(input: Record<string, Json>): WorkspacePayload {
   const out: WorkspacePayload = { layout: { rows, columns, slots }, panes, activePaneId, sync: {
     crosshair: boolean(sync.crosshair, 'crosshair sync', true), viewport: boolean(sync.viewport, 'viewport sync', true),
     symbol: boolean(sync.symbol, 'symbol sync', false), interval: boolean(sync.interval, 'interval sync', false),
+    ...(sync.appearance === undefined ? {} : { appearance: boolean(sync.appearance, 'appearance sync') }),
   } };
   if (grid.preset !== undefined) out.layout.preset = string(grid.preset, 'layout preset', 100);
   for (const [key, count] of [['rowWeights', rows], ['columnWeights', columns]] as const) {

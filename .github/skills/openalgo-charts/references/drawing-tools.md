@@ -2,7 +2,7 @@
 
 *When to read this: you are adding chart annotations (trendlines, fibs, shapes, text) wiring a drawing toolbar, persisting drawings, or registering a custom tool.*
 
-Source of truth: `src/draw/advanced-lines.ts`, `src/draw/advanced-geometry.ts`, `src/draw/pattern-tools.ts`, `src/draw/types.ts`, `src/draw/tools.ts`, `src/draw/controller.ts`, `src/draw/layer.ts`, `src/draw/geometry.ts`, `src/draw/index.ts`.
+Source of truth: `src/draw/analysis.ts`, `src/draw/analysis-tools.ts`, `src/draw/advanced-lines.ts`, `src/draw/advanced-geometry.ts`, `src/draw/pattern-tools.ts`, `src/draw/types.ts`, `src/draw/tools.ts`, `src/draw/controller.ts`, `src/draw/layer.ts`, `src/draw/geometry.ts`, `src/draw/index.ts`.
 
 ## Setup
 
@@ -17,7 +17,7 @@ const draw = new DrawingController(chart, { magnet: 'weak' });   // or 'strong',
 draw.setTool('trend-line');   // the next two clicks place it
 ```
 
-Importing `openalgo-charts/draw` calls `registerBuiltinDrawingTools()` as a side effect, registering all 85 tools into the base bundle's registry. No separate registration call is needed.
+Importing `openalgo-charts/draw` calls `registerBuiltinDrawingTools()` as a side effect, registering all 87 tools into the base bundle's registry. No separate registration call is needed.
 
 **The controller is headless: it ships no toolbar, no dialogs, no key listener.** It owns the model (`Drawing[]`), placement, selection, dragging, undo, and serialisation. Every button, flyout, colour picker, and text prompt is the host's.
 
@@ -77,6 +77,82 @@ The time axis is gapless (weekends, holidays, and session breaks collapse) so a 
 - An anchor can sit **past the last bar**, which is where trend projections, `forecast`, and the position tools' targets live.
 
 Drag deltas are computed in data space too (`p.time - start.from.time`), so translating a shape keeps it on the same bars.
+
+## Anchored analysis drawings
+
+`ANCHORED_VWAP` (`anchored-vwap`) is a one-anchor `DrawingTool`;
+`FIXED_RANGE_VOLUME_PROFILE` (`fixed-range-volume-profile`) takes two anchors.
+They use the owning pane's primary OHLCV bars through `DrawContext.rc.bars`.
+Arm them with `draw.setTool(id)`, or `draw.add()` the usual `{ tool, points,
+style, props, paneIndex }` model. They use ordinary selection, drag, undo,
+delete and version-2 JSON persistence. They require no profile or indicator tier.
+
+Anchors remain UTC seconds across data reloads. VWAP starts at the first loaded
+bar at or after its time. Profile includes bars within the two timestamps,
+regardless of anchor order. The stored price positions the editing handle; it
+does not change the data calculation. Calculations use loaded data only and
+recompute forming-bar changes, including in-place changes with the same timestamp.
+
+| Tool | `props` | Effective default and bounds |
+|---|---|---|
+| Anchored VWAP | `source` | `hlc3`; alternatives `close`, `hl2`, `ohlc4` |
+| Anchored VWAP | `showBands`, `bandMultiplier` | `true`, `1`; multiplier 0..5 |
+| Volume profile | `rows` | `48`; requested count rounded and clamped to 4..200, reduced for indistinguishable price edges, flat prices use one row |
+| Volume profile | `valueArea` | `70`; percent clamped to 1..100 |
+| Volume profile | `width`, `side` | `35` percent of anchor span (5..100), `left` or `right` |
+| Volume profile | `showPoc`, `showValueArea` | Both `true` |
+
+VWAP bands use volume-weighted population standard deviation of the selected
+source. Profile distributes each candle's volume uniformly over its low-to-high
+range. This is an estimated candle profile, not exchange trade-by-trade volume.
+Its POC is the largest row's midpoint (lower row wins a tie), and the contiguous
+value area grows toward the larger adjacent volume row (lower on ties).
+Histogram allocation is O(selected bars log(rows) + rows), with at most 200
+row boundaries. Rounded duplicate boundaries are merged and allocation uses
+the remaining row widths to conserve volume. Both tools expose line and
+label settings; profile histogram opacity is `style.fillOpacity`, default `0.4`.
+
+Missing, negative or nonfinite volume is unavailable; zero is known and carries
+no weight. Partially available data is labelled partial. Fully missing and
+zero-volume results remain distinct. Unavailable-price/overflow results report
+`invalid-data`. Data-quality notices stay visible even with `showLabels: false`.
+No-value results paint selectable anchor crosses, so restored drawings remain
+editable before history or volume is available.
+
+Both result types expose `historyPartial: boolean`. It is true when the requested
+anchor or range start precedes the earliest supplied bar. A usable calculation
+then reports `status: 'partial'` and the drawing labels it as partial history,
+separately from missing volume. Prepend history through the requested start to
+obtain a complete calculation; the original anchor timestamps remain unchanged.
+
+```ts
+import {
+  anchoredVwapAnalysis, fixedRangeVolumeProfileAnalysis,
+  ANCHORED_VWAP, FIXED_RANGE_VOLUME_PROFILE,
+} from 'openalgo-charts/draw';
+
+const vwap = anchoredVwapAnalysis(bars, anchorTime, { source: 'close' });
+const profile = fixedRangeVolumeProfileAnalysis(bars, fromTime, toTime, {
+  rows: 48, valueArea: 70,
+});
+```
+
+Pure calculator inputs are sorted by ascending timestamp. `AnchoredVwapOptions`
+contains `source?: AnchoredVwapSource`; `AnchoredVwapResult` contains `status`, `historyPartial`,
+`points: AnchoredVwapPoint[]`, `missingVolumeBars` and `invalidPriceBars`.
+Each point has `time`, `value`, `deviation`, `breakBefore` (do not connect a
+curve across omitted observations). `FixedRangeVolumeProfileOptions` contains
+`rows?` and `valueArea?`. `FixedRangeVolumeProfileResult` contains `status`, `historyPartial`,
+`rows: AnalysisProfileRow[]`, `totalVolume`, nullable `poc`, `valueAreaLow`,
+`valueAreaHigh`, `missingVolumeBars` and `invalidPriceBars`. A profile row has
+`low`, `high`, `volume`, `valueArea`. All these types are exported by the draw tier.
+`AnalysisStatus` is `ready | partial | missing-volume | zero-volume | empty |
+invalid-data`. Check the status before presenting a calculation as complete.
+
+`SettingsField.defaultValue?: string | number | boolean` supplies the effective
+default for an unset property. `readDrawingSettings()` resolves it without
+mutating the drawing. Use the schema to render the settings dialog; do not
+show an unchecked band toggle when the effective `showBands` default is true.
 
 ## Annotations
 
@@ -156,7 +232,7 @@ faults on the first run that reading the paths did not.
 
 ## Tool catalogue
 
-85 built-in tools. `Clicks` is what the user does; `Anchors` is what ends up in `drawing.points` (they differ only where `expand` is involved).
+87 built-in tools. `Clicks` is what the user does; `Anchors` is what ends up in `drawing.points` (they differ only where `expand` is involved).
 
 | Family | `id` | Clicks | Anchors | Shortcut |
 |---|---|---|---|---|
@@ -196,6 +272,8 @@ faults on the first run that reading the paths did not.
 | Patterns | `elliott-correction` | 3 | 3 | |
 | Patterns | `elliott-impulse` | 5 | 5 | |
 | Patterns | `head-shoulders` | 7 | 7 | |
+| Analysis | `anchored-vwap` | 1 | 1 | |
+| Analysis | `fixed-range-volume-profile` | 2 | 2 | |
 
 Those five are the only shortcuts. `registeredDrawingTools()` returns every descriptor (`id`, `name`, `points`, `shortcut`, `defaultStyle`); `BUILTIN_DRAWING_TOOLS` is the same list in toolbar order.
 
@@ -543,7 +621,7 @@ Individual tools are exported too, under the UPPER_SNAKE form of the id:
 `NOTE`, `BALLOON`, `COMMENT`, `SIGNPOST`, `PRICE_NOTE`, `TABLE`, `CALLOUT`,
 `FLAG_MARK`, `ARROW_UP`, `ARROW_DOWN`, `ARROW_LEFT`, `ARROW_RIGHT`.
 
-As with the indicator tier, importing `openalgo-charts/draw` registers all 85 tools,
+As with the indicator tier, importing `openalgo-charts/draw` registers all 87 tools,
 but each descriptor is also exported by name for selective registration:
 
 ```ts

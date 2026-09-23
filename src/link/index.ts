@@ -8,3 +8,5 @@ export type { LinkChart, LinkOptions, LinkMemberOptions, ResolvedLinkOptions } f
 export { followerIndex, followerRange } from './align';
 export type { LinkDataLayer, LinkMissingPolicy } from './align';
 export { LinkCrosshair, LINK_CROSSHAIR_ALPHA } from './crosshair';
+export { filterLinkAppearance } from './appearance';
+export type { LinkAppearanceAdapter, LinkAppearanceValues } from './appearance';

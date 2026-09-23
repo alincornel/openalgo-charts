@@ -4,7 +4,7 @@ for (const dpr of [1, 1.25, 2]) {
   test(`compact TPO paints opaque physical pixels at DPR ${dpr}`, async ({ browser }) => {
     const context = await browser.newContext({ deviceScaleFactor: dpr });
     const page = await context.newPage();
-    await page.goto('http://127.0.0.1:4173/examples/market-profile/index.html');
+    await page.goto('/examples/market-profile/index.html');
     await page.waitForFunction(() => typeof (window as any).__mp === 'function');
     const report = await page.evaluate(async () => {
       const moduleUrl = '/dist/openalgo-charts.profile.mjs';

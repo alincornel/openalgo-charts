@@ -1,6 +1,6 @@
 # OpenAlgo Charts architecture diagram: update brief
 
-## Current diagram: 2.5.1, updated 2026-09-21
+## Current diagram: 2.5.2, updated 2026-09-23
 
 The current SVG replaces the old seven-row capability list with explicit ownership
 boundaries and data flow. The old layout had received updated numbers but did not
@@ -28,6 +28,12 @@ The map must preserve these distinctions:
   commits once. Restored lifecycle state and external delivery remain distinct.
 - Group replay follows when observations become available, not only the candle's
   opening timestamp. Host callbacks perform linked symbol and interval changes.
+- Appearance links use structural host adapters in base. Drawing replication
+  stays in the draw tier, requires matching symbol and exchange, and preserves
+  local history and persisted lineage across rebuilt charts.
+- Anchored VWAP and fixed-range Volume Profile are time-anchored analysis drawings.
+  Grouped timeline events and clustering remain in base; the widget owns details
+  UI, and hosts supply their event data and optional detail loader.
 - The workspace tier provides documents, templates, revisioned catalogs and
   asynchronous storage. It does not render or activate a chart grid itself.
 - Canvas 2D supplies the base renderer. Optional WebGL2 draws supported series;
@@ -36,14 +42,16 @@ The map must preserve these distinctions:
   belong to the base registry; the indicator tier adds built-ins and helpers.
 
 Measurements were rechecked with `npm run size` and the built registries on
-2.5.1: base 93.60 kB, indicators 29.84 kB, draw 35.43 kB, profile 14.96 kB,
-transform 4.50 kB, trade 8.01 kB, workspace 5.52 kB, webgl 6.39 kB and widget
-49.06 kB, all decimal Brotli. All tiers total 247.32 kB. Registry counts are
-105 indicators, 85 drawing tools and 15 chart types with the transform tier loaded.
+2.5.2: base 95.04 kB, indicators 29.84 kB, draw 40.73 kB, profile 14.96 kB,
+transform 4.50 kB, trade 8.01 kB, workspace 5.55 kB, webgl 6.39 kB and widget
+51.06 kB, all decimal Brotli. All tiers total 256.08 kB. Registry counts are
+105 indicators, 87 drawing tools and 15 chart types with the transform tier loaded.
 
 Source references: `src/index.ts`, `src/feed/data-controller.ts`,
 `src/feed/instrument.ts`, `src/model/bar.ts`, `src/core/pane.ts`,
 `src/alerts/controller.ts`, `src/replay/group.ts`, `src/link/group.ts`,
+`src/draw/drawing-link.ts`, `src/draw/analysis.ts`, `src/primitives/event-markers.ts`,
+`src/widget/event-details.ts`,
 `src/compare/controller.ts`, `src/workspace/`, `src/render/backend.ts`,
 `src/trade/order-engine.ts` and `package.json` exports.
 

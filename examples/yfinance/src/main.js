@@ -31,7 +31,7 @@ import { bindIndicatorSource, initIndicatorSource } from './indicator-source.js'
 import { initCompare, attachComparison, invalidateComparisons, syncComparisons, restoreComparisons } from './compare.js';
 import { initSnapshot } from './snapshot.js';
 import { initReplay, exitReplay, attachReplay, syncReplayAlertPause } from './replay.js';
-import { initSplit, joinLink, installSecondaryWorkspace } from './split.js';
+import { initSplit, joinLink, installSecondaryWorkspace, drawingLinkContext } from './split.js';
 import { initLink } from './link.js';
 import { initClipboard } from './clipboard.js';
 import { initMenus, openContextMenu } from './menus.js';
@@ -45,6 +45,7 @@ import { initTemplates } from './templates.js';
 import { mountPropertiesBar } from './properties.js';
 import { initDrawing, attachDrawing } from './drawing.js';
 import { capturePaneTarget } from './pane-target.js';
+import { attachTimeline } from './timeline.js';
 
 // Price-level family (previous close, session extremes, extended hours,
 // bid/ask). Read off the namespace rather than named above on purpose: a
@@ -347,10 +348,12 @@ function render({ keepView = true, state } = {}) {
   // next broadcast, and a linked grid that stops following after a
   // chart-type switch is the failure this call exists to prevent.
   joinLink();
+  attachTimeline(app, 1, app.currentBars);
   window.__chart = () => app.chart;
   window.__draw = () => app.draw;
   window.__chart2 = () => app.chart2;
   window.__link = () => app.linkGroup;
+  window.__drawingLink = () => app.drawingLinkGroup;
   window.__cache = () => app.cache;
 }
 
@@ -431,6 +434,7 @@ async function load(opts) {
   // instrument rather than on a stale one.
   if (app.linkGroup && app.chart) app.linkGroup.setSymbol(app.chart, app.req.symbol);
   if (app.chart) app.linkGroup?.setInterval?.(app.chart, app.req.interval);
+  if (app.chart) app.drawingLinkGroup?.setContext(app.chart, drawingLinkContext(app.req));
   status.textContent = `loading ${app.req.symbol} ${app.req.interval}...`;
   setChartState('loading', { ...app.req, blank: identityChanged || !app.chart });
   try {
