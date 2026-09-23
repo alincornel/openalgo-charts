@@ -1,7 +1,7 @@
 /** Time-anchored analysis drawings use the owning pane's bars, never a tier cache. */
 import type { DrawContext, Drawing, DrawingTool, HitContext, ScreenPoint } from './types';
 import type { AnalysisStatus, AnchoredVwapSource } from './analysis';
-import { analysisNumber, anchoredVwapAnalysis, fixedRangeVolumeProfileAnalysis } from './analysis';
+import { analysisNumber, anchoredVwapAnalysis, fixedRangeVolumeProfileAnalysis, fixedRangeVolumeProfileFromLevels } from './analysis';
 import { clippedLine } from './advanced-shared';
 import { distToSegment, distToRect } from './geometry';
 import { composeSettings, FONT_FIELDS, LINE_FIELDS, SHOW_LABELS_FIELD } from './schema';
@@ -76,10 +76,15 @@ function curve(c: HitContext): AnalysisGeometry {
 function profile(c: HitContext): AnalysisGeometry {
   const g = emptyGeometry(), [a, b] = c.drawing.points;
   if (!a || !b) return g;
-  const result = fixedRangeVolumeProfileAnalysis(c.rc.bars?.() ?? [], a.time, b.time, {
+  const options = {
     rows: analysisNumber(c.drawing.props?.rows, 48, 4, 200),
     valueArea: analysisNumber(c.drawing.props?.valueArea, 70, 1, 100),
-  });
+  };
+  // Real volume at price when the host has it; the candle estimate otherwise.
+  const levels = c.volumeAtPrice?.({ drawing: c.drawing, fromTime: Math.min(a.time, b.time), toTime: Math.max(a.time, b.time) }) ?? null;
+  const result = levels !== null
+    ? fixedRangeVolumeProfileFromLevels(levels, options)
+    : fixedRangeVolumeProfileAnalysis(c.rc.bars?.() ?? [], a.time, b.time, options);
   g.status = result.status;
   const pa = project(a.time, a.price, c), pb = project(b.time, b.price, c);
   const left = Math.min(pa.x, pb.x), right = Math.max(pa.x, pb.x);
@@ -87,7 +92,7 @@ function profile(c: HitContext): AnalysisGeometry {
   const width = Math.max(12, right - left) * analysisNumber(c.drawing.props?.width, 35, 5, 100) / 100;
   const fromRight = c.drawing.props?.side === 'right';
   const showArea = c.drawing.props?.showValueArea !== false;
-  g.label = `Volume profile (estimated)${statusLabel(result)}`;
+  g.label = `Volume profile${levels !== null ? '' : ' (estimated)'}${statusLabel(result)}`;
   g.labelAt = { x: left, y: Math.min(pa.y, pb.y) };
   for (const row of result.rows) {
     const y1 = c.rc.priceScale.priceToY(row.low), y2 = c.rc.priceScale.priceToY(row.high);
@@ -113,7 +118,7 @@ function profile(c: HitContext): AnalysisGeometry {
 function paint(c: DrawContext, build: (c: HitContext) => AnalysisGeometry): void {
   const { ctx, rc, drawing, style } = c, dpr = rc.dpr;
   if (!(rc.plotWidth > 0 && rc.plotHeight > 0)) return;
-  const g = build({ drawing, rc, pts: [] });
+  const g = build({ drawing, rc, pts: [], volumeAtPrice: c.volumeAtPrice });
   ctx.save();
   ctx.beginPath(); ctx.rect(0, 0, rc.plotWidth * dpr, rc.plotHeight * dpr); ctx.clip();
   ctx.strokeStyle = style.color;

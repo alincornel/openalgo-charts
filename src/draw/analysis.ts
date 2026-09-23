@@ -203,3 +203,70 @@ export function fixedRangeVolumeProfileAnalysis(
   result.valueAreaLow = edges(left); result.valueAreaHigh = edges(right + 1);
   return result;
 }
+
+/**
+ * The same histogram from REAL volume at price (a host's traded volume per
+ * price row) instead of candles spread uniformly over their range. Levels are
+ * grouped into `rows` equal-height rows between the lowest and highest priced
+ * level; the POC and value area follow the same rules as the estimate.
+ */
+export function fixedRangeVolumeProfileFromLevels(
+  levels: readonly { price: number; volume: number }[], options: FixedRangeVolumeProfileOptions = {},
+): FixedRangeVolumeProfileResult {
+  const result: FixedRangeVolumeProfileResult = {
+    status: 'empty', historyPartial: false, rows: [], totalVolume: 0, poc: null, valueAreaLow: null, valueAreaHigh: null,
+    missingVolumeBars: 0, invalidPriceBars: 0,
+  };
+  let low = Infinity, high = -Infinity;
+  const valid: { price: number; volume: number }[] = [];
+  for (const level of levels) {
+    if (!Number.isFinite(level.price) || !Number.isFinite(level.volume) || level.volume < 0) { result.invalidPriceBars++; continue; }
+    valid.push(level);
+    low = Math.min(low, level.price); high = Math.max(high, level.price);
+    result.totalVolume += level.volume;
+  }
+  if (valid.length === 0) return result;
+  result.status = result.totalVolume > 0 ? (result.invalidPriceBars > 0 ? 'invalid-data' : 'ready') : 'zero-volume';
+  if (result.totalVolume <= 0) return result;
+  const requested = Math.round(analysisNumber(options.rows, 48, 4, 200));
+  const prices = [...new Set(valid.map((level) => level.price))].sort((a, b) => a - b);
+  let edges: number[];
+  if (prices.length <= requested) {
+    // One row per traded price, centred on it: the profile shows exactly the
+    // prices that traded, and a row with no price in it would be a hole, not
+    // a quiet price. Edges sit halfway between neighbours.
+    const gap = prices.length > 1 ? Math.min(...prices.slice(1).map((p, i) => p - prices[i])) : 1;
+    edges = [prices[0] - gap / 2, ...prices.slice(1).map((p, i) => (p + prices[i]) / 2), prices[prices.length - 1] + gap / 2];
+  } else {
+    const step = (high - low) / requested;
+    edges = Array.from({ length: requested + 1 }, (_, i) => (i === requested ? high : low + step * i));
+  }
+  const count = edges.length - 1;
+  const volumes = new Float64Array(count);
+  const rowOf = (price: number): number => {
+    let lo = 0, hi = count - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (edges[mid] <= price) lo = mid; else hi = mid - 1;
+    }
+    return lo;
+  };
+  for (const level of valid) volumes[rowOf(level.price)] += level.volume;
+  let peak = 0;
+  for (let i = 0; i < count; i++) {
+    result.rows.push({ low: edges[i], high: edges[i + 1], volume: volumes[i], valueArea: false });
+    if (volumes[i] > volumes[peak]) peak = i;
+  }
+  const target = result.totalVolume * analysisNumber(options.valueArea, 70, 1, 100) / 100;
+  let left = peak, right = peak, area = volumes[peak];
+  while (area < target && (left > 0 || right < count - 1)) {
+    const below = left > 0 ? volumes[left - 1] : -1, above = right < count - 1 ? volumes[right + 1] : -1;
+    if (below >= above) area += volumes[--left];
+    else area += volumes[++right];
+  }
+  for (let i = left; i <= right; i++) result.rows[i].valueArea = true;
+  result.poc = (result.rows[peak].low + result.rows[peak].high) / 2;
+  result.valueAreaLow = result.rows[left].low;
+  result.valueAreaHigh = result.rows[right].high;
+  return result;
+}

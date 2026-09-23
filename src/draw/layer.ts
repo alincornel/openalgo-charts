@@ -21,7 +21,7 @@
  * stores that state and asks for nothing.
  */
 import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, PrimitiveHit, ZOrder } from 'openalgo-charts';
-import type { Drawing, DrawingPoint, ScreenPoint } from './types';
+import type { Drawing, DrawingPoint, ScreenPoint, VolumeAtPriceSource } from './types';
 import { getDrawingTool, hasDrawingTool } from './tools';
 import { withDrawingTextMetrics } from './text-metrics';
 
@@ -96,6 +96,19 @@ export class DrawingLayer implements IPrimitive {
   public zOrder(): ZOrder { return this._order; }
   /** Drawings overlay the price range; they never drive it. */
   public autoscaleInfo(): null { return null; }
+
+  private _volumeAtPrice: VolumeAtPriceSource | undefined = undefined;
+
+  /** The host's real volume at price, handed to the tools that paint volume. */
+  public setVolumeAtPrice(source: VolumeAtPriceSource | null | undefined): void {
+    this._volumeAtPrice = source ?? undefined;
+    this._host?.requestUpdate();
+  }
+
+  /** Repaint every drawing, e.g. once host data a tool reads has arrived. */
+  public refresh(): void {
+    this._host?.requestUpdate();
+  }
 
   public setDrawings(drawings: readonly Drawing[]): void {
     this._drawings = sortByZIndex(drawings);
@@ -269,6 +282,7 @@ export class DrawingLayer implements IPrimitive {
         pts: media.map((p) => ({ x: p.x * dpr, y: p.y * dpr })),
         style: { ...style, color: style.color, lineWidth: style.lineWidth },
         formatPrice: (v) => rc.priceScale.format(v),
+        volumeAtPrice: this._volumeAtPrice,
       });
       ctx.restore();
     }
@@ -390,7 +404,7 @@ export class DrawingLayer implements IPrimitive {
       if (d.visible === false || d.locked === true || !hasDrawingTool(d.tool)) continue;
       const tool = getDrawingTool(d.tool);
       if (d.points.length < Math.max(1, tool.points)) continue;
-      const dist = tool.distance(x, y, { pts: this._points(rc, d), drawing: d, rc });
+      const dist = tool.distance(x, y, { pts: this._points(rc, d), drawing: d, rc, volumeAtPrice: this._volumeAtPrice });
       // A non-finite distance must miss, not hit: `NaN > GRAB` is false, so a
       // drawing with an unmappable anchor would otherwise swallow every click
       // on the pane.

@@ -21,8 +21,7 @@
 import type { IPrimitive, DataLayer, AlertDrawingValue, AlertDrawingInfo } from 'openalgo-charts';
 import type {
   Drawing, DrawingInput, DrawingPatch, DrawingPoint, DrawingStyle, DrawingTool, DrawingsDocument,
-  MagnetMode, ScreenPoint,
-} from './types';
+  MagnetMode, ScreenPoint, VolumeAtPriceSource } from './types';
 import { DRAWING_STATE_VERSION } from './types';
 import { DrawingLayer, type DrawingPointerKind } from './layer';
 import { getDrawingTool, hasDrawingTool } from './tools';
@@ -86,6 +85,12 @@ export interface DrawingChartHost {
 }
 
 export interface DrawingControllerOptions {
+  /**
+   * Real traded volume at price, for the volume studies (Fixed Range Volume
+   * Profile). Without it they estimate volume from the candles. `null` clears
+   * a source set earlier.
+   */
+  volumeAtPrice?: VolumeAtPriceSource | null;
   /**
    * Snap new anchors to the O/H/L/C of the bar under the cursor. `'strong'`
    * always takes the nearest of the four; `'weak'` only when one sits within
@@ -257,7 +262,7 @@ const shiftOf = (p: PointerFacts & { shiftKey?: boolean }): boolean =>
 const pointerKindOf = (p: PointerFacts): DrawingPointerKind =>
   p.pointerType === 'touch' || p.pointerType === 'pen' ? p.pointerType : 'mouse';
 
-type ControllerOptions = Required<Omit<DrawingControllerOptions, 'defaultStyle' | 'clipboard' | 'clipboardFallbackToMemory' | 'magnet'>>
+type ControllerOptions = Required<Omit<DrawingControllerOptions, 'defaultStyle' | 'clipboard' | 'clipboardFallbackToMemory' | 'magnet' | 'volumeAtPrice'>>
   & { defaultStyle: DrawingStyle; magnet: MagnetMode };
 
 interface DrawingHistoryEntry { before: string; after: string }
@@ -285,6 +290,7 @@ export class DrawingController {
   private _opts: ControllerOptions;
   private readonly _clipboard: DrawingClipboard;
   private readonly _layers = new Map<number, PaneLayers>();
+  private _volumeAtPrice: VolumeAtPriceSource | null = null;
   private _drawings: Drawing[] = [];
   private readonly _linkedPreviews = new Map<string, Drawing>();
   private _destroyed = false;
@@ -342,6 +348,7 @@ export class DrawingController {
       pasteOffsetPixels: options.pasteOffsetPixels ?? 16,
       defaultStyle: options.defaultStyle ?? {},
     };
+    this._volumeAtPrice = options.volumeAtPrice ?? null;
     this._clipboard = new DrawingClipboard({
       ...(options.clipboard === undefined ? {} : { port: options.clipboard }),
       ...(options.clipboardFallbackToMemory === undefined
@@ -396,7 +403,14 @@ export class DrawingController {
   public setOptions(patch: DrawingControllerOptions): void {
     // `clipboard` is a port, not a stored option: it is applied to the live
     // clipboard so a host can hand one over after the user grants permission.
-    const { clipboard, magnet, ...rest } = patch;
+    const { clipboard, magnet, volumeAtPrice, ...rest } = patch;
+    if (volumeAtPrice !== undefined) {
+      this._volumeAtPrice = volumeAtPrice;
+      for (const pair of this._layers.values()) {
+        pair.bottom.setVolumeAtPrice(volumeAtPrice);
+        pair.top.setVolumeAtPrice(volumeAtPrice);
+      }
+    }
     this._opts = {
       ...this._opts, ...rest,
       defaultStyle: patch.defaultStyle ?? this._opts.defaultStyle,
@@ -404,6 +418,17 @@ export class DrawingController {
     };
     if (clipboard !== undefined) this._clipboard.setPort(clipboard);
     this._syncSnapRing();
+  }
+
+  /**
+   * Repaint every drawing without changing any of them — for a host whose
+   * `volumeAtPrice` answer (or other data a tool reads) has just arrived.
+   */
+  public refresh(): void {
+    for (const pair of this._layers.values()) {
+      pair.bottom.refresh();
+      pair.top.refresh();
+    }
   }
 
   /** The snap mode in force, after the boolean form has been folded. */
@@ -1603,6 +1628,8 @@ export class DrawingController {
     let pair = this._layers.get(paneIndex);
     if (pair === undefined) {
       pair = { bottom: new DrawingLayer('bottom'), top: new DrawingLayer('top') };
+      pair.bottom.setVolumeAtPrice(this._volumeAtPrice);
+      pair.top.setVolumeAtPrice(this._volumeAtPrice);
       this._chart.addPrimitive(pair.bottom, paneIndex);
       this._chart.addPrimitive(pair.top, paneIndex);
       pair.top.setBelow(pair.bottom);

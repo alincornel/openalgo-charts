@@ -179,6 +179,22 @@ export interface ScreenPoint {
   y: number;
 }
 
+/** One price row of real traded volume, supplied by the host. */
+export interface VolumeAtPriceLevel { price: number; volume: number }
+
+/**
+ * Real volume at price for the range a drawing covers. Return the traded
+ * volume per price, or `null` when the host does not have it (yet): the tool
+ * then falls back to its own estimate. Called on every paint, so it must be
+ * synchronous and cheap — a host that has to fetch returns `null`, fetches,
+ * and calls {@link DrawingController.refresh} when the answer lands.
+ */
+export type VolumeAtPriceSource = (query: {
+  drawing: Drawing;
+  fromTime: number;
+  toTime: number;
+}) => readonly VolumeAtPriceLevel[] | null;
+
 export interface DrawContext {
   ctx: CanvasRenderingContext2D;
   rc: PrimitiveRenderContext;
@@ -189,6 +205,8 @@ export interface DrawContext {
   selected: boolean;
   /** Format a price the way the pane's axis does. */
   formatPrice(price: number): string;
+  /** Host-supplied real volume at price, for volume studies. */
+  volumeAtPrice?: VolumeAtPriceSource;
 }
 
 export interface HitContext {
@@ -196,6 +214,8 @@ export interface HitContext {
   pts: ScreenPoint[];
   drawing: Drawing;
   rc: PrimitiveRenderContext;
+  /** Host-supplied real volume at price, for volume studies. */
+  volumeAtPrice?: VolumeAtPriceSource;
 }
 
 /** What {@link DrawingTool.expand} needs to size a default in chart units. */

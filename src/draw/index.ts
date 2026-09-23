@@ -31,7 +31,7 @@ import { registerBuiltinDrawingTools } from './tools';
 export const DRAW_TIER = 'draw' as const;
 
 export { ANCHORED_VWAP, FIXED_RANGE_VOLUME_PROFILE } from './analysis-tools';
-export { anchoredVwapAnalysis, fixedRangeVolumeProfileAnalysis } from './analysis';
+export { anchoredVwapAnalysis, fixedRangeVolumeProfileAnalysis, fixedRangeVolumeProfileFromLevels } from './analysis';
 export type {
   AnalysisStatus, AnchoredVwapSource, AnchoredVwapOptions, AnchoredVwapPoint, AnchoredVwapResult,
   FixedRangeVolumeProfileOptions, AnalysisProfileRow, FixedRangeVolumeProfileResult,
@@ -158,6 +158,8 @@ export type {
   DrawingTool,
   DrawContext,
   HitContext,
+  VolumeAtPriceLevel,
+  VolumeAtPriceSource,
   ScreenPoint,
   // `DrawingControllerOptions.magnet` accepts it; a host with a snap picker
   // wants the three names as one type.
