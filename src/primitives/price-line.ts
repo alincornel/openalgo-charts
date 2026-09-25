@@ -26,6 +26,12 @@ export interface PriceLineOptions {
   lineStyle?: CanvasLineStyle;
   /** Right-axis tag text. Defaults to the formatted price. */
   label?: string;
+  /**
+   * Draw the right-axis tag. Default true. Off, the line and its on-line pill
+   * stay and only the tag goes: an indicator level on a short oscillator pane
+   * (RSI's 70 / 50 / 30) otherwise covers the study's own last-value tag.
+   */
+  axisLabelVisible?: boolean;
   /** Solid colored badge segment at the start of the pill group (e.g. 'BUY', 'TP', 'SL'). */
   badge?: string;
   /** Quantity segment rendered as a neutral box after the badge. */
@@ -272,11 +278,13 @@ export class PriceLine implements IPrimitive {
 
     // right-axis price tag (kept rectangular like the axis/crosshair tags)
     const axisFill = dragging || hovered ? shade(color, 0.12) : color;
-    const label = this._opts.label ?? rc.priceScale.format(this._opts.price);
-    ctx.fillStyle = axisFill;
-    ctx.fillRect(xEnd + 1, y - boxH / 2, ctx.measureText(label).width + padX * 2, boxH);
-    ctx.fillStyle = contrastText(color);
-    ctx.fillText(label, xEnd + 1 + padX, y);
+    if (this._opts.axisLabelVisible !== false) {
+      const label = this._opts.label ?? rc.priceScale.format(this._opts.price);
+      ctx.fillStyle = axisFill;
+      ctx.fillRect(xEnd + 1, y - boxH / 2, ctx.measureText(label).width + padX * 2, boxH);
+      ctx.fillStyle = contrastText(color);
+      ctx.fillText(label, xEnd + 1 + padX, y);
+    }
 
     // segmented pill group on the line: [badge][qty][label][✕]
     const hasGroup = this._opts.pillSegments !== undefined || this._opts.badge !== undefined || this._opts.qty !== undefined ||

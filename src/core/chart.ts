@@ -247,6 +247,13 @@ export interface ChartOptions {
    */
   legendOffset?: { top?: number; left?: number };
   /**
+   * Right-axis tags on indicator reference levels (RSI's 70 / 50 / 30, MACD's
+   * 0). Default true. False keeps the dashed lines and their on-line titles but
+   * drops the tags, which on a short oscillator pane cover the study's own
+   * last-value tag whenever the reading is near a level.
+   */
+  indicatorLevelAxisLabels?: boolean;
+  /**
    * Crosshair behaviour. 'normal' (default) — the cross follows the pointer
    * exactly. 'magnet' — the horizontal line snaps to the nearest O/H/L/C of the
    * bar under the cursor (price pane only).
@@ -883,6 +890,8 @@ export class Chart {
   private _placementMode = false;
   /** Where indicator legend rows start inside a pane (see `legendOffset`). */
   private readonly _legendOffset: { top: number; left: number } = { top: 6, left: 8 };
+  /** See `ChartOptions.indicatorLevelAxisLabels`. */
+  private _indicatorLevelAxisLabels = true;
   private _downPane = 0;
   private _downX = 0;
   private _downLocalY = 0;
@@ -976,6 +985,7 @@ export class Chart {
 
     if (options.legendOffset?.top !== undefined) this._legendOffset.top = options.legendOffset.top;
     if (options.legendOffset?.left !== undefined) this._legendOffset.left = options.legendOffset.left;
+    this._indicatorLevelAxisLabels = options.indicatorLevelAxisLabels !== false;
     this._timeAxisHeight = options.timeAxisHeight ?? 22;
     this._crosshairMode = options.crosshairMode ?? 'normal';
     this._touchTargets = options.touchTargets ?? false;
@@ -1692,6 +1702,7 @@ export class Chart {
         const opts: PriceLineOptions = {
           price: l.price, color: l.color, lineWidth: l.lineWidth, dashed: l.dashed,
           lineStyle: l.lineStyle, leftLabel: l.label, id: l.id,
+          ...(this._indicatorLevelAxisLabels ? {} : { axisLabelVisible: false }),
         };
         return this.addPriceLine(opts, paneIndex);
       },
