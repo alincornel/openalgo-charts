@@ -19,6 +19,7 @@ import { registerInterval } from '../src/feed/intervals';
 import { ReplayController } from '../src/replay/controller';
 import { createLinkGroup } from '../src/link/index';
 import { DateNavigator, type HistoryReach } from '../src/widget/date-navigator';
+import { SessionCalendar } from '../src/feed/instrument';
 
 const ZONE = 'Asia/Kolkata';
 const at = (y: number, m: number, d: number, hh = 0, mm = 0): number => zonedWallClockToUtcSeconds(y, m, d, hh, mm, 0, ZONE);
@@ -390,5 +391,65 @@ describe('date navigation lifecycle', () => {
       expect(firstVisible).toBe(at(2024, 2, 5, 9, 15));
       expect(lastVisible).toBe(at(2024, 3, 1, 15, 15));
     } finally { group.destroy(); }
+  });
+});
+
+describe('history that starts after a gap with no session', () => {
+  // A New York stock on an Indian clock: its 09:30 open is 19:00 here, so a
+  // month back from a Monday is a Sunday midnight that no session follows
+  // until Monday evening. The loaded history starts there and is whole.
+  const NY = 'America/New_York';
+  const nyCalendar = (): SessionCalendar => new SessionCalendar({ timezone: NY, sessions: ['0930-1600:23456'] });
+  /** 30 minute bars through each New York weekday from `start` to `end` (local dates, inclusive). */
+  function newYork(start: [number, number, number], end: [number, number, number]): Bar[] {
+    const out: Bar[] = [];
+    const first = zonedWallClockToUtcSeconds(...start, 12, 0, 0, NY), last = zonedWallClockToUtcSeconds(...end, 12, 0, 0, NY);
+    for (let noon = first; noon <= last; noon += 86400) {
+      const day = new Date(noon * 1000);
+      if (day.getUTCDay() === 0 || day.getUTCDay() === 6) continue;
+      const [y, m, d] = [day.getUTCFullYear(), day.getUTCMonth() + 1, day.getUTCDate()];
+      for (let slot = 0; slot < 13; slot++) out.push(bar(zonedWallClockToUtcSeconds(y, m, d, 9, 30 + slot * 30, 0, NY)));
+    }
+    return out;
+  }
+  const bars = newYork([2026, 9, 14], [2026, 10, 12]);
+  const sunday = at(2026, 9, 13);
+
+  it('places the range when the calendar has no session before the first bar', async () => {
+    const chart = makeChart(bars, '30m', ZONE);
+    chart.setSessionCalendar(nyCalendar());
+    const result = await new DateNavigator({ chart }).goTo({ from: sunday, to: bars[bars.length - 1]!.time });
+    expect(result).toEqual({ status: 'placed', from: bars[0]!.time, to: bars[bars.length - 1]!.time });
+  });
+
+  it('asks no loader for history across a weekend no session traded in', async () => {
+    const chart = makeChart(bars, '30m', ZONE);
+    chart.setSessionCalendar(nyCalendar());
+    const loadHistory = vi.fn(async (): Promise<HistoryReach> => 'exhausted');
+    const result = await new DateNavigator({ chart, loadHistory }).goTo({ from: sunday, to: bars[bars.length - 1]!.time });
+    expect(loadHistory).not.toHaveBeenCalled();
+    expect(result.status).toBe('placed');
+  });
+
+  it('still reports the gap when a session opened in it', async () => {
+    // Monday traded and is missing: the history really is short.
+    const chart = makeChart(bars.slice(13), '30m', ZONE);
+    chart.setSessionCalendar(nyCalendar());
+    expect(await new DateNavigator({ chart }).goTo({ from: sunday, to: bars[bars.length - 1]!.time }))
+      .toEqual({ status: 'partial', history: 'unavailable', from: bars[13]!.time, to: bars[bars.length - 1]!.time });
+  });
+
+  it('keeps counting the gap as short when the calendar finds no session at all', async () => {
+    // A calendar's search has a horizon, so finding nothing does not prove the gap is empty.
+    const chart = makeChart(bars, '30m', ZONE);
+    chart.setSessionCalendar({ sessionFrom: () => null });
+    expect(await new DateNavigator({ chart }).goTo({ from: sunday, to: bars[bars.length - 1]!.time }))
+      .toEqual({ status: 'partial', history: 'unavailable', from: bars[0]!.time, to: bars[bars.length - 1]!.time });
+  });
+
+  it('keeps counting any gap as short without a calendar', async () => {
+    const chart = makeChart(bars, '30m', ZONE);
+    expect(await new DateNavigator({ chart }).goTo({ from: sunday, to: bars[bars.length - 1]!.time }))
+      .toEqual({ status: 'partial', history: 'unavailable', from: bars[0]!.time, to: bars[bars.length - 1]!.time });
   });
 });
