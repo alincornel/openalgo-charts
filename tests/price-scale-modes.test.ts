@@ -344,6 +344,18 @@ describe('autoscale under every mode', () => {
     expect(r.max).toBeGreaterThan(100);
   });
 
+  it('gives a log scale the same fallback as a linear one for an unbounded range', () => {
+    // A finite low and an infinite high have a log, but no padding: taken in
+    // log space the fallback range 0..1 came back as 1..10.
+    for (const [low, high] of [[5, Infinity], [5, NaN]] as const) {
+      const linear = new PriceScale();
+      const log = new PriceScale({ mode: 'logarithmic' });
+      linear.autoscale(low, high);
+      log.autoscale(low, high);
+      expect(log.priceRange(), `${low}..${high}`).toEqual(linear.priceRange());
+    }
+  });
+
   it('survives a flat series in the rebasing modes', () => {
     for (const mode of ['percentage', 'indexed-to-100'] as const) {
       const ps = new PriceScale({ mode });

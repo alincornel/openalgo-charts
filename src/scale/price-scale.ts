@@ -111,10 +111,11 @@ export function autoscaleRange(low: number, high: number, marginTop: number, mar
  * of the pane, so a log scale pads in log units: padded in price units, a
  * series from 150 to 1230 got a floor near 15 and a whole empty decade under
  * its lowest bar. A range a log scale cannot take the log of (zero, a
- * negative low, a flat series) keeps the price-space padding.
+ * negative low, a flat series) keeps the price-space padding, and so does an
+ * unbounded one, whose fallback is a range in price units, not in log units.
  */
 export function scaleAutoscaleRange(mode: PriceScaleMode, low: number, high: number, marginTop: number, marginBottom: number): PriceRange {
-  if (mode !== 'logarithmic' || !(low > 0) || !(high > low)) return autoscaleRange(low, high, marginTop, marginBottom);
+  if (mode !== 'logarithmic' || !(low > 0) || !(high > low) || !isFinite(high)) return autoscaleRange(low, high, marginTop, marginBottom);
   const r = autoscaleRange(Math.log10(low), Math.log10(high), marginTop, marginBottom);
   return { min: Math.pow(10, r.min), max: Math.pow(10, r.max) };
 }
