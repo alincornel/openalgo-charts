@@ -84,6 +84,40 @@ describe('default candle density', () => {
     expect(counted.chart.getVisibleLogicalRange()).toEqual({ from: 149, to: 203 });
     expect(spaced.chart.timeScale.barSpacing).toBe(12);
   });
+
+  it('drags time alone by default, so a wheel zoom after a drag still fits the price', () => {
+    // A drag that also moved price switched the pane to manual scaling, and
+    // every zoom after it left bars off the pane until auto was pressed again.
+    expect(make().w.chart.navigationOptions().mousePan).toBe('horizontal');
+    const both = make({ navigation: { mousePan: 'both' } }).w;
+    expect(both.chart.navigationOptions().mousePan).toBe('both');
+    const counted = make({ navigation: { defaultVisibleBars: 50 } }).w;
+    expect(counted.chart.navigationOptions().mousePan).toBe('horizontal');
+  });
+
+  it('leaves the drag to the widget for a layout saved before 2.6.3, and keeps one chosen since', () => {
+    // 2.6.2 wrote mousePan: 'both' into every chart state, chosen or not.
+    const old = make().w.getState();
+    const { savedBy, ...unstamped } = old;
+    expect(typeof savedBy).toBe('string');
+    const legacy = { ...unstamped, chart: { ...unstamped.chart, navigation: { ...unstamped.chart.navigation, mousePan: 'both' as const } } };
+    const a = make().w;
+    a.restoreState(legacy);
+    expect(a.chart.navigationOptions().mousePan).toBe('horizontal');
+    // Saved by this release, 'both' was somebody's choice.
+    const b = make().w;
+    b.restoreState({ ...legacy, savedBy: '2.6.3' });
+    expect(b.chart.navigationOptions().mousePan).toBe('both');
+    // And a host that asked for 'both' gets it from an old layout too.
+    const c = make({ navigation: { mousePan: 'both' } }).w;
+    c.restoreState(legacy);
+    expect(c.chart.navigationOptions().mousePan).toBe('both');
+  });
+
+  it('zooms about the latest bar by default, and about the cursor when the host asks', () => {
+    expect((make().w.chart as unknown as { _zoomAnchor: string })._zoomAnchor).toBe('right');
+    expect((make({ zoomAnchor: 'cursor' }).w.chart as unknown as { _zoomAnchor: string })._zoomAnchor).toBe('cursor');
+  });
 });
 
 describe('the frame', () => {

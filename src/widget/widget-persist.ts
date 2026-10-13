@@ -280,6 +280,15 @@ export function restoreWidgetState(this: PersistHost, state: unknown): WidgetRes
   let chart: RestoreReport | undefined;
   if (isRecord(state.chart)) {
     let doc = state.chart as unknown as WidgetChartState;
+    // Through 2.6.2 the chart state carried every navigation option, so each
+    // layout saved then says mousePan: 'both' whether or not anyone chose it.
+    // Restored, it switched every drag back to moving price and the pane to
+    // manual scaling, so an unstamped state leaves the drag to the widget's
+    // default, unless the host itself asked for one.
+    if (state.savedBy === undefined && this._opts.navigation?.mousePan === undefined && doc.navigation?.mousePan === 'both') {
+      const { mousePan: _recorded, ...navigation } = doc.navigation;
+      doc = { ...doc, navigation };
+    }
     const scoped = this.instrumentDrawings;
     // A layout for another instrument brings that instrument's drawings.
     // They wait in its store while the chart restore keeps the ones on
@@ -351,6 +360,7 @@ export function readSaved(this: PersistHost): WidgetState | null {
     chart: (chart && variant === null ? stripView(chart) : chart) as WidgetChartState,
     rail: isRecord(raw.rail) ? (raw.rail as unknown as RailPrefs) : null,
     panels: sanitizePanelDockState(raw.panels),
+    ...(typeof raw.savedBy === 'string' ? { savedBy: raw.savedBy } : {}),
   };
   return out;
 }

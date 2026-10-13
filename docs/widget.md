@@ -464,9 +464,9 @@ Budgets from `.size-limit.json` and measurements from the 2.6.3 build, Brotli, e
 
 | Row | Files | Budget | Actual |
 |---|---|---|---|
-| Widget tier | `openalgo-charts.widget.mjs` | 124.82 kB | 124.81 kB |
+| Widget tier | `openalgo-charts.widget.mjs` | 124.91 kB | 124.90 kB |
 | Widget first-use parts | `openalgo-charts.widget.<part>-<hash>.mjs`, eight files | 21.00 kB | 21.00 kB |
-| Widget terminal | base + draw + indicators + widget | 363.75 kB | 363.74 kB |
+| Widget terminal | base + draw + indicators + widget | 363.97 kB | 363.96 kB |
 
 The widget is a tier because of these rows. A host that never calls `createWidget`
 downloads none of it, and the base engine's own budget is unchanged. Measure, do not
@@ -487,9 +487,13 @@ Pass `navigation: { mousePan: 'both', defaultVisibleBars: 100 }` to
 `createWidget` to open on the latest 100 bars. Axes settings expose both
 preferences and saved widget layouts retain them. The count controls the initial
 view, new symbol/interval loads and Reset view; it does not limit retained
-history. Use 0 to fit all loaded bars. Mouse and pen pan time and price by default;
-choose `mousePan: 'horizontal'` to preserve price autoscale while panning time.
-Saved explicit preferences are retained. Touch gestures are unchanged.
+history. Use 0 to fit all loaded bars. Since 2.6.3 mouse and pen pan time alone by
+default (`mousePan: 'horizontal'`), so the price scale keeps fitting what is in view
+through any drag and every wheel zoom after it, and the wheel zooms about the latest bar
+(`zoomAnchor: 'right'`; Ctrl or Cmd with the wheel zooms about the cursor). Pass
+`mousePan: 'both'` to drag price as well, which puts the pane on manual scaling, or
+`zoomAnchor: 'cursor'`. The engine's own defaults are `'both'` and `'cursor'`. Saved
+explicit preferences are retained. Touch gestures are unchanged.
 
 ## Live recovery and CSP in 2.1.2
 

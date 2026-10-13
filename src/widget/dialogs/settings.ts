@@ -131,8 +131,14 @@ export function mountSettingsDialog(
     onClick: () => {
       const tab = tabs.find((t) => t.id === activeTab);
       if (tab === undefined) return;
-      // Marked dirty like any edit, so Cancel still undoes a restore.
-      write(tabDefaults(tab));
+      // Marked dirty like any edit, so Cancel still undoes a restore. A value
+      // the widget starts at itself wins over the engine's default.
+      const defaults = tabDefaults(tab);
+      for (const key of Object.keys(defaults)) {
+        const own = ctx.settingsDefaults?.[key];
+        if (own !== undefined) defaults[key] = own;
+      }
+      write(defaults);
       renderPane();
     },
   }));

@@ -150,6 +150,9 @@ describe('a synchronous store the host passes', () => {
 // Recorded from the widget as it stood before asynchronous storage (2.5.9 plus
 // the wave 1 split), with the session above. The one call added since is the
 // shortcuts editor reading the user's chords at each mount (2.5.10), marked.
+// The calls and their order are what this holds; the state record itself
+// changed in 2.6.3 (the widget's drag default in the chart state, and the
+// savedBy stamp), so its four hashes were taken again then.
 const SYNC_LOG: readonly string[] = [
   'get oac-widget:pin:state null',
   'get oac-widget:pin:drawings:NSE:ALPHA null',
@@ -157,12 +160,12 @@ const SYNC_LOG: readonly string[] = [
   'get oac-widget:pin:rail null',
   'get oac-widget:pin:keymap null', // the shortcuts editor
   'set oac-widget:pin:drawings:NSE:ALPHA dec3d03e62c9',
-  'set oac-widget:pin:state a5ebfb281b33',
+  'set oac-widget:pin:state 56a1e4df5b26',
   'get oac-widget:pin:drawings:NSE:BETA null',
   'set oac-widget:pin:drawings:NSE:BETA 37916dec368c',
-  'set oac-widget:pin:state 19cc3dedd981',
-  'set oac-widget:pin:state 19cc3dedd981',
-  'get oac-widget:pin:state 19cc3dedd981',
+  'set oac-widget:pin:state 02e852fbdabc',
+  'set oac-widget:pin:state 02e852fbdabc',
+  'get oac-widget:pin:state 02e852fbdabc',
   'get oac-widget:pin:drawings:NSE:BETA 37916dec368c',
   'get oac-widget:pin:drawings:NSE:BETA 37916dec368c',
   'get oac-widget:pin:rail null',
@@ -170,8 +173,8 @@ const SYNC_LOG: readonly string[] = [
   'get oac-widget:pin:keymap null', // the shortcuts editor
   'set oac-widget:pin:rail bebd1f203d89',
   'get oac-widget:pin:drawings:NSE:ALPHA dec3d03e62c9',
-  'set oac-widget:pin:state 7437d2c17f93',
-  'set oac-widget:pin:state 7437d2c17f93',
+  'set oac-widget:pin:state e695c578a5ec',
+  'set oac-widget:pin:state e695c578a5ec',
 ];
 
 // ── the asynchronous contract ──────────────────────────────────────────
