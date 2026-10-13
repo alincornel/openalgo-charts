@@ -326,6 +326,32 @@ describe('footprint zone lookback and alerts', () => {
     expect(none).toEqual([]);
   });
 
+  it('reports a touch in the bar that was forming, even when the next bar arrives in the same call', () => {
+    const fp = new Footprint({ ...opts, showZones: true });
+    const seen: number[] = [];
+    fp.onZoneAlert(alert => seen.push(alert.time));
+    fp.setBars([origin, above]);
+    // The touch at 120 and the next bar at 180 land together, as a batched host would send them.
+    fp.setBars([origin, above, touch, later]);
+    expect(seen).toEqual([120]);
+  });
+
+  it('starts a new history when the bars are cleared or start again from an older bar', () => {
+    const fp = new Footprint({ ...opts, showZones: true });
+    const seen: number[] = [];
+    fp.onZoneAlert(alert => seen.push(alert.time));
+    fp.setBars([origin, above]);
+    fp.setBars([]);
+    fp.setBars([origin, above, touch]);
+    expect(seen).toEqual([]);
+    const shift = (b: FootprintBar, by: number) => ({ ...b, time: b.time - by });
+    const older = new Footprint({ ...opts, showZones: true });
+    older.onZoneAlert(alert => seen.push(alert.time));
+    older.setBars([origin, above, touch, later].map(b => shift(b, -1000)));
+    older.setBars([origin, above, touch]);
+    expect(seen).toEqual([]);
+  });
+
   it('alerts only on the zones it extends, and stops when unsubscribed', () => {
     const count = (patch: Partial<FootprintOptions>, unsubscribe = false) => {
       const fp = new Footprint({ ...opts, showZones: true, ...patch });

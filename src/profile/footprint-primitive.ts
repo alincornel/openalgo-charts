@@ -1,7 +1,7 @@
 /** Footprint columns, volume profiles and cluster ladders from classified trades. */
 import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, PrimitiveHit, ZOrder } from 'openalgo-charts';
 import { bucketPrice, valueArea, type FootprintBar, type FootprintCell } from './profile-model';
-import { diagonalImbalances, stackedImbalances } from './footprint';
+import { MAX_EMPTY_ROWS, diagonalImbalances, stackedImbalances } from './footprint';
 import { footprintTextColor, readableTextColor, type FootprintTextColorMode } from './footprint-colors';
 import { footprintSignals, type FootprintSignals, type FootprintZone, type FootprintZoneEnd } from './footprint-signals';
 import { drawAuctions, drawFlip, drawVisibleProfile, drawZones, type OverlayColors } from './footprint-overlays';
@@ -224,8 +224,6 @@ function copyOptions(o: FootprintOptions): FootprintOptions {
 const WHOLE_DAY: SessionWindow = { startMinute: 0, endMinute: 0 };
 const TWO_SIDED = new Set<FootprintDisplayMode>(['bidask', 'imbalance']);
 const ZONE_GROUP: Record<FootprintZone['kind'], FootprintZoneGroup> = { stackedBuy: 'stacked', stackedSell: 'stacked', node: 'node', absorption: 'absorption' };
-/** More empty rows than this in one gap means the row step is wrong for the bar, not that rows went untraded. */
-const MAX_EMPTY_ROWS = 1000;
 
 /** A bar's cells, highest first, with a zero row at every row step the trades skipped. */
 function withEmptyRows(cells: readonly FootprintCell[], step: number): readonly FootprintCell[] {
@@ -276,6 +274,8 @@ export class Footprint implements IPrimitive {
   private _rc: PrimitiveRenderContext | null = null;
   private _inferredStep = 0;
   private _primed = false;
+  /** Time of the newest bar at the last `setBars`: touches from it on are live. */
+  private _liveFrom = -Infinity;
   private readonly _alertHandlers = new Set<(alert: FootprintZoneAlert) => void>();
   /** Zones already reported or already touched when first seen, by kind, origin and low. */
   private readonly _alerted = new Set<string>();
@@ -350,10 +350,14 @@ export class Footprint implements IPrimitive {
   public options(): FootprintOptions { return copyOptions(this._opts); }
 
   /**
-   * Called once for each zone that `showZones` extends when the newest bar
-   * trades back into it after it became active (since 2.6.4), the moment to
-   * raise an alert or play a sound. Zones touched in the bars a host first
-   * loads, or touched again later, are not reported. Returns the unsubscribe.
+   * Called once for each zone that `showZones` extends (so nothing is reported
+   * while it is off) when price trades back into it after it became active
+   * (since 2.6.4), the moment to raise an alert or play a sound. The first bars
+   * a footprint is given are history and report nothing; each later `setBars`
+   * is read as the live tail, so a touch in the bar that was newest at the
+   * previous call, or in any bar after it, is reported. `setBars([])`, or bars
+   * that start again from an older bar, begin a new history. Returns the
+   * unsubscribe.
    */
   public onZoneAlert(handler: (alert: FootprintZoneAlert) => void): () => void {
     this._alertHandlers.add(handler);
@@ -362,16 +366,19 @@ export class Footprint implements IPrimitive {
 
   private _reportTouches(live: boolean): void {
     const o = this._opts, newest = this._bars[this._bars.length - 1]?.time;
-    // The first bars a footprint is given are history: what touched a zone there is not news.
-    const report = live && this._primed;
-    if (this._bars.length > 0) this._primed = true;
+    // No bars, or bars ending before the last ones did, are another dataset: its touches are history.
+    if (newest === undefined || newest < this._liveFrom) { this._primed = false; this._alerted.clear(); this._liveFrom = -Infinity; }
+    if (newest === undefined) return;
+    const report = live && this._primed, from = this._liveFrom;
+    if (live) { this._primed = true; this._liveFrom = newest; }
     if (!o.showZones) return;
     for (const zone of this._signals.zones) {
       if (zone.touchTime === null || !o.zoneKinds.includes(ZONE_GROUP[zone.kind])) continue;
       const key = `${zone.kind}|${zone.time}|${zone.low}`;
       if (this._alerted.has(key)) continue;
       this._alerted.add(key);
-      if (!report || zone.touchTime !== newest) continue;
+      // A touch is news when it is in the bar that was still forming at the last call, or later.
+      if (!report || zone.touchTime < from) continue;
       for (const handler of [...this._alertHandlers]) {
         try { handler({ zone: { ...zone }, time: zone.touchTime }); } catch (error) { queueMicrotask(() => { throw error; }); }
       }

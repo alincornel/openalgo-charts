@@ -131,6 +131,11 @@ describe('footprint diagonal and stacked imbalances', () => {
     expect(diagonalImbalances([{ price: 2, bidVol: 5, askVol: 0 }, { price: 1, bidVol: 0, askVol: 5 }], 3, 1)).toEqual([]);
   });
 
+  it('does not compare across a gap too wide to be untraded rows', () => {
+    // 1999 rows apart: the row size is wrong for this bar, not 1999 rows untouched.
+    expect(diagonalImbalances([{ price: 2000, bidVol: 1, askVol: 100 }, { price: 0, bidVol: 100, askVol: 1 }], 3, 1)).toEqual([]);
+  });
+
   it('does not compare rows closer than the row size', () => {
     expect(diagonalImbalances([{ price: 1.5, bidVol: 0, askVol: 100 }, { price: 1, bidVol: 1, askVol: 0 }], 3, 1)).toEqual([]);
   });

@@ -164,15 +164,20 @@ function adjacent(upper: number, lower: number, row: number): boolean {
   return Number.isFinite(row) && upper > lower && Math.abs(upper - lower - row) <= tolerance(upper, lower, row);
 }
 
+/** More empty rows than this in one gap means the row step is wrong for the bar, not that rows went untraded. */
+export const MAX_EMPTY_ROWS = 1000;
+
 /**
  * The volume a cell is compared with between `upper` and `lower`: the next row's, or
  * zero when rows that never traded lie between them inside the bar. Undefined
- * when the two are closer than a row apart, which is a grid the row size does
- * not describe, so nothing is compared.
+ * when the two are closer than a row apart, or further apart than
+ * `MAX_EMPTY_ROWS` rows: either is a grid the row size does not describe, so
+ * nothing is compared.
  */
 function across(upper: number, lower: number, row: number, volume: number): number | undefined {
   if (adjacent(upper, lower, row)) return volume;
-  return Number.isFinite(row) && upper - lower > row + tolerance(upper, lower, row) ? 0 : undefined;
+  const gap = upper - lower;
+  return Number.isFinite(row) && gap > row + tolerance(upper, lower, row) && Math.round(gap / row) - 1 <= MAX_EMPTY_ROWS ? 0 : undefined;
 }
 
 /**
