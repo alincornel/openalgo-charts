@@ -519,7 +519,19 @@ See also: [Profiles and Orderflow](/docs/profiles-and-orderflow)
 The broader analysis of trade classification within a bar: who was the aggressor on each
 trade, cumulative delta (net buying minus selling pressure), and imbalance detection
 between adjacent bid/ask levels. The profile tier exposes `cumulativeDelta`,
-`diagonalImbalances`, and `stackedImbalances` as standalone functions on footprint data.
+`diagonalImbalances`, and `stackedImbalances` as standalone functions on footprint data,
+`createTradeClassifier` to classify raw prints, and `footprintSignals` for multiple nodes, big
+limit orders, absorption, delta flips, zones and unfinished auctions.
+
+See also: [Profiles and Orderflow](/docs/profiles-and-orderflow)
+
+---
+
+### Unfinished auction
+
+A bar's high or low that traded on both the bid and the ask. A properly finished extreme
+trades on one side only, so price tends to return to an unfinished one. The footprint draws
+it as a dash-dot line until a later bar trades beyond it (`showUnfinishedAuctions`).
 
 See also: [Profiles and Orderflow](/docs/profiles-and-orderflow)
 

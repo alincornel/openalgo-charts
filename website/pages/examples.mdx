@@ -2359,6 +2359,43 @@ return chart;`} />
 </div>
 
 <div>
+### Renko sized from the ATR, built from high and low (transform tier)
+<RunnableExample hideCode height={280} tiers={['transform']} code={`const chart = lib.createChart(el);
+const bars = lib.generateBars(1700000000, 400, 3600);
+// Each brick is half of a 14-bar ATR, and a long wick forms bricks the close never reaches.
+const bricks = lib.runTransform(new lib.RenkoTransform({ mode: 'atrPercent', percent: 50, atrPeriod: 14, method: 'hl' }), bars);
+chart.addSeries('candlestick').setData(bricks);
+chart.timeScale.fitContent(bricks.length);
+return chart;`} />
+</div>
+
+<div>
+### Footprint order flow with zones and signals (profile tier)
+<RunnableExample hideCode height={420} tiers={['profile']} code={`const chart = lib.createChart(el, { timeScale: { maxBarSpacing: 220 }, priceScale: { marginTop: 0.08, marginBottom: 0.12 } });
+// Simulated prints, classified by the tick rule, on 1-point rows of a 0.25 tick.
+const side = lib.createTradeClassifier('tickRule');
+const agg = new lib.FootprintAggregator({ mode: 'interval', seconds: 60 }, 0.25, 4);
+const bars = [];
+let price = 6000, seed = 11;
+for (let i = 0; i < 6 * 60; i++) {
+  seed = (seed * 1103515245 + 12345) & 2147483647;
+  price = Math.round((price + (seed / 2147483647 - 0.48) * 1.5) * 4) / 4;
+  const print = { time: 1788960600 + i, price, qty: 1 + (seed % 25) };
+  const update = agg.onTick({ ...print, side: side(print) });
+  if (update.isNew) bars.push(update.bar); else bars[bars.length - 1] = update.bar;
+}
+const clear = 'rgba(0,0,0,0)';
+chart.addSeries('candlestick', { style: { upColor: clear, downColor: clear, wickUpColor: clear, wickDownColor: clear, borderUpColor: clear, borderDownColor: clear } })
+  .setData(bars.map(b => ({ time: b.time, open: b.open, high: b.high, low: b.low, close: b.close })));
+const footprint = new lib.Footprint({ displayMode: 'imbalance', pocStyle: 'outline', font: 10,
+  multipleNodeBars: 2, flipBars: 2, showZones: true, showUnfinishedAuctions: true, showDeltaLabels: true, markDivergence: true });
+footprint.setBars(bars);
+chart.addPrimitive(footprint);
+chart.timeScale.setVisibleLogicalRange({ from: -0.6, to: bars.length - 0.4 });
+return chart;`} />
+</div>
+
+<div>
 ### Tick chart (250-tick bars)
 <RunnableExample hideCode height={280} code={`const chart = lib.createChart(el);
 const series = chart.addSeries('candlestick');

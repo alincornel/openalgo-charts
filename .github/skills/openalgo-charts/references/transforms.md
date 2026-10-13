@@ -39,10 +39,10 @@ chart.setSeriesTransform(series, null);      // the bars as given again
 | Type | Options (0 or omitted = from history) |
 |---|---|
 | `heikin-ashi` | none; one candle per bar at the bar's time |
-| `renko` | `boxSize` |
+| `renko` | `mode` `'fixed'` (default), `'percent'`, `'atr'` or `'atrPercent'`; `boxSize` (fixed); `percent` (default 1); `atrPeriod` (14); `atrMultiplier` (1); `method` `'close'` (default) or `'hl'` |
 | `range-bars` | `range` (twice the history box) |
 | `line-break` | `lines`, default 3 |
-| `point-figure` | `mode` `'fixed'` (default), `'percent'` or `'atr'`; `boxSize` (fixed); `percent` (default 1); `atrPeriod` (14); `atrMultiplier` (1); `reversal` (3); `method` `'hl'` or `'close'` |
+| `point-figure` | `mode` `'fixed'` (default), `'percent'`, `'atr'` or `'atrPercent'`; `boxSize` (fixed); `percent` (default 1); `atrPeriod` (14); `atrMultiplier` (1); `reversal` (3); `method` `'hl'` or `'close'` |
 | `kagi` | `reversal` (twice the history box) |
 
 The history box is a fortieth of the loaded range and at least a tenth of a percent of the last close, to two significant figures. It is resolved on each `setData` (a new load or symbol), never per tick, and kept through `prependData`, so paging history in never resizes every brick. An option left out stays out of the spec and of saved state, and keeps following the history.
@@ -74,7 +74,7 @@ Every transform is incremental: `push` takes each source bar once, in time order
 | Class | Options (defaults) | Emits | Plot as |
 |---|---|---|---|
 | `HeikinAshiTransform` | none (no constructor arg) | 1 bar per input bar, real times, `volume` carried through | `'candlestick'` |
-| `RenkoTransform` | `{ boxSize: number }` required, must be `> 0` | one brick per full box move of the close; up brick `close > open`, down brick `close < open`; no `volume` | `'candlestick'` |
+| `RenkoTransform` | `{ boxSize }` for the default `mode: 'fixed'`, must be `> 0`; or `mode` `'percent'` / `'atrPercent'` with `percent > 0`, or `'atr'`; `method` `'close'` (default) or `'hl'` | one brick per full box move (of the close, or of the low and high in bar order with `'hl'`); percent and ATR sizes re-resolve per brick; up brick `close > open`, down brick `close < open`; no `volume` | `'candlestick'` |
 | `RangeBarsTransform` | `{ range: number }` required, must be `> 0` | a bar per `high - low >= range`, built from the close sequence; the partial bar comes out of `flush()` | `'candlestick'` |
 | `LineBreakTransform` | `{ lines: number }`, constructor defaults to `{ lines: 3 }`, clamped to `>= 1` | a line only when the close breaks the extreme of the prior N lines; no `flush` | `'candlestick'` |
 | `PointFigureTransform` | see below | `PointFigureColumn` (a `Bar` plus `boxSize` and `boxes`) | `'point-figure'` |
@@ -121,9 +121,9 @@ feed.onBar((bar) => { // closed bars only; see the pipeline above for the formin
 | `boxSize` | `number` | none | Required for `mode: 'fixed'`; throws if not `> 0`. |
 | `reversal` | `number` | `3` | Boxes of counter-move needed to open a new column. Floored, min 1. |
 | `method` | `'hl' \| 'close'` | `'hl'` | `'hl'` extends X columns from each bar's high and O columns from its low, what P&F means on a desk. `'close'` ignores intrabar range entirely. |
-| `mode` | `'fixed' \| 'percent' \| 'atr'` | `'fixed'` | How the box is resolved, re-evaluated each time a column opens. |
-| `percent` | `number` | none | For `mode: 'percent'`; `0.5` means 0.5% of price. Throws if not `> 0`. |
-| `atrPeriod` | `number` | `14` | Wilder ATR lookback for `mode: 'atr'`. |
+| `mode` | `'fixed' \| 'percent' \| 'atr' \| 'atrPercent'` | `'fixed'` | How the box is resolved, re-evaluated each time a column opens. `'atrPercent'` is `percent` of the ATR. |
+| `percent` | `number` | none | For `mode: 'percent'` (of price) or `'atrPercent'` (of the ATR); `0.5` means 0.5%. Throws if not `> 0`. |
+| `atrPeriod` | `number` | `14` | Wilder ATR lookback for `mode: 'atr'` and `'atrPercent'`. |
 | `atrMultiplier` | `number` | `1` | ATR multiplier for `mode: 'atr'`. |
 
 `PointFigureColumn` extends `Bar` with `boxSize` (price height of one glyph) and `boxes` (glyph count). `low` is the bottom edge of the lowest box and `high` is the **exclusive top edge** of the highest, so `[low, high)` is exactly the glyph stack's span and `boxes === (high - low) / boxSize`. Up column (X) is `close >= open`. The renderer reads `boxSize` off the column, so variable-box modes render correctly; `style.boxSize` remains a fallback only for hand-built data. Renderer style keys: `upColor` (`#26a69a`), `downColor` (`#ef5350`). Kagi style keys: `thickColor` (`#26a69a`), `thinColor` (`#ef5350`).
