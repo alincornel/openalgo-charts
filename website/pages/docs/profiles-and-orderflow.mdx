@@ -185,7 +185,7 @@ When rows or columns become too small, text is suppressed to avoid overlap.
 | Option | Values / default |
 | --- | --- |
 | `cellStyle` | `'heatmap'` (default), `'profile'`, `'ladder'` |
-| `displayMode` | `'bidask'` (default), `'imbalance'`, `'delta'`, `'deltaPct'`, `'volume'`, `'volumeDelta'` |
+| `displayMode` | `'bidask'` (default), `'imbalance'`, `'delta'`, `'deltaPct'`, `'volume'`, `'volumeDelta'`, `'deltaShadedVolume'` |
 | `intensityScope` | `'bar'` (default) shades against each bar's busiest row; `'visible'` against the busiest row on screen, so volume clusters stand out |
 | `compactNumbers` | `true` (default) abbreviates to three significant figures; `false` prints whole numbers with separators |
 | `tableRows` | Metric rows in an independent bottom table; `[]` (default) disables it |
@@ -196,6 +196,11 @@ When rows or columns become too small, text is suppressed to avoid overlap.
 | `showValueArea` | `false` by default |
 | `valueAreaPercent` | `0.7` by default |
 | `buyColor`, `sellColor`, `textColor` | Optional palette overrides |
+| `imbalanceBuyColor`, `imbalanceSellColor` | Imbalanced cells, stacked brackets and stacked zones (since 2.6.4); default to the buy and sell colors |
+| `volumeColor` | Cells in the volume view (since 2.6.4); otherwise each row takes the color of the side that traded more |
+| `candleUpColor`, `candleDownColor` | The candle beside each column (since 2.6.4) |
+| `profileAskColor`, `profileBidColor` | The visible-range profile's bars (since 2.6.4) |
+| `sessionColor`, `tableBackground` | Session letters and the statistics table's background (since 2.6.4) |
 | `pocColor`, `valueAreaColor` | Reference-line colors |
 | `cvdOffset` | Starting cumulative delta in raw quantity, default `0` |
 | `volumeDivisor` | Divides displayed quantity values only; `1` (raw quantity) by default |
@@ -211,6 +216,20 @@ The **imbalance** view leaves cells plain and fills only diagonal imbalances, st
 ratio passes two and three times the threshold and full against an empty opposite side. Rows
 inside the candle body are lightly shaded in the candle's colour and outlined. **Delta %**
 prints each row's delta as a share of its volume; **volume x delta** prints both.
+**Delta-shaded volume** (`'deltaShadedVolume'`, since 2.6.4) prints each row's volume on a cell
+coloured by the side that won the row and shaded by the size of its delta, so a busy row with
+little conviction reads pale and a quieter one-sided row reads strong.
+
+`FOOTPRINT_THEMES` (since 2.6.4) holds six named color sets: `ocean`, `ember`, `forest`, `neon`
+and `monochrome` for dark charts, `daylight` for light ones. Each is a plain options patch, so
+spread it under your own choices:
+
+```ts
+import { Footprint, FOOTPRINT_THEMES } from 'openalgo-charts/profile';
+
+const footprint = new Footprint({ ...FOOTPRINT_THEMES.ocean, displayMode: 'bidask' });
+footprint.setOptions({ ...FOOTPRINT_THEMES.daylight }); // switch with the chart theme
+```
 
 ### Raw quantity and lots
 
@@ -396,7 +415,7 @@ Every layer is off by default, so an existing chart draws exactly as before.
 | `bigOrderMultiple` | Outlines the bar's largest bid near its low on a selling bar, or largest ask near its high on a buying bar, when it reaches this many average cells (`bigOrderColor`) |
 | `absorptionMultiple` | Bands rows near the high or low where bid and ask both reach this many of their average cells (`absorptionColor`) |
 | `flipBars` | A triangle where delta turns after this many bars of the other sign, at least `flipMinDeltaPct` of the bar and large against recent bars, at a swing |
-| `showZones` | Extends stacked imbalances, multiple nodes and absorption to the right until `zoneEnd` says price dealt with them |
+| `showZones` | Extends stacked imbalances, multiple nodes and absorption to the right until `zoneEnd` says price dealt with them; `zoneKinds` (since 2.6.4) picks which of the three |
 | `showUnfinishedAuctions` | A dash-dot line at a high or low that traded on both bid and ask, until a later bar trades beyond it |
 | `showDeltaLabels`, `markDivergence` | Bar delta under each column, boxed when an up bar has negative delta or a down bar positive |
 | `showVisibleProfile` | Volume at price of the visible bars against the left edge, ask and bid split |
@@ -407,11 +426,26 @@ close to the high or low a big order or absorption must be. `zoneEnd` is `'close
 (default: a closed bar closes inside the zone, or any bar trades through it), `'traverse'` or
 `'touch'`. Ended zones stay drawn up to the bar that ended them. `formingLastBar` (default
 `true`) keeps the newest bar from ending a zone by its close, or from setting an unfinished
-auction, while it is still forming.
+auction, while it is still forming. `zoneKinds` (default all three of `'stacked'`, `'node'` and
+`'absorption'`) chooses which zones `showZones` extends, and `zoneLookback` (default `0`, every
+bar) starts zones only in the newest that many bars, so a long history does not fill the chart
+with old levels.
+
+`footprint.onZoneAlert(handler)` (since 2.6.4) calls the handler once for each extended zone
+when the newest bar trades back into it after it became active, the moment to raise an alert or
+play a sound. Zones touched in the bars a footprint is first given are history and are not
+reported. It returns the unsubscribe:
+
+```ts
+const stop = footprint.onZoneAlert(({ zone, time }) => {
+  notify(`Price came back to a ${zone.kind} zone ${zone.low} to ${zone.high}`);
+});
+```
 
 `showEmptyRows` (default `true`) draws a row inside a bar that no trade reached as 0 x 0, so
-every column spans its whole range. It changes only the drawing: imbalances, the point of
-control, the value area and the signals still read the traded rows.
+every column spans its whole range. It changes only the drawing. Imbalances treat such a row as
+zero volume whether it is drawn or not (since 2.6.4), and the point of control, the value area
+and the other signals read the traded rows.
 
 ```ts
 footprint.setOptions({
@@ -463,8 +497,10 @@ import {
 to low, as returned by `computeFootprint`) and returns `Imbalance[]`. A buy imbalance fires
 when ask volume at price P is at least `ratio` times the bid volume at the cell one row
 below; a sell imbalance fires when bid volume at P is at least `ratio` times the ask volume
-at the cell one row above. `rowSize` is the effective grouped price step. Missing rows
-are not bridged. Without an explicit step, the minimum observed spacing is inferred;
+at the cell one row above. `rowSize` is the effective grouped price step. A row between the
+bar's high and low that never traded counts as zero volume, so the cell beside it is compared
+with zero (since 2.6.4; through 2.6.3 it was not compared). The rows beyond the high and low
+are not compared. Without an explicit step, the minimum observed spacing is inferred;
 this cannot distinguish uniformly missing rows from a coarser grid. `threshold` is the
 minimum qualifying side volume. Positive volume against zero can qualify, while zero
 against zero does not. Both sides can be imbalanced at the same price.
@@ -519,15 +555,17 @@ bars.forEach((bar, i) => {
 
 `footprintSignals(bars, options?)` is the pure calculation behind the layers, for alerts,
 scanners or a server. It returns `{ bars, zones, auctions }`: per bar `node`, `bigBid`,
-`bigAsk`, `absorption`, `flip` and `divergence`; each zone's `kind`, price span, `endTime`
-and `activeTime`; and each unfinished auction's price and `endTime`. A zone becomes active
+`bigAsk`, `absorption`, `flip` and `divergence`; each zone's `kind`, price span, `endTime`,
+`activeTime` and `touchTime` (since 2.6.4: the first bar after it became active that traded
+back into it); and each unfinished auction's price and `endTime`. A zone becomes active
 once `zoneActiveAfter` whole bars have traded completely beyond it. `footprint.signals()`
 returns the same result for the bars and options a primitive holds.
 
 ```ts
 import { footprintSignals } from 'openalgo-charts/profile';
 
-// Raise a host alert the first time price trades into an active zone that has not ended.
+// On a server or in a scanner, without a Footprint: raise an alert the first time price
+// trades into an active zone that has not ended. A chart uses footprint.onZoneAlert instead.
 const alerted = new Set();
 function checkZones(bars, lastPrice) {
   for (const zone of footprintSignals(bars, { zoneActiveAfter: 1 }).zones) {
