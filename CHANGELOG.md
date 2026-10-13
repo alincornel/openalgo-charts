@@ -31,11 +31,13 @@ market profile charts with live examples.
   row's volume on a cell coloured by the side that won the row and shaded by
   the size of its delta, so a busy row with little conviction reads pale.
 - **Zone alerts.** `footprint.onZoneAlert(handler)` calls the handler once
-  for each zone `showZones` extends when the newest bar trades back into it
-  after it became active, with `{ zone, time }`, and returns the unsubscribe.
-  Zones touched in the bars a footprint is first given, or in new zones that
-  `setOptions` makes, are recorded without a call, so history never raises an
-  alert. `FootprintZone` gains `touchTime`, the first bar after `activeTime`
+  for each zone `showZones` extends when price trades back into it after it
+  became active, with `{ zone, time }`, and returns the unsubscribe. The first
+  bars a footprint is given, and new zones that `setOptions` makes, are
+  recorded without a call. Each later `setBars` is the live tail: a touch in
+  the bar that was newest at the previous call, or in a later one, is
+  reported, so prints batched across a new bar lose nothing. `setBars([])`, or
+  bars that start again from an older bar, begin a new history. `FootprintZone` gains `touchTime`, the first bar after `activeTime`
   that traded back into the zone.
 - **Which zones extend.** `zoneKinds` picks any of `'stacked'`, `'node'` and
   `'absorption'` (default all three) for `showZones` to extend and alert on,

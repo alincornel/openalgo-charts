@@ -431,10 +431,14 @@ auction, while it is still forming. `zoneKinds` (default all three of `'stacked'
 bar) starts zones only in the newest that many bars, so a long history does not fill the chart
 with old levels.
 
-`footprint.onZoneAlert(handler)` (since 2.6.4) calls the handler once for each extended zone
-when the newest bar trades back into it after it became active, the moment to raise an alert or
-play a sound. Zones touched in the bars a footprint is first given are history and are not
-reported. It returns the unsubscribe:
+`footprint.onZoneAlert(handler)` (since 2.6.4) calls the handler once for each zone that
+`showZones` extends (so turn `showZones` on, and pick the kinds with `zoneKinds`) when price trades
+back into it after it became active, the moment to raise an alert or play a sound. The first
+bars a footprint is given are history and report nothing. Each later `setBars` is the live tail:
+a touch in the bar that was newest at the previous call, or in any bar after it, is reported, so
+a host may send several prints, even across a new bar, in one call. `setBars([])`, or bars that
+start again from an older bar (another instrument), begin a new history. It returns the
+unsubscribe:
 
 ```ts
 const stop = footprint.onZoneAlert(({ zone, time }) => {

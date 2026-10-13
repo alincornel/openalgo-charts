@@ -27,9 +27,9 @@ themes, and a new [Order flow](/order-flow) page of live footprint and market pr
 
 - **Delta-shaded volume.** `displayMode: 'deltaShadedVolume'` prints each row's volume on a cell
   shaded by its delta.
-- **Zone alerts.** `footprint.onZoneAlert(handler)` reports each extended zone once, when the
-  newest bar trades back into it after it became active; history never raises one. Zones carry
-  `touchTime`.
+- **Zone alerts.** `footprint.onZoneAlert(handler)` reports each zone `showZones` extends once,
+  when price trades back into it after it became active; the bars a footprint is first given are
+  history and raise nothing. Zones carry `touchTime`.
 - **Which zones extend.** `zoneKinds` picks stacked imbalances, multiple nodes or absorption, and
   `zoneLookback` starts zones only in the newest bars.
 - **A colour for each part**: imbalances, the volume view, candles, the visible profile, session
