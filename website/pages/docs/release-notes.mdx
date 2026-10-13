@@ -59,9 +59,10 @@ Draw tier 58.44 kB, widget tier 124.94 kB, all tiers 425.35 kB. The chart-only i
 ### Performance
 
 Frames are on par with 2.6.2: with Canvas 2D at 200,000 bars a pan, a full zoom-out and a ten-study
-tick measure 2.0, 51.5 and 149.9 ms against 2.0, 53.6 and 150.8 ms. The tick's runs spread widely
-and the bench times the new build first; timed again with the builds alternating, its lowest runs
-match at 200,000 bars (150.0 against 149.5 ms) and favour 2.6.3 at 50,000 (49.8 against 56.4 ms).
+tick measure 2.0, 51.5 and 149.9 ms against 2.0, 53.6 and 150.8 ms. One cell reads slower in the
+entry, the 50,000-bar tick (58.1 against 42.6 ms). The tick's runs spread widely and the bench times
+the new build first; timed again with the builds alternating, its lowest runs favour 2.6.3 at 50,000
+bars (49.8 against 56.4 ms) and match at 200,000 (150.0 against 149.5 ms).
 The changelog has the figures. See the [benchmark](/benchmarks#263) measured against 2.6.2.
 
 ## 2.6.2
