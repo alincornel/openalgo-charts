@@ -346,7 +346,8 @@ describe('the point and figure and Renko settings dialog', () => {
     expect(first.getState().chart.series?.[0]).toMatchObject({ transform: { type: 'point-figure', options }, style: { downColor: '#a1b2c3' } });
     // The save is debounced; the history step schedules it.
     await new Promise(resolve => setTimeout(resolve, 400));
-    expect(first.context.storage.get(STATE_KEY)).toMatchObject({ chart: { series: [{ transform: { type: 'point-figure', options } }] } });
+    expect(first.context.storage.get(STATE_KEY)).toMatchObject({ chart: { series: [{ transform: { type: 'point-figure', options }, style: { downColor: '#a1b2c3' } }] } });
+    const saved = first.getState();
     first.destroy();
     const second = fed({ persist: true, storage });
     await flush();
@@ -358,5 +359,24 @@ describe('the point and figure and Renko settings dialog', () => {
     expect(methodSelect(again).value).toBe('atrPercent');
     expect(sizeInput(again).value).toBe('40');
     expect(again.querySelector('[data-key="reversal"] select')!.value).toBe('2');
+    // The colours come back too, on the stored layout and through restoreState.
+    expect(second.chart.primarySeriesInfo()?.style.downColor).toBe('#a1b2c3');
+    const third = fed({ chartType: 'point-figure' });
+    await flush();
+    expect(third.restoreState(saved).applied).toBe(true);
+    expect(third.chart.primarySeriesInfo()?.style.downColor).toBe('#a1b2c3');
+  });
+
+  it('keeps a style saved for another chart type off the series on screen', async () => {
+    const first = fed({ chartType: 'point-figure' });
+    await flush();
+    const d = open(first);
+    color(d, 'symbol.downColor', '#a1b2c3');
+    ok(d);
+    const second = fed();
+    await flush();
+    const state = { ...first.getState(), chartType: undefined };
+    expect(second.restoreState(state).applied).toBe(true);
+    expect(second.chart.primarySeriesInfo()?.style.downColor).not.toBe('#a1b2c3');
   });
 });

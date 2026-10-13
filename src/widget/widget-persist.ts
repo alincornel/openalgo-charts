@@ -168,6 +168,7 @@ export function applySavedLayout(this: PersistHost, saved: WidgetState | null): 
     if (this.instrumentDrawings !== null && savedKey(saved) !== null) layout = { ...layout, drawings: this.draw.toJSON() };
     const report = this.chart.restoreState(layout);
     if (report.applied) {
+      restorePrimaryStyle.call(this, saved.chart);
       this._keepView = same;
       this._pendingView = same ? saved.chart.viewport ?? null : null;
     } else {
@@ -239,6 +240,19 @@ function savedKey(saved: WidgetState): string | null {
   return instrumentDrawingsKey({ symbol: saved.symbol.toUpperCase(), exchange: saved.exchange });
 }
 
+/**
+ * The saved style of the series on screen. A chart restore never touches
+ * series, which belong to the host, so the colours a layout was saved with
+ * (from the settings or a chart type's own dialog) are the widget's to put
+ * back. Only the entry saved for the same chart type applies: a style written
+ * for point and figure means nothing to candles.
+ */
+function restorePrimaryStyle(this: PersistHost, state: WidgetChartState): void {
+  const type = this.chart.seriesTransform(this._series)?.type ?? this.chart.seriesType(this._series);
+  const entry = (state.series ?? []).find(item => item !== null && (item.transform?.type ?? item.type) === type);
+  if (entry?.style !== undefined && Object.keys(entry.style).length > 0) this._series.applyOptions(entry.style);
+}
+
 /** What `restoreState` applies, inside the history's `ignore`. */
 export function restoreWidgetState(this: PersistHost, state: unknown): WidgetRestoreReport {
   if (!isRecord(state)) return { applied: false, reason: 'not a widget state object' };
@@ -277,6 +291,7 @@ export function restoreWidgetState(this: PersistHost, state: unknown): WidgetRes
     if (moving) doc = { ...doc, drawings: this.draw.toJSON() };
     chart = this.chart.restoreState(same ? doc : stripView(doc));
     if (!chart.applied) return { applied: false, reason: chart.reason, chart };
+    restorePrimaryStyle.call(this, doc);
     takeGivenState.call(this);
     if (moving && scoped !== null) scoped.setDocument({ symbol, exchange }, incoming ?? []);
     this._keepView = same;
