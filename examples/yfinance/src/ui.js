@@ -471,6 +471,9 @@ const demoDark = {
   ...darkTheme, ...candlePair,
   background: '#151619', grid: '#20222c', axisText: '#b2b5be',
   axisLine: '#2a2b30', paneSeparator: '#2a2b30', crosshair: '#787b86',
+  // The crosshair's tags carry the same dark ink, which reaches only 4.3:1 on
+  // the line's own grey; the light theme's grey gives 6.3:1.
+  crosshairLabelBackground: '#9598a1',
 };
 const demoLight = {
   ...lightTheme, ...candlePair,
