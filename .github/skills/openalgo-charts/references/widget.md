@@ -649,7 +649,12 @@ createWidget/createAlertUi inject the complete component styles automatically.
 `widget.goTo({ from, to? })` shows a date, or an explicit range, in UTC seconds.
 It waits for a load in flight, loads older history through
 `dataController.loadMore(until)` until the request is covered, then places it
-with `chart.setVisibleLogicalRange`. A date is centred at the current zoom, and
+with `chart.setVisibleLogicalRange`. Since 2.6.2 a gap before the first loaded
+bar that no session trades in (a weekend, a holiday, the hours before another
+venue opens) counts as covered when the chart has a session calendar
+(`chart.setSessionCalendar`, or an instrument's hours): such a request is
+`placed`, not `partial`, and no older page is loaded for it. Without a calendar
+any gap before the first bar is loaded, or reported as short history, as before. A date is centred at the current zoom, and
 kept left of the newest bar's normal margin; a range fills the plot, centred at
 the widest bar spacing when short. Placement runs after the accepted load, so
 later live bars and refreshes keep its anchor. A newer request, a symbol or
