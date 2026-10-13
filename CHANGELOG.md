@@ -2,6 +2,55 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 2.6.2
+
+2026-10-13
+
+A fix for the bottom bar's ranges and the Go to panel, which reported missing
+history when the only thing before the first loaded bar was a weekend, a
+holiday or the hours before the market opens. Nothing else changes.
+
+### Fixed
+
+- **A range or a date no longer reports history that is not missing.** The
+  1M range on a New York stock, run on a Tuesday in India, asked for the month
+  from Sunday midnight; the loaded history starts at Monday's 19:00 open, and
+  the bottom bar said "Older history cannot load now" for a month that was
+  whole. `DateNavigator` (behind `widget.goTo`, the bottom bar's ranges and
+  the Go to panel) now asks the chart's session calendar whether any session
+  opens between the request and the first loaded bar. When none does, the
+  request is `placed` rather than `partial`, and no older page is loaded for
+  it. A chart without a session calendar counts any gap as before, and a gap a
+  session did trade in is still reported. It failed on any day a month back
+  landed on a Sunday or a Monday for that stock, about two days in seven.
+
+### Size
+
+The widget tier is 124.12 kB (was 124.08 kB), the widget terminal 362.93 kB,
+all tiers 424.26 kB and the nine classic scripts 438.21 kB. The classic
+scripts move by up to 180 bytes from the version string alone: one byte
+changes, and Brotli encodes the file differently. Each budget moved to its
+measured need. The chart-only import is unchanged at 87.19 KiB.
+
+### Performance
+
+- **Measured against 2.6.1** on the release bench (five runs of each build in
+  one session, `benchmarks/releases.json`, the website's Benchmarks page):
+  frames are on par, as this release changes no rendering path. With Canvas 2D
+  at 200,000 bars a pan, a full zoom-out and a ten-study tick measure 2.2, 56.0
+  and 154.3 ms against 2.2, 55.6 and 157.8 ms (each the lowest p95 of its five
+  runs); every cell of both renderers is within 10 percent of 2.6.1.
+
+### Tests
+
+11640 engine tests across 515 files and 726 reference-host tests across 68
+files. Four new tests cover the gap rule: the two that check a sessionless gap
+is placed, and that no loader is asked across it, fail against 2.6.1. The
+reference host's one-day range test no longer assumes the session fills the
+view: in the first hour or so of a trading day it holds fewer bars than the
+closest zoom spreads across the plot, and the session sits whole inside a wider
+view.
+
 ## 2.6.1
 
 2026-10-13

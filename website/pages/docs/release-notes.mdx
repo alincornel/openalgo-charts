@@ -8,6 +8,31 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 2.6.2
+
+2026-10-13
+
+A fix for the bottom bar's ranges and Go to, which reported missing history
+across a weekend or another gap no session trades in.
+
+### Fixed
+
+- **A range or a date no longer reports history that is not missing.** With a session calendar
+  on the chart, `DateNavigator` (the bottom bar's ranges, Go to and `widget.goTo`) treats a gap
+  before the first loaded bar that no session trades in as covered: the request is placed, and no
+  older page is loaded for it. Without a calendar nothing changes. See
+  [Widget](/docs/widget).
+
+### Size
+
+Widget tier 124.12 kB, all tiers 424.26 kB. The chart-only import is unchanged.
+
+### Performance
+
+Frames are on par with 2.6.1: with Canvas 2D at 200,000 bars a pan, a full zoom-out and a ten-study
+tick measure 2.2, 56.0 and 154.3 ms against 2.2, 55.6 and 157.8 ms. See the
+[benchmark](/benchmarks#262) measured against 2.6.1.
+
 ## 2.6.1
 
 2026-10-13
