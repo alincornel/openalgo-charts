@@ -191,9 +191,34 @@ const num = (options: Options, key: string): number => options[key] as number;
 /** Register the six transforms a chart can apply itself. Idempotent, like the renderers beside it. */
 export function registerSeriesTransforms(): void {
   define('heikin-ashi', 'Heikin Ashi', 'candlestick', [], () => ({}), () => new HeikinAshiTransform(), true);
-  define('renko', 'Renko', 'candlestick', [historySize('boxSize', 'Box size')],
-    (given, bars) => ({ boxSize: sized(given.boxSize, () => historyBox(bars)) }),
-    (o) => new RenkoTransform({ boxSize: num(o, 'boxSize') }));
+  const atr = { key: 'mode', is: 'atr' } as const;
+  const percentOf = { key: 'mode', is: ['percent', 'atrPercent'] } as const;
+  // One sizing schema for Renko and point and figure, so a host renders one form for both.
+  const boxInputs: readonly IndicatorInput[] = [
+    { key: 'mode', type: 'select', label: 'Box size from', default: 'fixed', options: [
+      { label: 'Fixed size', value: 'fixed' }, { label: 'Percent of price', value: 'percent' }, { label: 'ATR', value: 'atr' },
+      { label: 'Percent of ATR', value: 'atrPercent' }] },
+    { ...historySize('boxSize', 'Box size'), visibleWhen: { key: 'mode', is: 'fixed' } },
+    { key: 'percent', type: 'number', label: 'Box percent', default: 1, min: 0, visibleWhen: percentOf },
+    { key: 'atrPeriod', type: 'number', label: 'ATR length', default: 14, min: 1, step: 1, visibleWhen: { key: 'mode', is: ['atr', 'atrPercent'] } },
+    { key: 'atrMultiplier', type: 'number', label: 'ATR multiplier', default: 1, min: 0, visibleWhen: atr },
+  ];
+  const boxResolved = (given: Options, bars: readonly Bar[]): Options => {
+    const mode = (given.mode ?? 'fixed') as PointFigureBoxMode;
+    return {
+      ...given, mode,
+      ...(mode === 'fixed' ? { boxSize: sized(given.boxSize, () => historyBox(bars)) } : {}),
+      ...(mode === 'percent' || mode === 'atrPercent' ? { percent: sized(given.percent, () => 1) } : {}),
+    };
+  };
+  const boxOptions = (o: Options) => ({
+    mode: o.mode as PointFigureBoxMode, boxSize: o.boxSize as number | undefined, percent: o.percent as number | undefined,
+    atrPeriod: o.atrPeriod as number | undefined, atrMultiplier: o.atrMultiplier as number | undefined,
+  });
+  define('renko', 'Renko', 'candlestick', [...boxInputs,
+    { key: 'method', type: 'select', label: 'Prices', default: 'close', options: [
+      { label: 'Close', value: 'close' }, { label: 'High and low', value: 'hl' }] },
+  ], boxResolved, (o) => new RenkoTransform({ ...boxOptions(o), method: o.method as 'close' | 'hl' | undefined }));
   // Twice the box, the proportion the reference host always used for both.
   define('range-bars', 'Range bars', 'candlestick', [historySize('range', 'Range')],
     (given, bars) => ({ range: sized(given.range, () => historyBox(bars) * 2) }),
@@ -201,28 +226,12 @@ export function registerSeriesTransforms(): void {
   define('line-break', 'Line break', 'candlestick', [{ key: 'lines', type: 'number', label: 'Lines to break', default: 3, min: 1, step: 1 }],
     (given) => ({ lines: given.lines ?? 3 }),
     (o) => new LineBreakTransform({ lines: num(o, 'lines') }));
-  const atr = { key: 'mode', is: 'atr' } as const;
-  define('point-figure', 'Point and figure', 'point-figure', [
-    { key: 'mode', type: 'select', label: 'Box size from', default: 'fixed', options: [
-      { label: 'Fixed size', value: 'fixed' }, { label: 'Percent of price', value: 'percent' }, { label: 'ATR', value: 'atr' }] },
-    { ...historySize('boxSize', 'Box size'), visibleWhen: { key: 'mode', is: 'fixed' } },
-    { key: 'percent', type: 'number', label: 'Box percent', default: 1, min: 0, visibleWhen: { key: 'mode', is: 'percent' } },
-    { key: 'atrPeriod', type: 'number', label: 'ATR length', default: 14, min: 1, step: 1, visibleWhen: atr },
-    { key: 'atrMultiplier', type: 'number', label: 'ATR multiplier', default: 1, min: 0, visibleWhen: atr },
+  define('point-figure', 'Point and figure', 'point-figure', [...boxInputs,
     { key: 'reversal', type: 'number', label: 'Reversal boxes', default: 3, min: 1, step: 1 },
     { key: 'method', type: 'select', label: 'Prices', default: 'hl', options: [
       { label: 'High and low', value: 'hl' }, { label: 'Close', value: 'close' }] },
-  ], (given, bars) => {
-    const mode = (given.mode ?? 'fixed') as PointFigureBoxMode;
-    return {
-      ...given, mode,
-      ...(mode === 'fixed' ? { boxSize: sized(given.boxSize, () => historyBox(bars)) } : {}),
-      ...(mode === 'percent' ? { percent: sized(given.percent, () => 1) } : {}),
-    };
-  }, (o) => new PointFigureTransform({
-    mode: o.mode as PointFigureBoxMode, boxSize: o.boxSize as number | undefined, percent: o.percent as number | undefined,
-    atrPeriod: o.atrPeriod as number | undefined, atrMultiplier: o.atrMultiplier as number | undefined,
-    reversal: o.reversal as number | undefined, method: o.method as PointFigureMethod | undefined,
+  ], boxResolved, (o) => new PointFigureTransform({
+    ...boxOptions(o), reversal: o.reversal as number | undefined, method: o.method as PointFigureMethod | undefined,
   }));
   define('kagi', 'Kagi', 'kagi', [historySize('reversal', 'Reversal')],
     (given, bars) => ({ reversal: sized(given.reversal, () => historyBox(bars) * 2) }),

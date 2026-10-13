@@ -8,6 +8,53 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 2.6.1
+
+2026-10-13
+
+Order flow depth for the footprint and box sizing for Renko and point and figure: trade
+classification, a trade size filter, imbalance, delta percent and volume x delta views, order
+flow signals with zones and unfinished auctions, session statistics, rows aligned on the even
+boundary, Renko sized from price or the ATR and built from the high and low, and settings
+dialogs for both chart types.
+
+### Added
+
+- **Trade classification and a size filter.** `createTradeClassifier` reads raw prints by the
+  tick rule or the recorded quote, and `minTradeSize` counts only single prints at least that
+  large while keeping the ladder's full range. See [Profiles & Order Flow](/docs/profiles-and-orderflow).
+- **Order flow signals.** `footprintSignals` and `Footprint.signals()` find multiple nodes, big
+  limit orders, absorption, aggressive delta flips, divergence, zones with an end rule and
+  unfinished auctions; a host can raise zone alerts from them.
+- **Footprint views and layers.** The `'imbalance'`, `'deltaPct'` and `'volumeDelta'` views,
+  screen-wide intensity, whole numbers, zones, auction lines, delta labels, a visible-range
+  profile and a last price row, each off by default.
+- **Session statistics.** Session letters, cumulative volume and cumulative delta per volume
+  rows, and a session reset for the cumulative rows.
+- **Renko sizing.** Percent, ATR and percent-of-ATR bricks, and bricks from the high and low. Point
+  and figure gains the percent-of-ATR box. See [Transforms](/docs/transforms).
+- **Settings dialogs** for point and figure and Renko in the widget and the reference host.
+
+### Changed
+
+- Footprint rows put a price exactly between two row centres on the even row.
+- Footprint columns draw a row no trade reached as 0 x 0 instead of a gap (`showEmptyRows`, default `true`).
+
+### Fixed
+
+- Series colours saved with a widget layout are applied again on reload and `restoreState`.
+
+### Size
+
+Profile tier 19.54 kB, transform 6.23 kB, widget 124.08 kB (+ 21.00 kB on first use), all tiers
+424.23 kB. The chart-only import is unchanged.
+
+### Performance
+
+Frames are on par with 2.6.0: with Canvas 2D at 200,000 bars a pan, a full zoom-out and a ten-study
+tick measure 2.6, 58.4 and 154.9 ms against 2.4, 57.4 and 154.8 ms. See the
+[benchmark](/benchmarks#261) measured against 2.6.0.
+
 ## 2.6.0
 
 2026-10-01

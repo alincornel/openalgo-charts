@@ -421,7 +421,11 @@ function inputField(host, key, kind, spec, value, onChange, unavailable) {
     const picker = createColorPicker(document, {
       id: host.id + '_' + key, label: spec.label || key, value,
       disabledReason: off,
-      openOverlay: app?.['alertUi' + (app.focusPane === 2 ? '2' : '')]?.context.openOverlay,
+      // The chart's overlay layer sits under a modal dialog, so a palette
+      // opened there drew behind the card and the card took its clicks. In a
+      // dialog the palette opens inline, which the card lets overflow.
+      openOverlay: host.closest?.('[aria-modal="true"]') ? undefined
+        : app?.['alertUi' + (app.focusPane === 2 ? '2' : '')]?.context.openOverlay,
       // A swatch fires no input event on the form, so a condition that reads
       // a colour has to be told here.
       onChange: next => { onChange?.(key, next); refreshInputRows(host, key); },

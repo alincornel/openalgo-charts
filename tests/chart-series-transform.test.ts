@@ -211,7 +211,7 @@ describe('transform settings', () => {
     chart.setSeriesTransform(series, { type: 'renko' });
     const box = priceInputs(chart).find(input => input.key === 'transform.boxSize')!;
     expect(box).toMatchObject({ type: 'number', group: 'Renko', default: 0, min: 0 });
-    expect(priceInputs(chart)[0].key).toBe('transform.boxSize');
+    expect(priceInputs(chart)[0].key).toBe('transform.mode');
     expect(readChartSettings(chart)['transform.boxSize']).toBe(0);
     applyChartSettings(chart, { 'transform.boxSize': 2 });
     expect(chart.seriesTransform(series)).toEqual({ type: 'renko', options: { boxSize: 2 } });
@@ -231,7 +231,7 @@ describe('transform settings', () => {
     expect(inputs.filter(input => input.key.startsWith('transform.')).map(input => input.key)).toEqual([
       'transform.mode', 'transform.boxSize', 'transform.percent', 'transform.atrPeriod', 'transform.atrMultiplier',
       'transform.reversal', 'transform.method']);
-    expect(inputs.find(input => input.key === 'transform.percent')!.visibleWhen).toEqual({ key: 'transform.mode', is: 'percent' });
+    expect(inputs.find(input => input.key === 'transform.percent')!.visibleWhen).toEqual({ key: 'transform.mode', is: ['percent', 'atrPercent'] });
     applyChartSettings(chart, { 'transform.mode': 'percent', 'transform.percent': 0.5, 'transform.reversal': 2 });
     expect(chart.seriesTransform(series)).toEqual({ type: 'point-figure', options: { mode: 'percent', percent: 0.5, reversal: 2 } });
     expect(chart.primaryBars()).toEqual(runTransform(new PointFigureTransform({ mode: 'percent', percent: 0.5, reversal: 2 }), series.getData()));

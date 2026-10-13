@@ -2,6 +2,129 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 2.6.1
+
+2026-10-13
+
+Order flow depth for the footprint and box sizing for the brick and box charts.
+The footprint gains trade classification, a trade size filter, an imbalance view
+and two more single-value views, and order flow signals read across bars:
+multiple nodes, big limit orders, absorption, aggressive delta flips,
+price/delta divergence, zones that extend until price deals with them, and
+unfinished auctions. Footprint rows now put a price exactly between two row
+centres on the even row. Renko sizes its bricks from price or the ATR and can
+build them from the high and low, point and figure gains a box that is a
+percent of the ATR, and the widget and the reference host each get a settings
+dialog for both chart types. Every new footprint layer is off by default, so a
+chart that changes nothing draws as before, apart from the row rule and the
+empty rows below.
+
+### Added
+
+- **Trade classification.** `createTradeClassifier(mode)` in
+  `openalgo-charts/profile` returns a stateful classifier for raw prints:
+  `'tickRule'` (a print above the previous one is a buy, below it a sell, an
+  unchanged price keeps the previous side) or `'quote'` (the recorded bid and
+  ask first, the tick rule inside the spread or without a valid quote).
+- **Trade size filter.** `computeFootprint` and `FootprintAggregator` take
+  `FootprintBuildOptions` (`{ minTradeSize }`). Only single prints at least that
+  large are counted; smaller ones still open their row, which shows zero, and
+  still set the bar's open, high, low and close. Count and volume bars close on
+  every print.
+- **Unfinished auctions on every bar.** A built bar carries `auction`, every
+  print's bid and ask volume at its exact high and low, before any filter.
+- **Order flow signals.** `footprintSignals(bars, options?)` and
+  `DEFAULT_FOOTPRINT_SIGNAL_OPTIONS` compute multiple nodes, big limit orders,
+  absorption, aggressive delta flips, divergence, zones (stacked imbalances,
+  nodes, absorption) with an end rule (`'closeInside'`, `'traverse'`,
+  `'touch'`) and the time each becomes active, and unfinished auctions. The
+  newest bar is treated as forming, so its close never ends a zone and its high
+  and low set no auction until it closes. `Footprint.signals()` returns the
+  same for a primitive's bars, so a host can raise its own zone alerts.
+- **Footprint views and layers.** `displayMode` adds `'imbalance'` (plain cells,
+  diagonal imbalances filled by strength, candle body rows shaded and outlined),
+  `'deltaPct'` and `'volumeDelta'`. New options: `intensityScope` (shade
+  against the busiest row on screen), `compactNumbers`, `multipleNodeBars`,
+  `bigOrderMultiple`, `absorptionMultiple`, `signalLookback`,
+  `nearExtremeRows`, `flipBars`, `flipMinDeltaPct`, `showZones`, `zoneEnd`,
+  `zoneActiveAfter`, `showUnfinishedAuctions`, `showDeltaLabels`,
+  `markDivergence`, `showVisibleProfile` (ask and bid volume at price of the
+  visible bars against the left edge), `lastPriceColor` and `formingLastBar`,
+  with their colours.
+- **Session statistics.** `FootprintStatRow` adds `'cumVolume'`, `'cvdRatio'`
+  (cumulative delta over cumulative volume) and `'session'` (the period letter,
+  anchored the way the market profile anchors its periods). `cvdReset: 'session'`
+  restarts cumulative delta and volume at each open of `sessionWindow` on
+  `timezone`; `tpoMinutes` sets the letter period.
+- **Renko sizing and prices.** `RenkoTransform` takes `mode` (`'fixed'`,
+  `'percent'`, `'atr'`, `'atrPercent'`) with `percent`, `atrPeriod` and
+  `atrMultiplier`, re-resolved as each brick forms, and `method: 'hl'`, which
+  walks the bar's low and high in the order the bar most likely traded them.
+  The in-chart `renko` transform offers the same options.
+- **Point and figure from a percent of the ATR.** `mode: 'atrPercent'` sizes the
+  box as `percent` of the ATR.
+- **Settings dialogs for point and figure and Renko.** In the widget, a button
+  beside the chart type opens one while the chart builds either type: paired
+  colours, percent presets, the size and its method (absolute, percent, ATR or
+  percent of ATR), the ATR length, the reversal for point and figure, and close
+  only or high and low. It writes through `setSeriesTransform` and the chart
+  settings in one undo step and loads on first use. The reference host gets
+  the same dialog, saves the options per chart type, and migrates a layout's
+  old box mode.
+- **Order flow demo.** The order flow example adds the imbalance, delta percent
+  and volume x delta views, a tick rule side, a minimum trade size, a chooser
+  for every order flow layer with a zone alert, the new table rows, and Ember
+  and Forest themes.
+
+### Changed
+
+- **Footprint rows round half to even.** A trade is put on its tick, then on
+  its row; a tick exactly between two row centres now goes to the even row
+  instead of always up (with 2-point rows on a 0.05 tick, 22469.00 belongs to
+  the 22468 row). A price that is not on a boundary lands where it always did.
+- **Footprint columns show their untraded rows.** A row inside a bar that no
+  trade reached is drawn as 0 x 0 instead of a gap, so every column spans its
+  whole range. It changes only the drawing: imbalances, the point of control,
+  the value area and the signals still read the traded rows.
+  `showEmptyRows: false` draws the gaps as before.
+- **The point and figure and Renko box options share one schema**, so the
+  chart settings Price tab lists Renko's sizing method first and shows the box
+  percent for both percent modes.
+
+### Fixed
+
+- **Saved series colours return with a widget layout.** The widget saved the
+  primary series' style and never applied it again, so colours set from the
+  settings were lost on reload and on `restoreState`. The style saved for the
+  chart type on screen is now applied once the chart restore lands.
+- **Reference host dialogs.** The colour palette opened behind a dialog card
+  and could not be clicked, and selects in dialogs had lost their chevron.
+
+### Size
+
+Profile tier 19.54 kB (was 14.94 kB), transform 6.23 kB (was 6.07 kB), widget
+124.08 kB with eight first-use parts at 21.00 kB, the widget terminal 362.89 kB,
+all tiers 424.23 kB and the nine classic scripts 437.85 kB. The chart-only
+import is unchanged at 87.19 KiB. Every budget moved to its measured need.
+
+### Performance
+
+- **Measured against 2.6.0** on the release bench (five runs of each build in
+  one session, `benchmarks/releases.json`, the website's Benchmarks page):
+  frames are on par, as this release changes no rendering path of the chart.
+  With Canvas 2D at 200,000 bars a pan, a full zoom-out and a ten-study tick
+  measure 2.6, 58.4 and 154.9 ms against 2.4, 57.4 and 154.8 ms (each the
+  lowest p95 of its five runs); every cell of both renderers is within 9
+  percent of 2.6.0, the largest move being that pan, 0.2 ms.
+
+### Tests
+
+11636 engine tests across 515 files and 726 reference-host tests across 68
+files, including row alignment tests that fail with the previous rounding,
+signal, zone, session and drawing tests for the footprint, Renko and point and
+figure sizing tests, and dialog and restore tests for the widget and the
+reference host.
+
 ## 2.6.0
 
 2026-10-01

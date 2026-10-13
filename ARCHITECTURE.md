@@ -4,7 +4,9 @@
 > Historical pre-implementation target: **< 50 KB Brotli** for the full package (engine + trade overlay), no runtime dependencies. *(Brotli is the size metric we hold the budget against - see §11. Gzip runs ~10-15% larger.)*
 > Goal: professional-grade interactive financial-chart rendering + advanced on-chart trading & trade management.
 
-> **Current release: 2.6.0.** Analysis depth and a stricter API. A chart applies Heikin Ashi, Renko, range bars, line break, point and figure and Kagi to the bars a host feeds, live (`setSeriesTransform`, with the runs installed by `registerSeriesTransform` when the transform tier is imported), and each study computes on the elements drawn or on the underlying bars (`setBarSource`). Seven built-ins are new, 112 in all, and 29 take a `timeframe` input that folds the chart's bars into a higher interval without repainting. The OpenAlgo feed searches symbols (`DataFeed.searchSymbols`), and event markers carry rich details with host actions. `ChartEventMap` types every event on the chart's bus, every tier ships as a classic script on the `OpenAlgoCharts` global, `require()` resolves to the ESM files, and all of `src` compiles under `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`. The 2.6.0 build measures 137.53 kB base, 154.41 kB base + trade and 419.05 kB for all tiers (decimal Brotli sizes).
+> **Current release: 2.6.1.** The footprint gains order flow analytics (trade classification, a trade size filter, imbalance and delta views, zones, unfinished auctions, delta flips and session statistics), rows aligned on the even boundary, Renko and point and figure sizing from price or the ATR, and settings dialogs for both chart types in the widget and the reference host. The 2.6.1 build measures 137.43 kB base, 154.31 kB base + trade and 424.23 kB for all tiers (decimal Brotli sizes).
+>
+> **2.6.0.** Analysis depth and a stricter API. A chart applies Heikin Ashi, Renko, range bars, line break, point and figure and Kagi to the bars a host feeds, live (`setSeriesTransform`, with the runs installed by `registerSeriesTransform` when the transform tier is imported), and each study computes on the elements drawn or on the underlying bars (`setBarSource`). Seven built-ins are new, 112 in all, and 29 take a `timeframe` input that folds the chart's bars into a higher interval without repainting. The OpenAlgo feed searches symbols (`DataFeed.searchSymbols`), and event markers carry rich details with host actions. `ChartEventMap` types every event on the chart's bus, every tier ships as a classic script on the `OpenAlgoCharts` global, `require()` resolves to the ESM files, and all of `src` compiles under `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`. The 2.6.0 build measures 137.53 kB base, 154.41 kB base + trade and 419.05 kB for all tiers (decimal Brotli sizes).
 
 > **2.5.10.** Persistence, saved layouts and the chart grid. The widget keeps its saved state in IndexedDB through an asynchronous store (`AsyncStorageLike`, `widget.ready`), reopens named layouts and indicator templates over a `WorkspaceStore` with revision checks, and lets a user move any shortcut from the ? panel. A bottom bar carries preset ranges sized in trading sessions, Go to, the market status and a clock with a timezone menu. Calendars know pre-open, post-close and extended hours (`phaseAt`, `marketStatusAt`), and `attachSessionShading` washes those bars in the price pane. The chart grid lays out one to sixteen charts with maximize, swap and up to sixteen named link groups, whose channels now include the chart type and drawings. UI a plain widget never opens loads on first use from hashed part files beside the widget tier, and text markers take lanes so neighbouring labels no longer overlap. The 2.5.10 build measures **134.69 kB** base, **151.38 kB** base + trade and **409.13 kB** for all tiers (decimal Brotli sizes).
 
@@ -32,7 +34,7 @@ notifications. Pipeline arrows show data flow, not package dependencies.
 
 ## Current integration map
 
-For 2.6.0 integrations, start with these current guides and implementation
+For 2.6.1 integrations, start with these current guides and implementation
 boundaries. The numbered design sections below retain historical plans and
 explicitly labeled estimates; use the current API types for implementation.
 
@@ -1116,7 +1118,7 @@ reader of that version sees. Three rules fell out of getting this wrong:
 
 ## 13a. Deferred / not-yet-implemented (honest status)
 
-The current implementation keeps these boundaries in 2.6.0:
+The current implementation keeps these boundaries in 2.6.1:
 
 - **Separate price/time axis-widget canvases** - axes draw within the pane
   canvas by design (small-engine simplification).

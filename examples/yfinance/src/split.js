@@ -15,7 +15,7 @@ import { openContextMenu, closeMenu } from './menus.js';
 import { attachVolume, refreshVolume, setVolumeLegend, applyVolumeSettings, volumeValues } from './volume.js';
 import { referenceDataContext, isExpression, fetchExpressionBars } from './expression.js';
 import { requestVariant, sessionOf } from './session.js';
-import { chartTypeSeries } from './transforms.js';
+import { chartTypeSeries, savedTransforms } from './transforms.js';
 import { chartDecorationsForRebuild, normalizeLegendIconSize, restorePrimaryStyle } from './chart-settings.js';
 import { bindIndicatorSource } from './indicator-source.js';
 import { openSettings, renderIndicatorChips, watchStudyStatus } from './indicators.js';
@@ -99,7 +99,7 @@ export const secondaryRawBars = () => bars2.map(bar => ({ ...bar }));
 export function installSecondaryWorkspace(saved, bars) {
   closeSplit();
   if (!saved) return;
-  app.p2 = { ...saved.request, chartType: saved.chartType || 'candlestick', pfmode: saved.pfmode || 'atr',
+  app.p2 = { ...saved.request, chartType: saved.chartType || 'candlestick', transforms: savedTransforms(saved) || {},
     legendIconSize: normalizeLegendIconSize(saved.legendIconSize),
     timezone: saved.state?.timezone || app.chartTimezone };
   el('pane2').style.flexBasis = (saved.width ?? 50) + '%';
@@ -231,14 +231,14 @@ export async function restoreSecondaryLayout(saved, selected = 1) {
       throw new Error('The second chart has invalid instrument settings');
     }
     const chartType = saved.chartType || 'candlestick';
-    const pfmode = saved.pfmode || 'atr';
-    if (!CHART_TYPES.some(type => type.v === chartType) || !['atr', 'percent', 'fixed'].includes(pfmode)) {
+    const transforms = savedTransforms(saved);
+    if (!CHART_TYPES.some(type => type.v === chartType) || transforms === null) {
       throw new Error('The second chart has invalid chart type settings');
     }
     if (req.session !== undefined && !['regular', 'extended'].includes(req.session)) {
       throw new Error('The second chart has an invalid session');
     }
-    app.p2 = { symbol: req.symbol, interval: req.interval, period: req.period, chartType, pfmode,
+    app.p2 = { symbol: req.symbol, interval: req.interval, period: req.period, chartType, transforms,
       ...(req.session === 'extended' ? { session: 'extended' } : {}),
       legendIconSize: normalizeLegendIconSize(saved.legendIconSize),
       timezone: saved.state?.timezone || app.chartTimezone };
@@ -302,7 +302,7 @@ export function buildChart2({ keepView = true, typeChanged = false, state } = {}
   const chartType = app.p2.chartType || 'candlestick';
   const transformed = chartType.startsWith('t:');
   // The chart applies the transform to the raw bars, as on the main chart.
-  const { type, transform } = chartTypeSeries(chartType, app.p2.pfmode || 'atr');
+  const { type, transform } = chartTypeSeries(chartType, app.p2.transforms);
   const style = type === 'baseline'
     ? { baseValue: bars2.reduce((sum, bar) => sum + bar.close, 0) / (bars2.length || 1) } : {};
   price2 = app.chart2.addSeries(type, { style, ...(transform ? { transform } : {}) });

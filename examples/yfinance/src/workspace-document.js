@@ -14,6 +14,24 @@ const SCALE_MODES = ['linear', 'logarithmic', 'percentage', 'indexed-to-100'];
 const HOST_SETTINGS = ['reference.pfmode', 'reference.compareMode', 'reference.compareBaseMode', 'reference.whenMissing', 'reference.legendIconSize',
   'reference.inspectionPanel', 'reference.inspectionWidth'];
 const fail = message => { throw new WorkspaceDocumentError(message); };
+// Pane settings are scalars, so each transform option is a key of its own:
+// `reference.transform.renko.mode`. A workspace saved before the box settings
+// dialogs has `reference.pfmode` instead, which the layout reads as before.
+const TRANSFORM_KEY = 'reference.transform.';
+
+/** The transform options a pane's settings hold, as a layout carries them. */
+function transformFields(settings) {
+  const entries = Object.entries(settings).filter(([key]) => key.startsWith(TRANSFORM_KEY)).map(([key, value]) => {
+    const rest = key.slice(TRANSFORM_KEY.length), dot = rest.indexOf('.');
+    return [rest.slice(0, dot), rest.slice(dot + 1), value];
+  });
+  if (!entries.length) return settings['reference.pfmode'] === undefined ? {} : { pfmode: settings['reference.pfmode'] };
+  const kinds = [...new Set(entries.map(([kind]) => kind))];
+  // fromEntries defines every key as the object's own, so a hostile key is
+  // one more option for the check to refuse, never a prototype.
+  return { transforms: Object.fromEntries(kinds.map(kind => [kind,
+    Object.fromEntries(entries.filter(entry => entry[0] === kind).map(([, option, value]) => [option, value]))])) };
+}
 
 function chartFields(state) {
   return Object.fromEntries(CHART_FIELDS.filter(key => state[key] !== undefined).map(key => [key, state[key]]));
@@ -23,7 +41,9 @@ function paneFromLayout(saved, state, id, rail, whenMissing) {
   const selection = primaryLayoutSelection({ ...saved, timezone: state.timezone });
   if (!selection.request) fail('A named workspace needs an explicit chart source request');
   const settings = { ...volumeValues({ 'volume.visible': saved.volume !== false, ...saved.volumeSettings }),
-    'reference.pfmode': selection.pfmode || 'atr', 'reference.compareMode': saved.compareMode || 'percentage',
+    ...Object.fromEntries(Object.entries(selection.transforms).flatMap(([kind, options]) =>
+      Object.entries(options).map(([option, value]) => [`${TRANSFORM_KEY}${kind}.${option}`, value]))),
+    'reference.compareMode': saved.compareMode || 'percentage',
     'reference.whenMissing': whenMissing, 'reference.legendIconSize': normalizeLegendIconSize(saved.legendIconSize) };
   if (saved.compareBaseMode != null) settings['reference.compareBaseMode'] = saved.compareBaseMode;
   if (saved.inspection) {
@@ -139,7 +159,7 @@ export function validateReferenceWorkspace(input) {
       }
     }
     primaryLayoutSelection({ request: { symbol: pane.symbol, interval: pane.interval, period },
-      chartType: pane.chartType, pfmode: pane.settings['reference.pfmode'], timezone: pane.chart.timezone });
+      chartType: pane.chartType, ...transformFields(pane.settings), timezone: pane.chart.timezone });
     // A period longer than the interval can serve would reopen with less
     // history than was saved, so it is refused. One shorter than the
     // interval's floor (a daily chart saved over a year, before daily charts
@@ -149,7 +169,7 @@ export function validateReferenceWorkspace(input) {
     if (served !== period && PERIOD_DAYS[period] > PERIOD_DAYS[served]) fail('The saved history period is unavailable at this interval');
     pane.historyPeriod = served;
     for (const key of Object.keys(pane.settings)) {
-      if (!HOST_SETTINGS.includes(key) && !Object.prototype.hasOwnProperty.call(VOLUME_DEFAULTS, key)) {
+      if (!HOST_SETTINGS.includes(key) && !key.startsWith(TRANSFORM_KEY) && !Object.prototype.hasOwnProperty.call(VOLUME_DEFAULTS, key)) {
         fail(`Unsupported workspace setting: ${key}`);
       }
     }
@@ -196,7 +216,7 @@ export function validateReferenceWorkspace(input) {
 function paneToLayout(pane) {
   const request = { symbol: pane.symbol, interval: pane.interval, period: pane.historyPeriod,
     ...(pane.variant?.session === 'extended' ? { session: 'extended' } : {}) };
-  return { request, chartType: pane.chartType, pfmode: pane.settings['reference.pfmode'] || 'atr',
+  return { request, chartType: pane.chartType, ...transformFields(pane.settings),
     legendIconSize: normalizeLegendIconSize(pane.settings['reference.legendIconSize']),
     volume: pane.volume, volumeSettings: volumeValues({ 'volume.visible': pane.volume, ...pane.settings }),
     comparisons: pane.comparisons.map(item => ({ symbol: item.symbol, hidden: !item.visible,

@@ -44,8 +44,14 @@ export interface FootprintBar {
   high?: number;
   low?: number;
   close?: number;
-  /** Number of classified trade records, not the number of occupied rows. */
+  /** Number of classified trade records counted (those passing any size filter), not occupied rows. */
   tradeCount?: number;
+  /**
+   * Bid and ask volume of every print, before any size filter, at the bar's
+   * exact high and low prices. An extreme that traded on both sides is an
+   * unfinished auction. Absent on manually assembled bars.
+   */
+  auction?: { highBid: number; highAsk: number; lowBid: number; lowAsk: number };
 }
 
 /**

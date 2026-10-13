@@ -12,6 +12,7 @@
  *  - `'fixed'`: a constant `boxSize` (the classic).
  *  - `'percent'`: `price × percent / 100`, re-resolved when each column opens.
  *  - `'atr'`: `ATR(period) × multiplier` (Wilder), re-resolved per column.
+ *  - `'atrPercent'`: `ATR(period) × percent / 100`, a box that is a share of the ATR.
  *
  * Each emitted column is a Bar spanning the column's price range, with up =
  * close ≥ open (X) and down = close < open (O). A column's `high` is the
@@ -24,7 +25,7 @@ import type { Bar } from '../model/bar';
 import { copyState, type ISeriesTransform } from './transform';
 
 export type PointFigureMethod = 'hl' | 'close';
-export type PointFigureBoxMode = 'fixed' | 'percent' | 'atr';
+export type PointFigureBoxMode = 'fixed' | 'percent' | 'atr' | 'atrPercent';
 
 export interface PointFigureOptions {
   /** Box size for `mode: 'fixed'`. Required unless another mode is chosen. */
@@ -35,9 +36,9 @@ export interface PointFigureOptions {
   method?: PointFigureMethod | undefined;
   /** How the box size is resolved. Default `'fixed'`. */
   mode?: PointFigureBoxMode | undefined;
-  /** Box as a percentage of price, for `mode: 'percent'` (e.g. `0.5` = 0.5%). */
+  /** Box as a percentage of price for `mode: 'percent'`, or of the ATR for `'atrPercent'` (e.g. `0.5` = 0.5%). */
   percent?: number | undefined;
-  /** ATR lookback for `mode: 'atr'`. Default 14; floored, at least 1. */
+  /** ATR lookback for `mode: 'atr'` and `'atrPercent'`. Default 14; floored, at least 1. */
   atrPeriod?: number | undefined;
   /** ATR multiplier for `mode: 'atr'`. Default 1. */
   atrMultiplier?: number | undefined;
@@ -51,8 +52,8 @@ export interface PointFigureColumn extends Bar {
   boxes: number;
 }
 
-/** Streaming Wilder ATR. Reports the running TR mean during warmup. */
-class WilderAtr {
+/** Streaming Wilder ATR. Reports the running TR mean during warmup. Shared with Renko; tier-internal. */
+export class WilderAtr {
   private readonly _period: number;
   private _prevClose = NaN;
   private _sum = 0;
@@ -121,7 +122,7 @@ export class PointFigureTransform implements ISeriesTransform {
     if (mode === 'fixed' && !(this._fixedBox > 0)) {
       throw new Error('openalgo-charts: P&F boxSize must be > 0');
     }
-    if (mode === 'percent' && !(this._percent > 0)) {
+    if ((mode === 'percent' || mode === 'atrPercent') && !(this._percent > 0)) {
       throw new Error('openalgo-charts: P&F percent must be > 0');
     }
   }
@@ -157,6 +158,7 @@ export class PointFigureTransform implements ISeriesTransform {
     let box = NaN;
     if (this._mode === 'fixed') box = this._fixedBox;
     else if (this._mode === 'percent') box = (Math.abs(price) * this._percent) / 100;
+    else if (this._mode === 'atrPercent') box = (this._atr.value() * this._percent) / 100;
     else box = this._atr.value() * this._atrMult;
     if (box > 0 && Number.isFinite(box)) return box;
     if (this._box > 0) return this._box;
@@ -181,7 +183,7 @@ export class PointFigureTransform implements ISeriesTransform {
   }
 
   public push(bar: Bar): Bar[] {
-    if (this._mode === 'atr') this._atr.push(bar);
+    if (this._mode === 'atr' || this._mode === 'atrPercent') this._atr.push(bar);
 
     const useHl = this._method === 'hl';
     const upPrice = useHl ? bar.high : bar.close;

@@ -32,6 +32,7 @@ import { initBracket, attachBracketLines, setBracketPrice, updateBracket, remove
 import { initAccount } from './account.js';
 import { initIndicators, fillIndicatorPicker, renderIndicatorChips, openSettings, rememberIndicators, watchStudyStatus } from './indicators.js';
 import { afterChartSettingsWrite, chartDecorationsForRebuild, initChartSettings, normalizeLegendIconSize, restorePrimaryStyle } from './chart-settings.js';
+import { initBoxSettings } from './box-settings.js';
 import { initHistory, attachHistory, historyFor, recordChartType } from './history.js';
 import { bindIndicatorSource, initIndicatorSource } from './indicator-source.js';
 import { initRoutedStudy } from './routed-study.js';
@@ -124,6 +125,10 @@ const app = {
   fills: [],             // marker list for executed market orders
   markersApi: null,      // SeriesMarkers handle on the price series
   currentBars: [],       // cached so a chart-type switch needs no refetch
+  // Options per transform, as the point and figure and Renko dialogs left
+  // them ({ 'point-figure': {...}, renko: {...} }); one left out draws with
+  // its defaults (transforms.js). The second chart keeps its own on app.p2.
+  transforms: {},
   idxByTime: new Map(),  // bar time -> array index (for previous-close lookup)
   req: {},               // last-loaded request (symbol/interval/period)
   // The chart's zone, mirrored: the engine persists it in getState(), but a
@@ -250,17 +255,16 @@ function render({ keepView = true, state } = {}) {
 
   const sel = el('ctype').value;
   const isTransform = sel.startsWith('t:');
-  el('pfmode').hidden = sel !== 't:point-figure';
   // What the chart was last built as, so a switch from the select can be
   // recorded with the type it replaced.
-  app.renderedType = { chartType: sel, pfmode: el('pfmode').value };
+  app.renderedType = { chartType: sel, transforms: app.transforms };
 
   // Family-B transforms: the chart applies one to the bars it is fed and
   // draws the elements, forming them again on every bar and tick. The series
   // still takes the raw bars, and trading uses real prices. Volume needs a
   // bar per element at the element's time, which Heikin Ashi keeps and the
   // price-bucket transforms do not.
-  const { type, transform } = chartTypeSeries(sel, el('pfmode').value);
+  const { type, transform } = chartTypeSeries(sel, app.transforms);
 
   const style = {};
   if (type === 'baseline') {
@@ -440,7 +444,7 @@ function installWorkspace({ layout, bars }) {
   for (const key of ['symbol', 'interval', 'period']) el(key).value = app.req[key];
   el('session').value = sessionOf(app.req);
   el('ctype').value = selection.chartType || 'candlestick';
-  el('pfmode').value = selection.pfmode || 'atr';
+  app.transforms = selection.transforms || {};
   app.chartTimezone = selection.timezone || DEFAULT_TZ;
   app.currentBars = bars[0].map(bar => ({ ...bar }));
   app.idxByTime.clear();
@@ -716,6 +720,7 @@ initAnchoredStudy();
 // here needs to know how a chart is built.
 mountOperatorKeypad(el('symbol'), el('symkeys'));
 initChartSettings(app);
+initBoxSettings(app);
 initCompare(app);
 initSnapshot(app);
 initReplay(app);
@@ -740,19 +745,19 @@ el('save').addEventListener('click', () => {
   a.href = app.chart.takeScreenshot().toDataURL('image/png');
   a.click();
 });
-// switching chart type / P&F box mode re-renders cached bars (no network round-trip)
-['ctype', 'pfmode'].forEach((id) => el(id).addEventListener('change', () => {
+// switching chart type re-renders cached bars (no network round-trip)
+el('ctype').addEventListener('change', () => {
   if (!app.currentBars.length) return;
   const from = app.renderedType;
-  render({ keepView: !from || keepsView(from, { chartType: el('ctype').value, pfmode: el('pfmode').value }) });
+  render({ keepView: !from || keepsView(from, { chartType: el('ctype').value, transforms: app.transforms }) });
   if (from) recordChartType(1, from, app.renderedType, showPrimaryType);
-}));
+});
 
 /** Build the main chart as `type`: what undoing or redoing a type switch does. */
 function showPrimaryType(type) {
   const keepView = !app.renderedType || keepsView(app.renderedType, type);
   el('ctype').value = type.chartType;
-  el('pfmode').value = type.pfmode;
+  app.transforms = type.transforms;
   render({ keepView });
   renderToolbar();
   autosave();

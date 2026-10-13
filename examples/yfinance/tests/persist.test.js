@@ -75,6 +75,10 @@ function freshApp() {
   return app;
 }
 
+/** Options as the box settings dialogs write them. */
+const PF_QUARTER = { mode: 'percent', percent: 0.25, reversal: 2, method: 'close' };
+const RENKO_ATR = { mode: 'atr', atrMultiplier: 1.5, atrPeriod: 14, method: 'hl' };
+
 const toastsShown = (dom) => dom.get('toasts').children.map((n) => n.textContent);
 
 describe('the layout schema', () => {
@@ -332,7 +336,7 @@ describe('storage', () => {
 function layoutSnapshotFor(app) {
   return {
     schema: LAYOUT_SCHEMA, ...app.chart.getState(), dataset: datasetKey(app.req),
-    request: { ...app.req }, chartType: 'candlestick', pfmode: 'atr', legendIconSize: 16,
+    request: { ...app.req }, chartType: 'candlestick', transforms: {}, legendIconSize: 16,
     comparisons: [], compareMode: app.cmpMode, volume: true, volumeSettings: { 'volume.visible': true }, focusPane: 1,
   };
 }
@@ -377,12 +381,33 @@ describe('applying a layout', () => {
     expect(size).toBe(16);
   });
 
-  it('captures the primary request, transform and box mode without extra request fields', () => {
+  it('captures the primary request, transform and its options without extra request fields', () => {
     app.req = { symbol: 'TSLA', interval: '15m', period: '1mo', account: 'private' };
-    dom.get('ctype').value = 't:point-figure'; dom.get('pfmode').value = 'percent';
-    expect(layoutSnapshot()).toMatchObject({ request: { symbol: 'TSLA', interval: '15m', period: '1mo' },
-      chartType: 't:point-figure', pfmode: 'percent' });
-    expect(layoutSnapshot().request).not.toHaveProperty('account');
+    dom.get('ctype').value = 't:point-figure';
+    app.transforms = { 'point-figure': PF_QUARTER, renko: RENKO_ATR };
+    const snap = layoutSnapshot();
+    expect(snap).toMatchObject({ request: { symbol: 'TSLA', interval: '15m', period: '1mo' },
+      chartType: 't:point-figure', transforms: { 'point-figure': PF_QUARTER, renko: RENKO_ATR } });
+    // The box mode select is gone, and so is the field it wrote.
+    expect(snap).not.toHaveProperty('pfmode');
+    expect(snap.request).not.toHaveProperty('account');
+    // What is saved is what is read back.
+    expect(primaryLayoutSelection(JSON.parse(JSON.stringify(snap))).transforms).toEqual(app.transforms);
+  });
+
+  it('opens a layout saved with the old box mode on the point and figure options that mode drew', () => {
+    const request = { symbol: 'TSLA', interval: '15m', period: '1mo' };
+    const pf = { reversal: 3, method: 'hl' };
+    expect(primaryLayoutSelection({ request, pfmode: 'atr' }).transforms)
+      .toEqual({ 'point-figure': { mode: 'atr', atrMultiplier: 1, atrPeriod: 14, ...pf } });
+    expect(primaryLayoutSelection({ request, pfmode: 'percent' }).transforms)
+      .toEqual({ 'point-figure': { mode: 'percent', percent: 1, ...pf } });
+    expect(primaryLayoutSelection({ request, pfmode: 'fixed' }).transforms)
+      .toEqual({ 'point-figure': { mode: 'fixed', boxSize: 0, ...pf } });
+    // Neither field: every transform draws with its defaults.
+    expect(primaryLayoutSelection({ request }).transforms).toEqual({});
+    // The new field wins over a stale old one.
+    expect(primaryLayoutSelection({ request, pfmode: 'fixed', transforms: { renko: RENKO_ATR } }).transforms).toEqual({ renko: RENKO_ATR });
   });
 
   it('recovers an unambiguous legacy request and keeps state-only layouts usable', () => {
@@ -405,7 +430,11 @@ describe('applying a layout', () => {
     const doc = { ...V1_DOC, request: { symbol: 'TSLA', interval: '15m', period: '1mo' } };
     for (const patch of [{ request: null }, { request: { ...doc.request, symbol: '' } },
       { request: { ...doc.request, interval: 'unknown' } }, { chartType: 'unknown' },
-      { pfmode: 'unknown' }, { timezone: 'Invalid/Zone' }]) {
+      { pfmode: 'unknown' }, { pfmode: 'constructor' }, { timezone: 'Invalid/Zone' },
+      // Options the engine would refuse, or a transform with no settings here.
+      { transforms: [] }, { transforms: { renko: { ...RENKO_ATR, reversal: 3 } } }, { transforms: { renko: { mode: 'cubic' } } },
+      { transforms: { 'point-figure': { ...PF_QUARTER, reversal: 0 } } }, { transforms: { 'point-figure': { ...PF_QUARTER, percent: -1 } } },
+      { transforms: { kagi: { reversal: 2 } } }, { transforms: { renko: 'fixed' } }]) {
       expect(() => upgradeLayout({ ...doc, ...patch })).toThrow(LayoutError);
     }
   });
@@ -414,30 +443,39 @@ describe('applying a layout', () => {
     app.chart = null;
     const request = { symbol: 'TSLA', interval: '15m', period: '1mo' };
     expect(restorePrimarySelection({ schema: 2, version: 1, request, chartType: 't:point-figure',
-      pfmode: 'percent', timezone: 'America/New_York' })).toBe(true);
+      transforms: { 'point-figure': PF_QUARTER }, timezone: 'America/New_York' })).toBe(true);
     expect(app.req).toEqual(request);
     expect(app.chartTimezone).toBe('America/New_York');
-    expect(['symbol', 'interval', 'period', 'ctype', 'pfmode'].map(id => dom.get(id).value))
-      .toEqual(['TSLA', '15m', '1mo', 't:point-figure', 'percent']);
+    expect(['symbol', 'interval', 'period', 'ctype'].map(id => dom.get(id).value))
+      .toEqual(['TSLA', '15m', '1mo', 't:point-figure']);
+    expect(app.transforms).toEqual({ 'point-figure': PF_QUARTER });
+    // A layout from before the dialogs: its box mode becomes the options it drew with.
+    expect(restorePrimarySelection({ schema: 2, version: 1, request, chartType: 't:point-figure', pfmode: 'percent' })).toBe(true);
+    expect(app.transforms).toEqual({ 'point-figure': { mode: 'percent', percent: 1, reversal: 3, method: 'hl' } });
   });
 
   it('validates the complete selection before writing any controls and refuses to redirect a live chart', () => {
     const doc = { request: { symbol: 'TSLA', interval: '15m', period: '1mo' }, chartType: 'line' };
     expect(restorePrimarySelection(doc)).toBe(false);
     app.chart = null;
-    const before = ['symbol', 'interval', 'period', 'ctype', 'pfmode'].map(id => dom.get(id).value);
+    const before = ['symbol', 'interval', 'period', 'ctype'].map(id => dom.get(id).value);
+    app.transforms = { renko: RENKO_ATR };
     expect(() => restorePrimarySelection({ ...doc, timezone: 'Invalid/Zone' })).toThrow(LayoutError);
-    expect(['symbol', 'interval', 'period', 'ctype', 'pfmode'].map(id => dom.get(id).value)).toEqual(before);
+    expect(() => restorePrimarySelection({ ...doc, transforms: { renko: { mode: 'cubic' } } })).toThrow(LayoutError);
+    expect(['symbol', 'interval', 'period', 'ctype'].map(id => dom.get(id).value)).toEqual(before);
+    expect(app.transforms).toEqual({ renko: RENKO_ATR });
     expect(app.req.symbol).toBe('AAPL');
   });
 
   it('captures independent secondary chart controls and explicit selection', () => {
     app.chart2 = fakeChart();
-    app.p2 = { symbol: 'TSLA', interval: '15m', period: '1mo', chartType: 't:point-figure', pfmode: 'percent' };
+    app.p2 = { symbol: 'TSLA', interval: '15m', period: '1mo', chartType: 't:point-figure', transforms: { 'point-figure': PF_QUARTER } };
+    app.transforms = { renko: RENKO_ATR };
     app.focusPane = 2;
     const snap = layoutSnapshot();
     expect(snap.focusPane).toBe(2);
-    expect(snap.secondary).toMatchObject({ chartType: 't:point-figure', pfmode: 'percent',
+    expect(snap.transforms).toEqual({ renko: RENKO_ATR });
+    expect(snap.secondary).toMatchObject({ chartType: 't:point-figure', transforms: { 'point-figure': PF_QUARTER },
       request: { symbol: 'TSLA', interval: '15m', period: '1mo' } });
   });
 

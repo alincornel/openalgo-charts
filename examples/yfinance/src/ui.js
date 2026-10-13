@@ -157,7 +157,7 @@ export function toast(kind, message, opts = {}) {
  * than `hidden = true`. Menus that exist only while open are removed.
  */
 export const OVERLAY_CLOSE = {
-  setmodal: '#set-x', cmpmodal: '#cmp-x', chartset: '#cset-x',
+  setmodal: '#set-x', cmpmodal: '#cmp-x', chartset: '#cset-x', boxmodal: '#box-x',
   workspacemodal: '#ws-close',
   chartdatamodal: '#csv-close',
   templatemodal: '#tp-close',

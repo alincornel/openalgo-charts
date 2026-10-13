@@ -1,12 +1,22 @@
 /** Footprint columns, volume profiles and cluster ladders from classified trades. */
 import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, PrimitiveHit, ZOrder } from 'openalgo-charts';
-import { valueArea, type FootprintBar, type FootprintCell } from './profile-model';
+import { bucketPrice, valueArea, type FootprintBar, type FootprintCell } from './profile-model';
 import { diagonalImbalances, stackedImbalances } from './footprint';
 import { footprintTextColor, readableTextColor, type FootprintTextColorMode } from './footprint-colors';
+import { footprintSignals, type FootprintSignals, type FootprintZoneEnd } from './footprint-signals';
+import { drawAuctions, drawFlip, drawVisibleProfile, drawZones, type OverlayColors } from './footprint-overlays';
+import { sessionOpen, tpoLetter, type SessionWindow } from './market-profile';
+import { DEFAULT_TIMEZONE } from '../feed/time';
 import { parseColor, withAlpha } from '../render/pill';
 
-export type FootprintStatRow = 'volume' | 'bidVolume' | 'askVolume' | 'delta' | 'minDelta' | 'maxDelta' | 'deltaPct' | 'cvd' | 'trades';
-export type FootprintDisplayMode = 'bidask' | 'delta' | 'volume';
+export type FootprintStatRow = 'volume' | 'bidVolume' | 'askVolume' | 'delta' | 'minDelta' | 'maxDelta' | 'deltaPct' | 'cvd'
+  | 'trades' | 'cumVolume' | 'cvdRatio' | 'session';
+/**
+ * `bidask` shades both sides by volume; `imbalance` leaves cells plain and fills
+ * only diagonal imbalances, shading the candle body's rows; `delta`, `deltaPct`,
+ * `volume` and `volumeDelta` print one value per row.
+ */
+export type FootprintDisplayMode = 'bidask' | 'imbalance' | 'delta' | 'deltaPct' | 'volume' | 'volumeDelta';
 export type FootprintCellStyle = 'heatmap' | 'profile' | 'ladder';
 export type { FootprintTextColorMode } from './footprint-colors';
 
@@ -23,8 +33,12 @@ export interface FootprintOptions {
   displayMode: FootprintDisplayMode;
   /** Display quantities divided by this positive value; 1 shows raw units. Stats remain raw. */
   volumeDivisor: number;
+  /** Abbreviate quantities to three significant figures (12.3K). False prints whole numbers. Default true. */
+  compactNumbers: boolean;
   /** Intensity cells, volume-proportional bars, or square high-contrast cells. */
   cellStyle: FootprintCellStyle;
+  /** Shade against each bar's busiest row, or against the busiest row on screen so clusters stand out. */
+  intensityScope: 'bar' | 'visible';
   /** Text comparisons are independent of the cell background. */
   textColorMode: FootprintTextColorMode;
   textColor?: string;
@@ -32,7 +46,7 @@ export interface FootprintOptions {
   sellTextColor?: string;
   imbalanceRatio: number;
   imbalanceThreshold: number;
-  /** Adjacent same-side imbalance run length. 0 disables brackets. */
+  /** Adjacent same-side imbalance run length. 0 disables brackets and stacked zones. */
   stackedImbalances: number;
   statsRows: readonly FootprintStatRow[];
   /** Ordered rows for a separate table below the footprints. Empty disables it (default). */
@@ -44,6 +58,14 @@ export interface FootprintOptions {
   statsPosition: 'bottom' | 'bar';
   /** Cumulative delta preceding the supplied bars, for a rolling window. */
   cvdOffset: number;
+  /** `'session'` restarts cumulative delta and cumulative volume at each session open. */
+  cvdReset: 'none' | 'session';
+  /** Session that letters and resets count from; omitted means local midnight. */
+  sessionWindow?: SessionWindow;
+  /** IANA zone for the session calendar; defaults to Asia/Kolkata. */
+  timezone?: string;
+  /** Length of one session-letter period in minutes. Default 30. */
+  tpoMinutes: number;
   /** Draw real OHLC if supplied; legacy bars show a neutral range line. */
   showCandle: boolean;
   showPoc: boolean;
@@ -52,6 +74,48 @@ export interface FootprintOptions {
   /** Fraction of volume in the contiguous value area around the POC. */
   valueAreaPercent: number;
   valueAreaColor?: string;
+  /** Highlight the POC when this many consecutive bars share it. 0 (default) disables. */
+  multipleNodeBars: number;
+  nodeColor: string;
+  /** Outline a big limit order of at least this many average cells. 0 (default) disables. */
+  bigOrderMultiple: number;
+  bigOrderColor: string;
+  /** Band rows where bid and ask both reach this many average cells. 0 (default) disables. */
+  absorptionMultiple: number;
+  absorptionColor: string;
+  /** Bars the average cell is taken over. Default 10. */
+  signalLookback: number;
+  /** Rows from the high or low a big order or absorption must be within. Default 3. */
+  nearExtremeRows: number;
+  /** Mark an aggressive delta flip after this many opposite bars. 0 (default) disables. */
+  flipBars: number;
+  flipMinDeltaPct: number;
+  /** Extend stacked imbalances, multiple nodes and absorption to the right as zones. Default false. */
+  showZones: boolean;
+  zoneEnd: FootprintZoneEnd;
+  zoneActiveAfter: number;
+  /** Dash-dot line at a high or low that traded on both bid and ask. Default false. */
+  showUnfinishedAuctions: boolean;
+  auctionHighColor?: string;
+  auctionLowColor?: string;
+  /** Bar delta printed under each column. Default false. */
+  showDeltaLabels: boolean;
+  /** Box the delta label when it disagrees with the bar's direction. Default false. */
+  markDivergence: boolean;
+  divergenceColor: string;
+  /** Volume at price of the visible bars against the left edge. Default false. */
+  showVisibleProfile: boolean;
+  profileWidth: number;
+  /**
+   * Draw a 0 x 0 row at every row step a bar's trades skipped, so each column
+   * spans its whole range. Display only: imbalances, the POC, value area and
+   * signals still read the traded rows. Default true.
+   */
+  showEmptyRows: boolean;
+  /** Fill the newest bar's last-price row with this colour. Omitted draws nothing. */
+  lastPriceColor?: string;
+  /** The newest bar is still forming, so it cannot close a zone or set an unfinished auction. Default true. */
+  formingLastBar: boolean;
   buyColor?: string;
   sellColor?: string;
   pocColor: string;
@@ -60,11 +124,16 @@ export interface FootprintOptions {
 
 export const DEFAULT_FOOTPRINT_OPTIONS: FootprintOptions = {
   widthFactor: 0.9, font: 10, minTextHeight: 11, textFade: 4,
-  displayMode: 'bidask', volumeDivisor: 1, cellStyle: 'heatmap', textColorMode: 'contrast',
+  displayMode: 'bidask', volumeDivisor: 1, compactNumbers: true, cellStyle: 'heatmap', intensityScope: 'bar', textColorMode: 'contrast',
   imbalanceRatio: 3, imbalanceThreshold: 0, stackedImbalances: 3,
   statsRows: [], tableRows: [], tableLabelWidth: 150, statsRowHeight: 15,
-  statsPosition: 'bottom', cvdOffset: 0, showCandle: true, showPoc: true,
+  statsPosition: 'bottom', cvdOffset: 0, cvdReset: 'none', tpoMinutes: 30, showCandle: true, showPoc: true,
   pocStyle: 'marker', pocColor: '#f0a020', showValueArea: false, valueAreaPercent: 0.7, radius: 2,
+  multipleNodeBars: 0, nodeColor: '#e8c547', bigOrderMultiple: 0, bigOrderColor: '#2ea8ff',
+  absorptionMultiple: 0, absorptionColor: '#a98bf0', signalLookback: 10, nearExtremeRows: 3,
+  flipBars: 0, flipMinDeltaPct: 8, showZones: false, zoneEnd: 'closeInside', zoneActiveAfter: 1,
+  showUnfinishedAuctions: false, showDeltaLabels: false, markDivergence: false, divergenceColor: '#f2a33a',
+  showVisibleProfile: false, profileWidth: 100, showEmptyRows: true, formingLastBar: true,
 };
 
 export interface FootprintBarStats {
@@ -78,6 +147,12 @@ export interface FootprintBarStats {
   maxDelta: number | null;
   deltaPct: number;
   cvd: number;
+  /** Cumulative volume over the loaded bars, restarting with `cvdReset: 'session'`. */
+  cumVolume: number;
+  /** Cumulative delta divided by cumulative volume; 0 before any volume. */
+  cvdRatio: number;
+  /** Session letter of the period the bar opens in: A for the first `tpoMinutes`, and so on. */
+  session: string;
   /** Null when a legacy input does not include an actual trade count. */
   trades: number | null;
   poc: number;
@@ -101,7 +176,6 @@ export function compactVol(v: number): string {
   const [suffix, div] = a >= 1e9 ? ['B', 1e9] : a >= 1e6 ? ['M', 1e6] : a >= 1e3 ? ['K', 1e3] : ['', 1];
   return String(Number((rounded / div).toPrecision(3))) + suffix;
 }
-const signed = (v: number): string => (v >= 0 ? '+' : '') + compactVol(v);
 
 function mix(a: string, b: string, t: number): string {
   const ca = parseColor(a), cb = parseColor(b);
@@ -110,10 +184,32 @@ function mix(a: string, b: string, t: number): string {
   return `rgb(${Math.round(ca.r + (cb.r - ca.r) * k)},${Math.round(ca.g + (cb.g - ca.g) * k)},${Math.round(ca.b + (cb.b - ca.b) * k)})`;
 }
 
+/** Midnight to midnight: the session when no window is given. */
+const WHOLE_DAY: SessionWindow = { startMinute: 0, endMinute: 0 };
+const TWO_SIDED = new Set<FootprintDisplayMode>(['bidask', 'imbalance']);
+/** More empty rows than this in one gap means the row step is wrong for the bar, not that rows went untraded. */
+const MAX_EMPTY_ROWS = 1000;
+
+/** A bar's cells, highest first, with a zero row at every row step the trades skipped. */
+function withEmptyRows(cells: readonly FootprintCell[], step: number): readonly FootprintCell[] {
+  if (!(step > 0) || cells.length < 2) return cells;
+  const out: FootprintCell[] = [];
+  for (let i = 0; i < cells.length; i++) {
+    const cell = cells[i]!, next = cells[i + 1];
+    out.push(cell);
+    if (next === undefined) break;
+    const missing = Math.round((cell.price - next.price) / step) - 1;
+    if (missing > MAX_EMPTY_ROWS) continue;
+    for (let k = 1; k <= missing; k++) out.push({ price: bucketPrice(cell.price - k * step, step), bidVol: 0, askVol: 0 });
+  }
+  return out;
+}
+
 interface RowHit { cell: FootprintCell; top: number; bottom: number }
 interface Column {
   bar: FootprintBar;
   stats: FootprintBarStats;
+  index: number;
   x: number;
   x0: number;
   width: number;
@@ -122,18 +218,22 @@ interface Column {
   card?: { top: number; bottom: number };
   table?: { left: number; right: number; top: number; bottom: number };
 }
+interface Palette { buy: string; sell: string; bg: string }
 const STAT_LABEL: Record<FootprintStatRow, string> = {
   volume: 'Volume', bidVolume: 'Bid Volume', askVolume: 'Ask Volume', delta: 'Delta',
   minDelta: 'Min Delta', maxDelta: 'Max Delta', deltaPct: 'Delta %', cvd: 'CVD', trades: 'Trades',
+  cumVolume: 'Cum Volume', cvdRatio: 'CVD / Volume', session: 'Session',
 };
-const TABLE_LABEL = { ...STAT_LABEL, volume: 'Total Volume', bidVolume: 'Total Bid Volume', askVolume: 'Total Ask Volume', cvd: 'Cumulative Delta' };
-const unsignedRow = (row: FootprintStatRow): boolean => row === 'volume' || row === 'trades' || row === 'bidVolume' || row === 'askVolume';
+const TABLE_LABEL = { ...STAT_LABEL, volume: 'Total Volume', bidVolume: 'Total Bid Volume', askVolume: 'Total Ask Volume',
+  cvd: 'Cumulative Delta', cumVolume: 'Cumulative Volume', cvdRatio: 'Cum. Delta / Volume', session: 'Session Letter' };
+const unsignedRow = (row: FootprintStatRow): boolean => row === 'volume' || row === 'trades' || row === 'bidVolume' || row === 'askVolume' || row === 'cumVolume';
 
 export class Footprint implements IPrimitive {
   private _bars: FootprintBar[] = [];
   private _opts: FootprintOptions;
   private _host: PrimitiveHost | null = null;
   private _stats: FootprintBarStats[] = [];
+  private _signals: FootprintSignals = { bars: [], zones: [], auctions: [] };
   /** Only visible painted rows/cards are interactive, in media pixels. */
   private _cols: Column[] = [];
   private _rc: PrimitiveRenderContext | null = null;
@@ -149,7 +249,7 @@ export class Footprint implements IPrimitive {
   public zOrder(): ZOrder { return 'normal'; }
 
   private _validateOptions(o: FootprintOptions): void {
-    for (const v of [o.widthFactor, o.font, o.statsRowHeight, o.tableLabelWidth, o.imbalanceRatio, o.volumeDivisor]) {
+    for (const v of [o.widthFactor, o.font, o.statsRowHeight, o.tableLabelWidth, o.imbalanceRatio, o.volumeDivisor, o.tpoMinutes, o.profileWidth]) {
       if (!Number.isFinite(v) || v <= 0) throw new RangeError('Footprint dimensions and ratio must be positive and finite');
     }
     for (const v of [o.radius, o.minTextHeight, o.textFade, o.imbalanceThreshold]) {
@@ -164,6 +264,17 @@ export class Footprint implements IPrimitive {
     for (const rows of [o.statsRows, o.tableRows]) {
       if (rows.some(row => !Object.prototype.hasOwnProperty.call(STAT_LABEL, row)) || new Set(rows).size !== rows.length) throw new RangeError('Footprint statistics rows must be known and unique');
     }
+    // The signal options share one validator with the pure function.
+    footprintSignals([], this._signalOptions(o));
+  }
+
+  private _signalOptions(o: FootprintOptions): Parameters<typeof footprintSignals>[1] {
+    return {
+      imbalanceRatio: o.imbalanceRatio, imbalanceThreshold: o.imbalanceThreshold, stackedImbalances: o.stackedImbalances,
+      multipleNodeBars: o.multipleNodeBars, bigOrderMultiple: o.bigOrderMultiple, absorptionMultiple: o.absorptionMultiple,
+      signalLookback: o.signalLookback, nearExtremeRows: o.nearExtremeRows, flipBars: o.flipBars, flipMinDeltaPct: o.flipMinDeltaPct,
+      zoneEnd: o.zoneEnd, zoneActiveAfter: o.zoneActiveAfter, formingLastBar: o.formingLastBar,
+    };
   }
 
   public setBars(bars: readonly FootprintBar[]): void {
@@ -187,11 +298,17 @@ export class Footprint implements IPrimitive {
     this._validateOptions(next);
     this._opts = { ...next, statsRows: [...next.statsRows], tableRows: [...next.tableRows] };
     this._cols = [];
-    if (patch.cvdOffset !== undefined || patch.valueAreaPercent !== undefined) this._recomputeStats();
+    this._recomputeStats();
     this._host?.requestUpdate();
   }
   public options(): FootprintOptions { return { ...this._opts, statsRows: [...this._opts.statsRows], tableRows: [...this._opts.tableRows] }; }
   public stats(): readonly FootprintBarStats[] { return this._stats; }
+  /**
+   * Multiple nodes, big orders, absorption, flips, divergence, zones and
+   * unfinished auctions for the loaded bars, under the current options. Zones
+   * carry `activeTime` and `endTime`, so a host can raise its own alerts.
+   */
+  public signals(): FootprintSignals { return this._signals; }
   private _step(bar: FootprintBar): number { return this._opts.tickSize ?? bar.rowSize ?? this._inferredStep; }
 
   public autoscaleInfo(): { min: number; max: number } | null {
@@ -208,19 +325,29 @@ export class Footprint implements IPrimitive {
   }
 
   private _recomputeStats(): void {
-    let cvd = this._opts.cvdOffset;
+    const o = this._opts;
+    const window = o.sessionWindow ?? WHOLE_DAY, zone = o.timezone ?? DEFAULT_TIMEZONE;
+    const sessions = o.cvdReset === 'session' || o.statsRows.includes('session') || o.tableRows.includes('session');
+    let cvd = o.cvdOffset, cumVolume = 0, opened = NaN;
     this._stats = this._bars.map(bar => {
       const totals = bar.cells.map(cell => cell.bidVol + cell.askVol);
       const volume = totals.reduce((sum, v) => sum + v, 0);
       const bidVolume = bar.cells.reduce((sum, cell) => sum + cell.bidVol, 0);
       const askVolume = bar.cells.reduce((sum, cell) => sum + cell.askVol, 0);
-      const va = valueArea(totals, volume * this._opts.valueAreaPercent);
+      const va = valueArea(totals, volume * o.valueAreaPercent);
+      const open = sessions ? sessionOpen(bar.time, window, zone) : 0;
+      if (o.cvdReset === 'session' && open !== opened && !Number.isNaN(opened)) { cvd = 0; cumVolume = 0; }
+      opened = open;
       cvd += bar.delta;
+      cumVolume += volume;
       return { time: bar.time, volume, bidVolume, askVolume, delta: bar.delta,
         minDelta: bar.minDelta ?? null, maxDelta: bar.maxDelta ?? null, deltaPct: volume > 0 ? bar.delta / volume * 100 : 0,
-        cvd, trades: bar.tradeCount ?? null, poc: bar.cells[va.poc]?.price ?? 0,
+        cvd, cumVolume, cvdRatio: cumVolume > 0 ? cvd / cumVolume : 0,
+        session: sessions ? tpoLetter(Math.floor((bar.time - open) / (o.tpoMinutes * 60))) : '-',
+        trades: bar.tradeCount ?? null, poc: bar.cells[va.poc]?.price ?? 0,
         vah: bar.cells[va.upper]?.price ?? 0, val: bar.cells[va.lower]?.price ?? 0 };
     });
+    this._signals = footprintSignals(this._bars, this._signalOptions(o));
   }
 
   /** Price boundaries, not a minimum pixel size: tiny rows must never overlap. */
@@ -231,13 +358,34 @@ export class Footprint implements IPrimitive {
     return { top: Math.min(a, b), bottom: Math.max(a, b) };
   }
 
+  /** Quantity text: compact by default, otherwise whole numbers with separators. */
+  private _format(v: number): string {
+    if (this._opts.compactNumbers || !Number.isFinite(v)) return compactVol(v);
+    return (Math.sign(v) * Math.round(Math.abs(v))).toLocaleString('en-US');
+  }
+
+  /** The value a cell is shaded by in a single-value mode, and the peak it is measured against. */
+  private _cellMeasure(cell: FootprintCell): number {
+    const mode = this._opts.displayMode, vol = cell.bidVol + cell.askVol, d = cell.askVol - cell.bidVol;
+    if (mode === 'volume') return vol;
+    if (mode === 'deltaPct') return vol > 0 ? Math.abs(d) / vol : 0;
+    if (mode === 'delta' || mode === 'volumeDelta') return Math.abs(d);
+    return Math.max(cell.bidVol, cell.askVol);
+  }
+
+  private _peak(bar: FootprintBar): number {
+    if (this._opts.displayMode === 'deltaPct') return 1;
+    let peak = 0;
+    for (const cell of bar.cells) peak = Math.max(peak, this._cellMeasure(cell));
+    return peak;
+  }
+
   public draw(ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext): void {
     this._rc = rc;
     this._cols = [];
     if (this._bars.length === 0 || rc.plotHeight <= 0 || rc.plotWidth <= 0) return;
     const o = this._opts, dpr = rc.dpr;
-    const buy = o.buyColor ?? rc.theme.upColor, sell = o.sellColor ?? rc.theme.downColor;
-    const bg = rc.theme.background;
+    const palette: Palette = { buy: o.buyColor ?? rc.theme.upColor, sell: o.sellColor ?? rc.theme.downColor, bg: rc.theme.background };
     const slot = rc.timeScale.barSpacing;
     const outerWidth = Math.max(0.1, Math.min(o.cellWidth ?? slot * o.widthFactor, slot * 0.96));
     const gutter = o.showCandle && outerWidth >= 20 ? Math.min(9, outerWidth * 0.15) : 0;
@@ -254,81 +402,211 @@ export class Footprint implements IPrimitive {
       if (index === undefined || index < range.from - 1 || index > range.to + 1) continue;
       const x0 = rc.timeScale.indexToX(index) - outerWidth / 2 + gutter;
       if (x0 + width < 0 || x0 > rc.plotWidth) continue;
-      this._cols.push({ bar, stats: this._stats[i]!, x: x0 + width / 2, x0, width, rowSize: this._step(bar), rows: [] });
+      this._cols.push({ bar, stats: this._stats[i]!, index: i, x: x0 + width / 2, x0, width, rowSize: this._step(bar), rows: [] });
     }
+    let screenPeak = 0;
+    if (o.intensityScope === 'visible') for (const col of this._cols) screenPeak = Math.max(screenPeak, this._peak(col.bar));
     ctx.save();
     ctx.beginPath(); ctx.rect(0, 0, rc.plotWidth * dpr, rc.plotHeight * dpr); ctx.clip();
     ctx.textBaseline = 'middle';
     ctx.save();
     ctx.beginPath(); ctx.rect(0, 0, rc.plotWidth * dpr, cellBottom * dpr); ctx.clip();
-    for (const col of this._cols) this._drawColumn(ctx, rc, col, gutter, buy, sell, bg, cellBottom);
+    this._drawAcross(ctx, rc, palette, cellBottom);
+    for (const col of this._cols) this._drawColumn(ctx, rc, col, gutter, palette, cellBottom, screenPeak);
+    for (const col of this._cols) this._drawUnder(ctx, rc, col, palette, cellBottom);
+    if (o.showVisibleProfile) {
+      drawVisibleProfile(ctx, rc, this._cols.map(col => col.bar), this._cols[0]?.rowSize ?? 0, o.profileWidth, cellBottom,
+        palette.buy, palette.sell, palette.bg, o.textColor ?? rc.theme.axisText, o.pocColor, v => this._format(v / o.volumeDivisor), Math.max(8, o.font - 1));
+    }
     ctx.restore();
     if (o.statsRows.length && o.statsPosition === 'bar') {
-      for (const col of this._cols) this._drawCard(ctx, rc, col, buy, sell, bg, cellBottom);
+      for (const col of this._cols) this._drawCard(ctx, rc, col, palette, cellBottom);
     }
-    if (tableRows.length) this._drawFooter(ctx, rc, buy, sell, bg, statsH, tableRows);
+    if (tableRows.length) this._drawFooter(ctx, rc, palette, statsH, tableRows);
     ctx.restore();
   }
 
+  /** Zones and unfinished auctions sit behind the columns. */
+  private _drawAcross(ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext, p: Palette, bottom: number): void {
+    const o = this._opts;
+    const colors: OverlayColors = { stackedBuy: p.buy, stackedSell: p.sell, node: o.nodeColor, absorption: o.absorptionColor,
+      auctionHigh: o.auctionHighColor ?? p.buy, auctionLow: o.auctionLowColor ?? p.sell };
+    if (o.showZones) drawZones(ctx, rc, this._signals.zones, colors, bottom);
+    if (!o.showUnfinishedAuctions) return;
+    const byTime = new Map(this._bars.map(bar => [bar.time, bar]));
+    drawAuctions(ctx, rc, this._signals.auctions, colors, (auction) => {
+      const bar = byTime.get(auction.time)!, step = this._step(bar);
+      const cell = auction.side === 'high' ? bar.cells[0] : bar.cells[bar.cells.length - 1];
+      const bounds = this._bounds(cell?.price ?? auction.price, step, rc);
+      return auction.side === 'high' ? bounds.top : bounds.bottom;
+    });
+  }
+
+  /** Imbalance-mode fill: stronger as the ratio passes two and three times the threshold, full against zero. */
+  private _imbalanceStrength(volume: number, opposing: number): number {
+    if (opposing <= 0) return 1;
+    const ratio = volume / opposing, r = this._opts.imbalanceRatio;
+    return ratio >= 3 * r ? 1 : ratio >= 2 * r ? 0.8 : 0.6;
+  }
+
   private _drawColumn(ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext, col: Column,
-    gutter: number, buy: string, sell: string, bg: string, cellBottom: number): void {
+    gutter: number, p: Palette, cellBottom: number, screenPeak: number): void {
     const o = this._opts, dpr = rc.dpr;
     const { bar, stats } = col;
+    const { buy, sell, bg } = p;
     const width = col.width * dpr, half = width / 2, x0 = col.x0 * dpr, center = col.x * dpr;
+    const cells = o.showEmptyRows ? withEmptyRows(bar.cells, col.rowSize) : bar.cells;
     const flags = diagonalImbalances(bar.cells, o.imbalanceRatio, col.rowSize || undefined, o.imbalanceThreshold);
     const buys = new Set(flags.filter(flag => flag.side === 'buy').map(flag => flag.price));
     const sells = new Set(flags.filter(flag => flag.side === 'sell').map(flag => flag.price));
-    let peak = 0, textPeak = 0;
-    for (const cell of bar.cells) {
-      peak = Math.max(peak, o.displayMode === 'volume' ? cell.bidVol + cell.askVol
-        : o.displayMode === 'delta' ? Math.abs(cell.askVol - cell.bidVol) : Math.max(cell.bidVol, cell.askVol));
-      textPeak = Math.max(textPeak, o.displayMode === 'bidask' ? Math.max(cell.bidVol, cell.askVol) : cell.bidVol + cell.askVol);
-    }
+    const twoSided = TWO_SIDED.has(o.displayMode);
+    const peak = o.intensityScope === 'visible' ? screenPeak : this._peak(bar);
+    let textPeak = 0;
+    for (const cell of bar.cells) textPeak = Math.max(textPeak, twoSided ? Math.max(cell.bidVol, cell.askVol) : cell.bidVol + cell.askVol);
+    const signal = this._signals.bars[col.index];
+    const body = this._bodyRows(bar, cells, col.rowSize);
+    const candle = bar.open !== undefined && bar.close !== undefined && bar.close < bar.open ? sell : buy;
+    const lastRow = o.lastPriceColor !== undefined && col.index === this._bars.length - 1 && bar.close !== undefined
+      ? this._rowOf(bar, bar.close, col.rowSize) : null;
     if (gutter > 0) this._drawCandle(ctx, rc, col, gutter, buy, sell);
-    for (const cell of bar.cells) {
+    cells.forEach((cell, i) => {
       const bounds = this._bounds(cell.price, col.rowSize, rc);
-      if (bounds.bottom <= 0 || bounds.top >= cellBottom) continue;
+      if (bounds.bottom <= 0 || bounds.top >= cellBottom) return;
       col.rows.push({ cell, top: Math.max(0, bounds.top), bottom: Math.min(cellBottom, bounds.bottom) });
       const top = bounds.top * dpr, rowH = (bounds.bottom - bounds.top) * dpr;
       const h = Math.max(0, rowH - Math.min(dpr, rowH * 0.1));
       const textAlpha = Math.max(0, Math.min(1, ((bounds.bottom - bounds.top) - o.minTextHeight) / Math.max(1, o.textFade) + 1));
       ctx.font = `${o.font * dpr}px ui-monospace, SFMono-Regular, Menlo, monospace`;
-      if (o.displayMode === 'bidask') {
+      if (twoSided) {
         const gap = Math.min(dpr, half * 0.08), w = half - gap;
-        this._cell(ctx, rc, cell, x0, top, w, h, cell.bidVol, peak, textPeak, sell, buy, sell, bg, sells.has(cell.price), textAlpha, 'bid');
-        this._cell(ctx, rc, cell, center + gap, top, w, h, cell.askVol, peak, textPeak, buy, buy, sell, bg, buys.has(cell.price), textAlpha, 'ask');
+        let bidFill: string | undefined, askFill: string | undefined;
+        if (o.displayMode === 'imbalance') {
+          // Plain cells: only imbalances are coloured, and the candle body's rows are lightly shaded.
+          const plain = body.has(cell.price) ? mix(bg, candle, 0.18) : bg;
+          const above = cells[i - 1], below = cells[i + 1];
+          bidFill = sells.has(cell.price) ? mix(bg, sell, this._imbalanceStrength(cell.bidVol, above?.askVol ?? 0)) : plain;
+          askFill = buys.has(cell.price) ? mix(bg, buy, this._imbalanceStrength(cell.askVol, below?.bidVol ?? 0)) : plain;
+        }
+        this._cell(ctx, rc, cell, x0, top, w, h, cell.bidVol, peak, textPeak, sell, buy, sell, bg, sells.has(cell.price), textAlpha, 'bid', bidFill);
+        this._cell(ctx, rc, cell, center + gap, top, w, h, cell.askVol, peak, textPeak, buy, buy, sell, bg, buys.has(cell.price), textAlpha, 'ask', askFill);
       } else {
-        const value = o.displayMode === 'delta' ? cell.askVol - cell.bidVol : cell.bidVol + cell.askVol;
-        const direction = cell.askVol - cell.bidVol;
-        this._cell(ctx, rc, cell, x0, top, width, h, value, peak, textPeak, direction > 0 ? buy : direction < 0 ? sell : mix(buy, sell, 0.5), buy, sell, bg,
-          direction > 0 ? buys.has(cell.price) : direction < 0 && sells.has(cell.price), textAlpha, 'single');
+        const direction = cell.askVol - cell.bidVol, vol = cell.bidVol + cell.askVol;
+        const shade = this._cellMeasure(cell) * (o.displayMode === 'volume' ? 1 : Math.sign(direction) || 1);
+        const label = o.displayMode === 'deltaPct' ? `${vol > 0 ? Math.round(direction / vol * 100) : 0}%`
+          : o.displayMode === 'volumeDelta' ? `${this._format(vol / o.volumeDivisor)} x ${this._format(direction / o.volumeDivisor)}`
+            : this._format((o.displayMode === 'delta' ? direction : vol) / o.volumeDivisor);
+        this._cell(ctx, rc, cell, x0, top, width, h, shade, peak, textPeak, direction > 0 ? buy : direction < 0 ? sell : mix(buy, sell, 0.5), buy, sell, bg,
+          direction > 0 ? buys.has(cell.price) : direction < 0 && sells.has(cell.price), textAlpha, 'single', undefined, label);
       }
+      if (signal?.node && cell.price === stats.poc) { ctx.fillStyle = withAlpha(o.nodeColor, 0.35); ctx.fillRect(x0, top, width, h); }
+      if (lastRow === cell.price) { ctx.fillStyle = withAlpha(o.lastPriceColor!, 0.45); ctx.fillRect(x0, top, width, h); }
       if (o.showPoc && cell.price === stats.poc) {
         if (o.pocStyle === 'outline') {
           ctx.strokeStyle = o.pocColor; ctx.lineWidth = Math.max(1, dpr);
           ctx.strokeRect(x0, top + dpr / 2, width, Math.max(0, h - dpr));
         } else { ctx.fillStyle = o.pocColor; ctx.fillRect(x0 - 2 * dpr, top, 2 * dpr, h); }
       }
-    }
-    if (o.showValueArea && stats.volume > 0) {
-      const hi = this._bounds(stats.vah, col.rowSize, rc), lo = this._bounds(stats.val, col.rowSize, rc);
-      ctx.strokeStyle = o.valueAreaColor ?? rc.theme.axisText; ctx.lineWidth = dpr;
-      ctx.beginPath();
-      for (const y of [Math.min(hi.top, lo.top), Math.max(hi.bottom, lo.bottom)]) {
-        ctx.moveTo(x0, y * dpr); ctx.lineTo(x0 + width, y * dpr);
+      if (twoSided && (signal?.bigBid === cell.price || signal?.bigAsk === cell.price)) {
+        ctx.strokeStyle = o.bigOrderColor; ctx.lineWidth = 2 * dpr;
+        const left = signal.bigBid === cell.price ? x0 : center;
+        ctx.strokeRect(left + dpr, top + dpr, half - 2 * dpr, Math.max(0, h - 2 * dpr));
       }
-      ctx.stroke();
+    });
+    if (o.displayMode === 'imbalance' && body.size > 0) this._outlineBody(ctx, rc, col, body, candle);
+    for (const span of signal?.absorption ?? []) {
+      const a = this._bounds(span.high, col.rowSize, rc), b = this._bounds(span.low, col.rowSize, rc);
+      const top = Math.min(a.top, b.top) * dpr, h = (Math.max(a.bottom, b.bottom) * dpr) - top;
+      ctx.fillStyle = withAlpha(o.absorptionColor, 0.3); ctx.fillRect(x0, top, width, h);
+      ctx.strokeStyle = o.absorptionColor; ctx.lineWidth = dpr; ctx.strokeRect(x0, top, width, h);
     }
-    if (o.stackedImbalances > 0 && col.width >= 16) {
-      const runs = stackedImbalances(bar.cells, o.imbalanceRatio, o.stackedImbalances, col.rowSize || undefined, o.imbalanceThreshold);
-      for (const run of runs) {
-        const a = this._bounds(run.startPrice, col.rowSize, rc), b = this._bounds(run.endPrice, col.rowSize, rc);
-        const top = Math.min(a.top, b.top) * dpr, bottom = Math.max(a.bottom, b.bottom) * dpr;
-        const bx = (run.side === 'buy' ? col.x0 + col.width - 1 : col.x0 + 1) * dpr;
-        const dx = (run.side === 'buy' ? -3 : 3) * dpr;
-        ctx.strokeStyle = run.side === 'buy' ? buy : sell; ctx.lineWidth = dpr;
-        ctx.beginPath(); ctx.moveTo(bx + dx, top); ctx.lineTo(bx, top); ctx.lineTo(bx, bottom); ctx.lineTo(bx + dx, bottom); ctx.stroke();
+    this._drawValueArea(ctx, rc, col, x0, width);
+    this._drawBrackets(ctx, rc, col, buy, sell);
+  }
+
+  /** Row prices of the drawn cells between the bar's open and close rows, inclusive. */
+  private _bodyRows(bar: FootprintBar, cells: readonly FootprintCell[], step: number): Set<number> {
+    const rows = new Set<number>();
+    if (bar.open === undefined || bar.close === undefined || !bar.cells.length) return rows;
+    const hi = this._rowOf(bar, Math.max(bar.open, bar.close), step), lo = this._rowOf(bar, Math.min(bar.open, bar.close), step);
+    for (const cell of cells) if (cell.price <= hi && cell.price >= lo) rows.add(cell.price);
+    return rows;
+  }
+
+  /** The row price holding `price`: the nearest row, which on the row grid is the one whose span contains it. */
+  private _rowOf(bar: FootprintBar, price: number, step: number): number {
+    let best = bar.cells[0]!.price;
+    for (const cell of bar.cells) if (Math.abs(cell.price - price) < Math.abs(best - price)) best = cell.price;
+    return step > 0 ? best : price;
+  }
+
+  private _outlineBody(ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext, col: Column, body: Set<number>, color: string): void {
+    const dpr = rc.dpr, prices = [...body];
+    const a = this._bounds(Math.max(...prices), col.rowSize, rc), b = this._bounds(Math.min(...prices), col.rowSize, rc);
+    const top = Math.min(a.top, b.top), bottom = Math.max(a.bottom, b.bottom);
+    ctx.strokeStyle = color; ctx.lineWidth = 1.5 * dpr;
+    ctx.strokeRect(col.x0 * dpr, top * dpr, col.width * dpr, (bottom - top) * dpr);
+  }
+
+  private _drawValueArea(ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext, col: Column, x0: number, width: number): void {
+    const o = this._opts, stats = col.stats;
+    if (!o.showValueArea || stats.volume <= 0) return;
+    const hi = this._bounds(stats.vah, col.rowSize, rc), lo = this._bounds(stats.val, col.rowSize, rc);
+    ctx.strokeStyle = o.valueAreaColor ?? rc.theme.axisText; ctx.lineWidth = rc.dpr;
+    ctx.beginPath();
+    for (const y of [Math.min(hi.top, lo.top), Math.max(hi.bottom, lo.bottom)]) {
+      ctx.moveTo(x0, y * rc.dpr); ctx.lineTo(x0 + width, y * rc.dpr);
+    }
+    ctx.stroke();
+  }
+
+  private _drawBrackets(ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext, col: Column, buy: string, sell: string): void {
+    const o = this._opts, dpr = rc.dpr;
+    if (o.stackedImbalances <= 0 || col.width < 16) return;
+    const runs = stackedImbalances(col.bar.cells, o.imbalanceRatio, o.stackedImbalances, col.rowSize || undefined, o.imbalanceThreshold);
+    for (const run of runs) {
+      const a = this._bounds(run.startPrice, col.rowSize, rc), b = this._bounds(run.endPrice, col.rowSize, rc);
+      const top = Math.min(a.top, b.top) * dpr, bottom = Math.max(a.bottom, b.bottom) * dpr;
+      const bx = (run.side === 'buy' ? col.x0 + col.width - 1 : col.x0 + 1) * dpr;
+      const dx = (run.side === 'buy' ? -3 : 3) * dpr;
+      ctx.strokeStyle = run.side === 'buy' ? buy : sell; ctx.lineWidth = dpr;
+      ctx.beginPath(); ctx.moveTo(bx + dx, top); ctx.lineTo(bx, top); ctx.lineTo(bx, bottom); ctx.lineTo(bx + dx, bottom); ctx.stroke();
+    }
+  }
+
+  /** Lowest painted edge of a column: its bottom row or its candle's low. */
+  private _columnBottom(rc: PrimitiveRenderContext, col: Column): number {
+    let bottom = -Infinity;
+    for (const cell of col.bar.cells) bottom = Math.max(bottom, this._bounds(cell.price, col.rowSize, rc).bottom);
+    if (this._opts.showCandle) for (const price of [col.bar.high, col.bar.low]) if (price !== undefined) bottom = Math.max(bottom, rc.priceScale.priceToY(price));
+    return bottom;
+  }
+
+  /** Delta label and flip marker under (or, for a selling flip, over) the column. */
+  private _drawUnder(ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext, col: Column, p: Palette, cellBottom: number): void {
+    const o = this._opts, dpr = rc.dpr, signal = this._signals.bars[col.index];
+    let y = this._columnBottom(rc, col) + 3;
+    if (o.showDeltaLabels && col.width >= 24) {
+      const delta = col.bar.delta, h = o.font + 5;
+      if (y + h <= cellBottom) {
+        ctx.font = `bold ${o.font * dpr}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+        ctx.textAlign = 'center';
+        ctx.fillStyle = readableTextColor(delta > 0 ? p.buy : delta < 0 ? p.sell : rc.theme.axisText, p.bg);
+        ctx.fillText((delta > 0 ? '+' : '') + this._format(delta / o.volumeDivisor), col.x * dpr, (y + h / 2) * dpr);
+        if (o.markDivergence && signal?.divergence) {
+          ctx.strokeStyle = o.divergenceColor; ctx.lineWidth = 1.5 * dpr;
+          ctx.strokeRect((col.x0 + 1) * dpr, y * dpr, (col.width - 2) * dpr, h * dpr);
+        }
       }
+      y += h + 2;
+    }
+    if (!signal?.flip) return;
+    const size = Math.min(12, Math.max(6, col.width / 5));
+    if (signal.flip > 0) drawFlip(ctx, rc, col.x, y + 1, size, true, p.buy);
+    else {
+      let top = Infinity;
+      for (const cell of col.bar.cells) top = Math.min(top, this._bounds(cell.price, col.rowSize, rc).top);
+      if (this._opts.showCandle && col.bar.high !== undefined) top = Math.min(top, rc.priceScale.priceToY(col.bar.high));
+      drawFlip(ctx, rc, col.x, top - 3, size, false, p.sell);
     }
   }
 
@@ -351,11 +629,11 @@ export class Footprint implements IPrimitive {
 
   private _cell(ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext, cell: FootprintCell,
     x: number, y: number, w: number, h: number, value: number, peak: number, textPeak: number, color: string,
-    buy: string, sell: string, bg: string, hot: boolean, alpha: number, side: 'bid' | 'ask' | 'single'): void {
+    buy: string, sell: string, bg: string, hot: boolean, alpha: number, side: 'bid' | 'ask' | 'single', fixedFill?: string, text?: string): void {
     if (w <= 0 || h <= 0) return;
-    const o = this._opts, dpr = rc.dpr, profile = o.cellStyle === 'profile';
+    const o = this._opts, dpr = rc.dpr, profile = o.cellStyle === 'profile' && fixedFill === undefined;
     const strength = Math.max(0, Math.min(1, peak > 0 ? Math.abs(value) / peak : 0));
-    const fill = hot ? color : mix(bg, color, o.cellStyle === 'ladder' ? 0.18 + 0.82 * Math.sqrt(strength) : 0.08 + 0.62 * Math.sqrt(strength));
+    const fill = fixedFill ?? (hot ? color : mix(bg, color, o.cellStyle === 'ladder' ? 0.18 + 0.82 * Math.sqrt(strength) : 0.08 + 0.62 * Math.sqrt(strength)));
     const fillW = profile ? w * strength : w;
     const fillX = profile && side === 'bid' ? x + w - fillW : x;
     if (fillW > 0) {
@@ -363,7 +641,7 @@ export class Footprint implements IPrimitive {
       ctx.roundRect(fillX, y, fillW, h, o.cellStyle === 'ladder' || profile ? 0 : Math.min(o.radius * dpr, h / 2, fillW / 2)); ctx.fill();
     }
     if (alpha <= 0 || h < o.font * dpr * 0.6) return;
-    const label = compactVol(value / o.volumeDivisor), textW = ctx.measureText(label).width;
+    const label = text ?? this._format(value / o.volumeDivisor), textW = ctx.measureText(label).width;
     if (textW + 4 * dpr > w) return;
     ctx.textAlign = profile && side !== 'single' ? (side === 'bid' ? 'right' : 'left') : 'center';
     const tx = profile && side !== 'single' ? (side === 'bid' ? x + w - 2 * dpr : x + 2 * dpr) : x + w / 2;
@@ -380,39 +658,38 @@ export class Footprint implements IPrimitive {
       }
     }
     const neutral = o.textColor ?? readableTextColor(rc.theme.axisText, bg);
-    const text = footprintTextColor({ mode: o.textColorMode, side, bidVol: cell.bidVol, askVol: cell.askVol,
+    const textColor = footprintTextColor({ mode: o.textColorMode, side, bidVol: cell.bidVol, askVol: cell.askVol,
       peak: textPeak, hot, neutral, buy: o.buyTextColor ?? buy, sell: o.sellTextColor ?? sell, background });
-    ctx.fillStyle = withAlpha(text, alpha);
+    ctx.fillStyle = withAlpha(textColor, alpha);
     ctx.fillText(label, tx, y + h / 2);
   }
 
-  private _drawCard(ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext, col: Column, buy: string, sell: string, bg: string, cellBottom: number): void {
+  private _drawCard(ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext, col: Column, p: Palette, cellBottom: number): void {
     const o = this._opts, dpr = rc.dpr;
     if (col.width < 68 || col.rows.length === 0) return;
-    let bottom = -Infinity;
-    for (const cell of col.bar.cells) bottom = Math.max(bottom, this._bounds(cell.price, col.rowSize, rc).bottom);
-    if (o.showCandle) for (const price of [col.bar.high, col.bar.low]) if (price !== undefined) bottom = Math.max(bottom, rc.priceScale.priceToY(price));
-    const top = bottom + 8, height = o.statsRows.length * o.statsRowHeight + 8;
+    const labels = o.showDeltaLabels && col.width >= 24 ? o.font + 7 : 0;
+    const flip = this._signals.bars[col.index]?.flip === 1 ? Math.min(12, Math.max(6, col.width / 5)) + 2 : 0;
+    const top = this._columnBottom(rc, col) + 8 + labels + flip, height = o.statsRows.length * o.statsRowHeight + 8;
     if (top < 0 || top + height > cellBottom) return;
     col.card = { top, bottom: top + height };
-    const fill = mix(bg, rc.theme.axisText, 0.13);
+    const fill = mix(p.bg, rc.theme.axisText, 0.13);
     ctx.fillStyle = fill; ctx.beginPath(); ctx.roundRect(col.x0 * dpr, top * dpr, col.width * dpr, height * dpr, 2 * dpr); ctx.fill();
     ctx.font = `${Math.max(8, o.font - 1) * dpr}px ui-monospace, SFMono-Regular, Menlo, monospace`;
     o.statsRows.forEach((row, i) => {
-      const value = this._metric(col.stats, row), text = this._statText(value, row);
+      const value = this._metric(col.stats, row), text = this._statText(col.stats, row);
       const y = (top + 4 + (i + 0.5) * o.statsRowHeight) * dpr;
       const label = STAT_LABEL[row];
       if (ctx.measureText(label).width + ctx.measureText(text).width + 12 * dpr > col.width * dpr) return;
       ctx.textAlign = 'left'; ctx.fillStyle = readableTextColor(o.textColor ?? rc.theme.axisText, fill);
       ctx.fillText(label, (col.x0 + 4) * dpr, y);
       ctx.textAlign = 'right';
-      ctx.fillStyle = readableTextColor(this._statColor(row, value, o.textColor ?? rc.theme.axisText, o.buyTextColor ?? buy, o.sellTextColor ?? sell), fill);
+      ctx.fillStyle = readableTextColor(this._statColor(row, value, o.textColor ?? rc.theme.axisText, o.buyTextColor ?? p.buy, o.sellTextColor ?? p.sell), fill);
       ctx.fillText(text, (col.x0 + col.width - 4) * dpr, y);
     });
   }
 
-  private _drawFooter(ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext, buy: string, sell: string, bg: string, height: number, rows: readonly FootprintStatRow[]): void {
-    const o = this._opts, dpr = rc.dpr, top = rc.plotHeight - height;
+  private _drawFooter(ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext, p: Palette, height: number, rows: readonly FootprintStatRow[]): void {
+    const o = this._opts, dpr = rc.dpr, top = rc.plotHeight - height, { buy, sell, bg } = p;
     const labelWidth = Math.min(o.tableLabelWidth, rc.plotWidth);
     ctx.fillStyle = bg; ctx.fillRect(0, top * dpr, rc.plotWidth * dpr, height * dpr);
     ctx.font = `${Math.max(8, o.font - 0.5) * dpr}px ui-monospace, SFMono-Regular, Menlo, monospace`;
@@ -426,17 +703,20 @@ export class Footprint implements IPrimitive {
     ctx.save();
     ctx.beginPath(); ctx.rect(labelWidth * dpr, top * dpr, (rc.plotWidth - labelWidth) * dpr, height * dpr); ctx.clip();
     rows.forEach((row, i) => {
-      let peak = 1;
+      // A ratio lives below one, so it alone is shaded against its own peak.
+      let peak = row === 'cvdRatio' ? 0 : 1;
       for (const col of this._cols) if (col.table) peak = Math.max(peak, Math.abs(this._metric(col.stats, row) ?? 0));
       for (const col of this._cols) {
         if (!col.table) continue;
         const value = this._metric(col.stats, row), v = value ?? 0;
-        const fill = mix(bg, this._statColor(row, value, rc.theme.axisText, buy, sell), 0.1 + 0.4 * Math.abs(v) / peak);
+        // Session letters alternate shade per period, so a new letter stands out.
+        const weight = row === 'session' ? (col.stats.session.charCodeAt(0) % 2 ? 0.3 : 0.15) : 0.1 + 0.4 * (peak > 0 ? Math.abs(v) / peak : 0);
+        const fill = mix(bg, this._statColor(row, value, rc.theme.axisText, buy, sell), weight);
         const x = rc.timeScale.indexToX(rc.dataLayer.timeToIndex(col.bar.time)!);
         const y = (top + i * o.statsRowHeight) * dpr;
         ctx.fillStyle = fill;
         ctx.fillRect((x - slot / 2) * dpr, y + dpr, Math.max(0, slot * dpr - dpr), Math.max(0, o.statsRowHeight * dpr - dpr));
-        const text = this._statText(value, row);
+        const text = this._statText(col.stats, row);
         const halfText = ctx.measureText(text).width / (2 * dpr) + 2;
         if (x - halfText < col.table.left || x + halfText > col.table.right) continue;
         ctx.fillStyle = readableTextColor(o.textColor ?? rc.theme.axisText, fill);
@@ -459,17 +739,22 @@ export class Footprint implements IPrimitive {
     ctx.moveTo(labelWidth * dpr, top * dpr); ctx.lineTo(labelWidth * dpr, rc.plotHeight * dpr); ctx.stroke();
   }
   private _statColor(row: FootprintStatRow, value: number | null, neutral: string, buy: string, sell: string): string {
-    if (value === null || value === 0 || row === 'volume' || row === 'trades') return neutral;
+    if (row === 'session') return neutral;
+    if (value === null || value === 0 || row === 'volume' || row === 'trades' || row === 'cumVolume') return neutral;
     if (row === 'askVolume') return buy;
     if (row === 'bidVolume') return sell;
     return value > 0 ? buy : sell;
   }
-  private _metric(s: FootprintBarStats, row: FootprintStatRow): number | null { return row === 'deltaPct' ? s.deltaPct : s[row]; }
-  private _statText(value: number | null, row: FootprintStatRow): string {
+  private _metric(s: FootprintBarStats, row: FootprintStatRow): number | null { return row === 'session' ? null : s[row]; }
+  private _statText(s: FootprintBarStats, row: FootprintStatRow): string {
+    if (row === 'session') return s.session;
+    const value = this._metric(s, row);
     if (value === null) return '-';
     if (row === 'deltaPct') return `${value >= 0 ? '+' : ''}${value.toFixed(1)}%`;
+    if (row === 'cvdRatio') return `${value >= 0 ? '+' : ''}${value.toFixed(3)}`;
     const displayed = row === 'trades' ? value : value / this._opts.volumeDivisor;
-    return unsignedRow(row) ? compactVol(displayed) : signed(displayed);
+    const text = row === 'trades' ? compactVol(displayed) : this._format(displayed);
+    return unsignedRow(row) || displayed < 0 ? text : '+' + text;
   }
 
   public hitTest(x: number, y: number): PrimitiveHit | null {

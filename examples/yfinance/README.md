@@ -310,7 +310,8 @@ examples/yfinance/
     intervals.js      interval registry, the picker's codes, period clamping
     goto.js           Go to a date or range: the shared navigator, loading a longer period
     feed.js           YFinanceDataFeed and its typed errors, the bar cache wrapper, the cache menu
-    transforms.js     the chart type select mapped onto the chart's own transforms (Renko, P&F and the rest)
+    transforms.js     the chart type select mapped onto the chart's own transforms (Renko, P&F and the rest), and the options kept per transform
+    box-settings.js   the point and figure and Renko settings dialogs: colours, box size and method, reversal, prices
     expression.js     symbol arithmetic: the operator keypad, leg fetching, folding
     status.js         venue, session hours, long names, the status-line readings
     timezone.js       the chart zone the demo carries across a rebuild
@@ -565,7 +566,8 @@ exists to show one engine surface carrying real use, not just being present.
 | `routed-study.js` | Registers the Routed signal sample: a momentum histogram in its own pane whose Buy and Sell plates, range box and momentum shading name the price pane (`overlay: true`), while its crossing dots and "Now" label (`plot: 'momentum'`) stay with the histogram. The Signals on price input sends the plates back to the study's pane; Momentum shading sends the shading there as a column naming no target, or turns it off. |
 | `canvas-tips.js` | Hover labels for the controls the chart paints on its canvas: a legend row's eye, gear and cross and the close box on an order or position line have no element to carry a name, so the chart's `hover` id raises the shared tip at the pointer ("Hide RSI", "Remove TSLA", "Cancel order"). |
 | `chart-settings.js` | The settings dialog is generated from `chartSettingsSchema()`, including the paired up and down colour control on one row, and a control the current context cannot back is drawn disabled with its state visible. |
-| `transforms.js` | Heikin Ashi, Renko, Range Bars, Line Break, Point and Figure and Kagi, applied by the chart itself (`setSeriesTransform`, through `addSeries(..., { transform })`): the series is fed the raw bars, the chart forms the elements live, and a replay shows bricks forming bar by bar. A size left out is taken from the loaded history. P&F reveals its box-sizing mode (ATR, percent, fixed). Studies stay on a transformed chart, and each one's settings lead with the bars it computes on: the chart's elements, or the underlying bars read at the bar each element formed on. |
+| `transforms.js` | Heikin Ashi, Renko, Range Bars, Line Break, Point and Figure and Kagi, applied by the chart itself (`setSeriesTransform`, through `addSeries(..., { transform })`): the series is fed the raw bars, the chart forms the elements live, and a replay shows bricks forming bar by bar. A size left out is taken from the loaded history. Point and figure and Renko are drawn with the options their settings dialogs keep, one set per transform, so Renko set up once is still set up after a detour through candles; until then point and figure opens on a box of one ATR(14) with a three box reversal over highs and lows, and Renko on a fixed brick sized from the history over closes. New options form other columns, so the view is fitted again; the same options keep it. Studies stay on a transformed chart, and each one's settings lead with the bars it computes on: the chart's elements, or the underlying bars read at the bar each element formed on. |
+| `box-settings.js` | While point and figure or Renko is drawn, a settings button sits beside the chart type. Its dialog has the up and down colours on one row (X and O columns, or up and down bricks, a brick's border taking its colour too), percent presets that set the Percent method at that value, a size with its method (Absolute, in price, 0 sizing it from the history; Percent of price; ATR, a multiple of the 14-bar ATR; ATR %, a percent of it), a reversal of 1 to 10 boxes for point and figure, and Close only or High and low. Nothing applies until OK: new options rebuild the chart as one undo step, carrying any new colours with them, and colours alone recolour it in place as a step of their own. Cancel, the close button, Escape and a click outside write nothing. An option changed from the chart settings dialog's Price tab is kept the same way. |
 | `volume.js` | Volume rides an overlay price scale (`priceScaleId: ''`) inside the price pane, pinned to the bottom fifth, so the right-hand axis stays a clean price ladder. It hides and shows from the legend eye and the right-click menu, and the choice survives a reload and a chart-type switch. |
 | `status.js`, `axis-chrome.js`, `timezone.js` | The status line, the clock and the countdown are fed by the host: venue, session hours by IANA zone (never a fixed offset) handed to the library as a `SessionCalendar` whose phases give the market status (`venueCalendar`; a closed date listed in `SESSIONS` reads "Market holiday"; the phase is asked once and held until it changes), and long names. A chart on extended hours reads "Pre-market" or "Post-market" while its extra bars are arriving rather than "Market closed". The chart zone is a runtime setting the demo carries across a rebuild. |
 | `orders.js`, `bracket.js` | Chart trading: right-click for single orders, Buy and Sell brackets with OCO target and stop, drag any line to re-price it, and per-symbol trade state that survives a symbol switch. |
@@ -622,7 +624,7 @@ the chart that opened them and reject an action after its chart or request has
 changed. Snapshot keyboard shortcuts use the current selection; asynchronous
 image conversion retains the captured symbol and interval in its filename.
 
-The second chart retains its type, box mode, study identities/settings and grid
+The second chart retains its type, its point and figure and Renko options, study identities/settings and grid
 through rebuild and reload. The selected pane and link preferences are saved
 with the layout. Its symbol/readout is drawn on the chart, stacks above studies
 and appears in exported images. Symbol search accepts a ticker or expression.
@@ -831,16 +833,26 @@ the engine's numbers say what shape the parts are.
   drawings: { version: <DRAWING_STATE_VERSION>, drawings: [...] },
   dataset: "AAPL|1d|1y",            what the view was captured on
   request: { symbol, interval, period },
-  chartType, pfmode,
+  chartType, transforms: { "point-figure": {...}, renko: {...} },
   comparisons: [{ symbol, color, hidden }],
   compareMode, compareBaseMode, volume, volumeSettings,
   focusPane, linkOptions,
-  secondary: { request, chartType, pfmode, width, state, volumeSettings,
+  secondary: { request, chartType, transforms, width, state, volumeSettings,
                comparisons: [{ symbol, color, hidden }], compareMode, compareBaseMode }
 }
 ```
 
-On startup, the primary request, chart type, box mode and timezone are restored
+`transforms` holds the options each transform was given in its settings dialog,
+as the engine takes them (`{ mode: "percent", percent: 0.25, reversal: 3, method: "hl" }`);
+a transform it leaves out draws with its defaults. Layouts written before the
+dialogs carry `pfmode` instead, the old point and figure box mode, and open on the
+options that mode drew: `atr` as a box of one ATR(14), `percent` as 1 percent of
+price and `fixed` as a box sized from the history, each with a three box reversal
+over highs and lows. The next save writes `transforms`. A named workspace keeps
+each option as a pane setting of its own (`reference.transform.renko.mode`), and
+one saved with `reference.pfmode` opens the same way.
+
+On startup, the primary request, chart type, transform options and timezone are restored
 before the first history request. Calendar month and quarter bars therefore fold
 in the saved timezone on their first load. These fields are optional additions to
 schema 2. Older documents can recover a request from an unambiguous, supported
