@@ -364,7 +364,7 @@ The bottom table reserves pane space and clips cells above it. Cards appear only
 
 ### `FOOTPRINT_THEMES` (since 2.6.4)
 
-`FOOTPRINT_THEMES` holds six frozen colour sets; `FootprintThemeName` is `'ocean' \| 'ember' \| 'forest' \| 'neon' \| 'monochrome' \| 'daylight'`. Each is a plain options patch of 20 colours (buy, sell, volume, candle up and down, text, both imbalance colours, last price, POC, node, divergence, big order, absorption, both auction colours, both profile colours, session letters and the table background), so a host spreads it under its own choices: `new Footprint({ ...FOOTPRINT_THEMES.ocean, displayMode: 'bidask' })`. Daylight suits a light chart and the others a dark one; a theme never sets the chart background.
+`FOOTPRINT_THEMES` holds six frozen colour sets; `FootprintThemeName` is `'ocean' \| 'ember' \| 'forest' \| 'neon' \| 'monochrome' \| 'daylight'`. Each is a `FootprintThemeColors`, a plain options patch of 20 colours (buy, sell, volume, candle up and down, text, both imbalance colours, last price, POC, node, divergence, big order, absorption, both auction colours, both profile colours, session letters and the table background), so a host spreads it under its own choices: `new Footprint({ ...FOOTPRINT_THEMES.ocean, displayMode: 'bidask' })`. Daylight suits a light chart and the others a dark one; a theme never sets the chart background.
 
 ### `FootprintAggregator` (the live path)
 
