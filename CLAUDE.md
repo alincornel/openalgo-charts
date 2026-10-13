@@ -207,6 +207,90 @@ not reduce the testing needed for changes to loading, drawing, replay or trading
    its lockfile, rerun affected checks, then commit and push that consumer change.
    Report release links, commit IDs, validation and any remaining limitations.
 
+### Release order that avoids measuring twice (learned on 2.6.3)
+
+2.6.3 measured its sizes, benchmark and consumer harness three times, because every
+fix after a measurement throws the measurement away. Order the work so the expensive,
+measured steps run once, on code nobody will touch again:
+
+1. **Fix, then get reviewed, then measure.** Push the candidate early and let the PR
+   reviewer bot (it posts within about five minutes) and CI run on it. Fix what they
+   find. Only when the code is final, measure sizes, run `npm run bench:release` and
+   the OpenAlgo harness. A review fix that lands after measuring, even a one-line
+   guard, moves the Brotli sizes and invalidates the benchmark.
+2. **Run `npm run verify` after the last source edit, not before it.** A size table
+   checked at 20:21 and source edited at 20:41 shipped a 123 byte overrun to CI.
+   Compare timestamps: every log and figure must postdate the newest file in `src`.
+3. **Run `npm test` after any docs edit, too.** `tests/docs-claims.test.ts` reads any
+   `<number> ms` in ARCHITECTURE.md and the docs as a performance claim that needs a
+   measurement record. Name a tuning constant (`ZOOM_CHASE_TAU`), do not quote it.
+4. **CI timing.** The Playwright smoke job takes about 30 minutes; the rest about 10.
+   Start it as early as possible and do docs work while it runs.
+
+Tests and gates that tripped:
+
+- **Function caps** (`scripts/function-caps.json`): one added line put
+  `WidgetImpl.constructor` over its cap. Extract a method, then lower the cap to the
+  new measured length (temporarily set the cap to 1 and read the failure to measure).
+- **Saved documents** (`tests/saved-documents.test.ts`): any change to what a restore
+  writes back must be named in `CHANGES`, for both the direct and the `widget-storage`
+  (prefixed `oac-widget:compat:state.`) entries.
+- **A migration must cover every restore path.** The widget restores through
+  `restoreWidgetState` and, on a reload with `persist`, through `applySavedLayout`.
+  A fix on one path only passed every test until a reload test was written.
+
+Figures and substitutions:
+
+- **Substitute sizes in one pass with a lookup table.** Values chain (an old budget
+  becomes the new measured size) and one old value can split in two (a budget and its
+  measured size that were equal now differ). Sequential `sed` gets both wrong. Fail
+  on any file the script did not change.
+- **Brotli moves in steps.** A 10 byte source change moved the classic scripts by up
+  to 95 bytes and the chart-only import by 57. Respelling code to save bytes needs
+  every row measured: one spelling saved 6 bytes in the shake and cost 100 in the
+  base engine.
+- **`bench:release` does not write the home page.** Set `BENCH` in
+  `website/components/landing.tsx` from the new entry by hand: Canvas 2D at 200,000
+  bars, the lowest p95 of each metric.
+- **The bench runs five passes of the new build, then five of the old.** On the
+  reference machine the tick cells swing by up to a fifth between sessions in either
+  direction, so one slower cell is not yet a regression. Before calling one, re-time
+  that cell with the two builds alternating (`OAC_RENDER_BENCH_DIST=dist` and
+  `dist-baseline` with `scripts/render-bench.mjs`, about twelve passes), and report
+  both in the release notes.
+- The test count lives in the README badge, the README `npm test` line and the
+  CHANGELOG Tests paragraph. A new regression test changes all three.
+- **Comparing the registry tarball:** every file matches a local `npm pack` byte for
+  byte except `dist/index.d.ts`, whose declaration blocks the bundler orders
+  differently on Windows than on the Linux runner that publishes. Compare that one
+  file by its sorted lines; the published order matches the previous release's.
+
+OpenAlgo dry run:
+
+- The harness is this repo's runner, not OpenAlgo's: `node scripts/check-openalgo-compat.mjs
+  --frontend <worktree>/frontend --browser <chromium|firefox|webkit> --navigation true`
+  runs 14 checks. Without `--navigation true` it runs 13 and skips the wheel and
+  trackpad check.
+- The runner needs a linked git worktree (`git -C <openalgo> worktree add`) with
+  copied, not linked, `node_modules`: about 7.7 GB. Put it on a drive with room. A
+  full system drive stops every tool, including the one that would delete it.
+  Remove it with `git worktree remove --force`, then `Remove-Item` with the `\\?\`
+  prefix, because some paths are too long for the plain call.
+- OpenAlgo's own extension (`--consumer-checks <abs path>/frontend/scripts/check-trading-workspace.mjs`)
+  lags its UI: in October 2026 three of its selectors (the `percent` scale value,
+  the CSV dialog, the replay button's `aria-label`) failed on the pinned release and
+  the candidate alike. Run it on the pinned version first, so a stale script is not
+  read as a regression. Swapping only `node_modules/openalgo-charts` for the pinned
+  tarball is enough for that baseline.
+- After a change that touches only the widget tier, hash the bundles OpenAlgo loads
+  (`dist/openalgo-charts{,.profile,.indicators,.draw,.transform,.workspace,.webgl,.trade}.mjs`)
+  before and after: unchanged bundles keep the harness result valid.
+- WebKit reports a fetch cut off by a reload as a page error. The runner allows the
+  caught index reads OpenAlgo makes; a new one OpenAlgo adds must be added there.
+- The reference host needs data to render a chart. For screenshots serve it with
+  `python examples/yfinance/server.py --fixture --port <port>`; `tests/e2e/serve.cjs`
+  alone shows no chart.
+
 ### The API reference
 
 `typedoc.json` `entryPoints` must list **every** tier. It listed four for a long time,
