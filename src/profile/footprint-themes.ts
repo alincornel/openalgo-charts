@@ -9,14 +9,18 @@ import type { FootprintOptions } from './footprint-primitive';
 
 export type FootprintThemeName = 'ocean' | 'ember' | 'forest' | 'neon' | 'monochrome' | 'daylight';
 
+/** The colours a theme sets, each an optional `FootprintOptions` colour. */
+export type FootprintThemeColors = Readonly<Pick<FootprintOptions,
+  'buyColor' | 'sellColor' | 'volumeColor' | 'candleUpColor' | 'candleDownColor' | 'textColor' | 'imbalanceBuyColor' | 'imbalanceSellColor'
+  | 'lastPriceColor' | 'pocColor' | 'nodeColor' | 'divergenceColor' | 'bigOrderColor' | 'absorptionColor' | 'auctionHighColor' | 'auctionLowColor'
+  | 'profileAskColor' | 'profileBidColor' | 'sessionColor' | 'tableBackground'>>;
+
 /** The options a theme sets, in the order its colours are listed below. */
-const KEYS = [
+const KEYS: readonly (keyof FootprintThemeColors)[] = [
   'buyColor', 'sellColor', 'volumeColor', 'candleUpColor', 'candleDownColor', 'textColor', 'imbalanceBuyColor', 'imbalanceSellColor',
   'lastPriceColor', 'pocColor', 'nodeColor', 'divergenceColor', 'bigOrderColor', 'absorptionColor', 'auctionHighColor', 'auctionLowColor',
   'profileAskColor', 'profileBidColor', 'sessionColor', 'tableBackground',
-] as const;
-
-type FootprintThemeColors = Readonly<Pick<FootprintOptions, typeof KEYS[number]>>;
+];
 
 const theme = (colors: string): FootprintThemeColors =>
   Object.freeze(Object.fromEntries(colors.split(' ').map((hex, i) => [KEYS[i], `#${hex}`]))) as FootprintThemeColors;

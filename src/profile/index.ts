@@ -98,7 +98,7 @@ export {
   type FootprintZoneGroup,
   type FootprintZoneAlert,
 } from './footprint-primitive';
-export { FOOTPRINT_THEMES, type FootprintThemeName } from './footprint-themes';
+export { FOOTPRINT_THEMES, type FootprintThemeName, type FootprintThemeColors } from './footprint-themes';
 export {
   FootprintAggregator,
   type FootprintTick,
