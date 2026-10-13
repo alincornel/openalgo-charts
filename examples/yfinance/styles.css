@@ -95,6 +95,20 @@ input[type=checkbox]:checked::after {
 input[type=checkbox]:disabled { opacity: .4; cursor: not-allowed; }
 #toolbar-fit:disabled, #fit:disabled { opacity: .45; color: var(--faint); cursor: not-allowed; }
 input[type=checkbox]:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+/* Radios in the same vocabulary: the checkbox's box made round, and a dot
+   in the accent rather than a filled plate, so a choice of two reads apart
+   from a switch. */
+input[type=radio] {
+  appearance: none; -webkit-appearance: none; flex: none; margin: 0;
+  width: 15px; height: 15px; border: 1px solid var(--bd); border-radius: 50%;
+  background: var(--elev); cursor: pointer; display: inline-grid; place-content: center;
+  transition: border-color .12s;
+}
+input[type=radio]:hover { border-color: var(--bd-hover); }
+input[type=radio]:checked { border-color: var(--acc); }
+input[type=radio]:checked::after { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--acc); }
+input[type=radio]:disabled { opacity: .4; cursor: not-allowed; }
+input[type=radio]:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 select {
   appearance: none; -webkit-appearance: none; background-repeat: no-repeat;
   background-position: right 7px center; background-size: 11px;
@@ -218,9 +232,9 @@ select.field { cursor: pointer; padding-right: 24px; }
    One card, one head, one foot, shared by the indicator, compare, text and
    chart-settings dialogs: title left, close top right, actions bottom right
    with the confirming one last, and any secondary control bottom left. */
-#setmodal, #workspacemodal, #templatemodal, #indsource, #chartdatamodal { position: fixed; inset: 0; z-index: 60; background: var(--scrim);
+#setmodal, #workspacemodal, #templatemodal, #indsource, #chartdatamodal, #boxmodal { position: fixed; inset: 0; z-index: 60; background: var(--scrim);
   display: flex; align-items: center; justify-content: center; }
-#setmodal[hidden], #workspacemodal[hidden], #templatemodal[hidden], #indsource[hidden], #chartdatamodal[hidden] { display: none; }
+#setmodal[hidden], #workspacemodal[hidden], #templatemodal[hidden], #indsource[hidden], #chartdatamodal[hidden], #boxmodal[hidden] { display: none; }
 .set-card.source-card { width: min(720px, calc(100vw - 24px)); }
 #indsource-code { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.6 monospace; color: var(--tx); }
 .set-card.ws-card { width: min(480px, calc(100vw - 24px)); }
@@ -308,6 +322,10 @@ select.field { cursor: pointer; padding-right: 24px; }
   outline: none; transition: border-color .12s, box-shadow .12s; }
 .set-ctl input::placeholder { color: var(--faint); }
 .set-ctl select { padding-right: 24px; cursor: pointer; }
+/* A generated form is a widget host, and the widget's own select rule sets
+   the whole background, chevron included; the page's chevron goes back on. */
+.set-body .set-ctl select { background-image: var(--chevron); background-repeat: no-repeat;
+  background-position: right 7px center; background-size: 11px; }
 .set-ctl select:focus, .set-ctl input:focus {
   border-color: var(--acc); box-shadow: 0 0 0 3px var(--ring-soft); }
 /* A control with nothing behind it in the current context is shown, not
@@ -732,6 +750,26 @@ body[data-fullscreen-pane="2"] #chart2 { left: 42px; }
   font-variant-numeric: tabular-nums; }
 .acct-fills li { padding: 2px 0; }
 .acct-fills .acct-empty { color: var(--oac-faint); }
+
+/* ── point and figure and Renko settings ───────────────────── */
+/* The generated rows' grid, with a control column wide enough for a size
+   box and its method side by side. Everything that is not a row (presets,
+   the hint, the price choice) starts where the labels do: past the switch
+   column and its gap. */
+.box-card { width: min(416px, calc(100vw - 24px)); }
+.box-card .set-row { grid-template-columns: 15px 1fr 200px; }
+#box-size { flex: 0 0 76px; }
+.box-presets { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 0 3px 24px; }
+.box-preset { height: 22px; padding: 0 6px; border: 1px solid var(--bd); border-radius: 5px;
+  background: var(--elev); color: var(--mut); font: inherit; font-size: 11px;
+  font-variant-numeric: tabular-nums; cursor: pointer; }
+.box-preset:hover { border-color: var(--bd-hover); color: var(--tx); }
+.box-preset.is-on { background: var(--on-bg); border-color: var(--on-bd); color: var(--acc-2); }
+.box-hint { margin: 0 0 2px 24px; color: var(--faint); font-size: 11px; line-height: 1.4; }
+.box-radios { display: flex; align-items: center; gap: 18px; min-height: 24px; padding-left: 24px; }
+.box-radios label { display: inline-flex; align-items: center; gap: 7px; color: var(--mut); font-size: 12px; cursor: pointer; }
+.box-radios label:has(:checked) { color: var(--tx); }
+.box-error { margin: 0; padding: 0 14px 9px; }
 
 /* ── chart settings dialog ──────────────────────────────────── */
 /* Tabs down the left, controls on the right: the layout chartSettingsSchema()

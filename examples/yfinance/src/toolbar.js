@@ -15,13 +15,14 @@ import { openAlerts } from './alerts.js';
 import { capturePaneTarget, selectedPane } from './pane-target.js';
 import { autosave } from './persist.js';
 import { rememberIndicators, renderIndicatorChips } from './indicators.js';
-import { recordChartType } from './history.js';
+import { recordChartType, withoutHistory } from './history.js';
 import { mountSymbolPicker, mountIndicatorPicker } from '/dist/openalgo-charts.widget.mjs';
 import { referenceSymbolSearch } from './symbol-search.js';
 import { toggleInspection } from './inspection.js';
 import { openGoTo } from './goto.js';
 import { extendedSessionAvailable, sessionLabel, sessionOf } from './session.js';
-import { keepsView } from './transforms.js';
+import { keepsView, typeOptions } from './transforms.js';
+import { openBoxSettings } from './box-settings.js';
 
 let app;
 let symbolPicker = null;
@@ -81,6 +82,9 @@ export const TOOLBAR_ICON = {
   exit: '<path d="M5.5 5.5l9 9M14.5 5.5l-9 9"/>',
   // Two series diverging from one another: the point of a comparison.
   compare: '<path d="M3 15.5l4-4.5 3.5 2.5L17 5"/><path d="M3 9.5l4 3 3.5-5.5L17 12"/>',
+  // Two sliders: the settings of the chart type beside it, kept apart from
+  // the chart settings gear further along the bar.
+  tune: '<path d="M3 6.5h8M15 6.5h2M3 13.5h2M9 13.5h8"/><circle cx="13" cy="6.5" r="2"/><circle cx="7" cy="13.5" r="2"/>',
   gear: '<circle cx="10" cy="10" r="2.6"/><path d="M10 2.6v2M10 15.4v2M17.4 10h-2M4.6 10h-2M15.2 4.8l-1.4 1.4M6.2 13.8l-1.4 1.4M15.2 15.2l-1.4-1.4M6.2 6.2L4.8 4.8"/>',
   // Two chain links: the group, not the layout.
   link: '<path d="M8.4 11.6a3 3 0 0 1 0-4.2l1.8-1.8a3 3 0 1 1 4.2 4.2l-.9.9"/><path d="M11.6 8.4a3 3 0 0 1 0 4.2l-1.8 1.8a3 3 0 1 1-4.2-4.2l.9-.9"/>',
@@ -203,34 +207,44 @@ export function changeRequest(target, patch) {
   renderToolbar();
 }
 
-function changeType(target, chartType, pfmode) {
+/** What chart `pane` is drawn as: the type, and the options kept for each transform. */
+export function shownType(pane) {
+  return pane === 2 ? { chartType: app.p2.chartType || 'candlestick', transforms: app.p2.transforms || {} }
+    : { chartType: el('ctype').value, transforms: app.transforms || {} };
+}
+
+/**
+ * Rebuild the target's chart as `next` (`{ chartType, transforms }`). A
+ * settings dialog that also recolours passes `colors` on both sides, so the
+ * colours ride in the same step as the options: the style a rebuild carries
+ * over is the old chart's, and an undo has to put the old colours back too.
+ */
+export function changeType(target, next, { label, fromColors, colors } = {}) {
   if (!currentTarget(target)) return;
   const busy = target.pane === 2 ? app.loading2 || app.loadFailed2 : app.loading || app.loadFailed;
   if (busy) { el('status').textContent = 'wait for chart history before changing its type'; return; }
   const pane = target.pane;
-  const from = pane === 2
-    ? { chartType: app.p2.chartType || 'candlestick', pfmode: app.p2.pfmode || 'atr' }
-    : { chartType: el('ctype').value, pfmode: el('pfmode').value };
+  const from = { ...shownType(pane), colors: fromColors };
+  const to = { chartType: next.chartType, transforms: next.transforms ?? from.transforms, colors };
   // The type is a rebuild here, so the switch is recorded as a command that
   // rebuilds again: one step on that chart's timeline.
   const show = (type) => {
-    const shown = pane === 2 ? { chartType: app.p2.chartType || 'candlestick', pfmode: app.p2.pfmode || 'atr' }
-      : { chartType: el('ctype').value, pfmode: el('pfmode').value };
-    const keepView = keepsView(shown, type);
+    const keepView = keepsView(shownType(pane), type);
     if (pane === 2) {
       app.p2.chartType = type.chartType;
-      app.p2.pfmode = type.pfmode;
+      app.p2.transforms = type.transforms;
       app.rebuildSecondary({ typeChanged: true, keepView });
     } else {
       el('ctype').value = type.chartType;
-      el('pfmode').value = type.pfmode;
+      app.transforms = type.transforms;
       app.render({ keepView });
     }
+    if (type.colors) withoutHistory(pane, () => (pane === 2 ? app.chart2 : app.chart)?.primarySeries()?.applyOptions(type.colors));
     renderToolbar();
     autosave();
   };
-  show({ chartType, pfmode });
-  recordChartType(pane, from, { chartType, pfmode }, show);
+  show(to);
+  recordChartType(pane, from, to, show, label);
 }
 
 /** Rebuild shared controls from their explicitly selected chart. */
@@ -243,7 +257,6 @@ export function renderToolbar() {
   const target = capturePaneTarget(app, pane);
   const request = target?.request || app.req || {};
   const ctype = pane === 2 ? app.p2.chartType || 'candlestick' : el('ctype').value;
-  const pfmode = pane === 2 ? app.p2.pfmode || 'atr' : el('pfmode').value;
   // #status starts in the hidden legacy bar and gets moved in here on the
   // first render -- so from the second call on it is a child of `bar`, and
   // wiping the bar would destroy it. Every el('status') after that returns
@@ -379,19 +392,18 @@ export function renderToolbar() {
   ct.disabled = Boolean(pane === 2 ? app.loading2 || app.loadFailed2 : app.loading || app.loadFailed);
   ct.addEventListener('click', () => popupMenu(ct, CHART_TYPES.map((t) => (t.group ? { group: t.group } : {
     label: t.label, icon: t.icon, on: t.v === ctype,
-    onSelect: () => changeType(target, t.v, pfmode),
+    onSelect: () => changeType(target, { chartType: t.v }),
   }))));
   bar.appendChild(ct);
 
-  // P&F box mode, only when it applies
-  if (ctype === 't:point-figure') {
-    const modeLabel = [...el('pfmode').options].find(option => option.value === pfmode)?.textContent || pfmode;
-    const pf = tbtn('<span>' + esc(modeLabel) + '</span>' + ticon('chevron'), 'P&F box sizing');
-    pf.addEventListener('click', () => popupMenu(pf, [...el('pfmode').options].map((o) => ({
-      label: o.textContent, on: o.value === pfmode,
-      onSelect: () => changeType(target, ctype, o.value),
-    }))));
-    bar.appendChild(pf);
+  // The settings of a transform that has a dialog, beside the type, and only
+  // while that type is the one drawn.
+  if (typeOptions({ chartType: ctype })) {
+    const set = iconBtn('tune', chartTypeLabel(ctype) + ' settings', () => openBoxSettings(target));
+    set.id = 'box-settings';
+    set.setAttribute('aria-haspopup', 'dialog');
+    set.disabled = ct.disabled;
+    bar.appendChild(set);
   }
 
   // indicators
@@ -596,6 +608,7 @@ export function divider() {
 export function initToolbar(a) {
   app = a;
   app.changeRequest = changeRequest;
+  app.changeType = changeType;
   app.renderToolbar = renderToolbar;
   document.addEventListener('fullscreenchange', () => {
     if (!isChartFull()) app.fullscreenPane = null;

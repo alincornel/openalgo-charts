@@ -15,6 +15,7 @@
 // new timeline instead.
 import { ChartHistory } from '/dist/openalgo-charts.widget.mjs';
 import { toast } from './ui.js';
+import { sameType } from './transforms.js';
 
 let app;
 const listeners = new Set();
@@ -108,9 +109,10 @@ export function historyGroup(pane, label) {
 /**
  * A chart-type switch rebuilds the chart, so the history cannot see it as a
  * change to the chart it holds. The demo records it as a command that
- * rebuilds again with the other type.
+ * rebuilds again with the other type, or with the other options of the same
+ * one (a box size, a reversal), which rebuild it just the same.
  */
-export function recordChartType(pane, from, to, apply) {
-  if (from.chartType === to.chartType && from.pfmode === to.pfmode) return;
-  historyFor(pane)?.push({ label: 'Chart type', undo: () => apply(from), redo: () => apply(to) });
+export function recordChartType(pane, from, to, apply, label = 'Chart type') {
+  if (sameType(from, to)) return;
+  historyFor(pane)?.push({ label, undo: () => apply(from), redo: () => apply(to) });
 }

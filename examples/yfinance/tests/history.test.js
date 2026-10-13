@@ -86,9 +86,9 @@ describe('the demo timeline', () => {
       Object.assign(app, build(type.chartType, state));
       attachHistory(1);
     };
-    show({ chartType: 'line', pfmode: 'atr' });
-    recordChartType(1, { chartType: 'candlestick', pfmode: 'atr' }, { chartType: 'line', pfmode: 'atr' }, show);
-    recordChartType(1, { chartType: 'line', pfmode: 'atr' }, { chartType: 'line', pfmode: 'atr' }, show);   // no switch, no step
+    show({ chartType: 'line', transforms: {} });
+    recordChartType(1, { chartType: 'candlestick', transforms: {} }, { chartType: 'line', transforms: {} }, show);
+    recordChartType(1, { chartType: 'line', transforms: {} }, { chartType: 'line', transforms: {} }, show);   // no switch, no step
     app.chart.addIndicator('demo-history-study');
     await settle();
 
@@ -102,6 +102,22 @@ describe('the demo timeline', () => {
     expect(shown).toBe('line');
     historyPress('redo');
     expect(app.chart.indicators()).toHaveLength(1);
+  });
+
+  it('records new transform options as a step of their own, and the same options as none', () => {
+    const app = demo();
+    const shown = [];
+    const quarter = { 'point-figure': { mode: 'percent', percent: 0.25, reversal: 3, method: 'hl' } };
+    const pf = transforms => ({ chartType: 't:point-figure', transforms });
+    const apply = type => shown.push(type.transforms);
+    // The defaults spelled out are the defaults: nothing changed, no step.
+    recordChartType(1, pf({}), pf({ 'point-figure': { mode: 'atr', atrMultiplier: 1, atrPeriod: 14, reversal: 3, method: 'hl' } }), apply);
+    expect(historyReady('undo')).toBe(false);
+    recordChartType(1, pf({}), pf(quarter), apply, 'Point and figure settings');
+    expect(historyFor(1).peekUndo().label).toBe('Point and figure settings');
+    historyPress('undo');
+    historyPress('redo');
+    expect(shown).toEqual([{}, quarter]);
   });
 
   it('keeps the demo\'s own changes out, and records a scale change and a settings session as steps', async () => {

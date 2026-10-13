@@ -58,11 +58,6 @@
           <option value="t:kagi">Kagi</option>
         </optgroup>
       </select>
-      <select id="pfmode" class="field" title="Point &amp; Figure box sizing" hidden>
-        <option value="atr">P&amp;F: ATR box</option>
-        <option value="percent">P&amp;F: 1% box</option>
-        <option value="fixed">P&amp;F: fixed box</option>
-      </select>
     </div>
     <div class="divider"></div>
     <div class="group">
@@ -365,6 +360,21 @@
         <button id="cset-defaults" class="btn btn--ghost set-lead">Restore this tab</button>
         <button id="cset-cancel" class="btn btn--ghost">Cancel</button>
         <button id="cset-ok" class="btn btn--primary">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Point and figure and Renko settings, from the button beside the chart
+       type while either is drawn. The body is built by src/box-settings.js:
+       the paired colour row is the generated form's, the rest is its own. -->
+  <div id="boxmodal" hidden>
+    <div class="set-card box-card" role="dialog" aria-modal="true" aria-labelledby="box-title">
+      <div class="set-head"><span id="box-title">Chart type settings</span><button id="box-x" aria-label="Close" title="Close">&times;</button></div>
+      <div id="box-body" class="set-body"></div>
+      <p id="box-error" class="ws-error box-error" role="alert" hidden></p>
+      <div class="set-foot">
+        <button id="box-cancel" class="btn btn--ghost">Cancel</button>
+        <button id="box-ok" class="btn btn--primary">OK</button>
       </div>
     </div>
   </div>

@@ -11,6 +11,7 @@ import { autosave } from './persist.js';
 import { asStep, historyGroup, withoutHistory } from './history.js';
 import { capturePaneTarget } from './pane-target.js';
 import { VOLUME_TAB, volumeSettings, applyVolumeSettings } from './volume.js';
+import { BOX_DEFAULTS } from './transforms.js';
 
 // Read off the namespace rather than named above on purpose: a missing named
 // import fails the whole module at link time, and a demo served against a
@@ -188,6 +189,15 @@ export function chartSettingUnavailable(key, option, target = chartSetTarget || 
  */
 export function afterChartSettingsWrite(target = chartSetTarget || capturePaneTarget(app)) {
   if (!target?.current()) return;
+  // The Price tab edits the transform in place; the demo rebuilds with its
+  // own copy of the options, the one its box settings dialogs keep, so that
+  // copy follows the chart or the next rebuild would put the old size back.
+  const series = target.chart.primarySeries?.();
+  const spec = series ? target.chart.seriesTransform?.(series) : null;
+  if (spec && Object.hasOwn(BOX_DEFAULTS, spec.type)) {
+    const owner = target.pane === 2 ? app.p2 : app;
+    owner.transforms = { ...owner.transforms, [spec.type]: { ...spec.options } };
+  }
   if (target.pane === 2) {
     app.p2.timezone = target.chart.timezone();
     app.p2.legendIconSize = normalizeLegendIconSize(target.chart.legendIconSize?.());

@@ -17,6 +17,7 @@ const INIT = {
   'account.js': 'initAccount',
   'anchored-study.js': 'initAnchoredStudy',
   'axis-chrome.js': 'initAxisChrome',
+  'box-settings.js': 'initBoxSettings',
   'bracket.js': 'initBracket',
   'chart-settings.js': 'initChartSettings',
   'clipboard.js': 'initClipboard',
@@ -50,7 +51,7 @@ const INIT = {
 describe('demo modules', () => {
   it('lists the modules the README documents', () => {
     expect(MODULES).toEqual([
-      'account.js', 'alerts.js', 'anchored-study.js', 'axis-chrome.js', 'bracket.js', 'canvas-tips.js', 'chart-data-controls.js', 'chart-data.js', 'chart-settings.js', 'clipboard.js', 'compare.js', 'drawing-scope.js', 'drawing.js',
+      'account.js', 'alerts.js', 'anchored-study.js', 'axis-chrome.js', 'box-settings.js', 'bracket.js', 'canvas-tips.js', 'chart-data-controls.js', 'chart-data.js', 'chart-settings.js', 'clipboard.js', 'compare.js', 'drawing-scope.js', 'drawing.js',
       'expression.js', 'feed.js', 'goto.js', 'grid-view.js', 'grid.js', 'history.js', 'host-study.js', 'hover.js', 'indicator-input-controls.js', 'indicator-source.js', 'indicator-templates.js',
       'indicators.js', 'inspection.js', 'intervals.js', 'level-editor.js',
       'link.js', 'market-panels.js', 'menus.js', 'orders.js', 'pane-target.js', 'persist.js', 'properties.js', 'rail-flyout.js',
