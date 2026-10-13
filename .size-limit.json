@@ -29,13 +29,13 @@
   {
     "name": "Transform tier (Renko/Range/P&F/Kagi/Line-break/HA + symbol arithmetic)",
     "path": "dist/openalgo-charts.transform.mjs",
-    "limit": "6.07 kB",
+    "limit": "6.23 kB",
     "brotli": true
   },
   {
     "name": "Profile tier (Volume Profile/TPO/Market Profile/Footprint/Orderflow)",
     "path": "dist/openalgo-charts.profile.mjs",
-    "limit": "14.94 kB",
+    "limit": "19.45 kB",
     "brotli": true
   },
   {
@@ -47,13 +47,13 @@
   {
     "name": "Widget tier (shell, top bar, drawing rail, status line, dialogs, keymap, styles)",
     "path": "dist/openalgo-charts.widget.mjs",
-    "limit": "124.18 kB",
+    "limit": "124.09 kB",
     "brotli": true
   },
   {
-    "name": "Widget first-use parts (shortcuts panel, Layouts menu, templates list, chart data dialog, grid bar and menus, IndexedDB store)",
+    "name": "Widget first-use parts (shortcuts panel, Layouts menu, templates list, chart data dialog, chart type settings dialog, grid bar and menus, IndexedDB store)",
     "path": "dist/openalgo-charts.widget.*.mjs",
-    "limit": "18.24 kB",
+    "limit": "21 kB",
     "brotli": true
   },
   {
@@ -64,7 +64,7 @@
       "dist/openalgo-charts.indicators.mjs",
       "dist/openalgo-charts.widget.mjs"
     ],
-    "limit": "362.48 kB",
+    "limit": "362.89 kB",
     "brotli": true
   },
   {
@@ -86,7 +86,7 @@
       "dist/openalgo-charts.widget.mjs",
       "dist/openalgo-charts.workspace.mjs"
     ],
-    "limit": "419.06 kB",
+    "limit": "424.14 kB",
     "brotli": true
   },
   {
@@ -102,7 +102,7 @@
       "dist/openalgo-charts.widget.standalone.js",
       "dist/openalgo-charts.workspace.standalone.js"
     ],
-    "limit": "430.91 kB",
+    "limit": "437.77 kB",
     "brotli": true
   },
   {
@@ -114,7 +114,7 @@
   {
     "name": "Widget classic script (widget first-use parts inlined)",
     "path": "dist/openalgo-charts.widget.standalone.js",
-    "limit": "135.21 kB",
+    "limit": "137.57 kB",
     "brotli": true
   }
 ]
