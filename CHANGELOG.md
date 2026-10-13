@@ -2,6 +2,69 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 2.6.4
+
+2026-10-14
+
+An order flow release. A footprint finds the imbalances beside a row that
+never traded, prints volume shaded by delta, extends and alerts on the zones
+a host picks, and takes a named colour theme or a colour for each of its
+parts. A new Order flow page on the website walks through footprint and
+market profile charts with live examples.
+
+### Changed
+
+- **An untraded row inside a bar counts as zero for imbalances.** A row
+  between a bar's high and low that no trade reached holds zero volume, so the
+  cell beside it is compared with zero: the ask above such a row, or the bid
+  below it, is an imbalance whenever it traded at all, subject to
+  `imbalanceThreshold`. Through 2.6.3 such a cell was not compared, so a thin
+  ladder showed fewer imbalances than it had. The rows beyond the bar's high and
+  low are still not compared, and a stacked run still stops at the untraded
+  row. `diagonalImbalances`, `stackedImbalances`, `footprintSignals` and the
+  `Footprint` primitive all follow the rule; the imbalance view fills such a
+  cell at full strength.
+
+### Added
+
+- **Delta-shaded volume.** `displayMode: 'deltaShadedVolume'` prints each
+  row's volume on a cell coloured by the side that won the row and shaded by
+  the size of its delta, so a busy row with little conviction reads pale.
+- **Zone alerts.** `footprint.onZoneAlert(handler)` calls the handler once
+  for each zone `showZones` extends when the newest bar trades back into it
+  after it became active, with `{ zone, time }`, and returns the unsubscribe.
+  Zones touched in the bars a footprint is first given, or in new zones that
+  `setOptions` makes, are recorded without a call, so history never raises an
+  alert. `FootprintZone` gains `touchTime`, the first bar after `activeTime`
+  that traded back into the zone.
+- **Which zones extend.** `zoneKinds` picks any of `'stacked'`, `'node'` and
+  `'absorption'` (default all three) for `showZones` to extend and alert on,
+  and `zoneLookback` (default 0, every bar; also a `footprintSignals` option)
+  starts zones only in the newest that many bars.
+- **A colour for each part.** `imbalanceBuyColor` and `imbalanceSellColor`
+  (imbalanced cells, stacked brackets and stacked zones), `volumeColor` (the
+  volume view), `candleUpColor` and `candleDownColor`, `profileAskColor` and
+  `profileBidColor` (the visible-range profile), `sessionColor` (session
+  letters) and `tableBackground` (the statistics table). Each is optional and
+  falls back to the colour it used before.
+- **Named themes.** `FOOTPRINT_THEMES` holds six colour sets as options
+  patches: `ocean`, `ember`, `forest`, `neon` and `monochrome` for a dark
+  chart, `daylight` for a light one. `new Footprint({ ...FOOTPRINT_THEMES.ocean })`.
+- **An Order flow page** on the website: footprint and market profile charts
+  as live examples, each with a short explanation of how to read it.
+
+### Size
+
+MEASURE-SIZE
+
+### Performance
+
+MEASURE-BENCH
+
+### Tests
+
+MEASURE-TESTS
+
 ## 2.6.3
 
 2026-10-13

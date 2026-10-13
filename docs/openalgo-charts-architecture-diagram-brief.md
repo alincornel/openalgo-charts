@@ -1,6 +1,6 @@
 # OpenAlgo Charts architecture diagram: update brief
 
-## Current diagram: 2.6.3, updated 2026-10-13
+## Current diagram: 2.6.4, updated 2026-10-14
 
 The current SVG replaces the old seven-row capability list with explicit ownership
 boundaries and data flow. The old layout had received updated numbers but did not
@@ -105,7 +105,7 @@ Rechecked on 2.6.3 with `npx size-limit` on the release build: base 137.61 kB, i
 counts: 112 indicators (Trend 40, Momentum 31, Volatility 23, Volume 18), 87 drawing tools
 and 15 chart types with the transform tier loaded, which also registers six series
 transforms the chart applies itself. The `/indicators` chip says 112 built-in studies, and
-the title and version label name 2.6.3. In-chart transforms, the study bar source and the
+the title and version label name 2.6.4. In-chart transforms, the study bar source and the
 typed event map live inside the base engine's existing boxes, and the classic tier scripts
 are a second form of the same tiers; the release adds no box or arrow.
 
