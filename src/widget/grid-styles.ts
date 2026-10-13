@@ -48,7 +48,7 @@ export const CHART_GRID_CSS = `
 /* Dense cells: a chart a few hundred pixels across keeps its plot and the
    controls a chart needs every minute; the rest waits for maximize. */
 /* One row that scrolls sideways rather than a bar wrapped over a third of the plot. */
-.oac-grid__cell[data-dense="true"] .oac-rail { display: none; }
+.oac-grid__cell[data-dense="true"] :is(.oac-rail, .oac-rail-tab) { display: none; }
 .oac-grid__cell[data-dense="true"] .oac-topbar { gap: 2px; padding: 3px 5px; flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden;
   scrollbar-width: none; -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 18px), transparent);
   mask-image: linear-gradient(to right, #000 calc(100% - 18px), transparent); }

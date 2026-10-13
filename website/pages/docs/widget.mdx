@@ -15,6 +15,10 @@ with a `?` panel that lists them, and optional persistence of the layout. It is 
 loadable tiers (**123.57 kB** Brotli in 2.6.0) and the only tier that supplies
 application controls.
 
+The rail's last button folds it away and gives the chart its width; a small tab at the
+chart's bottom left brings it back, and the fold is remembered with the rail's other
+preferences. Tool glyphs show at 20px and chrome glyphs at 16px, both at about a 1.3px line.
+
 The drawing rail includes Anchored VWAP and fixed-range Volume Profile. They use
 the chart's OHLCV data, participate in normal drawing edits and undo, and expose
 their settings through drawing properties. See [Drawing Tools](/docs/drawing-tools).
@@ -284,8 +288,10 @@ desktop and mobile. Set `navigation.defaultBarSpacing` to change this preference
 Use `navigation: { mousePan: 'both', defaultVisibleBars: 100 }` to show the
 latest 100 bars on load and reset. Axes settings save these choices in the
 widget layout. The count changes the visible window without discarding history;
-0 fits all loaded bars. Mouse and pen pan time and price by default.
-Choose `mousePan: 'horizontal'` for time-only panning. Saved preferences are retained.
+0 fits all loaded bars. Since 2.6.3 mouse and pen pan time alone by default, so a price
+scale on auto keeps fitting what is in view through drags and zooms, and the wheel zooms about the
+latest bar (Ctrl or Cmd: about the cursor). Pass `mousePan: 'both'` or `zoomAnchor: 'cursor'`
+for the engine's own behaviour. Saved preferences are retained.
 Wheel input is proportional across pixel, line and page delta modes. Horizontal and
 Shift-wheel input pan time, wheel input over a visible price axis scales that axis at
 the pointer, and Ctrl-wheel or Meta-wheel pinch input zooms time at the pointer. See

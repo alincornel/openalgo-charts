@@ -90,7 +90,7 @@
       "createOverlayStack": 168
     },
     "src/widget/rail.ts": {
-      "mountRail": 613
+      "mountRail": 602
     },
     "src/widget/statusline.ts": {
       "mountStatusline": 209
@@ -105,7 +105,7 @@
       "mountWatchlistPanel": 576
     },
     "src/widget/widget.ts": {
-      "WidgetImpl.constructor": 280
+      "WidgetImpl.constructor": 252
     }
   }
 }

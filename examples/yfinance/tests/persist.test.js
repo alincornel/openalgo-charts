@@ -99,7 +99,25 @@ describe('the layout schema', () => {
     // The input is left alone, and a second pass changes nothing.
     expect(Array.isArray(V1_DOC.drawings)).toBe(true);
     expect(upgradeLayout(v2)).toEqual(v2);
-    expect(Object.keys(MIGRATIONS)).toEqual(['1']);
+    expect(Object.keys(MIGRATIONS)).toEqual(['1', '2']);
+  });
+
+  it('drops the drag every layout before 2.6.3 recorded, and keeps one chosen since', () => {
+    // 2.6.2 wrote mousePan: 'both' into every chart state, chosen or not, so
+    // restoring it switched each drag back to moving price and the pane back
+    // to manual scaling. Schema 3 drops that recorded default for both charts.
+    const old = {
+      schema: 2, version: 1, dataset: 'AAPL|1d|1y',
+      navigation: { mousePan: 'both', defaultBarSpacing: 8 },
+      secondary: { state: { version: 1, navigation: { mousePan: 'both' } } },
+    };
+    const up = upgradeLayout(old);
+    expect(up.schema).toBe(3);
+    expect(up.navigation).toEqual({ defaultBarSpacing: 8 });
+    expect(up.secondary.state.navigation).toEqual({});
+    expect(old.navigation.mousePan).toBe('both');
+    const chosen = { schema: 3, version: 1, dataset: 'AAPL|1d|1y', navigation: { mousePan: 'both' } };
+    expect(upgradeLayout(chosen).navigation.mousePan).toBe('both');
   });
 
   it('stamps a version on a document that had none', () => {

@@ -106,6 +106,20 @@ export function autoscaleRange(low: number, high: number, marginTop: number, mar
   return { min: low - total * marginBottom, max: high + total * marginTop };
 }
 
+/**
+ * `autoscaleRange` in the space the scale draws in. The margins are fractions
+ * of the pane, so a log scale pads in log units: padded in price units, a
+ * series from 150 to 1230 got a floor near 15 and a whole empty decade under
+ * its lowest bar. A range a log scale cannot take the log of (zero, a
+ * negative low, a flat series) keeps the price-space padding, and so does an
+ * unbounded one, whose fallback is a range in price units, not in log units.
+ */
+export function scaleAutoscaleRange(mode: PriceScaleMode, low: number, high: number, marginTop: number, marginBottom: number): PriceRange {
+  if (mode !== 'logarithmic' || !(low > 0) || !(high > low) || !isFinite(high)) return autoscaleRange(low, high, marginTop, marginBottom);
+  const r = autoscaleRange(Math.log10(low), Math.log10(high), marginTop, marginBottom);
+  return { min: Math.pow(10, r.min), max: Math.pow(10, r.max) };
+}
+
 export class PriceScale {
   private _options: PriceScaleOptions;
   private _height = 0;
@@ -379,15 +393,15 @@ export class PriceScale {
    * The range stays in *price* units in every mode, so the rebasing modes need
    * no separate pass: their transform is affine with a positive scale factor,
    * which maps a margin of 10% of the price span onto a margin of 10% of the
-   * percent span. Log is the one that pads in price space and shows it, which
-   * is long-standing behaviour and left alone here.
+   * percent span. Log pads in log space (`scaleAutoscaleRange`), so the data
+   * keeps the same share of the pane there too.
    */
   public autoscale(low: number, high: number, progress = 1): boolean {
     if (this._fixedRange !== null) {
       this._writePriceRange(this._fixedRange);
       return false;
     }
-    const target = autoscaleRange(low, high, this._options.marginTop, this._options.marginBottom);
+    const target = scaleAutoscaleRange(this._options.mode, low, high, this._options.marginTop, this._options.marginBottom);
     const lo = this._t(this._min);
     const hi = this._t(this._max);
     const nextLo = this._t(target.min);

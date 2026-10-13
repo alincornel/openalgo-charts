@@ -268,7 +268,11 @@ const BUNDLE = new URL('../dist/openalgo-charts.mjs', import.meta.url).pathname.
 // Each figure was measured at its own merge and Brotli layout moves a single
 // step by up to 150 bytes, so they do not sum to the total, which is measured:
 // 89280 bytes (87.19 KiB), up 1495 from 87785; allow 87.19 KiB.
-const LIMIT_BYTES = 87.19 * 1024;
+// 2.6.3: the wheel zoom chases one target per frame instead of starting a
+// curve per event, and a log scale pads in log space, which every chart
+// carries: 89391 bytes (87.30 KiB), up 111; allow 87.30 KiB, the first
+// hundredth at or above it.
+const LIMIT_BYTES = 87.3 * 1024;
 
 // Absent from a chart-only build. Each is a string that appears in the adapter
 // source and nowhere in the rendering core.

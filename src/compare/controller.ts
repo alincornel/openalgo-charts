@@ -29,7 +29,7 @@
  * Each comparison owns a scale and baseline. Further instruments use keyed
  * hidden scales so their absolute prices cannot change another source's units.
  */
-import { autoscaleRange, type PriceScale, type PriceScaleMode } from '../scale/price-scale';
+import { scaleAutoscaleRange, type PriceScale, type PriceScaleMode } from '../scale/price-scale';
 import type { PriceScaleId, SeriesApi } from '../model/series';
 import { getChartType, type SeriesType } from '../model/chart-type-registry';
 import type { SeriesStyle } from '../render/series-style';
@@ -538,7 +538,7 @@ export class ComparisonController {
           low = Math.min(low, extents.min); high = Math.max(high, extents.max);
         }
         if (!(low <= high)) continue;
-        const fitted = autoscaleRange(low, high, entry.primary.options.marginTop, entry.primary.options.marginBottom);
+        const fitted = scaleAutoscaleRange(entry.primary.options.mode, low, high, entry.primary.options.marginTop, entry.primary.options.marginBottom);
         const factor = anchor.close / value;
         range.min = Math.min(range.min, fitted.min * factor);
         range.max = Math.max(range.max, fitted.max * factor);

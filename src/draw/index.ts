@@ -114,10 +114,10 @@ export {
 export {
   DRAWING_TOOL_ICONS, drawingToolIcon, drawingToolIconIds,
   DRAWING_TOOL_ACCENTS, drawingToolAccent,
-  ICON_VIEWBOX, ICON_STROKE, ICON_ATTRS,
+  ICON_VIEWBOX, ICON_SIZE, ICON_STROKE, ICON_ATTRS,
   CHROME_ICONS, CHROME_ICON_FILLED, chromeIcon, chromeIconIds,
   CHROME_ICON_ACCENTS, chromeIconAccent,
-  CHROME_ICON_VIEWBOX, CHROME_ICON_STROKE, CHROME_ICON_ATTRS,
+  CHROME_ICON_VIEWBOX, CHROME_ICON_SIZE, CHROME_ICON_STROKE, CHROME_ICON_ATTRS,
   chartTypeIcon, layoutIconPath,
   type IconAttrs, type LayoutIconSlot,
 } from './icons';

@@ -27,14 +27,14 @@
  */
 import {
   AlertController, ChartObjects, DataLoadingController, ShortcutManager, createChart, darkTheme, lightTheme, registeredIntervals, registeredChartTypes, tryResolveInterval, resolveInterval, isKnownInterval,
-  dataVariantKey, normalizeDataVariant, publishDataContext, getSeriesTransform, registeredSeriesTransforms,
+  dataVariantKey, normalizeDataVariant, publishDataContext, getSeriesTransform, registeredSeriesTransforms, VERSION,
   type Chart, type ChartOptions, type ChartTheme, type DataFeed, type Bar, type SeriesApi, type SeriesType, type DataVariant, type SeriesTransformSpec,
-  type RestoreReport, type BarsRequest, type DataLoadingOptions, type DataLoadingSnapshot, type AlertTriggeredPayload, type TradingCapabilityRequest, type TradingCapabilitySource,
+  type RestoreReport, type ChartSettingsValues, type BarsRequest, type DataLoadingOptions, type DataLoadingSnapshot, type AlertTriggeredPayload, type TradingCapabilityRequest, type TradingCapabilitySource,
 } from 'openalgo-charts';
 import { DrawingController, type DrawingDocumentStore, type InstrumentDrawings } from 'openalgo-charts/draw';
 import {
   WidgetStorage, createOverlayStack, createTipController, h, widgetDialog,
-  type AsyncStorageLike, type OverlayOptions, type StorageLike, type WidgetBus, type WidgetBusEvents, type WidgetContext, type WidgetDialogName,
+  type AsyncStorageLike, type OverlayOptions, type OverlayStack, type TipController, type StorageLike, type WidgetBus, type WidgetBusEvents, type WidgetContext, type WidgetDialogName,
 } from './context';
 import { defaultWidgetStore } from './storage';
 import { ChartHistory } from './history';
@@ -267,6 +267,11 @@ export interface WidgetState {
   rail: RailPrefs | null;
   /** Optional in older records. Width is bounded when restored. */
   panels?: PanelDockState | undefined;
+  /**
+   * The library version that wrote the state (since 2.6.3). Absent in older
+   * records, which wrote every navigation option whether chosen or not.
+   */
+  savedBy?: string;
 }
 
 export interface WidgetRestoreReport {
@@ -453,6 +458,7 @@ class WidgetContextImpl implements WidgetContext {
   public readonly symbol: WidgetContext['symbol'];
   public readonly interval: WidgetContext['interval'];
   public readonly intervals: readonly string[] | undefined;
+  public readonly settingsDefaults: Readonly<ChartSettingsValues> | undefined;
   private readonly _source: ThemeSource;
 
   public constructor(source: ThemeSource, parts: ContextParts) {
@@ -478,6 +484,7 @@ class WidgetContextImpl implements WidgetContext {
     this.symbol = parts.symbol;
     this.interval = parts.interval;
     this.intervals = parts.intervals;
+    this.settingsDefaults = parts.settingsDefaults;
   }
 
   public get theme(): WidgetThemeName { return this._source.theme(); }
@@ -495,9 +502,18 @@ class WidgetContextImpl implements WidgetContext {
 function engineOptions(options: WidgetOptions, doc: Document, inChart: () => boolean): ChartOptions {
   const chartOpts = { ...options } as Record<string, unknown>;
   for (const k of WIDGET_ONLY_KEYS) delete chartOpts[k];
-  if (options.navigation?.defaultVisibleBars === undefined && options.navigation?.defaultBarSpacing === undefined) {
-    chartOpts.navigation = { ...options.navigation, defaultBarSpacing: options.timeScale?.barSpacing ?? 8 };
-  }
+  // A drag moves time and leaves the price scale fitting what is in view, so
+  // a later wheel zoom still refits it. Dragging price as well switched the
+  // pane to manual scaling, and from then on a zoom left bars off the pane.
+  // The price axis still pans and scales price; a host or the Mouse drag
+  // setting can ask for 'both'.
+  const navigation = { mousePan: 'horizontal' as const, ...options.navigation };
+  // The wheel zooms about the latest bar, which stays still while history
+  // compresses or opens out beside it; Ctrl or Cmd zooms about the cursor.
+  if (chartOpts.zoomAnchor === undefined) chartOpts.zoomAnchor = 'right';
+  chartOpts.navigation = navigation.defaultVisibleBars === undefined && navigation.defaultBarSpacing === undefined
+    ? { ...navigation, defaultBarSpacing: options.timeScale?.barSpacing ?? 8 }
+    : navigation;
   // `movablePrimaryPane` reaches the engine as the host gave it, off unless
   // set. The widget's own chrome follows the price pane wherever it sits,
   // but a host's code on `widget.chart` may still pass 0 for the price, and
@@ -785,35 +801,7 @@ class WidgetImpl implements Widget {
     // The manager itself, not a listing of it: the shortcuts editor rebinds the chart's commands through it.
     this._keymap = new Keymap({ chart: sc, scopes: () => keyScopes.call(this as unknown as KeysHost) });
     this._keymap.onConflict((c) => this._bus.emit('keymap:conflict', { combo: c.combo, kept: c.kept, shadowed: c.shadowed }));
-
-    // The host's lookup wins; without one, a feed that searches serves every picker.
-    const symbolSearch = options.symbolSearch ?? feedSymbolSearch(options.feed, () => this._exchange);
-    this.context = new WidgetContextImpl(this, {
-      chart: this.chart,
-      draw: this.draw,
-      objects: this.objects,
-      alerts: this.alerts,
-      history: this.history,
-      root,
-      document: doc,
-      keymap: this._keymap,
-      bus: this._bus,
-      storage: this._storage,
-      locale: options.locale,
-      translate: options.translate,
-      symbolSearch,
-      toast: (message: string, kind?: ToastKind): ToastHandle => this._toasts.toast(message, kind),
-      openOverlay: (el: HTMLElement, o?: OverlayOptions): (() => void) => overlays.open(el, o),
-      status: (text: string, kind: 'info' | 'error' = 'info'): void => {
-        this._statusline?.setMessage(text, kind);
-        this._bus.emit('status', { text, kind });
-      },
-      tips,
-      overlays,
-      symbol: () => ({ symbol: this._symbol, exchange: this._exchange }),
-      interval: () => this._interval,
-      intervals: options.intervals === undefined ? undefined : this._intervals,
-    });
+    this.context = this._createContext(root, doc, options, overlays, tips);
     this._cleanups.push(() => { tips.destroy(); overlays.destroy(); });
     this._cleanups.push(canvasButtonTips(this.context, chartEl));
     if (options.eventDetails !== false) this._cleanups.push(eventDetailsPopup(this.context, chartEl, options));
@@ -870,7 +858,7 @@ class WidgetImpl implements Widget {
       this._topbar = mountTopbar(this.context, topbarEl, {
         intervals: this._intervals,
         indicators: options.indicators,
-        search: symbolSearch,
+        search: this.context.symbolSearch,
         state: () => ({ symbol: this._symbol, exchange: this._exchange, interval: this._interval, chartType: this.chartType(), theme: this._themeName }),
         onSymbol: (s, ex) => this.setSymbol(s, ex),
         onInterval: (code) => this.setInterval(code),
@@ -899,7 +887,7 @@ class WidgetImpl implements Widget {
       rail: this._rail,
       tools: typeof options.rail === 'object' ? options.rail.tools : undefined,
       indicators: options.indicators !== false,
-      search: symbolSearch,
+      search: this.context.symbolSearch,
       state: () => ({ symbol: this._symbol, exchange: this._exchange, interval: this._interval, chartType: this.chartType(), theme: this._themeName }),
       onSymbol: (symbol, exchange) => this.setSymbol(symbol, exchange),
       onInterval: (code) => this.setInterval(code),
@@ -930,7 +918,7 @@ class WidgetImpl implements Widget {
         enabled: () => !this._destroyed && this._doc.activeElement !== null
           && this._chartEl.contains(this._doc.activeElement) && this.draw.selection().length === 0,
         onSymbol: (symbol, exchange) => this.setSymbol(symbol, exchange),
-        onInterval: code => this.setInterval(code), search: symbolSearch,
+        onInterval: code => this.setInterval(code), search: this.context.symbolSearch,
       });
     }
     trackPointer.call(this as unknown as KeysHost);
@@ -951,6 +939,39 @@ class WidgetImpl implements Widget {
       if (this._symbol !== '' && !this._restoring) void this.reload();
     }
     this.ready = this._restoring ? restoreWhenLoaded.call(this as unknown as PersistHost) : Promise.resolve();
+  }
+
+  /** The context every piece of chrome reads, over the furniture the constructor has just built. */
+  private _createContext(root: HTMLElement, doc: Document, options: WidgetOptions, overlays: OverlayStack, tips: TipController): WidgetContext {
+    // The host's lookup wins; without one, a feed that searches serves every picker.
+    const symbolSearch = options.symbolSearch ?? feedSymbolSearch(options.feed, () => this._exchange);
+    return new WidgetContextImpl(this, {
+      chart: this.chart,
+      draw: this.draw,
+      objects: this.objects,
+      alerts: this.alerts,
+      history: this.history,
+      root,
+      document: doc,
+      keymap: this._keymap,
+      bus: this._bus,
+      storage: this._storage,
+      locale: options.locale,
+      translate: options.translate,
+      symbolSearch,
+      toast: (message: string, kind?: ToastKind): ToastHandle => this._toasts.toast(message, kind),
+      openOverlay: (el: HTMLElement, o?: OverlayOptions): (() => void) => overlays.open(el, o),
+      status: (text: string, kind: 'info' | 'error' = 'info'): void => {
+        this._statusline?.setMessage(text, kind);
+        this._bus.emit('status', { text, kind });
+      },
+      tips,
+      overlays,
+      symbol: () => ({ symbol: this._symbol, exchange: this._exchange }),
+      interval: () => this._interval,
+      intervals: options.intervals === undefined ? undefined : this._intervals,
+      settingsDefaults: { 'navigation.mousePan': options.navigation?.mousePan ?? 'horizontal' },
+    });
   }
 
   // ── facts ────────────────────────────────────────────────────────────
@@ -1310,6 +1331,7 @@ class WidgetImpl implements Widget {
       chart: this.chart.getState(),
       rail: this._rail?.prefs() ?? null,
       panels: this._dock?.state(),
+      savedBy: VERSION,
     };
   }
 

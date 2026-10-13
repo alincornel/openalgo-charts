@@ -38,14 +38,15 @@ const ms = (n) => `${n} ms`;
 
 /**
  * One cell: the previous release's p95, this release's, and how many times
- * less the step now costs. Within 5% either way reads as the same, since run
- * to run spread on a quiet machine is of that order for the cheapest steps.
+ * less the step now costs. Up to 5% either way reads as the same, since run
+ * to run spread on a quiet machine is of that order for the cheapest steps,
+ * and at 2 ms one 0.1 ms step of the rounding is already 5%.
  */
 function cell(previous, current) {
   const ratio = previous / current;
   let change;
-  if (ratio >= 1.05) change = `${ratio.toFixed(1)}x faster`;
-  else if (ratio <= 1 / 1.05) change = `${(1 / ratio).toFixed(1)}x slower`;
+  if (ratio > 1.05) change = `${ratio.toFixed(1)}x faster`;
+  else if (ratio < 1 / 1.05) change = `${(1 / ratio).toFixed(1)}x slower`;
   else change = 'same';
   return `${ms(previous)} to ${ms(current)} (${change})`;
 }

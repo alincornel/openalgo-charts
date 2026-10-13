@@ -8,6 +8,63 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 2.6.3
+
+2026-10-13
+
+A finish release: one fine line for every glyph, a drawing rail that folds away, a smoother wheel
+zoom, a price scale that keeps fitting through drags and zooms in the widget, a log scale that
+fills the pane, and tooltips that leave the click to the control under them.
+
+### Changed
+
+- **One fine line for every glyph.** `ICON_STROKE` is 1.6 and `CHROME_ICON_STROKE` 1.3 (both were
+  2), and the new `ICON_SIZE` (20) and `CHROME_ICON_SIZE` (16) name the size each tier is drawn
+  for: about a 1.3px line in both rails. `iconSvg` defaults to 20px. Pass `{ size: 24, stroke: 2 }`
+  for the heavier set. The tool cursor keeps its 2-unit line. See [Drawing tools](/docs/drawing-tools).
+- **A smoother wheel zoom.** Each wheel event moves one target and every frame closes part of the
+  distance by the real frame time, so a fast wheel or a trackpad zooms in one motion instead of
+  jolts. `animZoom: false` still applies each step at once. See [Interactions](/docs/interactions).
+- **In the widget, a drag moves time and the wheel zooms about the latest bar.** `createWidget`
+  defaults `navigation.mousePan` to `'horizontal'` and `zoomAnchor` to `'right'`, so a price
+  scale on auto keeps fitting what is in view through drags and zooms. The price axis still drags price,
+  Ctrl or Cmd with the wheel zooms about the cursor, and a host's own options win. The engine's
+  defaults are unchanged. See [Widget](/docs/widget).
+- **The reference host's palette** is neutral: a near-black chart, grey chrome, a blue accent and
+  the #089981 and #f23645 candle pair. The engine's themes are unchanged.
+
+### Added
+
+- **The drawing rail folds away.** The rail's last button hides it and gives the chart its width;
+  a tab at the chart's bottom left brings it back. The fold is remembered with the rail's other
+  preferences and travels in `getState().rail`. `RailHandle` gains optional `collapsed()` and
+  `setCollapsed(on)`. See [Widget](/docs/widget).
+- **Chrome glyphs `chevrons-left` and `chevrons-right`.**
+
+### Fixed
+
+- **A log scale fills the pane** ([#53](https://github.com/marketcalls/openalgo-charts/issues/53)).
+  Autoscale padded its margins in price units, which left a whole empty decade under the lowest
+  bar of a long monthly series; it now pads in log space, so the data takes the same share of the
+  pane as on a linear scale.
+- **A tooltip no longer takes the click meant for the control under it**, in the widget's overlay
+  layer.
+- **Tools that scroll under the rail's controls fade out** instead of being cut through.
+
+### Size
+
+Draw tier 58.44 kB, widget tier 124.94 kB, all tiers 425.35 kB. The chart-only import is 87.30 KiB,
+111 bytes more for the zoom and the log padding.
+
+### Performance
+
+Frames are on par with 2.6.2: with Canvas 2D at 200,000 bars a pan, a full zoom-out and a ten-study
+tick measure 2.0, 51.5 and 149.9 ms against 2.0, 53.6 and 150.8 ms. One cell reads slower in the
+entry, the 50,000-bar tick (58.1 against 42.6 ms). The tick's runs spread widely and the bench times
+the new build first; timed again with the builds alternating, its lowest runs favour 2.6.3 at 50,000
+bars (49.8 against 56.4 ms) and match at 200,000 (150.0 against 149.5 ms).
+The changelog has the figures. See the [benchmark](/benchmarks#263) measured against 2.6.2.
+
 ## 2.6.2
 
 2026-10-13

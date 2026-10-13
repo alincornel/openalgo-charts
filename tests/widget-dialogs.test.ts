@@ -205,6 +205,25 @@ describe('mountSettingsDialog', () => {
     expect(rig.stack.size()).toBe(0);
   });
 
+  it('restores a tab to the widget\'s own starting values where they differ from the engine\'s', () => {
+    // The widget drags time alone; restoring the Axes tab to the engine's
+    // time and price would switch the pane to manual scaling on the next drag.
+    const rig = makeRig();
+    const ctx: WidgetContext = { ...rig.ctx, settingsDefaults: { 'navigation.mousePan': 'horizontal' } };
+    rig.chart.setNavigationOptions({ mousePan: 'both', defaultVisibleBars: 75 });
+    mountSettingsDialog(ctx, undefined, { tab: 'axes' });
+    (rig.q('.oac-dialog__lead button') as FakeElement).click();
+    expect(rig.chart.navigationOptions().mousePan).toBe('horizontal');
+    expect(rig.chart.navigationOptions().defaultVisibleBars).toBe(0);
+    // Without the widget's values, the engine's default as before.
+    rig.stack.closeAll?.();
+    const plain = makeRig();
+    plain.chart.setNavigationOptions({ mousePan: 'horizontal' });
+    mountSettingsDialog(plain.ctx, undefined, { tab: 'axes' });
+    (plain.q('.oac-dialog__lead button') as FakeElement).click();
+    expect(plain.chart.navigationOptions().mousePan).toBe('both');
+  });
+
   it('hides the Price tab on a chart with no series rather than showing it empty', () => {
     const rig = makeRig(false);
     mountSettingsDialog(rig.ctx);

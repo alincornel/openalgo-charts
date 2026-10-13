@@ -15,7 +15,7 @@
  * one exports their names too: the DOM kit (dom.ts), the storage wrapper
  * (widget-storage.ts), and the overlay stack and the tooltip (overlays.ts).
  */
-import type { AlertController, Chart, ChartObjects, ChartTheme, DataVariant } from 'openalgo-charts';
+import type { AlertController, Chart, ChartObjects, ChartSettingsValues, ChartTheme, DataVariant } from 'openalgo-charts';
 import { getDrawingTool, hasDrawingTool, type DrawingController, type DrawingTool } from 'openalgo-charts/draw';
 import type { Keymap } from './keymap';
 import type { ToastHandle, ToastKind } from './toast';
@@ -235,4 +235,11 @@ export interface WidgetContext {
    * a study's timeframe select offers these.
    */
   readonly intervals?: readonly string[] | undefined;
+  /**
+   * Settings the widget starts at a value of its own rather than the
+   * engine's, keyed as the settings schema keys them (since 2.6.3). The
+   * dialog's Restore returns to these, so it lands where a fresh widget
+   * starts: the drag that moves time alone, not the engine's time and price.
+   */
+  readonly settingsDefaults?: Readonly<ChartSettingsValues> | undefined;
 }

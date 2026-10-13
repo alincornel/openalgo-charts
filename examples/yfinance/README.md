@@ -971,7 +971,15 @@ back and forth with Ctrl+Z, Ctrl+Y and the rail's Redo.
 
 ### Drawing catalogue (2.2.0)
 
-The drawing rail includes 85 tools: the existing annotations plus pitchforks,
+The rail's last button folds it away so the chart takes its width; the tab that
+appears at the chart's bottom left brings it back, and the choice is remembered.
+Below 900 pixels, where the rail is the bottom touch bar, the fold waits until the
+window is wide again. The page runs on a neutral palette: a near-black chart
+(#151619) with grey chrome, a blue accent and the #089981 / #f23645 candle pair,
+and a selected tool shows as a light wash with bright ink rather than a coloured
+frame.
+
+The drawing rail includes 87 tools: the existing annotations plus pitchforks,
 regression and disjoint channels, advanced Fibonacci and Gann geometry, wavefronts
 and harmonic or Elliott patterns. Open a rail group's chevron to choose a tool; edit
 its settings from the selected drawing's properties. Mobile drawing controls use

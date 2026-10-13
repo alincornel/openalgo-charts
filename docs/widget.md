@@ -350,10 +350,15 @@ Every glyph comes from the draw tier's icon registry: the rail and its flyouts, 
 and dialogs, the chart type menu and button (each type beside its `chart-<type>` glyph, on
 a phone too), and the theme button, a sun on the dark theme and a moon on the light one,
 whose tip and accessible name say the theme a click switches to. Since 2.5.10 no widget
-file draws a picture of its own, so the registry's grid, overlap and crispness checks cover
-all of them. A row of `openMenu` takes an optional `icon`, a chrome icon id, for a host that
+file draws a picture of its own, so the registry's grid, overlap and weight checks cover
+all of them. Since 2.6.3 tool glyphs show at 20px and chrome glyphs at 16px, both at about a
+1.3px line, so the rail reads as one fine set beside the chart. A row of `openMenu` takes an optional `icon`, a chrome icon id, for a host that
 builds its own menu the same way, and `placement: 'beside'` opens the menu beside its
 button, as the rail's right-click menus do, with the same arrow keys as every other menu.
+
+The last button of the rail (chevrons pointing left, since 2.6.3) folds the rail away and
+gives the chart its width; a small tab at the bottom left of the chart brings it back. The
+fold is remembered with the rail's other preferences and travels in `getState().rail`.
 
 ## Extending the rail with your own tools
 
@@ -454,14 +459,14 @@ cannot name a part either: allow the origin, or the directory as a path ending i
 
 ## Size
 
-Budgets from `.size-limit.json` and measurements from the 2.6.2 build, Brotli, enforced by
+Budgets from `.size-limit.json` and measurements from the 2.6.3 build, Brotli, enforced by
 `npm run size`:
 
 | Row | Files | Budget | Actual |
 |---|---|---|---|
-| Widget tier | `openalgo-charts.widget.mjs` | 124.13 kB | 124.13 kB |
+| Widget tier | `openalgo-charts.widget.mjs` | 124.94 kB | 124.94 kB |
 | Widget first-use parts | `openalgo-charts.widget.<part>-<hash>.mjs`, eight files | 21.00 kB | 21.00 kB |
-| Widget terminal | base + draw + indicators + widget | 362.94 kB | 362.94 kB |
+| Widget terminal | base + draw + indicators + widget | 364.01 kB | 364.01 kB |
 
 The widget is a tier because of these rows. A host that never calls `createWidget`
 downloads none of it, and the base engine's own budget is unchanged. Measure, do not
@@ -482,9 +487,13 @@ Pass `navigation: { mousePan: 'both', defaultVisibleBars: 100 }` to
 `createWidget` to open on the latest 100 bars. Axes settings expose both
 preferences and saved widget layouts retain them. The count controls the initial
 view, new symbol/interval loads and Reset view; it does not limit retained
-history. Use 0 to fit all loaded bars. Mouse and pen pan time and price by default;
-choose `mousePan: 'horizontal'` to preserve price autoscale while panning time.
-Saved explicit preferences are retained. Touch gestures are unchanged.
+history. Use 0 to fit all loaded bars. Since 2.6.3 mouse and pen pan time alone by
+default (`mousePan: 'horizontal'`), so a price scale on auto keeps fitting what is in view
+through any drag and every wheel zoom after it, and the wheel zooms about the latest bar
+(`zoomAnchor: 'right'`; Ctrl or Cmd with the wheel zooms about the cursor). Pass
+`mousePan: 'both'` to drag price as well, which puts the pane on manual scaling, or
+`zoomAnchor: 'cursor'`. The engine's own defaults are `'both'` and `'cursor'`. Saved
+explicit preferences are retained. Touch gestures are unchanged.
 
 ## Live recovery and CSP in 2.1.2
 

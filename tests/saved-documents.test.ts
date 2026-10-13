@@ -117,6 +117,10 @@ const WIDGET_START: readonly Named[] = [
   { path: 'oac-widget:compat:state.chart.canvas.grid', change: 'added', why: GRID_MIRROR },
   { path: 'oac-widget:compat:rail', change: 'added', why: 'the rail writes the preferences it restored under their own key, as 2.5.1 and 2.6.0 do' },
 ];
+/** 2.6.3 stamps a widget state with the version that wrote it, which tells its restore a drag was chosen rather than recorded by default. */
+const SAVED_BY = 'the writer\'s version (2.6.3), which tells a later restore that a recorded drag was chosen, not the old default';
+/** An unstamped widget state recorded the engine's default drag, so the widget restores its own (2.6.3). */
+const DRAG: Named = { path: 'chart.navigation.mousePan', change: 'changed', why: 'every state before 2.6.3 recorded the default \'both\', chosen or not, so an unstamped one restores with the widget\'s own drag, \'horizontal\'' };
 /** What `openWorkspace`, the write this test makes, changes in any catalog. */
 const OPENED: readonly Named[] = [
   { path: 'revision', change: 'changed', why: 'every committed change moves the catalog one revision on' },
@@ -136,10 +140,14 @@ const CHANGES: Record<string, Record<string, readonly Named[]>> = {
       { path: 'chart.canvas.grid', change: 'added', why: GRID_MIRROR },
       { path: 'chart.barSpacing', change: 'changed', why: PLOT_WIDTH },
       { path: 'panels', change: 'added', why: 'the panel dock (2.5.3), closed, as a 2.5.1 widget had none' },
+      { path: 'savedBy', change: 'added', why: SAVED_BY },
+      DRAG,
     ],
     '2.6.0': [
       { path: 'chart.canvas.grid', change: 'added', why: GRID_MIRROR },
       { path: 'chart.barSpacing', change: 'changed', why: PLOT_WIDTH },
+      { path: 'savedBy', change: 'added', why: SAVED_BY },
+      DRAG,
     ],
   },
   'widget-storage': {
@@ -147,9 +155,11 @@ const CHANGES: Record<string, Record<string, readonly Named[]>> = {
       ...WIDGET_START,
       ...under('oac-widget:compat:state.chart', [...SAVED_SINCE_254, TIMEFRAME]),
       { path: 'oac-widget:compat:state.panels', change: 'added', why: 'the panel dock (2.5.3), closed, as a 2.5.1 widget had none' },
+      { path: 'oac-widget:compat:state.savedBy', change: 'added', why: SAVED_BY },
+      ...under('oac-widget:compat:state', [DRAG]),
       { path: 'oac-widget:compat:drawings:NSE:RELIANCE', change: 'added', why: 'drawings are kept per instrument since 2.5.9: the layout\'s own drawings are copied under the instrument it was saved on, and stay in the layout too' },
     ],
-    '2.6.0': WIDGET_START,
+    '2.6.0': [...WIDGET_START, { path: 'oac-widget:compat:state.savedBy', change: 'added', why: SAVED_BY }, ...under('oac-widget:compat:state', [DRAG])],
   },
   'workspace-catalog': { '2.5.1': OPENED, '2.6.0': OPENED },
 };

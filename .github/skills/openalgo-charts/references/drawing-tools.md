@@ -216,12 +216,13 @@ the raw path data may do the same, and loses only the fill if it does not.
 | `DRAWING_TOOL_ACCENTS` / `drawingToolAccent(id)` | The optional fill per tool glyph: marks its path already outlines, as a second `d`; `undefined` when a glyph has none |
 | `drawingToolIconIds()` | Every id the set covers |
 | `ICON_VIEWBOX` | `'0 0 24 24'` |
-| `ICON_STROKE` | `2` |
+| `ICON_SIZE` | `20`: the CSS pixel size the tool tier is drawn for, and `iconSvg`'s default size (since 2.6.3; it was the 24px grid size) |
+| `ICON_STROKE` | `1.6`: about 1.3px at `ICON_SIZE` (it was `2` through 2.6.2) |
 | `ICON_ATTRS` | The whole attribute bag for the `<svg>` (an `IconAttrs`) |
 | `CHROME_ICONS` | `Record<string, string>` of chrome id to `d` attribute, on a 16 grid: the buttons, bars, menus and dialogs around a chart (the ids are listed below), and a glyph per chart type under `chart-<id>` |
 | `chromeIcon(id)` / `chromeIconIds()` | One chrome glyph or `undefined`; every chrome id, the `chart-` ones included |
 | `CHROME_ICON_ACCENTS` / `chromeIconAccent(id)` | The chrome fills (the eye's pupil, the camera lens, slider knobs, pole caps, a drawing's anchors, a head, a line's markers), each also outlined in its glyph's path |
-| `CHROME_ICON_VIEWBOX` / `CHROME_ICON_STROKE` / `CHROME_ICON_ATTRS` | `'0 0 16 16'`, `2` (1.5 through 2.5.5; pass `{ stroke: 1.5 }` to keep the old weight), the attribute bag |
+| `CHROME_ICON_VIEWBOX` / `CHROME_ICON_SIZE` / `CHROME_ICON_STROKE` / `CHROME_ICON_ATTRS` | `'0 0 16 16'`, `16` (since 2.6.3), `1.3` (2 from 2.5.6 through 2.6.2, 1.5 before; pass `{ stroke: 2 }` to keep the heavier weight), the attribute bag |
 | `CHROME_ICON_FILLED` | The chrome ids painted solid rather than stroked: `star-filled`, `pin-filled`, the media controls (`replay`, `play`, `stop`, `step-forward`, `step-back`, `record`), `buy`, `sell`, `moon` and `market-closed` (`chromeIconSvg` consults it; a host wrapping raw path data must too) |
 | `chartTypeIcon(type)` | The chrome glyph for a chart type or a transform (`candlestick`, `point-figure`, `heikin-ashi`, `renko`, `range-bars`, `line-break`, ...): the `chart-<type>` entry of `CHROME_ICONS`, so `chromeIconSvg('chart-' + type)` draws it. `undefined` for a type a host registered itself |
 | `layoutIconPath(rows, columns, slots?)` | A chrome `d` for a grid of charts: the frame split into `rows` by `columns`, one to four each, with no divider inside a slot that spans cells (a `LayoutIconSlot[]`: `row`, `column`, optional `rowSpan` and `columnSpan`). Cells no slot claims are panes of their own. Throws a `RangeError` for more than four a side, a slot outside the grid, or two slots that overlap. A chart grid itself takes up to eight a side, so a button that shows the current layout draws `layout` past four |
@@ -235,7 +236,7 @@ The chrome ids a host may code against, besides the chart types, are
 | Group | Ids |
 |---|---|
 | Shipped through 2.5.9 | `cursor` `magnet` `lock` `unlock` `eye` `eye-off` `star` `star-filled` `trash` `settings` `undo` `redo` `copy` `paste` `duplicate` `front` `back` `text` `chevron-down` `chevron-right` `close` `plus` `minus` `search` `grid` `link` `unlink` `camera` `download` |
-| Capture and navigation | `capture-grid` `chevron-up` `chevron-left` `check` `more` `grip` `refresh` `swap` |
+| Capture and navigation | `capture-grid` `chevron-up` `chevron-left` `chevrons-left` `chevrons-right` (2.6.3) `check` `more` `grip` `refresh` `swap` |
 | A grid of charts | `layout` `maximize` `restore` `fullscreen` `fullscreen-exit` `link-group` `drawing-sync` `crosshair` `time-range` `palette` |
 | Time and the session | `calendar` `clock` `globe` `market-open` `market-pre` `market-post` `market-closed` `market-holiday` |
 | Replay | `replay` `play` `pause` `stop` `step-forward` `step-back` `record` |
@@ -264,7 +265,7 @@ chart-type menu, the type button and the phone layout's sheet show
 `chart-<type>`, the theme button `sun` or `moon`, and the settings tabs, the
 stacking rows, the drawing toolbar's line styles, the menu tick and the level
 editor's remove cross the ids above. None is hand-drawn in a widget file, so
-the grid, overlap and crispness checks on this registry cover the widget too.
+the grid, overlap and weight checks on this registry cover the widget too.
 
 The path data is data, not DOM: the host still builds its own rail and
 flyouts. The string builders derive from that one set, so the rail, a flyout
@@ -276,15 +277,19 @@ read as many icons rather than one. Measure the count with
 than there are tools (the cursor, the magnet, and glyphs drawn ahead of tools
 not yet registered).
 
-**Render at 24px, or an integer multiple, and chrome at 16px.** With a 2-unit
-stroke on integer coordinates, a horizontal or vertical edge covers exactly two
-device pixels at 1:1; diagonals and curves are anti-aliased at any size. At
-18px the 0.75 scale puts the line on 1.5 pixels and every edge is anti-aliased
-across two rows: that is a host sizing choice and no path data can fix it. The
-chrome tier uses the same 2-unit stroke from 2.5.6 (it was 1.5), so both rails
-show one 2px line. A host that wants the old weight passes it explicitly
-(`chromeIconSvg(id, { stroke: 1.5 })`, or `stroke-width: 1.5` in its own frame
-or stylesheet), and gets the softer edges that came with it.
+**Render tools at `ICON_SIZE` (20px) and chrome at `CHROME_ICON_SIZE` (16px).**
+Since 2.6.3 each tier's stroke is set so that its line is about 1.3px on
+screen at that size, so a rail of tools and the chrome under it read as one
+fine set. Through 2.6.2 both tiers drew a 2px line at their grid size (24px
+and 16px): every straight edge sat on a pixel boundary, but a line half
+again as wide on tool glyphs a fifth larger is nearly twice the ink, and a
+rail of them read as heavy beside the chart. A host that shows a glyph at
+another size scales the line with it; to keep the same line, set the stroke
+for that size: the line in pixels is `stroke * size / 24` for a tool glyph
+and `stroke * size / 16` for a chrome glyph, each tier's viewBox width. A host that wants the heavier set back passes it explicitly
+(`iconSvg(id, { size: 24, stroke: 2 })`, `chromeIconSvg(id, { stroke: 2 })`, or
+`stroke-width` in its own frame or stylesheet). `toolCursor` keeps a 2-unit
+line: a cursor sits over candles and grid lines, not a quiet panel.
 
 The set is held to one grid by `tests/draw-icons.test.ts`, which checks each
 glyph and accent for the live area (2..22 and 2..14), whole units, a single
@@ -295,7 +300,7 @@ rejects two glyphs that are the same drawing written differently.
 WebKit, as the builders draw them and as bare path data, and fails when two
 glyphs overlap at an intersection over union of 0.85 or more (only the star,
 eye, link and pin state pairs may), when a named sibling pair reaches 0.7, or
-when a tier stops being crisp. The siblings are the members of one menu or bar:
+when the two tiers stop drawing one line weight at their sizes. The siblings are the members of one menu or bar:
 the replay controls, the market session, the scale modes, the three levels,
 the layout menu, the trading actions, the line styles, the link channels, and
 every chart type against every other. The layout tiles share their frame by

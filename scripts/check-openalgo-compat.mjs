@@ -988,7 +988,7 @@ try {
       const url = error.stack?.match(/^(?:Fetch API|XMLHttpRequest) cannot load (https?:\/\/\S+) due to access control checks\./)?.[1];
       const departing = browserType === webkit && error.duringReload
         && (url?.startsWith(`${origin}/api/`) || url?.startsWith(`${origin}/socket.io/`)
-          || url === `${origin}/custom-indicators/index.json`);
+          || url === `${origin}/custom-indicators/index.json` || url === `${origin}/openscript/index.json`);
       if (departing) report.reloadNetworkNotices.push({ ...error, url,
         cancelledRequestObserved: report.failedRequests.some(request => request.url === url && request.failure?.errorText === 'Load request cancelled'),
       });

@@ -27,7 +27,7 @@ series.priceScale().setOptions({ marginTop: 0.82, marginBottom: 0 });
 chart.panes()[0].priceScale.setOptions({ minMove: 0.05, mode: 'logarithmic' });
 ```
 
-**Margins are fractions of pane height, not of the data span.** Since 1.0.26 `autoscaleRange(low, high, marginTop, marginBottom)` gives the data band exactly `1 - marginTop - marginBottom` of the pane: `total = span / visible`, `min = low - total * marginBottom`, `max = high + total * marginTop`. Before 1.0.26 it padded the span, so `marginTop: 0.82` left the series 55% of the pane instead of 18%. Margins summing to 1 or more are clamped to a 0.01 sliver so the range stays finite.
+**Margins are fractions of pane height, not of the data span.** Since 1.0.26 `autoscaleRange(low, high, marginTop, marginBottom)` gives the data band exactly `1 - marginTop - marginBottom` of the pane: `total = span / visible`, `min = low - total * marginBottom`, `max = high + total * marginTop`. Before 1.0.26 it padded the span, so `marginTop: 0.82` left the series 55% of the pane instead of 18%. Margins summing to 1 or more are clamped to a 0.01 sliver so the range stays finite. Since 2.6.3 a logarithmic scale pads in log space (the scale's `autoscale` and a comparison over it compute the same formula on `log10(low)` and `log10(high)`), so the data band is the same share of the pane as on a linear scale; through 2.6.2 it padded in price units, which left a whole empty decade under a long series such as 150 to 1230. A range a log cannot take (a low at or below zero, or a flat series) keeps the price-space padding. `autoscaleRange` itself is unchanged and works in whatever units it is given.
 
 ### The rebasing modes
 
@@ -61,7 +61,7 @@ ps.baseline;                          // number | null
 | `setAutoScale(on)` | `false` freezes the current range. |
 | `setPriceRange({ min, max })` | Sets the range and marks the scale as scaled. |
 | `priceRange()` | `{ min, max }`. |
-| `autoscale(low, high)` | Applies `autoscaleRange` with the configured margins. |
+| `autoscale(low, high)` | Applies `autoscaleRange` with the configured margins, in log space on a logarithmic scale (since 2.6.3). |
 | `scaleAroundCenter(factor)` | `>1` widens, `<1` narrows. Switches to manual. |
 | `panByPixels(dy)` | Shifts in transformed space, honours `inverted`. Switches to manual. |
 | `scaled` (getter) | `false` until a real range is applied; the placeholder is `0..1`. |

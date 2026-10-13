@@ -2,6 +2,157 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 2.6.3
+
+2026-10-13
+
+A finish release. The drawing tools and the chrome around them draw one fine
+line, the drawing rail folds away so the chart can take its width, the wheel
+zoom moves in one smooth motion however fast the wheel turns, and in the widget
+and the reference host a drag keeps the price scale fitting what is in view, so
+every zoom after it refits. A log scale fills the pane again (#53), and a
+tooltip no longer takes the click meant for the control under it. The
+reference host moves onto a neutral palette.
+
+### Changed
+
+- **One fine line for every glyph.** `ICON_STROKE` is 1.6 (was 2) and
+  `CHROME_ICON_STROKE` 1.3 (was 2). Two new constants, `ICON_SIZE` (20) and
+  `CHROME_ICON_SIZE` (16), name the size each tier is drawn for, and `iconSvg`
+  now defaults to 20px (it was the 24px grid size). At those sizes both tiers
+  draw a line of about 1.3px: through 2.6.2 a rail of tools showed a 2px line,
+  half again as wide, on glyphs a fifth larger, crisp on every straight edge
+  but nearly twice the ink, and it read as heavy beside the chart it frames. The path data is unchanged except where
+  the finer line needed it: the horizontal ray now leaves from two fifths of the
+  way in (from a third, it measured 0.71 overlap with the horizontal line at the
+  finer line, over the 0.7 the sibling check allows), the paste glyph's clip is
+  filled, and the two candle chart-type glyphs draw their solid body as three
+  strokes so it stays solid at any line. `toolCursor` keeps a 2-unit line,
+  since a cursor sits over candles rather than a quiet panel. A host that wants
+  the heavier set passes `{ size: 24, stroke: 2 }` to `iconSvg` and
+  `{ stroke: 2 }` to `chromeIconSvg`. The widget's rail, flyouts and menus show
+  tools at 20px and chrome at 16px from these constants, and the magnet in the
+  rail's controls block is the chrome glyph, so the block is one size.
+- **A smoother wheel zoom.** Each wheel event now moves one target bar spacing,
+  and every frame closes `1 - e^(-dt/70ms)` of what is left in log space, by the
+  real frame time. Before, each event applied part of the zoom on the event
+  itself and started a new curve, so three events between two frames painted
+  about 60 percent of the outstanding zoom at once, every notch read as a jolt
+  then a decay, and a trackpad's small steps were applied unsmoothed. Measured on
+  five notches 48 ms apart at 60fps, the largest frame was 5.6 times the frame
+  before it and is now 2.8 times. The first notch from rest still moves on the
+  event, so `barSpacing` changes before anything reads it synchronously, and
+  `animZoom: false` still applies each step at once. `ZoomGlide` is unchanged.
+- **The reference host's palette.** The yfinance demo runs on a near-black
+  chart (#151619) with neutral grey chrome, a blue accent, the #089981 and
+  #f23645 candle pair, and a selected tool shown as a light wash with bright ink
+  rather than a coloured frame. The engine's own `darkTheme` and `lightTheme`
+  are unchanged. Text on a green or red fill passes 4.5:1: the buy and sell
+  buttons and the bracket labels fill with #077d69 and #d32f3c under white
+  (5.1 and 5.0 to 1; the candle pair is 3.6 and 3.9), and the price tag on the
+  chart carries dark ink.
+- **In the widget and the reference host, a drag moves time and the wheel zooms
+  about the latest bar.** `createWidget` now defaults `navigation.mousePan` to
+  `'horizontal'` and `zoomAnchor` to `'right'`, and the reference host does
+  the same. A drag that also moved price switched the pane to manual scaling,
+  and from then on a wheel zoom left bars off the pane until auto was pressed
+  again; now the scale keeps fitting what is in view through any number of
+  drags and zooms. The price axis still drags and scales price, Ctrl or Cmd
+  with the wheel still zooms about the cursor, and a host that passes either
+  option, or the chart settings' Mouse drag row, keeps its choice. The engine's
+  own defaults (`'both'` and `'cursor'`) are unchanged. Through 2.6.2 the
+  chart state recorded every navigation option, chosen or not, so every layout
+  saved on the default says `mousePan: 'both'`: `getState()` now stamps the
+  widget state with `savedBy` (the library version), and a state without the
+  stamp, whether restored by `restoreState` or by `persist` on a reload, drags
+  the way the widget was built to (its default or the host's option) rather
+  than by that recorded value. The reference host does the same through its layout schema 3. A
+  drag chosen after this is saved and kept.
+
+### Added
+
+- **The drawing rail folds away.** The last button of the widget's rail
+  (chevrons pointing left) hides the rail and gives the chart its column; a
+  small tab at the chart's bottom left brings it back. Focus follows the
+  control that replaces the one pressed, the tab stops `pointerdown` so the
+  chart cannot take the press, and the fold is a rail preference: it persists
+  with the pins and the magnet, travels in `getState().rail` (`collapsed: true`)
+  and comes back with `restoreState`. `RailHandle` gains `collapsed()` and
+  `setCollapsed(on)`, both optional members so a handle a host wrote for
+  `mountMobile` still fits. The tab is hidden on the phone layout and in a dense
+  grid cell, where the rail already is. The reference host's rail folds the
+  same way, below 900 pixels leaving its bottom touch bar alone.
+- **Chrome glyphs `chevrons-left` and `chevrons-right`**, for the fold and its
+  tab.
+
+### Fixed
+
+- **A log scale fills the pane (#53).** Autoscale padded the margins in price
+  units and then drew them in log units: a monthly series from 150 to 1230 got
+  a floor near 15, a whole empty decade under its lowest bar, and its bars
+  filled the top 42 percent of the pane. The margins are fractions of the pane
+  in every mode, so a log scale now pads in log space and the data takes the
+  same 80 percent of the pane it takes on a linear scale. A comparison over a
+  log scale fits the same way. A range a log cannot take (zero or below, or a
+  flat series) keeps the price-space padding.
+- **A tooltip no longer takes the click meant for the control under it.** The
+  overlay layer turned pointer events back on for everything mounted in it,
+  later in the stylesheet and at the same specificity as the tooltip's own
+  `pointer-events: none`, so it won: a tip over a button swallowed the press. It
+  showed when the bottom bar's range tip sat over the folded rail's tab.
+- **Tools that scroll under the rail's controls fade out** instead of being cut
+  through by the block's edge, in the widget and in the reference host.
+- **The reference host's fold follows the rail.** A full-screen second chart
+  takes the rail into its own pane, and the tab and the chart's offset now go
+  with it; and the fold waits on the same touch layout that hides the rail (a
+  short coarse-pointer window up to 960 pixels wide, as well as anything under
+  900). A 24-unit glyph shown at 16px in the rail's menus is drawn at the
+  tier's line rather than 1.07px.
+
+### Size
+
+The base engine is 137.61 kB (was 137.44 kB) and base plus trade 154.49 kB, for
+the zoom chase and the log padding; the draw tier is 58.44 kB (58.36 kB), the
+widget tier 124.94 kB (124.13 kB), the widget terminal 364.01 kB, all tiers
+425.35 kB, the nine classic scripts 439.11 kB and the widget classic script
+138.53 kB. Each budget moved to its measured need, the base classic script's
+to 137.72 kB (137.65 kB). The chart-only import rises 111 bytes to 87.30 KiB for the
+zoom chase and the log padding, which every chart carries.
+
+### Performance
+
+- **Measured against 2.6.2** on the release bench (five runs of each build in
+  one session, `benchmarks/releases.json`, the website's Benchmarks page). With
+  Canvas 2D at 200,000 bars a pan, a full zoom-out and a ten-study tick measure
+  2.0, 51.5 and 149.9 ms against 2.0, 53.6 and 150.8 ms (each the lowest p95 of
+  its five runs). The tick cells spread widely: at 200,000 bars it ran 149.9 to
+  225.2 ms on 2.6.3 and 150.8 to 202.7 ms on 2.6.2, and at 50,000 bars its
+  lowest run is 58.1 against 42.6 ms. The script times all five runs of the new
+  build before the old one, so both tick cells were timed again with the two
+  builds alternating, twelve passes outside the published entry. The lowest
+  runs match at 200,000 bars (150.0 against 149.5 ms) and favour 2.6.3 at
+  50,000 (49.8 against 56.4 ms), while the medians swing by up to a fifth from
+  one session to the next on this machine, in either direction. Nothing in the
+  tick path changed beyond a mode check in autoscale. Every cell is within its
+  frame budget.
+
+### Tests
+
+11674 engine tests across 516 files and 730 reference-host tests across 68
+files. The log scale test fails against 2.6.2 (its bars sat at y 9 rather than
+40 of a 400 pixel pane), as do the widget tests for the drag default and for an
+unstamped layout. Three wheel zoom tests fail against 2.6.2: events between two frames
+move only the target, a trackpad step is eased, and no frame after a new notch
+jumps past 3.5 times the one before it. The tooltip test fails against the old
+stylesheet. The fold is covered in the widget (folding, focus, the open list
+closing, the tab keeping the press from the chart, a reload and a saved state)
+and in the reference host. The icon tests now hold each tier to about a 1.3px
+line at its display size and the two tiers to one weight, where they held a
+2-unit stroke on pixel boundaries; the browser spec rasterises both tiers at 20
+and 16px in Chromium, Firefox and WebKit and compares their weight. One
+reference-host browser test read the selected chart's frame as the old teal
+pixel; it now reads the frame's colour from the page's stylesheet.
+
 ## 2.6.2
 
 2026-10-13

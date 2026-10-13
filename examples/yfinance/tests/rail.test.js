@@ -9,6 +9,7 @@ import { fakeStorage } from './helpers.js';
 import {
   initRail, buildRail, syncRail, armCursor, setDrawLock, setMagnetMode, cycleMagnet, magnetMode,
   setStayMode, stayMode, toggleFavorite, favorites, railPrefs, RAIL_PREFS_KEY, RAIL_GROUPS,
+  setRailCollapsed, railCollapsed,
   showWidget, positionWidget, openTextDialog, refreshControls,
 } from '../src/rail.js';
 import {
@@ -734,6 +735,51 @@ describe('properties bar seam', () => {
     // Without a bar mounted the seam is inert, so the page loads either way.
     setup();
     expect(() => { showWidget('d1'); positionWidget(); openTextDialog('d1'); }).not.toThrow();
+  });
+});
+
+describe('folding the rail', () => {
+  const tab = () => page.stage.querySelector('.rail-tab');
+
+  it('folds behind a tab, gives the chart the rail width, and comes back from the tab', () => {
+    setup();
+    expect(tab().hidden).toBe(true);
+    const fold = page.rail.querySelector('.rail__collapse');
+    fold.focus();
+    fold.click();
+    expect(railCollapsed()).toBe(true);
+    expect(page.rail.classList.contains('is-collapsed')).toBe(true);
+    // Every chart offset in the page keys on has-rail, so dropping it is what widens the chart.
+    expect(page.stage.classList.contains('has-rail')).toBe(false);
+    expect(tab().hidden).toBe(false);
+    expect(document.activeElement).toBe(tab());
+    expect(JSON.parse(store.get(RAIL_PREFS_KEY)).collapsed).toBe(true);
+    tab().click();
+    expect(railCollapsed()).toBe(false);
+    expect(page.stage.classList.contains('has-rail')).toBe(true);
+    expect(tab().hidden).toBe(true);
+    expect(document.activeElement).toBe(page.rail.querySelector('.rail__collapse'));
+  });
+
+  it('starts folded from the store, closes an open list as it folds, and keeps the tab from the chart pointer', () => {
+    setup({ prefs: { collapsed: true } });
+    expect(page.rail.classList.contains('is-collapsed')).toBe(true);
+    expect(tab().hidden).toBe(false);
+    setRailCollapsed(false);
+    clickOn(groupButton(page, 'shapes').querySelector('.rail__chev'));
+    expect(flyoutOpen()).toBe(true);
+    setRailCollapsed(true);
+    expect(flyoutOpen()).toBe(false);
+    const down = vi.fn();
+    page.stage.addEventListener('pointerdown', down);
+    tab().dispatchEvent(new FakeEvent('pointerdown', { bubbles: true }));
+    expect(down).not.toHaveBeenCalled();
+  });
+
+  it('ignores a stored fold that is not true', () => {
+    setup({ prefs: { collapsed: 'yes' } });
+    expect(railCollapsed()).toBe(false);
+    expect(page.rail.classList.contains('is-collapsed')).toBe(false);
   });
 });
 

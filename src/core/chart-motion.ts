@@ -1,6 +1,6 @@
 /**
  * The chart's navigation motion: the kinetic glide after a flick, the eased
- * wheel-zoom glide, and the autoscale easing either one starts.
+ * wheel zoom, and the autoscale easing either one starts.
  *
  * Its own module because this state (the glides in flight, their clocks and
  * frame counts) belongs to these few methods alone. The chart reaches it
@@ -25,6 +25,16 @@ import { ZoomGlide } from '../input/zoom-glide';
 const KINETIC_MAX_FRAMES = 600;
 /** Same ceiling, same reason, for the zoom glide (see `_stepKinetic`). */
 const ZOOM_GLIDE_MAX_FRAMES = 600;
+
+/**
+ * The wheel zoom's time constant, in ms: each frame closes 1 - e^(-dt/tau)
+ * of the distance still to go, so about 63 percent in one tau.
+ */
+const ZOOM_CHASE_TAU = 70;
+/** A frame gap longer than this (a hidden tab, a stall) counts as this long, so the zoom never leaps. */
+const ZOOM_CHASE_MAX_DT = 64;
+/** Close enough, in log units (a tenth of a percent of bar spacing): land on the target. */
+const ZOOM_CHASE_LAND = 1e-3;
 
 /**
  * The slice of the chart the motion reads and drives. The chart itself is the
@@ -55,12 +65,17 @@ interface KineticGlide {
 export class ChartMotion {
   private readonly _host: MotionHost;
   private _kinetic: KineticGlide | null = null;
-  /** The glide in flight, so a second wheel tick folds into it (see ZoomGlide.add). */
-  public _zoomGlide: ZoomGlide | null = null;
+  /**
+   * The bar spacing the wheel zoom is heading for, or null with none in
+   * flight. Every wheel event moves this target and nothing else; the frames
+   * chase it. Applying part of each event on the event itself, and starting a
+   * fresh curve per event, made a fast wheel land several bites in one
+   * painted frame and gave every notch a jolt: the chase has neither.
+   */
+  public _zoomTarget: number | null = null;
   private _zoomFocus = 0;
   private _zoomFrames = 0;
-  private _zoomGlideStart = 0;
-  public _zoomGlideApplied = 0;
+  private _zoomLastTime = 0;
   private readonly _animAutoscale: boolean;
   public _autoscaleTime: number | null = null;
   public _autoscaleFrames = 0;
@@ -80,7 +95,7 @@ export class ChartMotion {
   public _step(): boolean {
     this._stepZoomGlide();
     this._stepKinetic();
-    return this._zoomGlide !== null || this._kinetic !== null;
+    return this._zoomTarget !== null || this._kinetic !== null;
   }
 
   /** One zoom step, applied now. Shared by the instant path and each glide frame. */
@@ -93,39 +108,60 @@ export class ChartMotion {
     this._host._emitViewport('zoom');
   }
 
-  /** The part of the running zoom glide not painted yet, as a log factor; 0 with no glide. */
+  /** The part of the wheel zoom not painted yet, as a log factor; 0 with none in flight. */
   public _remainingZoom(): number {
-    return this._zoomGlide === null ? 0 : this._zoomGlide.totalLogFactor - this._zoomGlideApplied;
+    return this._zoomTarget === null ? 0 : Math.log(this._zoomTarget / this._host._timeScale.barSpacing);
   }
 
-  public _startZoomGlide(focusX: number, logFactor: number): void {
+  /**
+   * Fold one wheel step into the zoom in flight, or start one.
+   *
+   * The target accumulates, so a fast spin covers the sum of its notches and a
+   * reversal genuinely reverses, and it is bounded here so input at a spacing
+   * limit leaves no invisible debt to unwind. Only a zoom that starts from
+   * rest moves on the event itself, by what its first frame would have moved
+   * (`ZoomGlide.leadFraction`): the chart answers the first notch at once, and
+   * the notches that follow only move the target.
+   */
+  public _retargetZoom(focusX: number, logFactor: number): void {
     if (this._host._navigation.zoomEnabled === false) return;
-    this._zoomGlide = new ZoomGlide(logFactor);
+    const ts = this._host._timeScale;
+    const fresh = this._zoomTarget === null;
+    const target = ts.constrainBarSpacing((fresh ? ts.barSpacing : this._zoomTarget!) * Math.exp(logFactor)); // set when not fresh
     this._zoomFocus = focusX;
-    this._zoomGlideStart = this._host._now();
-    this._zoomGlideApplied = 0;
-    this._zoomFrames = 0;
+    const remaining = Math.log(target / ts.barSpacing);
+    if (remaining === 0) { this._zoomTarget = null; return; }
+    this._zoomTarget = target;
+    if (fresh) {
+      this._zoomLastTime = this._host._now();
+      this._zoomFrames = 0;
+      const epoch = this._navigationEpoch;
+      this._applyZoom(focusX, remaining * ZoomGlide.leadFraction({ tau: ZOOM_CHASE_TAU }));
+      if (this._host._destroyed || epoch !== this._navigationEpoch || this._zoomTarget !== target) return;
+    }
     this._host._loop.requestFrame();
   }
 
   private _stepZoomGlide(): void {
-    const glide = this._zoomGlide;
-    if (glide === null) return;
-    // Cleared rather than left behind: a glide still set keeps the loop asking for frames.
-    if (this._host._destroyed || this._host._navigation.zoomEnabled === false) { this._zoomGlide = null; return; }
-    const elapsed = this._host._now() - this._zoomGlideStart;
-    const applied = glide.appliedAt(elapsed);
-    const delta = applied - this._zoomGlideApplied;
-    this._zoomGlideApplied = applied;
+    const target = this._zoomTarget;
+    if (target === null) return;
+    // Cleared rather than left behind: a target still set keeps the loop asking for frames.
+    if (this._host._destroyed || this._host._navigation.zoomEnabled === false) { this._zoomTarget = null; return; }
+    const ts = this._host._timeScale;
+    const now = this._host._now();
+    // The real frame time, so the zoom covers the same ground per second at 60Hz and 144Hz.
+    const dt = Math.min(ZOOM_CHASE_MAX_DT, Math.max(0, now - this._zoomLastTime));
+    this._zoomLastTime = now;
+    const remaining = Math.log(target / ts.barSpacing);
+    const land = Math.abs(remaining) < ZOOM_CHASE_LAND || ++this._zoomFrames >= ZOOM_GLIDE_MAX_FRAMES;
+    const step = land ? remaining : remaining * (1 - Math.exp(-dt / ZOOM_CHASE_TAU));
+    const before = ts.barSpacing;
     // A frame that moved nothing still costs a full-pane repaint, so skip it.
-    if (delta !== 0) this._applyZoom(this._zoomFocus, delta);
-    if (this._zoomGlide !== glide || this._host._destroyed) return;
-    if (glide.finished(elapsed) || ++this._zoomFrames >= ZOOM_GLIDE_MAX_FRAMES) {
-      // Land exactly on the target: the curve only approaches it.
-      const remainder = glide.totalLogFactor - this._zoomGlideApplied;
-      if (remainder !== 0) this._applyZoom(this._zoomFocus, remainder);
-      if (this._zoomGlide === glide) this._zoomGlide = null;
-    }
+    if (step !== 0) this._applyZoom(this._zoomFocus, step);
+    if (this._zoomTarget !== target || this._host._destroyed) return;
+    // Landed, or held at a spacing limit the target was not clamped to (the
+    // range a host set since): either way there is nothing left to chase.
+    if (land || (step !== 0 && ts.barSpacing === before)) this._zoomTarget = null;
   }
 
   public _beginAutoscaleMotion(): void {
@@ -165,7 +201,7 @@ export class ChartMotion {
   }
 
   public _stopZoomGlide(): void {
-    this._zoomGlide = null;
+    this._zoomTarget = null;
   }
 
   /** Coast after a flick: the render loop moves the view on each frame until the glide stops. */

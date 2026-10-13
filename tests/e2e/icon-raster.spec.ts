@@ -10,11 +10,11 @@ import type { Widget } from '../../src/widget/widget';
  * size a rail shows them: lock and unlock differed by one short stroke, which
  * a round cap filled in, and overlapped by more than 99 percent at 16px.
  *
- * So every glyph is rasterised here at its tier's native size, one CSS pixel
- * per grid unit, by each engine's own SVG renderer, and each pair within a
- * tier is compared as a mask: the share of inked pixels the two have in common
- * (intersection over union). The same pass measures how much of each glyph's
- * ink is solid rather than anti-aliased, which is what crisp means at 1:1.
+ * So every glyph is rasterised here at the size its tier is drawn for, by each
+ * engine's own SVG renderer, and each pair within a tier is compared as a
+ * mask: the share of inked pixels the two have in common (intersection over
+ * union). The same pass measures how dark each glyph's line reads, so the two
+ * tiers can be held to one weight.
  *
  * Both tiers are judged twice: as the markup builders draw them, accents
  * filled, and as the bare path data, which is all a host that wraps the
@@ -29,7 +29,8 @@ type Rendering = 'markup' | 'path';
 interface Measured {
   /** Each pair's overlap, and the count of pixels inked in one and not the other. */
   pairs: { a: string; b: string; iou: number; diff: number }[];
-  crisp: number;
+  /** Mean alpha over each glyph's inked pixels, averaged over the tier: the line's apparent weight. */
+  weight: number;
   n: number;
   /**
    * The glyphs that inked no pixel. A blank glyph overlaps nothing, so it
@@ -120,16 +121,19 @@ const SIBLINGS: Record<Tier, [string, string][]> = {
 const SIBLING_CEILING = 0.7;
 
 /**
- * Share of a tier's inked pixels that are solid at native size, as the
- * builders draw them. Measured at 0.61 for the tools in all three engines,
- * and for chrome at 0.62 in Chromium and Firefox and 0.65 in WebKit; a
- * floor far under that lets a real loss through. The tools measured 0.59
- * until the pitchforks, drawn on the diagonal at 0.22 to 0.24, were redrawn
- * upright in 2.5.9. Chrome held its figure through 2.5.10, which grew it
- * from 29 glyphs to 129: rings, arrows and letters are soft at any size,
- * so the new glyphs were drawn square where their picture allowed it.
+ * How far apart the two tiers' line weights may read. Each tier's stroke is
+ * set so its line is about 1.3px at the size it is drawn for (20px tools,
+ * 16px chrome), so a lock under the tools reads as the same set, only
+ * smaller. Through 2.6.2 the two tiers drew a 2px line on whole units and
+ * this spec held their solid-pixel share instead; at a finer line nearly
+ * every pixel is anti-aliased, so what is held now is that the two weigh the
+ * same.
  */
-const CRISP_FLOOR: Record<Tier, number> = { tools: 0.6, chrome: 0.6 };
+const WEIGHT_GAP = 0.08;
+
+/** The computed stroke widths the widget's stylesheet gives each tier: the tier constants. */
+const TOOL_PX = '1.6px';
+const CHROME_PX = '1.3px';
 
 async function mount(page: Page, theme: 'dark' | 'light' = 'dark'): Promise<string[]> {
   const errors: string[] = [];
@@ -149,7 +153,7 @@ function measure(page: Page, tier: Tier, rendering: Rendering = 'markup'): Promi
 function rasterise(page: Page, which: 'tools' | 'chrome' | 'toolsPath' | 'chromePath' | 'layouts'): Promise<Measured> {
   return page.evaluate(async (which) => {
     const list = window.__iconFixture.icons[which];
-    const rows: { id: string; mask: Uint8Array; crisp: number; lit: number }[] = [];
+    const rows: { id: string; mask: Uint8Array; lit: number; ink: number }[] = [];
     for (const g of list) {
       // Black on transparent, so alpha alone is the ink.
       const img = new Image();
@@ -163,13 +167,13 @@ function rasterise(page: Page, which: 'tools' | 'chrome' | 'toolsPath' | 'chrome
       const data = ctx.getImageData(0, 0, g.px, g.px).data;
       const mask = new Uint8Array(g.px * g.px);
       let lit = 0;
-      let solid = 0;
+      let ink = 0;
       for (let i = 0; i < mask.length; i++) {
         const a = data[i * 4 + 3] / 255;
         mask[i] = a > 0.3 ? 1 : 0;
-        if (a > 0.05) { lit++; if (a >= 0.9) solid++; }
+        if (a > 0.05) { lit++; ink += a; }
       }
-      rows.push({ id: g.id, mask, crisp: lit === 0 ? 0 : solid / lit, lit });
+      rows.push({ id: g.id, mask, lit, ink });
     }
     const pairs: { a: string; b: string; iou: number; diff: number }[] = [];
     for (let i = 0; i < rows.length; i++) {
@@ -183,7 +187,9 @@ function rasterise(page: Page, which: 'tools' | 'chrome' | 'toolsPath' | 'chrome
       }
     }
     return {
-      pairs, crisp: rows.reduce((s, r) => s + r.crisp, 0) / rows.length, n: rows.length,
+      pairs, n: rows.length,
+      // Ink per inked pixel: how dark the line reads, whatever its length.
+      weight: rows.reduce((s, r) => s + (r.lit === 0 ? 0 : r.ink / r.lit), 0) / rows.length,
       blank: rows.filter((r) => r.lit === 0).map((r) => r.id),
     };
   }, which);
@@ -218,32 +224,35 @@ for (const [tier, rendering] of [['tools', 'markup'], ['chrome', 'markup'], ['to
   });
 }
 
-for (const tier of ['tools', 'chrome'] as const) {
-  test(`${tier} glyphs are crisp at their native size`, async ({ page }, info) => {
-    await mount(page);
-    const m = await measure(page, tier);
-    await info.attach(`${tier}-crisp.txt`, { body: m.crisp.toFixed(3), contentType: 'text/plain' });
-    expect(m.crisp).toBeGreaterThan(CRISP_FLOOR[tier]);
-  });
-}
+test('both tiers draw one line weight at the size they are drawn for', async ({ page }, info) => {
+  await mount(page);
+  const tools = await measure(page, 'tools');
+  const chrome = await measure(page, 'chrome');
+  await info.attach('weights.txt', { body: `tools ${tools.weight.toFixed(3)} chrome ${chrome.weight.toFixed(3)}`, contentType: 'text/plain' });
+  console.log('WEIGHTS', tools.weight.toFixed(3), chrome.weight.toFixed(3));
+  expect(tools.blank).toEqual([]);
+  expect(chrome.blank).toEqual([]);
+  expect(Math.abs(tools.weight - chrome.weight)).toBeLessThan(WEIGHT_GAP);
+});
 
-test('every two layout tiles differ by a divider, and every tile is crisp', async ({ page }, info) => {
+test('every two layout tiles differ by a divider, and weigh what the chrome set weighs', async ({ page }, info) => {
   // The tiles share their frame by design, so their overlap is high whatever
   // they show: a picker tells them apart by the dividers they do not share.
-  // Each pair has to differ by at least a short divider, three units of the
-  // 2px line, and the lines all sit on whole units, so nearly every inked
-  // pixel is solid.
+  // Each pair has to differ by at least a short divider, and the tiles sit
+  // in a menu beside chrome glyphs, so they draw the same line.
   const errors = await mount(page);
   const m = await rasterise(page, 'layouts');
+  const chrome = await measure(page, 'chrome');
   expect(m.n).toBeGreaterThan(10);
   expect(m.blank, 'tiles that ink no pixel').toEqual([]);
   const nearest = [...m.pairs].sort((p, q) => p.diff - q.diff);
   await info.attach('layouts-nearest.txt', {
-    body: nearest.slice(0, 10).map((p) => `${key(p.a, p.b)} ${p.diff}px ${p.iou.toFixed(3)}`).join('\n') + `\ncrisp ${m.crisp.toFixed(3)}`,
+    body: nearest.slice(0, 10).map((p) => `${key(p.a, p.b)} ${p.diff}px ${p.iou.toFixed(3)}`).join('\n') + `\nweight ${m.weight.toFixed(3)}`,
     contentType: 'text/plain',
   });
   expect(nearest.filter((p) => p.diff < 6).map((p) => `${key(p.a, p.b)} ${p.diff}px`)).toEqual([]);
-  expect(m.crisp).toBeGreaterThan(0.9);
+  console.log('LAYOUT', nearest[0] ? nearest[0].diff : -1, m.weight.toFixed(3), chrome.weight.toFixed(3));
+  expect(Math.abs(m.weight - chrome.weight)).toBeLessThan(WEIGHT_GAP);
   expect(errors).toEqual([]);
 });
 
@@ -269,12 +278,16 @@ test('the widget shows the glyphs as the tier ships them, in the rail, a flyout 
       trend: document.querySelectorAll('#oac-rail-sprite symbol#oac-icon-trend-line path[fill="currentColor"]').length,
     }));
     expect(accents).toEqual({ ray: 1, trend: 1 });
-    // The widget's own stylesheet sets the chrome width; it has to match the
-    // tier, or the crisp stroke is overridden back to a fractional one.
+    // The widget's own stylesheet sets each tier's width; it has to match the
+    // tier, or the rail draws a weight the set was not drawn for.
     const widths = await page.evaluate(() => [...document.querySelectorAll('.oac-widget .oac-glyph--chrome > svg')]
       .map((svg) => getComputedStyle(svg).strokeWidth));
     expect(widths.length).toBeGreaterThan(3);
-    expect(new Set(widths)).toEqual(new Set(['2px']));
+    expect(new Set(widths)).toEqual(new Set([CHROME_PX]));
+    const toolWidths = await page.evaluate(() => [...document.querySelectorAll('.oac-widget .oac-glyph--tool > svg')]
+      .map((svg) => `${getComputedStyle(svg).strokeWidth} ${svg.getBoundingClientRect().width}`));
+    expect(toolWidths.length).toBeGreaterThan(3);
+    expect(new Set(toolWidths)).toEqual(new Set([`${TOOL_PX} 20`]));
 
     const rail = page.locator('.oac-rail');
     await rail.screenshot({ path: info.outputPath(`rail-${theme}.png`) });
@@ -325,7 +338,7 @@ test('the widget shows the glyphs as the tier ships them, in the rail, a flyout 
         size: box === undefined ? '' : `${box.width}x${box.height}`, stroke: svg === null ? '' : getComputedStyle(svg!).strokeWidth };
     }));
     expect(rows.length).toBeGreaterThan(8);
-    for (const row of rows) expect(row, row.label ?? '').toMatchObject({ size: '16x16', stroke: '2px', d: expect.stringMatching(/^M/) });
+    for (const row of rows) expect(row, row.label ?? '').toMatchObject({ size: '16x16', stroke: CHROME_PX, d: expect.stringMatching(/^M/) });
     expect(new Set(rows.map((row) => row.d)).size).toBe(rows.length);
     await typeMenu.screenshot({ path: info.outputPath(`chart-type-menu-${theme}.png`) });
     await page.keyboard.press('Escape');
@@ -343,7 +356,7 @@ test('the widget shows the glyphs as the tier ships them, in the rail, a flyout 
       const strokes = await tabs.locator('.oac-glyph--chrome > svg').evaluateAll((svgs) => svgs.map((s) => getComputedStyle(s).strokeWidth));
       expect(strokes.length).toBeGreaterThan(1);
       expect(strokes.length, 'a glyph on every tab').toBe(await tabs.locator('[role="tab"]').count());
-      expect(new Set(strokes)).toEqual(new Set(['2px']));
+      expect(new Set(strokes)).toEqual(new Set([CHROME_PX]));
       await tabs.screenshot({ path: info.outputPath(`${name}-tabs-${theme}.png`) });
       await page.keyboard.press('Escape');
       await expect(tabs).toHaveCount(0);

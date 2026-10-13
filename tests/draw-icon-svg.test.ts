@@ -11,7 +11,7 @@ import {
   iconSvg, chromeIconSvg, iconSprite, iconUse, toolCursor, ICON_SYMBOL_PREFIX,
 } from '../src/draw/icon-svg';
 import {
-  DRAWING_TOOL_ICONS, drawingToolIconIds, ICON_VIEWBOX, ICON_STROKE,
+  DRAWING_TOOL_ICONS, drawingToolIconIds, ICON_VIEWBOX, ICON_STROKE, ICON_SIZE,
   CHROME_ICONS, CHROME_ICON_FILLED, chromeIconIds, CHROME_ICON_VIEWBOX, CHROME_ICON_STROKE,
   DRAWING_TOOL_ACCENTS, CHROME_ICON_ACCENTS,
 } from '../src/draw/icons';
@@ -56,8 +56,8 @@ describe('iconSvg', () => {
     const r = root(svg);
     expect(r.xmlns).toBe('http://www.w3.org/2000/svg');
     expect(r.viewBox).toBe(ICON_VIEWBOX);
-    expect(r.width).toBe('24');
-    expect(r.height).toBe('24');
+    expect(r.width).toBe(String(ICON_SIZE));
+    expect(r.height).toBe(String(ICON_SIZE));
     expect(r.fill).toBe('none');
     expect(r.stroke).toBe('currentColor');
     expect(r['stroke-width']).toBe(String(ICON_STROKE));
@@ -254,11 +254,14 @@ describe('toolCursor', () => {
     expect(halo.d).toBe(DRAWING_TOOL_ICONS['horizontal-line']);
     expect(glyph.d).toBe(DRAWING_TOOL_ICONS['horizontal-line']);
     expect(glyph.stroke).toBe('#fff');
-    expect(glyph['stroke-width']).toBe(String(ICON_STROKE));
+    // The cursor keeps the 2-unit line the rail gave up: it sits over candles
+    // and grid lines, not a quiet panel.
+    expect(glyph['stroke-width']).toBe('2');
+    expect(ICON_STROKE).toBeLessThan(2);
     expect(halo.stroke).toBe('#000');
     // The halo has to clear the glyph by exactly one CSS pixel each side at
     // the requested size, whatever that size is.
-    const px = (Number(halo['stroke-width']) - ICON_STROKE) * 20 / 24;
+    const px = (Number(halo['stroke-width']) - Number(glyph['stroke-width'])) * 20 / 24;
     expect(px).toBeCloseTo(2, 5);
   });
 
@@ -282,8 +285,8 @@ describe('toolCursor', () => {
   });
 
   it('scales the halo with the image so it stays one pixel at any size', () => {
-    const [halo] = paths(parse(toolCursor('ray', { size: 32 })).svg);
-    expect((Number(halo['stroke-width']) - ICON_STROKE) * 32 / 24).toBeCloseTo(2, 2);
+    const [halo, glyph] = paths(parse(toolCursor('ray', { size: 32 })).svg);
+    expect((Number(halo['stroke-width']) - Number(glyph['stroke-width'])) * 32 / 24).toBeCloseTo(2, 2);
   });
 
   it('picks the halo that contrasts: black under a light glyph, white under a dark one', () => {

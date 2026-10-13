@@ -283,7 +283,10 @@ export function buildChart2({ keepView = true, typeChanged = false, state } = {}
   el('chart2').innerHTML = '';
   app.chart2 = createChart(el('chart2'), {
     theme: chartTheme(),
-    navigation: { defaultBarSpacing: 8 },
+    // A drag moves time and leaves the price scale fitting what is in view,
+    // and the wheel zooms about the latest bar (Ctrl or Cmd: about the cursor).
+    navigation: { defaultBarSpacing: 8, mousePan: 'horizontal' },
+    zoomAnchor: 'right',
     priceAxisWidth: 62,
     legendIconSize: normalizeLegendIconSize(app.p2.legendIconSize),
     grid: { vertLines: el('vgrid').checked, horzLines: el('hgrid').checked },
