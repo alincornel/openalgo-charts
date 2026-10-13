@@ -2,7 +2,7 @@
 // the dwell tooltip, plus the placement maths they share. Everything here is
 // host chrome built from the tier's shipped glyphs; nothing reaches the
 // controller directly, the rail hands in callbacks.
-import { iconUse, chromeIconSvg, DRAWING_TOOL_ICONS } from '/dist/openalgo-charts.draw.mjs';
+import { iconUse, chromeIconSvg, DRAWING_TOOL_ICONS, ICON_SIZE, ICON_STROKE } from '/dist/openalgo-charts.draw.mjs';
 import { esc } from './ui.js';
 
 /** How long the pointer rests on a control before its label appears. */
@@ -358,8 +358,8 @@ export const RAIL_FLYOUT_CSS = `
   color: var(--tx); font-size: 13px; cursor: pointer; outline: none; user-select: none; }
 .fly__row:hover, .fly__row:focus-visible { background: var(--elev-2); }
 .fly__row[aria-checked="true"] { background: var(--on-bg); color: var(--acc-2); }
-.fly__glyph { width: 24px; height: 24px; display: grid; place-items: center; flex: none; }
-.fly__glyph > svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2;
+.fly__glyph { width: ${ICON_SIZE}px; height: ${ICON_SIZE}px; display: grid; place-items: center; flex: none; }
+.fly__glyph > svg { width: ${ICON_SIZE}px; height: ${ICON_SIZE}px; fill: none; stroke: currentColor; stroke-width: ${ICON_STROKE};
   stroke-linecap: round; stroke-linejoin: round; }
 .fly__name { flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fly__chord { min-width: 40px; text-align: right; color: var(--faint);
@@ -385,9 +385,9 @@ export const RAIL_FLYOUT_CSS = `
 .rail-menu button.is-off, .rail-menu button.is-off:hover { color: var(--faint); background: transparent; cursor: default; }
 .rail-menu button > svg { width: 16px; height: 16px; flex: none; stroke: currentColor;
   stroke-linecap: round; stroke-linejoin: round; }
-.rail-menu button > svg[viewBox="0 0 24 24"] { stroke-width: 2; fill: none; }
+.rail-menu button > svg[viewBox="0 0 24 24"] { stroke-width: ${ICON_STROKE}; fill: none; }
 .rail-menu__gap { width: 16px; flex: none; }
-.glyph--text { display: inline-grid; place-items: center; width: 24px; height: 24px; font-size: 12px;
+.glyph--text { display: inline-grid; place-items: center; width: ${ICON_SIZE}px; height: ${ICON_SIZE}px; font-size: 12px;
   font-weight: 600; }
 @media (prefers-reduced-motion: reduce) { .rail-tip, .fly__star { transition: none; } }
 `;

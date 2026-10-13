@@ -192,4 +192,67 @@ describe('chart wheel zoom', () => {
     expect(right.chart.timeScale.barSpacing).toBeCloseTo(cursor.chart.timeScale.barSpacing, 9);
     expect(right.chart.timeScale.rightOffset).not.toBeCloseTo(cursor.chart.timeScale.rightOffset, 6);
   });
+
+  it('lets wheel events that land between two frames move only the target, never the chart again', () => {
+    // A fast wheel delivers several events per frame. Each used to apply a
+    // slice of the whole remaining zoom on the event, so three of them in one
+    // frame painted about 60 percent of the debt at once: the jump the easing
+    // exists to prevent.
+    const { chart } = makeChart({ animZoom: true });
+    const before = chart.timeScale.barSpacing;
+    wheel(chart, -100);
+    const afterFirst = chart.timeScale.barSpacing;
+    expect(afterFirst).toBeGreaterThan(before);
+    wheel(chart, -100);
+    wheel(chart, -100);
+    expect(chart.timeScale.barSpacing).toBe(afterFirst);
+  });
+
+  it('covers the same zoom per second at any frame rate', () => {
+    // The step per frame follows the real frame time, so a 120Hz screen is not
+    // twice as fast as a 60Hz one.
+    const slow = makeChart({ animZoom: true });
+    const fast = makeChart({ animZoom: true });
+    wheel(slow.chart, -300);
+    wheel(fast.chart, -300);
+    for (let i = 0; i < 6; i++) slow.tick(16);
+    for (let i = 0; i < 12; i++) fast.tick(8);
+    const a = Math.log(slow.chart.timeScale.barSpacing);
+    const b = Math.log(fast.chart.timeScale.barSpacing);
+    expect(Math.abs(a - b)).toBeLessThan(1e-9);
+  });
+
+  it('eases a trackpad step too small to see on its own', () => {
+    // Small steps used to land whole on the event, so a two-finger zoom tracked
+    // the raw event jitter while a wheel notch glided.
+    const eased = makeChart({ animZoom: true });
+    const instant = makeChart({ animZoom: false });
+    wheel(eased.chart, -4);
+    wheel(instant.chart, -4);
+    const target = instant.chart.timeScale.barSpacing;
+    expect(eased.chart.timeScale.barSpacing).toBeLessThan(target);
+    for (let i = 0; i < 100; i++) eased.tick(16);
+    expect(eased.chart.timeScale.barSpacing).toBeCloseTo(target, 9);
+  });
+
+  it('starts each frame from where the last left off, with no spike on a new notch', () => {
+    // Every notch used to restart its curve and apply a slice on the event,
+    // so the frame after each notch jumped: measured at 5.6 times the frame
+    // before it, a sawtooth. Chasing one target the jump is 2.8 times, with
+    // notches every 48ms painted at 60fps.
+    const { chart, tick } = makeChart({ animZoom: true });
+    const moves: number[] = [];
+    let last = chart.timeScale.barSpacing;
+    for (let notch = 0; notch < 6; notch++) {
+      wheel(chart, -100);
+      for (let i = 0; i < 3; i++) {
+        tick(16);
+        const now = chart.timeScale.barSpacing;
+        moves.push(Math.log(now / last));
+        last = now;
+      }
+    }
+    const jumps = moves.slice(3).map((m, i) => m / moves[i + 2]!);
+    expect(Math.max(...jumps)).toBeLessThan(3.5);
+  });
 });

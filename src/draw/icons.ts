@@ -15,21 +15,21 @@
  *
  * # Two tiers, one line
  *
- * Tool glyphs live on a 24-unit grid and are shown at 24px in the rail. Host
- * chrome (undo, close, the settings tab rail) is shown at 16px beside them, and
- * a 24-grid glyph scaled to 16 lands its 2-unit stroke on 1.33 pixels, blurred
- * across two rows on every edge. So chrome has its own registry drawn on a
- * 16-unit grid. Both tiers draw a 2-unit stroke, and since each is shown at its
- * grid size, that is the same 2px line on screen in both rails: a lock under
- * the tools reads as part of the same set, only smaller.
+ * Tool glyphs live on a 24-unit grid and are shown at 20px in the rail. Host
+ * chrome (undo, close, the settings tab rail) is shown at 16px beside them on
+ * a registry of its own, drawn on a 16-unit grid, because a 24-grid glyph
+ * scaled to 16 loses its detail. Each tier's stroke is set so that it lands
+ * on the same line on screen at its display size: 1.6 units at 20px and 1.3
+ * units at 16px are both about 1.3px, so a lock under the tools reads as part
+ * of the same set, only smaller.
  *
- * The chrome stroke was 1.5 through 2.5.5, chosen to match the tool weight as a
- * fraction of the box. On integer coordinates a 1.5 stroke covers 0.75 of two
- * pixel rows, so no edge was ever solid (0.18 of its inked pixels, against 0.59
- * for the tools). A 1px stroke on half-unit coordinates was tried as well: as
- * crisp on straight edges, but faint on every curve and visibly lighter than
- * the tool rail beside it, on both themes. Two it is, with the few glyphs that
- * were too dense for it redrawn with more air.
+ * Through 2.6.2 both tiers drew a 2-unit stroke at their grid size (24px and
+ * 16px), which put every edge on a pixel boundary. Crisp, but at twice the ink
+ * of a fine line and a third larger, a rail of them read as heavy beside the
+ * chart it frames: on screen, weight is noticed long before edge sharpness.
+ * Earlier still the chrome stroke was 1.5 at 16px, the lightest of the three,
+ * and the tool rail beside it the heaviest; one line across both is the rule
+ * that survived every revision.
  *
  * # The grid
  *
@@ -40,12 +40,11 @@
  *  - **One viewBox per tier.** 24 by 24 for tools, 16 by 16 for chrome, so a
  *    host sets the size once per surface.
  *  - **A margin all round.** Live area 2 to 22 on the tool grid, 2 to 14 on the
- *    chrome grid, so the ink stops a pixel short of the box. Without it,
- *    glyphs that happen to reach the edge look larger than their neighbours
- *    and the rail reads as ragged.
- *  - **Integer coordinates.** With a stroke of 2, an orthogonal edge centred on
- *    an integer covers exactly two device pixels at 1:1, which is what makes it
- *    crisp.
+ *    chrome grid, so the ink stops short of the box. Without it, glyphs that
+ *    happen to reach the edge look larger than their neighbours and the rail
+ *    reads as ragged.
+ *  - **Integer coordinates.** Parallel strokes keep an even gap and a family
+ *    of glyphs shares its anchor points, so siblings line up in a list.
  *  - **One stroke weight.** Different weights across identically sized boxes
  *    is the single most visible tell of a set assembled rather than drawn.
  *  - **The whole glyph in its path.** The marks that tell siblings apart (a
@@ -57,21 +56,27 @@
  *
  * # Rendering
  *
- * Tool glyphs are crispest at 24px, and at any integer multiple of it. At 18px
- * the 0.75 scale puts a 2-unit stroke on 1.5 device pixels and every edge is
- * anti-aliased across two rows: that is a host sizing choice, not something the
- * path data can fix. Prefer 24, or 12 with a heavier weight. Chrome glyphs are
- * drawn for 16px and its multiples.
+ * Tool glyphs are drawn for 20px and chrome glyphs for 16px, which is what
+ * `iconSvg` and `chromeIconSvg` default to. A host that shows a glyph larger
+ * scales the line with it; one that wants the same line at another size sets
+ * the stroke to keep it near 1.3px.
  */
 
 /** The viewBox every glyph is authored in. */
 export const ICON_VIEWBOX = '0 0 24 24';
 
 /**
- * Stroke width in viewBox units. Paths carry no presentation attributes, so a
- * host that wants a lighter set overrides this once rather than editing glyphs.
+ * The CSS pixel size a tool glyph is drawn for: the rail, a flyout row and
+ * `iconSvg` by default.
  */
-export const ICON_STROKE = 2;
+export const ICON_SIZE = 20;
+
+/**
+ * Stroke width in viewBox units: about 1.3px at `ICON_SIZE`. Paths carry no
+ * presentation attributes, so a host that wants another weight overrides this
+ * once rather than editing glyphs.
+ */
+export const ICON_STROKE = 1.6;
 
 /**
  * The attribute bag a tier hands its host. Structural, so the markup builders
@@ -99,8 +104,8 @@ export const ICON_ATTRS = {
 /**
  * A round mark of radius `r` centred on a grid point: two half-turn arcs, so
  * the path closes where it starts. Stroked with the glyph's line, radius 1
- * paints a solid dot of radius 2, twice the line, which is what makes it read
- * as an anchor; radius 2 is a ring the accent fills.
+ * paints a near-solid dot over twice the line across, which is what makes it
+ * read as an anchor; radius 2 is a ring the accent fills.
  */
 function dot(x: number, y: number, r = 1): string {
   return `M${x - r} ${y}a${r} ${r} 0 0 0 ${2 * r} 0a${r} ${r} 0 0 0 ${-2 * r} 0z`;
@@ -131,7 +136,7 @@ const SEGMENT_ENDS = dot(6, 18) + dot(18, 6);
 const RAY_ORIGIN = dot(4, 18);
 const EXTENDED_DOTS = dot(8, 16) + dot(16, 8);
 const ARROW_HEAD = 'M20 4l-2 8-6-6z';
-const HRAY_ORIGIN = dot(8, 12);
+const HRAY_ORIGIN = dot(10, 12);
 const CROSS_CENTRE = dot(12, 12);
 const PATH_HEAD = 'M20 8l-6 2 4 4z';
 const POLYLINE_VERTICES = dot(4, 19, 2) + dot(9, 7, 2) + dot(14, 16, 2);
@@ -173,10 +178,11 @@ export const DRAWING_TOOL_ICONS: Readonly<Record<string, string>> = {
   'extended-line': 'M2 22 22 2' + EXTENDED_DOTS,
   arrow: 'M4 20 15 9' + ARROW_HEAD,
   'horizontal-line': 'M2 12h20',
-  // The ray leaves from its anchor a third of the way in and runs to the far
-  // edge. Trimmed from the same line with its dot held only in the accent, it
-  // was the horizontal line at 86 percent overlap for a host drawing the path.
-  'horizontal-ray': 'M8 12h14' + HRAY_ORIGIN,
+  // The ray leaves from its anchor two fifths of the way in and runs to the
+  // far edge. Trimmed from the same line with its dot held only in the accent,
+  // it was the horizontal line at 86 percent overlap for a host drawing the
+  // path; from a third of the way in, at the finer line of 2.6.3, 71 percent.
+  'horizontal-ray': 'M10 12h12' + HRAY_ORIGIN,
   'vertical-line': 'M12 2v20',
   'cross-line': 'M2 12h20M12 2v20' + CROSS_CENTRE,
   'trend-angle': 'M4 20 18 8M4 20h12M8 20a8 8 0 0 0 2-5',
@@ -409,15 +415,14 @@ export function drawingToolIconIds(): string[] {
 /** The viewBox every chrome glyph is authored in. */
 export const CHROME_ICON_VIEWBOX = '0 0 16 16';
 
+/** The CSS pixel size a chrome glyph is drawn for, and `chromeIconSvg`'s default. */
+export const CHROME_ICON_SIZE = 16;
+
 /**
- * Chrome stroke width in viewBox units. The same 2 as the tool tier, which at
- * the two native sizes is the same 2px line on screen. It was 1.5 through 2.5.5:
- * matched to the tool weight as a fraction of the box, and never crisp, since
- * a 1.5 stroke on whole units puts every edge three quarters of the way
- * across a pixel. See the file comment for the 1px alternative and why it
- * lost.
+ * Chrome stroke width in viewBox units: about 1.3px at `CHROME_ICON_SIZE`, the
+ * line the tool tier draws at its own size, so the two rails read as one set.
  */
-export const CHROME_ICON_STROKE = 2;
+export const CHROME_ICON_STROKE = 1.3;
 
 /** Attributes a host should apply to the `<svg>` around a chrome glyph. */
 export const CHROME_ICON_ATTRS = {
@@ -437,12 +442,14 @@ const CHROME_LENS = dot(8, 9);
 const CHROME_ENDS = dot(4, 12) + dot(12, 4);
 const CHROME_MARKERS = dot(5, 5, 2) + dot(10, 11, 2);
 const CHROME_HEAD = dot(8, 5, 2);
+/** The clipboard's clip: the board's top edge runs through it, so it is filled. */
+const CHROME_CLIP = 'M6 2h4v2H6z';
 
 /**
  * A pip: a stroke of no length, which the round cap paints as a disc one
  * line wide. The small marks of the chrome tier (an i's dot, a row of keys,
- * a grip) are pips rather than `dot`s, whose ring of a 2px line is a disc
- * twice that and crowds a 16px box.
+ * a grip) are pips rather than `dot`s, whose ring is a disc over twice the
+ * line across and crowds a 16px box.
  */
 const pip = (x: number, y: number): string => `M${x} ${y}h0`;
 
@@ -452,8 +459,9 @@ const pip = (x: number, y: number): string => `M${x} ${y}h0`;
  * marks included; no presentation attributes; integer coordinates) on the 16
  * grid with a 2..14 live area.
  *
- * At a 2px line a 16px glyph has room for about four parallel strokes with a
- * pixel between them, so the dense glyphs are drawn with that in mind: two
+ * The set was drawn for a 2px line, where a 16px glyph has room for about four
+ * parallel strokes with a pixel between them, and keeps that air at the finer
+ * line it is shown with now: two
  * sliders rather than three, a lens and a pupil as small solid dots rather
  * than rings, and no plus squeezed inside a square.
  *
@@ -496,7 +504,7 @@ export const CHROME_ICONS: Readonly<Record<string, string>> = {
   copy: 'M6 6h8v8H6zM10 6V2H2v8h4',
   // A board with its clip and two lines of content: the empty board beside
   // the trash can's lid and handle overlapped it by 72 percent at 16px.
-  paste: 'M3 3h10v11H3zM6 2h4v2H6zM6 8h4M6 11h4',
+  paste: 'M3 3h10v11H3z' + CHROME_CLIP + 'M6 8h4M6 11h4',
   // The copy of a square, as a square and a plus: a plus inside the front
   // square of `copy` leaves no pixel between the two at this weight.
   duplicate: 'M8 8h6v6H8zM5 2v6M2 5h6',
@@ -528,6 +536,9 @@ export const CHROME_ICONS: Readonly<Record<string, string>> = {
   // ── navigation, continued ───────────────────────────────────────────────
   'chevron-up': 'M3 10l5-5 5 5',
   'chevron-left': 'M10 3 5 8l5 5',
+  // A panel folding away and coming back: the rail's collapse and its tab.
+  'chevrons-left': 'M8 4 4 8l4 4M12 4 8 8l4 4',
+  'chevrons-right': 'M4 4l4 4-4 4M8 4l4 4-4 4',
   // The widget's menu tick moved onto whole units: its short leg ran from
   // 3,8.5 to an elbow at 6.5,12, and on the grid that elbow is 7,12, so a
   // menu that adopts this glyph keeps the tick it already shows.
@@ -687,11 +698,12 @@ export const CHROME_ICONS: Readonly<Record<string, string>> = {
   // or a bare range. Lines: plain, with markers, stepped, and the long
   // verticals and short shoulders of a kagi line. Blocks: bricks corner to
   // corner, bars of one height stepping, boxes of any height, columns on a
-  // base, a histogram about zero. A solid body is two units wide, which the
-  // line fills; a hollow one is four, with its wicks stopping at it.
-  'chart-candlestick': 'M5 2 5 5M3 5h4v6H3zM5 11 5 14M12 3 12 13M11 5h2v6h-2z',
+  // base, a histogram about zero. A solid body is two units wide and drawn as
+  // three strokes side by side, solid at any line; a hollow one is four, with
+  // its wicks stopping at it.
+  'chart-candlestick': 'M5 2 5 5M3 5h4v6H3zM5 11 5 14M12 3 12 13M11 5 11 11M13 5 13 11',
   'chart-hollow-candle': 'M5 2 5 4M3 4h4v5H3zM5 9 5 12M11 4 11 7M9 7h4v5H9zM11 12 11 14',
-  'chart-volume-candle': 'M4 3 4 13M3 5h2v5H3zM8 4h6v7H8zM11 2 11 4M11 11 11 14',
+  'chart-volume-candle': 'M4 3 4 13M3 5 3 10M5 5 5 10M8 4h6v7H8zM11 2 11 4M11 11 11 14',
   'chart-heikin-ashi': 'M3 8h4v6H3zM5 6 5 8M9 4h4v7H9zM11 2 11 4',
   'chart-bar': 'M5 2 5 14M2 5 5 5M5 11 8 11M11 3 11 12M8 9 11 9M11 5 14 5',
   'chart-high-low': 'M4 3 4 11M8 5 8 14M12 2 12 9',
@@ -713,12 +725,13 @@ export const CHROME_ICONS: Readonly<Record<string, string>> = {
 /**
  * The fills of the chrome glyphs' marks, as `DRAWING_TOOL_ACCENTS` is for the
  * tools: each mark is outlined in the glyph's path, and this paints it solid.
- * At 16px a ring of a 2px line is mostly line already, so the fill matters
+ * At 16px a ring of radius 1 is mostly line already, so the fill matters
  * most for the rings of radius 2: the slider knobs, a head, a line's markers.
  */
 export const CHROME_ICON_ACCENTS: Readonly<Record<string, string>> = {
   magnet: CHROME_MAGNET_CAPS,
   eye: CHROME_PUPIL,
+  paste: CHROME_CLIP,
   settings: CHROME_KNOBS,
   camera: CHROME_LENS,
   'drawing-sync': CHROME_ENDS,
@@ -792,8 +805,9 @@ const LAYOUT_MAX = 4;
  * (whole units, the 2..14 live area, no presentation attributes), and draws
  * through the chrome attribute bag like any `CHROME_ICONS` value.
  *
- * One to four a side: twelve units split four ways leaves a pixel of clear
- * between two lines of the 2px stroke, and five would close it up. Throws a
+ * One to four a side: twelve units split four ways leaves clear space
+ * between two lines even at the 2px stroke the set was drawn for, and five
+ * would close it up. Throws a
  * `RangeError` for anything else, and for a slot outside the grid or over
  * another. A chart grid takes up to eight a side, so a caller that draws the
  * current layout falls back to the `layout` glyph past four.

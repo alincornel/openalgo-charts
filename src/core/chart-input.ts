@@ -29,7 +29,6 @@ import type { PriceAxisSlot } from '../model/price-axis-layout';
 import type { Bar } from '../model/bar';
 import { barAtIndex } from '../model/data-layer';
 import { KineticAnimation } from '../input/kinetic';
-import { ZoomGlide } from '../input/zoom-glide';
 import { wheelPixels, wheelLogFactor } from '../input/wheel';
 import { magnetSnapPrice } from '../input/crosshair';
 import { ShortcutManager } from '../input/shortcuts';
@@ -1099,23 +1098,20 @@ export class ChartInput {
     if (delta.y === 0) return;
     const focusX = this._host._zoomAnchor === 'right' && !e.ctrlKey && !e.metaKey
       ? this._host._timeScale.width : Math.max(0, Math.min(this._host._timeScale.width, p.x - this._host._leftAxisWidth));
-    // Carry the unpainted distance across device changes and cursor movement.
-    // Bound the target now so input at a limit cannot accumulate invisible debt.
+    if (this._host._animZoom) {
+      // Every step eases, a trackpad's smallest included: applied at once, a
+      // stream of tiny steps tracked the raw event jitter.
+      this._host._motion._retargetZoom(focusX, wheelLogFactor(delta.y));
+      return;
+    }
+    // Carry the unpainted distance across a switch to instant zoom, and bound
+    // the step now so input at a limit cannot accumulate invisible debt.
     const remaining = this._host._motion._remainingZoom();
     const spacing = this._host._timeScale.barSpacing;
     const target = this._host._timeScale.constrainBarSpacing(spacing * Math.exp(remaining + wheelLogFactor(delta.y)));
-    const logFactor = Math.log(target / spacing);
     this._host._motion._stopZoomGlide();
-    if (logFactor === 0) return;
-    if (!this._host._animZoom || !ZoomGlide.shouldAnimate(logFactor)) {
-      this._host._motion._applyZoom(focusX, logFactor);
-      return;
-    }
-    const lead = logFactor * ZoomGlide.leadFraction();
-    const epoch = this._host._motion._navigationEpoch;
-    this._host._motion._applyZoom(focusX, lead);
-    if (this._host._destroyed || epoch !== this._host._motion._navigationEpoch) return;
-    this._host._motion._startZoomGlide(focusX, logFactor - lead);
+    const logFactor = Math.log(target / spacing);
+    if (logFactor !== 0) this._host._motion._applyZoom(focusX, logFactor);
   }
 
   public _onDblClick(e: { clientX: number; clientY: number }): void {

@@ -8,7 +8,7 @@ import DrawingToolsDemo from '../../components/DrawingToolsDemo'
 
 # Drawing Tools
 
-`openalgo-charts/draw` is a lazy tier (**58.36 kB** Brotli in 2.6.0) with 87 tools and a headless
+`openalgo-charts/draw` is a lazy tier (**58.44 kB** Brotli in 2.6.3) with 87 tools and a headless
 controller. It ships **no UI**: no toolbar, no dialogs. It owns the model and the
 interactions; your app supplies the buttons.
 
@@ -1089,14 +1089,14 @@ window.addEventListener('keydown', (e) => {
 
 The tier ships a glyph for every tool on a 24 grid, and a chrome set (undo, lock, eye,
 trash, settings and the rest) on a 16 grid, as path data with string builders over it.
-Both tiers draw a 2-unit stroke on whole units, so at their native sizes (24px and 16px)
-every horizontal and vertical edge lands on a pixel boundary, and both rails share one
-2px line. Diagonals and curves are anti-aliased at any size.
+Tools are drawn for 20px (`ICON_SIZE`) and chrome for 16px (`CHROME_ICON_SIZE`), and each
+tier's stroke (`ICON_STROKE` 1.6, `CHROME_ICON_STROKE` 1.3) puts about a 1.3px line on screen
+at that size, so a rail of tools and the chrome under it read as one fine set.
 
 ```ts
 import { iconSvg, chromeIconSvg, iconSprite, iconUse, toolCursor } from 'openalgo-charts/draw';
 
-button.innerHTML = iconSvg('trend-line');       // 24px, currentColor
+button.innerHTML = iconSvg('trend-line');       // 20px, currentColor
 lockButton.innerHTML = chromeIconSvg('lock');   // 16px
 canvas.style.cursor = toolCursor('trend-line'); // the glyph over a contrasting halo
 ```
@@ -1135,10 +1135,11 @@ tile.innerHTML = `<svg viewBox="${a.viewBox}" width="16" height="16" fill="none"
 
 The widget draws every picture it shows from this set: the chart-type menu, the type button and the phone layout's sheet show `chart-<type>`, the theme button `sun` or `moon`, and the settings tabs, stacking rows, line styles, menu tick and remove crosses their chrome ids. No widget file draws a glyph of its own, so the checks on the registry cover the widget as well.
 
-The chrome stroke (`CHROME_ICON_STROKE`) was 1.5 through 2.5.5 and is 2 now. To keep the
-old weight, pass it explicitly: `chromeIconSvg(id, { stroke: 1.5 })`, `stroke-width="1.5"`
-on your own `<svg>`, or `stroke-width: 1.5` in your stylesheet. The glyphs are drawn for 2
-on whole units, so at 1.5 their edges are soft again.
+Through 2.6.2 both tiers drew a 2-unit line at their grid size (24px and 16px): crisp on every
+straight edge, but at twice the ink, and a rail of them read as heavy beside the chart. To keep
+that weight, pass it explicitly: `iconSvg(id, { size: 24, stroke: 2 })`,
+`chromeIconSvg(id, { stroke: 2 })`, or `stroke-width` in your own frame or stylesheet. The tool
+cursor (`toolCursor`) keeps a 2-unit line either way, since it sits over candles.
 
 The grid, margins, stroke and marks are checked by unit tests. A browser check rasterises
 every glyph in Chromium, Firefox and WebKit, both as the builders draw it and as the bare

@@ -90,7 +90,7 @@
       "createOverlayStack": 168
     },
     "src/widget/rail.ts": {
-      "mountRail": 613
+      "mountRail": 602
     },
     "src/widget/statusline.ts": {
       "mountStatusline": 209

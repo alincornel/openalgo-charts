@@ -1,6 +1,7 @@
 import {
   getDrawingTool, hasDrawingTool, drawingShortcuts, matchDrawingShortcut, keyToDrawingAction,
   iconSprite, toolCursor, DRAWING_TOOL_ICONS, BUILTIN_DRAWING_TOOLS,
+  ICON_SIZE, ICON_STROKE, CHROME_ICON_SIZE, CHROME_ICON_STROKE,
 } from '/dist/openalgo-charts.draw.mjs';
 import { el, inTextField, MOD } from './ui.js';
 import {
@@ -77,8 +78,8 @@ export const RAIL_GROUPS = [
   ] },
   { id: 'geometry', title: 'Geometric studies', items: [
     { head: 'Geometric studies' },
-    { tool: 'dedekind-tessellation' }, { tool: 'sonic' }, { tool: 'supersonic' },
-    { tool: 'golden-sonic' }, { tool: 'golden-supersonic' },
+    { tool: 'sonic' }, { tool: 'supersonic' }, { tool: 'golden-sonic' }, { tool: 'golden-supersonic' },
+    { tool: 'dedekind-tessellation' },
   ] },
   { id: 'marks', title: 'Arrows and marks', items: [
     { head: 'Arrows' },
@@ -125,7 +126,7 @@ export function chordOf(id) {
 }
 
 // ── preferences ────────────────────────────────────────────────────────
-const prefs = { favorites: [], magnet: 'off', stay: false, last: {} };
+const prefs = { favorites: [], magnet: 'off', stay: false, last: {}, collapsed: false };
 let latch = false;   // a double-click's hold on one tool; see setDrawLock
 
 function loadPrefs() {
@@ -135,6 +136,7 @@ function loadPrefs() {
   prefs.magnet = 'off';
   prefs.stay = false;
   prefs.last = {};
+  prefs.collapsed = false;
   if (!raw || typeof raw !== 'object') return;
   // Validated field by field: a pin to a tool this dist/ lacks, or a mode
   // a later release renamed, is dropped on its own rather than taking the
@@ -144,6 +146,7 @@ function loadPrefs() {
   }
   if (MAGNET_MODES.includes(raw.magnet)) prefs.magnet = raw.magnet;
   prefs.stay = raw.stay === true;
+  prefs.collapsed = raw.collapsed === true;
   if (raw.last && typeof raw.last === 'object') {
     for (const g of RAIL_GROUPS) {
       if (g.id && typeof raw.last[g.id] === 'string' && toolsOf(g).includes(raw.last[g.id])) prefs.last[g.id] = raw.last[g.id];
@@ -160,6 +163,7 @@ function savePrefs() {
 /** A copy of what the rail remembers. Tests read it; the page never needs to. */
 export const railPrefs = () => ({
   favorites: prefs.favorites.slice(), magnet: prefs.magnet, stay: prefs.stay, last: { ...prefs.last },
+  collapsed: prefs.collapsed,
 });
 
 const lastOf = (g) => prefs.last[g.id] || toolsOf(g)[0] || null;
@@ -208,7 +212,7 @@ export function armCursor(box, tool) {
  * draws its own, inline like the tier's.
  */
 const ERASER_GLYPH = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16" fill="none" '
-  + 'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+  + 'stroke="currentColor" stroke-width="' + CHROME_ICON_STROKE + '" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
   + '<path d="M9 2.5l4.5 4.5-6 6H4.5L2.5 11zM5.75 5.75l4.5 4.5M9.5 14h4"/></svg>';
 
 const erasing = () => Boolean(app.draw && typeof app.draw.erasing === 'function' && app.draw.erasing());
@@ -452,8 +456,8 @@ function controlsBlock() {
   box.className = 'rail__ctl';
 
   ctl.magnet = makeBtn({
-    cls: 'rail__btn--magnet',
-    glyph: toolGlyph('magnet'),
+    cls: 'rail__btn--chrome rail__btn--magnet',
+    glyph: chromeGlyph('magnet'),
     tip: () => ({
       title: 'Magnet: ' + prefs.magnet,
       sub: (prefs.magnet === 'off' ? 'Click for weak: snaps when a bar or study value is within a few pixels'
@@ -586,7 +590,74 @@ function controlsBlock() {
     onClick: () => { historyPress('redo', 1); refreshControls(); },
   });
   box.appendChild(ctl.redo);
+  box.appendChild(sep());
+  ctl.collapse = makeBtn({
+    cls: 'rail__btn--chrome rail__collapse',
+    glyph: chromeGlyph('chevrons-left'),
+    tip: () => ({ title: 'Hide drawing tools', sub: 'The chart takes the space. The tab at its bottom left brings them back', side: 'right' }),
+    onClick: () => setRailCollapsed(true),
+  });
+  box.appendChild(ctl.collapse);
   return box;
+}
+
+// ── folding ────────────────────────────────────────────────────────────
+// Folded, the rail leaves a tab at the chart's bottom left and the stage
+// drops `has-rail`, which is what every chart offset in the page keys on, so
+// the chart takes the rail's width. The tab stops the press: the chart's
+// pointer capture would otherwise eat it.
+let railTab = null;
+// Below 900px the rail is the bottom bar, with no room for a tab, so a fold
+// chosen on a desktop window waits there until the window is wide again.
+let wideQuery = null;
+const foldable = () => !wideQuery || wideQuery.matches;
+
+function ensureRailTab() {
+  const rail = el('rail');
+  if (!rail || !rail.parentNode || typeof rail.parentNode.insertBefore !== 'function') return null;
+  // One tab per page: a rail rebuilt in place keeps it, a new page gets its own.
+  if (railTab && railTab.parentNode === rail.parentNode) return railTab;
+  railTab = document.createElement('button');
+  railTab.type = 'button';
+  railTab.className = 'rail-tab';
+  railTab.hidden = true;
+  railTab.innerHTML = chromeGlyph('chevrons-right');
+  attachRailTip(railTab, () => ({ title: 'Show drawing tools', side: 'right' }));
+  railTab.addEventListener('pointerdown', (e) => e.stopPropagation());
+  railTab.addEventListener('click', () => setRailCollapsed(false));
+  rail.parentNode.insertBefore(railTab, rail.nextSibling);
+  if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+    wideQuery = window.matchMedia('(min-width: 901px)');
+    if (typeof wideQuery.addEventListener === 'function') wideQuery.addEventListener('change', applyRailCollapsed);
+  }
+  return railTab;
+}
+
+function applyRailCollapsed() {
+  const rail = el('rail');
+  if (!rail) return;
+  const tab = ensureRailTab();
+  const on = prefs.collapsed === true && foldable();
+  rail.classList.toggle('is-collapsed', on);
+  if (rail.parentNode && rail.parentNode.classList) rail.parentNode.classList.toggle('has-rail', !on);
+  if (tab) { tab.hidden = !on; refreshTipLabel(tab); }
+}
+
+export const railCollapsed = () => prefs.collapsed === true;
+
+/** Fold the rail away behind its tab, or bring it back. Focus follows the control that replaces the one pressed. */
+export function setRailCollapsed(on) {
+  const next = on === true;
+  if (prefs.collapsed === next) return;
+  const rail = el('rail');
+  const active = document.activeElement;
+  const hadFocus = next ? Boolean(rail && active && rail.contains(active)) : Boolean(railTab && active === railTab);
+  if (next) { closeFlyout(); hideRailTip(); }
+  prefs.collapsed = next;
+  savePrefs();
+  applyRailCollapsed();
+  const target = next ? railTab : ctl.collapse;
+  if (hadFocus && target) target.focus();
 }
 
 /** Whether the user may edit `d`: a drawing whose policy says otherwise is the host's. */
@@ -671,6 +742,7 @@ export function buildRail() {
     if (toolsOf(g).length) rail.appendChild(groupButton(g));
   }
   rail.appendChild(controlsBlock());
+  applyRailCollapsed();
   syncRail(app && app.draw ? app.draw.activeTool() : null);
 }
 
@@ -1032,15 +1104,15 @@ export function initMobile(a) {
 // ── stylesheet ─────────────────────────────────────────────────────────
 // The rail's own rules, injected once beside the flyout's. They sit on top
 // of the page stylesheet's `.rail` box (position, width, background) and
-// replace its button rules: a tool glyph is a 24px slot at the grid's
-// native size, a chrome glyph a 16px one, and every tint is a class.
+// replace its button rules: a tool glyph and a chrome glyph each sit at the
+// size their tier is drawn for, and every tint is a class.
 export const RAIL_CSS = `
 .rail { padding: 6px 0 0; gap: 2px; overflow-x: hidden; scrollbar-width: none; }
 .rail::-webkit-scrollbar { width: 0; height: 0; }
 .rail:focus { outline: none; }
-.rail .rail__btn { position: relative; width: 32px; height: 32px; padding: 0; display: grid; place-items: center;
-  flex: none; background: transparent; border: 1px solid transparent; border-radius: 7px; color: var(--mut);
-  cursor: pointer; transition: background .1s, color .1s, border-color .1s; }
+.rail .rail__btn { position: relative; width: 32px; height: 30px; padding: 0; display: grid; place-items: center;
+  flex: none; background: transparent; border: 1px solid transparent; border-radius: 6px; color: var(--mut);
+  cursor: pointer; transition: background .09s, color .09s, border-color .09s; }
 .rail .rail__btn:hover { background: var(--elev); color: var(--tx); }
 .rail .rail__btn:focus-visible { outline: 2px solid var(--acc-2); outline-offset: -2px; }
 .rail .rail__btn.is-on { background: var(--on-bg); border-color: var(--on-bd); color: var(--acc-2); }
@@ -1048,10 +1120,11 @@ export const RAIL_CSS = `
 .rail .rail__btn.is-off { color: var(--faint); cursor: default; }
 .rail .rail__btn.is-off:hover { background: transparent; color: var(--faint); }
 .rail .rail__btn--danger:not(.is-off):hover { color: var(--danger-tx); }
-.rail .rail__glyph { display: grid; place-items: center; width: 24px; height: 24px; line-height: 0; }
-.rail .rail__glyph > svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2;
-  stroke-linecap: round; stroke-linejoin: round; }
-.rail .rail__btn--chrome .rail__glyph > svg { width: 16px; height: 16px; stroke-width: 2; }
+.rail .rail__glyph { display: grid; place-items: center; width: ${ICON_SIZE}px; height: ${ICON_SIZE}px; line-height: 0; }
+.rail .rail__glyph > svg { width: ${ICON_SIZE}px; height: ${ICON_SIZE}px; fill: none; stroke: currentColor;
+  stroke-width: ${ICON_STROKE}; stroke-linecap: round; stroke-linejoin: round; }
+.rail .rail__btn--chrome .rail__glyph > svg { width: ${CHROME_ICON_SIZE}px; height: ${CHROME_ICON_SIZE}px;
+  stroke-width: ${CHROME_ICON_STROKE}; }
 .rail .rail__chev { position: absolute; right: 0; bottom: 0; width: 13px; height: 13px; display: grid;
   place-items: center; border-radius: 5px 0 6px 0; color: var(--mut); opacity: 0; transition: opacity .1s, background .1s; }
 .rail .rail__chev > svg { width: 9px; height: 9px; fill: none; stroke: currentColor; stroke-width: 2.2;
@@ -1069,6 +1142,18 @@ export const RAIL_CSS = `
 .rail .rail__ctl { margin-top: auto; position: sticky; bottom: 0; display: flex; flex-direction: column;
   align-items: center; gap: 2px; width: 100%; padding: 4px 0 6px; background: var(--panel-2);
   border-top: 1px solid var(--bd-soft); flex: none; }
+/* Tools that scroll under the controls fade out instead of being cut through. */
+.rail .rail__ctl::before { content: ''; position: absolute; left: 0; right: 0; bottom: 100%; height: 14px;
+  background: linear-gradient(to bottom, transparent, var(--panel-2)); pointer-events: none; }
 .rail .rail__ctl .rail__sep { margin: 3px 0; }
+.rail.is-collapsed { display: none; }
+.rail-tab { position: absolute; left: 0; bottom: 34px; z-index: 21; width: 16px; height: 26px; padding: 0;
+  display: grid; place-items: center; background: var(--panel-2); color: var(--mut); cursor: pointer;
+  border: 1px solid var(--bd-soft); border-left: 0; border-radius: 0 6px 6px 0;
+  transition: background .09s, color .09s, width .09s; }
+.rail-tab:hover { width: 20px; background: var(--elev); color: var(--tx); }
+.rail-tab:focus-visible { outline: 2px solid var(--acc-2); outline-offset: -2px; }
+.rail-tab > svg { width: 12px; height: 12px; }
+.rail-tab[hidden] { display: none; }
 @media (prefers-reduced-motion: reduce) { .rail .rail__btn, .rail .rail__chev { transition: none; } }
 `;

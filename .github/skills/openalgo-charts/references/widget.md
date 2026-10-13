@@ -144,16 +144,18 @@ Scopes resolve narrowest first: `['overlay']` alone while any overlay is open (n
 
 | Export | Kind | Purpose |
 |---|---|---|
-| `mountRail(ctx, host, opts?)` | function | The drawing rail into `host`. Returns a `RailHandle` (`sync`, `refresh`, `prefs`, `restorePrefs`, `magnetMode`, `setMagnetMode`, `cycleMagnet`, `stayMode`, `setStayMode`, `setDrawLock`, `destroy`). |
+| `mountRail(ctx, host, opts?)` | function | The drawing rail into `host`. Returns a `RailHandle` (`sync`, `refresh`, `prefs`, `restorePrefs`, `magnetMode`, `setMagnetMode`, `cycleMagnet`, `stayMode`, `setStayMode`, `setDrawLock`, `collapsed`, `setCollapsed`, `destroy`). `collapsed` and `setCollapsed` (since 2.6.3) are optional members, so a handle a host wrote for `mountMobile` before them still fits. |
 | `RAIL_GROUPS` | const | The group table: lines, channels, fib and gann, shapes, cycles, marks, text, measure, and the ids in each. The rail's order comes from here, not from `rail.tools`. |
 | `MAGNET_MODES` | const | `['off', 'weak', 'strong']`, the cycle the magnet button walks. |
-| `RAIL_PREFS_KEY` | const `'rail'` | The storage entry the rail's pins, last-picked tools, magnet and stay modes live under. |
+| `RAIL_PREFS_KEY` | const `'rail'` | The storage entry the rail's pins, last-picked tools, magnet and stay modes, and the fold (`collapsed: true`, since 2.6.3) live under. |
 | `toolGlyph(doc, id)` | function | A tool's glyph from the draw tier's sprite; a tool without an icon still gets its name. |
 | `toolName(id)` | function | A tool's display name from the registry, or the id itself. |
 | `sanitizeRailPrefs(raw, groups, toolsOf)` | function | Validate a stored preference object field by field, dropping what this build cannot honour. |
 | `RailOptions`, `RailHandle`, `RailPrefs`, `RailGroup`, `RailGroupItem` | types | |
 
 The sprite is injected once per document on the body (`id="oac-rail-sprite"`), so it outlives any one widget.
+
+Since 2.6.3 the last button of the controls block (chevrons pointing left) folds the rail away. The rail takes `.is-collapsed` (hidden), the chart widens into its column, and a small tab (`.oac-rail-tab`, chevrons pointing right) appears at the stage's bottom left; pressing it brings the rail back. Focus follows the control that replaces the one pressed. The fold is a rail preference: it persists with the pins and the magnet, travels in `getState().rail`, and is restored by `restoreState`. The tab stops `pointerdown` so the chart's pointer capture cannot take the press, and it is hidden on the phone layout and in a dense grid cell, where the rail already is. Tools that scroll under the controls block fade out above it instead of being cut through. Tool glyphs show at `ICON_SIZE` (20px) and chrome glyphs at `CHROME_ICON_SIZE` (16px), each at its tier's stroke; the magnet in the controls block is the chrome glyph, so the block is one size.
 
 ### The top bar (`topbar.ts`)
 
