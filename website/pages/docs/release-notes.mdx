@@ -8,6 +8,51 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 2.6.3
+
+2026-10-13
+
+A finish release: one fine line for every glyph, a drawing rail that folds away, a smoother wheel
+zoom, and tooltips that leave the click to the control under them.
+
+### Changed
+
+- **One fine line for every glyph.** `ICON_STROKE` is 1.6 and `CHROME_ICON_STROKE` 1.3 (both were
+  2), and the new `ICON_SIZE` (20) and `CHROME_ICON_SIZE` (16) name the size each tier is drawn
+  for: about a 1.3px line in both rails. `iconSvg` defaults to 20px. Pass `{ size: 24, stroke: 2 }`
+  for the heavier set. The tool cursor keeps its 2-unit line. See [Drawing tools](/docs/drawing-tools).
+- **A smoother wheel zoom.** Each wheel event moves one target and every frame closes part of the
+  distance by the real frame time, so a fast wheel or a trackpad zooms in one motion instead of
+  jolts. `animZoom: false` still applies each step at once. See [Interactions](/docs/interactions).
+- **The reference host's palette** is neutral: a near-black chart, grey chrome, a blue accent and
+  the #089981 and #f23645 candle pair. The engine's themes are unchanged.
+
+### Added
+
+- **The drawing rail folds away.** The rail's last button hides it and gives the chart its width;
+  a tab at the chart's bottom left brings it back. The fold is remembered with the rail's other
+  preferences and travels in `getState().rail`. `RailHandle` gains optional `collapsed()` and
+  `setCollapsed(on)`. See [Widget](/docs/widget).
+- **Chrome glyphs `chevrons-left` and `chevrons-right`.**
+
+### Fixed
+
+- **A tooltip no longer takes the click meant for the control under it**, in the widget's overlay
+  layer.
+- **Tools that scroll under the rail's controls fade out** instead of being cut through.
+
+### Size
+
+Draw tier 58.44 kB, widget tier 124.81 kB, all tiers 425.08 kB. The chart-only import is 87.25 KiB,
+62 bytes more for the zoom.
+
+### Performance
+
+Frames are on par with 2.6.2: with Canvas 2D at 200,000 bars a pan, a full zoom-out and a ten-study
+tick measure 2.2, 55.9 and 159.4 ms against 2.2, 55.1 and 160.7 ms. Two smaller Canvas 2D cells
+read slower on the page; timed again with the two builds alternating they tie (the changelog has
+the figures). See the [benchmark](/benchmarks#263) measured against 2.6.2.
+
 ## 2.6.2
 
 2026-10-13

@@ -2,7 +2,7 @@
   {
     "name": "Base engine (chart types + indicator registry + watermark + shortcuts + trading API + alerts)",
     "path": "dist/openalgo-charts.mjs",
-    "limit": "137.54 kB",
+    "limit": "137.48 kB",
     "brotli": true
   },
   {
@@ -11,7 +11,7 @@
       "dist/openalgo-charts.mjs",
       "dist/openalgo-charts.trade.mjs"
     ],
-    "limit": "154.42 kB",
+    "limit": "154.36 kB",
     "brotli": true
   },
   {
@@ -23,7 +23,7 @@
   {
     "name": "Draw tier (87 drawing tools + controller)",
     "path": "dist/openalgo-charts.draw.mjs",
-    "limit": "58.36 kB",
+    "limit": "58.45 kB",
     "brotli": true
   },
   {
@@ -47,7 +47,7 @@
   {
     "name": "Widget tier (shell, top bar, drawing rail, status line, dialogs, keymap, styles)",
     "path": "dist/openalgo-charts.widget.mjs",
-    "limit": "124.13 kB",
+    "limit": "124.82 kB",
     "brotli": true
   },
   {
@@ -64,7 +64,7 @@
       "dist/openalgo-charts.indicators.mjs",
       "dist/openalgo-charts.widget.mjs"
     ],
-    "limit": "362.94 kB",
+    "limit": "363.75 kB",
     "brotli": true
   },
   {
@@ -86,7 +86,7 @@
       "dist/openalgo-charts.widget.mjs",
       "dist/openalgo-charts.workspace.mjs"
     ],
-    "limit": "424.28 kB",
+    "limit": "425.09 kB",
     "brotli": true
   },
   {
@@ -102,19 +102,19 @@
       "dist/openalgo-charts.widget.standalone.js",
       "dist/openalgo-charts.workspace.standalone.js"
     ],
-    "limit": "438.25 kB",
+    "limit": "438.85 kB",
     "brotli": true
   },
   {
     "name": "Base classic script (openalgo-charts.standalone.js)",
     "path": "dist/openalgo-charts.standalone.js",
-    "limit": "137.70 kB",
+    "limit": "137.65 kB",
     "brotli": true
   },
   {
     "name": "Widget classic script (widget first-use parts inlined)",
     "path": "dist/openalgo-charts.widget.standalone.js",
-    "limit": "137.78 kB",
+    "limit": "138.33 kB",
     "brotli": true
   }
 ]
