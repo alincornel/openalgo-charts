@@ -13,7 +13,8 @@ The full, authoritative changelog lives in
 2026-10-13
 
 A finish release: one fine line for every glyph, a drawing rail that folds away, a smoother wheel
-zoom, and tooltips that leave the click to the control under them.
+zoom, a price scale that keeps fitting through drags and zooms in the widget, a log scale that
+fills the pane, and tooltips that leave the click to the control under them.
 
 ### Changed
 
@@ -24,6 +25,11 @@ zoom, and tooltips that leave the click to the control under them.
 - **A smoother wheel zoom.** Each wheel event moves one target and every frame closes part of the
   distance by the real frame time, so a fast wheel or a trackpad zooms in one motion instead of
   jolts. `animZoom: false` still applies each step at once. See [Interactions](/docs/interactions).
+- **In the widget, a drag moves time and the wheel zooms about the latest bar.** `createWidget`
+  defaults `navigation.mousePan` to `'horizontal'` and `zoomAnchor` to `'right'`, so the price
+  scale keeps fitting what is in view through drags and zooms. The price axis still drags price,
+  Ctrl or Cmd with the wheel zooms about the cursor, and a host's own options win. The engine's
+  defaults are unchanged. See [Widget](/docs/widget).
 - **The reference host's palette** is neutral: a near-black chart, grey chrome, a blue accent and
   the #089981 and #f23645 candle pair. The engine's themes are unchanged.
 
@@ -37,21 +43,26 @@ zoom, and tooltips that leave the click to the control under them.
 
 ### Fixed
 
+- **A log scale fills the pane** ([#53](https://github.com/marketcalls/openalgo-charts/issues/53)).
+  Autoscale padded its margins in price units, which left a whole empty decade under the lowest
+  bar of a long monthly series; it now pads in log space, so the data takes the same share of the
+  pane as on a linear scale.
 - **A tooltip no longer takes the click meant for the control under it**, in the widget's overlay
   layer.
 - **Tools that scroll under the rail's controls fade out** instead of being cut through.
 
 ### Size
 
-Draw tier 58.44 kB, widget tier 124.81 kB, all tiers 425.08 kB. The chart-only import is 87.25 KiB,
-62 bytes more for the zoom.
+Draw tier 58.44 kB, widget tier 124.90 kB, all tiers 425.30 kB. The chart-only import is 87.24 KiB,
+54 bytes more for the zoom and the log padding.
 
 ### Performance
 
 Frames are on par with 2.6.2: with Canvas 2D at 200,000 bars a pan, a full zoom-out and a ten-study
-tick measure 2.2, 55.9 and 159.4 ms against 2.2, 55.1 and 160.7 ms. Two smaller Canvas 2D cells
-read slower on the page; timed again with the two builds alternating they tie (the changelog has
-the figures). See the [benchmark](/benchmarks#263) measured against 2.6.2.
+tick measure 2.2, 56.0 and 152.0 ms against 2.2, 54.1 and 149.5 ms. The tick's runs spread widely
+and the bench times the new build first; timed again with the builds alternating, its medians are
+60.9 against 62.4 ms at 50,000 bars and 161.3 against 188.7 ms at 200,000. The changelog has the
+figures. See the [benchmark](/benchmarks#263) measured against 2.6.2.
 
 ## 2.6.2
 

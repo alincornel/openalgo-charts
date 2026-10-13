@@ -1136,7 +1136,7 @@ tile.innerHTML = `<svg viewBox="${a.viewBox}" width="16" height="16" fill="none"
 The widget draws every picture it shows from this set: the chart-type menu, the type button and the phone layout's sheet show `chart-<type>`, the theme button `sun` or `moon`, and the settings tabs, stacking rows, line styles, menu tick and remove crosses their chrome ids. No widget file draws a glyph of its own, so the checks on the registry cover the widget as well.
 
 Through 2.6.2 both tiers drew a 2-unit line at their grid size (24px and 16px): crisp on every
-straight edge, but at twice the ink, and a rail of them read as heavy beside the chart. To keep
+straight edge, but nearly twice the ink, and a rail of them read as heavy beside the chart. To keep
 that weight, pass it explicitly: `iconSvg(id, { size: 24, stroke: 2 })`,
 `chromeIconSvg(id, { stroke: 2 })`, or `stroke-width` in your own frame or stylesheet. The tool
 cursor (`toolCursor`) keeps a 2-unit line either way, since it sits over candles.
