@@ -141,7 +141,9 @@ export function VolumeProfileExample() {
   return (
     <ChartFrame chart={chart} height={400} label="Volume profile per session"
       code={`const result = computeVolumeProfileSessions(bars, { tickSize: 2, session: '${session}', valueAreaPercent: 0.7 });
-chart.addPrimitive(new VolumeProfile(result, { displayMode: '${mode}', side: 'right' }));`}
+chart.addPrimitive(new VolumeProfile(result, {
+  displayMode: '${mode}', side: 'right', showPocLabel: false, showValueAreaLabels: false,
+}));`}
       controls={<>
         <Segmented label="Sessions" value={session} onChange={setSession} options={[['day', 'Each day'], ['composite', 'All three days']]} />
         <Segmented label="Bars show" value={mode} onChange={setMode} options={[['total', 'Total volume'], ['buySell', 'Buy and sell'], ['delta', 'Delta']]} />

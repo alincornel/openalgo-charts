@@ -202,6 +202,7 @@ const TABLE_CODE = `const footprint = new Footprint({
   tableRows: ['session', 'askVolume', 'bidVolume', 'delta', 'deltaPct', 'maxDelta', 'minDelta',
               'cvd', 'cvdRatio', 'volume', 'cumVolume'],
   sessionWindow: TRADING_HOURS.india,   // letters and resets count from this session's open
+  cvdReset: 'session',                  // cumulative delta and volume restart at each open
   tpoMinutes: 5,                        // one letter per five minutes, so 14 bars span A to C
 });
 // Leave room under the columns for the table.
@@ -214,7 +215,7 @@ export function StatsTableExample() {
     const plot = TABLE_HEIGHT - 26;
     const view = footprintView(lib, host, scheme, {
       displayMode: 'bidask', stackedImbalances: 0, tableRows: TABLE_ROWS, statsRowHeight: ROW_HEIGHT, tableLabelWidth: LABEL_WIDTH,
-      sessionWindow: lib.profile.TRADING_HOURS.india, tpoMinutes: 5,
+      sessionWindow: lib.profile.TRADING_HOURS.india, tpoMinutes: 5, cvdReset: 'session',
     }, { priceScale: { minMove: OF_TICK, marginTop: 0.05, marginBottom: Math.min(0.6, (TABLE_ROWS.length * ROW_HEIGHT + 24) / plot) } }, 'top-left');
     view.setBars(aggregate(lib.profile, history()));
     return {

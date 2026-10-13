@@ -78,7 +78,10 @@ export function ZonesLiveExample() {
       view.setBars(bars);
       if (refit) view.fit({ minSpacing: 96 });
       const newest = bars[bars.length - 1];
-      const zones = footprint.signals().zones.filter((zone: any) => zone.endTime === null).length;
+      // signals() keeps every kind; count only the ones the chart extends.
+      const kinds: string[] = footprint.options().zoneKinds;
+      const group = (kind: string) => (kind === 'stackedBuy' || kind === 'stackedSell' ? 'stacked' : kind);
+      const zones = footprint.signals().zones.filter((zone: any) => zone.endTime === null && kinds.includes(group(zone.kind))).length;
       setStatus({ time: hhmm(newest.time), last: newest.close, zones });
     };
     const unsubscribe = footprint.onZoneAlert(({ zone, time }: any) => {

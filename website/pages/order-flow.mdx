@@ -58,8 +58,9 @@ a busy bar condense into a few readable rows.
 
 ## Imbalances and stacked imbalances
 
-Imbalances compare diagonally, because a buyer lifting the ask at one price trades
-against sellers who were offering one row lower. An ask cell is a buying imbalance
+Imbalances compare diagonally, because at any moment the best bid sits one row below
+the best ask: the ask volume at a price is weighed against the bid volume that stood one
+row under it. An ask cell is a buying imbalance
 when it is at least the ratio times the bid one row below it; a bid cell is a selling
 imbalance against the ask one row above. Three or more in a row on one side form a
 stacked imbalance, drawn as a bracket: a strong sign one side was in control.
@@ -95,9 +96,10 @@ bar, makes the heaviest clusters on the chart stand out.
 ## Order flow signals
 
 Each layer marks one pattern that traders look for, and each is off until you ask
-for it. A **big limit order** is a single cell several times the average near the
-bar's high or low. **Absorption** bands rows where heavy buying and heavy selling met
-and price did not move. **Multiple nodes** highlights a POC that two bars share. A
+for it. A **large-volume cell** (`bigOrderMultiple`) is a single cell several times the
+average near the bar's high or low, often read as a large resting order, though the chart
+only sees executed volume. **Absorption** bands rows near the high or low where both bid
+and ask volume were heavy. **Multiple nodes** highlights a POC that two bars share. A
 **delta flip** marks a bar whose delta turned after a run of the other sign at a
 swing. **Divergence** boxes the delta label when it disagrees with the candle, such as
 the up bar at 09:18 that closed with net selling. **Unfinished auctions** draw a
