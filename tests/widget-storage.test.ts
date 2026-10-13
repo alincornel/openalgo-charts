@@ -77,7 +77,7 @@ class RecordingStorage implements StorageLike {
 async function digest(v: string | null): Promise<string> {
   if (v === null) return 'null';
   // The state names the library version that wrote it; a release must not change what this pins.
-  const record = v.split(JSON.stringify(VERSION)).join('"<version>"');
+  const record = v.split(`"savedBy":${JSON.stringify(VERSION)}`).join('"savedBy":"<version>"');
   const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(record)));
   return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('').slice(0, 12);
 }
