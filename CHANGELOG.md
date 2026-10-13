@@ -61,11 +61,12 @@ reference host moves onto a neutral palette.
   with the wheel still zooms about the cursor, and a host that passes either
   option, or the chart settings' Mouse drag row, keeps its choice. The engine's
   own defaults (`'both'` and `'cursor'`) are unchanged. Through 2.6.2 the
-  chart state recorded every navigation option, chosen or not, so every saved
-  layout says `mousePan: 'both'`: `getState()` now stamps the widget state with
-  `savedBy` (the library version), and a state without the stamp restores with
-  the widget's drag rather than that recorded default, unless the host asked
-  for one. The reference host does the same through its layout schema 3. A
+  chart state recorded every navigation option, chosen or not, so every layout
+  saved on the default says `mousePan: 'both'`: `getState()` now stamps the
+  widget state with `savedBy` (the library version), and a state without the
+  stamp, whether restored by `restoreState` or by `persist` on a reload, drags
+  the way the widget was built to (its default or the host's option) rather
+  than by that recorded value. The reference host does the same through its layout schema 3. A
   drag chosen after this is saved and kept.
 
 ### Added
@@ -110,12 +111,12 @@ reference host moves onto a neutral palette.
 
 ### Size
 
-The base engine is 137.60 kB (was 137.44 kB) and base plus trade 154.48 kB, for
+The base engine is 137.61 kB (was 137.44 kB) and base plus trade 154.49 kB, for
 the zoom chase and the log padding; the draw tier is 58.44 kB (58.36 kB), the
-widget tier 124.90 kB (124.13 kB), the widget terminal 363.96 kB, all tiers
-425.30 kB, the nine classic scripts 439.02 kB and the widget classic script
-138.51 kB. Each budget moved to its measured need, the base classic script's
-down to 137.64 kB. The chart-only import rises 54 bytes to 87.24 KiB for the
+widget tier 124.94 kB (124.13 kB), the widget terminal 364.01 kB, all tiers
+425.35 kB, the nine classic scripts 439.11 kB and the widget classic script
+138.53 kB. Each budget moved to its measured need, the base classic script's
+to 137.72 kB (137.65 kB). The chart-only import rises 111 bytes to 87.30 KiB for the
 zoom chase and the log padding, which every chart carries.
 
 ### Performance
@@ -123,19 +124,21 @@ zoom chase and the log padding, which every chart carries.
 - **Measured against 2.6.2** on the release bench (five runs of each build in
   one session, `benchmarks/releases.json`, the website's Benchmarks page). With
   Canvas 2D at 200,000 bars a pan, a full zoom-out and a ten-study tick measure
-  2.2, 56.0 and 152.0 ms against 2.2, 54.1 and 149.5 ms (each the lowest p95 of
-  its five runs). The tick cells spread widely: at 200,000 bars it ran 152.0 to
-  211.6 ms on 2.6.3 and 149.5 to 185.6 ms on 2.6.2, and at 50,000 bars its
-  lowest run is 58.0 against 47.2 ms. The script times all five runs of the new
+  2.0, 51.5 and 149.9 ms against 2.0, 53.6 and 150.8 ms (each the lowest p95 of
+  its five runs). The tick cells spread widely: at 200,000 bars it ran 149.9 to
+  225.2 ms on 2.6.3 and 150.8 to 202.7 ms on 2.6.2, and at 50,000 bars its
+  lowest run is 58.1 against 42.6 ms. The script times all five runs of the new
   build before the old one, so both tick cells were timed again with the two
-  builds alternating, twelve passes outside the published entry: at 50,000 bars
-  the lowest and median runs are 43.0 and 60.9 ms on 2.6.3 against 44.3 and
-  62.4 ms on 2.6.2, and at 200,000 bars 148.4 and 161.3 against 150.4 and
-  188.7 ms. Every cell is within its frame budget.
+  builds alternating, twelve passes outside the published entry. The lowest
+  runs match at 200,000 bars (150.0 against 149.5 ms) and favour 2.6.3 at
+  50,000 (49.8 against 56.4 ms), while the medians swing by up to a fifth from
+  one session to the next on this machine, in either direction. Nothing in the
+  tick path changed beyond a mode check in autoscale. Every cell is within its
+  frame budget.
 
 ### Tests
 
-11672 engine tests across 516 files and 730 reference-host tests across 68
+11674 engine tests across 516 files and 730 reference-host tests across 68
 files. The log scale test fails against 2.6.2 (its bars sat at y 9 rather than
 40 of a 400 pixel pane), as do the widget tests for the drag default and for an
 unstamped layout. Three wheel zoom tests fail against 2.6.2: events between two frames

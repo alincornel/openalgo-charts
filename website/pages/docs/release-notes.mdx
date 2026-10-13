@@ -26,8 +26,8 @@ fills the pane, and tooltips that leave the click to the control under them.
   distance by the real frame time, so a fast wheel or a trackpad zooms in one motion instead of
   jolts. `animZoom: false` still applies each step at once. See [Interactions](/docs/interactions).
 - **In the widget, a drag moves time and the wheel zooms about the latest bar.** `createWidget`
-  defaults `navigation.mousePan` to `'horizontal'` and `zoomAnchor` to `'right'`, so the price
-  scale keeps fitting what is in view through drags and zooms. The price axis still drags price,
+  defaults `navigation.mousePan` to `'horizontal'` and `zoomAnchor` to `'right'`, so a price
+  scale on auto keeps fitting what is in view through drags and zooms. The price axis still drags price,
   Ctrl or Cmd with the wheel zooms about the cursor, and a host's own options win. The engine's
   defaults are unchanged. See [Widget](/docs/widget).
 - **The reference host's palette** is neutral: a near-black chart, grey chrome, a blue accent and
@@ -53,16 +53,16 @@ fills the pane, and tooltips that leave the click to the control under them.
 
 ### Size
 
-Draw tier 58.44 kB, widget tier 124.90 kB, all tiers 425.30 kB. The chart-only import is 87.24 KiB,
-54 bytes more for the zoom and the log padding.
+Draw tier 58.44 kB, widget tier 124.94 kB, all tiers 425.35 kB. The chart-only import is 87.30 KiB,
+111 bytes more for the zoom and the log padding.
 
 ### Performance
 
 Frames are on par with 2.6.2: with Canvas 2D at 200,000 bars a pan, a full zoom-out and a ten-study
-tick measure 2.2, 56.0 and 152.0 ms against 2.2, 54.1 and 149.5 ms. The tick's runs spread widely
-and the bench times the new build first; timed again with the builds alternating, its medians are
-60.9 against 62.4 ms at 50,000 bars and 161.3 against 188.7 ms at 200,000. The changelog has the
-figures. See the [benchmark](/benchmarks#263) measured against 2.6.2.
+tick measure 2.0, 51.5 and 149.9 ms against 2.0, 53.6 and 150.8 ms. The tick's runs spread widely
+and the bench times the new build first; timed again with the builds alternating, its lowest runs
+match at 200,000 bars (150.0 against 149.5 ms) and favour 2.6.3 at 50,000 (49.8 against 56.4 ms).
+The changelog has the figures. See the [benchmark](/benchmarks#263) measured against 2.6.2.
 
 ## 2.6.2
 
