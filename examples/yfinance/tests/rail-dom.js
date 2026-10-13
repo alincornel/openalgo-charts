@@ -132,6 +132,10 @@ export class FakeNode {
     this.children.push(c);
     return c;
   }
+  get nextSibling() {
+    const siblings = this.parentNode ? this.parentNode.children : [];
+    return siblings[siblings.indexOf(this) + 1] ?? null;
+  }
   insertBefore(c, ref) {
     if (c.parentNode) c.parentNode.removeChild(c);
     c.parentNode = this;

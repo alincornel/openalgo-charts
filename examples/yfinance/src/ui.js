@@ -463,7 +463,8 @@ const candlePair = {
   lineColor: BLUE, areaTopColor: 'rgba(41,98,255,0.28)', areaBottomColor: 'rgba(41,98,255,0.00)',
   baselineTopLine: UP, baselineTopFill: 'rgba(8,153,129,0.20)',
   baselineBottomLine: DOWN, baselineBottomFill: 'rgba(242,54,69,0.20)',
-  lastPriceUp: UP, lastPriceDown: DOWN, lastPriceText: '#ffffff',
+  // Dark ink on the tag: white on this green or red falls under 4.5:1 (3.6 and 3.9).
+  lastPriceUp: UP, lastPriceDown: DOWN, lastPriceText: '#151619',
   buy: UP, sell: DOWN, profit: UP, loss: DOWN,
 };
 const demoDark = {

@@ -212,7 +212,10 @@ function render({ keepView = true, state } = {}) {
   app.chart = createChart(el('chart'), {
     // DEFAULT_THEME is the light palette; the shell's switch decides which.
     theme: chartTheme(),
-    navigation: { defaultBarSpacing: 8 },
+    // A drag moves time and leaves the price scale fitting what is in view,
+    // and the wheel zooms about the latest bar (Ctrl or Cmd: about the cursor).
+    navigation: { defaultBarSpacing: 8, mousePan: 'horizontal' },
+    zoomAnchor: 'right',
     priceAxisWidth: 72, // free crosshair (follows pointer)
     legendIconSize: 16,
     grid: { vertLines: el('vgrid').checked, horzLines: el('hgrid').checked },

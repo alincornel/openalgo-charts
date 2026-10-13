@@ -1,6 +1,6 @@
 import { el, esc, currentTheme, toggleTheme, plural } from './ui.js';
 import { attachTip, hideTip } from './hover.js';
-import { cycleMagnet, magnetMode, focusChart, syncNavigationControls } from './rail.js';
+import { cycleMagnet, magnetMode, focusChart, syncNavigationControls, applyRailCollapsed } from './rail.js';
 import { INTERVALS, intervalLabel, intervalName, periodsFor, clampPeriod, foldedInterval } from './intervals.js';
 import { popupMenu } from './menus.js';
 import { openCompare, comparisonState } from './compare.js';
@@ -183,6 +183,8 @@ export function syncFullscreenChrome() {
     const parent = secondary || home;
     if (node && parent && node.parentNode !== parent) parent.appendChild(node);
   }
+  // The rail's fold tab and its chart offset live beside the rail, so they follow it.
+  applyRailCollapsed();
 }
 
 

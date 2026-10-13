@@ -60,8 +60,9 @@ export const datasetKey = (r) => `${r.symbol}|${r.interval}|${r.period}` + (sess
  *      whatever the draw tier of the day wrote (a bare array before 2.0).
  *   2  the same shape stamped `schema: 2`, with `drawings` always the 2.0
  *      drawing document and `version` always present.
+ *   3  (2.6.3) the same shape, written by a page whose charts drag time alone.
  */
-export const LAYOUT_SCHEMA = 2;
+export const LAYOUT_SCHEMA = 3;
 
 /** Thrown for a document that cannot be brought up to `LAYOUT_SCHEMA`. */
 export class LayoutError extends Error {
@@ -152,6 +153,23 @@ export const MIGRATIONS = {
     const out = { ...doc, schema: 2 };
     if (typeof out.version !== 'number') out.version = 1;
     if (out.drawings !== undefined && migrateDrawings) out.drawings = migrateDrawings(out.drawings);
+    return out;
+  },
+  // The engine writes every navigation option into a chart state, so each
+  // layout saved before 2.6.3 carries the old `mousePan: 'both'` whether or
+  // not anyone chose it, and restoring it would switch every drag back to
+  // moving price and the pane back to manual scaling. A choice made after
+  // this is saved at schema 3 and kept.
+  2: (doc) => {
+    const dropDefaultDrag = (state) => {
+      if (!isRecord(state) || !isRecord(state.navigation) || state.navigation.mousePan !== 'both') return state;
+      const { mousePan: _old, ...navigation } = state.navigation;
+      return { ...state, navigation };
+    };
+    const out = { ...dropDefaultDrag(doc), schema: 3 };
+    if (isRecord(out.secondary) && isRecord(out.secondary.state)) {
+      out.secondary = { ...out.secondary, state: dropDefaultDrag(out.secondary.state) };
+    }
     return out;
   },
 };

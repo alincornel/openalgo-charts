@@ -602,21 +602,27 @@ function controlsBlock() {
 }
 
 // ── folding ────────────────────────────────────────────────────────────
-// Folded, the rail leaves a tab at the chart's bottom left and the stage
-// drops `has-rail`, which is what every chart offset in the page keys on, so
-// the chart takes the rail's width. The tab stops the press: the chart's
-// pointer capture would otherwise eat it.
+// Folded, the rail leaves a tab at the chart's bottom left and the rail's
+// container drops `has-rail`, which is what every chart offset in the page
+// keys on, so the chart takes the rail's width. The tab stops the press: the
+// chart's pointer capture would otherwise eat it.
 let railTab = null;
-// Below 900px the rail is the bottom bar, with no room for a tab, so a fold
-// chosen on a desktop window waits there until the window is wide again.
-let wideQuery = null;
-const foldable = () => !wideQuery || wideQuery.matches;
+// Where styles.css swaps the rail for the touch bar (below 900px, or a short
+// coarse-pointer window under 960px): there is no room for a tab, so a fold
+// chosen on a desktop window waits there until the rail is back.
+const TOUCH_LAYOUT = '(max-width: 900px), (pointer: coarse) and (max-width: 960px) and (max-height: 599px)';
+let touchQuery = null;
+const foldable = () => !touchQuery || !touchQuery.matches;
 
 function ensureRailTab() {
   const rail = el('rail');
   if (!rail || !rail.parentNode || typeof rail.parentNode.insertBefore !== 'function') return null;
-  // One tab per page: a rail rebuilt in place keeps it, a new page gets its own.
-  if (railTab && railTab.parentNode === rail.parentNode) return railTab;
+  // One tab per page, beside the rail wherever the rail is: a full-screen
+  // second chart takes the rail into its own pane, and the tab goes with it.
+  if (railTab && railTab.ownerDocument === document) {
+    if (railTab.parentNode !== rail.parentNode) rail.parentNode.insertBefore(railTab, rail.nextSibling);
+    return railTab;
+  }
   railTab = document.createElement('button');
   railTab.type = 'button';
   railTab.className = 'rail-tab';
@@ -627,13 +633,14 @@ function ensureRailTab() {
   railTab.addEventListener('click', () => setRailCollapsed(false));
   rail.parentNode.insertBefore(railTab, rail.nextSibling);
   if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
-    wideQuery = window.matchMedia('(min-width: 901px)');
-    if (typeof wideQuery.addEventListener === 'function') wideQuery.addEventListener('change', applyRailCollapsed);
+    touchQuery = window.matchMedia(TOUCH_LAYOUT);
+    if (typeof touchQuery.addEventListener === 'function') touchQuery.addEventListener('change', applyRailCollapsed);
   }
   return railTab;
 }
 
-function applyRailCollapsed() {
+/** Re-apply the fold where the rail is now: the full-screen chrome calls it after moving the rail. */
+export function applyRailCollapsed() {
   const rail = el('rail');
   if (!rail) return;
   const tab = ensureRailTab();
@@ -1155,5 +1162,8 @@ export const RAIL_CSS = `
 .rail-tab:focus-visible { outline: 2px solid var(--acc-2); outline-offset: -2px; }
 .rail-tab > svg { width: 12px; height: 12px; }
 .rail-tab[hidden] { display: none; }
+/* A full-screen second chart holds the rail in its own pane, so its offset follows the fold there. */
+body[data-fullscreen-pane="2"] .p2plot:not(.has-rail) #chart2,
+body[data-fullscreen-pane="2"] .p2plot:not(.has-rail) .inspect-layout { left: 0; }
 @media (prefers-reduced-motion: reduce) { .rail .rail__btn, .rail .rail__chev { transition: none; } }
 `;

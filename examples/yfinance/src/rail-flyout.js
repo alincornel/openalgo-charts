@@ -385,7 +385,8 @@ export const RAIL_FLYOUT_CSS = `
 .rail-menu button.is-off, .rail-menu button.is-off:hover { color: var(--faint); background: transparent; cursor: default; }
 .rail-menu button > svg { width: 16px; height: 16px; flex: none; stroke: currentColor;
   stroke-linecap: round; stroke-linejoin: round; }
-.rail-menu button > svg[viewBox="0 0 24 24"] { stroke-width: ${ICON_STROKE}; fill: none; }
+/* A tool glyph at 16px here, so its stroke is scaled to keep the tier's line. */
+.rail-menu button > svg[viewBox="0 0 24 24"] { stroke-width: ${ICON_STROKE * ICON_SIZE / 16}; fill: none; }
 .rail-menu__gap { width: 16px; flex: none; }
 .glyph--text { display: inline-grid; place-items: center; width: ${ICON_SIZE}px; height: ${ICON_SIZE}px; font-size: 12px;
   font-weight: 600; }

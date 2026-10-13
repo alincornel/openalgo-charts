@@ -18,6 +18,8 @@
   --on-bg: rgba(255,255,255,.10); --on-bd: transparent;
   --ring: #2962ff; --ring-soft: rgba(41,98,255,.28);
   --buy: #089981; --sell: #f23645; --amber: #e0b400;
+  /* Fills that carry white text: the candle pair is 3.6 and 3.9 to 1 under it, these 5.1 and 5.0. */
+  --buy-fill: #077d69; --sell-fill: #d32f3c;
   --buy-tx: #22ab94; --sell-tx: #f7525f; --danger-tx: #f7525f;
   --glass: rgba(28,29,32,.78); --glass-solid: rgba(28,29,32,.96); --scrim: rgba(0,0,0,.45);
   --shadow: 0 8px 30px rgba(0,0,0,.5); --shadow-lg: 0 20px 60px rgba(0,0,0,.5);
@@ -37,6 +39,7 @@ html[data-theme="light"] {
   --on-bg: rgba(30,41,59,.10); --on-bd: transparent;
   --ring: #2962ff; --ring-soft: rgba(41,98,255,.2);
   --buy: #089981; --sell: #f23645; --amber: #b88a00;
+  --buy-fill: #077d69; --sell-fill: #d32f3c;
   --buy-tx: #067a63; --sell-tx: #c2253a; --danger-tx: #c62828;
   --glass: rgba(255,255,255,.82); --glass-solid: rgba(255,255,255,.96); --scrim: rgba(15,23,42,.32);
   --shadow: 0 8px 30px rgba(15,23,42,.14); --shadow-lg: 0 20px 60px rgba(15,23,42,.18);
@@ -204,8 +207,8 @@ select.field { cursor: pointer; padding-right: 24px; }
 .btn--primary, .btn--primary:hover { background: var(--acc); color: var(--acc-tx); border-color: transparent; }
 .btn--primary:hover { filter: brightness(1.08); }
 .btn--ghost { color: var(--mut); }
-.btn--buy { background: var(--buy); color: #ffffff; border-color: transparent; }
-.btn--sell { background: var(--sell); color: #ffffff; border-color: transparent; }
+.btn--buy { background: var(--buy-fill); color: #ffffff; border-color: transparent; }
+.btn--sell { background: var(--sell-fill); color: #ffffff; border-color: transparent; }
 .btn--buy:hover, .btn--sell:hover { filter: brightness(1.08); }
 
 /* The readout now carries the cache verdict and the clipboard's replies, so
@@ -590,8 +593,8 @@ body[data-fullscreen-pane="2"] #chart2 { left: 42px; }
   pointer-events: auto; box-shadow: 0 6px 18px rgba(0,0,0,.5); user-select: none; border: 1px solid transparent;
 }
 #bracket .bk b { color: #fff; font-weight: 700; }
-#bracket .bk.tp { background: var(--buy); color: #ffffff; cursor: ns-resize; }
-#bracket .bk.sl { background: var(--sell); color: #ffffff; cursor: ns-resize; }
+#bracket .bk.tp { background: var(--buy-fill); color: #ffffff; cursor: ns-resize; }
+#bracket .bk.sl { background: var(--sell-fill); color: #ffffff; cursor: ns-resize; }
 #bracket .bk.entry { background: var(--pill-bg); border-color: var(--pill-bd); color: var(--pill-tx); cursor: move; backdrop-filter: blur(6px); }
 #bracket .bk.entry b { color: var(--tx-strong); }
 #bracket .bk .pnl { font-weight: 800; color: #fff; }
