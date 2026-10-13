@@ -983,7 +983,7 @@ const result = await widget.goTo({
 | `status` | Meaning |
 | --- | --- |
 | `placed` | The date or range is in view. |
-| `partial` | Something is in view, but `history` says why the source stopped before the requested start (`exhausted`, `empty`, `limited` or `unavailable`), or `clipped` says the range is wider than the plot and its start is shown. A gap before the first bar that no session trades in (a weekend, a holiday) is not short history when the chart has a session calendar: that request is `placed`. |
+| `partial` | Something is in view, but `history` says why the source stopped before the requested start (`exhausted`, `empty`, `limited` or `unavailable`), or `clipped` says the range is wider than the plot and its start is shown. A gap before the first bar that no session trades in (a weekend, a holiday) does not count as missing history when the chart has a session calendar, so it sets no `history`. |
 | `no-data` | No bar at or after the date, or none inside the range. The view is unchanged. |
 | `unsupported` | The interval has no time buckets (tick or volume bars). |
 | `invalid` | A non-finite time, or a range that ends before it starts. |

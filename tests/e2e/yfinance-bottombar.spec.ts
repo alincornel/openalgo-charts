@@ -106,15 +106,20 @@ test('a range loads the interval and period its sessions need, then places the l
     const last = bars.length - 1, day = ist(bars[last].time).slice(0, 10);
     let open = last;
     while (open > 0 && ist(bars[open - 1].time).slice(0, 10) === day) open--;
-    return { openTime: ist(bars[open].time), open, last, from: view.from, to: view.to,
-      fits: last - open + 1 >= Math.floor(view.to - view.from) };
-  })()`) as { openTime: string; open: number; last: number; from: number; to: number; fits: boolean };
+    // The narrowest view the plot allows: its width at the largest bar spacing.
+    const narrowest = app.chart.timeScale.width / app.chart.timeScale.constrainBarSpacing(Infinity);
+    return { openTime: ist(bars[open].time), open, last, from: view.from, to: view.to, narrowest,
+      fits: last - open + 1 >= narrowest };
+  })()`) as { openTime: string; open: number; last: number; from: number; to: number; narrowest: number; fits: boolean };
   expect(placed.openTime.slice(11)).toBe('09:15');
   expect(Math.ceil(placed.from)).toBeLessThanOrEqual(placed.open);
   expect(placed.to).toBeGreaterThanOrEqual(placed.last);
   if (placed.fits) {
     expect(Math.ceil(placed.from)).toBe(placed.open);
     expect(Math.floor(placed.to)).toBe(placed.last);
+  } else {
+    // Zoomed in as far as the plot allows, not out past what the session needs.
+    expect(placed.to - placed.from).toBeLessThanOrEqual(placed.narrowest + 1e-6);
   }
   // Told from the chart the range loaded, not the daily one it replaced: an intraday span has times.
   await expect(page.locator('#status')).toHaveText(/^1D: .*\d:\d\d.* to .*\d:\d\d/);

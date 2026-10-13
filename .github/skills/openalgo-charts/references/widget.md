@@ -651,10 +651,13 @@ It waits for a load in flight, loads older history through
 `dataController.loadMore(until)` until the request is covered, then places it
 with `chart.setVisibleLogicalRange`. Since 2.6.2 a gap before the first loaded
 bar that no session trades in (a weekend, a holiday, the hours before another
-venue opens) counts as covered when the chart has a session calendar
-(`chart.setSessionCalendar`, or an instrument's hours): such a request is
-`placed`, not `partial`, and no older page is loaded for it. Without a calendar
-any gap before the first bar is loaded, or reported as short history, as before. A date is centred at the current zoom, and
+venue opens) does not count as missing history when the chart has a session calendar
+(`chart.setSessionCalendar`, or an instrument's hours): it sets no `history` on
+the result, and no older page is loaded for it. The status still follows the
+rest of the rules (`no-data` for a range wholly inside the gap, `partial` with
+`clipped` for one wider than the plot). Without a calendar, or when the calendar
+finds no session at all, any gap before the first bar is loaded or reported as
+short history, as before. A date is centred at the current zoom, and
 kept left of the newest bar's normal margin; a range fills the plot, centred at
 the widest bar spacing when short. Placement runs after the accepted load, so
 later live bars and refreshes keep its anchor. A newer request, a symbol or

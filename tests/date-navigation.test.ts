@@ -439,6 +439,14 @@ describe('history that starts after a gap with no session', () => {
       .toEqual({ status: 'partial', history: 'unavailable', from: bars[13]!.time, to: bars[bars.length - 1]!.time });
   });
 
+  it('keeps counting the gap as short when the calendar finds no session at all', async () => {
+    // A calendar's search has a horizon, so finding nothing does not prove the gap is empty.
+    const chart = makeChart(bars, '30m', ZONE);
+    chart.setSessionCalendar({ sessionFrom: () => null });
+    expect(await new DateNavigator({ chart }).goTo({ from: sunday, to: bars[bars.length - 1]!.time }))
+      .toEqual({ status: 'partial', history: 'unavailable', from: bars[0]!.time, to: bars[bars.length - 1]!.time });
+  });
+
   it('keeps counting any gap as short without a calendar', async () => {
     const chart = makeChart(bars, '30m', ZONE);
     expect(await new DateNavigator({ chart }).goTo({ from: sunday, to: bars[bars.length - 1]!.time }))

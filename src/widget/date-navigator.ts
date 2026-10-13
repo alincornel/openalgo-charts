@@ -146,14 +146,15 @@ function firstWhere(n: number, after: (i: number) => boolean): number {
  * the first loaded bar. A gap no session trades in (a weekend, a holiday, the
  * hours before another venue's open) holds no bars, so history that starts
  * after one is whole. Without a calendar, or one that cannot answer, any gap
- * counts, as it always has.
+ * counts, as it always has. So does a calendar that finds no session at all:
+ * its search has a horizon, so that says nothing about the gap.
  */
 function sessionBefore(chart: Chart, from: number, firstOpen: number): boolean {
   const calendar = chart.dataLayer.sessionCalendar;
   if (calendar === null) return true;
   try {
     const session = calendar.sessionFrom(from);
-    return session !== null && session.open < firstOpen;
+    return session === null || session.open < firstOpen;
   } catch {
     return true;
   }

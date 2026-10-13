@@ -26,10 +26,11 @@ holiday or the hours before the market opens. Nothing else changes.
 
 ### Size
 
-The widget tier is 124.12 kB (was 124.08 kB), the widget terminal 362.93 kB,
-all tiers 424.26 kB and the nine classic scripts 438.21 kB. The classic
-scripts move by up to 180 bytes from the version string alone: one byte
-changes, and Brotli encodes the file differently. Each budget moved to its
+The widget tier is 124.13 kB (was 124.08 kB), the widget terminal 362.94 kB,
+all tiers 424.27 kB and the nine classic scripts 438.25 kB. The base classic
+script grows 180 bytes from the version string alone: one byte changes, and
+Brotli encodes the file differently. The widget classic script (137.78 kB)
+carries the fix as well as its own version string. Each budget moved to its
 measured need. The chart-only import is unchanged at 87.19 KiB.
 
 ### Performance
@@ -43,9 +44,10 @@ measured need. The chart-only import is unchanged at 87.19 KiB.
 
 ### Tests
 
-11640 engine tests across 515 files and 726 reference-host tests across 68
-files. Four new tests cover the gap rule: the two that check a sessionless gap
-is placed, and that no loader is asked across it, fail against 2.6.1. The
+11641 engine tests across 515 files and 726 reference-host tests across 68
+files. Five new tests cover the gap rule: the two that check a sessionless gap
+is placed, and that no loader is asked across it, fail against 2.6.1, and one
+keeps the gap counted when the calendar finds no session at all. The
 reference host's one-day range test no longer assumes the session fills the
 view: in the first hour or so of a trading day it holds fewer bars than the
 closest zoom spreads across the plot, and the session sits whole inside a wider
