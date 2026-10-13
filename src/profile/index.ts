@@ -59,9 +59,26 @@ export {
   cumulativeDelta,
   stackedImbalances,
   type ClassifiedTrade,
+  type FootprintBuildOptions,
   type Imbalance,
   type StackedImbalance,
 } from './footprint';
+export {
+  createTradeClassifier,
+  type TradePrint,
+  type TradeClassification,
+} from './footprint-classify';
+export {
+  footprintSignals,
+  DEFAULT_FOOTPRINT_SIGNAL_OPTIONS,
+  type FootprintSignalOptions,
+  type FootprintSignals,
+  type FootprintBarSignals,
+  type FootprintZone,
+  type FootprintZoneKind,
+  type FootprintZoneEnd,
+  type FootprintAuction,
+} from './footprint-signals';
 export {
   HorizontalProfile,
   type ProfileLevel,

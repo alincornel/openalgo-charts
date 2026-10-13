@@ -19,6 +19,46 @@ export interface ClassifiedTrade {
   side: 'bid' | 'ask';
 }
 
+/** Options shared by `computeFootprint` and `FootprintAggregator`. */
+export interface FootprintBuildOptions {
+  /**
+   * Count only single prints of at least this raw quantity. Smaller prints still
+   * open their row (it shows zero) and still set the bar's open, high, low and
+   * close, so the ladder keeps its full range. 0, the default, counts every print.
+   */
+  minTradeSize?: number;
+}
+
+/**
+ * The row a price belongs to, as a row index on the `tickSize * rowTicks` grid.
+ *
+ * The price is first put on its tick (half away from zero), then the tick on
+ * its row by round half to even. Rows are centred on multiples of the row size,
+ * so a tick exactly between two row centres has to go one way or the other;
+ * half to even sends alternate boundaries up and down instead of always up,
+ * which keeps a ladder of grouped rows unbiased and matches the reference
+ * order flow tooling this footprint is verified against.
+ */
+function footprintRowIndex(price: number, tickSize: number, rowTicks: number): number {
+  const scaled = price / tickSize;
+  const tick = Math.sign(scaled) * Math.round(Math.abs(scaled));
+  const below = Math.floor(tick / rowTicks);
+  const twice = 2 * (tick - below * rowTicks);
+  return twice > rowTicks || (twice === rowTicks && below % 2 !== 0) ? below + 1 : below;
+}
+
+/** Price at the centre of the row holding `price`, on the same grid as `bucketPrice`. */
+export function footprintRowPrice(price: number, tickSize: number, rowTicks: number): number {
+  return bucketPrice(footprintRowIndex(price, tickSize, rowTicks) * rowTicks * tickSize, tickSize * rowTicks);
+}
+
+/** Internal: validated `minTradeSize`. */
+export function minTradeSizeOf(options: FootprintBuildOptions | undefined): number {
+  const size = options?.minTradeSize ?? 0;
+  if (!Number.isFinite(size) || size < 0) throw new RangeError('Footprint minTradeSize must be nonnegative and finite');
+  return size;
+}
+
 /**
  * Build one bar's footprint from its classified trades.
  *
@@ -32,23 +72,29 @@ export function computeFootprint(
   trades: readonly ClassifiedTrade[],
   tickSize: number,
   rowTicks = 1,
+  options?: FootprintBuildOptions,
 ): FootprintBar {
   const row = footprintRowSize(tickSize, rowTicks);
+  const minSize = minTradeSizeOf(options);
   if (!Number.isFinite(time)) throw new RangeError('Footprint time must be finite');
   for (const trade of trades) validateClassifiedTrade(trade);
   const map = new Map<number, FootprintCell>();
-  let delta = 0, minDelta = 0, maxDelta = 0;
+  const ticks = new Map<number, [number, number]>();
+  let delta = 0, minDelta = 0, maxDelta = 0, counted = 0;
   for (const t of trades) {
-    const price = bucketPrice(t.price, row);
+    const price = footprintRowPrice(t.price, tickSize, rowTicks);
     let cell = map.get(price);
     if (cell === undefined) { cell = { price, bidVol: 0, askVol: 0 }; map.set(price, cell); }
+    addTickVolume(ticks, t, tickSize);
+    if (t.qty < minSize) continue;
+    counted++;
     if (t.side === 'bid') { cell.bidVol += t.qty; delta -= t.qty; }
     else { cell.askVol += t.qty; delta += t.qty; }
     minDelta = Math.min(minDelta, delta);
     maxDelta = Math.max(maxDelta, delta);
   }
   const cells = Array.from(map.values()).sort((a, b) => b.price - a.price);
-  const bar: FootprintBar = { time, cells, delta, minDelta, maxDelta, rowSize: row, tradeCount: trades.length };
+  const bar: FootprintBar = { time, cells, delta, minDelta, maxDelta, rowSize: row, tradeCount: counted };
   if (trades.length > 0) {
     bar.open = trades[0]!.price;
     bar.close = trades[trades.length - 1]!.price;
@@ -57,8 +103,27 @@ export function computeFootprint(
       bar.high = Math.max(bar.high, trade.price);
       bar.low = Math.min(bar.low, trade.price);
     }
+    bar.auction = auctionAt(ticks, bar.high, bar.low, tickSize);
   }
   return bar;
+}
+
+/**
+ * Internal: every print's volume at its own tick, before the size filter. Only
+ * the bar's two extremes are ever read back, for unfinished auctions.
+ */
+export function addTickVolume(ticks: Map<number, [number, number]>, trade: ClassifiedTrade, tickSize: number): void {
+  const key = Math.round(trade.price / tickSize);
+  let at = ticks.get(key);
+  if (at === undefined) { at = [0, 0]; ticks.set(key, at); }
+  at[trade.side === 'bid' ? 0 : 1] += trade.qty;
+}
+
+/** Internal: bid and ask volume of every print at the bar's high and low ticks. */
+export function auctionAt(ticks: ReadonlyMap<number, [number, number]>, high: number, low: number, tickSize: number): NonNullable<FootprintBar['auction']> {
+  const top = ticks.get(Math.round(high / tickSize)) ?? [0, 0];
+  const bottom = ticks.get(Math.round(low / tickSize)) ?? [0, 0];
+  return { highBid: top[0], highAsk: top[1], lowBid: bottom[0], lowAsk: bottom[1] };
 }
 
 export interface Imbalance {

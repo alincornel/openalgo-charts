@@ -28,15 +28,18 @@
     .check { display:flex; align-items:center; gap:5px; color:var(--muted); cursor:pointer; }
     input { accent-color:var(--buy); }
     .spacer { flex:1; }
-    #table-options { position:relative; }
-    #table-options summary { color:var(--muted); cursor:pointer; padding:5px 0; }
-    #table-options fieldset { position:fixed; left:12px; z-index:40;
+    #table-options,.chooser { position:relative; }
+    #table-options summary,.chooser summary { color:var(--muted); cursor:pointer; padding:5px 0; }
+    #table-options fieldset,.chooser fieldset { position:fixed; left:12px; z-index:40;
       width:240px; max-width:calc(100vw - 24px); min-width:0; margin:0; padding:13px; border:1px solid var(--border); border-radius:6px;
       background:var(--panel); box-shadow:0 8px 28px #0003; }
-    #table-options legend { position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip-path:inset(50%); }
-    #table-options fieldset .check { padding:5px 0; color:var(--text); }
-    #table-options .note { color:var(--muted); font-size:11px; margin:8px 0; }
-    #table-close { width:100%; margin-top:5px; }
+    #table-options legend,.chooser legend { position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip-path:inset(50%); }
+    #table-options fieldset .check,.chooser fieldset .check { padding:5px 0; color:var(--text); }
+    #table-options .note,.chooser .note { color:var(--muted); font-size:11px; margin:8px 0; }
+    #table-close,#flow-close { width:100%; margin-top:5px; }
+    #flow-options fieldset { width:290px; }
+    #min-trade { width:62px; }
+    #alert { color:var(--text); }
     #play { min-width:74px; color:var(--buy); }
     main { position:relative; flex:1; min-height:320px; }
     #chart { position:absolute; inset:0; background:var(--bg); }
@@ -66,10 +69,12 @@
   </header>
   <nav class="toolbar" aria-label="Footprint controls">
     <label class="control">Style <select id="style"><option value="profile">Profile</option><option value="ladder">Cluster ladder</option><option value="heatmap">Heatmap</option></select></label>
-    <label class="control">Values <select id="mode"><option value="bidask">Bid × Ask</option><option value="delta">Delta</option><option value="volume">Volume</option></select></label>
+    <label class="control">Values <select id="mode"><option value="bidask">Bid × Ask</option><option value="imbalance">Bid × Ask imbalance</option><option value="delta">Delta</option><option value="deltaPct">Delta %</option><option value="volume">Volume</option><option value="volumeDelta">Volume × Delta</option></select></label>
     <label class="control">Text <select id="text"><option value="contrast">Auto contrast</option><option value="side">Bid-ask side</option><option value="delta">Row delta</option><option value="dominant">Dominant side</option><option value="imbalance">Diagonal imbalance</option><option value="volume">Volume strength</option></select></label>
     <label class="control">Quantity <select id="units"><option value="raw">Raw</option><option value="lots">Lots</option></select></label>
     <label class="control">Lot size <input id="lot-size" type="number" min="1" step="1" value="65" title="Quantity per simulated lot" /></label>
+    <label class="control">Side <select id="classify" title="Where each print's aggressor side comes from"><option value="feed">Feed</option><option value="tickRule">Tick rule</option></select></label>
+    <label class="control">Min trade <input id="min-trade" type="number" min="0" step="1" value="0" title="Count only prints of at least this many lots; 0 counts every print" /> lots</label>
     <label class="control">Row <select id="group"><option value="2">2 points</option><option value="4">4 points</option><option value="8">8 points</option></select></label>
     <label class="check"><input type="checkbox" id="poc" checked /> POC</label>
     <label class="check"><input type="checkbox" id="valuearea" checked /> Value area</label>
@@ -86,12 +91,32 @@
         <label class="check"><input type="checkbox" name="table-row" value="askVolume" checked /> Ask volume</label>
         <label class="check"><input type="checkbox" name="table-row" value="bidVolume" checked /> Bid volume</label>
         <label class="check"><input type="checkbox" name="table-row" value="volume" checked /> Volume</label>
+        <label class="check"><input type="checkbox" name="table-row" value="cumVolume" /> Cumulative volume</label>
+        <label class="check"><input type="checkbox" name="table-row" value="cvdRatio" /> Cum. delta / volume</label>
+        <label class="check"><input type="checkbox" name="table-row" value="session" /> Session letter</label>
         <p class="note">Rows stay selected when the table is hidden.</p>
         <button id="table-close" type="button">Done</button>
       </fieldset>
     </details>
+    <details id="flow-options" class="chooser">
+      <summary>Order flow (<span id="flow-count">0</span>)</summary>
+      <fieldset>
+        <legend>Choose order flow layers</legend>
+        <label class="check"><input type="checkbox" name="flow" value="zones" /> Imbalance, node and absorption zones</label>
+        <label class="check"><input type="checkbox" name="flow" value="auctions" /> Unfinished auctions</label>
+        <label class="check"><input type="checkbox" name="flow" value="nodes" /> Multiple nodes</label>
+        <label class="check"><input type="checkbox" name="flow" value="bigOrders" /> Big limit orders</label>
+        <label class="check"><input type="checkbox" name="flow" value="absorption" /> Absorption</label>
+        <label class="check"><input type="checkbox" name="flow" value="flips" /> Aggressive delta flips</label>
+        <label class="check"><input type="checkbox" name="flow" value="deltaLabels" /> Delta under bars and divergence</label>
+        <label class="check"><input type="checkbox" name="flow" value="profile" /> Visible-range profile</label>
+        <label class="check"><input type="checkbox" name="flow" value="lastPrice" /> Last price row</label>
+        <p class="note">A zone alert appears below the chart the first time price trades into an active zone.</p>
+        <button id="flow-close" type="button">Done</button>
+      </fieldset>
+    </details>
     <span class="spacer"></span>
-    <select id="theme" aria-label="Theme"><option value="midnight">Midnight</option><option value="graphite">Graphite</option><option value="classic">Classic neon</option><option value="ocean">Ocean</option><option value="ivory">Ivory</option></select>
+    <select id="theme" aria-label="Theme"><option value="midnight">Midnight</option><option value="graphite">Graphite</option><option value="classic">Classic neon</option><option value="ocean">Ocean</option><option value="ember">Ember</option><option value="forest">Forest</option><option value="ivory">Ivory</option></select>
     <button id="reset">Reset</button><button id="play">Pause</button>
   </nav>
   <main><div id="chart" aria-label="Footprint chart"></div><div id="tip" hidden></div></main>
@@ -100,11 +125,11 @@
     <span class="key"><i class="swatch"></i> Ask / buy</span>
     <span class="key"><i class="swatch poc"></i> Point of control</span>
     <span>Value area: 70%</span><span class="spacer"></span>
-    <span id="status">Synthetic replay</span><span>Scroll to zoom · Drag to pan · Hover to inspect</span>
+    <span id="alert" role="status"></span><span id="status">Synthetic replay</span><span>Scroll to zoom · Drag to pan · Hover to inspect</span>
   </footer>
   <script type="module">
     import { createChart, darkTheme, lightTheme } from '/dist/openalgo-charts.mjs';
-    import { FootprintAggregator, Footprint, compactVol } from '/dist/openalgo-charts.profile.mjs';
+    import { FootprintAggregator, Footprint, TRADING_HOURS, compactVol, createTradeClassifier } from '/dist/openalgo-charts.profile.mjs';
 
     const TICK = 1, SECONDS = 60, WINDOW = 7, SIMULATED_LOT = 65;
     const START = Date.UTC(2026, 8, 9, 3, 45) / 1000;
@@ -117,6 +142,8 @@
       graphite: { bg:'#1a1b1e', panel:'#232428', border:'#34363b', text:'#e1e2e5', muted:'#9b9da6', buy:'#4cad99', sell:'#d06575', poc:'#ddd8cc', va:'#797c87', cell:'#f5f5f6', grid:'#202226' },
       classic: { bg:'#050605', panel:'#111411', border:'#293329', text:'#e5eae5', muted:'#929e92', buy:'#32e600', sell:'#ff2424', poc:'#fff4bf', va:'#818d73', cell:'#ffffff', grid:'#0c100c' },
       ocean: { bg:'#081825', panel:'#102232', border:'#233b4e', text:'#daebf8', muted:'#86a3b8', buy:'#12b8c6', sell:'#ec6384', poc:'#f8d898', va:'#588299', cell:'#f1f8ff', grid:'#102131' },
+      ember: { bg:'#160f0c', panel:'#21170f', border:'#3a2a1d', text:'#f4e6d8', muted:'#a8927d', buy:'#f0a020', sell:'#d8433a', poc:'#fff1c2', va:'#8d6e63', cell:'#fff8ee', grid:'#1d140e' },
+      forest: { bg:'#0d1611', panel:'#132019', border:'#24382b', text:'#dcefe1', muted:'#88a593', buy:'#3fae6a', sell:'#d0456f', poc:'#e7f2b8', va:'#5f8a6c', cell:'#f1fbf3', grid:'#122019' },
       ivory: { light:true, bg:'#f6f4ee', panel:'#fffcf6', border:'#dedacf', text:'#283139', muted:'#747569', buy:'#147e71', sell:'#bf4e59', poc:'#525d65', va:'#969b8e', cell:'#172b2b', grid:'#eeece5' },
     };
     const themeQuery = params.get('theme');
@@ -129,6 +156,13 @@
     el('lot-size').value = lotSize;
     const volumeDivisor = () => el('units').value === 'lots' ? lotSize : 1;
     el('table').checked = params.get('table') === '1';
+    el('classify').value = params.get('side') === 'tickRule' ? 'tickRule' : 'feed';
+    const flowInputs = [...document.querySelectorAll('input[name="flow"]')];
+    // ?flow=zones,auctions,... turns layers on from a link.
+    const flowQuery = new Set((params.get('flow') ?? '').split(','));
+    for (const input of flowInputs) input.checked = flowQuery.has(input.value);
+    const flowOn = name => flowInputs.some(input => input.value === name && input.checked);
+    const minTradeLots = () => Math.max(0, Number(el('min-trade').value) || 0);
     const tableInputs = [...document.querySelectorAll('input[name="table-row"]')];
     const selectedTableRows = () => tableInputs.filter(input => input.checked).map(input => input.value);
     const activeTableRows = () => el('table').checked ? selectedTableRows() : [];
@@ -167,7 +201,7 @@
     const footprint = new Footprint({ tickSize:TICK, cellStyle:el('style').value, statsPosition:'bar', textColorMode:el('text').value,
       pocStyle:'outline', showValueArea:true, valueAreaPercent:0.7, widthFactor:0.84,
       font:11, radius:1, statsRowHeight:19, statsRows:['volume','delta','deltaPct'], tableRows:activeTableRows(), tableLabelWidth:150, volumeDivisor:volumeDivisor(),
-      buyColor:'#159d87', sellColor:'#cc374b', stackedImbalances:0 });
+      buyColor:'#159d87', sellColor:'#cc374b', stackedImbalances:0, sessionWindow:TRADING_HOURS.india, tpoMinutes:30 });
     chart.addPrimitive(footprint);
 
     function fitColumns() {
@@ -218,6 +252,7 @@
       footprint.setBars(bars.slice());
       if (fit) fitColumns();
       updateReadouts();
+      checkAlerts();
     }
     function updateReadouts() {
       const stats = footprint.stats().at(-1), last = candles.at(-1);
@@ -228,16 +263,51 @@
         el(id).textContent = signed(value); el(id).className = value >= 0 ? 'up' : 'down';
       }
     }
+    // The order flow layers map onto footprint options; a cleared box sets its signal back to off.
+    function applyFlow() {
+      footprint.setOptions({
+        showZones:flowOn('zones'), stackedImbalances:flowOn('zones') ? 3 : 0, showUnfinishedAuctions:flowOn('auctions'),
+        multipleNodeBars:flowOn('nodes') ? 2 : 0, bigOrderMultiple:flowOn('bigOrders') ? 3 : 0, absorptionMultiple:flowOn('absorption') ? 2 : 0,
+        flipBars:flowOn('flips') ? 2 : 0, showDeltaLabels:flowOn('deltaLabels'), markDivergence:flowOn('deltaLabels'),
+        showVisibleProfile:flowOn('profile'), lastPriceColor:flowOn('lastPrice') ? '#40e0d0' : undefined,
+      });
+      el('flow-count').textContent = flowInputs.filter(input => input.checked).length;
+      checkAlerts();
+    }
+    // A host-side zone alert: the first time the last price trades into an active zone that has not ended.
+    const alerted = new Set();
+    function checkAlerts() {
+      const last = candles?.at(-1);
+      if (!last || !footprint.options().showZones) { el('alert').textContent = ''; return; }
+      for (const zone of footprint.signals().zones) {
+        const id = zone.kind + ':' + zone.time + ':' + zone.low;
+        if (zone.activeTime === null || zone.endTime !== null || alerted.has(id) || last.close < zone.low || last.close > zone.high) continue;
+        alerted.add(id);
+        el('alert').textContent = 'Zone alert: price ' + last.close.toFixed(2) + ' entered ' + zone.kind + ' ' + zone.low.toFixed(2) + ' to ' + zone.high.toFixed(2);
+      }
+    }
+    // Feed sides as recorded, or every print re-read by the tick rule from its price alone.
+    function classified() {
+      if (el('classify').value !== 'tickRule') return tape;
+      const side = createTradeClassifier('tickRule');
+      return tape.map(tick => ({ ...tick, side:side(tick) }));
+    }
     function rebuild() {
-      agg = new FootprintAggregator({ mode:'interval', seconds:SECONDS }, TICK, Number(el('group').value));
+      agg = new FootprintAggregator({ mode:'interval', seconds:SECONDS }, TICK, Number(el('group').value), { minTradeSize:minTradeLots() * SIMULATED_LOT });
       bars = []; cvdOffset = 0;
-      for (const tick of tape) applyTick(tick);
+      for (const tick of classified()) applyTick(tick);
       footprint.setOptions({ tickSize:TICK * Number(el('group').value) });
       el('instrument-note').textContent = 'NIFTY simulation · 1-minute bars · ' + el('group').value + '-point rows';
       paint(true);
     }
     function advance(count) {
       let newBar = false;
+      if (el('classify').value === 'tickRule') {
+        // The tick rule reads each print against the one before, so the tape is re-read from the start.
+        for (let i = 0; i < count; i++) tape.push(nextTick());
+        rebuild();
+        return;
+      }
       for (let i = 0; i < count; i++) { const tick = nextTick(); tape.push(tick); newBar = applyTick(tick) || newBar; }
       paint(newBar);
     }
@@ -291,6 +361,7 @@
         + row('Min delta',hit.stats.minDelta === null ? '-' : preciseSigned(hit.stats.minDelta))
         + row('Max delta',hit.stats.maxDelta === null ? '-' : preciseSigned(hit.stats.maxDelta))
         + row('Delta %',hit.stats.deltaPct.toFixed(1) + '%') + row('Session CVD',preciseSigned(hit.stats.cvd))
+        + row('Cum. volume',preciseQuantity(hit.stats.cumVolume)) + row('Session letter',hit.stats.session)
         + row('Trades',hit.stats.trades ?? '-');
       tip.hidden = false;
       const rect = el('chart').getBoundingClientRect();
@@ -311,6 +382,22 @@
       applyUnits();
     });
     el('group').addEventListener('change', rebuild);
+    el('classify').addEventListener('change', rebuild);
+    el('min-trade').addEventListener('change', () => {
+      const value = Number(el('min-trade').value);
+      const valid = Number.isFinite(value) && value >= 0;
+      el('min-trade').setCustomValidity(valid ? '' : 'Enter zero or a positive number of lots.');
+      if (!valid) { el('min-trade').reportValidity(); return; }
+      rebuild();
+    });
+    for (const input of flowInputs) input.addEventListener('change', applyFlow);
+    el('flow-options').addEventListener('toggle', () => {
+      const bounds = el('flow-options').getBoundingClientRect();
+      const chooser = el('flow-options').querySelector('fieldset');
+      chooser.style.left = Math.max(12,Math.min(bounds.left,innerWidth - 302)) + 'px';
+      chooser.style.top = (bounds.bottom + 6) + 'px';
+    });
+    el('flow-close').addEventListener('click', () => { el('flow-options').open = false; });
     el('poc').addEventListener('change', () => footprint.setOptions({ showPoc:el('poc').checked }));
     el('valuearea').addEventListener('change', () => footprint.setOptions({ showValueArea:el('valuearea').checked }));
     el('stats').addEventListener('change', () => {
@@ -328,6 +415,7 @@
     el('table-close').addEventListener('click', () => { el('table-options').open = false; });
     document.addEventListener('pointerdown', event => {
       if (!el('table-options').contains(event.target)) el('table-options').open = false;
+      if (!el('flow-options').contains(event.target)) el('flow-options').open = false;
     });
     let previousChartWidth = el('chart').clientWidth;
     const resizeObserver = new ResizeObserver(() => {
@@ -340,7 +428,7 @@
     el('play').addEventListener('click', () => { running = !running; loop(); });
     el('reset').addEventListener('click', () => { reset(); loop(); });
     window.addEventListener('pagehide', () => { clearInterval(timer); resizeObserver.disconnect(); });
-    reset(); applyTheme(); applyUnits(); applyTableLayout(false); loop();
+    reset(); applyTheme(); applyUnits(); applyTableLayout(false); applyFlow(); loop();
     // Read-only inspection and deterministic replay hooks for browser examples.
     window.__chart = () => chart;
     window.__footprint = () => footprint;

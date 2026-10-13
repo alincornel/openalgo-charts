@@ -290,6 +290,18 @@ function windowOpenOn(utcSeconds: number, w: SessionWindow, zone: string, dayOff
   );
 }
 
+/**
+ * UTC seconds at which the session holding `time` opened: today's window open
+ * when that has passed, otherwise yesterday's, so an overnight session keeps one
+ * anchor across midnight. Tier-internal; the footprint letters its bars from it
+ * so they agree with the market profile's periods.
+ */
+export function sessionOpen(time: number, w: SessionWindow, zone: string = DEFAULT_TIMEZONE): number {
+  const cal = windowZone(w, zone);
+  const today = windowOpenOn(time, w, cal, 0);
+  return today <= time ? today : windowOpenOn(time, w, cal, -1);
+}
+
 /** Internal identity shared by the renderer's per-session display overrides. */
 export function profileSessionIdentity(time: number, options: MarketProfileOptions): string {
   const zone = windowZone(options.window, options.timezone ?? DEFAULT_TIMEZONE);
@@ -475,10 +487,7 @@ function buildSession(g: readonly Bar[], r: Resolved): MarketProfileSessionResul
   const first = g[0]!.time;
   let anchor = first;
   const win = r.win;
-  if (win !== undefined && win.startMinute !== win.endMinute) {
-    const d = windowOpenOn(first, win, r.cal, 0);
-    anchor = d <= first ? d : windowOpenOn(first, win, r.cal, -1);
-  }
+  if (win !== undefined && win.startMinute !== win.endMinute) anchor = sessionOpen(first, win, r.cal);
 
   const map = new Map<number, LevelAcc>();
   const byPeriod = new Map<number, MarketProfilePeriod>();
