@@ -342,7 +342,7 @@ const widget = createWidget('#terminal', {
 // with every release: CLAUDE.md lists them among the files a size change or a
 // release benchmark updates.
 const STATS = { release: '2.6.1', base: '137.43 kB', terminal: '362.89 kB' } as const;
-const BENCH = { release: '2.6.1', pan: '2.3 ms', zoomOut: '53.8 ms', tick: '150.1 ms' } as const;
+const BENCH = { release: '2.6.1', pan: '2.6 ms', zoomOut: '58.4 ms', tick: '154.9 ms' } as const;
 
 export function Integrate() {
   return (

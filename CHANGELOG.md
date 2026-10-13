@@ -16,7 +16,8 @@ centres on the even row. Renko sizes its bricks from price or the ATR and can
 build them from the high and low, point and figure gains a box that is a
 percent of the ATR, and the widget and the reference host each get a settings
 dialog for both chart types. Every new footprint layer is off by default, so a
-chart that changes nothing draws as before, apart from the row rule below.
+chart that changes nothing draws as before, apart from the row rule and the
+empty rows below.
 
 ### Added
 
@@ -81,6 +82,11 @@ chart that changes nothing draws as before, apart from the row rule below.
   its row; a tick exactly between two row centres now goes to the even row
   instead of always up (with 2-point rows on a 0.05 tick, 22469.00 belongs to
   the 22468 row). A price that is not on a boundary lands where it always did.
+- **Footprint columns show their untraded rows.** A row inside a bar that no
+  trade reached is drawn as 0 x 0 instead of a gap, so every column spans its
+  whole range. It changes only the drawing: imbalances, the point of control,
+  the value area and the signals still read the traded rows.
+  `showEmptyRows: false` draws the gaps as before.
 - **The point and figure and Renko box options share one schema**, so the
   chart settings Price tab lists Renko's sizing method first and shows the box
   percent for both percent modes.
@@ -96,9 +102,9 @@ chart that changes nothing draws as before, apart from the row rule below.
 
 ### Size
 
-Profile tier 19.45 kB (was 14.94 kB), transform 6.23 kB (was 6.07 kB), widget
+Profile tier 19.54 kB (was 14.94 kB), transform 6.23 kB (was 6.07 kB), widget
 124.08 kB with eight first-use parts at 21.00 kB, the widget terminal 362.89 kB,
-all tiers 424.13 kB and the nine classic scripts 437.76 kB. The chart-only
+all tiers 424.23 kB and the nine classic scripts 437.85 kB. The chart-only
 import is unchanged at 87.19 KiB. Every budget moved to its measured need.
 
 ### Performance
@@ -107,14 +113,13 @@ import is unchanged at 87.19 KiB. Every budget moved to its measured need.
   one session, `benchmarks/releases.json`, the website's Benchmarks page):
   frames are on par, as this release changes no rendering path of the chart.
   With Canvas 2D at 200,000 bars a pan, a full zoom-out and a ten-study tick
-  measure 2.3, 53.8 and 150.1 ms against 2.2, 55.9 and 162.0 ms (each the
-  lowest p95 of its five runs); every cell of both renderers is within 12
-  percent of 2.6.0, the largest move being the 200,000-bar WebGL2 zoom-out,
-  60.1 to 67.0 ms.
+  measure 2.6, 58.4 and 154.9 ms against 2.4, 57.4 and 154.8 ms (each the
+  lowest p95 of its five runs); every cell of both renderers is within 9
+  percent of 2.6.0, the largest move being that pan, 0.2 ms.
 
 ### Tests
 
-11635 engine tests across 515 files and 726 reference-host tests across 68
+11636 engine tests across 515 files and 726 reference-host tests across 68
 files, including row alignment tests that fail with the previous rounding,
 signal, zone, session and drawing tests for the footprint, Renko and point and
 figure sizing tests, and dialog and restore tests for the widget and the

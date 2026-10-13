@@ -38,6 +38,7 @@ dialogs for both chart types.
 ### Changed
 
 - Footprint rows put a price exactly between two row centres on the even row.
+- Footprint columns draw a row no trade reached as 0 x 0 instead of a gap (`showEmptyRows`, default `true`).
 
 ### Fixed
 
@@ -45,13 +46,13 @@ dialogs for both chart types.
 
 ### Size
 
-Profile tier 19.45 kB, transform 6.23 kB, widget 124.08 kB (+ 21.00 kB on first use), all tiers
-424.13 kB. The chart-only import is unchanged.
+Profile tier 19.54 kB, transform 6.23 kB, widget 124.08 kB (+ 21.00 kB on first use), all tiers
+424.23 kB. The chart-only import is unchanged.
 
 ### Performance
 
 Frames are on par with 2.6.0: with Canvas 2D at 200,000 bars a pan, a full zoom-out and a ten-study
-tick measure 2.3, 53.8 and 150.1 ms against 2.2, 55.9 and 162.0 ms. See the
+tick measure 2.6, 58.4 and 154.9 ms against 2.4, 57.4 and 154.8 ms. See the
 [benchmark](/benchmarks#261) measured against 2.6.0.
 
 ## 2.6.0
