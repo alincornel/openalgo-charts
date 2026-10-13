@@ -99,7 +99,7 @@
       "mountSymbolPicker": 205
     },
     "src/widget/topbar.ts": {
-      "mountTopbar": 336
+      "mountTopbar": 335
     },
     "src/widget/watchlist-panel.ts": {
       "mountWatchlistPanel": 576

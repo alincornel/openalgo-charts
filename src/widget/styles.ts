@@ -66,6 +66,11 @@ export const WIDGET_CSS = `
 .oac-widget input[type=checkbox]:checked::after { content: ''; width: 4px; height: 8px; margin-top: -2px;
   border: solid ${v('bg')}; border-width: 0 2px 2px 0; transform: rotate(45deg); }
 .oac-widget input[type=checkbox]:disabled { opacity: .4; cursor: not-allowed; }
+/* A radio is the checkbox's round sibling; the dot is an inset ring, which needs no pseudo-element. */
+.oac-widget input[type=radio] { appearance: none; -webkit-appearance: none; flex: none; margin: 0; width: 15px; height: 15px;
+  border: 1px solid ${v('bd')}; border-radius: 50%; background: ${v('elev')}; cursor: pointer; transition: background .12s, border-color .12s; }
+.oac-widget input[type=radio]:hover { border-color: ${v('bd-hover')}; }
+.oac-widget input[type=radio]:checked { border-color: ${v('acc')}; background: ${v('acc')}; box-shadow: inset 0 0 0 3px ${v('elev')}; }
 .oac-widget select { appearance: none; -webkit-appearance: none; height: ${v('ctl-h')}; padding: 0 24px 0 8px;
   background: ${v('elev')}; border: 1px solid ${v('bd')}; border-radius: ${v('radius')}; cursor: pointer; }
 .oac-widget .oac-select { position: relative; display: inline-flex; }
@@ -368,6 +373,20 @@ export const WIDGET_CSS = `
 .oac-widget .oac-csv__hint { color: ${v('mut')}; line-height: 1.5; }
 .oac-widget .oac-csv__error { color: ${v('danger')}; overflow-wrap: anywhere; }
 .oac-widget .oac-csv__error:empty { display: none; }
+
+/* Point and figure and Renko settings: a size, its unit and its method share one control column. */
+.oac-widget .oac-ctset { width: 380px; }
+.oac-widget .oac-ctset .oac-row__ctl { width: min(244px, 66%); }
+.oac-widget .oac-ctset__presets { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; width: 100%; padding: 2px 0; }
+.oac-widget .oac-ctset__preset { height: 24px; padding: 0 4px; font-size: 11px; font-variant-numeric: tabular-nums;
+  background: ${v('elev')}; border-color: ${v('bd-soft')}; }
+.oac-widget .oac-ctset__size { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; }
+.oac-widget .oac-ctset .oac-row__ctl .oac-ctset__size > input { flex: 1 1 0; width: auto; min-width: 0; }
+.oac-widget .oac-ctset .oac-input--num { text-align: right; font-variant-numeric: tabular-nums; }
+.oac-widget .oac-ctset .oac-row__ctl .oac-ctset__size > .oac-select { flex: 0 0 100px; width: 100px; }
+.oac-widget .oac-ctset__unit { flex: none; color: ${v('mut')}; font-size: 11px; white-space: nowrap; }
+.oac-widget .oac-ctset__radios { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px 14px; }
+.oac-widget .oac-ctset__radio { display: inline-flex; align-items: center; gap: 6px; color: ${v('tx')}; white-space: nowrap; cursor: pointer; }
 
 /* Shortcuts panel */
 .oac-widget .oac-keys { columns: 2; column-gap: 24px; min-width: 520px; }

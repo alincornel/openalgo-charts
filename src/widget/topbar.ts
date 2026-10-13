@@ -19,6 +19,7 @@ import { h, glyph, type WidgetContext } from './context';
 import type { WidgetThemeName } from './tokens';
 import { mountSymbolPicker, type SymbolPickerHandle } from './symbol-picker';
 import { timeBuckets } from './date-navigator';
+import { boxChartType } from './chart-type-choice';
 export { SEARCH_DEBOUNCE_MS } from './symbol-picker';
 export type { SymbolMatch, SymbolSearch } from './symbol-picker';
 import type { SymbolSearch } from './symbol-picker';
@@ -33,6 +34,8 @@ export type { MenuOptions, MenuRow } from './menu';
 
 /** The chart data dialog, fetched when it first opens. Internal. */
 export const dataExportPart = lazyPart(() => import('./chart-data-export-dialog'));
+/** The point and figure and Renko settings, fetched when they first open. Internal. */
+const chartTypeSettingsPart = lazyPart(() => import('./chart-type-settings'));
 
 /** Labels for the built-in chart types; a transform's is its own name, and anything else is read from its id. */
 export const CHART_TYPE_LABELS: Readonly<Record<string, string>> = {
@@ -158,6 +161,43 @@ export function brandingLink(chart: WidgetContext['chart'], translation: WidgetT
   return { href: options.href, label };
 }
 
+/**
+ * The settings control beside the chart type, shown only while the chart
+ * builds point and figure or Renko itself: drawn from a host's own elements,
+ * point and figure has no box size to set. Its dialog loads on first use.
+ */
+function typeSettingsButton(ctx: WidgetContext, host: HTMLElement): { el: HTMLButtonElement; refresh(): void; close(): void } {
+  const doc = ctx.document;
+  const b = h(doc, 'button', 'oac-btn oac-btn--icon oac-topbar__type-settings', { type: 'button', 'aria-haspopup': 'dialog' });
+  b.appendChild(glyph(doc, chromeIconSvg('settings'), 'chrome'));
+  const name = (): string => {
+    const id = boxChartType(ctx.chart) ?? '';
+    return widgetText(ctx, 'schema.ui.chartTypeSettings.title', { name: widgetText(ctx, `schema.chartType.${id}`, {}, chartTypeLabel(id)) }, '{name} settings');
+  };
+  ctx.tips.attach(b, () => ({ title: name(), side: 'bottom' }));
+  let dialog: PanelHandle | null = null;
+  const slot: PartSlot = { waiting: null };
+  b.addEventListener('click', () => {
+    usePart(chartTypeSettingsPart, module => {
+      dialog?.close();
+      if (boxChartType(ctx.chart) !== null) dialog = module.openChartTypeSettings(ctx, b);
+    }, error => ctx.status(partFailed(ctx, name(), error), 'error'), () => host.isConnected, { slot, doc, from: b });
+  });
+  return {
+    el: b,
+    refresh: () => {
+      const type = boxChartType(ctx.chart) ?? '';
+      if (b.dataset.type === type) return;
+      b.dataset.type = type;
+      b.hidden = type === '';
+      // A tip still up names the type the chart was a moment ago.
+      if (ctx.tips.target() === b) ctx.tips.hide();
+      ctx.tips.refreshLabel(b);
+    },
+    close: () => dialog?.close(),
+  };
+}
+
 export function mountTopbar(ctx: WidgetContext, host: HTMLElement, opts: TopbarOptions): TopbarHandle {
   const doc = ctx.document;
   host.classList.add('oac-topbar');
@@ -165,11 +205,7 @@ export function mountTopbar(ctx: WidgetContext, host: HTMLElement, opts: TopbarO
   host.setAttribute('aria-label', widgetText(ctx, 'Chart toolbar'));
 
   const btn = (label: string, cls = ''): HTMLButtonElement => h(doc, 'button', 'oac-btn' + (cls ? ' ' + cls : ''), { type: 'button', 'aria-label': label });
-  const chev = (): HTMLElement => {
-    const s = h(doc, 'span', 'oac-chev', { 'aria-hidden': 'true' });
-    s.innerHTML = chromeIconSvg('chevron-down');
-    return s;
-  };
+  const chev = (): HTMLElement => Object.assign(h(doc, 'span', 'oac-chev', { 'aria-hidden': 'true' }), { innerHTML: chromeIconSvg('chevron-down') });
   const sep = (): HTMLElement => h(doc, 'span', 'oac-sep', { role: 'separator' });
   const setOff = (b: HTMLButtonElement, off: boolean): void => {
     b.classList.toggle('is-off', off);
@@ -242,7 +278,8 @@ export function mountTopbar(ctx: WidgetContext, host: HTMLElement, opts: TopbarO
       { label: widgetText(ctx, `schema.chartType.${id}`, {}, chartTypeLabel(id)), icon: `chart-${id}`, on: id === cur, onSelect: () => opts.onChartType(id) },
     ]), { ariaLabel: widgetText(ctx, 'Chart type') });
   });
-  host.appendChild(typeBtn);
+  const typeSettings = typeSettingsButton(ctx, host);
+  host.append(typeBtn, typeSettings.el);
 
   // ── indicators ───────────────────────────────────────────────────────
   let indBtn: HTMLButtonElement | null = null;
@@ -451,6 +488,7 @@ export function mountTopbar(ctx: WidgetContext, host: HTMLElement, opts: TopbarO
       typeGlyph.innerHTML = typeGlyph.hidden ? '' : chromeIconSvg(`chart-${s.chartType}`);
     }
     typeLabel.textContent = widgetText(ctx, `schema.chartType.${s.chartType}`, {}, chartTypeLabel(s.chartType));
+    typeSettings.refresh();
     setOff(setBtn, !opts.settingsAvailable());
     if (indBtn !== null) setOff(indBtn, !opts.indicatorsAvailable());
     if (goTo !== null) setOff(goTo, timeBuckets(s.interval) === null);
@@ -487,6 +525,7 @@ export function mountTopbar(ctx: WidgetContext, host: HTMLElement, opts: TopbarO
     focusSymbol: () => { symInput.focus(); },
     destroy: () => {
       dataDialog?.close();
+      typeSettings.close();
       offLayouts?.();
       offBranding();
       picker?.destroy();
