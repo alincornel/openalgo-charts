@@ -3,7 +3,8 @@ import { computeFootprint } from '../src/profile/footprint';
 import { FootprintAggregator } from '../src/profile/footprint-aggregator';
 import { createTradeClassifier } from '../src/profile/footprint-classify';
 import { footprintSignals } from '../src/profile/footprint-signals';
-import { Footprint } from '../src/profile/footprint-primitive';
+import { Footprint, type FootprintOptions } from '../src/profile/footprint-primitive';
+import { FOOTPRINT_THEMES } from '../src/profile/footprint-themes';
 import { TRADING_HOURS } from '../src/profile/market-profile';
 import type { FootprintBar } from '../src/profile/profile-model';
 import { DataLayer } from '../src/model/data-layer';
@@ -112,7 +113,7 @@ describe('footprintSignals', () => {
     bars.push(bar(280, [[106, 1, 1], [105, 9, 9]], flat(105)));
     const s = footprintSignals(bars, { stackedImbalances: 0, absorptionMultiple: 0 });
     expect(s.bars.map(b => b.node)).toEqual([true, true, true, false]);
-    expect(s.zones).toEqual([{ kind: 'node', time: 220, low: 99.5, high: 100.5, endTime: null, activeTime: 280 }]);
+    expect(s.zones).toEqual([{ kind: 'node', time: 220, low: 99.5, high: 100.5, endTime: null, activeTime: 280, touchTime: null }]);
   });
 
   it('ends a zone by its rule and never on the forming bar close', () => {
@@ -284,5 +285,155 @@ describe('Footprint order flow drawing', () => {
     const fp = new Footprint();
     expect(() => fp.setOptions({ multipleNodeBars: 1 })).toThrow(RangeError);
     expect(() => fp.setOptions({ tpoMinutes: 0 })).toThrow(RangeError);
+  });
+});
+
+describe('footprint zone lookback and alerts', () => {
+  const origin = bar(0, [[102, 0, 30], [101, 0, 30], [100, 0, 30], [99, 0, 0]], { open: 100, high: 102, low: 99, close: 102 });
+  const above = bar(60, [[105, 1, 1]], flat(105));
+  const touch = bar(120, [[102, 1, 1]], { open: 104, high: 104, low: 102, close: 104 });
+  const later = bar(180, [[102, 1, 1]], { open: 104, high: 104, low: 102, close: 104 });
+  const opts = { multipleNodeBars: 0, absorptionMultiple: 0, zoneEnd: 'traverse' as const, formingLastBar: false };
+
+  it('starts zones only in the newest bars the lookback names', () => {
+    const kinds = (zoneLookback: number) => footprintSignals([origin, above, touch, later], { ...opts, zoneLookback }).zones.length;
+    expect(kinds(0)).toBe(1);
+    expect(kinds(4)).toBe(1);
+    expect(kinds(3)).toBe(0);
+  });
+
+  it('records the first bar that comes back to a zone after it became active', () => {
+    expect(footprintSignals([origin, above, touch, later], opts).zones[0]!.touchTime).toBe(120);
+    // Coming back before the zone is active is not a touch.
+    expect(footprintSignals([origin, touch], opts).zones[0]!.touchTime).toBeNull();
+  });
+
+  it('reports a live touch once, and none from the bars it first loads', () => {
+    const fp = new Footprint({ ...opts, showZones: true });
+    const seen: number[] = [];
+    fp.onZoneAlert(alert => { seen.push(alert.time); expect(alert.zone.kind).toBe('stackedBuy'); });
+    fp.setBars([origin, above]);
+    expect(seen).toEqual([]);
+    fp.setBars([origin, above, touch]);
+    expect(seen).toEqual([120]);
+    fp.setBars([origin, above, touch, later]);
+    expect(seen).toEqual([120]);
+
+    const loaded = new Footprint({ ...opts, showZones: true });
+    const none: number[] = [];
+    loaded.onZoneAlert(alert => none.push(alert.time));
+    loaded.setBars([origin, above, touch]);
+    expect(none).toEqual([]);
+  });
+
+  it('alerts only on the zones it extends, and stops when unsubscribed', () => {
+    const count = (patch: Partial<FootprintOptions>, unsubscribe = false) => {
+      const fp = new Footprint({ ...opts, showZones: true, ...patch });
+      let n = 0;
+      const off = fp.onZoneAlert(() => { n++; });
+      fp.setBars([origin, above]);
+      if (unsubscribe) off();
+      fp.setBars([origin, above, touch]);
+      return n;
+    };
+    expect(count({})).toBe(1);
+    expect(count({ zoneKinds: ['node', 'absorption'] })).toBe(0);
+    expect(count({ showZones: false })).toBe(0);
+    expect(count({}, true)).toBe(0);
+  });
+
+  it('draws only the zone kinds it extends', () => {
+    const zoneFills = (zoneKinds: FootprintOptions['zoneKinds']) => {
+      const fp = new Footprint({ ...opts, showZones: true, zoneKinds, imbalanceBuyColor: '#0000ff', showCandle: false, showPoc: false });
+      fp.setBars([origin, above, touch]);
+      const { ctx, rec } = makeCtx();
+      fp.draw(ctx, context([0, 60, 120]));
+      return rec.ops.filter(op => op.type === 'fillRect' && op.fillStyle === 'rgba(0,0,255,0.22)').length;
+    };
+    expect(zoneFills(['stacked'])).toBe(1);
+    expect(zoneFills(['node'])).toBe(0);
+  });
+
+  it('validates the zone kinds and the lookback', () => {
+    expect(() => new Footprint({ zoneKinds: ['stacked', 'stacked'] })).toThrow(RangeError);
+    expect(() => new Footprint({ zoneKinds: ['wall' as never] })).toThrow(RangeError);
+    expect(() => new Footprint({ zoneLookback: -1 })).toThrow(RangeError);
+  });
+});
+
+describe('footprint delta-shaded volume and colours', () => {
+  const draw = (fp: Footprint, times: number[]) => {
+    const { ctx, rec } = makeCtx();
+    fp.draw(ctx, context(times));
+    return rec.ops;
+  };
+  const rgb = (fill: unknown) => (String(fill).match(/\d+/g) ?? []).map(Number);
+
+  it('prints the row volume on a cell coloured by its delta', () => {
+    const cell = (bid: number, ask: number) => {
+      const fp = new Footprint({ displayMode: 'deltaShadedVolume', buyColor: '#00ff00', sellColor: '#ff0000', showPoc: false, stackedImbalances: 0, showCandle: false });
+      fp.setBars([bar(0, [[100, bid, ask]], flat(100))]);
+      const ops = draw(fp, [0]);
+      return { text: ops.filter(op => op.type === 'fillText').map(op => op.text), fill: rgb(ops.find(op => op.type === 'fill')!.fillStyle) };
+    };
+    const up = cell(250, 1250), down = cell(1250, 250);
+    expect(up.text).toContain('1.5K');
+    expect(down.text).toContain('1.5K');
+    expect(up.fill[1]!).toBeGreaterThan(up.fill[0]!);
+    expect(down.fill[0]!).toBeGreaterThan(down.fill[1]!);
+    // Shaded by delta, not volume: the quieter row with the larger delta is the stronger green.
+    const fp = new Footprint({ displayMode: 'deltaShadedVolume', buyColor: '#00ff00', showPoc: false, stackedImbalances: 0, showCandle: false });
+    fp.setBars([bar(0, [[101, 0, 1000], [100, 1000, 1100]], flat(100))]);
+    const [strong, weak] = draw(fp, [0]).filter(op => op.type === 'fill').map(op => rgb(op.fillStyle)[1]!);
+    expect(strong!).toBeGreaterThan(weak!);
+  });
+
+  it('takes the volume colour in the volume mode', () => {
+    const fp = new Footprint({ displayMode: 'volume', volumeColor: '#0000ff', showPoc: false, stackedImbalances: 0, showCandle: false });
+    fp.setBars([bar(0, [[100, 250, 1250]], flat(100))]);
+    const [r, g, b] = rgb(draw(fp, [0]).find(op => op.type === 'fill')!.fillStyle);
+    expect(b!).toBeGreaterThan(r!);
+    expect(b!).toBeGreaterThan(g!);
+  });
+
+  it('fills imbalances in their own colours, at full strength across an untraded row', () => {
+    const fp = new Footprint({ displayMode: 'imbalance', imbalanceBuyColor: '#0000ff', imbalanceSellColor: '#ffff00', showPoc: false, stackedImbalances: 0, showCandle: false });
+    // Row 100 never traded: the ask at 101 faces zero across it.
+    fp.setBars([bar(0, [[101, 1, 5], [99, 1, 1]], { open: 99, high: 101, low: 99, close: 101 })]);
+    const fills = draw(fp, [0]).filter(op => op.type === 'fill').map(op => op.fillStyle);
+    expect(fills).toContain('rgb(0,0,255)');
+    // The bid at 99 faces the empty row too.
+    expect(fills).toContain('rgb(255,255,0)');
+  });
+
+  it('colours the candle, the visible profile, the table background and the session letters', () => {
+    const fp = new Footprint({
+      candleUpColor: '#00ffff', profileAskColor: '#ff00ff', profileBidColor: '#ffaa00', tableBackground: '#102030', sessionColor: '#ffff00',
+      showVisibleProfile: true, tableRows: ['session', 'volume'], showPoc: false, stackedImbalances: 0, cellWidth: 100,
+    });
+    fp.setBars([bar(0, [[101, 2, 6], [100, 3, 3]], { open: 100, high: 101, low: 100, close: 101 })]);
+    const ops = draw(fp, [0]);
+    const fills = ops.filter(op => op.type === 'fillRect' || op.type === 'fill').map(op => String(op.fillStyle));
+    expect(fills).toContain('#00ffff');
+    expect(fills).toContain('rgba(255,0,255,0.8)');
+    expect(fills).toContain('rgba(255,170,0,0.8)');
+    expect(fills).toContain('#102030');
+    const letter = ops.find(op => op.type === 'fillText' && op.text === fp.stats()[0]!.session);
+    expect(letter?.fillStyle).toBe('#ffff00');
+  });
+});
+
+describe('FOOTPRINT_THEMES', () => {
+  it('sets every colour option a theme carries, as valid colours, on frozen objects', () => {
+    for (const [name, colors] of Object.entries(FOOTPRINT_THEMES)) {
+      const values = Object.values(colors);
+      expect(values, name).toHaveLength(20);
+      for (const value of values) expect(value, name).toMatch(/^#[0-9A-F]{6}$/);
+      expect(Object.isFrozen(colors), name).toBe(true);
+      // A theme is an options patch the footprint accepts as it is.
+      expect(() => new Footprint({ ...colors })).not.toThrow();
+    }
+    expect(FOOTPRINT_THEMES.ocean.imbalanceBuyColor).toBe('#00ACC1');
+    expect(FOOTPRINT_THEMES.daylight.tableBackground).toBe('#ECEFF1');
   });
 });

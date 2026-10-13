@@ -95,7 +95,10 @@ export {
   type FootprintStatRow,
   type FootprintBarStats,
   type FootprintHover,
+  type FootprintZoneGroup,
+  type FootprintZoneAlert,
 } from './footprint-primitive';
+export { FOOTPRINT_THEMES, type FootprintThemeName } from './footprint-themes';
 export {
   FootprintAggregator,
   type FootprintTick,
