@@ -114,7 +114,8 @@ With zones on, stacked imbalances, shared POCs and absorption extend to the righ
 price levels until price deals with them. `zoneKinds` picks which of the three to
 draw and alert on, and `zoneLookback` lets zones start only in the newest bars, so an
 old, crowded chart stays readable. `onZoneAlert` calls you once per zone when the
-newest bar trades back into it after it became active, the moment to raise an alert
+newest bar's range comes back to it after it became active (a jump across the zone counts,
+as it would trigger a stop there), the moment to raise an alert
 or play a sound. Zones touched in the bars a chart first loads are history, not news,
 so they are not reported. Press Play to run the tape forward and watch the log.
 

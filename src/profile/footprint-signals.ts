@@ -67,8 +67,9 @@ export interface FootprintZone {
   /** Time of the bar that made it active for alerts, or null. */
   activeTime: number | null;
   /**
-   * Time of the first bar after it became active that traded back into it,
-   * which is when an alert fires (since 2.6.4), or null.
+   * Time of the first bar after it became active whose high to low range
+   * reached it, which is when an alert fires (since 2.6.4), or null. A bar that
+   * jumps across the zone reaches it too, as it would trigger a stop there.
    */
   touchTime: number | null;
 }

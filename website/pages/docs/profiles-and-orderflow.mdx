@@ -432,8 +432,9 @@ bar) starts zones only in the newest that many bars, so a long history does not 
 with old levels.
 
 `footprint.onZoneAlert(handler)` (since 2.6.4) calls the handler once for each zone that
-`showZones` extends (so turn `showZones` on, and pick the kinds with `zoneKinds`) when price trades
-back into it after it became active, the moment to raise an alert or play a sound. The first
+`showZones` extends (so turn `showZones` on, and pick the kinds with `zoneKinds`) when a bar's high
+to low range comes back to it after it became active (a bar that jumps across the zone counts, as
+it would trigger a stop there), the moment to raise an alert or play a sound. The first
 bars a footprint is given are history and report nothing. Each later `setBars` is the live tail:
 a touch in the bar that was newest at the previous call, or in any bar after it, is reported, so
 a host may send several prints, even across a new bar, in one call. `setBars([])`, or bars that
@@ -560,8 +561,8 @@ bars.forEach((bar, i) => {
 `footprintSignals(bars, options?)` is the pure calculation behind the layers, for alerts,
 scanners or a server. It returns `{ bars, zones, auctions }`: per bar `node`, `bigBid`,
 `bigAsk`, `absorption`, `flip` and `divergence`; each zone's `kind`, price span, `endTime`,
-`activeTime` and `touchTime` (since 2.6.4: the first bar after it became active that traded
-back into it); and each unfinished auction's price and `endTime`. A zone becomes active
+`activeTime` and `touchTime` (since 2.6.4: the first bar after it became active whose high to
+low range reached it); and each unfinished auction's price and `endTime`. A zone becomes active
 once `zoneActiveAfter` whole bars have traded completely beyond it. `footprint.signals()`
 returns the same result for the bars and options a primitive holds.
 

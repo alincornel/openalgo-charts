@@ -24,7 +24,7 @@ export type FootprintZoneGroup = 'stacked' | 'node' | 'absorption';
 /** A zone that price came back to after it became active (since 2.6.4). */
 export interface FootprintZoneAlert {
   zone: FootprintZone;
-  /** Time of the bar that traded back into the zone. */
+  /** Time of the bar whose range came back to the zone. */
   time: number;
 }
 export type FootprintCellStyle = 'heatmap' | 'profile' | 'ladder';
@@ -351,7 +351,7 @@ export class Footprint implements IPrimitive {
 
   /**
    * Called once for each zone that `showZones` extends (so nothing is reported
-   * while it is off) when price trades back into it after it became active
+   * while it is off) when a bar's range comes back to it after it became active
    * (since 2.6.4), the moment to raise an alert or play a sound. The first bars
    * a footprint is given are history and report nothing; each later `setBars`
    * is read as the live tail, so a touch in the bar that was newest at the
