@@ -964,7 +964,21 @@ test('reference selection survives hover and snapshot menus retain their chart o
   await page.mouse.move(other.x + other.width * 0.4, other.y + other.height * 0.35);
   expect(await page.evaluate(() => (window as any).__oac.app.focusPane)).toBe(2);
   const edge = await page.screenshot({ clip: { x: box.x, y: box.y + 80, width: 3, height: 12 } });
-  const visibleSelection = await page.evaluate(async (encoded) => {
+  // The frame's colour as the page composites it over the chart: read from the
+  // stylesheet, so the check follows the palette rather than pinning one.
+  const frame = await page.evaluate(() => {
+    const channels = (css: string): number[] => {
+      const probe = document.createElement('canvas').getContext('2d')!;
+      probe.fillStyle = css;
+      probe.fillRect(0, 0, 1, 1);
+      return Array.from(probe.getImageData(0, 0, 1, 1).data);
+    };
+    const [r, g, b, a] = channels(getComputedStyle(document.getElementById('chart2')!, '::after').borderTopColor);
+    const [br, bg, bb] = channels(getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#000');
+    const k = a! / 255;
+    return [r! * k + br! * (1 - k), g! * k + bg! * (1 - k), b! * k + bb! * (1 - k)].map(Math.round);
+  });
+  const visibleSelection = await page.evaluate(async ([encoded, want]) => {
     const bytes = Uint8Array.from(atob(encoded), (value) => value.charCodeAt(0));
     const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
     const canvas = document.createElement('canvas');
@@ -975,10 +989,10 @@ test('reference selection survives hover and snapshot menus retain their chart o
     bitmap.close();
     const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
     for (let index = 0; index < pixels.length; index += 4) {
-      if (pixels[index] === 45 && pixels[index + 1] === 212 && pixels[index + 2] === 191) return true;
+      if ([0, 1, 2].every((c) => Math.abs(pixels[index + c]! - want[c]!) <= 4)) return true;
     }
     return false;
-  }, edge.toString('base64'));
+  }, [edge.toString('base64'), frame] as const);
   expect(visibleSelection, 'selected chart border must paint above its canvas').toBe(true);
   await page.screenshot({ path: info.outputPath('reference-selected-chart.png') });
   await page.getByRole('button', { name: 'Chart snapshot', exact: true }).click();

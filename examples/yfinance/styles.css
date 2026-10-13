@@ -5,40 +5,45 @@
    drops down, a scrollbar the stylesheet cannot reach), so it flips too. */
 :root {
   color-scheme: dark;
-  --bg: #0a0c11; --bg-glow: rgba(34,193,164,.06);
-  --panel: #0f121a; --panel-2: #0c0f16; --elev: #151925; --elev-2: #1b2030; --elev-3: #2a3348;
-  --bd: #232a3a; --bd-soft: #1a1f2c; --bd-hover: #33405a;
-  --tx: #d7dce8; --tx-strong: #eef1f7; --mut: #8b93a7; --faint: #5b6376;
-  --acc: #22c1a4; --acc-2: #2dd4bf; --acc-tx: #04231d;
-  --on-bg: rgba(34,193,164,.16); --on-bd: #1d6b5e;
-  --ring: #2dd4bf; --ring-soft: rgba(34,193,164,.15);
-  --buy: #26a69a; --sell: #ef5350; --amber: #e6b53c;
-  --buy-tx: #7fe6d2; --sell-tx: #f7a6a4; --danger-tx: #ff8b8b;
-  --glass: rgba(15,18,26,.72); --glass-solid: rgba(15,18,26,.94); --scrim: rgba(6,8,12,.55);
-  --shadow: 0 14px 40px rgba(0,0,0,.55); --shadow-lg: 0 18px 50px rgba(0,0,0,.55);
-  --sb-thumb: #2c3547; --sb-thumb-hover: #3d4a66;
-  --pill-bg: rgba(20,24,36,.94); --pill-bd: #2c3349; --pill-tx: #b8c0d2; --pill-mut: #9aa3b2;
+  /* Neutral greys, not a tinted navy: the page is the chart's own surface,
+     panels lift it a few percent toward white, and every hover and pressed
+     state is a white wash over that, so the chrome reads as one family with
+     the plot it frames. Colour is kept for meaning: the accent, the candle
+     pair, and amber for what is pinned. */
+  --bg: #151619; --bg-glow: transparent;
+  --panel: #1c1d20; --panel-2: #18191c; --elev: #2a2b2e; --elev-2: #333437; --elev-3: #404144;
+  --bd: #2a2b30; --bd-soft: #232428; --bd-hover: #3d3e45;
+  --tx: #d1d4dc; --tx-strong: #f0f3fa; --mut: #868a96; --faint: #63666e;
+  --acc: #2962ff; --acc-2: #f0f3fa; --acc-tx: #ffffff;
+  --on-bg: rgba(255,255,255,.10); --on-bd: transparent;
+  --ring: #2962ff; --ring-soft: rgba(41,98,255,.28);
+  --buy: #089981; --sell: #f23645; --amber: #e0b400;
+  --buy-tx: #22ab94; --sell-tx: #f7525f; --danger-tx: #f7525f;
+  --glass: rgba(28,29,32,.78); --glass-solid: rgba(28,29,32,.96); --scrim: rgba(0,0,0,.45);
+  --shadow: 0 8px 30px rgba(0,0,0,.5); --shadow-lg: 0 20px 60px rgba(0,0,0,.5);
+  --sb-thumb: rgba(178,181,190,.3); --sb-thumb-hover: rgba(178,181,190,.5);
+  --pill-bg: rgba(28,29,32,.94); --pill-bd: #2a2b30; --pill-tx: #b2b5be; --pill-mut: #868a96;
   --swatch-bd: rgba(0,0,0,.45);
-  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5L6 8l3.5-3.5' fill='none' stroke='%238b93a7' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5L6 8l3.5-3.5' fill='none' stroke='%23868a96' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   --r: 8px; --h: 30px;
 }
 html[data-theme="light"] {
   color-scheme: light;
-  --bg: #eef1f6; --bg-glow: rgba(15,157,132,.07);
-  --panel: #ffffff; --panel-2: #f5f7fa; --elev: #f2f4f8; --elev-2: #e7ebf2; --elev-3: #d9dfe9;
-  --bd: #d2d9e4; --bd-soft: #e3e8ef; --bd-hover: #b3bdcc;
-  --tx: #1a2130; --tx-strong: #0c1120; --mut: #59636f; --faint: #8791a1;
-  --acc: #0f9d84; --acc-2: #0a8570; --acc-tx: #04231d;
-  --on-bg: rgba(15,157,132,.13); --on-bd: #9ad8ca;
-  --ring: #0a8570; --ring-soft: rgba(15,157,132,.18);
-  --buy: #089981; --sell: #e0473e; --amber: #b8860b;
-  --buy-tx: #067a63; --sell-tx: #b83a32; --danger-tx: #c62828;
-  --glass: rgba(255,255,255,.8); --glass-solid: rgba(255,255,255,.96); --scrim: rgba(24,30,40,.38);
-  --shadow: 0 14px 40px rgba(24,32,48,.16); --shadow-lg: 0 18px 50px rgba(24,32,48,.2);
-  --sb-thumb: #c4ccd8; --sb-thumb-hover: #a9b4c4;
-  --pill-bg: rgba(255,255,255,.96); --pill-bd: #cfd6e2; --pill-tx: #33404f; --pill-mut: #6b7684;
+  --bg: #ffffff; --bg-glow: transparent;
+  --panel: #ffffff; --panel-2: #f8f9fa; --elev: #f1f3f5; --elev-2: #e7e9ed; --elev-3: #d6d9df;
+  --bd: #d4dae3; --bd-soft: #e3e6eb; --bd-hover: #b7bec9;
+  --tx: #1e293b; --tx-strong: #0b1220; --mut: #5f6673; --faint: #8b919c;
+  --acc: #2962ff; --acc-2: #0b1220; --acc-tx: #ffffff;
+  --on-bg: rgba(30,41,59,.10); --on-bd: transparent;
+  --ring: #2962ff; --ring-soft: rgba(41,98,255,.2);
+  --buy: #089981; --sell: #f23645; --amber: #b88a00;
+  --buy-tx: #067a63; --sell-tx: #c2253a; --danger-tx: #c62828;
+  --glass: rgba(255,255,255,.82); --glass-solid: rgba(255,255,255,.96); --scrim: rgba(15,23,42,.32);
+  --shadow: 0 8px 30px rgba(15,23,42,.14); --shadow-lg: 0 20px 60px rgba(15,23,42,.18);
+  --sb-thumb: rgba(30,41,59,.22); --sb-thumb-hover: rgba(30,41,59,.38);
+  --pill-bg: rgba(255,255,255,.96); --pill-bd: #d4dae3; --pill-tx: #334155; --pill-mut: #64748b;
   --swatch-bd: rgba(0,0,0,.18);
-  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5L6 8l3.5-3.5' fill='none' stroke='%2359636f' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5L6 8l3.5-3.5' fill='none' stroke='%235f6673' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 * { box-sizing: border-box; }
 
@@ -69,7 +74,7 @@ select:focus-visible, textarea:focus-visible {
 #chart:focus-visible, #chart2:focus-visible { outline-offset: -2px; }
 #chart[data-chart-focused="true"]::after, #chart2[data-chart-focused="true"]::after {
   content: ''; position: absolute; inset: 0; z-index: 5;
-  border: 1px solid var(--ring); pointer-events: none;
+  border: 1px solid color-mix(in srgb, var(--ring) 45%, transparent); pointer-events: none;
 }
 /* Read by assistive technology, never drawn. */
 .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
@@ -196,11 +201,11 @@ select.field { cursor: pointer; padding-right: 24px; }
 }
 .btn:hover { border-color: var(--bd-hover); background: var(--elev-2); }
 .btn:active { transform: translateY(1px); }
-.btn--primary, .btn--primary:hover { background: linear-gradient(180deg, var(--acc-2), var(--acc)); color: var(--acc-tx); border-color: transparent; }
+.btn--primary, .btn--primary:hover { background: var(--acc); color: var(--acc-tx); border-color: transparent; }
 .btn--primary:hover { filter: brightness(1.08); }
 .btn--ghost { color: var(--mut); }
-.btn--buy { background: linear-gradient(180deg, #2fbfa4, #1f9e88); color: #04231d; border-color: transparent; }
-.btn--sell { background: linear-gradient(180deg, #f0616f, #d6485a); color: #2a0d10; border-color: transparent; }
+.btn--buy { background: var(--buy); color: #ffffff; border-color: transparent; }
+.btn--sell { background: var(--sell); color: #ffffff; border-color: transparent; }
 .btn--buy:hover, .btn--sell:hover { filter: brightness(1.08); }
 
 /* The readout now carries the cache verdict and the clipboard's replies, so
@@ -216,10 +221,10 @@ select.field { cursor: pointer; padding-right: 24px; }
 .status span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The feed's staleness badge, beside the readout. Amber: a warning, not a fault. */
 .badge--stale { display: inline-flex; align-items: center; height: 18px; padding: 0 7px; margin-right: 8px;
-  border-radius: 5px; background: rgba(230,181,60,.14); color: var(--amber);
-  border: 1px solid rgba(230,181,60,.35); font-size: 10.5px; font-weight: 700; letter-spacing: .5px;
+  border-radius: 5px; background: color-mix(in srgb, var(--amber) 14%, transparent); color: var(--amber);
+  border: 1px solid color-mix(in srgb, var(--amber) 35%, transparent); font-size: 10.5px; font-weight: 700; letter-spacing: .5px;
   text-transform: uppercase; flex: none; cursor: default; }
-.status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; box-shadow: 0 0 0 3px rgba(139,147,167,.12); }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--mut) 12%, transparent); }
 #status { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .chk { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none;
@@ -313,9 +318,9 @@ select.field { cursor: pointer; padding-right: 24px; }
 .set-ctl textarea { width: 100%; min-width: 0; min-height: 76px; resize: vertical; box-sizing: border-box;
   padding: 6px 8px; background: var(--elev); color: var(--tx); border: 1px solid var(--bd); border-radius: 6px;
   font: inherit; font-size: 12px; }
-.set-input-error { grid-column: 2 / -1; color: var(--danger, #ef5350); font-size: 11px; overflow-wrap: anywhere; }
+.set-input-error { grid-column: 2 / -1; color: var(--danger-tx); font-size: 11px; overflow-wrap: anywhere; }
 .set-input-error[hidden] { display: none; }
-.set-ctl [aria-invalid=true] { border-color: var(--danger, #ef5350); }
+.set-ctl [aria-invalid=true] { border-color: var(--danger-tx); }
 .set-ctl select, .set-ctl input[type=number], .set-ctl input[type=text], .set-ctl input[type=datetime-local] {
   flex: 1 1 auto; min-width: 0; height: 24px; background-color: var(--elev); color: var(--tx);
   border: 1px solid var(--bd); border-radius: 6px; padding: 0 8px; font: inherit; font-size: 12px;
@@ -585,8 +590,8 @@ body[data-fullscreen-pane="2"] #chart2 { left: 42px; }
   pointer-events: auto; box-shadow: 0 6px 18px rgba(0,0,0,.5); user-select: none; border: 1px solid transparent;
 }
 #bracket .bk b { color: #fff; font-weight: 700; }
-#bracket .bk.tp { background: linear-gradient(180deg, #12a98f, #0e9c84); color: #d7f5ee; cursor: ns-resize; }
-#bracket .bk.sl { background: linear-gradient(180deg, #cf4653, #c0414c); color: #fadadd; cursor: ns-resize; }
+#bracket .bk.tp { background: var(--buy); color: #ffffff; cursor: ns-resize; }
+#bracket .bk.sl { background: var(--sell); color: #ffffff; cursor: ns-resize; }
 #bracket .bk.entry { background: var(--pill-bg); border-color: var(--pill-bd); color: var(--pill-tx); cursor: move; backdrop-filter: blur(6px); }
 #bracket .bk.entry b { color: var(--tx-strong); }
 #bracket .bk .pnl { font-weight: 800; color: #fff; }
@@ -594,8 +599,8 @@ body[data-fullscreen-pane="2"] #chart2 { left: 42px; }
 #bracket .bk button:hover { filter: brightness(1.12); }
 #bracket .bk .bk-x { background: transparent; color: var(--pill-mut); border-color: var(--pill-bd); padding: 4px 9px; }
 #bracket .bk .bk-x:hover { color: var(--tx-strong); border-color: var(--bd-hover); filter: none; }
-#bracket .bk .bk-buy { background: #1f9e88; }
-#bracket .bk .bk-sell { background: #d6485a; }
+#bracket .bk .bk-buy { background: var(--buy); }
+#bracket .bk .bk-sell { background: var(--sell); }
 #bracket .bk .bk-mod { background: var(--elev-3); color: var(--tx); }
 
 /* right-click order menu */
@@ -948,8 +953,8 @@ body:has(.stage.has-bottombar) #goto { display: none; }
 .symkey { width: 22px; height: 22px; padding: 0; display: inline-flex; align-items: center;
   justify-content: center; background: transparent; border: 1px solid transparent; border-radius: 5px;
   color: var(--mut); font-size: 12px; line-height: 1; cursor: pointer; user-select: none; }
-.symkey:hover { background: var(--elev, #1a1f2c); border-color: var(--bd); color: var(--tx); }
-.symkey:focus-visible { outline: 2px solid var(--acc, #4f8cff); outline-offset: 1px; }
+.symkey:hover { background: var(--elev); border-color: var(--bd); color: var(--tx); }
+.symkey:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 
 /* A chart and its information dock share one measured plot row. The widget
    scope supplies component tokens without imposing the standalone shell grid. */

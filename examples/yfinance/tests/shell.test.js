@@ -529,15 +529,22 @@ describe('theme', () => {
     expect(currentTheme()).toBe('light');
     expect(doc.documentElement.dataset.theme).toBe('light');
     expect(doc.documentElement.style.colorScheme).toBe('light');
-    expect(chartTheme()).toBe(lightTheme);
-    expect(chart.setTheme).toHaveBeenLastCalledWith(lightTheme);
+    // The demo's palettes sit over the engine's, so every key the engine
+    // knows keeps a value, and the light one stays light.
+    const light = chartTheme();
+    for (const k of Object.keys(lightTheme)) expect(light[k], k).toBeDefined();
+    expect(light.background).toBe('#ffffff');
+    expect(chart.setTheme).toHaveBeenLastCalledWith(light);
     const heard = vi.fn();
     doc.addEventListener('oac:theme', heard);
     toggleTheme();
     expect(currentTheme()).toBe('dark');
     expect(localStorage.getItem(THEME_KEY)).toBe('dark');
-    expect(chart.setTheme).toHaveBeenLastCalledWith(darkTheme);
-    expect(chart2.setTheme).toHaveBeenLastCalledWith(darkTheme);
+    const dark = chartTheme();
+    for (const k of Object.keys(darkTheme)) expect(dark[k], k).toBeDefined();
+    expect(dark.background).not.toBe(light.background);
+    expect(chart.setTheme).toHaveBeenLastCalledWith(dark);
+    expect(chart2.setTheme).toHaveBeenLastCalledWith(dark);
     expect(heard).toHaveBeenCalledTimes(1);
     expect(heard.mock.calls[0][0].detail).toEqual({ theme: 'dark' });
     setTheme('sepia');

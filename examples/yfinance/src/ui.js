@@ -37,7 +37,7 @@ export function fmtVol(v) {
   return String(v);
 }
 
-export const UP = '#26a69a', DOWN = '#ef5350';
+export const UP = '#089981', DOWN = '#f23645';
 /** The key the chords name: Cmd on a Mac, where the handlers take it and Control-click is a right click. */
 export const MOD = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || '') ? 'Cmd' : 'Ctrl';
 /** A count and its noun, in the singular for one. */
@@ -453,8 +453,31 @@ export const THEME_KEY = 'oa-charts-theme';
 export const THEMES = ['dark', 'light'];
 let themeName = 'dark';
 export const currentTheme = () => themeName;
+// The chart's palettes, over the engine's own so any key added later keeps a
+// value. Neutral surfaces to match the shell, one green and red pair for
+// candles, the price tag and every buy, sell, profit and loss mark, and one
+// blue for lines and areas.
+const BLUE = '#2962ff';
+const candlePair = {
+  upColor: UP, downColor: DOWN, wickUpColor: UP, wickDownColor: DOWN,
+  lineColor: BLUE, areaTopColor: 'rgba(41,98,255,0.28)', areaBottomColor: 'rgba(41,98,255,0.00)',
+  baselineTopLine: UP, baselineTopFill: 'rgba(8,153,129,0.20)',
+  baselineBottomLine: DOWN, baselineBottomFill: 'rgba(242,54,69,0.20)',
+  lastPriceUp: UP, lastPriceDown: DOWN, lastPriceText: '#ffffff',
+  buy: UP, sell: DOWN, profit: UP, loss: DOWN,
+};
+const demoDark = {
+  ...darkTheme, ...candlePair,
+  background: '#151619', grid: '#20222c', axisText: '#b2b5be',
+  axisLine: '#2a2b30', paneSeparator: '#2a2b30', crosshair: '#787b86',
+};
+const demoLight = {
+  ...lightTheme, ...candlePair,
+  background: '#ffffff', grid: '#eef1f6', axisText: '#334155',
+  axisLine: '#d4dae3', paneSeparator: '#d4dae3', crosshair: '#9598a1',
+};
 /** The engine palette that goes with the shell's current theme. */
-export const chartTheme = () => (themeName === 'light' ? lightTheme : darkTheme);
+export const chartTheme = () => (themeName === 'light' ? demoLight : demoDark);
 
 /** Constructor options shared by both charts when the operating system requests less motion. */
 export function chartMotionOptions(view = globalThis.window) {
