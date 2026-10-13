@@ -112,6 +112,25 @@ describe('default candle density', () => {
     const c = make({ navigation: { mousePan: 'both' } }).w;
     c.restoreState(legacy);
     expect(c.chart.navigationOptions().mousePan).toBe('both');
+    // A host that asked for 'horizontal' does not lose it to the recorded default.
+    const d = make({ navigation: { mousePan: 'horizontal' } }).w;
+    d.restoreState(legacy);
+    expect(d.chart.navigationOptions().mousePan).toBe('horizontal');
+  });
+
+  it('leaves the drag to the widget for a layout saved before 2.6.3 when a reload restores it', () => {
+    // A reload restores the persisted layout by its own path, not restoreState.
+    const { savedBy: _stamp, ...unstamped } = make().w.getState();
+    const legacy = { ...unstamped, chart: { ...unstamped.chart, navigation: { ...unstamped.chart.navigation, mousePan: 'both' as const } } };
+    const reload = (state: object, opts: WidgetOptions = {}): string | undefined => {
+      const store = new MemoryStorage();
+      store.setItem(`${STORAGE_PREFIX}default:${STATE_KEY}`, JSON.stringify(state));
+      return make({ persist: true, storage: store, ...opts }).w.chart.navigationOptions().mousePan;
+    };
+    expect(reload(legacy)).toBe('horizontal');
+    expect(reload(legacy, { navigation: { mousePan: 'horizontal' } })).toBe('horizontal');
+    expect(reload(legacy, { navigation: { mousePan: 'both' } })).toBe('both');
+    expect(reload({ ...legacy, savedBy: '2.6.3' })).toBe('both');
   });
 
   it('zooms about the latest bar by default, and about the cursor when the host asks', () => {

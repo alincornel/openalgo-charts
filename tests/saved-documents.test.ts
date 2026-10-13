@@ -156,9 +156,10 @@ const CHANGES: Record<string, Record<string, readonly Named[]>> = {
       ...under('oac-widget:compat:state.chart', [...SAVED_SINCE_254, TIMEFRAME]),
       { path: 'oac-widget:compat:state.panels', change: 'added', why: 'the panel dock (2.5.3), closed, as a 2.5.1 widget had none' },
       { path: 'oac-widget:compat:state.savedBy', change: 'added', why: SAVED_BY },
+      ...under('oac-widget:compat:state', [DRAG]),
       { path: 'oac-widget:compat:drawings:NSE:RELIANCE', change: 'added', why: 'drawings are kept per instrument since 2.5.9: the layout\'s own drawings are copied under the instrument it was saved on, and stay in the layout too' },
     ],
-    '2.6.0': [...WIDGET_START, { path: 'oac-widget:compat:state.savedBy', change: 'added', why: SAVED_BY }],
+    '2.6.0': [...WIDGET_START, { path: 'oac-widget:compat:state.savedBy', change: 'added', why: SAVED_BY }, ...under('oac-widget:compat:state', [DRAG])],
   },
   'workspace-catalog': { '2.5.1': OPENED, '2.6.0': OPENED },
 };

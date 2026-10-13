@@ -151,6 +151,19 @@ export function stripView(state: WidgetChartState): WidgetChartState {
 }
 
 /**
+ * Through 2.6.2 the chart state carried every navigation option, so each
+ * layout saved then says mousePan: 'both' whether or not anyone chose it.
+ * Restored, it switched every drag back to moving price and the pane to
+ * manual scaling. An unstamped state therefore leaves the drag to the
+ * options the widget was built with: its own default or the host's.
+ */
+function withoutRecordedDrag(savedBy: unknown, chart: WidgetChartState): WidgetChartState {
+  if (savedBy !== undefined || chart.navigation?.mousePan !== 'both') return chart;
+  const { mousePan: _recorded, ...navigation } = chart.navigation;
+  return { ...chart, navigation };
+}
+
+/**
  * The saved layout, onto the dataset it belongs to: its view only on the
  * instrument (symbol and exchange), interval and variant it was saved on,
  * then its rail preferences and panels. Runs once the chrome is built.
@@ -159,7 +172,8 @@ export function applySavedLayout(this: PersistHost, saved: WidgetState | null): 
   if (saved?.chart !== undefined) {
     const same = saved.symbol === this._symbol && saved.exchange === this._exchange && saved.interval === this._interval
       && dataVariantKey(saved.variant) === dataVariantKey(this._variant);
-    let layout = same ? saved.chart : stripView(saved.chart);
+    const recorded = withoutRecordedDrag(saved.savedBy, saved.chart);
+    let layout = same ? recorded : stripView(recorded);
     // The layout's own drawings were attached to its instrument by
     // `scopeDrawings`; the chart keeps the ones the current instrument has,
     // already on it. A layout that names no instrument has nowhere else to
@@ -279,16 +293,7 @@ export function restoreWidgetState(this: PersistHost, state: unknown): WidgetRes
   const same = symbol === this._symbol && exchange === this._exchange && interval === this._interval && sameVariant;
   let chart: RestoreReport | undefined;
   if (isRecord(state.chart)) {
-    let doc = state.chart as unknown as WidgetChartState;
-    // Through 2.6.2 the chart state carried every navigation option, so each
-    // layout saved then says mousePan: 'both' whether or not anyone chose it.
-    // Restored, it switched every drag back to moving price and the pane to
-    // manual scaling, so an unstamped state leaves the drag to the widget's
-    // default, unless the host itself asked for one.
-    if (state.savedBy === undefined && this._opts.navigation?.mousePan === undefined && doc.navigation?.mousePan === 'both') {
-      const { mousePan: _recorded, ...navigation } = doc.navigation;
-      doc = { ...doc, navigation };
-    }
+    let doc = withoutRecordedDrag(state.savedBy, state.chart as unknown as WidgetChartState);
     const scoped = this.instrumentDrawings;
     // A layout for another instrument brings that instrument's drawings.
     // They wait in its store while the chart restore keeps the ones on
