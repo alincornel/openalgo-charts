@@ -269,7 +269,9 @@ const BUNDLE = new URL('../dist/openalgo-charts.mjs', import.meta.url).pathname.
 // step by up to 150 bytes, so they do not sum to the total, which is measured:
 // 89280 bytes (87.19 KiB), up 1495 from 87785; allow 87.19 KiB.
 // 2.6.3: the wheel zoom chases one target per frame instead of starting a
-// curve per event, which every chart carries: 89342 bytes (87.25 KiB), up 62.
+// curve per event, and a log scale pads in log space, which every chart
+// carries: 89334 bytes (87.24 KiB), up 54; allow 87.25 KiB, the first
+// hundredth at or above it.
 const LIMIT_BYTES = 87.25 * 1024;
 
 // Absent from a chart-only build. Each is a string that appears in the adapter

@@ -318,6 +318,32 @@ describe('autoscale under every mode', () => {
     }
   });
 
+  it('leaves the data 80 percent of the pane on a log scale too, whatever the price span', () => {
+    // The margins used to be padded in price units and then drawn in log
+    // units. A monthly series from 150 to 1230 got a floor near 15, a whole
+    // empty decade under the lowest bar, and its bars filled the top 42
+    // percent of the pane (issue #53). The margins are fractions of the pane
+    // in every mode, so a log scale pads in log space.
+    for (const [low, high] of [[150, 1230], [95, 105], [0.5, 4000]] as const) {
+      const ps = new PriceScale({ mode: 'logarithmic' });
+      ps.setHeight(400);
+      ps.autoscale(low, high);
+      expect(ps.priceToY(high), `${low}..${high}`).toBeCloseTo(40, 6);
+      expect(ps.priceToY(low), `${low}..${high}`).toBeCloseTo(360, 6);
+    }
+  });
+
+  it('keeps a log scale drawable for data at or below zero', () => {
+    // There is no log of zero: such a range keeps the price-space margins
+    // rather than reaching for a floor ten decades down.
+    const ps = new PriceScale({ mode: 'logarithmic' });
+    ps.setHeight(400);
+    ps.autoscale(0, 100);
+    const r = ps.priceRange();
+    expect(Number.isFinite(r.min)).toBe(true);
+    expect(r.max).toBeGreaterThan(100);
+  });
+
   it('survives a flat series in the rebasing modes', () => {
     for (const mode of ['percentage', 'indexed-to-100'] as const) {
       const ps = new PriceScale({ mode });
