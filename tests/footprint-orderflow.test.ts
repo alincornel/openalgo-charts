@@ -264,6 +264,22 @@ describe('Footprint order flow drawing', () => {
     expect(ops.some(op => op.type === 'fillText' && op.text === '+97')).toBe(false);
   });
 
+  it('draws untraded rows inside a bar as 0 x 0 without changing imbalances or signals', () => {
+    // Trades at 103 and 100 only: rows 102 and 101 went untraded.
+    const gapped = bar(0, [[103, 0, 30], [100, 10, 0]], { open: 100, high: 103, low: 100, close: 103 });
+    const zeros = (showEmptyRows: boolean) => {
+      const fp = new Footprint({ showEmptyRows, showPoc: false, stackedImbalances: 0, showCandle: false });
+      fp.setBars([gapped]);
+      return { texts: draw(fp, [0]).filter(op => op.type === 'fillText' && op.text === '0').length, signals: JSON.stringify(fp.signals()) };
+    };
+    const filled = zeros(true), sparse = zeros(false);
+    // Two traded rows each show one zero side; the two empty rows add two zeros each.
+    expect(sparse.texts).toBe(2);
+    expect(filled.texts).toBe(6);
+    expect(filled.signals).toBe(sparse.signals);
+    expect(new Footprint().options().showEmptyRows).toBe(true);
+  });
+
   it('rejects invalid signal options through setOptions', () => {
     const fp = new Footprint();
     expect(() => fp.setOptions({ multipleNodeBars: 1 })).toThrow(RangeError);

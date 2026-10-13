@@ -409,6 +409,10 @@ close to the high or low a big order or absorption must be. `zoneEnd` is `'close
 `true`) keeps the newest bar from ending a zone by its close, or from setting an unfinished
 auction, while it is still forming.
 
+`showEmptyRows` (default `true`) draws a row inside a bar that no trade reached as 0 x 0, so
+every column spans its whole range. It changes only the drawing: imbalances, the point of
+control, the value area and the signals still read the traded rows.
+
 ```ts
 footprint.setOptions({
   displayMode: 'imbalance', multipleNodeBars: 2, bigOrderMultiple: 3, absorptionMultiple: 2, flipBars: 2,

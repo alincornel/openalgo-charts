@@ -311,6 +311,7 @@ The chart's data layer must contain matching bar timestamps for the footprint to
 | `showDeltaLabels` / `markDivergence` / `divergenceColor` | `false` / `false` / `#f2a33a` | Bar delta under each column; boxed when an up bar has negative delta or a down bar positive. |
 | `showVisibleProfile` / `profileWidth` | `false` / `100` | Ask and bid volume at price of the visible bars against the left edge, with row totals and the POC. |
 | `lastPriceColor` | *(unset)* | Fill the newest bar's last-price row. |
+| `showEmptyRows` | `true` | Draw a 0 x 0 row at every row step a bar's trades skipped, so the column spans its whole range. Display only: imbalances, the POC, value area, signals and hover on traded rows are unchanged. |
 | `formingLastBar` | `true` | The newest bar cannot end a zone by its close, nor set an unfinished auction. |
 
 Text modes select neutral ink, each displayed side, row-delta direction, only the larger same-row side, only a side with a diagonal flag, or a continuous quantity/peak blend. Single-number volume labels use total quantity and row delta for direction. Color contrast is corrected against the actual fill or plot background; labels crossing a profile edge receive an opaque backplate. Small rows additionally fade their text. The renderer uses the exported diagonal and stacked analytics, including the same explicit row size and threshold.

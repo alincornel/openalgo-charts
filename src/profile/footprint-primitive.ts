@@ -1,6 +1,6 @@
 /** Footprint columns, volume profiles and cluster ladders from classified trades. */
 import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, PrimitiveHit, ZOrder } from 'openalgo-charts';
-import { valueArea, type FootprintBar, type FootprintCell } from './profile-model';
+import { bucketPrice, valueArea, type FootprintBar, type FootprintCell } from './profile-model';
 import { diagonalImbalances, stackedImbalances } from './footprint';
 import { footprintTextColor, readableTextColor, type FootprintTextColorMode } from './footprint-colors';
 import { footprintSignals, type FootprintSignals, type FootprintZoneEnd } from './footprint-signals';
@@ -106,6 +106,12 @@ export interface FootprintOptions {
   /** Volume at price of the visible bars against the left edge. Default false. */
   showVisibleProfile: boolean;
   profileWidth: number;
+  /**
+   * Draw a 0 x 0 row at every row step a bar's trades skipped, so each column
+   * spans its whole range. Display only: imbalances, the POC, value area and
+   * signals still read the traded rows. Default true.
+   */
+  showEmptyRows: boolean;
   /** Fill the newest bar's last-price row with this colour. Omitted draws nothing. */
   lastPriceColor?: string;
   /** The newest bar is still forming, so it cannot close a zone or set an unfinished auction. Default true. */
@@ -127,7 +133,7 @@ export const DEFAULT_FOOTPRINT_OPTIONS: FootprintOptions = {
   absorptionMultiple: 0, absorptionColor: '#a98bf0', signalLookback: 10, nearExtremeRows: 3,
   flipBars: 0, flipMinDeltaPct: 8, showZones: false, zoneEnd: 'closeInside', zoneActiveAfter: 1,
   showUnfinishedAuctions: false, showDeltaLabels: false, markDivergence: false, divergenceColor: '#f2a33a',
-  showVisibleProfile: false, profileWidth: 100, formingLastBar: true,
+  showVisibleProfile: false, profileWidth: 100, showEmptyRows: true, formingLastBar: true,
 };
 
 export interface FootprintBarStats {
@@ -181,6 +187,23 @@ function mix(a: string, b: string, t: number): string {
 /** Midnight to midnight: the session when no window is given. */
 const WHOLE_DAY: SessionWindow = { startMinute: 0, endMinute: 0 };
 const TWO_SIDED = new Set<FootprintDisplayMode>(['bidask', 'imbalance']);
+/** More empty rows than this in one gap means the row step is wrong for the bar, not that rows went untraded. */
+const MAX_EMPTY_ROWS = 1000;
+
+/** A bar's cells, highest first, with a zero row at every row step the trades skipped. */
+function withEmptyRows(cells: readonly FootprintCell[], step: number): readonly FootprintCell[] {
+  if (!(step > 0) || cells.length < 2) return cells;
+  const out: FootprintCell[] = [];
+  for (let i = 0; i < cells.length; i++) {
+    const cell = cells[i]!, next = cells[i + 1];
+    out.push(cell);
+    if (next === undefined) break;
+    const missing = Math.round((cell.price - next.price) / step) - 1;
+    if (missing > MAX_EMPTY_ROWS) continue;
+    for (let k = 1; k <= missing; k++) out.push({ price: bucketPrice(cell.price - k * step, step), bidVol: 0, askVol: 0 });
+  }
+  return out;
+}
 
 interface RowHit { cell: FootprintCell; top: number; bottom: number }
 interface Column {
@@ -432,6 +455,7 @@ export class Footprint implements IPrimitive {
     const { bar, stats } = col;
     const { buy, sell, bg } = p;
     const width = col.width * dpr, half = width / 2, x0 = col.x0 * dpr, center = col.x * dpr;
+    const cells = o.showEmptyRows ? withEmptyRows(bar.cells, col.rowSize) : bar.cells;
     const flags = diagonalImbalances(bar.cells, o.imbalanceRatio, col.rowSize || undefined, o.imbalanceThreshold);
     const buys = new Set(flags.filter(flag => flag.side === 'buy').map(flag => flag.price));
     const sells = new Set(flags.filter(flag => flag.side === 'sell').map(flag => flag.price));
@@ -440,12 +464,12 @@ export class Footprint implements IPrimitive {
     let textPeak = 0;
     for (const cell of bar.cells) textPeak = Math.max(textPeak, twoSided ? Math.max(cell.bidVol, cell.askVol) : cell.bidVol + cell.askVol);
     const signal = this._signals.bars[col.index];
-    const body = this._bodyRows(bar, col.rowSize);
+    const body = this._bodyRows(bar, cells, col.rowSize);
     const candle = bar.open !== undefined && bar.close !== undefined && bar.close < bar.open ? sell : buy;
     const lastRow = o.lastPriceColor !== undefined && col.index === this._bars.length - 1 && bar.close !== undefined
       ? this._rowOf(bar, bar.close, col.rowSize) : null;
     if (gutter > 0) this._drawCandle(ctx, rc, col, gutter, buy, sell);
-    bar.cells.forEach((cell, i) => {
+    cells.forEach((cell, i) => {
       const bounds = this._bounds(cell.price, col.rowSize, rc);
       if (bounds.bottom <= 0 || bounds.top >= cellBottom) return;
       col.rows.push({ cell, top: Math.max(0, bounds.top), bottom: Math.min(cellBottom, bounds.bottom) });
@@ -459,7 +483,7 @@ export class Footprint implements IPrimitive {
         if (o.displayMode === 'imbalance') {
           // Plain cells: only imbalances are coloured, and the candle body's rows are lightly shaded.
           const plain = body.has(cell.price) ? mix(bg, candle, 0.18) : bg;
-          const above = bar.cells[i - 1], below = bar.cells[i + 1];
+          const above = cells[i - 1], below = cells[i + 1];
           bidFill = sells.has(cell.price) ? mix(bg, sell, this._imbalanceStrength(cell.bidVol, above?.askVol ?? 0)) : plain;
           askFill = buys.has(cell.price) ? mix(bg, buy, this._imbalanceStrength(cell.askVol, below?.bidVol ?? 0)) : plain;
         }
@@ -499,12 +523,12 @@ export class Footprint implements IPrimitive {
     this._drawBrackets(ctx, rc, col, buy, sell);
   }
 
-  /** Row prices between the bar's open and close rows, inclusive. */
-  private _bodyRows(bar: FootprintBar, step: number): Set<number> {
+  /** Row prices of the drawn cells between the bar's open and close rows, inclusive. */
+  private _bodyRows(bar: FootprintBar, cells: readonly FootprintCell[], step: number): Set<number> {
     const rows = new Set<number>();
     if (bar.open === undefined || bar.close === undefined || !bar.cells.length) return rows;
     const hi = this._rowOf(bar, Math.max(bar.open, bar.close), step), lo = this._rowOf(bar, Math.min(bar.open, bar.close), step);
-    for (const cell of bar.cells) if (cell.price <= hi && cell.price >= lo) rows.add(cell.price);
+    for (const cell of cells) if (cell.price <= hi && cell.price >= lo) rows.add(cell.price);
     return rows;
   }
 
