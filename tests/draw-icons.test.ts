@@ -340,7 +340,7 @@ describe('the two tiers read as one set', () => {
     ['tool', ICON_STROKE, ICON_VIEWBOX, ICON_SIZE],
     ['chrome', CHROME_ICON_STROKE, CHROME_ICON_VIEWBOX, CHROME_ICON_SIZE],
   ] as const)('draws the %s line fine, at about 1.3px', (_name, stroke, viewBox, size) => {
-    // Through 2.6.2 both tiers drew 2px: crisp edges, but twice the ink of a
+    // Through 2.6.2 both tiers drew 2px: crisp edges, but nearly twice the ink of a
     // fine line, and the rail read as heavy beside the chart. Below a pixel
     // the curves break up on a 1x screen, so the band is narrow.
     const px = linePx(stroke, viewBox, size);

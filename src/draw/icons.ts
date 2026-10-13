@@ -24,9 +24,10 @@
  * of the same set, only smaller.
  *
  * Through 2.6.2 both tiers drew a 2-unit stroke at their grid size (24px and
- * 16px), which put every edge on a pixel boundary. Crisp, but at twice the ink
- * of a fine line and a third larger, a rail of them read as heavy beside the
- * chart it frames: on screen, weight is noticed long before edge sharpness.
+ * 16px), which put every edge on a pixel boundary. Crisp, but a line half
+ * again as wide on tool glyphs a fifth larger is nearly twice the ink, and a
+ * rail of them read as heavy beside the chart it frames: on screen, weight is
+ * noticed long before edge sharpness.
  * Earlier still the chrome stroke was 1.5 at 16px, the lightest of the three,
  * and the tool rail beside it the heaviest; one line across both is the rule
  * that survived every revision.

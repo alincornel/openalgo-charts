@@ -281,11 +281,12 @@ not yet registered).
 Since 2.6.3 each tier's stroke is set so that its line is about 1.3px on
 screen at that size, so a rail of tools and the chrome under it read as one
 fine set. Through 2.6.2 both tiers drew a 2px line at their grid size (24px
-and 16px): every straight edge sat on a pixel boundary, but at twice the ink
-and a third larger, a rail of them read as heavy beside the chart. A host
-that shows a glyph at another size scales the line with it; to keep the same
-line, set the stroke for that size (`stroke * size / 24` is the line in
-pixels). A host that wants the heavier set back passes it explicitly
+and 16px): every straight edge sat on a pixel boundary, but a line half
+again as wide on tool glyphs a fifth larger is nearly twice the ink, and a
+rail of them read as heavy beside the chart. A host that shows a glyph at
+another size scales the line with it; to keep the same line, set the stroke
+for that size: the line in pixels is `stroke * size / 24` for a tool glyph
+and `stroke * size / 16` for a chrome glyph, each tier's viewBox width. A host that wants the heavier set back passes it explicitly
 (`iconSvg(id, { size: 24, stroke: 2 })`, `chromeIconSvg(id, { stroke: 2 })`, or
 `stroke-width` in its own frame or stylesheet). `toolCursor` keeps a 2-unit
 line: a cursor sits over candles and grid lines, not a quiet panel.
