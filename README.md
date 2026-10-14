@@ -515,19 +515,19 @@ Enforced in CI by [`size-limit`](./.size-limit.json). Nothing is excluded, becau
 
 | Bundle | Limit | Actual |
 |---|---|---|
-| Base engine | 141.1 kB | 141.06 kB |
-| Base + trade | 158.1 kB | 158.00 kB |
+| Base engine | 141.13 kB | 141.13 kB |
+| Base + trade | 158.1 kB | 158.08 kB |
 | Indicators tier | 43.02 kB | 43.02 kB |
 | Draw tier | 59.1 kB | 59.00 kB |
 | Transform tier | 6.23 kB | 6.23 kB |
-| Profile tier | 23.2 kB | 23.10 kB |
+| Profile tier | 23.2 kB | 23.12 kB |
 | WebGL2 tier | 6.97 kB | 6.97 kB |
 | Widget tier | 124.94 kB | 124.94 kB |
 | Widget first-use parts (eight files beside the widget tier) | 21.00 kB | 21.00 kB |
-| Widget terminal (base + draw + indicators + widget) | 368.1 kB | 368.01 kB |
+| Widget terminal (base + draw + indicators + widget) | 368.1 kB | 368.08 kB |
 | Workspace tier | 11.73 kB | 11.73 kB |
-| Script tags (the nine classic-script files) | 446.8 kB | 446.72 kB |
-| **Everything** | 433 kB | 432.98 kB |
+| Script tags (the nine classic-script files) | 446.89 kB | 446.89 kB |
+| **Everything** | 433.07 kB | 433.07 kB |
 
 ## Documentation
 

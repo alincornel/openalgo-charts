@@ -323,7 +323,13 @@ const BUNDLE = new URL('../dist/openalgo-charts.mjs', import.meta.url).pathname.
 // carried since 2.3.2 (touch crosshair, tap-not-pan, pointercancel and drag
 // cancel semantics, wheel sensitivity, tick density, last-price line extent
 // and colour, the forced day boundaries). Allow 89.75 KiB.
-const LIMIT_BYTES = 89.75 * 1024;
+// Fork fixes after it: a tap on an order line routed as a cancel, the flatten
+// confirmation that lapses on a timer and repaints the whole pill, the null
+// forms of updatePositionPnl, and the foreign pointercancel and lost capture
+// guards; retiring wheelZoomSensitivity takes about 70 bytes back. Measured
+// 91976 bytes (89.82 KiB), up 202 from 91774; allow 89.83 KiB, the first
+// hundredth at or above it.
+const LIMIT_BYTES = 89.83 * 1024;
 
 // Absent from a chart-only build. Each is a string that appears in the adapter
 // source and nowhere in the rendering core.
