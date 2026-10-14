@@ -429,6 +429,11 @@ function mix(a: string, b: string, t: number): string {
  */
 const LADDER_MIN_OPPOSING = 1;
 
+/** `LADDER_MIN_OPPOSING`, or zero in the `imbalance` view, for these options. */
+function ladderMinOpposing(o: FootprintOptions): number {
+  return o.displayMode === 'imbalance' ? 0 : LADDER_MIN_OPPOSING;
+}
+
 /** The options with their arrays copied, so a caller's array never changes them. */
 function copyOptions(o: FootprintOptions): FootprintOptions {
   // `deltaCell` is a nested literal a caller keeps a reference to, so it is copied too.
@@ -600,6 +605,7 @@ export class Footprint implements IPrimitive {
       multipleNodeBars: o.multipleNodeBars, bigOrderMultiple: o.bigOrderMultiple, absorptionMultiple: o.absorptionMultiple,
       signalLookback: o.signalLookback, nearExtremeRows: o.nearExtremeRows, flipBars: o.flipBars, flipMinDeltaPct: o.flipMinDeltaPct,
       zoneEnd: o.zoneEnd, zoneActiveAfter: o.zoneActiveAfter, zoneLookback: o.zoneLookback, formingLastBar: o.formingLastBar,
+      minOpposing: ladderMinOpposing(o), // zones on the diagonals the brackets mark
     };
   }
 
@@ -1071,7 +1077,7 @@ export class Footprint implements IPrimitive {
 
   /** The floor the ladder's diagonals compare at: see `LADDER_MIN_OPPOSING`. */
   private _minOpposing(): number {
-    return this._opts.displayMode === 'imbalance' ? 0 : LADDER_MIN_OPPOSING;
+    return ladderMinOpposing(this._opts);
   }
 
   /** Row prices of the drawn cells between the bar's open and close rows, inclusive. */

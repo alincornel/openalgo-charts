@@ -20,6 +20,13 @@ export interface FootprintSignalOptions {
   imbalanceRatio: number;
   /** Minimum dominant-side quantity for a diagonal imbalance, raw units. */
   imbalanceThreshold: number;
+  /**
+   * The opposing quantity a stacked zone's diagonals are compared AT, at
+   * least: `diagonalImbalances`' `minOpposing`. 0, the default, compares with
+   * the opposing row as it is (an untraded one as zero). The Footprint passes
+   * the floor its ladder brackets use, so a zone and a bracket agree.
+   */
+  minOpposing?: number;
   /** Adjacent same-side imbalances that form a stacked zone. 0 disables. */
   stackedImbalances: number;
   /** Consecutive bars whose highest-volume row sits at one price. 0 disables, otherwise at least 2. */
@@ -50,7 +57,7 @@ export interface FootprintSignalOptions {
 }
 
 export const DEFAULT_FOOTPRINT_SIGNAL_OPTIONS: FootprintSignalOptions = {
-  imbalanceRatio: 3, imbalanceThreshold: 0, stackedImbalances: 3, multipleNodeBars: 2,
+  imbalanceRatio: 3, imbalanceThreshold: 0, minOpposing: 0, stackedImbalances: 3, multipleNodeBars: 2,
   bigOrderMultiple: 3, absorptionMultiple: 2, signalLookback: 10, nearExtremeRows: 3,
   flipBars: 2, flipMinDeltaPct: 8, zoneEnd: 'closeInside', zoneActiveAfter: 1, zoneLookback: 0, formingLastBar: true,
 };
@@ -144,7 +151,7 @@ function validate(o: FootprintSignalOptions): void {
   for (const v of [o.imbalanceRatio, o.signalLookback, o.nearExtremeRows]) {
     if (!Number.isFinite(v) || v <= 0) throw new RangeError('Footprint signal ratio and lookbacks must be positive and finite');
   }
-  for (const v of [o.imbalanceThreshold, o.bigOrderMultiple, o.absorptionMultiple, o.flipMinDeltaPct]) {
+  for (const v of [o.imbalanceThreshold, o.minOpposing ?? 0, o.bigOrderMultiple, o.absorptionMultiple, o.flipMinDeltaPct]) {
     if (!Number.isFinite(v) || v < 0) throw new RangeError('Footprint signal thresholds must be nonnegative and finite');
   }
   for (const v of [o.stackedImbalances, o.multipleNodeBars, o.flipBars, o.zoneActiveAfter, o.zoneLookback]) {
@@ -176,7 +183,7 @@ export function footprintSignals(bars: readonly FootprintBar[], options: Partial
   for (let k = 0; k < shapes.length; k++) {
     const s = shapes[k]!;
     if (o.stackedImbalances > 0) {
-      for (const run of stackedImbalances(s.bar.cells, o.imbalanceRatio, o.stackedImbalances, s.row || undefined, o.imbalanceThreshold)) {
+      for (const run of stackedImbalances(s.bar.cells, o.imbalanceRatio, o.stackedImbalances, s.row || undefined, o.imbalanceThreshold, o.minOpposing)) {
         zone(run.side === 'buy' ? 'stackedBuy' : 'stackedSell', k, Math.min(run.startPrice, run.endPrice), Math.max(run.startPrice, run.endPrice));
       }
     }

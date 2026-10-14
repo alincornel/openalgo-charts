@@ -875,8 +875,11 @@ scanners or a server. It returns `{ bars, zones, auctions }`: per bar `node`, `b
 `bigAsk`, `absorption`, `flip` and `divergence`; each zone's `kind`, price span, `endTime`,
 `activeTime` and `touchTime` (since 2.6.4: the first bar after it became active whose high to
 low range reached it); and each unfinished auction's price and `endTime`. A zone becomes active
-once `zoneActiveAfter` whole bars have traded completely beyond it. `footprint.signals()`
-returns the same result for the bars and options a primitive holds.
+once `zoneActiveAfter` whole bars have traded completely beyond it. `minOpposing` (default
+`0`) is the floor a stacked zone's diagonals compare the opposing row at, as in
+`diagonalImbalances`. `footprint.signals()` returns the same result for the bars and options a
+primitive holds, with the floor its ladder brackets use (one, zero in the `imbalance` view), so
+a zone and a bracket mark the same rows.
 
 ```ts
 import { footprintSignals } from 'openalgo-charts/profile';

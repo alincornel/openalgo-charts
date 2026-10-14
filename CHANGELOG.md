@@ -252,6 +252,12 @@ as a ladder instead of a hairline mesh.
 
 ### Fixed
 
+- **Footprint stacked zones match the ladder's brackets.** `footprintSignals`
+  compared a zone's diagonals with an untraded opposing row as zero, while the
+  ladder's brackets compare at a floor of one (`minOpposing`) in every view but
+  `imbalance`, so three thin prints over untraded rows made a zone with no
+  bracket. `FootprintSignalOptions.minOpposing` (default 0, upstream's rule)
+  carries the floor, and the Footprint passes its own.
 - **A tap on an order line no longer modifies the order.** A press on a
   draggable line arms its drag, and its release reached `subscribeDrag`'s
   `onDragEnd` at the pointer's price even when the pointer never left the
