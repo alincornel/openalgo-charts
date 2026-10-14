@@ -167,8 +167,30 @@ describe('position pill buttons', () => {
     // wants to update the percentage relies on.
     tc.updatePositionPnl('p1', 30, '+$30.00');
     expect(line.options().leftLabel).toBe('+$30.00');
-    tc.updatePositionPnl('p1', null);
+    tc.updatePositionPnl('p1', 31);
     expect(line.options().leftLabel).toBe('+$30.00');
+  });
+
+  it('takes the money off through the text-only form too', () => {
+    const h = fakeHost();
+    const tc = new TradingController(h.host);
+    tc.setPositions([{ id: 'p1', side: 'long', entryPrice: 100, size: 1, pnlText: '+$25.00', pnlPercent: '+1%' }]);
+    const line = h.lines()[0];
+
+    // A percent alone is a percent, not the money.
+    tc.updatePositionPnl('p1', undefined, '+2%');
+    expect(line.options().leftLabel).toBe('+$25.00 (+2%)');
+    tc.updatePositionPnl('p1', '+$26.00', null);
+    expect(line.options().leftLabel).toBe('+$26.00');
+    tc.updatePositionPnl('p1', null);
+    expect(line.options().leftLabel).toBe('');
+    expect(tc.getPositions()[0]!.pnlText).toBeUndefined();
+
+    // The fork's number-first form, as the host calls it, is unchanged.
+    tc.updatePositionPnl('p1', null, '+$27.00');
+    expect(line.options().leftLabel).toBe('+$27.00');
+    tc.updatePositionPnl('p1', null, null);
+    expect(line.options().leftLabel).toBe('');
   });
 
   it('takes the money off a segmented pill too', () => {

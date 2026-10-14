@@ -22,7 +22,7 @@ function fakeHost(): { host: TradingHost; line: () => PriceLine; click: (id: str
     subscribeClick: (cb) => { clickCb = cb; },
     subscribeDrag: () => {},
   };
-  const line = (): PriceLine => added.filter((p): p is PriceLine => p instanceof PriceLine).at(-1)!;
+  const line = (): PriceLine => added.filter((p): p is PriceLine => p instanceof PriceLine).slice(-1)[0]!;
   return { host, line, click: (id) => clickCb(id) };
 }
 

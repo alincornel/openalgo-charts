@@ -225,7 +225,11 @@ as a ladder instead of a hairline mesh.
   - `computeMarketProfile` keeps `pocTieBreak` and `valueAreaMethod`; with
     their defaults it is upstream's `valueArea`.
   - `updatePositionPnl` takes upstream's text-only form too; a `null` text
-    still takes the money off the pill.
+    still takes the money off the pill, in either form: `(id, null)` and
+    `(id, text, null)` in the text-only one, `(id, number | null, null)` in the
+    number-first one. `(id, undefined, percent)` sets the percent (it used to
+    be read as the money text); an undefined or null number still leads the
+    texts in `(id, undefined, text, percent)` and `(id, null, text)`.
 - Budgets: base engine 141.06 kB (limit 141.1), base + trade 158.00 (158.1),
   draw 59.00 (59.1), profile 23.10 (23.2), widget terminal 368.01 (368.1),
   everything 432.98 (433), classic scripts 446.72 (446.8), base classic script

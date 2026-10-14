@@ -47,7 +47,7 @@ function makeChart(): { chart: Chart; el: FakeElement; line: () => PriceLine; yO
   return {
     chart,
     el,
-    line: () => added.filter((l) => l.options().id === 'ord:o1').at(-1)!,
+    line: () => added.filter((l) => l.options().id === 'ord:o1').slice(-1)[0]!,
     yOf: (price) => chart.priceToCoordinate(price, 0) as number,
     priceAt: (y) => chart.coordinateToPrice(y, 0) as number,
   };

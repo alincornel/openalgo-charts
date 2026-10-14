@@ -453,8 +453,13 @@ export class TradingController {
    * at that rate, which fights a drag in progress. See `_sig`. A position
    * draws its money on the classic pill's left label or on a segment of the
    * pill that carries TP/SL/close buttons, and this writes to whichever it uses.
+   *
+   * A `null` takes a part off where `undefined` leaves it alone: `(id, null)`
+   * takes the money off the pill (no last trade, an unknown contract), and
+   * `(id, text, null)` drops the percent.
    */
-  public updatePositionPnl(id: string, pnlText?: string, pnlPercent?: string): void;
+  public updatePositionPnl(id: string, pnlText?: string, pnlPercent?: string | null): void;
+  public updatePositionPnl(id: string, pnlText: null): void;
   /**
    * The form that also takes the P&L as a number, which nothing ever read:
    * the pill shows `pnlText` and `pnlPercent` only. In this form a `null` text
@@ -468,10 +473,16 @@ export class TradingController {
   public updatePositionPnl(id: string, ...args: (string | number | null | undefined)[]): void {
     const cur = this._positions.get(id);
     if (cur === undefined) return;
-    // A text is a string. Anything else first is the unread number of the
-    // deprecated form, including the undefined or null a script host passes
-    // before it has one, and the texts follow it.
-    const [pnlText, pnlPercent] = typeof args[0] === 'string' ? args : args.slice(1);
+    // A text is a string, a number is the unread number of the deprecated
+    // form. An empty first slot is read by what follows it: an undefined
+    // before two texts, or a null before one, is the number a script host or
+    // this fork's consumer passes before it has one; an undefined before one
+    // text is the text-only form leaving the money alone (that text is the
+    // percent), and a null alone is the text-only form taking the money off.
+    const first = args[0];
+    const textOnly = typeof first === 'string'
+      || (first === undefined && args.length < 3) || (first === null && args.length < 2);
+    const [pnlText, pnlPercent] = textOnly ? args : args.slice(1);
     // `undefined` means "leave it alone", `null` means "take it off". Without
     // the second, a pill kept its last number forever once the host stopped
     // being able to price one (no last trade, an unknown contract), and a

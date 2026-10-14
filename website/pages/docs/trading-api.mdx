@@ -132,7 +132,7 @@ Access via `chart.trading`.
 | `upsertOrder(order)` | add or update one order |
 | `removeOrder(id)` | remove an order (and its bracket children) |
 | `addTrade(trade)` | add one fill |
-| `updatePositionPnl(id, pnlText?, pnlPercent?)` | refresh a position's P&L pill without recreating the line. The older form with a number first, `updatePositionPnl(id, pnl, pnlText?, pnlPercent?)`, still works but is deprecated, removed in 3.0.0: the number was never shown |
+| `updatePositionPnl(id, pnlText?, pnlPercent?)` | refresh a position's P&L pill without recreating the line. `null` takes a part off (`updatePositionPnl(id, null)` removes the money), `undefined` leaves it. The older form with a number first, `updatePositionPnl(id, pnl, pnlText?, pnlPercent?)`, still works but is deprecated, removed in 3.0.0: the number was never shown |
 | `getPositions()` / `getOrders()` / `getTrades()` | current state |
 | `clear()` | remove everything |
 | `setSettings(colors)` / `getSettings()` | global trading colors |
