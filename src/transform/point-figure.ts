@@ -9,9 +9,10 @@
  *  - `'close'`: only the close is considered (the older, coarser variant).
  *
  * Box sizing (`mode`):
- *  - `'fixed'`   — a constant `boxSize` (the classic).
- *  - `'percent'` — `price × percent / 100`, re-resolved when each column opens.
- *  - `'atr'`     — `ATR(period) × multiplier` (Wilder), re-resolved per column.
+ *  - `'fixed'`: a constant `boxSize` (the classic).
+ *  - `'percent'`: `price × percent / 100`, re-resolved when each column opens.
+ *  - `'atr'`: `ATR(period) × multiplier` (Wilder), re-resolved per column.
+ *  - `'atrPercent'`: `ATR(period) × percent / 100`, a box that is a share of the ATR.
  *
  * Each emitted column is a Bar spanning the column's price range, with up =
  * close ≥ open (X) and down = close < open (O). A column's `high` is the
@@ -21,38 +22,38 @@
  * is the only way variable-box modes can render correctly).
  */
 import type { Bar } from '../model/bar';
-import type { ISeriesTransform } from './transform';
+import { copyState, type ISeriesTransform } from './transform';
 
 export type PointFigureMethod = 'hl' | 'close';
-export type PointFigureBoxMode = 'fixed' | 'percent' | 'atr';
+export type PointFigureBoxMode = 'fixed' | 'percent' | 'atr' | 'atrPercent';
 
 export interface PointFigureOptions {
   /** Box size for `mode: 'fixed'`. Required unless another mode is chosen. */
-  boxSize?: number;
-  /** Boxes of counter-move needed to start a new column. Default 3. */
-  reversal?: number;
+  boxSize?: number | undefined;
+  /** Boxes of counter-move needed to start a new column. Default 3; floored, at least 1. */
+  reversal?: number | undefined;
   /** Which prices drive the column. Default `'hl'`. */
-  method?: PointFigureMethod;
+  method?: PointFigureMethod | undefined;
   /** How the box size is resolved. Default `'fixed'`. */
-  mode?: PointFigureBoxMode;
-  /** Box as a percentage of price, for `mode: 'percent'` (e.g. `0.5` = 0.5%). */
-  percent?: number;
-  /** ATR lookback for `mode: 'atr'`. Default 14. */
-  atrPeriod?: number;
+  mode?: PointFigureBoxMode | undefined;
+  /** Box as a percentage of price for `mode: 'percent'`, or of the ATR for `'atrPercent'` (e.g. `0.5` = 0.5%). */
+  percent?: number | undefined;
+  /** ATR lookback for `mode: 'atr'` and `'atrPercent'`. Default 14; floored, at least 1. */
+  atrPeriod?: number | undefined;
   /** ATR multiplier for `mode: 'atr'`. Default 1. */
-  atrMultiplier?: number;
+  atrMultiplier?: number | undefined;
 }
 
 /** A P&F column. Carries the box size it was built with (modes vary it). */
 export interface PointFigureColumn extends Bar {
-  /** Price height of one box in this column — one X or O glyph. */
+  /** Price height of one box in this column: one X or O glyph. */
   boxSize: number;
   /** Number of boxes (glyphs) stacked in this column. */
   boxes: number;
 }
 
-/** Streaming Wilder ATR. Reports the running TR mean during warmup. */
-class WilderAtr {
+/** Streaming Wilder ATR. Reports the running TR mean during warmup. Shared with Renko; tier-internal. */
+export class WilderAtr {
   private readonly _period: number;
   private _prevClose = NaN;
   private _sum = 0;
@@ -121,7 +122,7 @@ export class PointFigureTransform implements ISeriesTransform {
     if (mode === 'fixed' && !(this._fixedBox > 0)) {
       throw new Error('openalgo-charts: P&F boxSize must be > 0');
     }
-    if (mode === 'percent' && !(this._percent > 0)) {
+    if ((mode === 'percent' || mode === 'atrPercent') && !(this._percent > 0)) {
       throw new Error('openalgo-charts: P&F percent must be > 0');
     }
   }
@@ -140,15 +141,24 @@ export class PointFigureTransform implements ISeriesTransform {
     this._atr.reset();
   }
 
+  public clone(): PointFigureTransform {
+    const copy = copyState(this);
+    // The running ATR is state too, and its own object. The field is
+    // readonly to everything but a copy being made.
+    Object.assign(copy, { _atr: copyState(this._atr) });
+    return copy;
+  }
+
   /**
    * Box size for a column opening at `price`. Falls back to the last valid box,
-   * then to 1% of price, then to 1 — so a degenerate ATR/price never throws or
+   * then to 1% of price, then to 1, so a degenerate ATR/price never throws or
    * emits a zero-height column.
    */
   private _resolveBox(price: number): number {
     let box = NaN;
     if (this._mode === 'fixed') box = this._fixedBox;
     else if (this._mode === 'percent') box = (Math.abs(price) * this._percent) / 100;
+    else if (this._mode === 'atrPercent') box = (this._atr.value() * this._percent) / 100;
     else box = this._atr.value() * this._atrMult;
     if (box > 0 && Number.isFinite(box)) return box;
     if (this._box > 0) return this._box;
@@ -173,13 +183,13 @@ export class PointFigureTransform implements ISeriesTransform {
   }
 
   public push(bar: Bar): Bar[] {
-    if (this._mode === 'atr') this._atr.push(bar);
+    if (this._mode === 'atr' || this._mode === 'atrPercent') this._atr.push(bar);
 
     const useHl = this._method === 'hl';
     const upPrice = useHl ? bar.high : bar.close;
     const downPrice = useHl ? bar.low : bar.close;
 
-    // First bar: anchor only. No column, no direction — this is what used to
+    // First bar: anchor only. No column, no direction: this is what used to
     // emit a phantom zero-height column when the first move was down.
     if (Number.isNaN(this._top)) {
       this._box = this._resolveBox(bar.close);

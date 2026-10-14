@@ -15,10 +15,10 @@ import { openContextMenu, closeMenu } from './menus.js';
 import { attachVolume, refreshVolume, setVolumeLegend, applyVolumeSettings, volumeValues } from './volume.js';
 import { referenceDataContext, isExpression, fetchExpressionBars } from './expression.js';
 import { requestVariant, sessionOf } from './session.js';
-import { applyTransform } from './transforms.js';
+import { chartTypeSeries, savedTransforms } from './transforms.js';
 import { chartDecorationsForRebuild, normalizeLegendIconSize, restorePrimaryStyle } from './chart-settings.js';
 import { bindIndicatorSource } from './indicator-source.js';
-import { openSettings, renderIndicatorChips } from './indicators.js';
+import { openSettings, renderIndicatorChips, watchStudyStatus } from './indicators.js';
 import { capturePaneTarget } from './pane-target.js';
 import { symbolStatus, exchangeOf, nameOf } from './status.js';
 import { axisMinMove, sessionCalendarFor, tickScheduleFor } from './ticks.js';
@@ -99,7 +99,7 @@ export const secondaryRawBars = () => bars2.map(bar => ({ ...bar }));
 export function installSecondaryWorkspace(saved, bars) {
   closeSplit();
   if (!saved) return;
-  app.p2 = { ...saved.request, chartType: saved.chartType || 'candlestick', pfmode: saved.pfmode || 'atr',
+  app.p2 = { ...saved.request, chartType: saved.chartType || 'candlestick', transforms: savedTransforms(saved) || {},
     legendIconSize: normalizeLegendIconSize(saved.legendIconSize),
     timezone: saved.state?.timezone || app.chartTimezone };
   el('pane2').style.flexBasis = (saved.width ?? 50) + '%';
@@ -231,14 +231,14 @@ export async function restoreSecondaryLayout(saved, selected = 1) {
       throw new Error('The second chart has invalid instrument settings');
     }
     const chartType = saved.chartType || 'candlestick';
-    const pfmode = saved.pfmode || 'atr';
-    if (!CHART_TYPES.some(type => type.v === chartType) || !['atr', 'percent', 'fixed'].includes(pfmode)) {
+    const transforms = savedTransforms(saved);
+    if (!CHART_TYPES.some(type => type.v === chartType) || transforms === null) {
       throw new Error('The second chart has invalid chart type settings');
     }
     if (req.session !== undefined && !['regular', 'extended'].includes(req.session)) {
       throw new Error('The second chart has an invalid session');
     }
-    app.p2 = { symbol: req.symbol, interval: req.interval, period: req.period, chartType, pfmode,
+    app.p2 = { symbol: req.symbol, interval: req.interval, period: req.period, chartType, transforms,
       ...(req.session === 'extended' ? { session: 'extended' } : {}),
       legendIconSize: normalizeLegendIconSize(saved.legendIconSize),
       timezone: saved.state?.timezone || app.chartTimezone };
@@ -283,7 +283,10 @@ export function buildChart2({ keepView = true, typeChanged = false, state } = {}
   el('chart2').innerHTML = '';
   app.chart2 = createChart(el('chart2'), {
     theme: chartTheme(),
-    navigation: { defaultBarSpacing: 8 },
+    // A drag moves time and leaves the price scale fitting what is in view,
+    // and the wheel zooms about the latest bar (Ctrl or Cmd: about the cursor).
+    navigation: { defaultBarSpacing: 8, mousePan: 'horizontal' },
+    zoomAnchor: 'right',
     priceAxisWidth: 62,
     legendIconSize: normalizeLegendIconSize(app.p2.legendIconSize),
     grid: { vertLines: el('vgrid').checked, horzLines: el('hgrid').checked },
@@ -301,13 +304,12 @@ export function buildChart2({ keepView = true, typeChanged = false, state } = {}
   app.chart2.addPrimitive(app.symbolLegend2);
   const chartType = app.p2.chartType || 'candlestick';
   const transformed = chartType.startsWith('t:');
-  const { type, data } = transformed
-    ? applyTransform(chartType.slice(2), bars2, { pfmode: app.p2.pfmode || 'atr' })
-    : { type: chartType, data: bars2 };
+  // The chart applies the transform to the raw bars, as on the main chart.
+  const { type, transform } = chartTypeSeries(chartType, app.p2.transforms);
   const style = type === 'baseline'
     ? { baseValue: bars2.reduce((sum, bar) => sum + bar.close, 0) / (bars2.length || 1) } : {};
-  price2 = app.chart2.addSeries(type, { style });
-  price2.setData(data);
+  price2 = app.chart2.addSeries(type, { style, ...(transform ? { transform } : {}) });
+  price2.setData(bars2);
   // The second chart's own venue hours, as on the main chart.
   app.chart2.dataLayer.setSessionCalendar?.(sessionCalendarFor(app.p2.symbol));
   app.chart2.setPriceScaleOptions({ minMove: axisMinMove(app.p2.symbol, /\.(NS|BO)$/i.test(app.p2.symbol) ? 0.05 : 0.01) });
@@ -330,6 +332,7 @@ export function buildChart2({ keepView = true, typeChanged = false, state } = {}
   app.chart2.on('indicatorSettings', ({ instanceId }) => openSettings(instanceId, capturePaneTarget(app, 2)));
   bindIndicatorSource(app.chart2, 2);
   app.chart2.on('indicatorRemoved', renderIndicatorChips);
+  watchStudyStatus(app.chart2);
   if (saved) {
     const report = app.chart2.restoreState(typeChanged ? { ...saved, series: [] } : saved);
     if (state && !report.applied) throw new Error('The second chart state could not be restored');

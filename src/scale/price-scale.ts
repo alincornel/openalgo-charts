@@ -1,5 +1,5 @@
 /**
- * Price scale (ARCHITECTURE.md §5.2). Maps price ↔ y for a pane, in any of the
+ * Price scale (ARCHITECTURE.md §5.2). Maps between price and y for a pane, in any of the
  * four modes (linear, logarithmic, percentage, indexed-to-100), with
  * tick-size-aware formatting and support for hidden overlay scales.
  */
@@ -24,6 +24,14 @@ export interface PriceRange {
  */
 export type PriceScaleMode = 'linear' | 'logarithmic' | 'percentage' | 'indexed-to-100';
 
+/**
+ * The four price-scale modes, in the order a menu lists them. The one list:
+ * restore, the hit prefilter and the settings schema read it, so a fifth mode
+ * is added here and in the type above.
+ */
+export const PRICE_SCALE_MODES: readonly PriceScaleMode[] =
+  ['linear', 'logarithmic', 'percentage', 'indexed-to-100'];
+
 /** Whether a mode rebases prices against a baseline rather than mapping them directly. */
 export function isRebasing(mode: PriceScaleMode): boolean {
   return mode === 'percentage' || mode === 'indexed-to-100';
@@ -34,7 +42,7 @@ export interface PriceScaleOptions {
   marginTop: number;
   marginBottom: number;
   /**
-   * Instrument tick size (minMove), e.g. 0.05. 0 → infer from range.
+   * Instrument tick size (minMove), e.g. 0.05. 0 infers it from the range.
    *
    * A property of the instrument and not of the axis, so it belongs only on a
    * scale that quotes one. An oscillator's pane reads in its own units and is
@@ -51,9 +59,9 @@ export interface PriceScaleOptions {
    * statement about the instrument than a floor is about the axis.
    */
   minPrecision: number;
-  /** Linear, logarithmic or rebased (percentage / indexed-to-100) price↔y mapping. */
+  /** Linear, logarithmic or rebased (percentage / indexed-to-100) mapping between price and y. */
   mode: PriceScaleMode;
-  /** Flip the axis (price increases downward) — for spread/short views. */
+  /** Flip the axis (price increases downward): for spread/short views. */
   inverted: boolean;
 }
 
@@ -78,7 +86,7 @@ const FLOOR_MAX_MAGNITUDE = 1e4;
  *
  * The margins are fractions of the **pane height**, so the data band occupies
  * the `1 - marginTop - marginBottom` left between them. Padding the data span
- * by the margin instead — which is what this did — makes the reserved space
+ * by the margin instead (which is what this did) makes the reserved space
  * depend on how tall the data happens to be: an overlay asking for `0.82` to
  * sit in the bottom 18% got `high + 0.82 * span`, leaving its bars 55% of the
  * pane. The difference only shows at large margins; at the 0.1 default the two
@@ -98,6 +106,20 @@ export function autoscaleRange(low: number, high: number, marginTop: number, mar
   return { min: low - total * marginBottom, max: high + total * marginTop };
 }
 
+/**
+ * `autoscaleRange` in the space the scale draws in. The margins are fractions
+ * of the pane, so a log scale pads in log units: padded in price units, a
+ * series from 150 to 1230 got a floor near 15 and a whole empty decade under
+ * its lowest bar. A range a log scale cannot take the log of (zero, a
+ * negative low, a flat series) keeps the price-space padding, and so does an
+ * unbounded one, whose fallback is a range in price units, not in log units.
+ */
+export function scaleAutoscaleRange(mode: PriceScaleMode, low: number, high: number, marginTop: number, marginBottom: number): PriceRange {
+  if (mode !== 'logarithmic' || !(low > 0) || !(high > low) || !isFinite(high)) return autoscaleRange(low, high, marginTop, marginBottom);
+  const r = autoscaleRange(Math.log10(low), Math.log10(high), marginTop, marginBottom);
+  return { min: Math.pow(10, r.min), max: Math.pow(10, r.max) };
+}
+
 export class PriceScale {
   private _options: PriceScaleOptions;
   private _height = 0;
@@ -106,7 +128,7 @@ export class PriceScale {
   private _autoScale = true;
   /**
    * True once a real range has been applied. The default 0..1 is a placeholder,
-   * not a measurement — anything converting y↔price before that would answer
+   * not a measurement: anything converting between y and price before that would answer
    * confidently with nonsense.
    */
   private _scaled = false;
@@ -357,7 +379,7 @@ export class PriceScale {
     const hi = this._t(this._max);
     const span = hi - lo;
     if (!(span > 0)) return;
-    // Drag down (dy>0) reveals higher prices → shift the range up; inverted flips it.
+    // Drag down (dy>0) reveals higher prices, so shift the range up; inverted flips it.
     const delta = span * ((this._options.inverted ? -dy : dy) / this._height);
     this._min = this._tInv(lo + delta);
     this._max = this._tInv(hi + delta);
@@ -371,15 +393,15 @@ export class PriceScale {
    * The range stays in *price* units in every mode, so the rebasing modes need
    * no separate pass: their transform is affine with a positive scale factor,
    * which maps a margin of 10% of the price span onto a margin of 10% of the
-   * percent span. Log is the one that pads in price space and shows it, which
-   * is long-standing behaviour and left alone here.
+   * percent span. Log pads in log space (`scaleAutoscaleRange`), so the data
+   * keeps the same share of the pane there too.
    */
   public autoscale(low: number, high: number, progress = 1): boolean {
     if (this._fixedRange !== null) {
       this._writePriceRange(this._fixedRange);
       return false;
     }
-    const target = autoscaleRange(low, high, this._options.marginTop, this._options.marginBottom);
+    const target = scaleAutoscaleRange(this._options.mode, low, high, this._options.marginTop, this._options.marginBottom);
     const lo = this._t(this._min);
     const hi = this._t(this._max);
     const nextLo = this._t(target.min);
@@ -440,7 +462,7 @@ export class PriceScale {
     return ((this._options.mode === 'percentage' ? c + 100 : c) * base) / 100;
   }
 
-  /** Price → y (media px). Higher price → smaller y (top of pane), unless inverted. */
+  /** Price to y (media px). A higher price gives a smaller y (top of pane), unless inverted. */
   public priceToY(price: number): number {
     const lo = this._t(this._min);
     const span = this._t(this._max) - lo;
@@ -449,7 +471,7 @@ export class PriceScale {
     return this._options.inverted ? this._height * r : this._height * (1 - r);
   }
 
-  /** y (media px) → price. */
+  /** y (media px) to price. */
   public yToPrice(y: number): number {
     const lo = this._t(this._min);
     const span = this._t(this._max) - lo;

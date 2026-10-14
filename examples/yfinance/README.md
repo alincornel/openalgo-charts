@@ -310,7 +310,8 @@ examples/yfinance/
     intervals.js      interval registry, the picker's codes, period clamping
     goto.js           Go to a date or range: the shared navigator, loading a longer period
     feed.js           YFinanceDataFeed and its typed errors, the bar cache wrapper, the cache menu
-    transforms.js     Heikin Ashi, Renko, Range, Line Break, P&F, Kagi
+    transforms.js     the chart type select mapped onto the chart's own transforms (Renko, P&F and the rest), and the options kept per transform
+    box-settings.js   the point and figure and Renko settings dialogs: colours, box size and method, reversal, prices
     expression.js     symbol arithmetic: the operator keypad, leg fetching, folding
     status.js         venue, session hours, long names, the status-line readings
     timezone.js       the chart zone the demo carries across a rebuild
@@ -388,6 +389,9 @@ chart is a complete widget with its own top bar, loading status and retry.
 - Click or focus a chart to make it active: it gets the outline and the keyboard.
   Drag a gap to resize, or focus it and use the arrow keys; double click evens it.
 - Below 640 CSS px only the active chart shows, with tabs to switch.
+- Each chart's type menu lists the in-chart transforms under a Transforms heading (the
+  page loads the transform tier), and a chart set to Renko, point and figure or any other
+  transform forms its elements from the bars it loads; a reload keeps the choice.
 - The grid keeps its desk in IndexedDB (the widget's `openalgo-charts-widget`
   database, namespace `yfinance-grid`); a desk an earlier release left in
   `localStorage` is copied in on the first visit. A first visit opens AAPL, MSFT,
@@ -555,14 +559,15 @@ exists to show one engine surface carrying real use, not just being present.
 | `feed.js` | A `DataFeed` is one method. The bar cache wrapper (`withBarCache`) keys on symbol, exchange, interval and the data variant, snaps `from` to the bar grid so a reload inside the same bar hits, stops `to` at the last seen bar while the venue is shut (for an extended-hours chart, shut means outside its pre and post market too), and refetches only the forming bar. The cache holds back a bar that has not closed, so a warm answer that ends before the newest bar this page has already shown (the forming candle, or the day's candle after the close) is asked of the wire again: the page has no live subscription to supply that bar, and an older close would stand as the last price. A 404, 429 or 5xx becomes a typed error (`NotFoundError`, `RateLimitedError`, `NetworkError`) with a deadline and one retry, so the readout can say "check the symbol" or "try again in a minute" rather than printing whatever the server wrote. A staleness badge says when the newest bar is older than the venue's clock allows, on the clock of the chart's session: an extended-hours chart can go stale in the pre and post market. |
 | `intervals.js` | The interval registry accepts codes the built-in grammar does not (`1wk`, a calendar month, a quarter). Monthly and quarterly bars are folded from daily ones through `bucketStartOf`, so a month runs first-to-first in the chart's zone and February is 29 days long in 2024. Ranges are clamped to what the interval can serve. |
 | `history.js` | One undo timeline per chart through the widget tier's `ChartHistory`: a study added or removed (with its settings, pane and scale), its settings, the chart type, the price scales, pane moves, folds and heights, and drawings, in the order they were made. Ctrl+Z and Ctrl+Y and the mobile bar walk the focused chart's; the drawing toolbar's Undo and Redo and the rail's walk the main chart's, as the rest of that toolbar and the rail act on the main chart. The study settings dialog is one step per session, however many tabs commit its form, and an appearance change a linked chart applies from the other one is never a step of its own. The chart is rebuilt on every load and type switch, so the timeline lives on the app and each new chart is attached to it; the type switch itself is recorded as a command that rebuilds again. The chart settings dialog is one step per session, and a Cancel leaves none. Comparisons, the volume row and a loaded layout are the demo's own and go through `ignore`; a loaded layout starts a new timeline. No undo writes bars, fires an alert or places an order. |
-| `indicators.js` | The picker is built from `registeredIndicators()`, so built-ins and the host's opt-in example appear grouped by category. The gear opens a form generated from the descriptor's `inputs`; the same code renders MACD, Bollinger or your own indicator. An input's `visibleWhen` and `activeWhen` are read against the drafts on every committed edit with the widget's own `inputStates`, so a row appears, leaves or greys out as the settings it depends on change (a number box commits as the widget's does, clamped to its bounds, a blank one getting its last value back); a hidden draft is kept, an invalid hidden one never blocks Apply, and the change is announced in a polite live region. Inputs sharing an `inline` id sit on one row. |
+| `indicators.js` | The picker is built from `registeredIndicators()`, so built-ins and the host's opt-in example appear grouped by category. The gear opens a form generated from the descriptor's `inputs`; the same code renders MACD, Bollinger or your own indicator. An input's `visibleWhen` and `activeWhen` are read against the drafts on every committed edit with the widget's own `inputStates`, so a row appears, leaves or greys out as the settings it depends on change (a number box commits as the widget's does, clamped to its bounds, a blank one getting its last value back); a hidden draft is kept, an invalid hidden one never blocks Apply, and the change is announced in a polite live region. Inputs sharing an `inline` id sit on one row. An `interval` input, such as the Timeframe of a built-in moving average, RSI or MACD, is a select of Chart and the intervals the page serves, and a saved code outside that list stays an entry of its own. On a transformed chart the form leads with Compute on (Chart bars or Underlying bars). A study that stops drawing (a timeframe refused on Renko bricks, a calculation that fails) says why on the status line and in a toast, once per new reason. |
 | `indicator-input-controls.js` | Validates typed drafts and connects shared symbol lookup and chart picking to the reference modal, preserving its Apply and Cancel behavior. |
 | `indicator-source.js` | Registers the Source signal sample and resolves source requests against the emitting chart and live instance. The read-only dialog shows the actual host factory and closes when its owner is removed or destroyed. |
 | `anchored-study.js` | Registers the Anchored growth sample, whose anchor time and price are one point (`timeKey`) with a handle on the chart (`anchor: true`): the settings form picks both from one click, and the drawing controller draws the ring, commits a drag as one settings change, and hands the step to the chart's timeline (`history.js`), which walks it with the drawings. `indicators.js` seeds a new sample at a bar in view, since its defaults cannot know the loaded history. |
 | `routed-study.js` | Registers the Routed signal sample: a momentum histogram in its own pane whose Buy and Sell plates, range box and momentum shading name the price pane (`overlay: true`), while its crossing dots and "Now" label (`plot: 'momentum'`) stay with the histogram. The Signals on price input sends the plates back to the study's pane; Momentum shading sends the shading there as a column naming no target, or turns it off. |
 | `canvas-tips.js` | Hover labels for the controls the chart paints on its canvas: a legend row's eye, gear and cross and the close box on an order or position line have no element to carry a name, so the chart's `hover` id raises the shared tip at the pointer ("Hide RSI", "Remove TSLA", "Cancel order"). |
 | `chart-settings.js` | The settings dialog is generated from `chartSettingsSchema()`, including the paired up and down colour control on one row, and a control the current context cannot back is drawn disabled with its state visible. |
-| `transforms.js` | Heikin Ashi, Renko, Range Bars, Line Break, Point and Figure and Kagi from the transform tier; P&F reveals its box-sizing mode (ATR, percent, fixed). |
+| `transforms.js` | Heikin Ashi, Renko, Range Bars, Line Break, Point and Figure and Kagi, applied by the chart itself (`setSeriesTransform`, through `addSeries(..., { transform })`): the series is fed the raw bars, the chart forms the elements live, and a replay shows bricks forming bar by bar. A size left out is taken from the loaded history. Point and figure and Renko are drawn with the options their settings dialogs keep, one set per transform, so Renko set up once is still set up after a detour through candles; until then point and figure opens on a box of one ATR(14) with a three box reversal over highs and lows, and Renko on a fixed brick sized from the history over closes. New options form other columns, so the view is fitted again; the same options keep it. Studies stay on a transformed chart, and each one's settings lead with the bars it computes on: the chart's elements, or the underlying bars read at the bar each element formed on. |
+| `box-settings.js` | While point and figure or Renko is drawn, a settings button sits beside the chart type. Its dialog has the up and down colours on one row (X and O columns, or up and down bricks, a brick's border taking its colour too), percent presets that set the Percent method at that value, a size with its method (Absolute, in price, 0 sizing it from the history; Percent of price; ATR, a multiple of the 14-bar ATR; ATR %, a percent of it), a reversal of 1 to 10 boxes for point and figure, and Close only or High and low. Nothing applies until OK: new options rebuild the chart as one undo step, carrying any new colours with them, and colours alone recolour it in place as a step of their own. Cancel, the close button, Escape and a click outside write nothing. An option changed from the chart settings dialog's Price tab is kept the same way. |
 | `volume.js` | Volume rides an overlay price scale (`priceScaleId: ''`) inside the price pane, pinned to the bottom fifth, so the right-hand axis stays a clean price ladder. It hides and shows from the legend eye and the right-click menu, and the choice survives a reload and a chart-type switch. |
 | `status.js`, `axis-chrome.js`, `timezone.js` | The status line, the clock and the countdown are fed by the host: venue, session hours by IANA zone (never a fixed offset) handed to the library as a `SessionCalendar` whose phases give the market status (`venueCalendar`; a closed date listed in `SESSIONS` reads "Market holiday"; the phase is asked once and held until it changes), and long names. A chart on extended hours reads "Pre-market" or "Post-market" while its extra bars are arriving rather than "Market closed". The chart zone is a runtime setting the demo carries across a rebuild. |
 | `orders.js`, `bracket.js` | Chart trading: right-click for single orders, Buy and Sell brackets with OCO target and stop, drag any line to re-price it, and per-symbol trade state that survives a symbol switch. |
@@ -590,7 +595,7 @@ exists to show one engine surface carrying real use, not just being present.
 | `chart-data.js` | Download the captured chart's loaded OHLC/volume/OI, study plots and eligible comparison closes through the shared CSV serializer. Reject obsolete/loading owners and release file resources on success or failure. |
 | `chart-data-controls.js` | Capture a study checklist and visible time bounds, validate custom UTC bounds, and choose source or display alignment before download. |
 | `alerts.js` | The Alerts toolbar button opens the focused chart's lifecycle list and source editor. Price, study plots, supported drawing levels and registered candle conditions use the same controls as the packaged widget. Local notices display fired events; the demo does not send notifications or orders for an alert. |
-| `timeline.js` | The Events menu enables labelled sample events, clustering and group visibility. Click a marker to read its details. These are demonstration events, not a company calendar feed. |
+| `timeline.js` | The Events menu enables labelled sample events, clustering and group visibility. Click a marker to read its details: the sample results event carries rich content (a heading, emphasis, a link and a list whose markup stays text), and **Mark on chart** draws a vertical line at the event through the popup's `actions` option. These are demonstration events, not a company calendar feed. |
 | `market-panels.js` | The Watchlist and News buttons open the widget's panels in each chart's dock. Named lists live in IndexedDB through the workspace tier's `WatchlistRepository`, one store for both charts, with a first list on a first visit. Quotes come from `/api/quotes` only, through one shared poll for every visible row's stream; a failed poll reports the stream as reconnecting, so the rows go stale until the next good answer. An arithmetic symbol has no quote and shows `n/a`. The watchlist sort sits in `localStorage` under the `yfinance-panels` namespace, so it survives the dock rebuild every symbol load causes. News pages come from `/api/news` with the server's cursor. Without `--fixture` the endpoints answer 501. The first 501 is the page's only quote request: from then on the quote source answers every snapshot and poll with that error itself, each row shows `n/a`, and the status line reads "Quotes disconnected." with no claim about values shown. The news panel shows the server's message. |
 
 ### Analysis and linking in 2.5.2
@@ -608,7 +613,9 @@ namespace used for drawing matching does not change saved alert scopes.
 
 The Events button opens sample timeline controls. Enable **Show sample events**,
 then click a marker or clustered count to read details. Group filters include
-child groups. Your production host must supply its own event data.
+child groups. The sample results event shows rich details, and **Mark on chart**
+draws a vertical line at the event on the chart it was clicked on. Your
+production host must supply its own event data.
 
 Click or focus a chart, or use the Chart selector, to select it for symbol,
 interval, history range, chart type, study, grid, drawing, alert and snapshot
@@ -617,7 +624,7 @@ the chart that opened them and reject an action after its chart or request has
 changed. Snapshot keyboard shortcuts use the current selection; asynchronous
 image conversion retains the captured symbol and interval in its filename.
 
-The second chart retains its type, box mode, study identities/settings and grid
+The second chart retains its type, its point and figure and Renko options, study identities/settings and grid
 through rebuild and reload. The selected pane and link preferences are saved
 with the layout. Its symbol/readout is drawn on the chart, stacks above studies
 and appears in exported images. Symbol search accepts a ticker or expression.
@@ -653,8 +660,8 @@ for daylight changes, and calendar month/quarter ends come from the interval reg
 Every participant has its own history request slot, replay mark, volume and
 readout. A chart with no observation yet stays empty. Finer gaps hold the last
 known prefix until the completed candle; finer-history failure is identified in
-the status line. Derived candles use completed values because raw finer prices
-cannot substitute for transformed OHLC. Histories with overlapping or unordered
+the status line. A transformed chart takes the finer bars too, and forms its
+elements from them as they land. Histories with overlapping or unordered
 bar times cannot enter shared replay. A newly opened or changed chart requires a
 new capture before it can join all-chart replay.
 
@@ -736,8 +743,9 @@ identifies the source, interval and chart type, with a replay marker for a chart
 participating in active replay.
 
 The dialog starts with all installed bars and studies. Select individual study
-instances, enter inclusive UTC-second bounds, or use the visible bounds captured
-when the dialog opened. Hidden studies remain selectable; adding another study
+instances, enter inclusive bounds as a date and a time on the chart's clock (the
+zone is named under the fields; a To written to the minute takes in the whole
+minute), or use the visible bounds captured when the dialog opened. Hidden studies remain selectable; adding another study
 later does not silently include it. Removed selected studies report an error.
 Comparison closes can be omitted separately.
 
@@ -825,16 +833,26 @@ the engine's numbers say what shape the parts are.
   drawings: { version: <DRAWING_STATE_VERSION>, drawings: [...] },
   dataset: "AAPL|1d|1y",            what the view was captured on
   request: { symbol, interval, period },
-  chartType, pfmode,
+  chartType, transforms: { "point-figure": {...}, renko: {...} },
   comparisons: [{ symbol, color, hidden }],
   compareMode, compareBaseMode, volume, volumeSettings,
   focusPane, linkOptions,
-  secondary: { request, chartType, pfmode, width, state, volumeSettings,
+  secondary: { request, chartType, transforms, width, state, volumeSettings,
                comparisons: [{ symbol, color, hidden }], compareMode, compareBaseMode }
 }
 ```
 
-On startup, the primary request, chart type, box mode and timezone are restored
+`transforms` holds the options each transform was given in its settings dialog,
+as the engine takes them (`{ mode: "percent", percent: 0.25, reversal: 3, method: "hl" }`);
+a transform it leaves out draws with its defaults. Layouts written before the
+dialogs carry `pfmode` instead, the old point and figure box mode, and open on the
+options that mode drew: `atr` as a box of one ATR(14), `percent` as 1 percent of
+price and `fixed` as a box sized from the history, each with a three box reversal
+over highs and lows. The next save writes `transforms`. A named workspace keeps
+each option as a pane setting of its own (`reference.transform.renko.mode`), and
+one saved with `reference.pfmode` opens the same way.
+
+On startup, the primary request, chart type, transform options and timezone are restored
 before the first history request. Calendar month and quarter bars therefore fold
 in the saved timezone on their first load. These fields are optional additions to
 schema 2. Older documents can recover a request from an unambiguous, supported
@@ -953,7 +971,15 @@ back and forth with Ctrl+Z, Ctrl+Y and the rail's Redo.
 
 ### Drawing catalogue (2.2.0)
 
-The drawing rail includes 85 tools: the existing annotations plus pitchforks,
+The rail's last button folds it away so the chart takes its width; the tab that
+appears at the chart's bottom left brings it back, and the choice is remembered.
+Below 900 pixels, where the rail is the bottom touch bar, the fold waits until the
+window is wide again. The page runs on a neutral palette: a near-black chart
+(#151619) with grey chrome, a blue accent and the #089981 / #f23645 candle pair,
+and a selected tool shows as a light wash with bright ink rather than a coloured
+frame.
+
+The drawing rail includes 87 tools: the existing annotations plus pitchforks,
 regression and disjoint channels, advanced Fibonacci and Gann geometry, wavefronts
 and harmonic or Elliott patterns. Open a rail group's chevron to choose a tool; edit
 its settings from the selected drawing's properties. Mobile drawing controls use

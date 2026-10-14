@@ -2,14 +2,16 @@
  * Horizontal price line primitive (ARCHITECTURE.md §8). The reusable base for
  * order/SL/TP/alert/indicator-level lines: a line across the plot plus a fixed
  * price-axis tag and an optional broker-style segmented pill group on the
- * line — [badge][qty][label][✕] — with hover / dragging states (the chart
+ * line ([badge][qty][label][close]) with hover / dragging states (the chart
  * passes `hoverId`/`dragId` on the render context) and a drag ghost at the
  * pre-drag price via `setDragGhost`. Interaction semantics are unchanged from
- * the classic tag: the ✕ hit-tests as `${id}::close`, everything else drags.
+ * the classic tag: the close segment hit-tests as `${id}::close`, everything else drags.
  */
 import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, PrimitiveHit, ZOrder } from './primitive';
 import { contrastText, withAlpha, shade, drawPillGroup, type PillSegment } from '../render/pill';
 import { dashPattern, type CanvasLineStyle } from '../render/grid';
+import { drawAxisTag } from './axis-tag';
+import type { LooseOptional } from '../helpers/types';
 
 export interface PriceLineOptions {
   price: number;
@@ -40,21 +42,21 @@ export interface PriceLineOptions {
   badge?: string;
   /** Quantity segment rendered as a neutral box after the badge. */
   qty?: string | number;
-  /** Info text segment (order type, price, P&L ...) — the classic left tag text. */
-  leftLabel?: string;
+  /** Info text segment (order type, price, P&L ...): the classic left tag text. */
+  leftLabel?: string | undefined;
   /**
    * A second info segment, drawn after `leftLabel`. Separate from it because
    * the two carry different kinds of fact and change at different rates: the
    * label says what the line IS (order type, side), the note says what it is
    * currently WORTH, which moves with the market.
    */
-  note?: string;
+  note?: string | undefined;
   /**
    * Custom pill segments. When present these replace badge/qty/leftLabel/closeButton.
    * A segment with an id hit-tests independently, which lets trading tickets put
    * side, quantity, type and submit actions directly on the draggable line.
    */
-  pillSegments?: readonly PriceLinePillSegment[];
+  pillSegments?: readonly PriceLinePillSegment[] | undefined;
   /**
    * Fraction of the plot width the line spans, measured from the right (price)
    * axis. 1 = full width (default); 0.3 = only the rightmost 30%, like a
@@ -74,7 +76,7 @@ export interface PriceLineOptions {
    * trader is actually watching.
    */
   pillInsetFromRight?: number;
-  /** Draw a cancel (✕) segment at the end of the pill group; hit-tests as `${id}::close`. */
+  /** Draw a close (cancel) segment at the end of the pill group; hit-tests as `${id}::close`. */
   closeButton?: boolean;
   /**
    * Whether the line widens the pane's autoscale range so it is always in
@@ -119,8 +121,8 @@ const TAG_H = 18;
  * 18 px of pill and an 11 px label are sized for a mouse, where the cursor is
  * one pixel and the eye is a foot from the glass. A thumb is closer to 9 mm
  * across and the phone is held at arm's length, so the same pill is both hard
- * to hit and hard to read. The host decides — the chart cannot reliably know
- * whether the pointer is coarse — and everything else here scales off it.
+ * to hit and hard to read. The host decides, the chart cannot reliably know
+ * whether the pointer is coarse, and everything else here scales off it.
  */
 const TOUCH_SCALE = 1.8;
 /**
@@ -176,7 +178,7 @@ export class PriceLine implements IPrimitive {
 
   /**
    * Restyle in place; repaints. `id` is the hit-test handle the chart routes
-   * clicks and drags through, so it is not patchable — swapping it under a
+   * clicks and drags through, so it is not patchable: swapping it under a
    * live drag would strand the gesture.
    *
    * A last-price line is the case this exists for: it has to follow the tick
@@ -251,7 +253,7 @@ export class PriceLine implements IPrimitive {
       }
     }
 
-    // soft emphasis halo while dragging (no shadowBlur — cheap wide stroke)
+    // soft emphasis halo while dragging (no shadowBlur: cheap wide stroke)
     if (dragging) {
       ctx.strokeStyle = withAlpha(color, 0.18);
       ctx.lineWidth = Math.max(5 * dpr, Math.round(lineWidth * dpr) + 4 * dpr);
@@ -283,51 +285,14 @@ export class PriceLine implements IPrimitive {
     const r = Math.round(3 * touch) * dpr;
 
     // Explicit columns confine only the axis tag; plot furniture stays put.
-    const axisFill = dragging || hovered ? shade(color, 0.12) : color;
+    // `axisLabelVisible: false` drops the tag; it is drawn from the pill's (finger-sized) font.
     if (this._opts.axisLabelVisible !== false) {
-      const label = this._opts.label ?? rc.priceScale.format(this._opts.price);
-      if (rc.priceAxisSide !== 'hidden' && rc.priceAxisWidth > 0) {
-        const left = rc.priceAxisSide === 'left';
-        if (left || rc.priceAxisOffset !== undefined) {
-          const offset = rc.priceAxisOffset ?? 0;
-          const edge = Math.round(offset * dpr);
-          const outer = Math.round((offset + (left ? -rc.priceAxisWidth : rc.priceAxisWidth)) * dpr);
-          const available = (rc.priceAxisOffset === undefined
-            ? Math.round(rc.priceAxisWidth * dpr) : Math.abs(outer - edge)) - 1;
-          if (Number.isFinite(edge) && Number.isFinite(outer) && available > 0 && rc.plotHeight * dpr >= boxH) {
-            // The pill font is sized for a finger when the host asks, so the
-            // fitted tag scales from it and hands it back afterwards.
-            const font = ctx.font;
-            const fontPx = Math.round(11 * touch) * dpr;
-            ctx.save();
-            if (rc.priceAxisOffset !== undefined) {
-              ctx.beginPath();
-              ctx.rect(Math.min(edge, outer), 0, available + 1, rc.plotHeight * dpr);
-              ctx.clip();
-            }
-            const padding = Math.min(padX, available / 4), textWidth = ctx.measureText(label).width;
-            const width = Math.min(available, textWidth + padding * 2);
-            const x = left ? edge - 1 - width : edge + 1;
-            const tagY = Math.max(boxH / 2, Math.min(rc.plotHeight * dpr - boxH / 2, y));
-            ctx.fillStyle = axisFill;
-            ctx.fillRect(x, tagY - boxH / 2, width, boxH);
-            ctx.fillStyle = contrastText(color);
-            ctx.font = `500 ${fontPx * (textWidth > 0 ? Math.min(1, (width - padding * 2) / textWidth) : 1)}px system-ui, sans-serif`;
-            ctx.fillText(label, x + padding, tagY);
-            ctx.restore();
-            ctx.font = font;
-          }
-        } else {
-          // Omitted placement retains the original synthetic-context geometry.
-          ctx.fillStyle = axisFill;
-          ctx.fillRect(xEnd + 1, y - boxH / 2, ctx.measureText(label).width + padX * 2, boxH);
-          ctx.fillStyle = contrastText(color);
-          ctx.fillText(label, xEnd + 1 + padX, y);
-        }
-      }
+      drawAxisTag(ctx, rc, y, this._opts.label ?? rc.priceScale.format(this._opts.price),
+        dragging || hovered ? shade(color, 0.12) : color, contrastText(color), boxH, false,
+        { fontPx: Math.round(11 * touch) * dpr, padX });
     }
 
-    // segmented pill group on the line: [badge][qty][label][✕]
+    // segmented pill group on the line: [badge][qty][label][close]
     const hasGroup = this._opts.pillSegments !== undefined || this._opts.badge !== undefined || this._opts.qty !== undefined ||
       (this._opts.leftLabel !== undefined && this._opts.leftLabel !== '') ||
       (this._opts.note !== undefined && this._opts.note !== '') || this._opts.closeButton === true;
@@ -386,9 +351,9 @@ export class PriceLine implements IPrimitive {
         gap: GAP * dpr,
         backplate: transparentBg ? undefined : rc.theme.background,
         // ALWAYS clamped to the plot. This used to apply only to custom
-        // segment groups, so the default working-order pill —
-        // [SIDE][qty][TYPE][×] — ran straight over the price axis on a narrow
-        // screen: the ✕ landed on the scale, where the axis owns the gesture,
+        // segment groups, so the default working-order pill,
+        // [SIDE][qty][TYPE][×], ran straight over the price axis on a narrow
+        // screen: the x landed on the scale, where the axis owns the gesture,
         // and the order could not be cancelled from the chart at all. A pill
         // that cannot be reached is worse than one that is cramped.
         maxX: xEnd - 4 * dpr,
@@ -402,8 +367,9 @@ export class PriceLine implements IPrimitive {
     if (x < 0 || x > rc.plotWidth) return null;
     const lineY = rc.priceScale.priceToY(this._opts.price);
     const distance = Math.abs(y - lineY);
+    // An unset cursor goes out as undefined below, which the pane reads as no cursor.
     // Inside the pill group (segment boxes are taller than the 4px line zone):
-    // the ✕ segment routes as a click, the rest of the group drags the line.
+    // the close segment routes as a click, the rest of the group drags the line.
     const g = this._group;
     if (g !== null && distance <= PILL_HIT_H / 2 && x >= g.x0 && x <= g.x1) {
       const segment = g.segments.find((candidate) => x >= candidate.x0 && x <= candidate.x1);
@@ -413,9 +379,9 @@ export class PriceLine implements IPrimitive {
       if (this._opts.closeButton && x >= g.closeX0) {
         return { externalId: `${this._opts.id}::close`, zOrder: 'normal', distance, cursor: 'pointer' };
       }
-      return { externalId: this._opts.id, zOrder: 'normal', distance, cursor: this._opts.cursor };
+      return { externalId: this._opts.id, zOrder: 'normal', distance, cursor: this._opts.cursor } satisfies LooseOptional<PrimitiveHit> as PrimitiveHit;
     }
     if (distance > 4) return null;
-    return { externalId: this._opts.id, zOrder: 'normal', distance, cursor: this._opts.cursor };
+    return { externalId: this._opts.id, zOrder: 'normal', distance, cursor: this._opts.cursor } satisfies LooseOptional<PrimitiveHit> as PrimitiveHit;
   }
 }

@@ -26,7 +26,7 @@
  * writes the last one, and the timer's callback here calls back through them.
  */
 import {
-  dataVariantKey, isKnownInterval, normalizeDataVariant, registeredChartTypes,
+  dataVariantKey, isKnownInterval, normalizeDataVariant,
   type DataVariant, type RestoreReport,
 } from 'openalgo-charts';
 import {
@@ -34,6 +34,7 @@ import {
   type DrawingDocumentStore, type DrawingInstrument,
 } from 'openalgo-charts/draw';
 import { WidgetBus, type WidgetBusEvents, type WidgetStorage, type WidgetStorageError } from './context';
+import { isChartTypeChoice } from './chart-type-choice';
 import { errorText, widgetText } from './localization';
 import { sanitizePanelDockState } from './panel-dock';
 import { RAIL_PREFS_KEY, type RailPrefs } from './rail';
@@ -43,6 +44,7 @@ import type {
   WidgetChartState, WidgetImpl, WidgetRestoreReport, WidgetState,
   DRAWINGS_KEY_PREFIX as DrawingsKeyPrefix, SAVE_DEBOUNCE_MS as SaveDebounceMs, STATE_KEY as StateKey, WIDGET_STATE_VERSION as StateVersion,
 } from './widget';
+import { isRecord } from '../helpers/validate';
 
 // widget.ts declares these for hosts and imports this module, so reading them
 // from there at run time would be an import cycle. Each copy is typed as its
@@ -83,6 +85,7 @@ export interface PersistHost {
   readonly chartType: WidgetImpl['chartType'];
   readonly setTheme: WidgetImpl['setTheme'];
   readonly setChartType: WidgetImpl['setChartType'];
+  readonly _selectChartType: WidgetImpl['_selectChartType'];
   readonly reload: WidgetImpl['reload'];
   readonly _cancelNavigation: WidgetImpl['_cancelNavigation'];
   readonly _publishDataContext: WidgetImpl['_publishDataContext'];
@@ -107,8 +110,6 @@ interface StartFacts {
   chartType: string;
   theme: WidgetThemeName;
 }
-
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /**
  * A stored variant: undefined for the default series, null for one this build
@@ -150,6 +151,19 @@ export function stripView(state: WidgetChartState): WidgetChartState {
 }
 
 /**
+ * Through 2.6.2 the chart state carried every navigation option, so each
+ * layout saved then says mousePan: 'both' whether or not anyone chose it.
+ * Restored, it switched every drag back to moving price and the pane to
+ * manual scaling. An unstamped state therefore leaves the drag to the
+ * options the widget was built with: its own default or the host's.
+ */
+function withoutRecordedDrag(savedBy: unknown, chart: WidgetChartState): WidgetChartState {
+  if (savedBy !== undefined || chart.navigation?.mousePan !== 'both') return chart;
+  const { mousePan: _recorded, ...navigation } = chart.navigation;
+  return { ...chart, navigation };
+}
+
+/**
  * The saved layout, onto the dataset it belongs to: its view only on the
  * instrument (symbol and exchange), interval and variant it was saved on,
  * then its rail preferences and panels. Runs once the chrome is built.
@@ -158,7 +172,8 @@ export function applySavedLayout(this: PersistHost, saved: WidgetState | null): 
   if (saved?.chart !== undefined) {
     const same = saved.symbol === this._symbol && saved.exchange === this._exchange && saved.interval === this._interval
       && dataVariantKey(saved.variant) === dataVariantKey(this._variant);
-    let layout = same ? saved.chart : stripView(saved.chart);
+    const recorded = withoutRecordedDrag(saved.savedBy, saved.chart);
+    let layout = same ? recorded : stripView(recorded);
     // The layout's own drawings were attached to its instrument by
     // `scopeDrawings`; the chart keeps the ones the current instrument has,
     // already on it. A layout that names no instrument has nowhere else to
@@ -167,6 +182,7 @@ export function applySavedLayout(this: PersistHost, saved: WidgetState | null): 
     if (this.instrumentDrawings !== null && savedKey(saved) !== null) layout = { ...layout, drawings: this.draw.toJSON() };
     const report = this.chart.restoreState(layout);
     if (report.applied) {
+      restorePrimaryStyle.call(this, saved.chart);
       this._keepView = same;
       this._pendingView = same ? saved.chart.viewport ?? null : null;
     } else {
@@ -238,6 +254,19 @@ function savedKey(saved: WidgetState): string | null {
   return instrumentDrawingsKey({ symbol: saved.symbol.toUpperCase(), exchange: saved.exchange });
 }
 
+/**
+ * The saved style of the series on screen. A chart restore never touches
+ * series, which belong to the host, so the colours a layout was saved with
+ * (from the settings or a chart type's own dialog) are the widget's to put
+ * back. Only the entry saved for the same chart type applies: a style written
+ * for point and figure means nothing to candles.
+ */
+function restorePrimaryStyle(this: PersistHost, state: WidgetChartState): void {
+  const type = this.chart.seriesTransform(this._series)?.type ?? this.chart.seriesType(this._series);
+  const entry = (state.series ?? []).find(item => item !== null && (item.transform?.type ?? item.type) === type);
+  if (entry?.style !== undefined && Object.keys(entry.style).length > 0) this._series.applyOptions(entry.style);
+}
+
 /** What `restoreState` applies, inside the history's `ignore`. */
 export function restoreWidgetState(this: PersistHost, state: unknown): WidgetRestoreReport {
   if (!isRecord(state)) return { applied: false, reason: 'not a widget state object' };
@@ -254,7 +283,7 @@ export function restoreWidgetState(this: PersistHost, state: unknown): WidgetRes
   try { variant = normalizeDataVariant(state.variant); }
   catch (error) { return { applied: false, reason: error instanceof Error ? error.message : 'invalid data variant' }; }
   if (state.theme === 'dark' || state.theme === 'light') this.setTheme(state.theme);
-  if (typeof state.chartType === 'string' && registeredChartTypes().includes(state.chartType)) this.setChartType(state.chartType);
+  if (isChartTypeChoice(state.chartType)) this._selectChartType(state.chartType, isRecord(state.chart) ? state.chart : undefined);
   if (state.rail !== undefined && this._rail !== null) this._rail.restorePrefs(state.rail);
   if (state.panels !== undefined) this._dock?.restore(state.panels);
   const symbol = typeof state.symbol === 'string' ? state.symbol.toUpperCase() : this._symbol;
@@ -264,7 +293,7 @@ export function restoreWidgetState(this: PersistHost, state: unknown): WidgetRes
   const same = symbol === this._symbol && exchange === this._exchange && interval === this._interval && sameVariant;
   let chart: RestoreReport | undefined;
   if (isRecord(state.chart)) {
-    let doc = state.chart as unknown as WidgetChartState;
+    let doc = withoutRecordedDrag(state.savedBy, state.chart as unknown as WidgetChartState);
     const scoped = this.instrumentDrawings;
     // A layout for another instrument brings that instrument's drawings.
     // They wait in its store while the chart restore keeps the ones on
@@ -276,6 +305,7 @@ export function restoreWidgetState(this: PersistHost, state: unknown): WidgetRes
     if (moving) doc = { ...doc, drawings: this.draw.toJSON() };
     chart = this.chart.restoreState(same ? doc : stripView(doc));
     if (!chart.applied) return { applied: false, reason: chart.reason, chart };
+    restorePrimaryStyle.call(this, doc);
     takeGivenState.call(this);
     if (moving && scoped !== null) scoped.setDocument({ symbol, exchange }, incoming ?? []);
     this._keepView = same;
@@ -291,6 +321,11 @@ export function restoreWidgetState(this: PersistHost, state: unknown): WidgetRes
     if (symbol !== this._symbol || exchange !== this._exchange) {
       this._symbol = symbol;
       this._exchange = exchange;
+      // The widget's bus only, where setSymbol and a late store load also
+      // announce on the chart's. A link group and the chart grid follow the
+      // chart's 'symbol' and pass it to every chart linked to this one; a
+      // restore is a saved layout being applied (the grid applies each cell
+      // this way), which that broadcast would overwrite chart by chart.
       this._bus.emit('symbol', { symbol, exchange });
     }
     if (!sameVariant) {
@@ -330,6 +365,7 @@ export function readSaved(this: PersistHost): WidgetState | null {
     chart: (chart && variant === null ? stripView(chart) : chart) as WidgetChartState,
     rail: isRecord(raw.rail) ? (raw.rail as unknown as RailPrefs) : null,
     panels: sanitizePanelDockState(raw.panels),
+    ...(typeof raw.savedBy === 'string' ? { savedBy: raw.savedBy } : {}),
   };
   return out;
 }
@@ -494,7 +530,7 @@ function applyLoaded(this: PersistHost, start: StartFacts): void {
     restoreKeymap.call(this as unknown as KeysHost);
     if (saved === null) return;
     const type = saved.chartType;
-    if (o.chartType === undefined && this.chartType() === start.chartType && type !== start.chartType && registeredChartTypes().includes(type)) this.setChartType(type);
+    if (o.chartType === undefined && this.chartType() === start.chartType && type !== start.chartType && isChartTypeChoice(type)) this._selectChartType(type, saved.chart);
     if (o.theme === undefined && this._themeName === start.theme && saved.theme !== start.theme) this.setTheme(saved.theme);
     applySavedLayout.call(this, saved);
   });

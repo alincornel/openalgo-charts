@@ -12,7 +12,9 @@ Every live demo on this site is fully interactive. The points below apply to all
 ## Mouse
 
 - **Vertical wheel**: zoom the time axis proportionally around the cursor, eased over
-  a few frames (`animZoom: false` for the single-frame step). `zoomAnchor: 'right'`
+  a few frames (`animZoom: false` for the single-frame step). Each wheel event moves one
+  target and the frames chase it by the real frame time, so a fast wheel or a trackpad
+  zooms in one smooth motion rather than a jolt per notch. `zoomAnchor: 'right'`
   holds the latest bar still for ordinary wheel input.
 - **Horizontal or Shift-wheel**: pan time. A dominant horizontal delta pans directly;
   Shift maps a vertical-only wheel delta onto the horizontal axis.

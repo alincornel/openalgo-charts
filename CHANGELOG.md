@@ -26,27 +26,27 @@ as a ladder instead of a hairline mesh.
   - **The touch crosshair carries the 2.0 pointer payload.** `_updateCursor`
     gained a `source: PointerEvent` argument for the modifier flags, the
     pressure and the coalesced samples a `crosshair:move` now reports. The three
-    fork paths that summon or steer the crosshair — the long press, the adopted
-    pointer and the steer — pass the event that caused them, so a summoned
+    fork paths that summon or steer the crosshair, the long press, the adopted
+    pointer and the steer, pass the event that caused them, so a summoned
     crosshair reports the press that summoned it rather than nothing.
   - **Primitives are untouched by the backend port.** The GPU backend adds no
     canvas: it rasterises only the series pass onto a shared surface and blits
     it into the base canvas at `endFrame`, between the grid and the normal-layer
-    primitives. Every primitive the fork ships or extends — the price-line
-    pills, the footprint ladder, the volume profile — keeps drawing on the 2D
+    primitives. Every primitive the fork ships or extends, the price-line
+    pills, the footprint ladder, the volume profile, keeps drawing on the 2D
     context the pane hands it, identically under `canvas2d` and `webgl2`.
 
 - Budgets re-measured on the merged tree rather than carried over: base engine
   68.90 kB against 69.3, base + trade 76.59 against 77, profile 11.85 against
   11.9, widget terminal 157.54 against 158, everything 186.12 against 186.6.
-  Chart-only shake 45.53 kB against 45.7 — 1.69 kB over upstream's own 43.84 on
+  Chart-only shake 45.53 kB against 45.7, 1.69 kB over upstream's own 43.84 on
   the same build, up from 1.17 kB against 1.9.2 because the crosshair paths now
   carry that pointer payload. 4175 tests across 178 files, plus 219 demo tests.
 
 - **Upstream 2.1.0** merged on top, with nothing to re-apply: its whole source
   delta is `src/profile/compact-text.ts`, `market-profile-primitive.ts`,
-  `market-profile.ts` and the version string — the compact TPO alphabet, the
-  per-session split and the open/latest markers — and the fork has never
+  `market-profile.ts` and the version string, the compact TPO alphabet, the
+  per-session split and the open/latest markers, and the fork has never
   touched any of them, so `src/` merged without a single conflict. Two budgets
   moved and only the two 2.1.0 actually grew: the profile tier 11.85 -> 13.12 kB
   (limit 13.2; upstream measured the same feature at 11.95 against 12 on a
@@ -69,7 +69,7 @@ as a ladder instead of a hairline mesh.
     count-and-end request shape are all unchanged, and `getCachedBars`,
     `getBarsPage` forwarding, `signal` cancellation, entry validation and the
     always-present memory copy are added around them. `CachedBars` regains
-    `from`/`to` — DERIVED from the bars rather than recorded from a request —
+    `from`/`to`, DERIVED from the bars rather than recorded from a request,
     so a durable entry can be validated on the way back in; see below.
   - **The footprint is upstream's renderer with the fork's ladder on it.**
     `zeroFill`, `cells: 'deltaVolume'` with `deltaCell`, `colorBy: 'delta'`,
@@ -81,8 +81,8 @@ as a ladder instead of a hairline mesh.
     `readableTextColor` corrects it against the plate, in place of the fork's
     hardcoded white/near-black pair; a pinned `cellTextColor` is still used
     exactly as given, and a zero-filled row is still dimmed.
-  - **The time-axis drag takes upstream's direction.** 2.1.3 reversed it —
-    dragging left widens the bars — and the fork's `_emitViewportIfMoved` stays
+  - **The time-axis drag takes upstream's direction.** 2.1.3 reversed it,
+    dragging left widens the bars, and the fork's `_emitViewportIfMoved` stays
     on top of it, so a drag that changes nothing (spacing clamped at its limit,
     or a press that has not moved) is still silent.
 
@@ -124,7 +124,7 @@ as a ladder instead of a hairline mesh.
   keeps the fork's 16.9 for its 16.86. Chart-only shake 50.74 KiB (50.9, upstream
   48.96 against 50).
 
-- **Upstream 2.4.0** merged on top (4 commits): coverage for ported studies —
+- **Upstream 2.4.0** merged on top (4 commits): coverage for ported studies,
   `securitySeries` for higher-timeframe reads, `IndicatorPlot.offset` and
   `SeriesStyle.barOffset`, the recompute guard and `IndicatorInputError`, alert
   messages built from the firing bar, `cross`/`xcross` markers and
@@ -193,6 +193,39 @@ as a ladder instead of a hairline mesh.
   draw 58.52 (58.6), profile 17.09 (17.1), widget terminal 358.06 (358.1),
   everything 414.94 (415), against upstream's 134.69 / 151.38 / 57.98 / 14.97 /
   354.46 / 409.13. Chart-only shake 87.93 KiB (88) against upstream's 85.73.
+- **Upstream 2.6.0 - 2.6.4** merged on top: the footprint's signals, zones,
+  zone alerts, `imbalance` and `deltaShadedVolume` views, empty rows
+  (`showEmptyRows`, on by default) and per-part colours and themes, the
+  comparison of a cell with an untraded inner row as zero (2.6.4), the wheel
+  zoom that chases one target per frame (2.6.3), a market profile refactored
+  around one `valueArea` helper, the drawing controller split into
+  `pane-layers.ts` and friends, `subscribeDrag` with several subscribers, the
+  axis column painting split into `drawLastPriceLine` / `drawLastPriceTag`, and
+  the stricter compiler flags (`exactOptionalPropertyTypes`,
+  `noUncheckedIndexedAccess`) the fork's code now meets. What moved:
+  - `wheelZoomSensitivity` multiplies the step handed to the per-frame chase.
+  - `subscribeDrag(onDrag, onDragEnd, onDragCancel)` returns upstream's
+    unsubscribe; a cancel reaches a subscription that passed `onDragCancel`,
+    and a `pointercancel` sends no `drag:end` while one does (`drag-subscription.ts`).
+  - The touch crosshair and tap-not-pan moved into `touch-crosshair.ts`.
+  - `drawLastPriceLine` takes the fork's `lineFromX`; `drawPriceAxis` takes
+    `side` before the fork's `maxTicks`.
+  - Footprint: `zeroFill` owns the empty rows while it is on (its cap
+    included), `showEmptyRows` draws them otherwise; the ladder's diagonals
+    keep their floor of one (`minOpposing`) in every view but upstream's
+    `imbalance`, so `zeroFill` and an untraded row now give the same
+    diagonals. `colorBy`, `cells: 'deltaVolume'`, the candle modes,
+    `pocOutline`, the histogram, the plate tint, `onLayout` and `neutralVol`
+    sit on upstream's new column code.
+  - `computeMarketProfile` keeps `pocTieBreak` and `valueAreaMethod`; with
+    their defaults it is upstream's `valueArea`.
+  - `updatePositionPnl` takes upstream's text-only form too; a `null` text
+    still takes the money off the pill.
+- Budgets: base engine 141.06 kB (limit 141.1), base + trade 158.00 (158.1),
+  draw 59.00 (59.1), profile 23.10 (23.2), widget terminal 368.01 (368.1),
+  everything 432.98 (433), classic scripts 446.72 (446.8), base classic script
+  140.97 (141), against upstream's 137.65 / 154.52 / 58.44 / 20.83 / 364.04 /
+  426.67 / 440.43 / 137.69. Chart-only shake 89.62 KiB (89.75) against 87.30.
 
 ### Added
 
@@ -230,12 +263,12 @@ as a ladder instead of a hairline mesh.
     walked every point of the history on every frame, building a polygon and,
     under a gradient, a gradient for each run on screen or not. It now seeks the
     bars in view (plus one either side), and the gradient's extremes are
-    computed once per data change — still over the whole band.
+    computed once per data change, still over the whole band.
   - The time axis forced a label candidate at every day boundary, and on a
     daily series every bar is one: thousands of host `timeFormatter` calls and
     `measureText`s a frame to draw two dozen labels. It now keeps one forced
-    mark per label stride — the most significant turn in it, a year over a
-    month over a day, with years claiming space first — and the strides are
+    mark per label stride, the most significant turn in it, a year over a
+    month over a day, with years claiming space first, and the strides are
     counted from index 0, so a pan no longer reshuffles every label. The label
     stride is also computed in pixels below one pixel per bar, where it used to
     put a grid tick every 20 px. An axis whose days are wider than the stride
@@ -249,8 +282,8 @@ as a ladder instead of a hairline mesh.
   formatter, the window sweeping out to every bar: 68 ms a frame to 16.7 on a
   desktop, and at 4x CPU throttling 259 ms (94 % of frames late) to 16.7 (0 %).
 
-- **A cancelled pointer is not a release.** `pointercancel` — the browser taking
-  a touch away for a system gesture, a notification or the palm check — went
+- **A cancelled pointer is not a release.** `pointercancel`, the browser taking
+  a touch away for a system gesture, a notification or the palm check, went
   through the release path, so a finger resting still on a pill's button was a
   tap on it (close the position, cancel the order), a still press on a line was
   a click, a line mid-drag was committed at the finger's price, an armed drawing
@@ -399,15 +432,15 @@ as a ladder instead of a hairline mesh.
   ramp, the per-row volume bar, the cell text colours and the POC ring width.
 
 - **The bar cache asks for a COUNT and an END, and judges itself on the bars it
-  holds.** `getBars`/`peek` take `{ endSec, count }` — "the last `count` bars at
-  or before this instant" — beside the `{ from, to }` window, which is adapted
+  holds.** `getBars`/`peek` take `{ endSec, count }`, "the last `count` bars at
+  or before this instant", beside the `{ from, to }` window, which is adapted
   onto it and still answered as a window, so a host that never learned the new
   shape is unaffected. `BarsRequest` gains optional `endSec`/`count`.
 
   A clock window assumes the market never closes. On a Monday at one minute a
   bar, `from = now - 2000 * 60` spans a 49-hour weekend and holds 960 of the
   2000 bars asked for, and no window a chart holding 960 bars can compute is
-  wide enough to page back over that weekend — the left edge is a silent dead
+  wide enough to page back over that weekend, the left edge is a silent dead
   end. A count has nothing to be wrong about.
 
 - **BREAKING (persisted shape): `CachedBars` is `{ version, bars, from, to,
@@ -416,7 +449,7 @@ as a ladder instead of a hairline mesh.
   for it from disk. `from` and `to` are written all the same, derived from the
   bars themselves (`bars[0].time`, and one second before the last bar closes),
   because a durable entry has to describe itself well enough to be validated on
-  the way back in — upstream 2.1.6 deletes and refetches anything that does not.
+  the way back in, upstream 2.1.6 deletes and refetches anything that does not.
   `CachedPeek` carries them. An entry written by an earlier build of this fork
   has neither, so it fails that validation and is dropped and refetched once;
   an upstream `version: 1` entry reads fine, since the fork consults only the
@@ -426,14 +459,14 @@ as a ladder instead of a hairline mesh.
   established an entry's left edge asked for more bars than it got back, and
   reported by `peek`. Without it a chart cannot tell "the market was shut here"
   from "I have never fetched here", and a client-side market calendar is the
-  alternative — a second source of truth that goes stale every year, differs per
+  alternative, a second source of truth that goes stale every year, differs per
   product, and cannot know about an unplanned halt. It is cleared by any later
   full answer, by a `maxBars` trim, and by `invalidate`/`clear`/`prune`; a
   merely sparse tail answer never sets it.
 
 - **`short` is a belief with an age, not a fact.** It carries `shortAt` and is
-  re-checked once per `ttlMs`. A transient shortfall — a server clamp, a heal in
-  flight, a store still filling — used to end paging for that series until
+  re-checked once per `ttlMs`. A transient shortfall, a server clamp, a heal in
+  flight, a store still filling, used to end paging for that series until
   `prune`, a contract roll or a manual reset: a 144-bar page was served one bar
   from disk with no request at all. One probe per TTL either proves there is
   older history and clears the flag, or renews the belief. The stamp is
@@ -441,7 +474,7 @@ as a ladder instead of a hairline mesh.
 
 - **`maxBars` is a window on the newest bars, never a shrink.** A page older than
   the window is answered from the network and not cached: it is no longer written
-  back after the trim discards it, and — the real bug — it can no longer REPLACE
+  back after the trim discards it, and, the real bug, it can no longer REPLACE
   the entry once a deep scroll-back's anchor walks past what the entry holds.
   Measured at `maxBars: 5_000`, page 22 of a 1m scroll-back took the entry from
   5000 bars to 144, invisibly, and made the next reload cold. Replacement now
@@ -449,6 +482,1104 @@ as a ladder instead of a hairline mesh.
 
 - Base engine budget 62 -> 63 kB, for the bar-indexed gates and the request
   adapter: 0.23 kB brotli measured against a 61.94 kB baseline.
+
+## 2.6.4
+
+2026-10-14
+
+An order flow release. A footprint finds the imbalances beside a row that
+never traded, prints volume shaded by delta, extends and alerts on the zones
+a host picks, and takes a named colour theme or a colour for each of its
+parts. A new Order flow page on the website walks through footprint and
+market profile charts with live examples.
+
+### Changed
+
+- **An untraded row inside a bar counts as zero for imbalances.** A row
+  between a bar's high and low that no trade reached holds zero volume, so the
+  cell beside it is compared with zero: the ask above such a row, or the bid
+  below it, is an imbalance whenever it traded at all, subject to
+  `imbalanceThreshold`. Through 2.6.3 such a cell was not compared, so a thin
+  ladder showed fewer imbalances than it had. The rows beyond the bar's high and
+  low are still not compared, and a stacked run still stops at the untraded
+  row. `diagonalImbalances`, `stackedImbalances`, `footprintSignals` and the
+  `Footprint` primitive all follow the rule; the imbalance view fills such a
+  cell at full strength.
+
+### Added
+
+- **Delta-shaded volume.** `displayMode: 'deltaShadedVolume'` prints each
+  row's volume on a cell coloured by the side that won the row and shaded by
+  the size of its delta, so a busy row with little conviction reads pale.
+- **Zone alerts.** `footprint.onZoneAlert(handler)` calls the handler once
+  for each zone `showZones` extends when a bar's high to low range comes back
+  to it after it became active (a jump across it counts), with `{ zone, time }`, and returns the unsubscribe. The first
+  bars a footprint is given, and new zones that `setOptions` makes, are
+  recorded without a call. Each later `setBars` is the live tail: a touch in
+  the bar that was newest at the previous call, or in a later one, is
+  reported, so prints batched across a new bar lose nothing. `setBars([])`, or
+  bars that start again from an older bar, begin a new history. `FootprintZone` gains `touchTime`, the first bar after `activeTime`
+  whose range reached the zone.
+- **Which zones extend.** `zoneKinds` picks any of `'stacked'`, `'node'` and
+  `'absorption'` (default all three) for `showZones` to extend and alert on,
+  and `zoneLookback` (default 0, every bar; also a `footprintSignals` option)
+  starts zones only in the newest that many bars.
+- **A colour for each part.** `imbalanceBuyColor` and `imbalanceSellColor`
+  (imbalanced cells, stacked brackets and stacked zones), `volumeColor` (the
+  volume view), `candleUpColor` and `candleDownColor`, `profileAskColor` and
+  `profileBidColor` (the visible-range profile), `sessionColor` (session
+  letters) and `tableBackground` (the statistics table). Each is optional and
+  falls back to the colour it used before.
+- **Named themes.** `FOOTPRINT_THEMES` holds six colour sets as options
+  patches: `ocean`, `ember`, `forest`, `neon` and `monochrome` for a dark
+  chart, `daylight` for a light one. `new Footprint({ ...FOOTPRINT_THEMES.ocean })`.
+- **An Order flow page** on the website: footprint and market profile charts
+  as live examples, each with a short explanation of how to read it.
+
+### Size
+
+The profile tier is 20.83 kB (was 19.54 kB): about 0.57 kB for the six named
+themes and 0.72 kB for the alerts, the colours, the new view and the zone
+options. All tiers come to 426.67 kB and the nine classic scripts to
+440.43 kB. The base engine, trade, draw and widget bundles differ from 2.6.3
+only in their version string, which Brotli turns into a few dozen bytes either
+way: the base is 137.65 kB, base plus trade 154.52 kB, the widget terminal
+364.04 kB and the base classic script 137.69 kB. Each budget moved to its
+measured need. The chart-only import is unchanged at 87.30 KiB.
+
+### Performance
+
+- **Measured against 2.6.3** on the release bench (five runs of each build in
+  one session, `benchmarks/releases.json`, the website's Benchmarks page). The
+  base engine is the same code as 2.6.3 apart from its version string, so the
+  two columns time one renderer twice and their differences are the bench's
+  own spread: with Canvas 2D at 200,000 bars a pan, a full zoom-out and a
+  ten-study tick measure 2.1, 55.3 and 146.6 ms against 2.1, 53.0 and 150.3 ms
+  (each the lowest p95 of its five runs), and no cell differs by more than 10
+  percent either way. Every cell is within its frame budget.
+
+### Tests
+
+11690 engine tests across 516 files and 730 reference-host tests across 68
+files. Each new behaviour has a test that fails without it: the comparison
+across an untraded row and the limit on a gap too wide to be one, the zone
+lookback, the touch time, an alert for a live touch, for a touch batched with
+the next bar, never for history or a cleared footprint, and only for the kinds
+extended, the delta-shaded view, each colour option and the themes. The
+widget storage pins no longer change with the library version.
+
+## 2.6.3
+
+2026-10-13
+
+A finish release. The drawing tools and the chrome around them draw one fine
+line, the drawing rail folds away so the chart can take its width, the wheel
+zoom moves in one smooth motion however fast the wheel turns, and in the widget
+and the reference host a drag keeps the price scale fitting what is in view, so
+every zoom after it refits. A log scale fills the pane again (#53), and a
+tooltip no longer takes the click meant for the control under it. The
+reference host moves onto a neutral palette.
+
+### Changed
+
+- **One fine line for every glyph.** `ICON_STROKE` is 1.6 (was 2) and
+  `CHROME_ICON_STROKE` 1.3 (was 2). Two new constants, `ICON_SIZE` (20) and
+  `CHROME_ICON_SIZE` (16), name the size each tier is drawn for, and `iconSvg`
+  now defaults to 20px (it was the 24px grid size). At those sizes both tiers
+  draw a line of about 1.3px: through 2.6.2 a rail of tools showed a 2px line,
+  half again as wide, on glyphs a fifth larger, crisp on every straight edge
+  but nearly twice the ink, and it read as heavy beside the chart it frames. The path data is unchanged except where
+  the finer line needed it: the horizontal ray now leaves from two fifths of the
+  way in (from a third, it measured 0.71 overlap with the horizontal line at the
+  finer line, over the 0.7 the sibling check allows), the paste glyph's clip is
+  filled, and the two candle chart-type glyphs draw their solid body as three
+  strokes so it stays solid at any line. `toolCursor` keeps a 2-unit line,
+  since a cursor sits over candles rather than a quiet panel. A host that wants
+  the heavier set passes `{ size: 24, stroke: 2 }` to `iconSvg` and
+  `{ stroke: 2 }` to `chromeIconSvg`. The widget's rail, flyouts and menus show
+  tools at 20px and chrome at 16px from these constants, and the magnet in the
+  rail's controls block is the chrome glyph, so the block is one size.
+- **A smoother wheel zoom.** Each wheel event now moves one target bar spacing,
+  and every frame closes `1 - e^(-dt/70ms)` of what is left in log space, by the
+  real frame time. Before, each event applied part of the zoom on the event
+  itself and started a new curve, so three events between two frames painted
+  about 60 percent of the outstanding zoom at once, every notch read as a jolt
+  then a decay, and a trackpad's small steps were applied unsmoothed. Measured on
+  five notches 48 ms apart at 60fps, the largest frame was 5.6 times the frame
+  before it and is now 2.8 times. The first notch from rest still moves on the
+  event, so `barSpacing` changes before anything reads it synchronously, and
+  `animZoom: false` still applies each step at once. `ZoomGlide` is unchanged.
+- **The reference host's palette.** The yfinance demo runs on a near-black
+  chart (#151619) with neutral grey chrome, a blue accent, the #089981 and
+  #f23645 candle pair, and a selected tool shown as a light wash with bright ink
+  rather than a coloured frame. The engine's own `darkTheme` and `lightTheme`
+  are unchanged. Text on a green or red fill passes 4.5:1: the buy and sell
+  buttons and the bracket labels fill with #077d69 and #d32f3c under white
+  (5.1 and 5.0 to 1; the candle pair is 3.6 and 3.9), and the price tag on the
+  chart carries dark ink.
+- **In the widget and the reference host, a drag moves time and the wheel zooms
+  about the latest bar.** `createWidget` now defaults `navigation.mousePan` to
+  `'horizontal'` and `zoomAnchor` to `'right'`, and the reference host does
+  the same. A drag that also moved price switched the pane to manual scaling,
+  and from then on a wheel zoom left bars off the pane until auto was pressed
+  again; now the scale keeps fitting what is in view through any number of
+  drags and zooms. The price axis still drags and scales price, Ctrl or Cmd
+  with the wheel still zooms about the cursor, and a host that passes either
+  option, or the chart settings' Mouse drag row, keeps its choice. The engine's
+  own defaults (`'both'` and `'cursor'`) are unchanged. Through 2.6.2 the
+  chart state recorded every navigation option, chosen or not, so every layout
+  saved on the default says `mousePan: 'both'`: `getState()` now stamps the
+  widget state with `savedBy` (the library version), and a state without the
+  stamp, whether restored by `restoreState` or by `persist` on a reload, drags
+  the way the widget was built to (its default or the host's option) rather
+  than by that recorded value. The reference host does the same through its layout schema 3. A
+  drag chosen after this is saved and kept.
+
+### Added
+
+- **The drawing rail folds away.** The last button of the widget's rail
+  (chevrons pointing left) hides the rail and gives the chart its column; a
+  small tab at the chart's bottom left brings it back. Focus follows the
+  control that replaces the one pressed, the tab stops `pointerdown` so the
+  chart cannot take the press, and the fold is a rail preference: it persists
+  with the pins and the magnet, travels in `getState().rail` (`collapsed: true`)
+  and comes back with `restoreState`. `RailHandle` gains `collapsed()` and
+  `setCollapsed(on)`, both optional members so a handle a host wrote for
+  `mountMobile` still fits. The tab is hidden on the phone layout and in a dense
+  grid cell, where the rail already is. The reference host's rail folds the
+  same way, below 900 pixels leaving its bottom touch bar alone.
+- **Chrome glyphs `chevrons-left` and `chevrons-right`**, for the fold and its
+  tab.
+
+### Fixed
+
+- **A log scale fills the pane (#53).** Autoscale padded the margins in price
+  units and then drew them in log units: a monthly series from 150 to 1230 got
+  a floor near 15, a whole empty decade under its lowest bar, and its bars
+  filled the top 42 percent of the pane. The margins are fractions of the pane
+  in every mode, so a log scale now pads in log space and the data takes the
+  same 80 percent of the pane it takes on a linear scale. A comparison over a
+  log scale fits the same way. A range a log cannot take (zero or below, or a
+  flat series) keeps the price-space padding.
+- **A tooltip no longer takes the click meant for the control under it.** The
+  overlay layer turned pointer events back on for everything mounted in it,
+  later in the stylesheet and at the same specificity as the tooltip's own
+  `pointer-events: none`, so it won: a tip over a button swallowed the press. It
+  showed when the bottom bar's range tip sat over the folded rail's tab.
+- **Tools that scroll under the rail's controls fade out** instead of being cut
+  through by the block's edge, in the widget and in the reference host.
+- **The reference host's fold follows the rail.** A full-screen second chart
+  takes the rail into its own pane, and the tab and the chart's offset now go
+  with it; and the fold waits on the same touch layout that hides the rail (a
+  short coarse-pointer window up to 960 pixels wide, as well as anything under
+  900). A 24-unit glyph shown at 16px in the rail's menus is drawn at the
+  tier's line rather than 1.07px.
+
+### Size
+
+The base engine is 137.61 kB (was 137.44 kB) and base plus trade 154.49 kB, for
+the zoom chase and the log padding; the draw tier is 58.44 kB (58.36 kB), the
+widget tier 124.94 kB (124.13 kB), the widget terminal 364.01 kB, all tiers
+425.35 kB, the nine classic scripts 439.11 kB and the widget classic script
+138.53 kB. Each budget moved to its measured need, the base classic script's
+to 137.72 kB (137.65 kB). The chart-only import rises 111 bytes to 87.30 KiB for the
+zoom chase and the log padding, which every chart carries.
+
+### Performance
+
+- **Measured against 2.6.2** on the release bench (five runs of each build in
+  one session, `benchmarks/releases.json`, the website's Benchmarks page). With
+  Canvas 2D at 200,000 bars a pan, a full zoom-out and a ten-study tick measure
+  2.0, 51.5 and 149.9 ms against 2.0, 53.6 and 150.8 ms (each the lowest p95 of
+  its five runs). The tick cells spread widely: at 200,000 bars it ran 149.9 to
+  225.2 ms on 2.6.3 and 150.8 to 202.7 ms on 2.6.2, and at 50,000 bars its
+  lowest run is 58.1 against 42.6 ms. The script times all five runs of the new
+  build before the old one, so both tick cells were timed again with the two
+  builds alternating, twelve passes outside the published entry. The lowest
+  runs match at 200,000 bars (150.0 against 149.5 ms) and favour 2.6.3 at
+  50,000 (49.8 against 56.4 ms), while the medians swing by up to a fifth from
+  one session to the next on this machine, in either direction. Nothing in the
+  tick path changed beyond a mode check in autoscale. Every cell is within its
+  frame budget.
+
+### Tests
+
+11674 engine tests across 516 files and 730 reference-host tests across 68
+files. The log scale test fails against 2.6.2 (its bars sat at y 9 rather than
+40 of a 400 pixel pane), as do the widget tests for the drag default and for an
+unstamped layout. Three wheel zoom tests fail against 2.6.2: events between two frames
+move only the target, a trackpad step is eased, and no frame after a new notch
+jumps past 3.5 times the one before it. The tooltip test fails against the old
+stylesheet. The fold is covered in the widget (folding, focus, the open list
+closing, the tab keeping the press from the chart, a reload and a saved state)
+and in the reference host. The icon tests now hold each tier to about a 1.3px
+line at its display size and the two tiers to one weight, where they held a
+2-unit stroke on pixel boundaries; the browser spec rasterises both tiers at 20
+and 16px in Chromium, Firefox and WebKit and compares their weight. One
+reference-host browser test read the selected chart's frame as the old teal
+pixel; it now reads the frame's colour from the page's stylesheet.
+
+## 2.6.2
+
+2026-10-13
+
+A fix for the bottom bar's ranges and the Go to panel, which reported missing
+history when the only thing before the first loaded bar was a weekend, a
+holiday or the hours before the market opens. Nothing else changes.
+
+### Fixed
+
+- **A range or a date no longer reports history that is not missing.** The
+  1M range on a New York stock, run on a Tuesday in India, asked for the month
+  from Sunday midnight; the loaded history starts at Monday's 19:00 open, and
+  the bottom bar said "Older history cannot load now" for a month that was
+  whole. `DateNavigator` (behind `widget.goTo`, the bottom bar's ranges and
+  the Go to panel) now asks the chart's session calendar whether any session
+  opens between the request and the first loaded bar. When none does, the
+  request is `placed` rather than `partial`, and no older page is loaded for
+  it. A chart without a session calendar counts any gap as before, and a gap a
+  session did trade in is still reported. It failed on any day a month back
+  landed on a Sunday or a Monday for that stock, about two days in seven.
+
+### Size
+
+The widget tier is 124.13 kB (was 124.08 kB), the widget terminal 362.94 kB,
+all tiers 424.27 kB and the nine classic scripts 438.25 kB. The base classic
+script grows 180 bytes from the version string alone: one byte changes, and
+Brotli encodes the file differently. The widget classic script (137.78 kB)
+carries the fix as well as its own version string. Each budget moved to its
+measured need. The chart-only import is unchanged at 87.19 KiB.
+
+### Performance
+
+- **Measured against 2.6.1** on the release bench (five runs of each build in
+  one session, `benchmarks/releases.json`, the website's Benchmarks page):
+  frames are on par, as this release changes no rendering path. With Canvas 2D
+  at 200,000 bars a pan, a full zoom-out and a ten-study tick measure 2.2, 56.0
+  and 154.3 ms against 2.2, 55.6 and 157.8 ms (each the lowest p95 of its five
+  runs); every cell of both renderers is within 10 percent of 2.6.1.
+
+### Tests
+
+11641 engine tests across 515 files and 726 reference-host tests across 68
+files. Five new tests cover the gap rule: the two that check a sessionless gap
+is placed, and that no loader is asked across it, fail against 2.6.1, and one
+keeps the gap counted when the calendar finds no session at all. The
+reference host's one-day range test no longer assumes the session fills the
+view: in the first hour or so of a trading day it holds fewer bars than the
+closest zoom spreads across the plot, and the session sits whole inside a wider
+view.
+
+## 2.6.1
+
+2026-10-13
+
+Order flow depth for the footprint and box sizing for the brick and box charts.
+The footprint gains trade classification, a trade size filter, an imbalance view
+and two more single-value views, and order flow signals read across bars:
+multiple nodes, big limit orders, absorption, aggressive delta flips,
+price/delta divergence, zones that extend until price deals with them, and
+unfinished auctions. Footprint rows now put a price exactly between two row
+centres on the even row. Renko sizes its bricks from price or the ATR and can
+build them from the high and low, point and figure gains a box that is a
+percent of the ATR, and the widget and the reference host each get a settings
+dialog for both chart types. Every new footprint layer is off by default, so a
+chart that changes nothing draws as before, apart from the row rule and the
+empty rows below.
+
+### Added
+
+- **Trade classification.** `createTradeClassifier(mode)` in
+  `openalgo-charts/profile` returns a stateful classifier for raw prints:
+  `'tickRule'` (a print above the previous one is a buy, below it a sell, an
+  unchanged price keeps the previous side) or `'quote'` (the recorded bid and
+  ask first, the tick rule inside the spread or without a valid quote).
+- **Trade size filter.** `computeFootprint` and `FootprintAggregator` take
+  `FootprintBuildOptions` (`{ minTradeSize }`). Only single prints at least that
+  large are counted; smaller ones still open their row, which shows zero, and
+  still set the bar's open, high, low and close. Count and volume bars close on
+  every print.
+- **Unfinished auctions on every bar.** A built bar carries `auction`, every
+  print's bid and ask volume at its exact high and low, before any filter.
+- **Order flow signals.** `footprintSignals(bars, options?)` and
+  `DEFAULT_FOOTPRINT_SIGNAL_OPTIONS` compute multiple nodes, big limit orders,
+  absorption, aggressive delta flips, divergence, zones (stacked imbalances,
+  nodes, absorption) with an end rule (`'closeInside'`, `'traverse'`,
+  `'touch'`) and the time each becomes active, and unfinished auctions. The
+  newest bar is treated as forming, so its close never ends a zone and its high
+  and low set no auction until it closes. `Footprint.signals()` returns the
+  same for a primitive's bars, so a host can raise its own zone alerts.
+- **Footprint views and layers.** `displayMode` adds `'imbalance'` (plain cells,
+  diagonal imbalances filled by strength, candle body rows shaded and outlined),
+  `'deltaPct'` and `'volumeDelta'`. New options: `intensityScope` (shade
+  against the busiest row on screen), `compactNumbers`, `multipleNodeBars`,
+  `bigOrderMultiple`, `absorptionMultiple`, `signalLookback`,
+  `nearExtremeRows`, `flipBars`, `flipMinDeltaPct`, `showZones`, `zoneEnd`,
+  `zoneActiveAfter`, `showUnfinishedAuctions`, `showDeltaLabels`,
+  `markDivergence`, `showVisibleProfile` (ask and bid volume at price of the
+  visible bars against the left edge), `lastPriceColor` and `formingLastBar`,
+  with their colours.
+- **Session statistics.** `FootprintStatRow` adds `'cumVolume'`, `'cvdRatio'`
+  (cumulative delta over cumulative volume) and `'session'` (the period letter,
+  anchored the way the market profile anchors its periods). `cvdReset: 'session'`
+  restarts cumulative delta and volume at each open of `sessionWindow` on
+  `timezone`; `tpoMinutes` sets the letter period.
+- **Renko sizing and prices.** `RenkoTransform` takes `mode` (`'fixed'`,
+  `'percent'`, `'atr'`, `'atrPercent'`) with `percent`, `atrPeriod` and
+  `atrMultiplier`, re-resolved as each brick forms, and `method: 'hl'`, which
+  walks the bar's low and high in the order the bar most likely traded them.
+  The in-chart `renko` transform offers the same options.
+- **Point and figure from a percent of the ATR.** `mode: 'atrPercent'` sizes the
+  box as `percent` of the ATR.
+- **Settings dialogs for point and figure and Renko.** In the widget, a button
+  beside the chart type opens one while the chart builds either type: paired
+  colours, percent presets, the size and its method (absolute, percent, ATR or
+  percent of ATR), the ATR length, the reversal for point and figure, and close
+  only or high and low. It writes through `setSeriesTransform` and the chart
+  settings in one undo step and loads on first use. The reference host gets
+  the same dialog, saves the options per chart type, and migrates a layout's
+  old box mode.
+- **Order flow demo.** The order flow example adds the imbalance, delta percent
+  and volume x delta views, a tick rule side, a minimum trade size, a chooser
+  for every order flow layer with a zone alert, the new table rows, and Ember
+  and Forest themes.
+
+### Changed
+
+- **Footprint rows round half to even.** A trade is put on its tick, then on
+  its row; a tick exactly between two row centres now goes to the even row
+  instead of always up (with 2-point rows on a 0.05 tick, 22469.00 belongs to
+  the 22468 row). A price that is not on a boundary lands where it always did.
+- **Footprint columns show their untraded rows.** A row inside a bar that no
+  trade reached is drawn as 0 x 0 instead of a gap, so every column spans its
+  whole range. It changes only the drawing: imbalances, the point of control,
+  the value area and the signals still read the traded rows.
+  `showEmptyRows: false` draws the gaps as before.
+- **The point and figure and Renko box options share one schema**, so the
+  chart settings Price tab lists Renko's sizing method first and shows the box
+  percent for both percent modes.
+
+### Fixed
+
+- **Saved series colours return with a widget layout.** The widget saved the
+  primary series' style and never applied it again, so colours set from the
+  settings were lost on reload and on `restoreState`. The style saved for the
+  chart type on screen is now applied once the chart restore lands.
+- **Reference host dialogs.** The colour palette opened behind a dialog card
+  and could not be clicked, and selects in dialogs had lost their chevron.
+
+### Size
+
+Profile tier 19.54 kB (was 14.94 kB), transform 6.23 kB (was 6.07 kB), widget
+124.08 kB with eight first-use parts at 21.00 kB, the widget terminal 362.89 kB,
+all tiers 424.23 kB and the nine classic scripts 437.85 kB. The chart-only
+import is unchanged at 87.19 KiB. Every budget moved to its measured need.
+
+### Performance
+
+- **Measured against 2.6.0** on the release bench (five runs of each build in
+  one session, `benchmarks/releases.json`, the website's Benchmarks page):
+  frames are on par, as this release changes no rendering path of the chart.
+  With Canvas 2D at 200,000 bars a pan, a full zoom-out and a ten-study tick
+  measure 2.6, 58.4 and 154.9 ms against 2.4, 57.4 and 154.8 ms (each the
+  lowest p95 of its five runs); every cell of both renderers is within 9
+  percent of 2.6.0, the largest move being that pan, 0.2 ms.
+
+### Tests
+
+11636 engine tests across 515 files and 726 reference-host tests across 68
+files, including row alignment tests that fail with the previous rounding,
+signal, zone, session and drawing tests for the footprint, Renko and point and
+figure sizing tests, and dialog and restore tests for the widget and the
+reference host.
+
+## 2.6.0
+
+2026-10-01
+
+Analysis depth and a stricter API. A chart now applies Heikin Ashi, Renko,
+range bars, line break, point and figure and Kagi to the bars a host feeds,
+live, and each study chooses whether it computes on the elements drawn or on
+the underlying bars. Seven built-in indicators are new, 29 built-ins take an
+optional timeframe that computes them on a higher interval folded from the
+chart's bars without repainting (#22), the OpenAlgo feed searches symbols
+itself, and event markers carry rich details and host actions. `ChartEventMap`
+types every event on the chart's bus, every tier ships as a classic script on
+one global, `require()` reaches the same ESM files, and the whole library
+compiles under `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`,
+with declarations that hold for a host compiling that way. Each release is now
+checked against the previous one and the version OpenAlgo pins, and the
+documents those releases saved load and save again in the test suite. A
+hygiene wave gives the drawing actions one rule on every surface, reads study
+settings one way across the built-ins and fixes defects in every tier. What a
+host can see change: a cast of an event payload to a type it does not overlap
+no longer compiles, and `Chart.emit` and the string overloads of `on`, `once`
+and `off` are deprecated; a study that offers a timeframe saves
+`timeframe: ''`; a widget over a feed transforms its bars for point and figure
+and Kagi, and searches through a feed that can when the host passes no lookup;
+a fractional window length rounds to whole bars; a throwing chart listener is
+reported instead of dropped; `subscribeClick`, `subscribeDrag` and
+`subscribeCrosshairMove` keep every subscriber; a variant-only change emits
+`data:context` once; a locked selection is neither deleted nor cut from any
+surface; the chart data dialog asks for dates on the chart's clock; and the
+drawing tools take the theme's up and down colours and whole-pixel strokes. See
+the upgrade notes.
+
+### Added
+
+- **Transforms in the chart.** With `openalgo-charts/transform` imported,
+  `chart.setSeriesTransform(series, spec)` and
+  `addSeries(type, { transform: spec })` have the chart apply Heikin Ashi,
+  Renko, range bars, line break, point and figure or Kagi to the bars a host
+  feeds; `seriesTransform(series)` reads the choice back, and `null` draws the
+  bars as given again. A spec is plain data (`{ type, options? }`), checked
+  against the transform's own options before anything changes. The series
+  keeps taking the host's bars through `setData`, `update` and `prependData`,
+  and `getData` hands those back, so replay, a feed's live path and a host's
+  tail arithmetic are unchanged. The chart forms the elements, and forms the
+  newest one again on every tick without baking it into the transform's state,
+  so a live chart's elements always equal the batch transform of its bars. A
+  box, range or reversal left at 0 is sized from the loaded history (a fortieth
+  of its range, twice that for range bars and Kagi) on each `setData`, never per
+  tick, and kept through `prependData`. A view scrolled into history holds still
+  while bricks form, and at the right edge it follows. The bar countdown counts
+  down the forming source bar. `addSeries('point-figure')`, `addSeries('kagi')`
+  and `setSeriesType` still pick a renderer only, so a host that prepares its own
+  elements is never transformed twice. The base carries only the registry
+  (`registerSeriesTransform`, `getSeriesTransform`,
+  `registeredSeriesTransforms`, `SeriesTransformSpec`,
+  `SeriesTransformDefinition`, `SeriesTransformRun`), and every built-in
+  transform implements the new optional `ISeriesTransform.clone()`. The chart
+  settings Price tab leads with the transform's options under
+  `transform.<option>` keys, and chart state records `SeriesState.transform`
+  for a transformed series only.
+- **Studies on the underlying bars.** `IndicatorApi.barSource()` and
+  `setBarSource(source, options?)`, and the `addIndicator` option `barSource`,
+  typed `IndicatorBarSource`. The default, `'chart'`, computes on the elements
+  drawn, which is what a study computed on when a host fed it elements before.
+  `'underlying'` computes on the host's bars and reads each value at the bar its
+  element completed on, the value a trader could have read as the brick formed;
+  marks the study dates at those bars move to the element they completed into.
+  The setting follows the study's `configurable` policy, an attach context's
+  `bars()` returns the bars the study computes on, and `IndicatorState.barSource`
+  is written only as `'underlying'`. A custom `IndicatorHost` serves it through
+  the optional `underlyingBars()`, and the optional
+  `IndicatorCalcContext.transformed` tells a study that its bars are a
+  transform's elements. On the underlying bars every hook of the study (plot
+  colours, markers, background, bar colours, levels, and an alert's `when` and
+  `message`) receives the elements and the values sampled onto them, indexed
+  by element. Workspace documents and indicator templates keep a series'
+  transform and a study's bar source.
+- **Transformed chart types in the widget.** With the transform tier imported,
+  the chart type menu lists Heikin Ashi, Renko, Range bars, Line break, Point and
+  figure and Kagi under a Transforms heading, and `setChartType`, `chartType()`,
+  `WidgetOptions.chartType`, saved layouts, the chart grid and link groups accept
+  their ids; a layout restores their options, and options this build refuses
+  fall back to the transform's defaults. A study's settings dialog leads with a
+  Compute on row (Chart bars or Underlying bars) while the chart transforms. A
+  page of older history reaches a transformed chart as a prepend, so bricks keep
+  their size, and the data window reads the bars drawn.
+- **Seven built-in indicators.** ZigZag (`zigzag`), 52 Week High/Low
+  (`high-low-52-week`), Zero Lag EMA (`zlema`), Variable Index Dynamic Average
+  (`vidya`), Elder-Ray Index (`elder-ray`), Schaff Trend Cycle
+  (`schaff-trend-cycle`) and Volatility Squeeze (`volatility-squeeze`), each
+  following a published formula with hand-worked reference cases and a warmup
+  check, and each with a live tail (`calcTail`), so a tick updates it without a
+  full pass. The registry now holds 112 built-ins: Trend 40, Momentum 31,
+  Volatility 23 and Volume 18. ZigZag reverses on a percent move (`deviation` 5) and draws its legs
+  as lines, the last one dashed; a live tick moves only its last leg, and a
+  confirmed point never moves. 52 Week High/Low reads the 364 calendar days
+  ending on each bar's day in the chart's zone, and draws nothing until the
+  loaded history reaches back that far. Elder-Ray draws bull and bear power as
+  two histograms around zero; Schaff Trend Cycle a double smoothed stochastic of
+  the gap between a 23 and a 50 bar EMA, from 0 to 100 with levels at 25 and
+  75; and Volatility Squeeze its momentum, with a dot that says whether the
+  Bollinger Bands sit inside the Keltner Channel.
+  `openalgo-charts/indicators` exports `ZIGZAG`, `HIGH_LOW_52_WEEK`, `ZLEMA`,
+  `VIDYA`, `ELDER_RAY`, `SCHAFF_TREND_CYCLE` and `VOLATILITY_SQUEEZE`, and the
+  family arrays `EXPONENTIAL_INDICATORS` and `SWING_INDICATORS`;
+  `VOLATILITY_INDICATORS` gains the squeeze. No existing study's output, default
+  or id changes for them.
+- **Studies on a higher timeframe** (#22). `withTimeframe(descriptor)` from
+  `openalgo-charts/indicators` gives a study a `timeframe` input, and 29
+  built-ins carry it: `sma`, `ema`, `wma`, `vwma`, `hma`, `dema`, `tema`,
+  `alma`, `smma`, `t3`, `lsma`, `kama`, `mcginley-dynamic`, `zlema`, `vidya`,
+  `bollinger`, `keltner-channel`, `donchian`, `envelope`, `supertrend`,
+  `parabolic-sar`, `atr`, `rsi`, `macd`, `stochastic`, `stochastic-rsi`,
+  `williams-percent-r`, `cci` and `adx`. Empty, the default, the study
+  computes and ticks exactly as before. Set, the chart's bars are folded into
+  that interval, the study runs on the folded bars, and each bucket's value
+  shows once the bucket has closed and holds across the next, so a value shown
+  never changes. Sub-day buckets start at the session open read from the loaded
+  bars (09:15 on NSE, 09:30 in New York), and days and weeks follow the chart's
+  zone. A timeframe no coarser than the chart's is the chart's own. An unknown
+  code, a tick or volume interval, a chart whose own bars close on trade flow,
+  another study's output as the source and a transformed chart's own bars are
+  refused: `addIndicator` throws, and a later setting puts the study in its
+  error status until a good one clears it. A tick inside a bucket carries the
+  held value, and a bar that opens a bucket recomputes. The legend names the
+  timeframe (`EMA 9 close 15m`). In the widget a study's timeframe select offers
+  Chart, then the host's `intervals` (`controlsFromInputs` takes them as an
+  optional third argument, and `WidgetContext.intervals` carries them). VWAP,
+  TWAP, the running totals, the displaced studies and the swing and marker
+  studies are left out, with the reasons in the docs.
+- **Symbol search through the feed.** `DataFeed` gains an optional
+  `searchSymbols(request)` that returns `SymbolMatch[]`, closest first, and
+  `SymbolMatch` and `SymbolSearchRequest` are exported from `openalgo-charts`
+  (the widget still exports `SymbolMatch`). `OpenAlgoDataFeed.searchSymbols`
+  asks OpenAlgo's `/api/v1/search` with the key in the body, as history does,
+  keeps the server's ranking to 50 rows, names each row an index, equity,
+  futures or options from OpenAlgo's symbology, and groups the options of one
+  underlying and expiry into one row that opens onto its strikes. A blank query
+  sends nothing, and an error names its status but never the key.
+  `OpenAlgoLiveDataFeed` searches through its REST adapter, and `BarCache`
+  forwards the member when the feed it wraps has it. A widget given such a feed
+  and no `symbolSearch` searches through it in the top bar, the phone layout,
+  typed entry, the watchlist and study symbol inputs, and puts the exact symbol
+  on the chart's exchange first; a host's own lookup still wins.
+- **Rich event details and host actions.** `ChartEventDetails.blocks` carries
+  headings, paragraphs and lists whose text may hold bold, italic and link spans
+  (`EventDetailBlock`, `EventDetailInline`, `EventDetailSpan`): structure, never
+  markup. The event popup renders them as text, and makes a link only of an
+  absolute http or https address without credentials, opened in a new tab with
+  no referrer; anything else shows as its text. `EventDetailsPopupOptions.actions`
+  returns buttons for the shown event (`EventDetailAction`, a `label` and `run`),
+  set bottom right; a press closes the popup, then runs with a copy of the
+  event. The widget's `eventDetails` option passes both through.
+- **A typed event bus.** `ChartEventMap` lists every name on the chart's bus
+  with its payload, and `chart.on`, `once` and `off` type the listener from it.
+  Importing the draw tier adds its `draw:*` and `drawing:*` names, and a host
+  types an event of its own by merging it into `ChartEventMap` with
+  `declare module 'openalgo-charts'`. New type-only exports: `EmptyEvent`,
+  `ChartHoverEvent`, `ChartDragCancelEvent`, `ChartViewportEvent`,
+  `ChartResizeEvent`, `LazyLoadEvent`, `PaneEvent`, `PaneMovedEvent`,
+  `PaneMaximizedEvent`, `PaneCollapsedEvent`, `PriceAxisPlacementChangedEvent`,
+  `IndicatorInstanceEvent`, `IndicatorDataStatusEvent`, `TimezoneChangedEvent`,
+  `PickStartEvent`, `PickEndEvent`, `AlertChangeEvent`, `AlertRemovedEvent`,
+  `AlertErrorEvent`, `AlertsChangedEvent`, `AlertsRestoredEvent`,
+  `TradingOrderModifyEvent` and `TradingBracketModifyEvent` from the base, and
+  `DrawingEvent`, `DrawingListEvent`, `DrawingIdsEvent`, `DrawingIdEvent`,
+  `DrawingToolEvent` and `DrawingModeEvent` from `openalgo-charts/draw`. A new
+  name is `namespace:action`, lower case, hyphen-joined, in the present tense,
+  and no existing name is renamed; both the `draw:*` and the `drawing:*` families
+  stay, as two granularities of one model (COMPATIBILITY.md, Kept on purpose).
+- **Every tier as a classic script.** Beside `openalgo-charts.standalone.js`,
+  the trade, transform, profile, indicators, draw, webgl, workspace and widget
+  tiers each ship as `dist/openalgo-charts.<tier>.standalone.js`, so a page that
+  loads no modules can use all nine. Each adds itself to the `OpenAlgoCharts`
+  global under its tier name (`OpenAlgoCharts.draw.DrawingController`,
+  `OpenAlgoCharts.widget.createWidget`) and registers into the base the page
+  already loaded. The widget's file carries its first-use panels, so it fetches
+  nothing more. A tier file loaded before what it reads throws an error that
+  names the files to load first. The tier scripts ship without source maps,
+  which every module file keeps. The base file, its map, its global and the
+  `unpkg` and `jsdelivr` fields are unchanged.
+- **`require()` of the package.** Each export entry gains a `default` condition
+  naming the same ESM file, so `require('openalgo-charts')` and every subpath
+  return the module `import` returns on Node.js 20.19 and 22.12 or later; an
+  older version reports `ERR_REQUIRE_ESM` where it said the path was not
+  exported. There is no CommonJS build, by decision: a second copy of the code
+  would carry a second set of registries (COMPATIBILITY.md, Runtime boundary).
+- **Declarations for a strict host.** Every tier now compiles under
+  `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`, and
+  `npm run typecheck` holds `src` to both. Optional members the library itself
+  sets to `undefined` say `| undefined`, in the widget's options, context and
+  handles, the trading requests and results, the alert inputs, chart state, the
+  feed requests, `PointFigureOptions` and the rest the upgrade notes list, so a
+  host compiling that way can pass `undefined` where the library does.
+  `OpenAlgoTradeFeed` now satisfies `OrderFeed` for such a host, and
+  `npm run check:dts` compiles a host against the published declarations with
+  both flags and without `skipLibCheck`.
+- `MenuOptions` gains `placement: 'below' | 'beside'` and `edge`, and
+  `openMenu` accepts any context that carries `document`, `openOverlay` and
+  `translate`.
+- New widget message keys: `{name}: {error}`, `Event details`, `Events`,
+  `Loading details...`, `No additional details.` and
+  `Unable to load additional details.`, and the schema keys
+  `schema.ui.symbolSearchFailed`, `schema.ui.watchlist.entry`,
+  `schema.ui.watchlist.noQuote`, `schema.ui.watchlist.quoteLoading` and
+  `schema.chartType.group.transforms`.
+- The reference host applies the transforms in the chart with a Compute on row
+  in each study's settings, forms bricks bar by bar in a replay, offers the
+  intervals it serves in a study's timeframe select, shows a sample event with
+  rich details and a Mark on chart action, and says why a study stopped drawing
+  on its status line and in a toast.
+- `AddIndicatorOptions` and `ChartApplyOptions` name the option types of
+  `addIndicator` and `applyOptions`, and
+  `TradingController.updatePositionPnl(id, pnlText?, pnlPercent?)` takes the
+  text without the number the pill never showed.
+
+### Changed
+
+- **Point and figure and Kagi in a widget over a feed are transformed.** With
+  the transform tier imported, a widget that loads its own bars from a `feed`
+  now has the chart form point and figure columns or Kagi lines from them, where
+  2.5.10 drew the raw bars through those renderers. A widget whose host feeds
+  `widget.series` itself keeps them as renderers over the elements the host
+  prepares.
+- **Symbol lookups.** A lookup that fails says "Search unavailable" where the
+  results used to close without a word. `SymbolSearch` callbacks receive an
+  optional second argument, `{ signal }`, aborted when a newer query or a closed
+  picker makes the answer stale. Enter in the top bar, the phone header and the
+  watchlist's add box waits while a search runs, then takes its first result, or
+  the typed text once the search finds nothing or fails; with a feed's search
+  the first result is the exact symbol on the chart's exchange.
+- **Window lengths are whole bars.** Every built-in reads a fractional window
+  length as the nearest whole number (14.5 as 15) and a length below 1 as 1.
+  Fifty-two studies read it raw or floored it, and most of the raw ones drew an
+  empty pane: SMA, EMA, WMA, Bollinger Bands, Supertrend, RSI, MACD, Stochastic,
+  ADX, CCI, MFI, ATR, Williams VIX Fix, Bollinger %B, Bollinger BandWidth,
+  BBTrend, Choppiness Index, Historical Volatility, Average Daily Range, Chaikin
+  Volatility, Standard Deviation, Chaikin Money Flow, Chaikin Oscillator, Ease
+  of Movement and Elder Force Index read it raw; Aroon, Aroon Oscillator, Chande
+  Momentum, Coppock Curve, DPO, Fisher Transform, Connors RSI, Standard Error,
+  Momentum, ROC, PPO, TRIX, TSI, the SMI Ergodic pair, SMI, NVI, PVI, PVO, Mass
+  Index, Ulcer Index, Vortex, Volatility Stop, Trend Strength Index, Williams
+  Fractals, RSI Divergence and WaveTrend floored it. Whole lengths draw as
+  before in every study.
+- **An empty setting reads its default.** A colour, a choice or the VWAP anchor
+  saved as an empty string now reads as its declared default in AlphaTrend,
+  Awesome Oscillator, BBTrend, Chop Zone, MACD, PPO, PVO, VWAP and Williams VIX
+  Fix, which passed the empty string on. Calling the `calc` of MA Cross,
+  Williams Alligator, Median, TWAP or VWAP directly without those settings now
+  uses the declared defaults (a long length of 26; 21, 13 and 8; the hl2, ohlc4
+  and hlc3 sources); a chart, which merges the defaults, draws them as before.
+- **The statistics helpers check their options as the calc helpers do.**
+  `rollingMedian` and the rest of the statistics family, and the calc helpers'
+  missing-value path, share one check: a period that is not a positive safe
+  integer throws `RangeError`, and options that are not an object, or name a
+  policy other than `propagate` or `skip` (`{ missing: null }` included), throw
+  `TypeError`, in the same words in both families. The statistics helpers used
+  to read a non-object options argument as the defaults.
+- **Drawing actions keep one rule on every surface.** Lock, hide, the order
+  moves, duplicate and delete read and act the same from the floating toolbar,
+  the right-click menu, the properties dialog, the rail, the phone bar and the
+  keys. Each press is one undo step; lock and hide read the whole selection, so
+  a partly locked selection shows unlocked and locks whole; and a selection
+  whose every drawing is locked is neither deleted nor cut from any of them. The
+  phone bar's Delete is off and the Delete, Backspace and Mod+X keys do nothing
+  for such a selection, as the menu and the toolbar already had it.
+- **Drawing tools follow the theme and whole pixels.** The measure, price range,
+  forecast, a line's stats readout and the position tools' zones take the
+  theme's up and down colours, so on the light theme and a host theme they match
+  the candles; a position's `profitColor` and `lossColor` still win, and the
+  forecast's verdict chip uses the pattern tools' pass and fail colours. The
+  advanced, pattern and analysis tools stroke whole device pixels as the lines
+  do (a 1.5 px width is 2 px at a ratio of 1), dot at 1 px like every other
+  dotted drawing, and set their labels in the same default face and weight as
+  every other tool.
+- **The chart data dialog asks for dates on the chart's clock.** Its From and To
+  bounds are a date and a time in the chart's zone, named under the fields,
+  where they were UTC seconds; a To written to the minute takes in the whole
+  minute, and the visible bounds fill both to the second. The
+  `ChartDataCsvOptions` it builds are unchanged, and the reference host's dialog
+  does the same.
+- **Chart events.** A listener that throws on the chart's bus is reported
+  through the platform's `reportError` (in a browser, the console and the
+  window's `error` event) instead of being dropped, and still stops neither the
+  other listeners nor the engine. `objects:change` always carries `{}`: the pan
+  and zoom switches of `setNavigationOptions` sent `undefined`.
+- A study that the chart refuses for its inputs shows the reason in the widget's
+  status overlay, naming the study once, with no Retry; any other failure keeps
+  "Could not load" and its Retry.
+- `chartTypeChoices()` lists the renderers, then, with the transform tier
+  imported, the six transforms, point and figure and Kagi among them.
+- The chart settings Price tab offers X and O colours for point and figure and
+  thick and thin colours for Kagi, in place of a line colour and thickness
+  neither renderer reads.
+- The alert editor closes from the icon button every form dialog shows; the
+  alerts list and the objects panel keep the word Close.
+- `openalgo-charts/draw` loads in a runtime without Web Crypto; linking charts
+  there throws "openalgo-charts: drawing links require Web Crypto" when a group
+  first shares a drawing, where the import itself threw.
+- The event markers and the popup copy the plain data nested in an event's
+  `details`, not only its `fields`; a `Date` or other object a host attaches is
+  still shared.
+- `FakeBroker` names an unknown order "FakeBroker: unknown order", like its
+  other errors.
+- **Pointer subscriptions keep every subscriber.** `subscribeClick`,
+  `subscribeDrag` and `subscribeCrosshairMove` take several subscribers, and
+  each call returns a function that removes its own; a second call no longer
+  replaces the first, so a host that subscribes again on one chart calls the
+  returned function first. A subscriber that throws is reported through
+  `reportError` and stops neither the others, the trading layer nor the pointer
+  handling.
+- `setNavigationOptions` and the crosshair magnet's shortcut fire
+  `layout:change` (`LayoutSetter` gains `'setNavigationOptions'`, and the magnet
+  reports `'applyOptions'`), so autosave and undo see them.
+- `Chart.setDataContext` takes a change of data variant as a change of source,
+  so `publishDataContext` emits `data:context` once for a variant-only change,
+  where it emitted a passing context first.
+- The crosshair price tag is written in the scale's text size
+  (`canvas.scales.fontSize`, `theme.axisFontSize`); a chart that sets neither
+  draws the same pixels.
+- Appearance linking copies "Fit primary prices only" (`scales.priceOnly`)
+  with the other price-scale settings, so `applyChartSettings` emits
+  `style:change` for it and the widget's undo announces it to linked charts.
+- `comparisonController(chart, options)` applies the `mode` and `baseline` it
+  is given to a controller the chart already has, as `attachSessionShading`
+  does; it ignored them.
+- Timers a caller sizes are held to the longest delay the platform can wait
+  (2^31 - 1 ms), and the replay and fake-feed intervals to at least 1 ms: the
+  default replay and fake-feed intervals, history request timeouts, the alert
+  expiry timer and the socket's auth, heartbeat and reconnect timers. Past the
+  ceiling a timer fired at once, so a very slow replay ticked every millisecond.
+- The time navigator reads a four-digit `#rgba` theme colour by its channels,
+  where it drew a wrong plate; a malformed two, five or seven digit hex now falls
+  back as every other primitive's colours do. Six-digit and `rgb()` themes paint
+  as before.
+- The trade tier's `OrderSide` and `OrderType` are the base's types,
+  re-exported under the same names. `OpenAlgoTradeFeed.place()` documents its
+  defaults, the NSE exchange and the feed's `defaultProduct`; `modify()` guesses
+  neither.
+
+### Deprecated
+
+Each keeps working until 3.0.0 and has a row in COMPATIBILITY.md.
+
+- The string overloads of `Chart.on`, `Chart.once` and `Chart.off`, taken for a
+  name outside `ChartEventMap`: use a `ChartEventMap` name, or declare yours in
+  the map.
+- `Chart.emit`: announce an instrument with `setDataContext`, drive a link group
+  with `LinkGroup.setSymbol`, `setInterval` and `setChartType`, and keep events
+  of your own on an emitter of your own.
+- The `priceAxisMoved` key of `ChartEventMap`, deprecated as an event since
+  2.5.4, now carries the tag: listen for `priceAxisPlacementChanged`.
+- The widget message keys "From (UTC seconds)", "To (UTC seconds)" and "Enter
+  finite UTC seconds or leave the bound blank": the dialog shows "From", "To"
+  and "Enter a date and a time on the chart clock".
+- `VolumeProfileOptions`, which no function takes: pass
+  `computeVolumeProfile(bars, tickSize, valueAreaPercent)` its arguments, or use
+  `computeVolumeProfileSessions` with `VolumeProfileFamilyOptions`.
+- `TimeScaleOp`, `InvalidateMask.addTimeScaleOp`, `InvalidateMask.timeScaleOps`
+  and `InvalidateMask.merge`: since 2.5.8 the frame reads no queued operation, so
+  change the time scale with `chart.timeScale`, `chart.fitContent` or
+  `chart.setVisibleLogicalRange`, and raise levels on the mask `chart.invalidate`
+  hands you.
+- `updatePositionPnl` given the number first: use
+  `updatePositionPnl(id, pnlText?, pnlPercent?)`.
+- `SeriesStyle.hollow`, which never had an effect: use the `'hollow-candle'`
+  series type.
+- `TradeFeed` and `PlaceOrder`, which nothing in the library takes: use
+  `OrderFeed` and `PlaceRequest` from `openalgo-charts/trade`, and hand the book
+  to the chart with `chart.trading.syncState`.
+
+### Fixed
+
+- **A restore no longer stops at a study its inputs refuse.** `restoreState`,
+  and so a widget starting from a saved layout, a layout or a workspace load,
+  brings such a study back in its error status with its settings, beside the
+  studies around it, where it threw part way and lost the rest (the widget failed
+  to start).
+- **A press outside the widget's overlays** no longer throws and leaves a
+  popover open when one overlay's `onClose` closes an older one
+  (`createOverlayStack`, `WidgetContext.openOverlay`).
+- **A pinned rectangle or ellipse with one anchor**, from a hand-edited save,
+  `add` or `update`, made its pane's drawing layer throw on every frame and hid
+  the drawings painted after it, and pinning a one-anchor data rectangle threw
+  from `update`. Such a drawing is kept and left unpainted, like any incomplete
+  drawing.
+- **A pane index that names no slot** (1.5, -1, NaN) given to `addSeries`,
+  `addPriceLine`, `addPrimitive` or `addEventMarkers` throws a `RangeError` and
+  changes nothing; it threw a `TypeError` from inside and could leave a stray
+  empty pane or an unowned data series.
+- **A mouse pick in the symbol results** did nothing unless the typed text
+  matched the chart's symbol: pressing a result blurred the field, which put the
+  chart's symbol back. The results keep the focus in the field while pressed.
+- **Order and position price tags** sit on the chart's price axis wherever it
+  is, the left axis and an outer column included, and are left out when the axis
+  is hidden, as a price line's tag is (`WorkingOrderLine`, `PositionMarker`).
+- **Notes, balloons, comments, signposts and price notes** are hovered, grabbed
+  and selected anywhere on their plate however long their text, where the hit
+  test stopped at 120 px; a price label is grabbed on the left half of its pill
+  too, and a callout's bubble as wide as its text.
+- **The chart grid's refused save.** A grid over a synchronous store such as
+  `localStorage` says "The chart layout could not be saved" on the active chart
+  when the store refuses the desk, once per run of refusals, instead of losing
+  it silently.
+- **Download PNG and Copy image.** The chart's Download PNG reports "This
+  runtime cannot save files" when the picture could not be handed over (a canvas
+  tainted by a cross-origin image) instead of "Saved a PNG of the chart", and
+  attaches its link to the document for the click; Copy image reports a canvas
+  that refuses to be read instead of throwing out of the menu.
+- A listener that throws on `chart.trading.on` or `chart.shortcuts.on` no longer
+  stops the other listeners, the chart-bus copy of a trading event or the
+  chart's pointer handling.
+- A market profile with `colorMode: 'period'` and an empty `periodColors`
+  painted its blocks in whatever fill was left on the canvas; it uses the
+  profile's `color`.
+- `priceBuckets` looped on a negative step until memory ran out; a step that is
+  not a positive finite number gives no buckets, so `computeVolumeProfile` and
+  `computeTpo` return an empty profile for a negative tick size.
+- The Choppiness Index rounds a fractional offset to whole bars, which left its
+  plot empty.
+- `percentileNearestRank`, `valueWhen` and `alma` give NaN for arguments out of
+  range, where they wrote `undefined` or threw a `RangeError`.
+- `DrawingController.setOptions` applies `clipboardFallbackToMemory`, so a host
+  that turns the memory backstop off after construction gets a cut that leaves
+  the drawing in place when the clipboard write fails.
+- A chart of transform elements on minute bars (several a bar, a second apart)
+  labels its time axis by the minute, not with seconds, whether the chart forms
+  the elements or a host feeds them with the one-second bumps `runTransform`
+  gives; plain charts label as before. `runTransform` over `KagiTransform` dates
+  the vertex still forming at the newest bar, and so does `flush()` for a host
+  that pushes bars itself, where it was time 0.
+- The rail's right-click menus walk with the arrow keys, through the shared
+  menu; in the chart grid's link and capture menus, ArrowUp from the menu itself
+  goes to the last row.
+- The event popup the widget mounts speaks through the widget's `translate` (a
+  host's `eventDetails.labels` still win), and the watchlist translates its row
+  names and its `n/a` and `...` price cells.
+- The go-to panel refuses a date the calendar does not have (30 February),
+  which rolled into the next month.
+- The widget's key labels read the platform as the engine does, so a browser
+  that blanks `navigator.platform` no longer shows Ctrl in the widget beside Cmd
+  in the chart.
+- The reference host fits the view when a chart switches into or out of a
+  transform other than Heikin Ashi, where it drew an empty pane.
+- **A host's pointer subscription no longer disconnects the trading layer.**
+  `subscribeClick` and `subscribeDrag` held one callback each and
+  `chart.trading` took both, so a host subscription made before or after it
+  dropped order cancel and modify; the reference host's volume legend eye did
+  nothing for the same reason.
+- **A plot's Opacity fades `colorBy` and `colorParts` plots** (body, wick and
+  border), multiplying each colour's own alpha, where it did nothing; Open
+  Interest Change looks as before.
+- `setPriceAxisOptions`, `setPriceAxisAutoFit` and `setPriceAxisLockRatio`
+  ignore a scale id that names no scale (the last returns false), and
+  `priceAxisState` returns null for one; they acted on the right axis.
+- `maximizePane` refuses a fractional index, and `setPaneWeight` ignores a
+  weight that is not a finite number.
+- The chart settings offer Line style on area charts, and the HLC area Band
+  swatch shows the colour the band is drawn in.
+- A P&L text of `null` given to `updatePositionPnl` no longer shows as "null".
+- **A linked chart that renames its symbol** (a suffix, a case change) no
+  longer replaces the leader's instrument in its link group. It became
+  `group.symbol()`, a chart joining later loaded it, and switching the symbol
+  channel off and on sent it back to the leader.
+- `ReplayShade.setOptions` repaints at once; moving or clearing the cut waited
+  for something else to paint.
+- A `ReplayController` whose chart is destroyed stops its timer and leaves
+  replay without writing to the chart, where it called `setData` on the dead
+  chart every tick until `stop()`. `ReplayChartHost` gains an optional
+  `on('destroy', callback)`, which `Chart` has.
+- A throwing `OpenAlgoWsFeed` callback (`onState`, `onControl`, `onLtp`,
+  `onDepth`, `onOrderUpdate`) no longer stops the other callbacks or the feed's
+  own state change, and its error goes to `reportError`. A throw during an auth
+  refusal left the socket open.
+- **Study alerts judge every element a step appends.** A source bar that
+  completes several Renko bricks (the other transforms complete at most one
+  element per source bar), or several bars a host writes before the chart
+  recomputes, now has each new bar judged in order, as separate appends would
+  be. An alert with no frequency reseeded silently on such a step and never
+  fired, and `everyUpdate`, `oncePerBar` and `once` alerts judged only the
+  newest bar; a host-fed element series met the same on 2.5.10. An alert judged
+  at an earlier bar reads the bars and values through that bar, as `onBarClose`
+  alerts already did, and on a custom host without source revisions a pass that
+  appends several bars is marked `barState.isNew` and realtime, as one appended
+  bar was.
+- **Trader alerts judge every element an update appends.** A source bar that
+  completes several Renko bricks (the other transforms complete at most one
+  element per source bar), or a host that writes several bars before it
+  announces them, now has each new element judged in order and dated at its own
+  element, as separate appends would be. An `onBarClose` crossing on an earlier
+  element never fired, and an `onTouch` crossing was dated at the newest
+  element; price, study plot, drawing and named bar condition alerts all met
+  this. An `onBarClose` alert on an in-chart Kagi chart now confirms a turning
+  point once the line reverses past it, which it never did. An `everyTime` alert
+  can deliver several `alert:triggered` events in one update, one per matching
+  element; repeat, cooldown and expiry act as they would for separate appends.
+- **Study alerts on in-chart Kagi and range bar charts.** A new source bar that
+  only moves the forming vertex or range bar forward is now a revision of that
+  element rather than a correction, so study alerts judge each new vertex or
+  range bar once (an alert with no frequency never fired on an in-chart Kagi
+  chart before), the calculation is told the bar is live, and studies keep
+  their live tail. A real correction (an earlier element changed, an element
+  dated backward, fewer elements) still reseeds silently.
+- **A study on the underlying bars judges each of those bars once.** Its values
+  are read onto the elements at the source bar each one completed on, so when one
+  bar completes several Renko bricks its alerts were delivered once per brick;
+  the bar is now judged once, at the first element it completed, `oncePerBar`
+  counts underlying bars, and `onBarClose` waits for the underlying bar to
+  close. A trader alert on such a study's plot that repeats every time still
+  judges each element.
+- `EventMarkers.setEvents` copies detail records built without a prototype, so a
+  caller's later edits no longer reach an installed event.
+- A custom `calcTail` that does not return every column of its study's result
+  now falls back to a full `calc`, where the columns it left out went blank until
+  the next full recompute.
+- `drawingShortcuts()` lists a custom tool's shortcut whatever its id.
+- `priceBuckets` returns no buckets for a range it cannot step through (a step
+  too small for its prices, an infinite bound, an overflowing price) instead of
+  growing an array until it threw, which took the volume profile, TPO or market
+  profile with it; footprint text contrast reads an `rgb()` channel above 255 as
+  255 again.
+- Reference host: picking a replay start on all charts veils what a
+  transformed chart's longer bar, still open at the picked close, had formed;
+  Mark on chart draws in the pane the candles are in after the price pane moves;
+  the chart data dialog refuses a bound dated before the year 100 and its date
+  fields match its other controls.
+- OpenScript 0.8.1 (`openalgo-script` on npm, `openscript` on PyPI) reads an
+  alert's message at the bar the chart asks about. Use it with 2.6.0 when
+  OpenScript studies compute on the underlying bars of a transform that is not
+  one element per bar (Renko, range bars, line break, point and figure, Kagi):
+  0.8.0 read those messages at the wrong bar.
+
+### Performance
+
+- **A tick on a transformed chart costs the same at any history length.** It
+  forms only the newest element again, from a clone of the state, and writes
+  only the tail that moved: one tick costs 0.4 to 1.1 microseconds for each
+  transform at 200,000 one-minute bars (a node timing over the release build).
+  Line break keeps only the lines a break is judged against.
+- **A plain chart carries none of the transform runs.** The code that switches a
+  series into a transform and compares its elements on each tick is installed
+  by `registerSeriesTransform`, so a chart-only import that never registers a
+  transform leaves it out.
+- **Higher-timeframe folds read the zone once per local day.**
+  `securitySeries` and `securityExpression` resolve the timezone only when an
+  instant leaves the current local day, with identical output:
+  `securitySeries(bars, '1d')` on 7,500 one-minute bars takes 0.43 ms where
+  2.5.10 took 23.8 ms (median of 30 runs on each build). A study with a
+  timeframe set takes its live tail inside a bucket: an EMA, Supertrend, RSI
+  and Bollinger set on 15m costs 3.96 ms in full and 0.014 ms a tick on 7,500
+  one-minute bars, and 15.7 ms and 0.010 ms on 30,000 (`npm run bench`,
+  section C).
+- **Measured against 2.5.10** on the release bench (five runs of each build in
+  one session, `benchmarks/releases.json`, the website's Benchmarks page):
+  frames are on par. With Canvas 2D at 200,000 bars a pan, a full zoom-out and
+  a ten-study tick measure 2.6, 63.6 and 178.3 ms against 2.7, 66.6 and
+  175.7 ms (each the lowest p95 of its five runs); every cell of both renderers
+  is within 6 percent of 2.5.10 but the 10,000-bar Canvas 2D zoom-out, 7.8 to
+  8.6 ms.
+
+### Website
+
+- Transforms: in-chart transforms with a live Renko example, studies on a
+  transformed chart and alerts on one; Chart types points to them. Alerts: how
+  an update that appends several bars is judged.
+- Indicators: the seven new built-ins, with ZigZag and 52 Week High/Low sections
+  and a live example, the first bar each one prints, and "A built-in on a higher
+  timeframe" with its opt-in list and its exclusions; the Examples page adds a
+  live higher-timeframe example.
+- Data feeds: Symbol search. Events: typed payloads with the full event table,
+  the listener error policy and the naming rule, and rich details and actions.
+- CDN: the no-modules build of every tier, its globals and load order;
+  Frameworks: `require()` and its runtime floor; Widget: the classic-script
+  widget, `intervals` for a study's timeframe select, the drawing rules, Enter
+  while a search runs, how widget text is keyed, and `now`.
+- Chart data export, drawing tools, the drawing clipboard, series and styling
+  (the two `withAlpha` functions), volume profile, trading and compatibility
+  follow the changes above.
+- Events, the trading API, types, data variants, chart linking, market replay,
+  symbol comparison, the glossary and live data follow the base and edge changes
+  above, and the data feeds page's trade section is written around `OrderFeed`.
+- Link labels that ended in an arrow glyph lose it, and the depth ladder's
+  empty cell is empty rather than a dash.
+- Upgrade notes for 2.6.0.
+
+### Tests
+
+- 11591 unit tests across 512 files and 689 reference host tests across 67
+  files pass. The browser suite runs 2091 cases in three browser engines with
+  two workers: 2075 pass, 13 are skipped, each for an engine limit its spec
+  names (device pixel scaling Playwright can change only in Chromium, a
+  resampled page in headless Chromium and WebKit, and WebKit's missing
+  device-pixel content box), and 3 page loads timed out under that load and
+  pass when run alone (5 of 5 and 3 of 3 each). The two reference host tests
+  that reload saved alerts now write the layout before reloading instead of
+  waiting out the autosave debounce. Each fix carries a test that fails with the
+  fix reverted. Against 2.5.10, render parity finds no differing pixel.
+- **A compatibility gate.** `npm run check:compat`, part of `npm run verify`,
+  fails a removed export, a removed member or a narrowed type in any tier against
+  2.5.10 and 2.5.1, unless COMPATIBILITY.md lists it for the next major, and
+  `tests/saved-documents.test.ts` loads the chart states, drawings, alert lists,
+  widget layouts and workspaces those releases saved and saves them again,
+  naming every field that changes.
+- New guards: `npm run check:exports` holds the script-tag keys to each tier's
+  declarations and `require()` to `import`; `tests/chart-event-map.test.ts`
+  holds every emit and subscription in `src` to `ChartEventMap`;
+  `tests/typecheck-config.test.ts` keeps both strict flags on `src`;
+  `tests/function-caps.test.ts` caps every function at 150 lines, with the longer
+  ones listed at today's lengths in `scripts/function-caps.json`, to be lowered
+  and never raised; and tests keep the base-shipped calculators free of tier
+  imports, the widget's text layout held to the draw tier's, the widget's
+  handler declarations in their 2.5.10 form, and stray merge notes out of the
+  widget's source.
+- Browser specs, in three engines: a Renko chart ticking live and every
+  transformed type drawn, the seven new studies drawn and held to a full
+  calculation through live ticks, a higher-timeframe EMA and its select in the
+  widget and the reference host, feed symbol search and rich event details, a
+  page of classic scripts, the drawing actions on the rail and the menu, a
+  transform picked from the grid view's chart type menu and kept over a reload,
+  and a price alert that fires once, at the brick a replayed Renko step crossed
+  inside it.
+- **Gates that were prose.** CI fails a browser test that passes only on its
+  retry (`failOnFlakyTests`), where it reported the test flaky and went green.
+  `npm run verify` checks import cycles (`npm run check:cycles`: none at run
+  time, and the type-level loops may not grow, their sizes kept in
+  `scripts/import-cycles.json`) and unused exports
+  (`npm run check:unused-exports`, whose allowlist only shrinks), and
+  `npm run shake` holds the tier files each built tier imports to the list the
+  bundling reference states.
+- **The writing rules hold over every file.** No em or en dash, arrow, tick or
+  cross character, pictograph or dash entity in the source, comments included,
+  the tests, scripts, examples, the site and the docs; the sweep that brought
+  them there changed no emitted JavaScript.
+- `npm run test:script-engine` gates its cases on the version the built script
+  engine reports, so a stale build skips with a message, and a compiled alert
+  on a Renko step fires on each brick.
+- The OpenAlgo consumer harness (`scripts/check-openalgo-*.mjs`) follows
+  OpenAlgo's `/trading` as it is today: it takes `--port`, starts the consumer
+  checks from an intraday grid, drives alerts through the host's own form, list
+  and menu, and prints a defect in the host's own chrome as `HOST FINDING`
+  without failing.
+
+Saved chart states, drawings, alert lists, widget layouts and workspace documents
+from 2.5.10 and 2.5.1 load unchanged, and the only field this release adds when
+it saves them again is the `timeframe` setting of each study that offers one,
+empty unless chosen. Document versions are unchanged. No export was removed, no
+type was narrowed and no runtime dependency was added; the package gains the
+eight tier script files, which ship without source maps.
+
+Sizes, measured on this release and against 2.5.10 (Brotli, decimal kB): base
+engine 134.69 to 137.53, base plus trade 151.38 to 154.41, indicators 40.43 to
+43.02, draw 57.98 to 58.36, transform 4.55 to 6.07, profile 14.97 to 14.94,
+widget 121.36 to 123.57, the widget's first-use parts 18.19 to 18.24, workspace
+11.53 to 11.73, widget terminal 354.46 to 362.48 and every tier together 409.13
+to 419.05; the trade tier on its own 16.69 to 16.88, and WebGL2 6.93 to 6.97.
+The nine classic-script files, a new row, measure 430.90 together, and the base
+and widget classic scripts have rows of their own at 137.65 and 135.21. The
+chart-only import grows from 85.73 to 87.19 KiB (89,280 bytes, up 1,495). The
+package grows from 47 files, 2,098,074 bytes packed and 6,730,951 unpacked to 55
+files, 2,501,201 packed and 8,079,719 unpacked. Each budget is the smallest
+two-decimal value that passes.
+
+Where the growth goes, each figure measured from builds of the commits before
+and after a feature, so they overlap slightly once merged, and Brotli layout
+moves a single step by up to about 150 bytes. In the base engine the in-chart
+transforms and the study bar source take 1,567 bytes: the series routing every
+chart's data path passes through, which does nothing for a series without a
+transform. The switch into a transform and the per-tick element diff are
+installed by `registerSeriesTransform`, so a chart-only import that never
+registers one leaves them out (347 bytes there); moving them shifted the base
+file's layout by about 200. The OpenAlgo feed's search and the copy of rich
+event details take 324 bytes, of which the chart-only import pays only the copy
+(48); the pane index check takes 217, and the base and edge hygiene waves 204,
+raw code going down while Brotli rose with new function boundaries, less 110
+for the shared dash table. The alert fixes take 482: 94 for study alerts that
+judge every element a step appends, 130 for trader alerts that do the same, 100
+for a re-dated forming element that stays live and 158 for an underlying bar
+judged once; the review fixes add 42. The indicator tier carries
+the seven new studies (2,424 bytes, about 346 a study) and the timeframe
+wrapper and fold (1,482), less the hygiene wave's one settings reader and
+shared kernels (1,266). The transform tier's growth is the live runs and their
+registration (1,511). The widget tier grew by the chart grid's split over a
+state object (697), the transformed chart types and the Compute on row (597),
+the rich popup, its actions and the feed search (553), and the strict and
+widget hygiene passes (135 each). The chart-only import grows by 1,495 bytes,
+most of it the transform routing and the study bar source a host can call on
+any chart.
 
 ## 2.5.10
 

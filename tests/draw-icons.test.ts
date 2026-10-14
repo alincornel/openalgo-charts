@@ -14,9 +14,9 @@ import { describe, it, expect } from 'vitest';
 import '../src/indicators/index';
 import {
   DRAWING_TOOL_ICONS, drawingToolIcon, drawingToolIconIds,
-  ICON_VIEWBOX, ICON_STROKE, ICON_ATTRS,
+  ICON_VIEWBOX, ICON_STROKE, ICON_ATTRS, ICON_SIZE,
   CHROME_ICONS, CHROME_ICON_FILLED, chromeIcon, chromeIconIds,
-  CHROME_ICON_VIEWBOX, CHROME_ICON_STROKE, CHROME_ICON_ATTRS,
+  CHROME_ICON_VIEWBOX, CHROME_ICON_STROKE, CHROME_ICON_ATTRS, CHROME_ICON_SIZE,
   DRAWING_TOOL_ACCENTS, drawingToolAccent, CHROME_ICON_ACCENTS, chromeIconAccent,
   chartTypeIcon, layoutIconPath,
   type IconAttrs, type LayoutIconSlot,
@@ -44,7 +44,7 @@ const CHROME_ID_LIST = [
   'undo', 'redo', 'copy', 'paste', 'duplicate', 'front', 'back', 'text', 'chevron-down', 'chevron-right',
   'close', 'plus', 'minus', 'search', 'grid', 'link', 'unlink', 'camera', 'download',
   // Capture, navigation and the grid of charts.
-  'capture-grid', 'chevron-up', 'chevron-left', 'check', 'more', 'grip', 'refresh', 'swap',
+  'capture-grid', 'chevron-up', 'chevron-left', 'chevrons-left', 'chevrons-right', 'check', 'more', 'grip', 'refresh', 'swap',
   'layout', 'maximize', 'restore', 'fullscreen', 'fullscreen-exit',
   'link-group', 'drawing-sync', 'crosshair', 'time-range', 'palette',
   // Time, the market session and replay.
@@ -328,28 +328,33 @@ describe.each(TIERS)('the $name accents', (tier) => {
 });
 
 describe('the two tiers read as one set', () => {
-  it('pins each tier to the stroke it was drawn for', () => {
-    expect(ICON_STROKE).toBe(2);
-    expect(CHROME_ICON_STROKE).toBe(2);
+  it('pins each tier to the stroke and size it was drawn for', () => {
+    expect([ICON_STROKE, ICON_SIZE]).toEqual([1.6, 20]);
+    expect([CHROME_ICON_STROKE, CHROME_ICON_SIZE]).toEqual([1.3, 16]);
   });
 
-  it.each(TIERS)('puts the $name stroke edges on pixel boundaries at native size', (tier) => {
-    // At native size one unit is one pixel, and a stroke of width w centred
-    // on a whole unit covers c - w/2 to c + w/2. Those are pixel boundaries
-    // only when w/2 is whole. The chrome tier's old 1.5 put every edge 0.75
-    // of the way across a pixel, so no edge was ever solid (the audit
-    // measured 0.18 of its inked pixels solid, against 0.59 for the tools).
-    expect(Number.isInteger(tier.stroke / 2), `${tier.name} stroke ${tier.stroke}`).toBe(true);
+  /** The line a tier draws on screen, in CSS pixels, at the size it is drawn for. */
+  const linePx = (stroke: number, viewBox: string, size: number): number => stroke * size / Number(viewBox.split(' ')[2]);
+
+  it.each([
+    ['tool', ICON_STROKE, ICON_VIEWBOX, ICON_SIZE],
+    ['chrome', CHROME_ICON_STROKE, CHROME_ICON_VIEWBOX, CHROME_ICON_SIZE],
+  ] as const)('draws the %s line fine, at about 1.3px', (_name, stroke, viewBox, size) => {
+    // Through 2.6.2 both tiers drew 2px: crisp edges, but nearly twice the ink of a
+    // fine line, and the rail read as heavy beside the chart. Below a pixel
+    // the curves break up on a 1x screen, so the band is narrow.
+    const px = linePx(stroke, viewBox, size);
+    expect(px).toBeGreaterThanOrEqual(1.2);
+    expect(px).toBeLessThanOrEqual(1.4);
   });
 
   it('draws one line width on screen in both rails', () => {
-    // Each tier is shown at its grid size, so a unit is a CSS pixel in both,
-    // and the 16px chrome line beside a 24px tool is the same 2px line. The
-    // old rule matched the stroke as a fraction of the box instead, which is
-    // what left the chrome tier on a fractional width.
-    const toolPx = ICON_STROKE * (24 / Number(ICON_VIEWBOX.split(' ')[2]));
-    const chromePx = CHROME_ICON_STROKE * (16 / Number(CHROME_ICON_VIEWBOX.split(' ')[2]));
-    expect(chromePx).toBe(toolPx);
+    // A lock under the tools has to read as the same set, only smaller, so
+    // the two strokes are matched at their display sizes, not as a fraction
+    // of their boxes.
+    const toolPx = linePx(ICON_STROKE, ICON_VIEWBOX, ICON_SIZE);
+    const chromePx = linePx(CHROME_ICON_STROKE, CHROME_ICON_VIEWBOX, CHROME_ICON_SIZE);
+    expect(Math.abs(chromePx - toolPx)).toBeLessThanOrEqual(0.05);
   });
 });
 

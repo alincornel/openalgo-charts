@@ -77,8 +77,8 @@ does not need to be loaded again.
 | `priceOnlyAutoScale` | `boolean` | `false` | Fit the primary series' actual scale using only that series. Does not enable auto-fit. |
 | `indicatorLegendCollapsed` | `boolean` | `false` | Suppress study legend rows while retaining plots and a count toggle. |
 | `crosshairMode` | `'normal' \| 'magnet'` | `'normal'` | `magnet` snaps to O/H/L/C, price pane only, wherever it sits. |
-| `now` | `() => number` | `performance.now` | Time source for kinetic pan / navigator fade. |
-| `animZoom` | `boolean` | `true` | Ease a wheel zoom over a few frames (`ZoomGlide`, in log space) instead of landing the whole step on one. The first frame's step is applied on the event itself, so `barSpacing` has moved by the time anything reads it synchronously, and the glide lands on exactly the single-frame result. **On by default**, which a 1.9.x host sees as a change; `false` restores the single-frame step. Not re-appliable. |
+| `now` | `() => number` | `performance.now` | Time source for kinetic pan / navigator fade. `WidgetOptions.now` is a different clock (the widget's wall clock, epoch milliseconds) and is not passed to the widget's chart. |
+| `animZoom` | `boolean` | `true` | Ease a wheel zoom over a few frames instead of landing the whole step on one. Since 2.6.3 each wheel event moves one target bar spacing and every frame closes `1 - e^(-dt/70ms)` of the remaining distance in log space, by the real frame time: events between two frames never move the chart twice, every step eases (a trackpad's smallest included), and the speed is the same at 60Hz and 144Hz. A zoom that starts from rest moves on the event itself by what its first frame would have moved, so `barSpacing` has changed by the time anything reads it synchronously, and the zoom lands on exactly the single-frame result. **On by default**, which a 1.9.x host sees as a change; `false` restores the single-frame step. Not re-appliable. |
 | `animAutoscale` | `boolean` | value of `animZoom` | Ease automatic price-range changes while navigation reveals new extrema. Manual and fixed scales remain authoritative. Programmatic viewport replacement, primary data replacement, reset and destruction cancel pending navigation motion. Not re-appliable. |
 | `zoomAnchor` | `'cursor' \| 'right'` | `'cursor'` | What a wheel zoom holds still: the bar under the cursor, or the right edge (the latest bar), which a live chart usually wants. Not re-appliable. |
 | `doubleClick` | `'reset' \| 'maximize' \| 'none'` | `'reset'` | Restore the configured default view and autoscale, toggle that pane to the whole stack, or only emit `dblclick`. A listener that sets `handled` on the event suppresses the action for that press. |
@@ -180,8 +180,17 @@ series to a line removes the stepping while an explicit step style survives.
 It repaints and emits `objects:change` without replacing data or recalculating
 indicators. It returns false for the same type, foreign or removed handles, and
 destroyed charts. An unknown type on a live owned series throws without mutation.
-Transform renderers still require host-prepared bars; changing type performs no
-data transformation.
+It never transforms data: `point-figure` and `kagi` draw the bars they are
+given, which keeps a host that prepares its own elements working.
+
+`chart.setSeriesTransform(series, spec | null): boolean` has the
+chart apply a transform itself (Heikin Ashi, Renko, range bars, line break, point
+and figure, Kagi, once `openalgo-charts/transform` is imported): the series
+keeps taking the host's bars through `setData`, `update` and `prependData`,
+`getData` returns them, and the chart draws the elements, formed again on every
+tick. A new transform type selects its renderer. `chart.seriesTransform(series)`
+reads the spec; `AddSeriesOptions.transform` sets one at creation. See
+[transforms](transforms.md#in-chart-transforms).
 
 `chart.seriesType(series): SeriesType | null` reads the current renderer for a
 live owned series, including one that is not primary. It returns null for foreign
@@ -300,7 +309,7 @@ and legacy template parsing retain structurally valid maps for later validation.
 - `chart.destroy()`: the only teardown method. **There is no `chart.remove()`.** It stops the render loop and kinetic animation, removes every indicator, disconnects the `ResizeObserver`, unbinds all pointer/wheel/keyboard listeners, destroys every pane, and clears the container's cursor hint.
 - `chart.applySize(width, height)`: media px; no-ops when unchanged. A `ResizeObserver` on the container calls it automatically, so manual calls are only needed in hosts without `ResizeObserver`. The chart paints inside that observer's callback, which runs after the frame's animation callbacks and before the browser paints, so a resize never shows a cleared canvas for a frame.
 - **Device pixels.** Pane boundaries land on whole device pixels: every boundary between panes is rounded onto one (within half a device pixel of its weighted share; the outer edge stays the container's), at the ratio the panes were laid out at, so each canvas covers whole device pixels, and where the browser reports a canvas's `devicePixelContentBoxSize` (Chromium, Firefox) the backing store takes exactly that size. At a whole-number ratio (1, 2, 3) the separator between panes is the pane's 1 px top border, the canvases starting under it, as in every earlier release; a chart whose panes share the height in whole pixels is laid out and painted exactly as before. At a fractional ratio (1.25, 1.5) it is a box one device pixel tall laid over the lower pane's first row, the canvases starting at the pane's own top. A pane's height can differ from its exact weighted share by up to one device pixel. `exportSVG` lays panes out at ratio 1 on every screen.
-- `chart.applyOptions(opts)` takes a runtime subset only: `theme`, `grid`, `canvas`, `statusLine`, `priceScale`, `priceFormatter`, `timeFormatter`, `timezone`, `crosshairMode`. Nothing else from `ChartOptions` is re-appliable.
+- `chart.applyOptions(opts: ChartApplyOptions)` takes a runtime subset only: `theme`, `grid`, `canvas`, `statusLine`, `legendIconSize`, `priceScale`, `priceFormatter`, `timeFormatter`, `timezone`, `crosshairMode`, `crosshairSnapToBar`. Nothing else from `ChartOptions` is re-appliable. `ChartApplyOptions` is the exported name of that shape (since 2.6.0).
 
 ## Object inventory and management
 
@@ -525,13 +534,13 @@ chart.subscribeDrag(
 );
 ```
 
-**The `subscribe*` helpers store exactly one callback each and return `void`.** A second call replaces the first and there is no unsubscribe. For multiple listeners or teardown use the bus: `chart.on(name, cb)` returns an unsubscribe function; `chart.once`, `chart.off(name, cb?)` and `chart.emit(name, payload)` are also public.
+**The `subscribe*` helpers take several subscribers and each call returns its unsubscribe** (since 2.6.0; before, each stored one callback, a second call replaced the first, and they returned `void`). The bus is the other surface: `chart.on(name, cb)` returns an unsubscribe function and types `cb`'s payload by the name (`ChartEventMap`); `chart.once` and `chart.off(name, cb?)` are also public, and `chart.emit(name, payload)` is deprecated (removed in 3.0.0). See [events-and-state](events-and-state.md).
 
 Core event names: `ready`, `crosshair:move`, `click`, `hover`, `drag`, `drag:end`, `pan`, `zoom`, `resize`, `dblclick`, `contextmenu`, `lazy-load`, `paneResized`, `paneMoved`, `paneMaximized`, `paneCollapsed`, `paneRemoved`, `indicatorRemoved`, `indicatorSettings`. `ReplayController` adds `replay:start|frame|play|pause|end|stop`, and the trading tier routes `trading:*` through the same bus. See [events-and-state](events-and-state.md).
 
 `CrosshairMoveEvent`: `time: number | null`, `index: number | null`, `price: number | null`, `bar: Bar | null`, `point: { x, y } | null`, `paneIndex?: number | null`, and on a move (not the all-null leave payload) `pressed: boolean`, `modifiers: PointerModifiers` (`{ shift, alt, ctrl, meta }`), `pointerType: PointerKind` (`'mouse' | 'touch' | 'pen'`), `pressure` (0..1 as the pointer events spec defines it: measured, else 0.5 while a button is held, else 0) and, only while pressed, `samples: PointerSample[]` (`{ x, y, pressure }` per coalesced position, container x and pane-local y). The same three pointer facts (`PointerInfo`) ride on `ChartClickEvent`, `ChartDragEvent` (which adds `point` and `samples`) and `ChartDragEndEvent` (which adds `point` and also describes `drag:start`); all seven types are exported from the base entry.
 
-Two pure helpers from the input and render layers are exported for a host that wants the same feel outside the chart: `ZoomGlide` (with `DEFAULT_ZOOM_GLIDE_OPTIONS`, a `ZoomGlideOptions`) is the eased wheel zoom, a closed-form exponential approach in log space that the chart samples per frame, so a wheel tick glides the way a flick already does; `candleTier(bodyW, wickW, style)` says whether a candle this narrow still shows a body (`'full'`) or only its wick (`'wick'`), which the candle renderer uses to skip a body the wick has already painted, and which a custom renderer can use to draw the same pixels.
+Two pure helpers from the input and render layers are exported for a host that wants the same feel outside the chart: `ZoomGlide` (with `DEFAULT_ZOOM_GLIDE_OPTIONS`, a `ZoomGlideOptions`) is a closed-form exponential approach in log space for a host that eases one zoom step outside the chart (the chart itself chases a moving target per frame since 2.6.3, and uses `ZoomGlide.leadFraction` for its first-frame lead); `candleTier(bodyW, wickW, style)` says whether a candle this narrow still shows a body (`'full'`) or only its wick (`'wick'`), which the candle renderer uses to skip a body the wick has already painted, and which a custom renderer can use to draw the same pixels.
 
 On touch there is no pointer-leave, so a crosshair summoned by a long press (see [interactions](interactions.md)) stays until the next plain tap on the plot or a call to `chart.hideCrosshair()`, which clears it and emits the all-null event. A host that draws something at the crosshair price depends on that: the crosshair has to outlive the finger for anything it reveals to be tappable.
 

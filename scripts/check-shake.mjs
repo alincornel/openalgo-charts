@@ -13,8 +13,17 @@
  * stray side effect would keep them and the byte count alone would not say why.
  *
  * Rollup is already a direct devDependency, so this adds nothing to the tree.
+ *
+ * It also holds each built tier to the list of tier files it imports
+ * (TIER_IMPORTS below), which decides whether a tier can be loaded without the
+ * base and is what .github/skills/openalgo-charts/references/bundling-and-tiers.md
+ * tells a host. That page said the draw tier imported nothing from the base for
+ * several releases after it began to; the list is checked here, on dist, so
+ * the page and the build cannot part again unnoticed.
  */
+import { readFileSync } from 'node:fs';
 import { rollup } from 'rollup';
+import { parseAst } from 'rollup/parseAst';
 import { brotliCompressSync } from 'node:zlib';
 
 const BUNDLE = new URL('../dist/openalgo-charts.mjs', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
@@ -27,7 +36,7 @@ const BUNDLE = new URL('../dist/openalgo-charts.mjs', import.meta.url).pathname.
 //
 // Raised again to 39.5 kB on 2026-09-02, on this FORK: it carries the order-line
 // editor plus the BarCache union/peek/prune work, and the pinned base 1639f1d
-// already measured 39.07 kB — over upstream's 39.00 before any of this landed.
+// already measured 39.07 kB, over upstream's 39.00 before any of this landed.
 // Raised once. Do not raise it again without trimming something first.
 //
 // Raised to 39.7 kB on 2026-09-03, and the trim was done first: `hideCrosshair`
@@ -68,9 +77,9 @@ const BUNDLE = new URL('../dist/openalgo-charts.mjs', import.meta.url).pathname.
 // chart hosts too. The chart-only build measures 48.96 KiB versus 45.51 KiB on
 // 2.1.8, including guarded link gestures and screenshot handling for hidden panes.
 //
-// This fork pays for its own chart-only input work on top of that tree — the
+// This fork pays for its own chart-only input work on top of that tree, the
 // touch crosshair, the tap-not-pan guard, the adopted-pointer steering, the
-// drag-cancel seam and the wheel sensitivity — measured 50.74 KiB on merging
+// drag-cancel seam and the wheel sensitivity, measured 50.74 KiB on merging
 // 2.3.2 (46.56 against upstream's 45 on 2.1.7). Raised to 51.2 KiB for the
 // frame-cost fixes a zoomed-out daily chart needed (51.06 KiB): an indicator
 // fill that seeks the bars in view, and a time axis that forces one day mark
@@ -110,7 +119,7 @@ const BUNDLE = new URL('../dist/openalgo-charts.mjs', import.meta.url).pathname.
 //
 // Fork on upstream 2.4.8: upstream's chart-only build is 53.00 KiB, the fork's
 // 55.27 KiB (2.27 KiB of its own touch/cancel/wheel input work, against 2.06
-// on 2.4.0 — the extra is the fork's cancel paths sitting beside upstream's
+// on 2.4.0, the extra is the fork's cancel paths sitting beside upstream's
 // new primitive drag lifecycle). Allow 55.5 KiB.
 // Automatic table measurement and clipping remain available to a chart-only host.
 // 2.5.0 measures 53.36 KiB; optional tiers and the alert controller must still shake out.
@@ -291,12 +300,30 @@ const BUNDLE = new URL('../dist/openalgo-charts.mjs', import.meta.url).pathname.
 // rest of the release nets 13 bytes, because the session phases and shading
 // and the link channels for the chart type and drawings shake out of this
 // build. 87785 bytes (85.73 KiB), up 932 from 86853; allow 85.73 KiB.
+// 2.6.0: a chart can apply a transform itself, and what every chart reaches
+// of that stays here (setSeriesTransform, the run lookups in the series
+// handle, the study bar source and its sampling, the countdown and axis
+// rules): 1281 bytes at its merge, of which 347 later moved behind
+// registerSeriesTransform. The core and edge hygiene fixes (several click and
+// drag subscribers, plot opacity on colour-by plots, the variant compare, the
+// shared axis tag) add about 385, rich event details 48, and the two study
+// alert fixes (every element a step appends judged, a re-dated forming
+// element kept live, an underlying bar judged once) about 370; the shared dash
+// table takes about 190 back.
+// Each figure was measured at its own merge and Brotli layout moves a single
+// step by up to 150 bytes, so they do not sum to the total, which is measured:
+// 89280 bytes (87.19 KiB), up 1495 from 87785; allow 87.19 KiB.
+// 2.6.3: the wheel zoom chases one target per frame instead of starting a
+// curve per event, and a log scale pads in log space, which every chart
+// carries: 89391 bytes (87.30 KiB), up 111; allow 87.30 KiB, the first
+// hundredth at or above it.
 //
-// Fork on upstream 2.5.10: upstream measures 85.73 KiB, the fork 87.93 KiB, the
-// same ~2.2 KiB of fork input and axis work carried since 2.3.2 (touch
-// crosshair, tap-not-pan, pointercancel semantics, wheel sensitivity, tick
-// density, last-price line extent and colour). Allow 88 KiB.
-const LIMIT_BYTES = 88 * 1024;
+// Fork on upstream 2.6.4: upstream measures 89391 bytes (87.30 KiB), the fork
+// 91774 bytes (89.62 KiB), the same ~2.3 KiB of fork input and axis work
+// carried since 2.3.2 (touch crosshair, tap-not-pan, pointercancel and drag
+// cancel semantics, wheel sensitivity, tick density, last-price line extent
+// and colour, the forced day boundaries). Allow 89.75 KiB.
+const LIMIT_BYTES = 89.75 * 1024;
 
 // Absent from a chart-only build. Each is a string that appears in the adapter
 // source and nowhere in the rendering core.
@@ -343,11 +370,50 @@ for (const [what, needle] of MUST_BE_SHAKEN) {
   }
 }
 
+// The tier files each built tier imports statically, as sibling paths. The
+// widget's first-use parts, which it loads with import(), are not tiers.
+// Update this and the bundling page together.
+const TIER_IMPORTS = {
+  'openalgo-charts.mjs': [],
+  'openalgo-charts.trade.mjs': ['openalgo-charts.mjs'],
+  'openalgo-charts.transform.mjs': ['openalgo-charts.mjs'],
+  // Only types from the base, which erase.
+  'openalgo-charts.profile.mjs': [],
+  'openalgo-charts.indicators.mjs': ['openalgo-charts.mjs'],
+  // The interval resolver and the indicator registry (src/draw/intervals.ts,
+  // snap.ts, input-anchors.ts).
+  'openalgo-charts.draw.mjs': ['openalgo-charts.mjs'],
+  'openalgo-charts.webgl.mjs': ['openalgo-charts.mjs'],
+  'openalgo-charts.workspace.mjs': ['openalgo-charts.mjs'],
+  'openalgo-charts.widget.mjs': ['openalgo-charts.draw.mjs', 'openalgo-charts.mjs'],
+};
+const DIST = new URL('../dist/', import.meta.url);
+const tierFiles = Object.values(JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).exports)
+  .map((entry) => entry.import.replace(/^\.\/dist\//, '')).sort();
+const tierImportErrors = [];
+if (tierFiles.join() !== Object.keys(TIER_IMPORTS).sort().join()) {
+  tierImportErrors.push(`TIER_IMPORTS names ${Object.keys(TIER_IMPORTS).sort().join(', ')}; package.json exports ${tierFiles.join(', ')}`);
+}
+for (const file of tierFiles) {
+  const body = parseAst(readFileSync(new URL(file, DIST), 'utf8')).body;
+  const imported = [...new Set(body
+    .filter((n) => n.source && ['ImportDeclaration', 'ExportNamedDeclaration', 'ExportAllDeclaration'].includes(n.type))
+    .map((n) => n.source.value.replace(/^\.\//, '')))].sort();
+  const expected = [...(TIER_IMPORTS[file] ?? [])].sort();
+  if (imported.join() !== expected.join()) {
+    tierImportErrors.push(`dist/${file} imports [${imported.join(', ')}], TIER_IMPORTS says [${expected.join(', ')}]. `
+      + 'Correct the list and .github/skills/openalgo-charts/references/bundling-and-tiers.md, or the import.');
+  }
+}
+for (const e of tierImportErrors) console.error(`FAIL: ${e}`);
+if (tierImportErrors.length > 0) failed = true;
+else console.log(`tier imports: all ${tierFiles.length} tier bundles import the tier files TIER_IMPORTS lists`);
+
 const kb = (n) => (n / 1024).toFixed(2) + ' KiB';
 if (size > LIMIT_BYTES) {
   console.error(`FAIL: chart-only import is ${kb(size)} brotli, over the ${kb(LIMIT_BYTES)} budget`);
   failed = true;
 }
 
-console.log(`chart-only import (tree-shaken): ${kb(size)} brotli, budget ${kb(LIMIT_BYTES)}`);
+console.log(`chart-only import (tree-shaken): ${kb(size)} (${size} bytes) brotli, budget ${kb(LIMIT_BYTES)}`);
 if (failed) process.exit(1);

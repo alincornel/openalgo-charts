@@ -1,27 +1,27 @@
 [
   {
     "file": "src/input/shortcuts.ts",
-    "text": "←",
+    "text": "\u2190",
     "reason": "formatCombo, a public export, shows the arrow keys as the arrows printed on them; hosts and tests read that output, and the widget's own chord display uses words."
   },
   {
     "file": "src/input/shortcuts.ts",
-    "text": "→",
+    "text": "\u2192",
     "reason": "formatCombo, a public export, shows the arrow keys as the arrows printed on them; hosts and tests read that output, and the widget's own chord display uses words."
   },
   {
     "file": "src/input/shortcuts.ts",
-    "text": "↑",
+    "text": "\u2191",
     "reason": "formatCombo, a public export, shows the arrow keys as the arrows printed on them; hosts and tests read that output, and the widget's own chord display uses words."
   },
   {
     "file": "src/input/shortcuts.ts",
-    "text": "↓",
+    "text": "\u2193",
     "reason": "formatCombo, a public export, shows the arrow keys as the arrows printed on them; hosts and tests read that output, and the widget's own chord display uses words."
   },
   {
     "file": "src/input/shortcuts.ts",
-    "text": "⇧",
+    "text": "\u21e7",
     "reason": "formatCombo shows the macOS modifiers as the key symbols the platform itself prints (the Shift arrow among them); hosts and tests read that output, and the widget's own chord display uses words."
   },
   {
@@ -71,5 +71,100 @@
     "text": "{count} chart shortcuts struck through: the same chord arms a drawing tool here and takes precedence.",
     "whole": true,
     "reason": "A deprecated message key, retained so host catalogs written for the armed wording stay type compatible until 3.0.0 (COMPATIBILITY.md); the widget no longer shows it."
+  },
+  {
+    "file": "/axis-time-daily-zoomed-out.test.ts",
+    "text": "\u2014",
+    "reason": "Fork test file, kept byte-identical across upstream merges: its comments and titles predate the house rule, and the em dash there is prose, never output."
+  },
+  {
+    "file": "/chart-pointer-cancel.test.ts",
+    "text": "\u2014",
+    "reason": "Fork test file, kept byte-identical across upstream merges: its comments and titles predate the house rule, and the em dash there is prose, never output."
+  },
+  {
+    "file": "/chart-touch-context.test.ts",
+    "text": "\u2014",
+    "reason": "Fork test file, kept byte-identical across upstream merges: its comments and titles predate the house rule, and the em dash there is prose, never output."
+  },
+  {
+    "file": "/chart-touch-crosshair.test.ts",
+    "text": "\u2014",
+    "reason": "Fork test file, kept byte-identical across upstream merges: its comments and titles predate the house rule, and the em dash there is prose, never output."
+  },
+  {
+    "file": "/chart-touch-pinch-crosshair.test.ts",
+    "text": "\u2014",
+    "reason": "Fork test file, kept byte-identical across upstream merges: its comments and titles predate the house rule, and the em dash there is prose, never output."
+  },
+  {
+    "file": "/data-layer-shared-axis.test.ts",
+    "text": "\u2014",
+    "reason": "Fork test file, kept byte-identical across upstream merges: its comments and titles predate the house rule, and the em dash there is prose, never output."
+  },
+  {
+    "file": "/draw-drag-cancel.test.ts",
+    "text": "\u2014",
+    "reason": "Fork test file, kept byte-identical across upstream merges: its comments and titles predate the house rule, and the em dash there is prose, never output."
+  },
+  {
+    "file": "/feed-cache-2.1.7.test.ts",
+    "text": "\u2014",
+    "reason": "Fork test file, kept byte-identical across upstream merges: its comments and titles predate the house rule, and the em dash there is prose, never output."
+  },
+  {
+    "file": "/feed-cache.test.ts",
+    "text": "\u2014",
+    "reason": "Fork test file, kept byte-identical across upstream merges: its comments and titles predate the house rule, and the em dash there is prose, never output."
+  },
+  {
+    "file": "/indicator-fill-visible.test.ts",
+    "text": "\u2014",
+    "reason": "Fork test file, kept byte-identical across upstream merges: its comments and titles predate the house rule, and the em dash there is prose, never output."
+  },
+  {
+    "file": "/market-profile-cbot.test.ts",
+    "text": "\u2014",
+    "reason": "Fork test file, kept byte-identical across upstream merges: its comments and titles predate the house rule, and the em dash there is prose, never output."
+  },
+  {
+    "file": "/market-profile-cbot.test.ts",
+    "text": "\u2192",
+    "reason": "Fork test file, kept byte-identical across upstream merges: its comments and titles predate the house rule, and the arrow there is prose, never output."
+  },
+  {
+    "file": "/market-profile-primitive-culling.test.ts",
+    "text": "\u2014",
+    "reason": "Fork test file, kept byte-identical across upstream merges: its comments and titles predate the house rule, and the em dash there is prose, never output."
+  },
+  {
+    "file": "/price-line-style.test.ts",
+    "text": "\u2014",
+    "reason": "Fork test file, kept byte-identical across upstream merges: its comments and titles predate the house rule, and the em dash there is prose, never output."
+  },
+  {
+    "file": "/price-line-style.test.ts",
+    "text": "\u2715",
+    "reason": "Fork test file, kept byte-identical across upstream merges: its comments and titles predate the house rule, and the close cross there is prose, never output."
+  },
+  {
+    "file": "/trading-controller.test.ts",
+    "text": "\u2715",
+    "reason": "Fork test file, kept byte-identical across upstream merges: its comments and titles predate the house rule, and the close cross there is prose, never output."
+  },
+  {
+    "file": "/trading-drag-sync.test.ts",
+    "text": "\u2014",
+    "reason": "Fork test file, kept byte-identical across upstream merges: its comments and titles predate the house rule, and the em dash there is prose, never output."
+  },
+  {
+    "file": "/trading-pill-touch.test.ts",
+    "text": "\u2715",
+    "reason": "Fork test file, kept byte-identical across upstream merges: its comments and titles predate the house rule, and the close cross there is prose, never output."
+  },
+  {
+    "file": "/volume-profile-primitive.test.ts",
+    "text": "\u2014",
+    "reason": "Fork test file, kept byte-identical across upstream merges: its comments and titles predate the house rule, and the em dash there is prose, never output."
   }
 ]

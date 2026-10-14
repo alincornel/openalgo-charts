@@ -1,6 +1,6 @@
 // Profile tier (opt-in: "openalgo-charts/profile").
 // Family C: Volume Profile + TPO (from OHLCV) and Footprint + Orderflow (which
-// need classified trade data — see footprint.ts data-dependency note).
+// need classified trade data: see footprint.ts data-dependency note).
 
 export const PROFILE_TIER = 'profile' as const;
 
@@ -61,9 +61,26 @@ export {
   cumulativeDelta,
   stackedImbalances,
   type ClassifiedTrade,
+  type FootprintBuildOptions,
   type Imbalance,
   type StackedImbalance,
 } from './footprint';
+export {
+  createTradeClassifier,
+  type TradePrint,
+  type TradeClassification,
+} from './footprint-classify';
+export {
+  footprintSignals,
+  DEFAULT_FOOTPRINT_SIGNAL_OPTIONS,
+  type FootprintSignalOptions,
+  type FootprintSignals,
+  type FootprintBarSignals,
+  type FootprintZone,
+  type FootprintZoneKind,
+  type FootprintZoneEnd,
+  type FootprintAuction,
+} from './footprint-signals';
 export {
   HorizontalProfile,
   type ProfileLevel,
@@ -84,7 +101,10 @@ export {
   type FootprintStatRow,
   type FootprintBarStats,
   type FootprintHover,
+  type FootprintZoneGroup,
+  type FootprintZoneAlert,
 } from './footprint-primitive';
+export { FOOTPRINT_THEMES, type FootprintThemeName, type FootprintThemeColors } from './footprint-themes';
 export {
   FootprintAggregator,
   type FootprintTick,

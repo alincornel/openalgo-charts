@@ -13,6 +13,13 @@ interface DataFeed {
   getCachedBars?(req: BarsRequest): Promise<Bar[] | undefined>;
   subscribeBars?(req: BarsRequest, onBar: (bar: Bar) => void, opts?: BarSubscriptionOptions): UnsubscribeFn;
   subscribeDepth?(req: BarsRequest, onDepth: (depth: MarketDepth) => void, opts?: { depthLevel?: number }): UnsubscribeFn;
+  searchSymbols?(request: SymbolSearchRequest): Promise<SymbolMatch[]>;
+}
+
+interface SymbolSearchRequest { query: string; signal?: AbortSignal }
+interface SymbolMatch {
+  symbol: string; exchange?: string; name?: string; assetClass?: string; iconUrl?: string;
+  contractGroup?: { label?: string; contracts: readonly SymbolMatch[] };
 }
 
 interface BarsRequest {
@@ -36,13 +43,15 @@ interface BarSubscriptionOptions {
 
 **`subscribeBars` and `subscribeDepth` are optional.** A history-only feed omits them so callers can feature-detect (`if (feed.subscribeBars)`). `OpenAlgoDataFeed` deliberately does not implement `subscribeBars`; `OpenAlgoLiveDataFeed` implements both.
 
+**`searchSymbols` is optional too**. A feed that has it serves the widget's symbol search with no host code: `createWidget` uses it wherever the host passes no `symbolSearch`, and a host callback still wins. Answer closest first, and honour `signal`, which aborts once a newer query replaces this one. `SymbolMatch` and `SymbolSearchRequest` are exported from the base package; the widget re-exports `SymbolMatch`. Both OpenAlgo feeds implement it.
+
 `BarSubscriptionOptions` is exported from the base package. Its optional third argument keeps existing two-argument feed implementations compatible. `seedFrom` continues the last time-bucketed history bar; `cumDayVolumeSoFar` is the cumulative day total at that snapshot for day-delta volume accounting. A feed calls `onResync` when a recovered stream may have missed data. A host should pause display updates, buffer incoming bars while loading the current window with `noCache: true`, merge the observations before `setData`, then seed the replacement subscription from the merged last bar. Keep resync monitoring active so a repeated reconnect can supersede the pending request. Preserve the viewport, guard against stale requests, and keep a visible error plus retry path if recovery fails. Older gap-fill bars do not belong in the tail-only `onBar` / `series.update` path.
 
 Install the newly seeded subscription before releasing the previous one, so a shared feed keeps its underlying stream active through the handoff.
 
 Supporting types: `MarketDepth { bids: DepthLevel[]; asks: DepthLevel[]; ltp: number; ltq?: number; timeSec?: UTCSeconds }`, `DepthLevel { price, qty, orders? }`, variable depth, whatever the broker streams. `UnsubscribeFn = () => void`.
 
-`TradeFeed` is the separate, higher-level broker abstraction (`placeOrder` / `modifyOrder` / `cancelOrder` / `subscribeOrders` / `subscribePositions`, taking `PlaceOrder`). The trade tier's `OrderEngine` does **not** use it, it uses the smaller `OrderFeed` (`place` / `modify` / `cancel`) from `openalgo-charts/trade`, which is what `OpenAlgoTradeFeed` implements. See [trading](trading.md).
+`TradeFeed` (`placeOrder` / `modifyOrder` / `cancelOrder` / `subscribeOrders` / `subscribePositions`, taking `PlaceOrder`) is deprecated, removed in 3.0.0 (both types): nothing in the library takes or implements it. The trade tier's `OrderEngine` uses the smaller `OrderFeed` (`place` / `modify` / `cancel`, taking `PlaceRequest`) from `openalgo-charts/trade`, which is what `OpenAlgoTradeFeed` implements, and the chart draws the book a host hands it with `chart.trading.syncState`. `OrderSide` and `OrderType` are one type each: the trade tier's are the base's, re-exported. See [trading](trading.md).
 
 **Verify every OpenAlgo wire field against your running OpenAlgo build.** The adapters below encode the documented REST paths and WS message shapes, and the parsers are deliberately tolerant, but field names have moved between OpenAlgo releases. Pin them for your deployment before production.
 
@@ -68,6 +77,22 @@ const bars = await feed.getBars({
 - **`from` and `to` are mandatory.** `getBars` throws without them: OpenAlgo history requires a date range. They are UTC seconds; the adapter converts to IST `YYYY-MM-DD` via `utcSecondsToIstDateString`. That is the OpenAlgo server's own convention, not the chart's display zone: `chart.setTimezone(...)` does not change what date this adapter asks for, so widen the range by a day rather than assuming the two agree.
 - A non-OK HTTP response throws `history request failed (<status>)`. JSON `status: 'error'` also throws, using its `message` or `OpenAlgo history request failed`, even for HTTP 200.
 - `fetchImpl` is injectable so the adapter is unit-testable offline. The default binds global `fetch` to `globalThis` (an unbound `window.fetch` throws "Illegal invocation").
+
+Symbol search:
+
+```ts
+const hits = await feed.searchSymbols({ query: 'NIFTY', signal });
+// [{ symbol: 'NIFTY', exchange: 'NSE_INDEX', name: 'NIFTY', assetClass: 'Index' },
+//  { symbol: 'NIFTY28OCT26FUT', exchange: 'NFO', name: 'NIFTY', assetClass: 'Futures' },
+//  { symbol: 'NIFTY 28-OCT-26', exchange: 'NFO', assetClass: 'Options',
+//    contractGroup: { label: 'NIFTY 28-OCT-26', contracts: [/* one hit per strike and side */] } }, ...]
+```
+
+- `POST ${baseUrl}/api/v1/search` with `{ apikey, query }` across every exchange, under the same deadline and cancellation as history. A blank query answers `[]` without a request.
+- The platform's ranking is kept, capped at 50 rows. `assetClass` is `Index` on an `*_INDEX` exchange, `Equity` without an expiry, `Options` for a contract whose symbol ends in `CE` or `PE`, else `Futures`.
+- The options of one underlying and expiry on one exchange share a row whose `contractGroup` holds them, so an index search lists expiries rather than hundreds of strikes. An expiry with a single option lists that option itself.
+- A non-OK response throws `symbol search failed (<status>)`; a JSON `status: 'error'` throws its string `message`. Neither carries the key.
+- `OpenAlgoLiveDataFeed.searchSymbols` delegates to its REST adapter.
 
 Two pure helpers are exported for reuse and testing:
 
@@ -118,7 +143,7 @@ Market time uses the first valid positive value in `last_trade_time`, `ltt`, `ex
 
 Symbol and exchange resolve independently from non-empty `data` fields, then top-level envelope fields, then the legacy `topic`. Empty nested identity fields do not hide usable top-level identity. This applies to LTP, Quote and Depth frames.
 
-Callbacks, each returning its own unsubscribe: `onLtp`, `onDepth((symbol, exchange, depth) => {})`, `onState((s: WsState) => {})` with `'connecting' | 'open' | 'closed' | 'error' | 'reconnecting'`, `onControl` for auth/subscribe acks and server errors, `onOrderUpdate` for the account-level order stream.
+Callbacks, each returning its own unsubscribe: `onLtp`, `onDepth((symbol, exchange, depth) => {})`, `onState((s: WsState) => {})` with `'connecting' | 'open' | 'closed' | 'error' | 'reconnecting'`, `onControl` for auth/subscribe acks and server errors, `onOrderUpdate` for the account-level order stream. A callback that throws stops neither the other callbacks nor the feed's own state change (since 2.6.0): its error goes to `reportError` where the platform has one, as on the chart bus. Before, a throw during an auth refusal left the socket open, and a throwing tick listener starved the ones after it.
 
 Reconnect and resubscribe:
 
@@ -332,20 +357,20 @@ feed.stats();          // { entries, bars, hits, misses, evictions }
 | `barCloses` | interval registry | `(interval, barStartSec) => number \| null`. `null` = unknowable, and such a series is not cached at all. |
 | `timezone` | engine default | IANA zone for calendar intervals. |
 
-**A request is a COUNT and an END; coverage is the BARS.** `{ endSec, count }` — "the last `count` bars at or before this instant" — is what the cache reasons in, and `{ from, to }` is adapted onto it (`count = ceil((to - from) / sec)`, `endSec = to`) and answered as a window, so a host that only speaks ranges is unaffected. The entry stores `{ bars, storedAt, nextClose, short?, shortAt? }` and **no requested window**: the left edge is `bars[0]`, the right edge is the close of the last bar, and nothing between them is claimed that is not held. A recorded window let an entry assert coverage over a band it had no bars for and had never been told about, and served `[]` for it from disk.
+**A request is a COUNT and an END; coverage is the BARS.** `{ endSec, count }`, "the last `count` bars at or before this instant", is what the cache reasons in, and `{ from, to }` is adapted onto it (`count = ceil((to - from) / sec)`, `endSec = to`) and answered as a window, so a host that only speaks ranges is unaffected. The entry stores `{ bars, storedAt, nextClose, short?, shortAt? }` and **no requested window**: the left edge is `bars[0]`, the right edge is the close of the last bar, and nothing between them is claimed that is not held. A recorded window let an entry assert coverage over a band it had no bars for and had never been told about, and served `[]` for it from disk.
 
-Why it matters: on a Monday at 1m, `from = now - 2000 * 60` spans a 49-hour weekend and yields **960** bars of the 2000 asked for, and no window a chart holding 960 bars can compute is wide enough to page back over that weekend — so the left edge is a silent dead end. `{ endSec: now, count: 2000 }` yields 2000, and "144 more ending at the oldest bar I painted" walks over the closure by itself.
+Why it matters: on a Monday at 1m, `from = now - 2000 * 60` spans a 49-hour weekend and yields **960** bars of the 2000 asked for, and no window a chart holding 960 bars can compute is wide enough to page back over that weekend, so the left edge is a silent dead end. `{ endSec: now, count: 2000 }` yields 2000, and "144 more ending at the oldest bar I painted" walks over the closure by itself.
 
 **The key is `symbol|exchange|interval`, and what was requested is deliberately not in it.** One entry per series holds the widest set fetched so far, and a narrower request is served by slicing it. Keying on the range would miss on every pan and on every "same chart, one bar later" reload, which is exactly the traffic warm loading is meant to remove.
 
 **Freshness is three gates that must all pass.**
 1. `ttlMs` bounds the TAIL: it fires only for an ask reaching into the last two bar spans, and an expired entry is KEPT rather than deleted.
-2. Left edge: the entry holds `count` bars at or before `endSec` — for a window ask, its oldest bar is not newer than `from`, because a window ending at `now` always has room for one bar that can never be stored — **unless** the entry is `short` and that belief is younger than `ttlMs`.
+2. Left edge: the entry holds `count` bars at or before `endSec`, for a window ask, its oldest bar is not newer than `from`, because a window ending at `now` always has room for one bar that can never be stored, **unless** the entry is `short` and that belief is younger than `ttlMs`.
 3. Right edge: the ask ends before the close of the last bar held, or the bar after it is still forming. Measured on the feed's own bar grid (`nextClose`), not against UTC midnight, so a daily Indian bar opening at 03:45 UTC is judged against its own session.
 
-**`short` is the server's own word for "there is no more" — a BELIEF WITH AN AGE.** Set when the fetch that established the entry's LEFT EDGE asked for more bars than it got back, and it is the only evidence available that no older history exists — a client-side session table is a second source of truth that goes stale every year, differs per product, and cannot know about an unplanned halt. Without it a chart cannot tell "the market was shut here" from "I have never fetched here". It carries `shortAt` and is **re-checked once per `ttlMs`**, because a server clamp or a heal in flight answers short for reasons that pass: an exhausted series costs one probe per TTL, while a transient shortfall costs one TTL of paging instead of the life of the entry. `shortAt` is deliberately not `storedAt` — the tail is revalidated on every new bar, so that clock never grows old — and a tail fetch carries the previous stamp rather than renewing it. Also cleared by any later full answer, a `maxBars` trim (the entry no longer holds the edge it spoke of), `invalidate()`, `clear()` and `prune()`. A merely sparse TAIL answer never sets it.
+**`short` is the server's own word for "there is no more", a BELIEF WITH AN AGE.** Set when the fetch that established the entry's LEFT EDGE asked for more bars than it got back, and it is the only evidence available that no older history exists, a client-side session table is a second source of truth that goes stale every year, differs per product, and cannot know about an unplanned halt. Without it a chart cannot tell "the market was shut here" from "I have never fetched here". It carries `shortAt` and is **re-checked once per `ttlMs`**, because a server clamp or a heal in flight answers short for reasons that pass: an exhausted series costs one probe per TTL, while a transient shortfall costs one TTL of paging instead of the life of the entry. `shortAt` is deliberately not `storedAt`, the tail is revalidated on every new bar, so that clock never grows old, and a tail fetch carries the previous stamp rather than renewing it. Also cleared by any later full answer, a `maxBars` trim (the entry no longer holds the edge it spoke of), `invalidate()`, `clear()` and `prune()`. A merely sparse TAIL answer never sets it.
 
-**An entry is a WINDOW on the newest `maxBars` bars.** It never grows past the cap, and it is never shrunk below it by an older page: a scroll-back past the window is answered from the network and **not cached** — no write, no store traffic, and it cannot take the place of the tail, which is what a reload paints and what a live subscription continues. The only disjoint fetch that still replaces an entry is one landing NEWER than everything it holds, after a long absence.
+**An entry is a WINDOW on the newest `maxBars` bars.** It never grows past the cap, and it is never shrunk below it by an older page: a scroll-back past the window is answered from the network and **not cached**, no write, no store traffic, and it cannot take the place of the tail, which is what a reload paints and what a live subscription continues. The only disjoint fetch that still replaces an entry is one landing NEWER than everything it holds, after a long absence.
 
 **The forming bar is never stored.** This is the rule to carry into any cache you write yourself, not a detail of this one:
 
@@ -356,12 +381,13 @@ So trailing unclosed bars are dropped on store and coverage ends at the last clo
 Other behaviour worth knowing:
 
 - `getBars` passes straight through, uncached, when the request is neither `{ endSec, count }` nor `{ from, to }` (an open-ended ask cannot be reasoned about), or when the interval has no knowable bar close (a tick or Renko series, an unregistered code).
-- A union is judged on the bar grid AND on the ask: a page that *asked* up to the entry's left edge and came back with Friday's bars because the market was shut in between still unions, because that band was answered and answered empty. Only a band nobody asked about breaks the union — and then the fresh page replaces the entry solely when it lands NEWER than it; an older page is answered and not cached, so the entry keeps its tail.
-- `peek({ symbol, exchange, interval, endSec?, count? })` — or `{ from, to }`, or neither — returns `{ bars, version, from, to, storedAt, nextClose, short, shortAt }` and never fetches. `getCachedBars(req)` is the same look in the `DataFeed` shape the shared `DataLoadingController` asks for: the closed bars inside `{ from, to }`, or `undefined`.
+- A union is judged on the bar grid AND on the ask: a page that *asked* up to the entry's left edge and came back with Friday's bars because the market was shut in between still unions, because that band was answered and answered empty. Only a band nobody asked about breaks the union, and then the fresh page replaces the entry solely when it lands NEWER than it; an older page is answered and not cached, so the entry keeps its tail.
+- `peek({ symbol, exchange, interval, endSec?, count? })`, or `{ from, to }`, or neither, returns `{ bars, version, from, to, storedAt, nextClose, short, shortAt }` and never fetches. `getCachedBars(req)` is the same look in the `DataFeed` shape the shared `DataLoadingController` asks for: the closed bars inside `{ from, to }`, or `undefined`.
 - `BarsRequest.noCache: true` bypasses the cached result and refreshes the entry from the source. Honor or forward it in custom wrappers so reconnect recovery cannot reuse history from before the interruption. `CachedBarsRequest` remains available for existing callers.
 - A durable store is optional and best effort: the cache always keeps a bounded in-memory copy, a store that throws costs speed and nothing else, and an entry that fails validation (`BAR_CACHE_VERSION`, coverage that does not match its bars, a tail that has not closed) is deleted and refetched rather than painted. `BarsRequest.signal` cancels: an aborted request neither publishes nor caches.
 - A rejected fetch propagates untouched and leaves the previous entry alone. Nothing is written unless bars arrive.
 - Bars are cloned in and out, because live builders mutate bar objects in place.
+- `searchSymbols` is forwarded the same way, only when the wrapped feed has it.
 - `subscribeBars` and `subscribeDepth` are forwarded **only when the wrapped feed has them**, with every argument, so feature detection still tells a history-only feed from a live one and `OpenAlgoLiveDataFeed`'s third `opts` argument survives the hop. `cache.source` is the wrapped feed.
 - Bounds are LRU on entries **and** on total bars, because one intraday series can be 100k bars and an entry count alone does not bound memory. A single series larger than `maxBars` is simply not cached.
 - `invalidate({ symbol, exchange, interval })` drops one series; `invalidate()` and `clear()` drop everything this instance knows of. With an injected persistent store, keys written by an earlier session are dropped when next read and found expired, not by `clear()`.
@@ -575,17 +601,14 @@ interface DataVariantCapabilities { sessions?; adjustments?; currencies?; units?
   `FakeDataFeed.getBars` and `subscribeBars` refuse the same way, since the synthetic
   feed has one series too, whether it is called directly or through `withBarCache`.
 - **Chart data context.** `ChartDataContext.variant` carries the variant to studies and
-  hosts. Set it with `publishDataContext(chart, context)`, not `chart.setDataContext`:
-  `setDataContext` compares symbol, exchange, interval and OI only, so a change of
-  variant alone would be ignored. The helper passes through an interval-less context so
-  the chart treats the change as a new source (requested bars aborted, source revisions
-  restarted, studies told `'context'`), without changing the instrument, so event
-  markers, linked drawings and news stay. `Instrument.applyTo` keeps the context variant.
-  On that detour the chart emits `data:context` twice (the passing context with its
-  interval cleared, then the real one). The passing context is marked, and requested
-  studies, Tier 2 studies and `AlertController` skip it, so nothing is fetched, reported
-  or saved for it; a host listener sees both and should act on the context current once
-  the call returns.
+  hosts. Set it with `publishDataContext(chart, context)`, which normalizes the variant.
+  Since 2.6.0 `chart.setDataContext` compares the variant too, so a change of variant
+  alone is a new source (requested bars aborted, source revisions restarted, studies told
+  `'context'`) without changing the instrument, so event markers, linked drawings and news
+  stay, and `data:context` fires once. `Instrument.applyTo` keeps the context variant.
+  Before 2.6.0 the chart ignored a variant-only change, and the helper passed through an
+  interval-less context first, marked so the library's own listeners skip it; a host saw
+  two events. The helper still takes that detour for a target that keeps the old variant.
 - **Alerts.** `AlertScope.variant` records a non-default variant (the default adds no
   field); an alert evaluates only on its own variant, and a fixed price is not drawn in
   another currency or unit. See [alerts](alerts.md).

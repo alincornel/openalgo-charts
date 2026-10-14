@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { parseAlertsDocument } from '/dist/openalgo-charts.mjs';
 import { workspaceFromLayout, layoutFromWorkspace, validateReferenceWorkspace } from '../src/workspace-document.js';
+import { primaryLayoutSelection } from '../src/persist.js';
 
 function state(symbol = 'AAPL') {
   return { version: 1, timezone: 'America/New_York', viewport: { from: 4, to: 45 }, barSpacing: 7,
@@ -16,15 +17,20 @@ function state(symbol = 'AAPL') {
   };
 }
 
+/** Options as the box settings dialogs write them. */
+const PF_QUARTER = { mode: 'percent', percent: 0.25, reversal: 2, method: 'close' };
+const RENKO_ATR = { mode: 'atr', atrMultiplier: 1.5, atrPeriod: 14, method: 'hl' };
+const transformKeys = settings => Object.keys(settings).filter(key => key.startsWith('reference.transform.'));
+
 function layout() {
   return { schema: 2, ...state(), dataset: 'AAPL|1d|1y',
     request: { symbol: 'AAPL', interval: '1d', period: '1y', account: 'private' },
-    chartType: 't:point-figure', pfmode: 'percent', volume: false,
+    chartType: 't:point-figure', transforms: { 'point-figure': PF_QUARTER, renko: RENKO_ATR }, volume: false,
     volumeSettings: { 'volume.visible': false, 'volume.showMA': true, 'volume.maPeriod': 14, 'volume.maColor': '#aabbcc' },
     comparisons: [{ symbol: 'MSFT', color: '#abcdef', hidden: true }],
     compareMode: 'indexed-to-100', compareBaseMode: 'logarithmic', focusPane: 2,
     linkOptions: { crosshair: true, viewport: false, symbol: false, interval: true, whenMissing: 'hide' },
-    secondary: { request: { symbol: 'TSLA', interval: '15m', period: '1mo' }, chartType: 'line', pfmode: 'fixed', width: 35,
+    secondary: { request: { symbol: 'TSLA', interval: '15m', period: '1mo' }, chartType: 'line', transforms: { renko: RENKO_ATR }, width: 35,
       state: { ...state('TSLA'), timezone: 'Asia/Kolkata' },
       volumeSettings: { 'volume.visible': true, 'volume.showMA': false },
       comparisons: [{ symbol: 'GOOGL', color: '#123456', hidden: false }], compareMode: 'none', compareBaseMode: 'linear' },
@@ -110,12 +116,37 @@ describe('reference workspace documents', () => {
     const restored = layoutFromWorkspace(document);
     // The layout saved its daily chart over one year, before daily charts loaded five.
     expect(restored).toMatchObject({ request: { symbol: 'AAPL', interval: '1d', period: '5y' },
-      chartType: original.chartType, pfmode: 'percent', timezone: 'America/New_York',
+      chartType: original.chartType, transforms: original.transforms, timezone: 'America/New_York',
       compareMode: 'indexed-to-100', compareBaseMode: 'logarithmic', comparisons: original.comparisons,
       focusPane: 2, linkOptions: original.linkOptions, volume: false, volumeSettings: original.volumeSettings,
       magnet: 'strong', stay: true,
       secondary: { ...original.secondary, volumeSettings: original.secondary.volumeSettings } });
     expect(workspaceFromLayout(restored, { magnet: restored.magnet, stay: restored.stay })).toEqual(document);
+  });
+
+  it('keeps each transform option as a scalar setting of its own and reads it back', () => {
+    const saved = workspaceFromLayout(layout());
+    expect(saved.panes[0].settings).toMatchObject({ 'reference.transform.point-figure.mode': 'percent',
+      'reference.transform.point-figure.percent': 0.25, 'reference.transform.point-figure.reversal': 2,
+      'reference.transform.point-figure.method': 'close', 'reference.transform.renko.atrMultiplier': 1.5 });
+    expect(saved.panes[0].settings).not.toHaveProperty('reference.pfmode');
+    expect(layoutFromWorkspace(saved).transforms).toEqual({ 'point-figure': PF_QUARTER, renko: RENKO_ATR });
+    expect(layoutFromWorkspace(saved).secondary.transforms).toEqual({ renko: RENKO_ATR });
+  });
+
+  it('opens a workspace saved with the old box mode on the options that mode drew', () => {
+    // A layout of the old shape, converted now: its box mode becomes options.
+    const legacy = layout(); delete legacy.transforms; legacy.pfmode = 'fixed';
+    expect(layoutFromWorkspace(workspaceFromLayout(legacy)).transforms)
+      .toEqual({ 'point-figure': { mode: 'fixed', boxSize: 0, reversal: 3, method: 'hl' } });
+    // A workspace stored by the old page holds the mode as a setting.
+    const saved = workspaceFromLayout(layout());
+    for (const key of transformKeys(saved.panes[0].settings)) delete saved.panes[0].settings[key];
+    saved.panes[0].settings['reference.pfmode'] = 'percent';
+    const restored = layoutFromWorkspace(saved);
+    expect(restored.pfmode).toBe('percent');
+    // Every reader of a layout takes the mode through the same migration.
+    expect(primaryLayoutSelection(restored).transforms).toEqual({ 'point-figure': { mode: 'percent', percent: 1, reversal: 3, method: 'hl' } });
   });
 
   it('preserves repeated/custom study identities, styles, grouping and triggered anchored alerts without sharing objects', () => {
@@ -142,7 +173,7 @@ describe('reference workspace documents', () => {
   });
 
   it('supports one chart and legacy dataset recovery without inventing a missing source', () => {
-    const source = layout(); delete source.secondary; delete source.request; delete source.chartType; delete source.pfmode;
+    const source = layout(); delete source.secondary; delete source.request; delete source.chartType; delete source.transforms;
     const saved = workspaceFromLayout(source);
     expect(saved.panes).toHaveLength(1);
     // The legacy key names a daily year, which opens at the five year daily floor.
@@ -192,7 +223,12 @@ describe('reference workspace documents', () => {
     pane => { pane.chart.timezone = 'Unknown/Zone'; },
     pane => { pane.exchange = 'unsupported-exchange'; },
     pane => { pane.comparisons[0].exchange = 'unsupported-exchange'; },
-    pane => { pane.settings['reference.pfmode'] = 'unknown'; },
+    pane => { for (const key of transformKeys(pane.settings)) delete pane.settings[key]; pane.settings['reference.pfmode'] = 'unknown'; },
+    pane => { pane.settings['reference.transform.point-figure.mode'] = 'cubic'; },
+    pane => { pane.settings['reference.transform.point-figure.reversal'] = 0; },
+    pane => { pane.settings['reference.transform.renko.reversal'] = 3; },
+    pane => { pane.settings['reference.transform.kagi.reversal'] = 2; },
+    pane => { pane.settings['reference.transform.__proto__.mode'] = 'fixed'; },
     pane => { pane.settings['reference.compareMode'] = 'unknown'; },
     pane => { pane.settings['reference.futureOption'] = true; },
     pane => { pane.settings['volume.maPeriod'] = 0; },

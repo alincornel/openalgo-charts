@@ -17,8 +17,8 @@
  * paints the inside of those marks and leaves the outline to the frame.
  */
 import {
-  CHROME_ICON_ACCENTS, CHROME_ICON_ATTRS, CHROME_ICON_FILLED,
-  DRAWING_TOOL_ACCENTS, DRAWING_TOOL_ICONS, ICON_ATTRS, ICON_STROKE,
+  CHROME_ICON_ACCENTS, CHROME_ICON_ATTRS, CHROME_ICON_FILLED, CHROME_ICON_SIZE,
+  DRAWING_TOOL_ACCENTS, DRAWING_TOOL_ICONS, ICON_ATTRS, ICON_SIZE,
   chromeIcon, drawingToolIcon, type IconAttrs,
 } from './icons';
 
@@ -31,8 +31,8 @@ export const ICON_SYMBOL_PREFIX = 'oac-icon-';
 export interface IconSvgOptions {
   /**
    * Width and height. A number is CSS pixels; a string is written verbatim, so
-   * `'1em'` sizes the glyph with the surrounding text. Default: the grid's
-   * native size (24 for tools, 16 for chrome), where the stroke is crispest.
+   * `'1em'` sizes the glyph with the surrounding text. Default: the size the
+   * tier is drawn for (`ICON_SIZE` for tools, `CHROME_ICON_SIZE` for chrome).
    */
   size?: number | string;
   /** Stroke width in viewBox units. Default: the tier's `*_STROKE`. */
@@ -95,11 +95,12 @@ function gridOf(attrs: IconAttrs): number {
  * nowhere else, so overriding the stroke once changes every glyph.
  */
 function frame(inner: string, attrs: IconAttrs, fill: string, opts: IconSvgOptions): string {
+  const drawnFor = attrs === CHROME_ICON_ATTRS ? CHROME_ICON_SIZE : ICON_SIZE;
   // Every interpolated value is escaped, including the ones that come from the
   // registry rather than the caller. `opts.stroke` is typed `number`, but a
   // JavaScript host is not held to that, and one escaped attribute beside four
   // unescaped ones is the shape a later edit gets wrong.
-  const size = attr(opts.size ?? gridOf(attrs));
+  const size = attr(opts.size ?? drawnFor);
   const stroke = attr(opts.stroke ?? attrs.strokeWidth);
   const cls = opts.className !== undefined && opts.className !== ''
     ? ` class="${attr(opts.className)}"` : '';
@@ -159,11 +160,18 @@ export function iconUse(id: string, opts: IconSvgOptions = {}): string {
   return frame(`<use href="#${attr(ICON_SYMBOL_PREFIX + id)}"/>`, ICON_ATTRS, ICON_ATTRS.fill, opts);
 }
 
+/**
+ * The cursor's line, in grid units. Heavier than the rail's on purpose: a
+ * cursor sits over candles, grid lines and other drawings rather than on a
+ * quiet panel, where a line as fine as the rail's would be lost.
+ */
+const CURSOR_STROKE = 2;
+
 /** Black or white, whichever a hex colour will stand out against. */
 function contrastOf(color: string): string {
   const m = /^#([0-9a-f]{3,8})$/i.exec(color.trim());
   if (!m) return '#000';
-  const hex = m[1];
+  const hex = m[1]!; // the one group is in every match
   // Short forms double each digit; alpha, when present, does not affect luminance.
   const wide = hex.length < 6 ? hex.split('').map((c) => c + c).join('') : hex;
   const r = parseInt(wide.slice(0, 2), 16);
@@ -194,7 +202,7 @@ export function toolCursor(id: string, opts: ToolCursorOptions = {}): string {
   // One CSS pixel is this many grid units at the requested size; the halo
   // clears the glyph by a pixel on each side.
   const unit = gridOf(ICON_ATTRS) / size;
-  const haloWidth = Math.round((ICON_STROKE + 2 * unit) * 100) / 100;
+  const haloWidth = Math.round((CURSOR_STROKE + 2 * unit) * 100) / 100;
   // The glyph's path outlines its marks, so the halo around it clears the
   // dots and heads as well, and a dot keeps its edge on a chart of its own
   // colour. The accent then fills the marks in the glyph's colour, so the
@@ -203,7 +211,7 @@ export function toolCursor(id: string, opts: ToolCursorOptions = {}): string {
   const svg = `<svg xmlns="${XMLNS}" viewBox="${ICON_ATTRS.viewBox}" width="${size}" height="${size}"`
     + ` fill="none" stroke-linecap="${ICON_ATTRS.strokeLinecap}" stroke-linejoin="${ICON_ATTRS.strokeLinejoin}">`
     + `<path d="${d}" stroke="${attr(halo)}" stroke-width="${haloWidth}"/>`
-    + `<path d="${d}" stroke="${attr(color)}" stroke-width="${ICON_STROKE}"/>`
+    + `<path d="${d}" stroke="${attr(color)}" stroke-width="${CURSOR_STROKE}"/>`
     + (accent === undefined ? '' : `<path d="${accent}" fill="${attr(color)}"/>`)
     + '</svg>';
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${Math.round(hx)} ${Math.round(hy)}, ${fallback}`;

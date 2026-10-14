@@ -84,6 +84,59 @@ describe('default candle density', () => {
     expect(counted.chart.getVisibleLogicalRange()).toEqual({ from: 149, to: 203 });
     expect(spaced.chart.timeScale.barSpacing).toBe(12);
   });
+
+  it('drags time alone by default, so a wheel zoom after a drag still fits the price', () => {
+    // A drag that also moved price switched the pane to manual scaling, and
+    // every zoom after it left bars off the pane until auto was pressed again.
+    expect(make().w.chart.navigationOptions().mousePan).toBe('horizontal');
+    const both = make({ navigation: { mousePan: 'both' } }).w;
+    expect(both.chart.navigationOptions().mousePan).toBe('both');
+    const counted = make({ navigation: { defaultVisibleBars: 50 } }).w;
+    expect(counted.chart.navigationOptions().mousePan).toBe('horizontal');
+  });
+
+  it('leaves the drag to the widget for a layout saved before 2.6.3, and keeps one chosen since', () => {
+    // 2.6.2 wrote mousePan: 'both' into every chart state, chosen or not.
+    const old = make().w.getState();
+    const { savedBy, ...unstamped } = old;
+    expect(typeof savedBy).toBe('string');
+    const legacy = { ...unstamped, chart: { ...unstamped.chart, navigation: { ...unstamped.chart.navigation, mousePan: 'both' as const } } };
+    const a = make().w;
+    a.restoreState(legacy);
+    expect(a.chart.navigationOptions().mousePan).toBe('horizontal');
+    // Saved by this release, 'both' was somebody's choice.
+    const b = make().w;
+    b.restoreState({ ...legacy, savedBy: '2.6.3' });
+    expect(b.chart.navigationOptions().mousePan).toBe('both');
+    // And a host that asked for 'both' gets it from an old layout too.
+    const c = make({ navigation: { mousePan: 'both' } }).w;
+    c.restoreState(legacy);
+    expect(c.chart.navigationOptions().mousePan).toBe('both');
+    // A host that asked for 'horizontal' does not lose it to the recorded default.
+    const d = make({ navigation: { mousePan: 'horizontal' } }).w;
+    d.restoreState(legacy);
+    expect(d.chart.navigationOptions().mousePan).toBe('horizontal');
+  });
+
+  it('leaves the drag to the widget for a layout saved before 2.6.3 when a reload restores it', () => {
+    // A reload restores the persisted layout by its own path, not restoreState.
+    const { savedBy: _stamp, ...unstamped } = make().w.getState();
+    const legacy = { ...unstamped, chart: { ...unstamped.chart, navigation: { ...unstamped.chart.navigation, mousePan: 'both' as const } } };
+    const reload = (state: object, opts: WidgetOptions = {}): string | undefined => {
+      const store = new MemoryStorage();
+      store.setItem(`${STORAGE_PREFIX}default:${STATE_KEY}`, JSON.stringify(state));
+      return make({ persist: true, storage: store, ...opts }).w.chart.navigationOptions().mousePan;
+    };
+    expect(reload(legacy)).toBe('horizontal');
+    expect(reload(legacy, { navigation: { mousePan: 'horizontal' } })).toBe('horizontal');
+    expect(reload(legacy, { navigation: { mousePan: 'both' } })).toBe('both');
+    expect(reload({ ...legacy, savedBy: '2.6.3' })).toBe('both');
+  });
+
+  it('zooms about the latest bar by default, and about the cursor when the host asks', () => {
+    expect((make().w.chart as unknown as { _zoomAnchor: string })._zoomAnchor).toBe('right');
+    expect((make({ zoomAnchor: 'cursor' }).w.chart as unknown as { _zoomAnchor: string })._zoomAnchor).toBe('cursor');
+  });
 });
 
 describe('the frame', () => {
@@ -629,6 +682,18 @@ describe('overlays', () => {
     w.context.overlays.closeAll();
     expect(root.querySelector('.oac-scrim')).toBeNull();
   });
+
+  it('keeps closing popovers on an outside press when one onClose closes an older one', () => {
+    const { w, doc } = make();
+    const panel = (): HTMLElement => doc.createElement('div') as unknown as HTMLElement;
+    const closeFirst = w.context.openOverlay(panel(), { placement: 'below' });
+    w.context.openOverlay(panel(), { placement: 'below' });
+    // The newest takes the oldest with it, the way a submenu can close the chain it opened from.
+    w.context.openOverlay(panel(), { placement: 'below', onClose: closeFirst });
+    expect(w.context.overlays.size()).toBe(3);
+    expect(() => fire(doc.body, 'pointerdown')).not.toThrow();
+    expect(w.context.overlays.size()).toBe(0);
+  });
 });
 
 describe('dialogs and the toolbar', () => {
@@ -671,7 +736,7 @@ describe('dialogs and the toolbar', () => {
   it('captures the chart as PNG through the engine and as SVG through a download', () => {
     const { w, root } = make();
     w.series.setData(bars(10));
-    const png = vi.spyOn(w.chart, 'downloadScreenshot').mockImplementation(() => {});
+    const png = vi.spyOn(w.chart, 'takeScreenshot').mockReturnValue({ toDataURL: () => 'data:image/png;base64,' } as unknown as HTMLCanvasElement);
     const svg = vi.spyOn(w.chart, 'exportSVG');
     const capture = root.querySelector('.oac-topbar .oac-btn[aria-label="Capture chart"]') as FakeElement;
     capture.click();
@@ -681,7 +746,7 @@ describe('dialogs and the toolbar', () => {
     expect(rows[2].getAttribute('aria-disabled')).toBe('true');
     rows[0].click();
     expect(png).toHaveBeenCalledTimes(1);
-    expect(png.mock.calls[0][0]).toMatch(/^chart-1d-.*\.png$/);
+    expect(root.querySelector('.oac-statusline__msg')?.textContent).toBe('Saved a PNG of the chart');
     capture.click();
     root.querySelectorAll('.oac-menu .oac-menu__row')[1].click();
     expect(svg).toHaveBeenCalledTimes(1);
@@ -722,7 +787,7 @@ describe('dialogs and the toolbar', () => {
       fire(input, 'input');
       expect(search).not.toHaveBeenCalled();
       vi.advanceTimersByTime(200);
-      expect(search).toHaveBeenCalledWith('hdfc');
+      expect(search).toHaveBeenCalledWith('hdfc', { signal: expect.any(AbortSignal) });
       return Promise.resolve().then(() => {
         const rows = root.querySelectorAll('.oac-sym__results .oac-menu__row');
         expect(rows).toHaveLength(2);

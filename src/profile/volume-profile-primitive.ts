@@ -10,6 +10,7 @@
  */
 import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, ZOrder } from 'openalgo-charts';
 import type { VolumeProfileFamilyResult, VolumeProfileSessionResult } from './volume-profile-family';
+import { sessionsPriceRange } from './profile-model';
 
 export type VolumeDisplayMode = 'total' | 'buySell' | 'delta';
 export type VolumeProfileSide = 'left' | 'right';
@@ -22,7 +23,7 @@ export type VolumeProfileSide = 'left' | 'right';
  *
  * `pane` measures from the pane's edge in PIXELS, ignoring time entirely, so
  * the profile sits flush against the price axis and holds still. That is what a
- * visible-range profile wants — its "session" is the viewport, and anchoring it
+ * visible-range profile wants, its "session" is the viewport, and anchoring it
  * to the last bar leaves a gap wherever the chart carries a right-hand offset.
  */
 export type VolumeProfileAnchor = 'session' | 'pane';
@@ -46,7 +47,7 @@ export type VolumeProfileDock = 'none' | 'left' | 'right';
 
 export interface VolumeProfilePrimitiveOptions {
   displayMode: VolumeDisplayMode;
-  /** Which edge the bars grow out of — see `anchorTo` for WHICH edge that is. */
+  /** Which edge the bars grow out of, see `anchorTo` for WHICH edge that is. */
   side: VolumeProfileSide;
   /** Measure `side` from the session's time span (default) or the pane. */
   anchorTo: VolumeProfileAnchor;
@@ -120,15 +121,7 @@ export class VolumeProfile implements IPrimitive {
   public zOrder(): ZOrder { return this._opts.zOrder; }
 
   public autoscaleInfo(): { min: number; max: number } | null {
-    if (this._result === null) return null;
-    let min = Infinity;
-    let max = -Infinity;
-    for (const s of this._result.sessions) {
-      if (s.levels.length === 0) continue;
-      max = Math.max(max, s.levels[0].price);
-      min = Math.min(min, s.levels[s.levels.length - 1].price);
-    }
-    return Number.isFinite(min) ? { min, max } : null;
+    return this._result === null ? null : sessionsPriceRange(this._result.sessions);
   }
 
   public setData(result: VolumeProfileFamilyResult): void {
@@ -180,7 +173,7 @@ export class VolumeProfile implements IPrimitive {
     // The baseline the bars grow out of, and the tip they grow towards. With
     // `anchorTo: 'pane'` the baseline is the pane's own edge in device px, so
     // the band ignores where the session's bars happen to fall and stays put
-    // under a pan — the price axis starts at `plotWidth`, so that IS the right
+    // under a pan, the price axis starts at `plotWidth`, so that IS the right
     // edge of the drawable area and nothing is clipped by or drawn over it.
     //
     // A `dock` is that same pane measurement with two differences: the dock
@@ -241,7 +234,7 @@ export class VolumeProfile implements IPrimitive {
     // A pane-anchored band can sit outside the session's own time span, so the
     // line is stretched to reach it: a POC line that stops short of the row it
     // marks reads as a different level. And `labelSide` is meaningless under a
-    // pane anchor — one side of the band IS the price axis — so the label hangs
+    // pane anchor, one side of the band IS the price axis, so the label hangs
     // off the bars' tip, the only side with room. Session anchoring keeps
     // honouring the option, unchanged.
     //

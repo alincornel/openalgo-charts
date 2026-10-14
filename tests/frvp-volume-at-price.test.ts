@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { getDrawingTool, registerBuiltinDrawingTools } from '../src/draw/tools';
+import { registerBuiltinDrawingTools } from '../src/draw/tools';
+import { getDrawingTool } from '../src/draw/registry';
 import { fixedRangeVolumeProfileFromLevels } from '../src/draw/analysis';
 import type { Bar, PrimitiveRenderContext } from '../src';
 import type { Drawing, VolumeAtPriceSource } from '../src/draw/types';

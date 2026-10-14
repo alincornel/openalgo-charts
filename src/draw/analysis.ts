@@ -46,11 +46,16 @@ export function analysisNumber(value: unknown, fallback: number, min: number, ma
   return typeof value === 'number' && Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback;
 }
 
-function bound(bars: readonly Bar[], time: number, upper = false): number {
+/**
+ * In time-sorted `bars`, the index of the first bar at or after `time`, or
+ * with `upper` the first after it: a window found without scanning the
+ * loaded history around it.
+ */
+export function timeBound(bars: readonly { time: number }[], time: number, upper = false): number {
   let lo = 0, hi = bars.length;
   while (lo < hi) {
     const mid = (lo + hi) >>> 1;
-    if (upper ? bars[mid].time <= time : bars[mid].time < time) lo = mid + 1;
+    if (upper ? bars[mid]!.time <= time : bars[mid]!.time < time) lo = mid + 1; // mid < hi <= length
     else hi = mid;
   }
   return lo;
@@ -80,11 +85,11 @@ export function anchoredVwapAnalysis(
 ): AnchoredVwapResult {
   const result: AnchoredVwapResult = { status: 'empty', historyPartial: false, points: [], missingVolumeBars: 0, invalidPriceBars: 0 };
   if (!Number.isFinite(anchorTime)) return result;
-  result.historyPartial = bars.length > 0 && anchorTime < bars[0].time;
-  const start = bound(bars, anchorTime);
+  result.historyPartial = bars.length > 0 && anchorTime < bars[0]!.time;
+  const start = timeBound(bars, anchorTime);
   let weight = 0, scale = 0, origin = 0, mean = 0, m2 = 0, gap = false;
   for (let i = start; i < bars.length; i++) {
-    const bar = bars[i], volume = bar.volume;
+    const bar = bars[i]!, volume = bar.volume; // i is in range
     if (volume === undefined || !Number.isFinite(volume) || volume < 0) {
       result.missingVolumeBars++; gap = true; continue;
     }
@@ -130,11 +135,11 @@ export function fixedRangeVolumeProfileAnalysis(
     missingVolumeBars: 0, invalidPriceBars: 0,
   };
   if (!Number.isFinite(fromTime) || !Number.isFinite(toTime)) return result;
-  result.historyPartial = bars.length > 0 && Math.min(fromTime, toTime) < bars[0].time;
-  const start = bound(bars, Math.min(fromTime, toTime)), end = bound(bars, Math.max(fromTime, toTime), true);
+  result.historyPartial = bars.length > 0 && Math.min(fromTime, toTime) < bars[0]!.time;
+  const start = timeBound(bars, Math.min(fromTime, toTime)), end = timeBound(bars, Math.max(fromTime, toTime), true);
   let low = Infinity, high = -Infinity, compensation = 0;
   for (let i = start; i < end; i++) {
-    const bar = bars[i], volume = bar.volume;
+    const bar = bars[i]!, volume = bar.volume; // end <= length
     if (volume === undefined || !Number.isFinite(volume) || volume < 0) { result.missingVolumeBars++; continue; }
     const lo = bar.low, hi = bar.high;
     if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi < lo) { result.invalidPriceBars++; continue; }
@@ -152,53 +157,56 @@ export function fixedRangeVolumeProfileAnalysis(
   const boundaries = [low];
   for (let i = 1; i < requested; i++) {
     const edge = low + (high - low) * (i / requested);
-    if (edge > boundaries[boundaries.length - 1] && edge < high) boundaries.push(edge);
+    if (edge > boundaries[boundaries.length - 1]! && edge < high) boundaries.push(edge); // never empty
   }
   boundaries.push(high);
   const count = boundaries.length - 1, step = (high - low) / count;
-  const edges = (i: number): number => boundaries[i];
+  // Rows are 0..count-1 and their edges 0..count, and every index below is one
+  // of them: a row found by `index`, a loop bound, or a step toward the peak's
+  // neighbours that the loop condition allows.
+  const edges = (i: number): number => boundaries[i]!;
   const volumes = new Float64Array(count), changes = new Float64Array(count + 1);
   const index = (price: number): number => {
     let lo = 0, hi = count;
     while (lo < hi) {
       const mid = (lo + hi + 1) >>> 1;
-      if (boundaries[mid] <= price) lo = mid;
+      if (boundaries[mid]! <= price) lo = mid;
       else hi = mid - 1;
     }
     return Math.min(count - 1, lo);
   };
   for (let i = start; i < end; i++) {
-    const bar = bars[i], v = bar.volume, lo = bar.low, hi = bar.high;
+    const bar = bars[i]!, v = bar.volume, lo = bar.low, hi = bar.high;
     if (v === undefined || !Number.isFinite(v) || v <= 0 || !Number.isFinite(lo) || !Number.isFinite(hi) || hi < lo) continue;
     // Normalized weights avoid overflowing an interior-row density when the
     // total volume is finite but prices have very narrow representable ranges.
     const weight = v / result.totalVolume;
     const first = index(lo), last = index(hi);
-    if (first === last) { volumes[first] += weight; continue; }
+    if (first === last) { volumes[first]! += weight; continue; }
     const span = hi - lo;
-    volumes[first] += weight * ((edges(first + 1) - lo) / span);
-    volumes[last] += weight * ((hi - edges(last)) / span);
+    volumes[first]! += weight * ((edges(first + 1) - lo) / span);
+    volumes[last]! += weight * ((hi - edges(last)) / span);
     if (last > first + 1) {
       const interior = weight * (step / span);
-      changes[first + 1] += interior; changes[last] -= interior;
+      changes[first + 1]! += interior; changes[last]! -= interior;
     }
   }
   let running = 0, peak = 0;
   for (let i = 0; i < count; i++) {
-    running += changes[i];
+    running += changes[i]!;
     const interior = count === 1 ? 0 : running * ((edges(i + 1) - edges(i)) / step);
-    volumes[i] = Math.max(0, Math.min(1, volumes[i] + interior)) * result.totalVolume;
-    if (volumes[i] > volumes[peak]) peak = i;
-    result.rows.push({ low: edges(i), high: edges(i + 1), volume: volumes[i], valueArea: false });
+    volumes[i] = Math.max(0, Math.min(1, volumes[i]! + interior)) * result.totalVolume;
+    if (volumes[i]! > volumes[peak]!) peak = i;
+    result.rows.push({ low: edges(i), high: edges(i + 1), volume: volumes[i]!, valueArea: false });
   }
-  let left = peak, right = peak, area = volumes[peak];
+  let left = peak, right = peak, area = volumes[peak]!;
   const target = result.totalVolume * (analysisNumber(options.valueArea, 70, 1, 100) / 100);
   while (area < target && (left > 0 || right < count - 1)) {
-    const below = left > 0 ? volumes[left - 1] : -1, above = right < count - 1 ? volumes[right + 1] : -1;
-    if (below >= above) area += volumes[--left];
-    else area += volumes[++right];
+    const below = left > 0 ? volumes[left - 1]! : -1, above = right < count - 1 ? volumes[right + 1]! : -1;
+    if (below >= above) area += volumes[--left]!;
+    else area += volumes[++right]!;
   }
-  for (let i = left; i <= right; i++) result.rows[i].valueArea = true;
+  for (let i = left; i <= right; i++) result.rows[i]!.valueArea = true;
   result.poc = edges(peak) / 2 + edges(peak + 1) / 2;
   result.valueAreaLow = edges(left); result.valueAreaHigh = edges(right + 1);
   return result;
@@ -235,8 +243,8 @@ export function fixedRangeVolumeProfileFromLevels(
     // One row per traded price, centred on it: the profile shows exactly the
     // prices that traded, and a row with no price in it would be a hole, not
     // a quiet price. Edges sit halfway between neighbours.
-    const gap = prices.length > 1 ? Math.min(...prices.slice(1).map((p, i) => p - prices[i])) : 1;
-    edges = [prices[0] - gap / 2, ...prices.slice(1).map((p, i) => (p + prices[i]) / 2), prices[prices.length - 1] + gap / 2];
+    const gap = prices.length > 1 ? Math.min(...prices.slice(1).map((p, i) => p - prices[i]!)) : 1;
+    edges = [prices[0]! - gap / 2, ...prices.slice(1).map((p, i) => (p + prices[i]!) / 2), prices[prices.length - 1]! + gap / 2];
   } else {
     const step = (high - low) / requested;
     edges = Array.from({ length: requested + 1 }, (_, i) => (i === requested ? high : low + step * i));
@@ -247,26 +255,26 @@ export function fixedRangeVolumeProfileFromLevels(
     let lo = 0, hi = count - 1;
     while (lo < hi) {
       const mid = (lo + hi + 1) >> 1;
-      if (edges[mid] <= price) lo = mid; else hi = mid - 1;
+      if (edges[mid]! <= price) lo = mid; else hi = mid - 1;
     }
     return lo;
   };
-  for (const level of valid) volumes[rowOf(level.price)] += level.volume;
+  for (const level of valid) { const r = rowOf(level.price); volumes[r] = volumes[r]! + level.volume; }
   let peak = 0;
   for (let i = 0; i < count; i++) {
-    result.rows.push({ low: edges[i], high: edges[i + 1], volume: volumes[i], valueArea: false });
-    if (volumes[i] > volumes[peak]) peak = i;
+    result.rows.push({ low: edges[i]!, high: edges[i + 1]!, volume: volumes[i]!, valueArea: false });
+    if (volumes[i]! > volumes[peak]!) peak = i;
   }
   const target = result.totalVolume * analysisNumber(options.valueArea, 70, 1, 100) / 100;
-  let left = peak, right = peak, area = volumes[peak];
+  let left = peak, right = peak, area = volumes[peak]!;
   while (area < target && (left > 0 || right < count - 1)) {
-    const below = left > 0 ? volumes[left - 1] : -1, above = right < count - 1 ? volumes[right + 1] : -1;
-    if (below >= above) area += volumes[--left];
-    else area += volumes[++right];
+    const below = left > 0 ? volumes[left - 1]! : -1, above = right < count - 1 ? volumes[right + 1]! : -1;
+    if (below >= above) area += volumes[--left]!;
+    else area += volumes[++right]!;
   }
-  for (let i = left; i <= right; i++) result.rows[i].valueArea = true;
-  result.poc = (result.rows[peak].low + result.rows[peak].high) / 2;
-  result.valueAreaLow = result.rows[left].low;
-  result.valueAreaHigh = result.rows[right].high;
+  for (let i = left; i <= right; i++) result.rows[i]!.valueArea = true;
+  result.poc = (result.rows[peak]!.low + result.rows[peak]!.high) / 2;
+  result.valueAreaLow = result.rows[left]!.low;
+  result.valueAreaHigh = result.rows[right]!.high;
   return result;
 }

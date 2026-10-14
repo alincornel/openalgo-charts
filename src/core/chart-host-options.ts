@@ -8,12 +8,21 @@
  * collaborators read one field rather than five, and upstream's own chart.ts
  * carries as little of the fork as it can.
  */
-import type { ChartOptions } from './chart-types';
 
 /** The two the host may change after construction, through `applyOptions`. */
 export interface ChartHostRuntimeOptions {
-  touchTargets?: boolean | number;
-  lastPriceLineExtent?: 'full' | 'fromLastBar';
+  touchTargets?: boolean | number | undefined;
+  lastPriceLineExtent?: 'full' | 'fromLastBar' | undefined;
+}
+
+/**
+ * The slice of `ChartOptions` resolved here, declared structurally so this
+ * module imports nothing and stays out of the chart's type import cycles.
+ */
+export interface ChartHostOptionsInput extends ChartHostRuntimeOptions {
+  priceTickCount?: number | undefined;
+  indicatorLevelAxisLabels?: boolean | undefined;
+  wheelZoomSensitivity?: number | undefined;
 }
 
 export interface ChartHostOptions {
@@ -26,7 +35,7 @@ export interface ChartHostOptions {
   readonly wheelZoomSensitivity: number;
 }
 
-export function resolveChartHostOptions(options: ChartOptions): ChartHostOptions {
+export function resolveChartHostOptions(options: ChartHostOptionsInput): ChartHostOptions {
   return {
     // Unset means the axis picks a count from its plot height; an explicit
     // value is a hard cap for hosts that want a denser or sparser ladder.

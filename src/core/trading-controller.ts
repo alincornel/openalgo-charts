@@ -10,6 +10,9 @@ import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, ZOrder } from '
 import { PriceLine, type PriceLineOptions, type PriceLinePillSegment } from '../primitives/price-line';
 import type { TickSchedule } from '../feed/tick-schedule';
 import { contrastText, roundRectPath } from '../render/pill';
+import { dispatch } from '../helpers/dispatch';
+import type { ChartEventMap } from './chart-events';
+import type { LooseOptional } from '../helpers/types';
 
 export type PositionSide = 'long' | 'short';
 export type TradingOrderSide = 'buy' | 'sell';
@@ -102,6 +105,20 @@ export interface TradingSyncPayload {
   trades?: TradingTrade[];
 }
 
+/** Payload of `trading:order_modify`: an order line was dragged and released. */
+export interface TradingOrderModifyEvent {
+  orderId: string;
+  newPrice: number;
+  previousPrice: number;
+}
+
+/** Payload of `trading:bracket_modify`: a take-profit or stop-loss leg was dragged and released. */
+export interface TradingBracketModifyEvent {
+  parentId: string | undefined;
+  bracketRole: 'tp' | 'sl';
+  newPrice: number;
+}
+
 export interface TradingColors {
   long: string;
   short: string;
@@ -138,8 +155,8 @@ export interface TradingHost {
   /**
    * Optional: the instrument's tick schedule when the layer is built. The
    * layer is built on first use, often after the instrument was applied, and
-   * applying one cannot build the layer early: its click and drag
-   * subscriptions would replace the host's own.
+   * applying one does not build it early: building it subscribes to drags,
+   * which makes every `ns-resize` price line on the chart draggable.
    */
   tickSchedule?(): TickSchedule | null;
 }
@@ -158,7 +175,7 @@ const CLOSE_SUFFIX = '::close';
 /**
  * How long a flatten stays armed after the first tap, in ms.
  *
- * Closing a position is irreversible and the ✕ sits a thumb's width from the
+ * Closing a position is irreversible and the x sits a thumb's width from the
  * one that merely cancels a stop. Long enough to mean it, short enough that an
  * arming tap you walked away from cannot fire later.
  */
@@ -322,7 +339,7 @@ export class TradingController {
   private readonly _dragPrev = new Map<string, number>();
   private _colors: TradingColors = { ...DEFAULT_TRADING_COLORS };
   private _markers: TradeMarkersPrimitive | null = null;
-  /** Position id → when its close was armed, for the two-tap flatten. */
+  /** Position id -> when its close was armed, for the two-tap flatten. */
   private readonly _closeArmed = new Map<string, number>();
   private _ticks: TickSchedule | null;
 
@@ -349,9 +366,10 @@ export class TradingController {
     this._listeners.get(event)?.delete(cb);
   }
 
-  private _emit(event: string, payload: unknown): void {
-    const set = this._listeners.get(event);
-    if (set !== undefined) for (const cb of set) cb(payload);
+  private _emit<K extends keyof ChartEventMap & `trading:${string}`>(event: K, payload: ChartEventMap[K]): void {
+    // A throwing listener runs out its turn here too: this is called from the
+    // chart's pointer handling, and the mirror below is how `chart.on` hears it.
+    dispatch(this._listeners.get(event), payload);
     // Mirror onto the chart's unified bus so `chart.on('trading:...')` works too.
     this._host.emit?.(event, payload);
   }
@@ -423,34 +441,42 @@ export class TradingController {
   }
 
   /**
-   * The money on a position pill, patched onto the live line.
+   * Refresh a position's P&L pill in place, without recreating its line: the
+   * pill reads `pnlText`, then `pnlPercent` in brackets. Either one left out
+   * keeps what the pill showed. The host formats both, since only it knows
+   * the account's currency and how it rounds.
    *
    * This is the path P&L is meant to take: it moves on every print, and a host
    * that pushed it through `syncState` instead re-asserted every stored price
-   * at that rate — which fights a drag in progress. See `_sig`.
-   *
-   * A position draws its money in one of two places, so this writes to
-   * whichever one it is using: the left label on the classic pill, and a
-   * segment on the pill that carries TP/SL/✕ buttons. Patching only the label
-   * left the number frozen on exactly the pills a trader watches, since the
-   * host asks for those buttons whenever a leg is missing.
+   * at that rate, which fights a drag in progress. See `_sig`. A position
+   * draws its money on the classic pill's left label or on a segment of the
+   * pill that carries TP/SL/close buttons, and this writes to whichever it uses.
    */
-  public updatePositionPnl(
-    id: string,
-    unrealizedPnl: number | null,
-    pnlText?: string | null,
-    pnlPercent?: string | null,
-  ): void {
+  public updatePositionPnl(id: string, pnlText?: string, pnlPercent?: string): void;
+  /**
+   * The form that also takes the P&L as a number, which nothing ever read:
+   * the pill shows `pnlText` and `pnlPercent` only. In this form a `null` text
+   * takes the money off the pill (no last trade, an unknown contract), where
+   * `undefined` leaves it alone.
+   *
+   * @deprecated Removed in 3.0.0. Leave the number out: `updatePositionPnl(id, pnlText, pnlPercent)` (since
+   * 2.6.0) sets the same pill.
+   */
+  public updatePositionPnl(id: string, unrealizedPnl: number | null, pnlText?: string | null, pnlPercent?: string | null): void;
+  public updatePositionPnl(id: string, ...args: (string | number | null | undefined)[]): void {
     const cur = this._positions.get(id);
     if (cur === undefined) return;
+    // A text is a string. Anything else first is the unread number of the
+    // deprecated form, including the undefined or null a script host passes
+    // before it has one, and the texts follow it.
+    const [pnlText, pnlPercent] = typeof args[0] === 'string' ? args : args.slice(1);
     // `undefined` means "leave it alone", `null` means "take it off". Without
     // the second, a pill kept its last number forever once the host stopped
-    // being able to price one — no last trade, an unknown contract — and a
+    // being able to price one (no last trade, an unknown contract), and a
     // stale P&L is read as a live one.
     const entity = { ...cur.entity };
-    if (pnlText !== undefined) entity.pnlText = pnlText ?? undefined;
-    if (pnlPercent !== undefined) entity.pnlPercent = pnlPercent ?? undefined;
-    void unrealizedPnl;
+    if (typeof pnlText === 'string') entity.pnlText = pnlText; else if (pnlText === null) delete entity.pnlText;
+    if (typeof pnlPercent === 'string') entity.pnlPercent = pnlPercent; else if (pnlPercent === null) delete entity.pnlPercent;
     // A copy, not a mutation: the entity is the host's own object, and a
     // controller that writes into it makes the host's state disagree with the
     // broker's without the host ever being told.
@@ -498,8 +524,8 @@ export class TradingController {
       /**
        * A line under the finger keeps the price under the finger.
        *
-       * The broker's price is still taken onto the entity — it is what the
-       * next sync after the release draws — but writing it to the primitive
+       * The broker's price is still taken onto the entity, it is what the
+       * next sync after the release draws, but writing it to the primitive
        * mid-drag is the whole of the "dragging jumps" bug: a host re-syncs
        * whenever anything in its payload moves (a position's P&L moves on
        * every tick), the line snapped back to the stored price, and the next
@@ -568,9 +594,9 @@ export class TradingController {
    */
   private _positionSegments(p: TradingPosition, color: string): PriceLinePillSegment[] | undefined {
     // An ARMED close forces the segmented pill even when the host asked for no
-    // buttons. The classic pill draws its ✕ through `closeButton`, which has no
+    // buttons. The classic pill draws its x through `closeButton`, which has no
     // armed state, so the first tap would arm in silence and the finger would
-    // get no sign that anything had happened — the worst possible confirmation.
+    // get no sign that anything had happened, the worst possible confirmation.
     // Once disarmed the pill returns to exactly what it was.
     if (p.tpButton !== true && p.slButton !== true && !this._closeIsArmed(p.id)) return undefined;
     const id = `pos:${p.id}`;
@@ -583,8 +609,8 @@ export class TradingController {
     if (p.tpButton === true) segments.push({ id: `${id}::tp`, text: 'TP', fill: this._colors.tp, minWidth: TOUCH_SEGMENT_W });
     if (p.slButton === true) segments.push({ id: `${id}::sl`, text: 'SL', fill: this._colors.sl, minWidth: TOUCH_SEGMENT_W });
     if (p.readOnly !== true) {
-      // Armed: the ✕ becomes a legible question rather than a symbol, because
-      // a second ✕ would look identical to the first and give the finger no
+      // Armed: the x becomes a legible question rather than a symbol, because
+      // a second x would look identical to the first and give the finger no
       // sign that anything changed.
       const armed = this._closeIsArmed(p.id);
       segments.push(armed
@@ -599,7 +625,7 @@ export class TradingController {
    *
    * The controller sees taps that HIT something; a tap on empty chart is
    * delivered to the host as a `click` with a null id, so the host calls this
-   * — which is also the natural place to call it from a symbol change or a
+   * which is also the natural place to call it from a symbol change or a
    * panel closing. Safe to call when nothing is armed.
    */
   public disarmClose(positionId?: string): void {
@@ -633,7 +659,7 @@ export class TradingController {
       extentFromRight: p.extentFromRight ?? DEFAULT_LINE_EXTENT,
       pillInsetFromRight: DEFAULT_LINE_EXTENT,
       autoscale: p.autoscale ?? DEFAULT_LINE_AUTOSCALE,
-    };
+    } satisfies LooseOptional<PriceLineOptions> as PriceLineOptions; // a line-only position leaves its badge, size and pill undefined, which the line reads as absent
   }
 
   private _orderOpts(o: TradingOrder): PriceLineOptions {
@@ -669,12 +695,12 @@ export class TradingController {
       pillInsetFromRight: DEFAULT_LINE_EXTENT,
       autoscale: o.autoscale ?? DEFAULT_LINE_AUTOSCALE,
       cursor: draggable ? 'ns-resize' : undefined,
-    };
+    } satisfies LooseOptional<PriceLineOptions> as PriceLineOptions; // undefined parts read as absent, as for a position
   }
 
   // ── interaction ─────────────────────────────────────────────────────────────
   private _onClick(externalId: string): void {
-    // Anything that is not the armed ✕ itself puts the confirmation away. An
+    // Anything that is not the armed x itself puts the confirmation away. An
     // armed control the user has moved on from is a trap left on the chart:
     // the next tap in that spot flattens a position he stopped thinking about
     // several actions ago.
@@ -780,7 +806,7 @@ export class TradingController {
     const previousPrice = from ?? cur.entity.price;
     cur.line.setDragGhost(null);
     // The optimistic price goes on a COPY. The entity is the host's own object
-    // — often an element of a memoised array it re-sends — and writing the
+    // often an element of a memoised array it re-sends, and writing the
     // dragged price into it meant a broker that REFUSED the modification had
     // nothing to revert to: the host pushed the same array back and the line
     // stayed where the finger left it, describing an order that does not exist.
@@ -799,7 +825,7 @@ export class TradingController {
    *
    * The line goes back to the price the broker has for it and NOTHING is
    * emitted. A pinch is a zoom, and a zoom must never move an order. Without
-   * this the line stayed where the finger left it for the rest of its life —
+   * this the line stayed where the finger left it for the rest of its life,
    * the releases that end a pinch never reach `_onDragEnd`, so the id would sit
    * in `_dragPrev` forever and every sync would keep declining to correct it.
    */

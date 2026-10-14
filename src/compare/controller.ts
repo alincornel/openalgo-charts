@@ -29,7 +29,7 @@
  * Each comparison owns a scale and baseline. Further instruments use keyed
  * hidden scales so their absolute prices cannot change another source's units.
  */
-import { autoscaleRange, type PriceScale, type PriceScaleMode } from '../scale/price-scale';
+import { scaleAutoscaleRange, type PriceScale, type PriceScaleMode } from '../scale/price-scale';
 import type { PriceScaleId, SeriesApi } from '../model/series';
 import { getChartType, type SeriesType } from '../model/chart-type-registry';
 import type { SeriesStyle } from '../render/series-style';
@@ -206,8 +206,9 @@ export class ComparisonController {
     const existing = before === undefined ? undefined : this._panes.get(before);
     const scaleId = this._scaleIdFor(paneIndex);
     const series = this._chart.addSeries(options.type ?? 'line', { paneIndex, style, priceScaleId: scaleId });
-    // `addSeries` makes a pane that did not exist yet, so the pane is read after it.
-    const entry = existing ?? this._openPane(this._chart.panes()[paneIndex], paneIndex);
+    // `addSeries` makes a pane that did not exist yet, and throws for an index
+    // it cannot make one at, so the pane is read after it.
+    const entry = existing ?? this._openPane(this._chart.panes()[paneIndex]!, paneIndex);
     entry.count++;
     const chart = this._chart;
     let slot = paneIndex;
@@ -537,7 +538,7 @@ export class ComparisonController {
           low = Math.min(low, extents.min); high = Math.max(high, extents.max);
         }
         if (!(low <= high)) continue;
-        const fitted = autoscaleRange(low, high, entry.primary.options.marginTop, entry.primary.options.marginBottom);
+        const fitted = scaleAutoscaleRange(entry.primary.options.mode, low, high, entry.primary.options.marginTop, entry.primary.options.marginBottom);
         const factor = anchor.close / value;
         range.min = Math.min(range.min, fitted.min * factor);
         range.max = Math.max(range.max, fitted.max * factor);
@@ -578,14 +579,15 @@ export class ComparisonController {
     const from = this._chart.dataLayer.indexToTime?.(lo) ?? bars[lo]?.time;
     const to = this._chart.dataLayer.indexToTime?.(hi) ?? bars[hi]?.time;
     if (from === undefined || to === undefined) return [];
+    // Both searches read only below `bars.length`.
     let left = 0, right = bars.length;
     while (left < right) {
       const mid = (left + right) >>> 1;
-      if (bars[mid].time < from) left = mid + 1;
+      if (bars[mid]!.time < from) left = mid + 1;
       else right = mid;
     }
     let end = left;
-    while (end < bars.length && bars[end].time <= to) end++;
+    while (end < bars.length && bars[end]!.time <= to) end++;
     return bars.slice(left, end);
   }
 
@@ -643,6 +645,11 @@ export function existingComparisonHandles(chart: ComparisonChartHost): readonly 
 /**
  * The controller for a chart, created on first use. Use it to change the mode
  * for the whole chart, to list what is on it, or to clear it.
+ *
+ * A chart has one, so a later call returns the same controller, with the `mode`
+ * and `baseline` it passes applied through `setMode` and `setBaseline`. An
+ * attach helper merges a repeated request this way; a controller that owns
+ * state a second owner would fight over (alerts, a replay group) refuses one.
  */
 export function comparisonController(
   chart: ComparisonChartHost,
@@ -652,6 +659,9 @@ export function comparisonController(
   if (controller === undefined) {
     controller = new ComparisonController(chart, options);
     controllers.set(chart, controller);
+  } else {
+    if (options?.mode !== undefined) controller.setMode(options.mode);
+    if (options?.baseline !== undefined) controller.setBaseline(options.baseline);
   }
   return controller;
 }

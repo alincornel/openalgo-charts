@@ -452,9 +452,10 @@ test('primary layout selection is restored before the first history request', as
   await openDemo(page);
   await page.evaluate(async () => {
     const app = (window as any).__oac.app;
-    for (const [id, value] of Object.entries({ symbol: 'TSLA', interval: '15m', period: '1mo', ctype: 't:point-figure', pfmode: 'percent' })) {
+    for (const [id, value] of Object.entries({ symbol: 'TSLA', interval: '15m', period: '1mo', ctype: 't:point-figure' })) {
       (document.getElementById(id) as HTMLInputElement).value = value;
     }
+    app.transforms = { 'point-figure': { mode: 'percent', percent: 0.5, reversal: 2, method: 'close' } };
     await app.load();
     app.chart.setTimezone('America/New_York');
     const source = '/examples/yfinance/src/persist.js'; (await import(source)).persistLayoutNow();
@@ -471,9 +472,10 @@ test('primary layout selection is restored before the first history request', as
     const app = (window as any).__oac.app;
     return { request: app.req, timezone: app.chart.timezone(), type: app.chart.getState().series[0].type,
       selection: (document.getElementById('ctype') as HTMLSelectElement).value,
-      pfmode: (document.getElementById('pfmode') as HTMLSelectElement).value };
+      transform: app.chart.seriesTransform(app.chart.primarySeries()) };
   })).toEqual({ request: { symbol: 'TSLA', interval: '15m', period: '1mo' }, timezone: 'America/New_York',
-    type: 'point-figure', selection: 't:point-figure', pfmode: 'percent' });
+    type: 'point-figure', selection: 't:point-figure',
+    transform: { type: 'point-figure', options: { mode: 'percent', percent: 0.5, reversal: 2, method: 'close' } } });
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   await page.screenshot({ path: info.outputPath('reference-primary-layout-restored.png') });
 });
@@ -962,7 +964,21 @@ test('reference selection survives hover and snapshot menus retain their chart o
   await page.mouse.move(other.x + other.width * 0.4, other.y + other.height * 0.35);
   expect(await page.evaluate(() => (window as any).__oac.app.focusPane)).toBe(2);
   const edge = await page.screenshot({ clip: { x: box.x, y: box.y + 80, width: 3, height: 12 } });
-  const visibleSelection = await page.evaluate(async (encoded) => {
+  // The frame's colour as the page composites it over the chart: read from the
+  // stylesheet, so the check follows the palette rather than pinning one.
+  const frame = await page.evaluate(() => {
+    const channels = (css: string): number[] => {
+      const probe = document.createElement('canvas').getContext('2d')!;
+      probe.fillStyle = css;
+      probe.fillRect(0, 0, 1, 1);
+      return Array.from(probe.getImageData(0, 0, 1, 1).data);
+    };
+    const [r, g, b, a] = channels(getComputedStyle(document.getElementById('chart2')!, '::after').borderTopColor);
+    const [br, bg, bb] = channels(getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#000');
+    const k = a! / 255;
+    return [r! * k + br! * (1 - k), g! * k + bg! * (1 - k), b! * k + bb! * (1 - k)].map(Math.round);
+  });
+  const visibleSelection = await page.evaluate(async ([encoded, want]) => {
     const bytes = Uint8Array.from(atob(encoded), (value) => value.charCodeAt(0));
     const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
     const canvas = document.createElement('canvas');
@@ -973,10 +989,10 @@ test('reference selection survives hover and snapshot menus retain their chart o
     bitmap.close();
     const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
     for (let index = 0; index < pixels.length; index += 4) {
-      if (pixels[index] === 45 && pixels[index + 1] === 212 && pixels[index + 2] === 191) return true;
+      if ([0, 1, 2].every((c) => Math.abs(pixels[index + c]! - want[c]!) <= 4)) return true;
     }
     return false;
-  }, edge.toString('base64'));
+  }, [edge.toString('base64'), frame] as const);
   expect(visibleSelection, 'selected chart border must paint above its canvas').toBe(true);
   await page.screenshot({ path: info.outputPath('reference-selected-chart.png') });
   await page.getByRole('button', { name: 'Chart snapshot', exact: true }).click();
@@ -1556,7 +1572,9 @@ test('reference alerts retain drawing anchors through rebuild and reload', async
     app.price.update({ ...tail, time: tail.time + 86400 });
   });
   await expect.poll(() => page.evaluate(() => (window as any).__oac.app.alerts.list()[0].state)).toBe('triggered');
-  await page.waitForTimeout(350);
+  // Write the layout now rather than waiting out the autosave debounce, which a
+  // loaded machine can stretch past the reload.
+  await page.evaluate(async () => { const path = '/examples/yfinance/src/persist.js'; (await import(path)).persistLayoutNow(); });
   await page.reload();
   await page.waitForFunction(() => (window as any).__oac?.app.alerts?.list().length === 3);
   expect(await page.evaluate(() => (window as any).__oac.app.alerts.list().find((alert: any) => alert.title === 'Reference study').source.instanceId)).toBe(studyId);
@@ -1650,7 +1668,9 @@ test('reference second-chart alerts restore on reload and stay scoped to that ch
   await page.locator('.oac-alert-editor').getByRole('button', { name: 'Save', exact: true }).click();
   expect(await page.evaluate(() => (window as any).__oac.app.alerts.list().length)).toBe(0);
   expect(await page.evaluate(() => (window as any).__oac.app.alerts2.list()[0].scope.symbol)).toBe('MSFT');
-  await page.waitForTimeout(350);
+  // Write the layout now rather than waiting out the autosave debounce, which a
+  // loaded machine can stretch past the reload.
+  await page.evaluate(async () => { const path = '/examples/yfinance/src/persist.js'; (await import(path)).persistLayoutNow(); });
   await page.reload();
   await page.waitForFunction(() => (window as any).__oac?.app.alerts2?.list().length === 1);
   expect(await page.evaluate(() => (window as any).__oac.app.alerts2.list()[0].title)).toBe('Secondary alert');
@@ -1844,8 +1864,11 @@ test('watermark and host branding survive chart-type and profile-mode rebuilds',
     expect(await page.evaluate(() => (window as any).__oac.chart.exportSVG())).toContain('Research');
     await expect(page.getByRole('link', { name: 'Research charts', exact: true })).toBeVisible();
   }
-  await page.getByRole('button', { name: /^P&F box sizing, / }).click();
-  await page.getByRole('menuitemradio', { name: 'P&F: 1% box', exact: true }).click();
+  await page.getByRole('button', { name: 'Point and figure settings', exact: true }).click();
+  await page.getByRole('button', { name: '1%', exact: true }).click();
+  await page.getByRole('button', { name: 'OK', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__oac.chart.seriesTransform((window as any).__oac.chart.primarySeries()).options))
+    .toMatchObject({ mode: 'percent', percent: 1 });
   expect(await page.evaluate(() => (window as any).__oac.chart.watermarkOptions())).toMatchObject({ visible: true, text: 'Research', opacity: 0.2, fontSize: 54 });
   await page.evaluate(() => {
     const { chart } = (window as any).__oac;

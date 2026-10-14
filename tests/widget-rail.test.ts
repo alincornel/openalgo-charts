@@ -73,7 +73,7 @@ describe('building the rail', () => {
     expect(lines.dataset.face).toBe('trend-line');
     expect(lines.dataset.tools?.split(',')).toContain('horizontal-ray');
     expect(lines.getAttribute('aria-label')).toBe(getDrawingTool('trend-line').name);
-    expect(rail.querySelectorAll('.oac-rail__ctl .oac-rail__btn')).toHaveLength(7);
+    expect(rail.querySelectorAll('.oac-rail__ctl .oac-rail__btn')).toHaveLength(8);
     // The sprite lives on the body, once, so a second widget's glyphs still resolve.
     expect(doc.body.children.filter((c) => c.id === 'oac-rail-sprite')).toHaveLength(1);
     make({}, doc);
@@ -330,6 +330,22 @@ describe('the controls block', () => {
     expect(w.draw.canUndo()).toBe(true);
     expect(root.querySelector('.oac-statusline__msg')?.textContent).toBe('Removed 2 drawings');
   });
+
+  it('walks its right-click menus with the arrows, as every other menu in the chrome is walked', () => {
+    const { w, rail, root, doc } = make();
+    addLine(w, 100);
+    const trash = rail.querySelectorAll('.oac-rail__ctl .oac-rail__btn')[4];
+    fire(trash, 'contextmenu');
+    const menu = root.querySelector('.oac-menu') as FakeElement;
+    const rows = root.querySelectorAll('.oac-menu .oac-menu__row');
+    expect(doc.activeElement).toBe(rows[0]);
+    fireKey(menu, 'ArrowDown');
+    expect(doc.activeElement).toBe(rows[1]);
+    fireKey(menu, 'ArrowDown');
+    expect(doc.activeElement).toBe(rows[0]);
+    fireKey(menu, 'ArrowUp');
+    expect(doc.activeElement).toBe(rows[1]);
+  });
 });
 
 describe('keyboard', () => {
@@ -418,6 +434,9 @@ describe('preferences', () => {
     expect(prefs).toEqual({ favorites: ['rectangle'], magnet: 'off', stay: false, last: { shapes: 'circle' } });
     expect(sanitizeRailPrefs(null, RAIL_GROUPS, toolsOf)).toEqual({ favorites: [], magnet: 'off', stay: false, last: {} });
     expect(sanitizeRailPrefs({ magnet: 'weak', stay: true }, RAIL_GROUPS, toolsOf)).toMatchObject({ magnet: 'weak', stay: true });
+    // Folded only for a stored true: a truthy string is not a choice anyone made.
+    expect(sanitizeRailPrefs({ collapsed: true }, RAIL_GROUPS, toolsOf).collapsed).toBe(true);
+    expect(sanitizeRailPrefs({ collapsed: 'yes' }, RAIL_GROUPS, toolsOf)).not.toHaveProperty('collapsed');
   });
 
   it('a restored state re-applies the pins and the magnet', () => {
@@ -431,5 +450,56 @@ describe('preferences', () => {
     b.w.restoreState(state);
     expect(b.w.draw.magnetMode()).toBe('weak');
     expect(b.rail.querySelectorAll('.oac-rail__fav').map((f) => f.dataset.tools)).toEqual(['circle']);
+  });
+});
+
+describe('folding the rail', () => {
+  const tabOf = (root: FakeElement): FakeElement => root.querySelector('.oac-rail-tab') as FakeElement;
+  const fold = (rail: FakeElement): void => { ctl(rail, 'oac-rail__collapse').click(); };
+
+  it('folds behind a tab at the chart edge and comes back from it', () => {
+    const { doc, root, rail } = make();
+    const tab = tabOf(root);
+    expect(tab).toBeTruthy();
+    expect(tab.hidden).toBe(true);
+    expect(rail.classList.contains('is-collapsed')).toBe(false);
+    const button = ctl(rail, 'oac-rail__collapse');
+    button.focus();
+    button.click();
+    expect(rail.classList.contains('is-collapsed')).toBe(true);
+    expect(tab.hidden).toBe(false);
+    // The pressed button is gone, so focus lands on the control that replaced it.
+    expect(doc.activeElement).toBe(tab);
+    tab.click();
+    expect(rail.classList.contains('is-collapsed')).toBe(false);
+    expect(tab.hidden).toBe(true);
+    expect(doc.activeElement).toBe(ctl(rail, 'oac-rail__collapse'));
+  });
+
+  it('closes an open group list as it folds, and keeps the tab out of the chart pointer', () => {
+    const { root, rail } = make();
+    fire(groupBtn(rail, 'shapes'), 'contextmenu');
+    expect(root.querySelector('.oac-fly')).toBeTruthy();
+    fold(rail);
+    expect(root.querySelector('.oac-fly')).toBeFalsy();
+    const down = vi.fn();
+    root.addEventListener('pointerdown', down);
+    fire(tabOf(root), 'pointerdown');
+    expect(down).not.toHaveBeenCalled();
+  });
+
+  it('remembers the fold across a reload and through a saved state', () => {
+    const storage = new MemoryStorage();
+    const a = make({ persist: true, storage });
+    fold(a.rail);
+    const b = make({ persist: true, storage });
+    expect(b.rail.classList.contains('is-collapsed')).toBe(true);
+    expect(tabOf(b.root).hidden).toBe(false);
+    const state = a.w.getState();
+    const c = make();
+    expect(c.rail.classList.contains('is-collapsed')).toBe(false);
+    c.w.restoreState(state);
+    expect(c.rail.classList.contains('is-collapsed')).toBe(true);
+    expect(tabOf(c.root).hidden).toBe(false);
   });
 });

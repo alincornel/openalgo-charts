@@ -1,6 +1,6 @@
 /**
  * Footprint & order flow (ARCHITECTURE.md §6A, Family C). Per-candle bid/ask
- * volume at each price, delta, and imbalance — plus cumulative delta and
+ * volume at each price, delta, and imbalance, plus cumulative delta and
  * stacked-imbalance detection across bars.
  *
  * DATA DEPENDENCY (honest): this needs trade-by-trade data classified bid/ask
@@ -19,6 +19,46 @@ export interface ClassifiedTrade {
   side: 'bid' | 'ask';
 }
 
+/** Options shared by `computeFootprint` and `FootprintAggregator`. */
+export interface FootprintBuildOptions {
+  /**
+   * Count only single prints of at least this raw quantity. Smaller prints still
+   * open their row (it shows zero) and still set the bar's open, high, low and
+   * close, so the ladder keeps its full range. 0, the default, counts every print.
+   */
+  minTradeSize?: number;
+}
+
+/**
+ * The row a price belongs to, as a row index on the `tickSize * rowTicks` grid.
+ *
+ * The price is first put on its tick (half away from zero), then the tick on
+ * its row by round half to even. Rows are centred on multiples of the row size,
+ * so a tick exactly between two row centres has to go one way or the other;
+ * half to even sends alternate boundaries up and down instead of always up,
+ * which keeps a ladder of grouped rows unbiased and matches the reference
+ * order flow tooling this footprint is verified against.
+ */
+function footprintRowIndex(price: number, tickSize: number, rowTicks: number): number {
+  const scaled = price / tickSize;
+  const tick = Math.sign(scaled) * Math.round(Math.abs(scaled));
+  const below = Math.floor(tick / rowTicks);
+  const twice = 2 * (tick - below * rowTicks);
+  return twice > rowTicks || (twice === rowTicks && below % 2 !== 0) ? below + 1 : below;
+}
+
+/** Price at the centre of the row holding `price`, on the same grid as `bucketPrice`. */
+export function footprintRowPrice(price: number, tickSize: number, rowTicks: number): number {
+  return bucketPrice(footprintRowIndex(price, tickSize, rowTicks) * rowTicks * tickSize, tickSize * rowTicks);
+}
+
+/** Internal: validated `minTradeSize`. */
+export function minTradeSizeOf(options: FootprintBuildOptions | undefined): number {
+  const size = options?.minTradeSize ?? 0;
+  if (!Number.isFinite(size) || size < 0) throw new RangeError('Footprint minTradeSize must be nonnegative and finite');
+  return size;
+}
+
 /**
  * Build one bar's footprint from its classified trades.
  *
@@ -32,33 +72,58 @@ export function computeFootprint(
   trades: readonly ClassifiedTrade[],
   tickSize: number,
   rowTicks = 1,
+  options?: FootprintBuildOptions,
 ): FootprintBar {
   const row = footprintRowSize(tickSize, rowTicks);
+  const minSize = minTradeSizeOf(options);
   if (!Number.isFinite(time)) throw new RangeError('Footprint time must be finite');
   for (const trade of trades) validateClassifiedTrade(trade);
   const map = new Map<number, FootprintCell>();
-  let delta = 0, minDelta = 0, maxDelta = 0;
+  const ticks = new Map<number, [number, number]>();
+  let delta = 0, minDelta = 0, maxDelta = 0, counted = 0;
   for (const t of trades) {
-    const price = bucketPrice(t.price, row);
+    const price = footprintRowPrice(t.price, tickSize, rowTicks);
     let cell = map.get(price);
     if (cell === undefined) { cell = { price, bidVol: 0, askVol: 0 }; map.set(price, cell); }
+    addTickVolume(ticks, t, tickSize);
+    if (t.qty < minSize) continue;
+    counted++;
     if (t.side === 'bid') { cell.bidVol += t.qty; delta -= t.qty; }
     else { cell.askVol += t.qty; delta += t.qty; }
     minDelta = Math.min(minDelta, delta);
     maxDelta = Math.max(maxDelta, delta);
   }
   const cells = Array.from(map.values()).sort((a, b) => b.price - a.price);
-  const bar: FootprintBar = { time, cells, delta, minDelta, maxDelta, rowSize: row, tradeCount: trades.length };
+  const bar: FootprintBar = { time, cells, delta, minDelta, maxDelta, rowSize: row, tradeCount: counted };
   if (trades.length > 0) {
-    bar.open = trades[0].price;
-    bar.close = trades[trades.length - 1].price;
-    bar.high = bar.low = trades[0].price;
+    bar.open = trades[0]!.price;
+    bar.close = trades[trades.length - 1]!.price;
+    bar.high = bar.low = trades[0]!.price;
     for (const trade of trades) {
       bar.high = Math.max(bar.high, trade.price);
       bar.low = Math.min(bar.low, trade.price);
     }
+    bar.auction = auctionAt(ticks, bar.high, bar.low, tickSize);
   }
   return bar;
+}
+
+/**
+ * Internal: every print's volume at its own tick, before the size filter. Only
+ * the bar's two extremes are ever read back, for unfinished auctions.
+ */
+export function addTickVolume(ticks: Map<number, [number, number]>, trade: ClassifiedTrade, tickSize: number): void {
+  const key = Math.round(trade.price / tickSize);
+  let at = ticks.get(key);
+  if (at === undefined) { at = [0, 0]; ticks.set(key, at); }
+  at[trade.side === 'bid' ? 0 : 1] += trade.qty;
+}
+
+/** Internal: bid and ask volume of every print at the bar's high and low ticks. */
+export function auctionAt(ticks: ReadonlyMap<number, [number, number]>, high: number, low: number, tickSize: number): NonNullable<FootprintBar['auction']> {
+  const top = ticks.get(Math.round(high / tickSize)) ?? [0, 0];
+  const bottom = ticks.get(Math.round(low / tickSize)) ?? [0, 0];
+  return { highBid: top[0], highAsk: top[1], lowBid: bottom[0], lowAsk: bottom[1] };
 }
 
 export interface Imbalance {
@@ -85,33 +150,57 @@ export function validateClassifiedTrade(trade: ClassifiedTrade): void {
 function observedRowSize(cells: readonly FootprintCell[]): number {
   let row = Infinity;
   for (let i = 1; i < cells.length; i++) {
-    const gap = cells[i - 1].price - cells[i].price;
+    const gap = cells[i - 1]!.price - cells[i]!.price;
     if (gap > 0) row = Math.min(row, gap);
   }
   return row;
 }
 
+function tolerance(upper: number, lower: number, row: number): number {
+  return Math.max(row * 1e-7, Math.max(Math.abs(upper), Math.abs(lower)) * Number.EPSILON * 8);
+}
+
 function adjacent(upper: number, lower: number, row: number): boolean {
-  const tolerance = Math.max(row * 1e-7, Math.max(Math.abs(upper), Math.abs(lower)) * Number.EPSILON * 8);
-  return Number.isFinite(row) && upper > lower && Math.abs(upper - lower - row) <= tolerance;
+  return Number.isFinite(row) && upper > lower && Math.abs(upper - lower - row) <= tolerance(upper, lower, row);
+}
+
+/** More empty rows than this in one gap means the row step is wrong for the bar, not that rows went untraded. */
+export const MAX_EMPTY_ROWS = 1000;
+
+/**
+ * The volume a cell is compared with between `upper` and `lower`: the next row's, or
+ * zero when rows that never traded lie between them inside the bar. Undefined
+ * when the two are closer than a row apart, or further apart than
+ * `MAX_EMPTY_ROWS` rows: either is a grid the row size does not describe, so
+ * nothing is compared.
+ */
+function across(upper: number, lower: number, row: number, volume: number): number | undefined {
+  if (adjacent(upper, lower, row)) return volume;
+  const gap = upper - lower;
+  return Number.isFinite(row) && gap > row + tolerance(upper, lower, row) && Math.round(gap / row) - 1 <= MAX_EMPTY_ROWS ? 0 : undefined;
 }
 
 /**
  * Diagonal imbalances compare ask at P with bid one row below, and bid at P
- * with ask one row above. Missing rows are never bridged or synthesized.
- * Supply rowSize for sparse ladders; legacy callers infer the minimum observed
- * gap, which cannot distinguish uniformly missing rows from a coarser grid.
- * Positive volume against a zero opposing volume is an imbalance; zero against
- * zero is not. threshold is the minimum dominant-side quantity (inclusive).
+ * with ask one row above. A row between the bar's high and low that never
+ * traded holds zero volume, so a cell beside it is compared with zero (since
+ * 2.6.4; through 2.6.3 such a cell was not compared). The rows beyond the
+ * bar's high and low are not compared at all. Supply rowSize for sparse
+ * ladders; legacy callers infer the minimum observed gap, which cannot
+ * distinguish uniformly missing rows from a coarser grid. Positive volume
+ * against a zero opposing volume is an imbalance; zero against zero is not.
+ * threshold is the minimum dominant-side quantity (inclusive).
  *
  * minOpposing is the floor the opposing quantity is compared AT, and it exists
  * because nothing times zero is zero: against an empty row the ratio drops out
  * of the comparison entirely and any positive print qualifies, at 3 and at a
  * billion alike. That is the honest reading for an analytics call on a sparse
- * ladder, and it is the wrong one for a renderer that has just MANUFACTURED the
- * empty rows (zero-fill), where it leaves the ratio with nothing to suppress.
- * Pass 1 for the ladder's reading, `volume >= ratio * max(1, opposing)`; the
- * default 0 leaves the comparison exactly as fractional quantities deserve.
+ * ladder, and it is the wrong one for a renderer that draws the empty rows
+ * (zero-fill), where it leaves the ratio with nothing to suppress. Pass 1 for
+ * the ladder's reading, `volume >= ratio * max(1, opposing)`; the default 0
+ * leaves the comparison exactly as fractional quantities deserve. The floor
+ * applies to an untraded inner row the same way, so a ladder reads the same
+ * imbalances whether its empty rows are materialised or not.
  */
 export function diagonalImbalances(cells: readonly FootprintCell[], ratio = 3, rowSize?: number, threshold = 0, minOpposing = 0): Imbalance[] {
   if (!Number.isFinite(ratio) || ratio <= 0) throw new RangeError('Imbalance ratio must be positive and finite');
@@ -124,11 +213,13 @@ export function diagonalImbalances(cells: readonly FootprintCell[], ratio = 3, r
     volume > 0 && volume >= threshold && volume >= ratio * Math.max(minOpposing, opposing);
   const out: Imbalance[] = [];
   for (let i = 0; i < sorted.length; i++) {
-    const here = sorted[i];
+    const here = sorted[i]!;
     const below = sorted[i + 1];
     const above = sorted[i - 1];
-    if (below && adjacent(here.price, below.price, row) && dominates(here.askVol, below.bidVol)) out.push({ price: here.price, side: 'buy' });
-    if (above && adjacent(above.price, here.price, row) && dominates(here.bidVol, above.askVol)) out.push({ price: here.price, side: 'sell' });
+    const bidBelow = below && across(here.price, below.price, row, below.bidVol);
+    const askAbove = above && across(above.price, here.price, row, above.askVol);
+    if (bidBelow !== undefined && dominates(here.askVol, bidBelow)) out.push({ price: here.price, side: 'buy' });
+    if (askAbove !== undefined && dominates(here.bidVol, askAbove)) out.push({ price: here.price, side: 'sell' });
   }
   return out;
 }

@@ -96,15 +96,31 @@ test('a range loads the interval and period its sessions need, then places the l
   expect(await app(page, 'app.req.interval + "/" + app.req.period')).toBe('5m/1mo');
   await expect(page.locator('.host-bottombar .oac-bottombar__range[data-range="1D"]')).toHaveAttribute('aria-pressed', 'true');
   // The view runs from the 09:15 open of the last bar's session to that bar.
+  // Early in the day the session holds fewer bars than the closest zoom can
+  // spread across the plot, so the session sits whole inside a wider view
+  // instead; the fixture's bars end at the current minute, so which of the two
+  // happens depends on the time of day the suite runs.
   const placed = await app(page, `(() => {
     const bars = app.chart.primaryBars(), view = app.chart.getVisibleLogicalRange();
-    const last = bars[bars.length - 1].time, first = app.chart.dataLayer.indexToTime(Math.ceil(view.from));
     const ist = t => new Date((t + 19800) * 1000).toISOString().slice(0, 16);
-    return { first: ist(first), last: ist(last), right: Math.floor(view.to) === bars.length - 1 };
-  })()`) as { first: string; last: string; right: boolean };
-  expect(placed.first.slice(0, 10)).toBe(placed.last.slice(0, 10));
-  expect(placed.first.slice(11)).toBe('09:15');
-  expect(placed.right).toBe(true);
+    const last = bars.length - 1, day = ist(bars[last].time).slice(0, 10);
+    let open = last;
+    while (open > 0 && ist(bars[open - 1].time).slice(0, 10) === day) open--;
+    // The narrowest view the plot allows: its width at the largest bar spacing.
+    const narrowest = app.chart.timeScale.width / app.chart.timeScale.constrainBarSpacing(Infinity);
+    return { openTime: ist(bars[open].time), open, last, from: view.from, to: view.to, narrowest,
+      fits: last - open + 1 >= narrowest };
+  })()`) as { openTime: string; open: number; last: number; from: number; to: number; narrowest: number; fits: boolean };
+  expect(placed.openTime.slice(11)).toBe('09:15');
+  expect(Math.ceil(placed.from)).toBeLessThanOrEqual(placed.open);
+  expect(placed.to).toBeGreaterThanOrEqual(placed.last);
+  if (placed.fits) {
+    expect(Math.ceil(placed.from)).toBe(placed.open);
+    expect(Math.floor(placed.to)).toBe(placed.last);
+  } else {
+    // Zoomed in as far as the plot allows, not out past what the session needs.
+    expect(placed.to - placed.from).toBeLessThanOrEqual(placed.narrowest + 1e-6);
+  }
   // Told from the chart the range loaded, not the daily one it replaced: an intraday span has times.
   await expect(page.locator('#status')).toHaveText(/^1D: .*\d:\d\d.* to .*\d:\d\d/);
   await info.attach('one session', { body: await page.screenshot(), contentType: 'image/png' });

@@ -1,4 +1,3 @@
-import { widgetText } from '../localization';
 /**
  * The chart settings dialog, generated from `chartSettingsSchema`.
  *
@@ -11,9 +10,10 @@ import { widgetText } from '../localization';
  * only those, so an axis the user dragged while the dialog was open stays
  * where they left it.
  */
+import { widgetText } from '../localization';
 import { applyChartSettings, chartSettingsSchema, readChartSettings } from 'openalgo-charts';
 import type { ChartSettingsTab, ChartSettingsTabId, ChartSettingsValues } from 'openalgo-charts';
-import type { WidgetContext } from '../context';
+import { historyStep, type WidgetContext } from '../context';
 import {
   button, controlsFromInputs, dialogFrame, el, openPanel, renderForm, tabList,
   type FormHandle, type PanelHandle,
@@ -82,10 +82,7 @@ export function mountSettingsDialog(
   // puts everything back leaves none. Settings are not announced by the
   // chart, so each write is a transaction the history can measure.
   const endStep = ctx.history?.group('Chart settings') ?? ((): void => {});
-  const applyNow = (patch: ChartSettingsValues): void => {
-    if (ctx.history !== undefined) ctx.history.transact(() => applyChartSettings(chart, patch));
-    else applyChartSettings(chart, patch);
-  };
+  const applyNow = (patch: ChartSettingsValues): void => { historyStep(ctx, undefined, () => applyChartSettings(chart, patch)); };
   const write = (patch: ChartSettingsValues): void => {
     for (const k of Object.keys(patch)) dirty.add(k);
     applyNow(patch);
@@ -134,8 +131,14 @@ export function mountSettingsDialog(
     onClick: () => {
       const tab = tabs.find((t) => t.id === activeTab);
       if (tab === undefined) return;
-      // Marked dirty like any edit, so Cancel still undoes a restore.
-      write(tabDefaults(tab));
+      // Marked dirty like any edit, so Cancel still undoes a restore. A value
+      // the widget starts at itself wins over the engine's default.
+      const defaults = tabDefaults(tab);
+      for (const key of Object.keys(defaults)) {
+        const own = ctx.settingsDefaults?.[key];
+        if (own !== undefined) defaults[key] = own;
+      }
+      write(defaults);
       renderPane();
     },
   }));

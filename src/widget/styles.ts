@@ -13,10 +13,11 @@
  * The dialog modules mount inside `.oac-widget`, so they inherit all of it.
  */
 
+import { token as v } from './tokens';
+import { ICON_SIZE, ICON_STROKE, CHROME_ICON_SIZE, CHROME_ICON_STROKE } from 'openalgo-charts/draw';
+
 /** Id of the injected `<style>`; one per document. */
 export const WIDGET_STYLE_ID = 'oac-widget-css';
-
-const v = (name: string): string => `var(--oac-${name})`;
 
 export const WIDGET_CSS = `
 .oac-widget { position: relative; display: grid; grid-template-rows: auto 1fr auto; width: 100%; height: 100%;
@@ -66,6 +67,11 @@ export const WIDGET_CSS = `
 .oac-widget input[type=checkbox]:checked::after { content: ''; width: 4px; height: 8px; margin-top: -2px;
   border: solid ${v('bg')}; border-width: 0 2px 2px 0; transform: rotate(45deg); }
 .oac-widget input[type=checkbox]:disabled { opacity: .4; cursor: not-allowed; }
+/* A radio is the checkbox's round sibling; the dot is an inset ring, which needs no pseudo-element. */
+.oac-widget input[type=radio] { appearance: none; -webkit-appearance: none; flex: none; margin: 0; width: 15px; height: 15px;
+  border: 1px solid ${v('bd')}; border-radius: 50%; background: ${v('elev')}; cursor: pointer; transition: background .12s, border-color .12s; }
+.oac-widget input[type=radio]:hover { border-color: ${v('bd-hover')}; }
+.oac-widget input[type=radio]:checked { border-color: ${v('acc')}; background: ${v('acc')}; box-shadow: inset 0 0 0 3px ${v('elev')}; }
 .oac-widget select { appearance: none; -webkit-appearance: none; height: ${v('ctl-h')}; padding: 0 24px 0 8px;
   background: ${v('elev')}; border: 1px solid ${v('bd')}; border-radius: ${v('radius')}; cursor: pointer; }
 .oac-widget .oac-select { position: relative; display: inline-flex; }
@@ -138,9 +144,9 @@ export const WIDGET_CSS = `
 .oac-widget .oac-btn > b { font-weight: 700; letter-spacing: .3px; }
 .oac-widget .oac-glyph { display: inline-grid; place-items: center; line-height: 0; flex: none; }
 .oac-widget .oac-glyph > svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
-.oac-widget .oac-glyph--tool > svg { width: 24px; height: 24px; stroke-width: 2; }
-.oac-widget .oac-glyph--chrome > svg { width: 16px; height: 16px; stroke-width: 2; }
-.oac-widget .oac-glyph--text { display: inline-grid; place-items: center; width: 24px; height: 24px;
+.oac-widget .oac-glyph--tool > svg { width: ${ICON_SIZE}px; height: ${ICON_SIZE}px; stroke-width: ${ICON_STROKE}; }
+.oac-widget .oac-glyph--chrome > svg { width: ${CHROME_ICON_SIZE}px; height: ${CHROME_ICON_SIZE}px; stroke-width: ${CHROME_ICON_STROKE}; }
+.oac-widget .oac-glyph--text { display: inline-grid; place-items: center; width: ${ICON_SIZE}px; height: ${ICON_SIZE}px;
   font-size: 12px; font-weight: 600; }
 .oac-widget .oac-chev { display: inline-grid; place-items: center; line-height: 0; color: ${v('mut')}; }
 .oac-widget .oac-chev > svg { width: 11px; height: 11px; fill: none; stroke: currentColor; stroke-width: 1.5;
@@ -211,9 +217,9 @@ export const WIDGET_CSS = `
   gap: 2px; padding: 6px 0 0; background: ${v('panel-2')}; border-right: 1px solid ${v('bd-soft')};
   overflow-y: auto; overflow-x: hidden; scrollbar-width: none; }
 .oac-widget .oac-rail::-webkit-scrollbar { width: 0; height: 0; }
-.oac-widget .oac-rail__btn { position: relative; width: 32px; height: 32px; padding: 0; display: grid; place-items: center;
-  flex: none; background: transparent; border: 1px solid transparent; border-radius: 7px; color: ${v('mut')};
-  transition: background .1s, color .1s, border-color .1s; }
+.oac-widget .oac-rail__btn { position: relative; width: 32px; height: 30px; padding: 0; display: grid; place-items: center;
+  flex: none; background: transparent; border: 1px solid transparent; border-radius: 6px; color: ${v('mut')};
+  transition: background .09s, color .09s, border-color .09s; }
 .oac-widget .oac-rail__btn:hover { background: ${v('elev')}; color: ${v('tx')}; }
 .oac-widget .oac-rail__btn:focus-visible { outline: 2px solid ${v('acc-2')}; outline-offset: -2px; }
 .oac-widget .oac-rail__btn.is-on { background: ${v('on-bg')}; border-color: ${v('on-bd')}; color: ${v('acc-2')}; }
@@ -238,7 +244,19 @@ export const WIDGET_CSS = `
 .oac-widget .oac-rail__ctl { margin-top: auto; position: sticky; bottom: 0; display: flex; flex-direction: column;
   align-items: center; gap: 2px; width: 100%; padding: 4px 0 6px; background: ${v('panel-2')};
   border-top: 1px solid ${v('bd-soft')}; flex: none; }
+/* Tools that scroll under the controls fade out instead of being cut through. */
+.oac-widget .oac-rail__ctl::before { content: ''; position: absolute; left: 0; right: 0; bottom: 100%; height: 14px;
+  background: linear-gradient(to bottom, transparent, ${v('panel-2')}); pointer-events: none; }
 .oac-widget .oac-rail__ctl .oac-rail__sep { margin: 3px 0; }
+.oac-widget .oac-rail.is-collapsed { display: none; }
+.oac-widget .oac-rail-tab { position: absolute; left: 0; bottom: 6px; z-index: 6; width: 16px; height: 26px; padding: 0;
+  display: grid; place-items: center; background: ${v('panel-2')}; color: ${v('mut')};
+  border: 1px solid ${v('bd-soft')}; border-left: 0; border-radius: 0 6px 6px 0;
+  transition: background .09s, color .09s, width .09s; }
+.oac-widget .oac-rail-tab:hover { width: 20px; background: ${v('elev')}; color: ${v('tx')}; }
+.oac-widget .oac-rail-tab:focus-visible { outline: 2px solid ${v('acc-2')}; outline-offset: -2px; }
+.oac-widget .oac-rail-tab > svg { width: 12px; height: 12px; }
+.oac-widget .oac-rail-tab[hidden] { display: none; }
 
 /* Rail flyout: a group's tools, with a pin star and the chord on each row. */
 .oac-widget .oac-fly { min-width: 244px; max-width: 320px; max-height: calc(100% - 16px); overflow-y: auto; padding: 6px;
@@ -289,7 +307,7 @@ export const WIDGET_CSS = `
 .oac-widget .oac-mobile { display: none; }
 .oac-widget.is-mobile { grid-template-rows: auto minmax(0, 1fr) auto; }
 .oac-widget.is-mobile > .oac-topbar, .oac-widget.is-mobile > .oac-statusline,
-.oac-widget.is-mobile > .oac-stage > .oac-rail { display: none; }
+.oac-widget.is-mobile > .oac-stage > :is(.oac-rail, .oac-rail-tab) { display: none; }
 .oac-widget.is-mobile > .oac-stage { grid-row: 2; }
 .oac-widget.is-mobile > .oac-mobile { display: contents; }
 .oac-widget .oac-mobile__header { grid-row: 1; z-index: 40; display: grid; grid-template-columns: minmax(0, 1fr) auto;
@@ -351,7 +369,9 @@ export const WIDGET_CSS = `
 
 /* Overlay layer: popovers anchored to a control, dialogs centred over a scrim. */
 .oac-widget .oac-layer { container: oac-widget / inline-size; position: absolute; inset: 0; z-index: 60; pointer-events: none; }
-.oac-widget .oac-layer > * { pointer-events: auto; }
+/* Not the tooltip: it shows over controls (the rail's tab, the bar's buttons) and
+   must never take the press meant for them. */
+.oac-widget .oac-layer > :not(.oac-tip, .oac-tip-spot) { pointer-events: auto; }
 .oac-widget .oac-scrim { position: absolute; inset: 0; background: ${v('scrim')}; }
 .oac-widget .oac-pop { position: absolute; left: 0; top: 0; }
 .oac-widget .oac-dialog { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
@@ -368,6 +388,20 @@ export const WIDGET_CSS = `
 .oac-widget .oac-csv__hint { color: ${v('mut')}; line-height: 1.5; }
 .oac-widget .oac-csv__error { color: ${v('danger')}; overflow-wrap: anywhere; }
 .oac-widget .oac-csv__error:empty { display: none; }
+
+/* Point and figure and Renko settings: a size, its unit and its method share one control column. */
+.oac-widget .oac-ctset { width: 380px; }
+.oac-widget .oac-ctset .oac-row__ctl { width: min(244px, 66%); }
+.oac-widget .oac-ctset__presets { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; width: 100%; padding: 2px 0; }
+.oac-widget .oac-ctset__preset { height: 24px; padding: 0 4px; font-size: 11px; font-variant-numeric: tabular-nums;
+  background: ${v('elev')}; border-color: ${v('bd-soft')}; }
+.oac-widget .oac-ctset__size { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; }
+.oac-widget .oac-ctset .oac-row__ctl .oac-ctset__size > input { flex: 1 1 0; width: auto; min-width: 0; }
+.oac-widget .oac-ctset .oac-input--num { text-align: right; font-variant-numeric: tabular-nums; }
+.oac-widget .oac-ctset .oac-row__ctl .oac-ctset__size > .oac-select { flex: 0 0 100px; width: 100px; }
+.oac-widget .oac-ctset__unit { flex: none; color: ${v('mut')}; font-size: 11px; white-space: nowrap; }
+.oac-widget .oac-ctset__radios { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px 14px; }
+.oac-widget .oac-ctset__radio { display: inline-flex; align-items: center; gap: 6px; color: ${v('tx')}; white-space: nowrap; cursor: pointer; }
 
 /* Shortcuts panel */
 .oac-widget .oac-keys { columns: 2; column-gap: 24px; min-width: 520px; }

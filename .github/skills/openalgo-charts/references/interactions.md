@@ -11,7 +11,7 @@ Everything is built on Pointer Events, so mouse, touch and pen share one code pa
 | Gesture | Effect | Detail |
 |---|---|---|
 | Drag the plot | mouse, pen and touch pan time and price by default | `navigation.mousePan: 'horizontal'` limits mouse and pen to time; panning price switches the pressed pane to manual scaling, while horizontal-only panning preserves autoscale |
-| Vertical wheel over the plot | zoom the time axis | proportional to normalized CSS-pixel distance, eased by default; `animZoom: false` applies instantly. `zoomAnchor` selects cursor x or right edge |
+| Vertical wheel over the plot | zoom the time axis | proportional to normalized CSS-pixel distance, eased by default (each event moves one target, the frames chase it by real frame time, so a fast wheel or a trackpad zooms in one smooth motion); `animZoom: false` applies instantly. `zoomAnchor` selects cursor x or right edge |
 | Horizontal wheel, dominant x delta or Shift-wheel | pan time | Shift maps a vertical-only delta onto x; Ctrl-wheel and Meta-wheel remain pinch-style zoom input |
 | Wheel over a price axis | scale that left or right price range | pointer price stays anchored and that one scale becomes manual |
 | Drag either price axis | rescale price | `exp(dy * 0.005)` about the range centre, then `setAutoScale(false)` |

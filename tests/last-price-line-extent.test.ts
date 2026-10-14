@@ -6,7 +6,7 @@
  * instead of ruling a dashed line back across every candle behind it.
  */
 import { describe, it, expect } from 'vitest';
-import { drawLastPriceLabel } from '../src/render/axis';
+import { drawLastPriceLine } from '../src/render/axis';
 import { PriceScale } from '../src/scale/price-scale';
 import type { PlotLayout } from '../src/render/axis';
 
@@ -22,7 +22,7 @@ function lineStart(lineFromX?: number): number {
   scale.setHeight(400);
   scale.setPriceRange({ min: 90, max: 110 });
   const layout = { plotWidth: 600, plotHeight: 400 } as PlotLayout;
-  drawLastPriceLabel(ctx, scale, 100, true, layout, 1, undefined, undefined, true, false, undefined, 'right', lineFromX);
+  drawLastPriceLine(ctx, scale, 100, true, layout, 1, undefined, lineFromX);
   return moves[0];
 }
 

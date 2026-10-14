@@ -2,7 +2,7 @@
 
 *When to read this: you are adding chart annotations (trendlines, fibs, shapes, text) wiring a drawing toolbar, persisting drawings, or registering a custom tool.*
 
-Source of truth: `src/draw/analysis.ts`, `src/draw/analysis-tools.ts`, `src/draw/advanced-lines.ts`, `src/draw/advanced-geometry.ts`, `src/draw/pattern-tools.ts`, `src/draw/types.ts`, `src/draw/tools.ts`, `src/draw/controller.ts`, `src/draw/layer.ts`, `src/draw/geometry.ts`, `src/draw/index.ts`.
+Source of truth: `src/draw/analysis.ts`, `src/draw/analysis-tools.ts`, `src/draw/advanced-lines.ts`, `src/draw/advanced-geometry.ts`, `src/draw/pattern-tools.ts`, `src/draw/types.ts`, `src/draw/registry.ts`, `src/draw/tools.ts`, `src/draw/fib-tools.ts`, `src/draw/measure-tools.ts`, `src/draw/annotation-tools.ts`, `src/draw/controller.ts`, `src/draw/layer.ts`, `src/draw/geometry.ts`, `src/draw/index.ts`.
 
 ## Setup
 
@@ -17,7 +17,7 @@ const draw = new DrawingController(chart, { magnet: 'weak' });   // or 'strong',
 draw.setTool('trend-line');   // the next two clicks place it
 ```
 
-Importing `openalgo-charts/draw` calls `registerBuiltinDrawingTools()` as a side effect, registering all 87 tools into the base bundle's registry. No separate registration call is needed.
+Importing `openalgo-charts/draw` calls `registerBuiltinDrawingTools()` as a side effect, registering all 87 tools into the tier's own tool registry. No separate registration call is needed.
 
 **The controller is headless: it ships no toolbar, no dialogs, no key listener.** It owns the model (`Drawing[]`), placement, selection, dragging, undo, and serialisation. Every button, flyout, colour picker, and text prompt is the host's.
 
@@ -216,12 +216,13 @@ the raw path data may do the same, and loses only the fill if it does not.
 | `DRAWING_TOOL_ACCENTS` / `drawingToolAccent(id)` | The optional fill per tool glyph: marks its path already outlines, as a second `d`; `undefined` when a glyph has none |
 | `drawingToolIconIds()` | Every id the set covers |
 | `ICON_VIEWBOX` | `'0 0 24 24'` |
-| `ICON_STROKE` | `2` |
+| `ICON_SIZE` | `20`: the CSS pixel size the tool tier is drawn for, and `iconSvg`'s default size (since 2.6.3; it was the 24px grid size) |
+| `ICON_STROKE` | `1.6`: about 1.3px at `ICON_SIZE` (it was `2` through 2.6.2) |
 | `ICON_ATTRS` | The whole attribute bag for the `<svg>` (an `IconAttrs`) |
 | `CHROME_ICONS` | `Record<string, string>` of chrome id to `d` attribute, on a 16 grid: the buttons, bars, menus and dialogs around a chart (the ids are listed below), and a glyph per chart type under `chart-<id>` |
 | `chromeIcon(id)` / `chromeIconIds()` | One chrome glyph or `undefined`; every chrome id, the `chart-` ones included |
 | `CHROME_ICON_ACCENTS` / `chromeIconAccent(id)` | The chrome fills (the eye's pupil, the camera lens, slider knobs, pole caps, a drawing's anchors, a head, a line's markers), each also outlined in its glyph's path |
-| `CHROME_ICON_VIEWBOX` / `CHROME_ICON_STROKE` / `CHROME_ICON_ATTRS` | `'0 0 16 16'`, `2` (1.5 through 2.5.5; pass `{ stroke: 1.5 }` to keep the old weight), the attribute bag |
+| `CHROME_ICON_VIEWBOX` / `CHROME_ICON_SIZE` / `CHROME_ICON_STROKE` / `CHROME_ICON_ATTRS` | `'0 0 16 16'`, `16` (since 2.6.3), `1.3` (2 from 2.5.6 through 2.6.2, 1.5 before; pass `{ stroke: 2 }` to keep the heavier weight), the attribute bag |
 | `CHROME_ICON_FILLED` | The chrome ids painted solid rather than stroked: `star-filled`, `pin-filled`, the media controls (`replay`, `play`, `stop`, `step-forward`, `step-back`, `record`), `buy`, `sell`, `moon` and `market-closed` (`chromeIconSvg` consults it; a host wrapping raw path data must too) |
 | `chartTypeIcon(type)` | The chrome glyph for a chart type or a transform (`candlestick`, `point-figure`, `heikin-ashi`, `renko`, `range-bars`, `line-break`, ...): the `chart-<type>` entry of `CHROME_ICONS`, so `chromeIconSvg('chart-' + type)` draws it. `undefined` for a type a host registered itself |
 | `layoutIconPath(rows, columns, slots?)` | A chrome `d` for a grid of charts: the frame split into `rows` by `columns`, one to four each, with no divider inside a slot that spans cells (a `LayoutIconSlot[]`: `row`, `column`, optional `rowSpan` and `columnSpan`). Cells no slot claims are panes of their own. Throws a `RangeError` for more than four a side, a slot outside the grid, or two slots that overlap. A chart grid itself takes up to eight a side, so a button that shows the current layout draws `layout` past four |
@@ -235,7 +236,7 @@ The chrome ids a host may code against, besides the chart types, are
 | Group | Ids |
 |---|---|
 | Shipped through 2.5.9 | `cursor` `magnet` `lock` `unlock` `eye` `eye-off` `star` `star-filled` `trash` `settings` `undo` `redo` `copy` `paste` `duplicate` `front` `back` `text` `chevron-down` `chevron-right` `close` `plus` `minus` `search` `grid` `link` `unlink` `camera` `download` |
-| Capture and navigation | `capture-grid` `chevron-up` `chevron-left` `check` `more` `grip` `refresh` `swap` |
+| Capture and navigation | `capture-grid` `chevron-up` `chevron-left` `chevrons-left` `chevrons-right` (2.6.3) `check` `more` `grip` `refresh` `swap` |
 | A grid of charts | `layout` `maximize` `restore` `fullscreen` `fullscreen-exit` `link-group` `drawing-sync` `crosshair` `time-range` `palette` |
 | Time and the session | `calendar` `clock` `globe` `market-open` `market-pre` `market-post` `market-closed` `market-holiday` |
 | Replay | `replay` `play` `pause` `stop` `step-forward` `step-back` `record` |
@@ -264,7 +265,7 @@ chart-type menu, the type button and the phone layout's sheet show
 `chart-<type>`, the theme button `sun` or `moon`, and the settings tabs, the
 stacking rows, the drawing toolbar's line styles, the menu tick and the level
 editor's remove cross the ids above. None is hand-drawn in a widget file, so
-the grid, overlap and crispness checks on this registry cover the widget too.
+the grid, overlap and weight checks on this registry cover the widget too.
 
 The path data is data, not DOM: the host still builds its own rail and
 flyouts. The string builders derive from that one set, so the rail, a flyout
@@ -276,15 +277,19 @@ read as many icons rather than one. Measure the count with
 than there are tools (the cursor, the magnet, and glyphs drawn ahead of tools
 not yet registered).
 
-**Render at 24px, or an integer multiple, and chrome at 16px.** With a 2-unit
-stroke on integer coordinates, a horizontal or vertical edge covers exactly two
-device pixels at 1:1; diagonals and curves are anti-aliased at any size. At
-18px the 0.75 scale puts the line on 1.5 pixels and every edge is anti-aliased
-across two rows: that is a host sizing choice and no path data can fix it. The
-chrome tier uses the same 2-unit stroke from 2.5.6 (it was 1.5), so both rails
-show one 2px line. A host that wants the old weight passes it explicitly
-(`chromeIconSvg(id, { stroke: 1.5 })`, or `stroke-width: 1.5` in its own frame
-or stylesheet), and gets the softer edges that came with it.
+**Render tools at `ICON_SIZE` (20px) and chrome at `CHROME_ICON_SIZE` (16px).**
+Since 2.6.3 each tier's stroke is set so that its line is about 1.3px on
+screen at that size, so a rail of tools and the chrome under it read as one
+fine set. Through 2.6.2 both tiers drew a 2px line at their grid size (24px
+and 16px): every straight edge sat on a pixel boundary, but a line half
+again as wide on tool glyphs a fifth larger is nearly twice the ink, and a
+rail of them read as heavy beside the chart. A host that shows a glyph at
+another size scales the line with it; to keep the same line, set the stroke
+for that size: the line in pixels is `stroke * size / 24` for a tool glyph
+and `stroke * size / 16` for a chrome glyph, each tier's viewBox width. A host that wants the heavier set back passes it explicitly
+(`iconSvg(id, { size: 24, stroke: 2 })`, `chromeIconSvg(id, { stroke: 2 })`, or
+`stroke-width` in its own frame or stylesheet). `toolCursor` keeps a 2-unit
+line: a cursor sits over candles and grid lines, not a quiet panel.
 
 The set is held to one grid by `tests/draw-icons.test.ts`, which checks each
 glyph and accent for the live area (2..22 and 2..14), whole units, a single
@@ -295,7 +300,7 @@ rejects two glyphs that are the same drawing written differently.
 WebKit, as the builders draw them and as bare path data, and fails when two
 glyphs overlap at an intersection over union of 0.85 or more (only the star,
 eye, link and pin state pairs may), when a named sibling pair reaches 0.7, or
-when a tier stops being crisp. The siblings are the members of one menu or bar:
+when the two tiers stop drawing one line weight at their sizes. The siblings are the members of one menu or bar:
 the replay controls, the market session, the scale modes, the three levels,
 the layout menu, the trading actions, the line styles, the link channels, and
 every chart type against every other. The layout tiles share their frame by
@@ -359,7 +364,7 @@ Tool-specific `defaultStyle` values that change behaviour, not just colour:
 | `rectangle` / `ellipse` / `circle` / `triangle` / `rotated-rectangle` | `fill: true`; a label comes from `drawing.text` (`align`, `valign`, `position: 'inside' | 'outside'`), 14 px when the block sets no size |
 | `fib-retracement` / `fib-extension` / `fib-channel` | `levels: cloneLevels(DEFAULT_FIB)` (ratios 0 to 1 with the conventional colours), `showLabels: true`. The anchor leg is stroked in `style.color`; bands are tinted by the level that closes them unless `fillColor` is set; `extendLeft` / `extendRight` are honoured |
 | `fib-fan` / `gann-fan` / `gann-box` / `fib-time-zone` | `levels: cloneLevels(DEFAULT_FIB_FAN / DEFAULT_GANN_FAN / DEFAULT_GANN_BOX / DEFAULT_FIB_TIME_ZONE)` |
-| `long-position` / `short-position` | `accountSize: 100000, risk: 1, fillOpacity: 0.13, showLabels: true` |
+| `long-position` / `short-position` | `accountSize: 100000, risk: 1, fillOpacity: 0.13, showLabels: true`; the zones take the theme's `upColor` / `downColor` unless `props.profitColor` / `props.lossColor` are set, and `measure`, `price-range`, `forecast` and a line's `showStats` readout are tinted by direction the same way |
 | `text` / `callout` | `defaultText: { value: 'Text', fontSize: 14 }` / `{ value: 'Note', fontSize: 12 }` (a `DrawingText`, merged under the caller's `text`) |
 | `brush` / `highlighter` | `lineWidth: 2` / `lineWidth: 12, fillOpacity: 0.28`; `pressure: true` lets a pen's per-sample `DrawingPoint.pressure` drive the width (off by default, so a mouse stroke is constant) |
 | `cyclic-lines` / `forecast` | `lineStyle: 'dashed'` |
@@ -390,7 +395,7 @@ const values = readDrawingSettings(d, schema);         // { 'style.color': '#..'
 draw.update(d.id, applyDrawingSettings(d, formState, schema));
 ```
 
-`SettingsField` is `{ path, label, kind, min?, max?, step?, options?, group? }`; `FieldKind` is `'color' | 'number' | 'select' | 'lineStyle' | 'boolean' | 'text' | 'opacity' | 'levels' | 'interval'` and `FieldGroup` is `'line' | 'fill' | 'text' | 'levels' | 'behavior' | 'visibility'`. A path is two segments under `style`, `text`, `props` or `intervals`, or one of `locked`, `visible`, `zIndex`, `space`. `textIsContent` is true for `text`, `callout`, `note`, `balloon`, `comment`, `signpost`, `price-note` and `table`: ask for the text the moment the tool is placed. `readDrawingSetting(d, path)` reads one value (`levels` comes back as a copy). `coerceSettingValue(field, raw)` turns a form string into what the kind stores. `applyDrawingSettings` returns whole `style` / `text` bags; with a schema it coerces and drops undeclared paths, and a value of `undefined` deletes the key (the host's "reset to default"). A custom tool builds its own with `composeSettings([LINE_FIELDS, FILL_FIELDS], { textIsContent })`, from the shared lists `LINE_FIELDS`, `FILL_FIELDS`, `EXTEND_FIELDS`, `LEVEL_FIELDS`, `TEXT_FIELDS`, `FONT_FIELDS`, `SHAPE_TEXT_FIELDS`, `PLATE_TEXT_FIELDS`, the single fields `COLOR_FIELD`, `LINE_WIDTH_FIELD`, `LINE_STYLE_FIELD`, `SHOW_LABELS_FIELD`, `TEXT_VALUE_FIELD`, the interval pair `INTERVAL_FIELDS` (no tool declares it; a host that lists intervals adds it, see the Visibility per interval section below), and the option lists `LINE_STYLE_OPTIONS`, `ALIGN_OPTIONS`, `VALIGN_OPTIONS`, `TEXT_POSITION_OPTIONS`, `FONT_OPTIONS`. `drawingSettingsSchema` is a registry lookup (a tool without a declaration gets the line fields), which is why it lives in tools.ts rather than with the pure schema helpers.
+`SettingsField` is `{ path, label, kind, min?, max?, step?, options?, group? }`; `FieldKind` is `'color' | 'number' | 'select' | 'lineStyle' | 'boolean' | 'text' | 'opacity' | 'levels' | 'interval'` and `FieldGroup` is `'line' | 'fill' | 'text' | 'levels' | 'behavior' | 'visibility'`. A path is two segments under `style`, `text`, `props` or `intervals`, or one of `locked`, `visible`, `zIndex`, `space`. `textIsContent` is true for `text`, `callout`, `note`, `balloon`, `comment`, `signpost`, `price-note` and `table`: ask for the text the moment the tool is placed. `readDrawingSetting(d, path)` reads one value (`levels` comes back as a copy). `coerceSettingValue(field, raw)` turns a form string into what the kind stores. `applyDrawingSettings` returns whole `style` / `text` bags; with a schema it coerces and drops undeclared paths, and a value of `undefined` deletes the key (the host's "reset to default"). A custom tool builds its own with `composeSettings([LINE_FIELDS, FILL_FIELDS], { textIsContent })`, from the shared lists `LINE_FIELDS`, `FILL_FIELDS`, `EXTEND_FIELDS`, `LEVEL_FIELDS`, `TEXT_FIELDS`, `FONT_FIELDS`, `SHAPE_TEXT_FIELDS`, `PLATE_TEXT_FIELDS`, the single fields `COLOR_FIELD`, `LINE_WIDTH_FIELD`, `LINE_STYLE_FIELD`, `SHOW_LABELS_FIELD`, `TEXT_VALUE_FIELD`, the interval pair `INTERVAL_FIELDS` (no tool declares it; a host that lists intervals adds it, see the Visibility per interval section below), and the option lists `LINE_STYLE_OPTIONS`, `ALIGN_OPTIONS`, `VALIGN_OPTIONS`, `TEXT_POSITION_OPTIONS`, `FONT_OPTIONS`. `drawingSettingsSchema` is a registry lookup (a tool without a declaration gets the line fields), which is why it lives in registry.ts rather than with the pure schema helpers.
 
 ## DrawingController API
 
@@ -423,9 +428,10 @@ new DrawingController(chart, {
   historyLimit: 50,         // undo depth
   defaultStyle: {},         // merged UNDER each tool's own defaults
   clipboard: undefined,     // ClipboardPort; defaults to navigator.clipboard, null disables it
+  clipboardFallbackToMemory: true, // a refused write still lands in the in-process clipboard; false makes cut safe
   pasteOffsetBars: 2,       // how far a paste is nudged along time
   pasteOffsetPixels: 16,    // how far a paste is nudged down the price axis
-  inputAnchors: true,       // draw the anchor of every paired study input that declares one
+  inputAnchors: true,       // draw the anchor of every paired study input that declares one (read once, at construction)
   gestures: {},             // DrawingGestureOptions: turn a modifier gesture off, e.g. { snapModifier: false }
 });
 ```
@@ -462,7 +468,7 @@ step nowhere. See
 | `setTool(id \| null, options?)` | Arms a tool; throws on an unregistered id. Also calls `chart.setPlacementMode(true/false)`. `options` is a `DrawingPlacementOptions`: `{ space: 'viewport' }` places the next drawing pinned to the screen, and throws for a tool without `viewport` support. Emits `draw:tool` as `{ tool }`, or `{ tool, space: 'viewport' }` when armed for the viewport. |
 | `activeTool()` / `activeToolSpace()` | Armed id, or `null`; the space it places in (`'data'` unless armed for the viewport). |
 | `screenPoints(id)` | A drawing's anchors in container media px (the space `timeToCoordinate` and `priceToCoordinate` answer in), for either space. What a host places an overlay by. `null` for an unknown id or a pane with no place on screen (collapsed, or hidden by a maximize). |
-| `setOptions(patch)` | Live-patch the options above. |
+| `setOptions(patch)` | Live-patch the options above, all but `inputAnchors`, which is read once when the controller is built. |
 | `drawings()` / `get(id)` | Read the model. `drawings()` is the live array, in **paint order** (creation order until a reorder; `createdAt` keeps the creation time). |
 | `add(drawing)` | `add({ tool, points, style, paneIndex, text?, props?, id?, locked?, visible?, zIndex?, policy? })` (a `DrawingInput`) returns the created `Drawing`, with `zIndex` 0, `createdAt` and a minted id (a supplied id that collides with a restored one is replaced). The tool's `defaultText` merges under `text` the way `defaultStyle` merges under `style`. Adding a drawing whose `policy` sets any flag to false records no undo step: it is the host's. The `policy` object is copied. |
 | `update(id, patch, options?)` / `updateMany(patches, options?)` | Patch `points` \| `style` \| `text` \| `props` \| `locked` \| `visible` \| `zIndex` \| `policy` \| `space` \| `viewportPoints` (a `DrawingPatch`). `space` alone converts the anchors at the view on screen (see Viewport-anchored drawings). `style`, `text`, `props` and `policy` merge; `points` replaces. `updateMany([{ id, patch }])` is one undo step and one `drawing:change`. A read-only drawing is refused (`update` returns false, `updateMany` skips it) unless `options` is `{ force: true }` (`DrawingEditOptions`). `update` also returns false when the patch asks for a `space` the drawing could not be moved to; the rest of that patch still applies. A patch that carries `policy`, and any forced call, records no undo step, and every recorded step takes it as well, so no later undo or redo reverses it. |
@@ -492,11 +498,11 @@ step nowhere. See
 | `interval()` / `shownOnInterval(id)` / `hiddenOnInterval()` | The chart interval drawings are shown for (the data context's `interval`, or `null`), whether a drawing's `intervals` range admits it, and the ids of every drawing it hides, in model order. See the Visibility per interval section below. |
 | `destroy()` | Unhooks listeners, removes every pane layer, releases placement mode. |
 
-Events on the chart bus: `draw:tool`, `draw:add`, `draw:update`, `draw:remove`, `draw:select` (the primary id), `draw:copy`, `draw:cut`, `draw:paste`, plus the 2.0 pair `drawing:select` (`{ ids }`, the whole selection) and `drawing:change` (`{ ids, kind: 'add' | 'update' | 'remove' | 'reorder' }`, one per mutation, after the per-drawing `draw:*` events; `ids` is empty for a history step that changed no drawing, a study anchor's drag and its undo or redo), and `drawing:hover` (`{ id: string | null }`, when the unselected drawing under the pointer changes). `DrawingChangeKind` names the `kind` union.
-Events on the chart bus: `draw:tool`, `draw:add`, `draw:update`, `draw:remove`, `draw:select` (the primary id), `draw:copy`, `draw:cut`, `draw:paste`, plus the 2.0 pair `drawing:select` (`{ ids }`, the whole selection) and `drawing:change` (`{ ids, kind: 'add' | 'update' | 'remove' | 'reorder' }`, one per mutation, after the per-drawing `draw:*` events), and `drawing:hover` (`{ id: string | null }`, when the unselected drawing under the pointer changes). `DrawingChangeKind` names the `kind` union. `DrawingChangeEvent` names the whole payload: `linked: true` on a linked chart's commit, and `step` (2.5.6) on the change that closes a recorded undo step, the number `historySteps()` lists it under; a forced edit, a linked commit, a restore and an `undo`/`redo` carry none.
+Events on the chart bus: `draw:tool`, `draw:add`, `draw:update`, `draw:remove`, `draw:select` (the primary id), `draw:copy`, `draw:cut`, `draw:paste`, plus the 2.0 pair `drawing:select` (`{ ids }`, the whole selection) and `drawing:change` (`{ ids, kind: 'add' | 'update' | 'remove' | 'reorder' }`, one per mutation, after the per-drawing `draw:*` events; `ids` is empty for a history step that changed no drawing, a study anchor's drag and its undo or redo), and `drawing:hover` (`{ id: string | null }`, when the unselected drawing under the pointer changes). `DrawingChangeKind` names the `kind` union. `DrawingChangeEvent` names the whole payload: `linked: true` on a linked chart's commit, and `step` (2.5.6) on the change that closes a recorded undo step, the number `historySteps()` lists it under; a forced edit, a linked commit, a restore and an `undo`/`redo` carry none.
 The modifier gestures (since 2.5.9) add `draw:measure` (`{ active }`), as a temporary measure starts and goes, and `draw:eraser` (`{ active }`), as eraser mode turns on and off; see Modifier gestures.
+Since 2.6.0 importing the tier adds every one of these names to `ChartEventMap`, so `chart.on('draw:add', (e) => e.drawing)` is typed; the payload types `DrawingEvent`, `DrawingListEvent`, `DrawingIdsEvent`, `DrawingIdEvent`, `DrawingToolEvent` and `DrawingModeEvent` are exported beside `DrawingChangeEvent`. The two families are two granularities and both stay: `draw:*` per drawing (carrying it) and per tool, `drawing:*` per mutation and per selection change. See [events-and-state](events-and-state.md).
 
-**The controller listens on `chart.on(...)`, not `subscribeClick` / `subscribeDrag`.** Those two are single-slot callbacks the host needs for its own order lines; routing drawings through the bus means the two never contend.
+**The controller listens on `chart.on(...)`, not `subscribeClick` / `subscribeDrag`.** A drag subscription is what makes an `ns-resize` order line draggable, and drawings do not need one; the host keeps either surface for its own order lines.
 
 ### Placement lifecycle
 
@@ -618,7 +624,7 @@ The clipboard is shared with everything else on the machine, so a paste can arri
 1. **One namespaced top-level key**, `openalgo-charts/drawings`, carrying a `version`. Anything else is recognised as not ours by looking at one property, and pastes nothing. A Ctrl+V handler must not throw at the user because the last thing they copied was a spreadsheet cell.
 2. **Field-by-field validation**, all-or-nothing. The tool must be registered (`hasDrawingTool`), every anchor must be finite, `paneIndex` must be a non-negative integer, style values must be renderable primitives or a short array of numbers, and there are caps on counts and string length. One corrupt entry rejects the whole payload, because pasting the other nine silently is worse than pasting none.
 
-`encodeClipboardPayload`, `decodeClipboardPayload` and `sanitizeDrawing` are exported from `openalgo-charts/draw` if you want to move drawings through your own transport (a websocket, a saved template) with the same validation.
+`encodeClipboardPayload`, `decodeClipboardPayload` and `sanitizeDrawing` are exported from `openalgo-charts/draw` if you want to move drawings through your own transport (a websocket, a saved template). `decodeClipboardPayload` validates exactly as a paste does. `sanitizeDrawing` is the per-entry gate alone, without the migration a paste runs after it: it keeps a style key this build does not declare, where a paste drops it.
 
 ### Degrading instead of breaking
 
@@ -631,7 +637,7 @@ const why = draw.clipboard().lastError();   // set when memory worked but the OS
 if (why !== null) toast('Copied in this tab only');
 ```
 
-Turn the backstop off with `new DrawingClipboard({ fallbackToMemory: false })` when a cut that cannot reach the OS clipboard must not delete the drawing. Pass `clipboard: null` to `DrawingController` to disable the system port entirely (tests, non-browser runtimes), or `clipboard: myPort` to inject one; `setOptions({ clipboard })` swaps the port at runtime, which is how you hand one over after the user grants permission.
+Turn the backstop off with `clipboardFallbackToMemory: false` on the controller (at construction or through `setOptions`), or `new DrawingClipboard({ fallbackToMemory: false })` for a clipboard of your own, when a cut that cannot reach the OS clipboard must not delete the drawing. Pass `clipboard: null` to `DrawingController` to disable the system port entirely (tests, non-browser runtimes), or `clipboard: myPort` to inject one; `setOptions({ clipboard })` swaps the port at runtime, which is how you hand one over after the user grants permission.
 
 ### What a paste actually inserts
 
@@ -811,14 +817,14 @@ import { TREND_LINE, FIB_RETRACEMENT, RECTANGLE } from 'openalgo-charts/draw';
 for (const t of [TREND_LINE, FIB_RETRACEMENT, RECTANGLE]) registerDrawingTool(t);
 ```
 
-| Export &rarr; id | Export &rarr; id | Export &rarr; id |
+| Export: id | Export: id | Export: id |
 |---|---|---|
-| `ARROW` &rarr; `arrow` | `CROSS_LINE` &rarr; `cross-line` | `ELLIPSE` &rarr; `ellipse` |
-| `EXTENDED_LINE` &rarr; `extended-line` | `FIB_EXTENSION` &rarr; `fib-extension` | `FIB_RETRACEMENT` &rarr; `fib-retracement` |
-| `HORIZONTAL_LINE` &rarr; `horizontal-line` | `HORIZONTAL_RAY` &rarr; `horizontal-ray` | `LONG_POSITION` &rarr; `long-position` |
-| `MEASURE` &rarr; `measure` | `PARALLEL_CHANNEL` &rarr; `parallel-channel` | `PATH` &rarr; `path` |
-| `RAY` &rarr; `ray` | `RECTANGLE` &rarr; `rectangle` | `SHORT_POSITION` &rarr; `short-position` |
-| `TEXT` &rarr; `text` | `TREND_LINE` &rarr; `trend-line` | `VERTICAL_LINE` &rarr; `vertical-line` |
+| `ARROW`: `arrow` | `CROSS_LINE`: `cross-line` | `ELLIPSE`: `ellipse` |
+| `EXTENDED_LINE`: `extended-line` | `FIB_EXTENSION`: `fib-extension` | `FIB_RETRACEMENT`: `fib-retracement` |
+| `HORIZONTAL_LINE`: `horizontal-line` | `HORIZONTAL_RAY`: `horizontal-ray` | `LONG_POSITION`: `long-position` |
+| `MEASURE`: `measure` | `PARALLEL_CHANNEL`: `parallel-channel` | `PATH`: `path` |
+| `RAY`: `ray` | `RECTANGLE`: `rectangle` | `SHORT_POSITION`: `short-position` |
+| `TEXT`: `text` | `TREND_LINE`: `trend-line` | `VERTICAL_LINE`: `vertical-line` |
 
 The 2.0 entry also names the measurement, shape, freehand, fib and cycle families:
 `FORECAST`, `PRICE_RANGE`, `DATE_RANGE`, `CIRCLE`, `TRIANGLE`, `POLYLINE`, `ARC`,

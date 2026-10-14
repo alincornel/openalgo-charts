@@ -16,7 +16,7 @@
  * which is exactly the traffic warm-load is meant to remove.
  *
  * **A request is a COUNT and an END, and coverage is the BARS.** `{ endSec,
- * count }` — "the last `count` bars at or before this instant" — is the shape
+ * count }`, "the last `count` bars at or before this instant", is the shape
  * a history endpoint can answer without knowing anything about sessions, and
  * the shape this cache judges itself by. The older `{ from, to }` shape still
  * works and is adapted onto it. The difference is not cosmetic: a clock window
@@ -31,8 +31,8 @@
  *      bars can still change under us (a late print, a backend heal, a session
  *      rebuild). So the gate fires only for a request that reaches into the
  *      last two bar spans, and an entry past its TTL is kept rather than
- *      deleted — its older bars remain the fastest correct answer available.
- *   2. The entry holds at least `count` bars at or before `endSec` — or it is
+ *      deleted, its older bars remain the fastest correct answer available.
+ *   2. The entry holds at least `count` bars at or before `endSec`, or it is
  *      `short`, the server's own word that nothing older exists. Fewer bars
  *      than were asked for is a real gap at the left edge, and painting a chart
  *      that silently starts late is worse than a refetch; but a market that was
@@ -81,7 +81,7 @@
  * `DataLoadingController` asks for: bars, or nothing.
  */
 import type { Bar, UTCSeconds } from '../model/bar';
-import type { BarsPage, BarsPageRequest, BarsRequest, DataFeed, MarketDepth, UnsubscribeFn, LiveBarMeta } from './types';
+import type { BarsPage, BarsPageRequest, BarsRequest, DataFeed, MarketDepth, UnsubscribeFn, LiveBarMeta, SymbolMatch, SymbolSearchRequest } from './types';
 import { nextBucketStart, tryResolveInterval } from './intervals';
 import { dataVariantKey, type DataVariantCapabilities, type DataVariantQuery } from './data-variant';
 
@@ -94,7 +94,7 @@ export type MaybePromise<T> = T | Promise<T>;
  * IS `bars`. The left edge is `bars[0].time`, the right edge is the close of
  * `bars[bars.length - 1]`, and nothing in between is claimed that is not held.
  * Recording a requested window instead let an entry assert coverage over a band
- * it had no bars for and had never been told about — a market closure and a
+ * it had no bars for and had never been told about, a market closure and a
  * range nobody ever fetched look identical from inside such a window, and the
  * cache served `[]` for both.
  */
@@ -109,8 +109,8 @@ export interface CachedBars {
   /**
    * The oldest instant this entry speaks for: `bars[0].time`, DERIVED from the
    * bars rather than recorded from a request. It exists so a durable entry
-   * describes itself well enough to be validated on the way back in — a stored
-   * blob that claims bars outside its own coverage is corrupt — and it is never
+   * describes itself well enough to be validated on the way back in, a stored
+   * blob that claims bars outside its own coverage is corrupt, and it is never
    * consulted to answer a request. Coverage is still the bars: recording a
    * requested window instead let an entry assert coverage over a band it had no
    * bars for, and a market closure and a range nobody ever fetched then looked
@@ -130,9 +130,9 @@ export interface CachedBars {
   /**
    * The server's own statement that nothing older exists: the fetch that
    * established this entry's left edge asked for more bars than it got back.
-   * It is the ONLY evidence of that available — a client-side session table is
+   * It is the ONLY evidence of that available, a client-side session table is
    * a second source of truth that goes stale every year, differs per product
-   * and cannot know about an unplanned halt — so without it a chart pages back
+   * and cannot know about an unplanned halt, so without it a chart pages back
    * into a closed weekend for ever, one identical empty answer at a time.
    *
    * Absent means "not known to be short". It is cleared by any later answer
@@ -158,7 +158,7 @@ export interface CachedBars {
  * What the store holds for one series, as reported by {@link BarCache.peek}.
  *
  * Everything except `bars` is the entry's own, carrying exactly the meaning
- * {@link CachedBars} gives it — `short` included, so a caller can tell "the
+ * {@link CachedBars} gives it, `short` included, so a caller can tell "the
  * server has no more" from "I have not asked yet". `bars` is the slice the peek
  * asked for rather than everything the entry holds.
  */
@@ -179,7 +179,7 @@ export interface BarCacheStore {
   delete(key: string): MaybePromise<void>;
   /**
    * Every key this store holds, including keys written by earlier sessions.
-   * Optional, because a store need not be enumerable — but without it
+   * Optional, because a store need not be enumerable, but without it
    * {@link BarCache.prune} has nothing to walk and does nothing, and a key for a
    * symbol never reopened stays in the store for ever: recency and size are
    * tracked in memory, so eviction cannot see it.
@@ -240,7 +240,6 @@ const DEFAULT_MAX_BARS = 250_000;
 export const BAR_CACHE_VERSION = 1;
 
 /**
- * Interval token to seconds. Case matters where it disambiguates: lowercase
  * The instant a bar starting at `barStartSec` closes, or null when that cannot
  * be known from the interval alone.
  *
@@ -251,8 +250,8 @@ export const BAR_CACHE_VERSION = 1;
  * that way is served stale for up to a minute at a time, and a registered
  * calendar code was approximated at 30 days.
  *
- * Null means "no fixed close", and it is returned for three genuinely different
- * situations that all demand the same conservative answer:
+ * Null means "no fixed close", and it is returned for two genuinely different
+ * situations that both demand the same conservative answer:
  *
  *  - **tick and volume bars**, which close on trade flow. A 500-tick bar may run
  *    for a second or an hour, so nothing about elapsed time says whether the
@@ -293,7 +292,7 @@ export function barCacheKey(req: BarsRequest): string {
 /** Bars are mutated in place by live builders; never hand out our own objects. */
 function cloneBars(bars: Bar[]): Bar[] {
   const out: Bar[] = new Array(bars.length) as Bar[];
-  for (let i = 0; i < bars.length; i++) out[i] = { ...bars[i] };
+  for (let i = 0; i < bars.length; i++) out[i] = { ...bars[i]! };
   return out;
 }
 
@@ -305,14 +304,14 @@ function cloneBars(bars: Bar[]): Bar[] {
 interface BarsAsk {
   endSec: UTCSeconds;
   count: number;
-  from?: UTCSeconds;
+  from?: UTCSeconds | undefined;
 }
 
 /**
  * The answer to one ask, cloned: the bars at or before `endSec`, cut to the
  * requested window for a range ask and to the newest `count` for a bar-count
  * one. A range keeps everything inside its window even when that is more bars
- * than the count it implies — the window is what the caller asked for.
+ * than the count it implies, the window is what the caller asked for.
  */
 function sliceBars(bars: Bar[], ask: BarsAsk): Bar[] {
   const out: Bar[] = [];
@@ -362,7 +361,7 @@ export class BarCache implements DataFeed {
   private readonly _writes = new Map<string, Promise<void>>();
   /**
    * The signal of the put currently at the end of a key's chain. An ABORTED put
-   * has nothing worth waiting for — its bars are already disowned — so the next
+   * has nothing worth waiting for, its bars are already disowned, so the next
    * put for that key skips the queue instead of blocking behind a write that
    * may still be in flight inside the store.
    */
@@ -372,7 +371,7 @@ export class BarCache implements DataFeed {
   /** Bumped on every commit and every drop, so a stale read is detectable. */
   private readonly _gen = new Map<string, number>();
   /**
-   * Bumped ONLY when a key is dropped — `invalidate`, `clear`, or a write-path
+   * Bumped ONLY when a key is dropped, `invalidate`, `clear`, or a write-path
    * eviction. `_gen` cannot answer the same question because a commit bumps it
    * itself, and the absence of a memory copy cannot either: a peek evicting a
    * memory copy leaves the store's record standing on purpose, and a put in
@@ -418,6 +417,9 @@ export class BarCache implements DataFeed {
     if (typeof feed.dataVariants === 'function') {
       this.dataVariants = (query): DataVariantCapabilities | Promise<DataVariantCapabilities> => feed.dataVariants!(query);
     }
+    if (typeof feed.searchSymbols === 'function') {
+      this.searchSymbols = (request): Promise<SymbolMatch[]> => feed.searchSymbols!(request);
+    }
   }
 
   // `...rest` is part of the signature so a caller holding the concrete
@@ -426,6 +428,7 @@ export class BarCache implements DataFeed {
   public subscribeDepth?: (req: BarsRequest, onDepth: (depth: MarketDepth) => void, ...rest: unknown[]) => UnsubscribeFn;
   public getBarsPage?: (req: BarsPageRequest) => Promise<BarsPage>;
   public dataVariants?: (query: DataVariantQuery) => DataVariantCapabilities | Promise<DataVariantCapabilities>;
+  public searchSymbols?: (request: SymbolSearchRequest) => Promise<SymbolMatch[]>;
 
   public async getBars(req: CachedBarsRequest): Promise<Bar[]> {
     throwIfAborted(req.signal);
@@ -473,7 +476,7 @@ export class BarCache implements DataFeed {
   }
 
   /**
-   * The closed bars this cache already holds inside a window, or nothing —
+   * The closed bars this cache already holds inside a window, or nothing,
    * never a fetch. It is {@link BarCache.peek} in the shape `DataFeed` declares,
    * so the shared `DataLoadingController` can paint closed history the instant
    * it mounts and then refresh, and it answers the plain question that shape
@@ -510,8 +513,8 @@ export class BarCache implements DataFeed {
    * `undefined` for one that cannot be reasoned about at all.
    *
    * `{ endSec, count }` is already the model and passes through untouched.
-   * `{ from, to }` is adapted — `count` is how many bars the window has room
-   * for, `endSec` is `to` — and keeps `from`, because a range request must
+   * `{ from, to }` is adapted, `count` is how many bars the window has room
+   * for, `endSec` is `to`, and keeps `from`, because a range request must
    * still be ANSWERED as a range: the caller asked for a window and slicing to
    * it is the only thing that leaves such a host's behaviour unchanged. The
    * count it implies is used for the coverage question alone.
@@ -548,24 +551,24 @@ export class BarCache implements DataFeed {
    * bars from disk in the frame it mounts, and only then request the tail,
    * needs to look before it leaps. `peek` never fetches, never drops, never
    * counts as a hit or a miss, and returns only bars this cache considers
-   * closed — the forming bar was dropped on store and is not here to be served.
+   * closed, the forming bar was dropped on store and is not here to be served.
    *
    * It takes the same two request shapes `getBars` does: `{ endSec, count }`
-   * for "the last N bars you hold at or before this instant" — the seed a
-   * chart paints — or `{ from, to }` for a window. With neither, it hands back
+   * for "the last N bars you hold at or before this instant", the seed a
+   * chart paints, or `{ from, to }` for a window. With neither, it hands back
    * everything the entry holds. `short` comes back with the bars, and it is the
    * answer to the question a peek cannot otherwise settle: fewer bars than you
    * asked for means the server has no more, not that nobody has asked yet.
    *
    * Two empty answers, and they mean different things:
-   *   - `undefined` — nothing is stored for this series. Load it cold.
-   *   - `{ bars: [], … }` — an entry EXISTS, but nothing it holds is inside the
+   *   - `undefined`, nothing is stored for this series. Load it cold.
+   *   - `{ bars: [], … }`, an entry EXISTS, but nothing it holds is inside the
    *     window asked for. Peek again without one to see where its bars are.
    *
    * It does touch LRU recency, because an entry about to be extended must not
    * be the next victim. Nothing is written here, but the touch ADOPTS the entry
-   * into this session's index — which is the point over a persistent store,
-   * where a reload starts with an empty index — and from then on it counts
+   * into this session's index, which is the point over a persistent store,
+   * where a reload starts with an empty index, and from then on it counts
    * towards `max` and `maxBars`. It therefore evicts like any other adoption:
    * peeking forty cold series with `max: 24` used to leave forty entries in
    * memory and no evictions at all, which is the bound not holding rather than
@@ -583,14 +586,14 @@ export class BarCache implements DataFeed {
     this._remember(key, entry);
     await this._evict(false);
     const bars = sliceBars(entry.bars, {
-      endSec: req.endSec ?? req.to ?? entry.bars[entry.bars.length - 1].time,
+      endSec: req.endSec ?? req.to ?? entry.bars[entry.bars.length - 1]!.time,
       // A window is answered as a window: `count` narrows a peek that gave one.
       count: req.count ?? entry.bars.length,
       from: req.from,
     });
     return {
       bars,
-      version: entry.version,
+      ...(entry.version === undefined ? {} : { version: entry.version }),
       from: entry.from,
       to: entry.to,
       storedAt: entry.storedAt,
@@ -603,8 +606,8 @@ export class BarCache implements DataFeed {
    * Drop one series, or (with no argument) everything this cache knows of.
    * "Knows of" is literal with an injected persistent store: recency and size
    * are tracked in memory, so a key written by an earlier session is adopted
-   * when it is next read — expired or not, since expiry now only forces a tail
-   * refetch — and comes under this instance's bounds from then on, rather than
+   * when it is next read, expired or not, since expiry now only forces a tail
+   * refetch, and comes under this instance's bounds from then on, rather than
    * being reachable by `clear()` before that. A store that outlives the process
    * is responsible for its own overall quota.
    */
@@ -631,7 +634,7 @@ export class BarCache implements DataFeed {
    * reopened is invisible to eviction and never expires either, since an
    * expired entry is now kept rather than deleted. So it would live in
    * IndexedDB for ever. `prune` is the answer, and it deliberately walks the
-   * STORE's keys rather than the in-memory index — the keys it needs to find
+   * STORE's keys rather than the in-memory index, the keys it needs to find
    * are exactly the ones the index does not have. Call it on a timer, or once
    * at startup.
    *
@@ -691,7 +694,7 @@ export class BarCache implements DataFeed {
     const lastClose = this._barCloses(interval, last.time) ?? entry.nextClose;
     const span = Math.max(1, entry.nextClose - lastClose);
     // A closed bar is immutable, so age alone is no reason to throw an entry
-    // away — that is what made a warm chart cold on every reload and out of
+    // away, that is what made a warm chart cold on every reload and out of
     // hours. Only the recent tail can still change under us: a late print, a
     // backend heal, a session rebuild. So the TTL gates the tail and nothing
     // else, and an expired entry is KEPT: its older bars are still the fastest
@@ -702,18 +705,18 @@ export class BarCache implements DataFeed {
     // refetch rather than paint a chart that silently starts late. A bar-count
     // ask measures that in bars; a range ask measures it at its own `from`,
     // because the count a window implies is an over-count by exactly the bars
-    // that cannot be stored — the forming one above all — and gating on it
+    // that cannot be stored, the forming one above all, and gating on it
     // would miss on every live request.
     //
     // Unless the entry is `short` and that belief is still fresh: the server
     // has said it has no more, and asking again is an identical answer every
     // time the user drags left. But `short` is a belief with an age, so it is
-    // re-checked once per TTL — one request, which is the only thing that can
+    // re-checked once per TTL, one request, which is the only thing that can
     // prove there IS older history after a transient shortfall, and cheaper
     // than a series that can never be paged again.
     if (entry.short !== true || nowMs - (entry.shortAt ?? 0) > this._ttlMs) {
       if (ask.from !== undefined) {
-        if (ask.from < entry.bars[0].time) return undefined;
+        if (ask.from < entry.bars[0]!.time) return undefined;
       } else {
         let available = 0;
         for (const b of entry.bars) {
@@ -731,9 +734,9 @@ export class BarCache implements DataFeed {
   }
 
   /**
-   * Serialise writes per key. Two puts for one series overlap routinely — an
+   * Serialise writes per key. Two puts for one series overlap routinely, an
    * older-page lazy load racing a resume recovery, two panes on the same symbol
-   * — and every put reads the entry before it writes. Over an async store both
+   * and every put reads the entry before it writes. Over an async store both
    * would read the same entry and the second would commit a union of what it
    * read, silently dropping the first one's bars. Chaining costs nothing when
    * there is no contention: the map is empty and the put runs immediately.
@@ -789,7 +792,7 @@ export class BarCache implements DataFeed {
     // complete as far as this cache is concerned, so the loop drops the lot and
     // the entry is abandoned below.
     while (end > 0) {
-      const close = this._barCloses(interval, bars[end - 1].time);
+      const close = this._barCloses(interval, bars[end - 1]!.time); // `end > 0`
       if (close !== null && close <= nowSec) break;
       end--;
     }
@@ -885,10 +888,10 @@ export class BarCache implements DataFeed {
       const close = this._barCloses(interval, t);
       return close === null ? 1 : Math.max(1, close - t);
     };
-    const freshLast = fresh[fresh.length - 1].time;
+    const freshLast = fresh[fresh.length - 1]!.time;
     const prevBars = previous === undefined ? [] : previous.bars;
-    const prevFirst = prevBars.length === 0 ? 0 : prevBars[0].time;
-    const prevLast = prevBars.length === 0 ? 0 : prevBars[prevBars.length - 1].time;
+    const prevFirst = prevBars.length === 0 ? 0 : prevBars[0]!.time;
+    const prevLast = prevBars.length === 0 ? 0 : prevBars[prevBars.length - 1]!.time;
     let union = false;
     if (prevBars.length > 0) {
       // Adjacency is a question about the BAR GRID, not about seconds. An older
@@ -900,16 +903,16 @@ export class BarCache implements DataFeed {
       // The end term is the ASK, not the answer: a request that reached the
       // entry's left edge was told about everything down to its own last bar,
       // so a weekend between the two is a band the server ANSWERED and put no
-      // bars in — a union, not a hole. Only a band nobody asked about is a hole,
+      // bars in, a union, not a hole. Only a band nobody asked about is a hole,
       // and that still replaces.
-      const startsInTime = (ask.from ?? fresh[0].time) <= prevLast + spanAfter(prevLast);
+      const startsInTime = (ask.from ?? fresh[0]!.time) <= prevLast + spanAfter(prevLast);
       const endsInTime = Math.max(ask.endSec + 1, freshLast + spanAfter(freshLast)) >= prevFirst;
       union = startsInTime && endsInTime;
     }
     // An older page the entry is not adjacent to must not TAKE ITS PLACE. This
     // is the shape a deep scroll-back makes once `maxBars` has trimmed the
     // entry: the painted anchor walks left past what the entry still holds, so
-    // the fetch stops being adjacent, and replacing there threw away the tail —
+    // the fetch stops being adjacent, and replacing there threw away the tail,
     // the one part of an entry that must never go, since it is what a reload
     // paints and what the live subscription continues. The page is answered
     // from the network and simply not cached. Replacement survives for the
@@ -922,20 +925,20 @@ export class BarCache implements DataFeed {
       // a corrected bucketing that drops a bar must drop it here too, or the
       // chart paints a ghost candle nothing upstream agrees with. The window is
       // the first and last bar actually returned, NOT the requested `from`/`to`
-      // — an answer truncated at either edge would otherwise punch a hole
+      // an answer truncated at either edge would otherwise punch a hole
       // through cached bars the server never spoke about.
-      const authorityFrom = fresh[0].time;
-      const authorityTo = fresh[fresh.length - 1].time;
+      const authorityFrom = fresh[0]!.time;
+      const authorityTo = fresh[fresh.length - 1]!.time;
       const previousBars = previous!.bars;
       // Both arrays are ascending and `fresh` owns one contiguous window, so
       // the union is a three-way concat rather than a sort: everything the
       // entry holds before the window, the window itself, everything after.
       const merged: Bar[] = [];
       let i = 0;
-      while (i < previousBars.length && previousBars[i].time < authorityFrom) merged.push(previousBars[i++]);
+      while (i < previousBars.length && previousBars[i]!.time < authorityFrom) merged.push(previousBars[i++]!);
       for (const bar of fresh) merged.push(bar);
-      while (i < previousBars.length && previousBars[i].time <= authorityTo) i++;
-      while (i < previousBars.length) merged.push(previousBars[i++]);
+      while (i < previousBars.length && previousBars[i]!.time <= authorityTo) i++;
+      while (i < previousBars.length) merged.push(previousBars[i++]!);
       bars = merged;
     }
     // A merged series past the budget keeps the NEWEST bars: the oldest are the
@@ -953,10 +956,10 @@ export class BarCache implements DataFeed {
       // megabytes through IndexedDB to store what is there, and clear `short`
       // on the way. An entry is a WINDOW on the newest `maxBars` bars; a page
       // older than the window is not part of it.
-      if (freshLast < bars[0].time) return undefined;
+      if (freshLast < bars[0]!.time) return undefined;
       trimmed = true;
     }
-    const last = bars[bars.length - 1];
+    const last = bars[bars.length - 1]!;
     // Non-null by construction: the caller only kept bars that had a close, and
     // `nextClose` is the close of the bar that follows the last one, which is
     // the instant a hit past coverage stops being safe.
@@ -969,7 +972,7 @@ export class BarCache implements DataFeed {
     // A trim clears it, because the entry no longer holds the edge it spoke of.
     let short = answeredShort;
     let shortAt = nowMs;
-    if (union && fresh[0].time > prevFirst) {
+    if (union && fresh[0]!.time > prevFirst) {
       short = previous!.short === true;
       // Carried, not restamped: an answer that established nothing about the
       // left edge cannot renew a belief about it either, or a chart taking its
@@ -983,13 +986,13 @@ export class BarCache implements DataFeed {
       // Derived, always: the entry describes the bars it holds, so a validator
       // reading it back can tell a truncated or corrupted blob from a real one
       // without being told what anybody once asked for.
-      from: bars[0].time,
+      from: bars[0]!.time,
       to: (lastClose - 1) as UTCSeconds,
       short,
       shortAt,
       // `storedAt` answers "when was the TAIL last revalidated". An answer that
       // ends behind the newest bar the entry already held proves nothing about
-      // it — and that is just as true when the fetch is disjoint enough to
+      // it, and that is just as true when the fetch is disjoint enough to
       // replace the entry as when it unions, so the clock is carried over.
       storedAt: prevBars.length > 0 && freshLast < prevLast ? previous!.storedAt : nowMs,
       nextClose,
@@ -1065,7 +1068,7 @@ export class BarCache implements DataFeed {
    *
    * A durable read is best effort in both directions: a store that throws is
    * treated as a store that holds nothing, and a stored value that does not
-   * describe itself correctly is deleted rather than painted — a half-written
+   * describe itself correctly is deleted rather than painted, a half-written
    * IndexedDB record, an entry from a schema this build does not know, or one
    * whose newest bar has not closed yet all reach a chart as bars nobody can
    * source.
@@ -1090,8 +1093,8 @@ export class BarCache implements DataFeed {
     // A `storedAt` in the future is a clock that stepped backwards, not a
     // corrupt record: the bars are still bars, and deleting the entry for it
     // threw away a whole durable cache over a 30-second NTP correction. What
-    // that entry cannot be trusted about is its TAIL — a bar the writing clock
-    // thought had closed has not closed on ours — so the unclosed tail is cut
+    // that entry cannot be trusted about is its TAIL, a bar the writing clock
+    // thought had closed has not closed on ours, so the unclosed tail is cut
     // off and treated as never stored, rather than the whole entry being either
     // swallowed whole or thrown away.
     const candidate = typeof storedAt === 'number' && storedAt > nowMs
@@ -1111,7 +1114,7 @@ export class BarCache implements DataFeed {
    * The entry with every trailing bar that has not closed by `nowMs` removed,
    * its coverage and `nextClose` recomputed to match what is left. `undefined`
    * when nothing closed survives, and the value unchanged when the shape is not
-   * one this can reason about — the validator has the last word either way.
+   * one this can reason about, the validator has the last word either way.
    */
   private _trimUnclosed(value: unknown, interval: string, nowMs: number): unknown {
     if (typeof value !== 'object' || value === null) return value;
@@ -1128,7 +1131,7 @@ export class BarCache implements DataFeed {
     if (end === entry.bars.length) return value;
     if (end === 0) return undefined;
     const bars = entry.bars.slice(0, end);
-    const lastClose = this._barCloses(interval, bars[bars.length - 1].time) as UTCSeconds;
+    const lastClose = this._barCloses(interval, bars[bars.length - 1]!.time) as UTCSeconds;
     return {
       ...entry,
       bars,

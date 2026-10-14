@@ -6,6 +6,7 @@ import { syncTimezoneFromChart } from './timezone.js';
 import { comparisonSnapshot, restoreComparisons, syncComparisons } from './compare.js';
 import { renderIndicatorChips } from './indicators.js';
 import { CHART_TYPES, renderToolbar } from './toolbar.js';
+import { savedTransforms } from './transforms.js';
 import { INTERVALS, PERIODS } from './intervals.js';
 import { SESSIONS, sessionOf } from './session.js';
 import { withoutViewportSync } from './split.js';
@@ -59,8 +60,9 @@ export const datasetKey = (r) => `${r.symbol}|${r.interval}|${r.period}` + (sess
  *      whatever the draw tier of the day wrote (a bare array before 2.0).
  *   2  the same shape stamped `schema: 2`, with `drawings` always the 2.0
  *      drawing document and `version` always present.
+ *   3  (2.6.3) the same shape, written by a page whose charts drag time alone.
  */
-export const LAYOUT_SCHEMA = 2;
+export const LAYOUT_SCHEMA = 3;
 
 /** Thrown for a document that cannot be brought up to `LAYOUT_SCHEMA`. */
 export class LayoutError extends Error {
@@ -106,28 +108,28 @@ export function primaryLayoutSelection(doc) {
       request = layoutRequest({ symbol: fields[0], interval: fields[1], period: fields[2], session: fields[3] });
     }
   }
-  const { chartType, pfmode, timezone } = doc;
+  const { chartType, timezone } = doc;
   if (chartType !== undefined && !CHART_TYPES.some(type => type.v === chartType)) {
     throw new LayoutError('unsupported primary chart type');
   }
-  if (pfmode !== undefined && !['atr', 'percent', 'fixed'].includes(pfmode)) {
-    throw new LayoutError('unsupported primary box mode');
-  }
+  // A layout from before the box settings dialogs names a box mode instead.
+  const transforms = savedTransforms(doc);
+  if (transforms === null) throw new LayoutError('unsupported primary box settings');
   if (timezone !== undefined && !validTimezone(timezone)) throw new LayoutError('unsupported chart timezone');
-  return { request, chartType, pfmode, timezone };
+  return { request, chartType, transforms, timezone };
 }
 
 /** Initialize startup selection. Switching a live chart needs a staged load. */
 export function restorePrimarySelection(doc = readLayout()) {
   if (!doc || app.chart) return false;
-  const { request, chartType, pfmode, timezone } = primaryLayoutSelection(doc);
+  const { request, chartType, transforms, timezone } = primaryLayoutSelection(doc);
   if (request) {
     app.req = request;
     for (const key of ['symbol', 'interval', 'period']) el(key).value = request[key];
     el('session').value = sessionOf(request);
   }
   if (chartType !== undefined) el('ctype').value = chartType;
-  if (pfmode !== undefined) el('pfmode').value = pfmode;
+  app.transforms = transforms;
   if (timezone !== undefined) app.chartTimezone = timezone;
   return true;
 }
@@ -151,6 +153,23 @@ export const MIGRATIONS = {
     const out = { ...doc, schema: 2 };
     if (typeof out.version !== 'number') out.version = 1;
     if (out.drawings !== undefined && migrateDrawings) out.drawings = migrateDrawings(out.drawings);
+    return out;
+  },
+  // The engine writes every navigation option into a chart state, so each
+  // layout saved before 2.6.3 carries the old `mousePan: 'both'` whether or
+  // not anyone chose it, and restoring it would switch every drag back to
+  // moving price and the pane back to manual scaling. A choice made after
+  // this is saved at schema 3 and kept.
+  2: (doc) => {
+    const dropDefaultDrag = (state) => {
+      if (!isRecord(state) || !isRecord(state.navigation) || state.navigation.mousePan !== 'both') return state;
+      const { mousePan: _old, ...navigation } = state.navigation;
+      return { ...state, navigation };
+    };
+    const out = { ...dropDefaultDrag(doc), schema: 3 };
+    if (isRecord(out.secondary) && isRecord(out.secondary.state)) {
+      out.secondary = { ...out.secondary, state: dropDefaultDrag(out.secondary.state) };
+    }
     return out;
   },
 };
@@ -339,7 +358,7 @@ export function layoutSnapshot() {
     dataset: datasetKey(app.req),
     request: savedRequest(app.req),
     chartType: el('ctype').value || 'candlestick',
-    pfmode: el('pfmode').value || 'atr',
+    transforms: app.transforms || {},
     legendIconSize: normalizeLegendIconSize(app.chart.legendIconSize?.()),
     ...comparisonSnapshot(1),
     // Demo-owned like the comparisons: `render()` builds the histogram from
@@ -352,7 +371,7 @@ export function layoutSnapshot() {
     secondary: app.chart2 ? {
       request: savedRequest(app.p2),
       chartType: app.p2.chartType || 'candlestick',
-      pfmode: app.p2.pfmode || 'atr',
+      transforms: app.p2.transforms || {},
       legendIconSize: normalizeLegendIconSize(app.chart2.legendIconSize?.()),
       volumeSettings: volumeSettings(2),
       inspection: app.inspection2?.dock.state() || app.inspectionState2,

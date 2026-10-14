@@ -30,8 +30,8 @@ describe('formatting helpers', () => {
   });
 
   it('exposes the candle palette', () => {
-    expect(UP).toBe('#26a69a');
-    expect(DOWN).toBe('#ef5350');
+    expect(UP).toBe('#089981');
+    expect(DOWN).toBe('#f23645');
   });
 });
 

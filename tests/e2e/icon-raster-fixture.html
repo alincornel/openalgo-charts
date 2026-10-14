@@ -9,12 +9,12 @@ html, body { margin: 0; height: 100%; background: #131722; }
 // Both glyph tiers as the built draw tier hands them to a host, two ways: the
 // markup builders, accents included, and the bare path data in the tier's
 // attribute bag, which is all a host that wraps the registry itself draws.
-// Each at its tier's native size. The layout tiles a picker derives come
+// Each at the size its tier is drawn for. The layout tiles a picker derives come
 // alongside. A widget beside them shows the same glyphs in place, in the
 // rail, a flyout, a menu and the settings dialogs.
 import {
   iconSvg, chromeIconSvg, drawingToolIconIds, chromeIconIds, layoutIconPath,
-  DRAWING_TOOL_ICONS, ICON_ATTRS, CHROME_ICONS, CHROME_ICON_ATTRS, CHROME_ICON_FILLED,
+  DRAWING_TOOL_ICONS, ICON_ATTRS, CHROME_ICONS, CHROME_ICON_ATTRS, CHROME_ICON_FILLED, ICON_SIZE, CHROME_ICON_SIZE,
 } from '/dist/openalgo-charts.draw.mjs';
 import { createWidget, mountIndicatorSettings } from '/dist/openalgo-charts.widget.mjs';
 import '/dist/openalgo-charts.indicators.mjs';
@@ -34,13 +34,13 @@ const LAYOUTS = [
   ['2/1', 2, 2, [{ row: 0, column: 0 }, { row: 0, column: 1 }, { row: 1, column: 0, columnSpan: 2 }]],
 ];
 const icons = {
-  tools: drawingToolIconIds().map((id) => ({ id, svg: iconSvg(id), px: 24 })),
-  chrome: chromeIconIds().map((id) => ({ id, svg: chromeIconSvg(id), px: 16 })),
-  toolsPath: drawingToolIconIds().map((id) => ({ id, svg: bare(DRAWING_TOOL_ICONS[id], ICON_ATTRS, 'none'), px: 24 })),
+  tools: drawingToolIconIds().map((id) => ({ id, svg: iconSvg(id), px: ICON_SIZE })),
+  chrome: chromeIconIds().map((id) => ({ id, svg: chromeIconSvg(id), px: CHROME_ICON_SIZE })),
+  toolsPath: drawingToolIconIds().map((id) => ({ id, svg: bare(DRAWING_TOOL_ICONS[id], ICON_ATTRS, 'none'), px: ICON_SIZE })),
   chromePath: chromeIconIds().map((id) => ({
-    id, svg: bare(CHROME_ICONS[id], CHROME_ICON_ATTRS, CHROME_ICON_FILLED.has(id) ? 'currentColor' : 'none'), px: 16,
+    id, svg: bare(CHROME_ICONS[id], CHROME_ICON_ATTRS, CHROME_ICON_FILLED.has(id) ? 'currentColor' : 'none'), px: CHROME_ICON_SIZE,
   })),
-  layouts: LAYOUTS.map(([id, rows, columns, slots]) => ({ id, svg: bare(layoutIconPath(rows, columns, slots), CHROME_ICON_ATTRS, 'none'), px: 16 })),
+  layouts: LAYOUTS.map(([id, rows, columns, slots]) => ({ id, svg: bare(layoutIconPath(rows, columns, slots), CHROME_ICON_ATTRS, 'none'), px: CHROME_ICON_SIZE })),
 };
 
 // A seeded random walk, so the chart behind the glyphs looks like a traded
