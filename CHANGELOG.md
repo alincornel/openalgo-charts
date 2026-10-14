@@ -257,6 +257,13 @@ as a ladder instead of a hairline mesh.
   nothing is emitted; the click still fires), and the trading layer emits
   nothing for a drop on the price the order already has. A legacy
   subscription without `onDragCancel` still gets its release.
+- **A lapsed flatten confirmation leaves a whole pill.** Once the 5 s
+  window of the two-tap flatten had run out, `updatePositionPnl` recorded the
+  pill's new shape but wrote only the money, so the badge, size and close
+  button were gone and the next `setPositions` never put them back. It now
+  patches every part of the pill, and the pill stops asking (no lingering
+  confirmation segment) the moment the window lapses, so a tap after it reads
+  as the first tap. `clear()` stops the pending lapse.
 - **Every multi-tick row holds the same number of ticks.** `bucketPrice`
   rounded with `Math.round(price / step)`, so a price exactly halfway between
   two rows went up or down on float noise: GC at 2 ticks per row had rows of 1,

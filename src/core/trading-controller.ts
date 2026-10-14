@@ -341,6 +341,8 @@ export class TradingController {
   private _markers: TradeMarkersPrimitive | null = null;
   /** Position id -> when its close was armed, for the two-tap flatten. */
   private readonly _closeArmed = new Map<string, number>();
+  /** Position id -> the timer that repaints its pill when the confirmation lapses. */
+  private readonly _closeExpiry = new Map<string, ReturnType<typeof setTimeout>>();
   private _ticks: TickSchedule | null;
 
   public constructor(host: TradingHost) {
@@ -481,13 +483,25 @@ export class TradingController {
     // controller that writes into it makes the host's state disagree with the
     // broker's without the host ever being told.
     cur.entity = entity;
-    const opts = this._positionOpts(entity);
-    // The pill's first money also changes the segment COUNT, and the signature
-    // counts segments: recorded here, the next sync patches the line instead
-    // of tearing it down over a change already applied.
+    this._repaintPosition(cur);
+  }
+
+  /**
+   * Patch a position's pill in place: the money, and every part the signature
+   * reads (badge, size, segments, close button). The pill's first money
+   * changes the segment COUNT, and a lapsed flatten confirmation changes the
+   * pill's whole shape; both change the signature. It is recorded here, so
+   * the next sync patches the line instead of tearing it down over a change
+   * already applied, and so every part it stands for has to be applied too.
+   */
+  private _repaintPosition(cur: Tracked<TradingPosition>): void {
+    const opts = this._positionOpts(cur.entity);
     cur.sig = this._sig(opts);
-    if (opts.pillSegments !== undefined) cur.line.setOptions({ pillSegments: opts.pillSegments });
-    else if (opts.leftLabel !== undefined) cur.line.setLeftLabel(opts.leftLabel);
+    type Patch = Partial<Omit<PriceLineOptions, 'id'>>;
+    cur.line.setOptions({
+      badge: opts.badge, qty: opts.qty, leftLabel: opts.leftLabel,
+      pillSegments: opts.pillSegments, closeButton: opts.closeButton,
+    } satisfies LooseOptional<Patch> as Patch); // an undefined part reads as absent, as in `_positionOpts`
   }
 
   public getPositions(): TradingPosition[] { return [...this._positions.values()].map((t) => t.entity); }
@@ -500,6 +514,8 @@ export class TradingController {
     this._positions.clear();
     this._orders.clear();
     this._trades.clear();
+    this._closeArmed.clear();
+    this._stopCloseExpiry();
     if (this._markers !== null) { this._host.removePrimitive(this._markers); this._markers = null; }
   }
 
@@ -630,9 +646,31 @@ export class TradingController {
    */
   public disarmClose(positionId?: string): void {
     if (this._closeArmed.size === 0) return;
-    if (positionId === undefined) this._closeArmed.clear();
-    else this._closeArmed.delete(positionId);
+    if (positionId === undefined) { this._closeArmed.clear(); this._stopCloseExpiry(); }
+    else { this._closeArmed.delete(positionId); this._stopCloseExpiry(positionId); }
     this._sync(this._positions, [...this._positions.values()].map((t) => t.entity), 'pos');
+  }
+
+  /**
+   * The confirmation window has run out: the pill stops asking, so a tap
+   * after it reads as the first tap it is. Patched in place rather than
+   * synced, because a lapse can come after the chart is gone, and a patch
+   * adds nothing to a host.
+   */
+  private _expireClose(id: string, at: number): void {
+    this._closeExpiry.delete(id);
+    if (this._closeArmed.get(id) !== at) return;
+    this._closeArmed.delete(id);
+    const cur = this._positions.get(id);
+    if (cur !== undefined) this._repaintPosition(cur);
+  }
+
+  private _stopCloseExpiry(id?: string): void {
+    for (const [key, timer] of this._closeExpiry) {
+      if (id !== undefined && key !== id) continue;
+      clearTimeout(timer);
+      this._closeExpiry.delete(key);
+    }
   }
 
   /** Is this position's close waiting for its confirming second tap? */
@@ -719,11 +757,14 @@ export class TradingController {
         // the chart you are deciding from, and two quick taps are faster than
         // reading and dismissing it.
         const armedAt = this._closeArmed.get(id);
+        this._stopCloseExpiry(id);
         if (armedAt !== undefined && Date.now() - armedAt < CLOSE_CONFIRM_MS) {
           this._closeArmed.delete(id);
           this._emit('trading:position_close', { positionId: id });
         } else {
-          this._closeArmed.set(id, Date.now());
+          const at = Date.now();
+          this._closeArmed.set(id, at);
+          this._closeExpiry.set(id, setTimeout(() => this._expireClose(id, at), CLOSE_CONFIRM_MS));
           this._emit('trading:position_close_armed', { positionId: id });
         }
         // Repaint so the segment shows its new state. The positions are
