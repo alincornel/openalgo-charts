@@ -1,6 +1,7 @@
 /**
  * `Chart.subscribeDrag`, with the fork's third outcome: a drag TAKEN AWAY (a
- * pinch, a `pointercancel`, Escape on an opt-in draft) rather than released.
+ * pinch, a `pointercancel`, Escape on an opt-in draft) rather than released,
+ * or never made: a press released inside the click slop, which is a click.
  *
  * A host that holds a line at the pointer's price for the length of a drag
  * (an order being moved) has to hear that the drag is over without a price

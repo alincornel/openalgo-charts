@@ -248,6 +248,15 @@ as a ladder instead of a hairline mesh.
 
 ### Fixed
 
+- **A tap on an order line no longer modifies the order.** A press on a
+  draggable line arms its drag, and its release reached `subscribeDrag`'s
+  `onDragEnd` at the pointer's price even when the pointer never left the
+  click slop, so the trading layer sent `trading:order_modify` at the tap's
+  price (a click 3 px off a working order moved it). Such a release is now a
+  cancel for a subscription that passed `onDragCancel` (the line goes back,
+  nothing is emitted; the click still fires), and the trading layer emits
+  nothing for a drop on the price the order already has. A legacy
+  subscription without `onDragCancel` still gets its release.
 - **Every multi-tick row holds the same number of ticks.** `bucketPrice`
   rounded with `Math.round(price / step)`, so a price exactly halfway between
   two rows went up or down on float noise: GC at 2 ticks per row had rows of 1,

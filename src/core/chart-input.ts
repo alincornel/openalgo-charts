@@ -921,7 +921,11 @@ export class ChartInput {
     const localY = p.y - (this._host._paneLayout()[this._downPane]?.top ?? 0);
     const price = this._dragPriceScale?.yToPrice(localY) ?? this._host._panes[this._downPane]!.yToPrice(localY); // the press's pane
     const time = this._host._xToTime(p.x);
-    dispatch(this._dragCbs, { end: true, id: this._dragId!, price, time });
+    // A press that never left the click slop chose no price: a subscription that
+    // understands cancels hears one (a trading host puts the line back instead
+    // of modifying the order at the tap's price); a legacy one keeps its release.
+    if (this._dragMoved) dispatch(this._dragCbs, { end: true, id: this._dragId!, price, time });
+    else this._dispatchDragCancel(this._dragId!, 'release', price, time);
     const end: ChartDragEndEvent = {
       id: this._dragId!, price, time, paneIndex: this._downPane,
       point: { x: p.x, y: localY },

@@ -803,8 +803,12 @@ export class TradingController {
     // Filled or cancelled mid-drag: there is no line left to move and nothing
     // at the broker to modify. End quietly rather than emit against a dead id.
     if (cur === undefined) return;
-    const previousPrice = from ?? cur.entity.price;
     cur.line.setDragGhost(null);
+    // A drop on the price the order already has modifies nothing: the line
+    // stays where it is and nothing is emitted. (A press that never moved
+    // reaches `_onDragCancel` instead; the chart routes it there.)
+    if (price === cur.entity.price) { cur.line.setPrice(price); return; }
+    const previousPrice = from ?? cur.entity.price;
     // The optimistic price goes on a COPY. The entity is the host's own object
     // often an element of a memoised array it re-sends, and writing the
     // dragged price into it meant a broker that REFUSED the modification had

@@ -1110,8 +1110,8 @@ export class Chart {
   /**
    * Subscribe to drags of draggable primitives (order / SL / TP lines, drawing
    * handles). Fires per move and on release. `onDragCancel` is the third
-   * outcome: a drag TAKEN AWAY (a pinch, a `pointercancel`, Escape) rather than
-   * released. It carries no price, because nothing was chosen.
+   * outcome: a drag TAKEN AWAY (a pinch, a `pointercancel`, Escape) or never
+   * made (a release inside the click slop). It carries no price: none was chosen.
    *
    * `time` is the UTC seconds under the cursor, interpolated between bars and
    * extrapolated past the right edge, so a two-axis drag (a trendline endpoint,
