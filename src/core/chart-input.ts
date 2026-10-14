@@ -1030,6 +1030,8 @@ export class ChartInput {
   }
 
   public _onPointerCancel(e: PointerEvent): void {
+    // A pointer this gesture is not tracking cancels nothing of it (line held, click).
+    if (this._pointers.size > 0 && !this._pointers.has(e.pointerId)) return;
     // Existing hosts still receive their end notification; transactional consumers
     // discard the draft first so cancellation can never become a saved edit.
     this._cancelPrimitiveDrag('pointercancel');
