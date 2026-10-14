@@ -233,14 +233,6 @@ export interface ChartOptions {
    */
   now?: () => number;
   /**
-   * Multiplier for every wheel zoom, on the plot and on a price axis. The
-   * wheel step is already proportional to the event's distance (a 100 px mouse
-   * notch is 1.1x, a trackpad's small deltas are fine steps); `1` (default)
-   * keeps that, values below 1 slow it, values above 1 speed it up, and 0
-   * disables wheel zoom. Wheel pans, pinch and keyboard zoom are unaffected.
-   */
-  wheelZoomSensitivity?: number;
-  /**
    * Ease a wheel zoom over a few frames instead of landing the whole step on
    * one. Default true, matching the inertial pan a flick already gets: a chart
    * that glides when panned and jumps when zoomed reads as two different

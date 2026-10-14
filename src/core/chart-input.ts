@@ -1107,9 +1107,6 @@ export class ChartInput {
     const p = this._localPoint(e);
     const onLeft = this._host._leftAxisWidth > 0 && p.x < this._host._leftAxisWidth;
     const onRight = this._host._rightAxisWidth > 0 && p.x >= this._host._width - this._host._rightAxisWidth;
-    // The host's sensitivity scales every zoom the wheel makes, on the plot and
-    // on an axis alike; a pan is a distance, not a step, and is left alone.
-    const zoomStep = wheelLogFactor(delta.y) * this._host._hostOptions.wheelZoomSensitivity;
     const horizontal = !onLeft && !onRight && !e.ctrlKey && !e.metaKey
       && (e.shiftKey || Math.abs(delta.x) > Math.abs(delta.y));
     if (horizontal ? this._host._navigation.panEnabled === false : this._host._navigation.zoomEnabled === false) return;
@@ -1118,14 +1115,13 @@ export class ChartInput {
     e.preventDefault();
     this._host._motion._stopKinetic();
     if (onLeft || onRight) {
-      // A zero step is not a no-op here: scaling by 1 still takes the axis out of autoscale.
-      if (zoomStep === 0) return;
+      if (delta.y === 0) return;
       const slot = this._axisAt(p.pane, p.x);
       if (!slot) return;
       this._host._motion._stopZoomGlide();
       const pane = this._host._panes[p.pane]!; // a projected point is on a pane
       const scale = pane.scaleFor(slot.scaleId);
-      scale.scaleAtY(p.localY, Math.exp(-zoomStep));
+      scale.scaleAtY(p.localY, Math.exp(-wheelLogFactor(delta.y)));
       this._host.invalidate(m => m.invalidateGlobal(InvalidationLevel.Full));
       return;
     }
@@ -1138,20 +1134,20 @@ export class ChartInput {
       this._host._emitViewport('pan');
       return;
     }
-    if (zoomStep === 0) return;
+    if (delta.y === 0) return;
     const focusX = this._host._zoomAnchor === 'right' && !e.ctrlKey && !e.metaKey
       ? this._host._timeScale.width : Math.max(0, Math.min(this._host._timeScale.width, p.x - this._host._leftAxisWidth));
     if (this._host._animZoom) {
       // Every step eases, a trackpad's smallest included: applied at once, a
       // stream of tiny steps tracked the raw event jitter.
-      this._host._motion._retargetZoom(focusX, zoomStep);
+      this._host._motion._retargetZoom(focusX, wheelLogFactor(delta.y));
       return;
     }
     // Carry the unpainted distance across a switch to instant zoom, and bound
     // the step now so input at a limit cannot accumulate invisible debt.
     const remaining = this._host._motion._remainingZoom();
     const spacing = this._host._timeScale.barSpacing;
-    const target = this._host._timeScale.constrainBarSpacing(spacing * Math.exp(remaining + zoomStep));
+    const target = this._host._timeScale.constrainBarSpacing(spacing * Math.exp(remaining + wheelLogFactor(delta.y)));
     this._host._motion._stopZoomGlide();
     const logFactor = Math.log(target / spacing);
     if (logFactor !== 0) this._host._motion._applyZoom(focusX, logFactor);

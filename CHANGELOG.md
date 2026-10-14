@@ -236,6 +236,14 @@ as a ladder instead of a hairline mesh.
   140.97 (141), against upstream's 137.65 / 154.52 / 58.44 / 20.83 / 364.04 /
   426.67 / 440.43 / 137.69. Chart-only shake 89.62 KiB (89.75) against 87.30.
 
+### Removed
+
+- **`ChartOptions.wheelZoomSensitivity`.** Upstream's per-frame wheel zoom
+  (2.6.3) is the behaviour the host wants, and its only consumer passed the
+  default `1`, at which the multiplier was the identity. `_onWheel` is
+  upstream's again, byte for byte. A host that still passes the option gets a
+  type error in TypeScript and no effect in JavaScript.
+
 ### Added
 
 - **`FootprintBar.neutralVol`.** Volume that traded with no aggressor side (a

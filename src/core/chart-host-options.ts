@@ -1,8 +1,8 @@
 /**
  * The chart options this fork adds for its host (a trading terminal on desktop
  * and phone): the price-axis tick density, finger-sized canvas controls, where
- * the last-price line starts, the right-axis tags on study levels and the
- * wheel zoom sensitivity. Documented on `ChartOptions`.
+ * the last-price line starts and the right-axis tags on study levels.
+ * Documented on `ChartOptions`.
  *
  * Resolved here, into one object the chart keeps, so the chart and its
  * collaborators read one field rather than five, and upstream's own chart.ts
@@ -22,7 +22,6 @@ export interface ChartHostRuntimeOptions {
 export interface ChartHostOptionsInput extends ChartHostRuntimeOptions {
   priceTickCount?: number | undefined;
   indicatorLevelAxisLabels?: boolean | undefined;
-  wheelZoomSensitivity?: number | undefined;
 }
 
 export interface ChartHostOptions {
@@ -31,8 +30,6 @@ export interface ChartHostOptions {
   touchTargets: boolean | number;
   lastPriceLineExtent: 'full' | 'fromLastBar';
   readonly indicatorLevelAxisLabels: boolean;
-  /** Multiplier on every wheel zoom step, `>= 0`; 0 turns wheel zoom off. */
-  readonly wheelZoomSensitivity: number;
 }
 
 export function resolveChartHostOptions(options: ChartHostOptionsInput): ChartHostOptions {
@@ -43,7 +40,6 @@ export function resolveChartHostOptions(options: ChartHostOptionsInput): ChartHo
     touchTargets: options.touchTargets ?? false,
     lastPriceLineExtent: options.lastPriceLineExtent ?? 'full',
     indicatorLevelAxisLabels: options.indicatorLevelAxisLabels !== false,
-    wheelZoomSensitivity: Number.isFinite(options.wheelZoomSensitivity) ? Math.max(0, options.wheelZoomSensitivity as number) : 1,
   };
 }
 

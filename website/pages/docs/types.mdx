@@ -96,8 +96,6 @@ interface ChartOptions {
   /** 'normal' follows the pointer exactly; 'magnet' snaps to nearest O/H/L/C. */
   crosshairMode?: 'normal' | 'magnet';
   now?: () => number;
-  /** Per-event wheel zoom multiplier. Default 1; use less than 1 for trackpads. */
-  wheelZoomSensitivity?: number;
   /** Ease a wheel zoom over a few frames. Default true; false is the single-frame step. */
   animZoom?: boolean;
   /** Ease automatic price ranges during navigation. Defaults to animZoom. */

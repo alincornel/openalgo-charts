@@ -192,7 +192,7 @@ export class Chart {
   private readonly _timeScale: TimeScale;
   private _timeScaleMutationDepth = 0;
   private readonly _priceAxisWidth: number;
-  /** The fork's host options (tick density, touch targets, wheel sensitivity...); see chart-host-options.ts. */
+  /** The fork's host options (tick density, touch targets, last-price line...); see chart-host-options.ts. */
   private readonly _hostOptions: ChartHostOptions;
   private readonly _timeAxisHeight: number;
   private _pending: InvalidateMask | null = null;
