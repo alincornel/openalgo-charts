@@ -1,4 +1,5 @@
 import type { Bar } from '../model/bar';
+import { foldFiner, formingWithin, simulatedForming, startFiner } from './forming';
 
 /** UTC seconds when this recorded candle becomes complete and available. */
 export type ReplayBarEndTime = (bar: Bar, index: number) => number;
@@ -16,6 +17,8 @@ interface ReplayPoint {
   subIndex: number;
   subSteps: number;
   bar: Bar;
+  /** The bucket forms along a simulated path because no finer bar covers it. */
+  simulated?: boolean;
 }
 
 function ends(bars: readonly Bar[], resolve: ReplayBarEndTime): number[] {
@@ -36,7 +39,11 @@ export class ReplayTimeline {
   public readonly ends: number[];
   public readonly steps: number[] = [];
 
-  public constructor(bars: readonly Bar[], subs: readonly Bar[], timing: ReplayTiming) {
+  /**
+   * `simulate` is the step count for a bucket no finer bar reaches (0 for off):
+   * its partial observations fall at even shares of the candle's interval.
+   */
+  public constructor(bars: readonly Bar[], subs: readonly Bar[], timing: ReplayTiming, simulate = 0) {
     this.ends = ends(bars, timing.barEndTime);
     if (subs.length && !timing.subBarEndTime) throw new Error('openalgo-charts: replay timing needs subBarEndTime');
     const subEnds = subs.length ? ends(subs, timing.subBarEndTime!) : [];
@@ -52,21 +59,29 @@ export class ReplayTimeline {
         if (sub.time !== covered || available > end) gap = true;
         if (gap) continue;
         covered = available;
-        if (!partial) partial = { ...sub, time: full.time };
-        else {
-          partial.high = Math.max(partial.high, sub.high);
-          partial.low = Math.min(partial.low, sub.low);
-          partial.close = sub.close;
-          partial.volume = (partial.volume ?? 0) + (sub.volume ?? 0);
-          // Open interest is a level; retain the last reading, never a sum.
-          if (sub.oi !== undefined) partial.oi = sub.oi;
-        }
+        if (!partial) partial = startFiner(sub, full.time);
+        else foldFiner(partial, sub);
         if (available >= end) continue;
+        // Held inside the candle it closes on, so the open never moves and
+        // nothing shrinks back when the full bar replaces it (`formingWithin`).
+        const shown = formingWithin(partial, full);
         const last = this.points[this.points.length - 1];
-        if (last?.index === index && last.time === available) last.bar = { ...partial };
-        else this.points.push({ time: available, index, subIndex: 0, subSteps: 0, bar: { ...partial } });
+        if (last?.index === index && last.time === available) last.bar = shown;
+        else this.points.push({ time: available, index, subIndex: 0, subSteps: 0, bar: shown });
       }
-      this.points.push({ time: end, index, subIndex: 0, subSteps: 0, bar: full });
+      // A bucket the finer bars gave no forming step is simulated: none reach it,
+      // or they open after the candle does (a daily candle stamped at midnight over
+      // a session that opens at 09:15), which leaves no prefix to show. A bucket with
+      // a real prefix keeps it, and a candle stamped at its close has no interval
+      // to form in.
+      const simulated = simulate > 1 && this.points.length === from && end > full.time;
+      if (simulated) {
+        for (let k = 1; k < simulate; k++) {
+          const bar = simulatedForming(full, k - 1, simulate, bars[index - 1]?.oi);
+          this.points.push({ time: full.time + ((end - full.time) * k) / simulate, index, subIndex: 0, subSteps: 0, bar, simulated });
+        }
+      }
+      this.points.push({ time: end, index, subIndex: 0, subSteps: 0, bar: full, ...(simulated ? { simulated } : {}) });
       const count = this.points.length - from;
       this.steps[index] = count;
       for (let i = from; i < this.points.length; i++) {

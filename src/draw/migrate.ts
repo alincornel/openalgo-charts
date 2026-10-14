@@ -1,5 +1,5 @@
 /**
- * The 1.9.x to 2.0 drawing migration.
+ * The drawing migration: 1.9.x to 2.0, and document version 2 to 3.
  *
  * Hosts persist `toJSON()` verbatim, and a 1.9.x host has done so for a long
  * time: a bare `Drawing[]` per pane in local storage, for a great many users.
@@ -24,16 +24,29 @@
  * - An unregistered tool is not a reason to drop anything: a plugin tool may
  *   register after the layout is restored. This module never consults the
  *   registry, which also keeps it pure.
+ * - A viewport drawing keeps its `viewportPoints` and carries no data
+ *   anchors; one without usable viewport anchors is dropped, since falling
+ *   back to its data anchors would put it somewhere it never was. Data is the
+ *   default space and is never written out, so a document with no viewport
+ *   drawing comes back exactly as it went in.
  * - Garbage yields an empty document. This runs on the load path, where an
  *   exception would take the whole chart down with it.
  *
- * Idempotent on a version 2 document, so a host can call it on every load.
+ * Version 3 added one optional field, the interval range a drawing is shown
+ * on, so a version 2 document needs no upgrade and comes back unchanged,
+ * version and all. A range is kept when it names at least one bound, and the
+ * document out is version 3 only when a drawing kept one. A document from a
+ * later version is read the same lenient way: what this build knows is kept
+ * and the rest dropped, since refusing it would empty the chart on load.
+ *
+ * Idempotent on a version 2 or 3 document, so a host can call it on every load.
  */
 import type {
-  Drawing, DrawingPoint, DrawingStyle, DrawingText, DrawingsDocument, FibLevel,
+  Drawing, DrawingPoint, DrawingPolicy, DrawingStyle, DrawingText, DrawingsDocument, DrawingGroup, FibLevel,
 } from './types';
-import { DRAWING_STATE_VERSION } from './types';
 import { cycleColor, levelColor } from './levels';
+import { readViewportPoints } from './viewport';
+import { drawingsDocumentVersion, readIntervalRange } from './intervals';
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -59,6 +72,7 @@ const STYLE_FLAGS = ['fill', 'extendLeft', 'extendRight', 'showLabels', 'showSta
 const TEXT_STRINGS = ['color', 'fontFamily', 'backgroundColor', 'borderColor'] as const;
 const TEXT_NUMBERS = ['fontSize', 'wrapWidth', 'backgroundOpacity'] as const;
 const TEXT_FLAGS = ['bold', 'italic', 'wrap', 'background', 'border'] as const;
+const POLICY_FLAGS = ['selectable', 'editable', 'persistent', 'listed'] as const;
 
 /** Deep enough for anything a tool stores in `props`, shallow enough to stop a cycle. */
 const MAX_PROPS_DEPTH = 8;
@@ -72,18 +86,19 @@ let minted = 1;
 
 /**
  * Upgrade saved drawings to the current document shape. Accepts a 1.9.x
- * `Drawing[]` or a {@link DrawingsDocument}. Every field is validated, the
- * 1.9.x text keys are lifted out of the style bag into `text`, bare level
- * ratios become coloured levels, and array order is kept. An entry that could
- * never be rendered is dropped; anything unparseable yields an empty document
- * rather than an error.
+ * `Drawing[]` or a {@link DrawingsDocument} of any version. Every field is
+ * validated, the 1.9.x text keys are lifted out of the style bag into `text`,
+ * bare level ratios become coloured levels, and array order is kept. An entry
+ * that could never be rendered is dropped; anything unparseable yields an
+ * empty document rather than an error. The result is version 3 when a drawing
+ * carries an interval range and version 2 otherwise.
  */
 export function migrateDrawings(input: unknown): DrawingsDocument {
   const list = Array.isArray(input) ? input
     : isRecord(input) && Array.isArray(input.drawings) ? input.drawings
     : null;
   const drawings: Drawing[] = [];
-  if (list === null) return { version: DRAWING_STATE_VERSION, drawings };
+  if (list === null) return { version: drawingsDocumentVersion(drawings), drawings };
   const seen = new Set<string>();
   for (const raw of list) {
     const d = migrateEntry(raw);
@@ -94,15 +109,41 @@ export function migrateDrawings(input: unknown): DrawingsDocument {
     seen.add(d.id);
     drawings.push(d);
   }
-  return { version: DRAWING_STATE_VERSION, drawings };
+  const groups = migrateGroups(isRecord(input) ? input.groups : undefined, drawings);
+  return { version: drawingsDocumentVersion(drawings), drawings, ...(groups.length ? { groups } : {}) };
 }
 
-/** One entry of either shape into a v2 drawing, or null when it cannot be drawn. */
+/** Ignore stale or malformed group records, with the first valid membership winning. */
+export function migrateGroups(input: unknown, drawings: readonly Drawing[]): DrawingGroup[] {
+  if (!Array.isArray(input)) return [];
+  const live = new Set(drawings.map(d => d.id));
+  const ids = new Set<string>();
+  const assigned = new Set<string>();
+  const groups: DrawingGroup[] = [];
+  for (const raw of input) {
+    if (!isRecord(raw) || typeof raw.id !== 'string' || !raw.id.trim() || ids.has(raw.id)
+      || typeof raw.name !== 'string' || !raw.name.trim() || !Array.isArray(raw.members)) continue;
+    const members: string[] = [];
+    for (const member of raw.members) {
+      if (typeof member !== 'string' || !live.has(member) || assigned.has(member)) continue;
+      members.push(member);
+      assigned.add(member);
+    }
+    if (!members.length) continue;
+    ids.add(raw.id);
+    groups.push({ id: raw.id, name: raw.name.trim(), members });
+  }
+  return groups;
+}
+
+/** One entry of any shape into a current drawing, or null when it cannot be drawn. */
 function migrateEntry(raw: unknown): Drawing | null {
   if (!isRecord(raw)) return null;
   const tool = raw.tool;
   if (typeof tool !== 'string' || tool === '') return null;
-  const points = migratePoints(raw.points);
+  const viewport = raw.space === 'viewport' ? readViewportPoints(raw.viewportPoints) : undefined;
+  if (viewport === null) return null;
+  const points = viewport === undefined ? migratePoints(raw.points) : [];
   if (points === null) return null;
   // An absent pane is pane zero; a pane that cannot exist is a drawing that
   // cannot be shown, so that entry goes.
@@ -114,6 +155,7 @@ function migrateEntry(raw: unknown): Drawing | null {
     id: typeof raw.id === 'string' ? raw.id : isNum(raw.id) ? String(raw.id) : '',
     tool,
     points,
+    ...(viewport === undefined ? {} : { space: 'viewport' as const, viewportPoints: viewport }),
     style: migrateStyle(style, tool),
     paneIndex,
     zIndex: isNum(raw.zIndex) ? raw.zIndex : 0,
@@ -124,6 +166,18 @@ function migrateEntry(raw: unknown): Drawing | null {
   if (isRecord(raw.props)) out.props = jsonRecord(raw.props, 0);
   if (typeof raw.locked === 'boolean') out.locked = raw.locked;
   if (typeof raw.visible === 'boolean') out.visible = raw.visible;
+  const intervals = readIntervalRange(raw.intervals);
+  if (intervals !== null) out.intervals = intervals;
+  // History snapshots come through here too, so a policy the migration
+  // dropped would be a policy one undo could strip.
+  if (isRecord(raw.policy)) {
+    const policy: DrawingPolicy = {};
+    for (const key of POLICY_FLAGS) if (typeof raw.policy[key] === 'boolean') policy[key] = raw.policy[key];
+    if (Object.keys(policy).length > 0) out.policy = policy;
+  }
+  // A slot in the series band names an entry by its inventory id; anything
+  // else cannot name one, and the drawing paints by its z-index instead.
+  if (typeof raw.stackAbove === 'string' && raw.stackAbove !== '') out.stackAbove = raw.stackAbove;
   if (isNum(raw.createdAt)) out.createdAt = raw.createdAt;
   return out;
 }

@@ -11,11 +11,12 @@ import { widgetText } from '../localization';
  * this session touched.
  */
 import { getIndicator, indicatorDefaults, indicatorStyleInputs } from 'openalgo-charts';
-import type { IndicatorApi, IndicatorDescriptor, IndicatorInput, IndicatorSettings } from 'openalgo-charts';
-import { chromeIconSvg } from 'openalgo-charts/draw';
+import type { IndicatorApi, IndicatorDescriptor, IndicatorInput, IndicatorSettings, IndicatorStudySource } from 'openalgo-charts';
 import type { WidgetContext } from '../context';
+import { mountIndicatorInputControls, type IndicatorInputControlsHandle } from '../indicator-input-controls';
+import { studyNames } from '../objects-panel';
 import {
-  button, controlsFromInputs, dialogFrame, el, glyphSvg, openPanel, renderForm, tabList,
+  button, controlsFromInputs, dialogFrame, el, openPanel, renderForm, tabList,
   type FormHandle, type PanelHandle,
 } from '../form';
 
@@ -35,12 +36,24 @@ export interface IndicatorSettingsOptions {
   onClose?(committed: boolean): void;
 }
 
-const STYLE_GLYPH = 'M3 13c2.5 0 3.5-1.5 4-3.5M7.5 9.5 13 4a1.4 1.4 0 0 1 2 2l-5.5 5.5';
+function studySource(value: unknown): value is IndicatorStudySource {
+  if (value === null || typeof value !== 'object') return false;
+  const source = value as Partial<IndicatorStudySource>;
+  return source.kind === 'indicator' && typeof source.instanceId === 'string' && typeof source.plotKey === 'string';
+}
+
+const detached = (settings: Readonly<IndicatorSettings>): IndicatorSettings => Object.fromEntries(
+  Object.entries(settings).map(([key, value]) => [key, studySource(value) ? { ...value } : value]),
+);
 
 /** The defaults of a list of inputs, as a settings patch. */
 export function inputDefaults(inputs: readonly IndicatorInput[]): IndicatorSettings {
-  const out: IndicatorSettings = {};
-  for (const i of inputs) out[i.key] = i.default;
+  const out: IndicatorSettings = Object.fromEntries(inputs.map(input => [input.key, input.default]));
+  for (const input of inputs) {
+    if (input.type === 'symbol' && input.exchangeKey !== undefined && !Object.prototype.hasOwnProperty.call(out, input.exchangeKey)) {
+      Object.defineProperty(out, input.exchangeKey, { value: '', writable: true, configurable: true, enumerable: true });
+    }
+  }
   return out;
 }
 
@@ -71,28 +84,54 @@ export function mountIndicatorSettings(
   const resolved = resolveInstance(ctx, anchor, opts);
   if (resolved.inst === null) return declined(ctx, resolved.why ?? widgetText(ctx, 'No indicator to configure'));
   const inst: IndicatorApi = resolved.inst;
+  // Every write would be refused, so the dialog says why instead of opening.
+  if ((inst as Partial<IndicatorApi>).policy?.().configurable === false) return declined(ctx, widgetText(ctx, '{name} settings are protected', { name: inst.name }));
   const descriptor: IndicatorDescriptor = getIndicator(inst.indicatorId);
 
   const tabs: Array<{ id: IndicatorSettingsTab; label: string; icon: string; inputs: readonly IndicatorInput[] }> = [];
-  if (descriptor.inputs.length > 0) tabs.push({ id: 'inputs', label: widgetText(ctx, 'Inputs'), icon: chromeIconSvg('settings'), inputs: descriptor.inputs });
+  if (descriptor.inputs.length > 0) tabs.push({ id: 'inputs', label: widgetText(ctx, 'Inputs'), icon: 'settings', inputs: descriptor.inputs });
   const style = indicatorStyleInputs(descriptor);
-  if (style.length > 0) tabs.push({ id: 'style', label: widgetText(ctx, 'Style'), icon: glyphSvg(STYLE_GLYPH), inputs: style });
+  if (style.length > 0) tabs.push({ id: 'style', label: widgetText(ctx, 'Style'), icon: 'brush', inputs: style });
   if (tabs.length === 0) return declined(ctx, widgetText(ctx, '{name} has nothing to configure', { name: inst.name }));
 
-  const before = inst.settings();
+  const before = detached(inst.settings());
   const dirty = new Set<string>();
+  // Edits preview live, one write per keystroke or colour drag; the session
+  // is one step, and a Cancel that restores every key leaves none.
+  const endStep = ctx.history?.group('Study settings') ?? ((): void => {});
   let activeTab: IndicatorSettingsTab = tabs.some((t) => t.id === opts.tab) ? (opts.tab as IndicatorSettingsTab) : tabs[0].id;
   let form: FormHandle | null = null;
+  let inputControls: IndicatorInputControlsHandle | null = null;
+  let writeError: string | null = null;
   let committed = false;
+  let offRemoved = (): void => {};
+  let offDestroy = (): void => {};
 
   /** What the form shows: the instance's settings over every declared default. */
   const values = (): IndicatorSettings => ({
     ...indicatorDefaults(descriptor), ...inputDefaults(style), ...inst.settings(),
   });
-  const write = (patch: IndicatorSettings): void => {
+  const current = (): boolean => !ctx.chart.isDestroyed && ctx.chart.indicators().includes(inst);
+  const report = (error: unknown): void => {
+    ctx.toast(error instanceof Error ? error.message : widgetText(ctx, 'The study settings could not be applied'), 'error');
+  };
+  // The host can lock the study while the dialog is open: a refused write
+  // changed nothing, so it is reported and never counted as an edit.
+  const locked = (): string => widgetText(ctx, '{name} settings are protected', { name: inst.name });
+  const write = (patch: IndicatorSettings): boolean => {
+    writeError = null;
+    if (!current()) { cancel(); return false; }
+    try {
+      if (inst.setSettings(detached(patch)) === false) {
+        writeError = locked(); ctx.toast(writeError, 'error'); return false;
+      }
+    } catch (error) {
+      writeError = error instanceof Error ? error.message : widgetText(ctx, 'The study settings could not be applied');
+      report(error); return false;
+    }
     for (const k of Object.keys(patch)) dirty.add(k);
-    inst.setSettings(patch);
     opts.onChange?.(inst);
+    return true;
   };
 
   const frame = dialogFrame(doc, { translate: ctx.translate, title: widgetText(ctx, '{name} settings', { name: inst.name }), className: 'oac-indset', onClose: () => cancel() });
@@ -100,20 +139,90 @@ export function mountIndicatorSettings(
   // One tab needs no tab list: the form alone says what it is.
   if (tabs.length > 1) {
     const nav = tabList(doc, tabs.map((t) => ({ id: t.id, label: t.label, icon: t.icon })), activeTab, 'row',
-      (id) => { activeTab = id as IndicatorSettingsTab; renderPane(); });
+      (id) => {
+        if (form && !form.validate()) { nav.setActive(activeTab); return; }
+        activeTab = id as IndicatorSettingsTab; renderPane();
+      });
     frame.body.appendChild(nav.el);
   }
 
   function renderPane(): void {
+    inputControls?.destroy(); inputControls = null;
+    form?.destroy();
     const tab = tabs.find((t) => t.id === activeTab) ?? tabs[0];
     body.innerHTML = '';
-    form = renderForm(body, controlsFromInputs(tab.inputs, { translate: ctx.translate, scope: `indicator.${descriptor.id}` }), {
-      values: values(), translate: ctx.translate,
+    const controls = controlsFromInputs(tab.inputs, { translate: ctx.translate, scope: `indicator.${descriptor.id}` });
+    const sources = new Map<string, Map<string, IndicatorStudySource>>();
+    for (const input of tab.inputs) {
+      if (input.type !== 'source') continue;
+      const control = controls.find(item => item.key === input.key)!;
+      const options = [...(control.options ?? [])], references = new Map<string, IndicatorStudySource>();
+      const names = studyNames(ctx.chart);
+      if (input.allowStudyOutputs) for (const producer of ctx.chart.indicators()) {
+        if (producer.id === inst.id) continue;
+        for (const plot of getIndicator(producer.indicatorId).plots) {
+          if (plot.ohlc) continue;
+          const token = `study-output:${references.size}`;
+          references.set(token, { kind: 'indicator', instanceId: producer.id, plotKey: plot.key });
+          const title = widgetText(ctx, `schema.indicator.${producer.indicatorId}.plot.${plot.key}`, {}, plot.title ?? plot.key);
+          options.push({ value: token, label: `${names.get(producer.id)!} / ${title}` });
+        }
+      }
+      control.options = options;
+      sources.set(input.key, references);
+    }
+    const shown = (): IndicatorSettings => {
+      const result = values();
+      for (const [key, references] of sources) {
+        const value = result[key];
+        if (!studySource(value)) continue;
+        let token = [...references].find(([, reference]) => reference.instanceId === value.instanceId && reference.plotKey === value.plotKey)?.[0];
+        if (token === undefined) {
+          token = `study-output:${references.size}`;
+          references.set(token, { ...value });
+          const control = controls.find(item => item.key === key)!;
+          (control.options as { value: string; label: string }[]).push({ value: token,
+            label: widgetText(ctx, 'Unavailable study output: {instanceId} / {plotKey}', { instanceId: value.instanceId, plotKey: value.plotKey }) });
+        }
+        result[key] = token;
+      }
+      return result;
+    };
+    form = renderForm(body, controls, {
+      values: shown(), translate: ctx.translate, openOverlay: ctx.openOverlay,
       idPrefix: `oac-ind-${inst.id}`,
       live: true,
       onChange: (key, value) => {
-        write({ [key]: value });
-        form?.sync(values());
+        const reference = typeof value === 'string' ? sources.get(key)?.get(value) : undefined;
+        if (!write({ [key]: reference ? { ...reference } : value })) {
+          if (!current()) return;
+          if (tab.inputs.some(input => input.key === key && ['symbol', 'session', 'multiline', 'price', 'timestamp'].includes(input.type))) {
+            form?.setError(key, writeError); return;
+          }
+          const focused = (doc.activeElement as HTMLElement | null)?.id;
+          renderPane();
+          if (focused) doc.getElementById(focused)?.focus();
+          return;
+        }
+        form?.sync(shown());
+        // The sync re-read the descriptor's conditions; a pick or a search
+        // beside a field that just went out of play must follow it.
+        inputControls?.refresh();
+      },
+    });
+    inputControls = mountIndicatorInputControls(ctx, {
+      instance: inst, inputs: tab.inputs, panel: frame.el,
+      field: key => Array.from(body.querySelectorAll('input')).find(field =>
+        field.id === `oac-ind-${inst.id}-${key.replace(/[^A-Za-z0-9_-]/g, '-')}`) ?? null,
+      onPatch: patch => {
+        if (!write(patch)) {
+          for (const key of Object.keys(patch)) form?.setError(key, writeError);
+          return false;
+        }
+        for (const key of Object.keys(patch)) form?.setError(key, null);
+        form?.sync(shown());
+        inputControls?.refresh();
+        return true;
       },
     });
   }
@@ -125,33 +234,59 @@ export function mountIndicatorSettings(
     label: widgetText(ctx, 'Defaults'),
     onClick: () => {
       const tab = tabs.find((t) => t.id === activeTab) ?? tabs[0];
-      write(inputDefaults(tab.inputs));
-      renderPane();
+      if (write(inputDefaults(tab.inputs))) renderPane();
     },
   }));
   frame.actions.appendChild(button(doc, { label: widgetText(ctx, 'Cancel'), onClick: () => cancel() }));
   frame.actions.appendChild(button(doc, { label: widgetText(ctx, 'OK'), variant: 'primary', onClick: () => ok() }));
 
-  // Escape and the scrim are the shell's, and both mean Cancel.
-  const handle = openPanel(ctx, frame.el, { placement: 'center', modal: true }, () => cancel());
+  // A graph change can make rollback invalid; Escape must follow the same
+  // guarded Cancel path before the overlay is removed.
+  frame.el.addEventListener('keydown', event => {
+    if (event.key !== 'Escape') return;
+    event.preventDefault(); event.stopPropagation(); cancel();
+  });
+  const handle = openPanel(ctx, frame.el, { placement: 'center', modal: true, dismissOnEscape: false,
+    onClose: () => { offRemoved(); offDestroy(); inputControls?.destroy(); form?.destroy(); endStep(); },
+  }, () => {
+    cancel();
+    // A host destroying its overlay cannot keep a rejected rollback open.
+    if (handle.isOpen()) { form?.destroy(); handle.close(); opts.onClose?.(false); }
+  });
+  offRemoved = ctx.chart.on('indicatorRemoved', () => {
+    if (!current()) cancel();
+    else if (form?.validate()) renderPane();
+  });
+  offDestroy = ctx.chart.on('destroy', cancel);
 
-  function revert(): void {
-    if (committed || dirty.size === 0) return;
-    const back: IndicatorSettings = {};
-    for (const key of dirty) back[key] = before[key];
+  function revert(): boolean {
+    if (!current()) {
+      ctx.toast(widgetText(ctx, 'That indicator is no longer on the chart'), 'info');
+      return true;
+    }
+    if (committed || dirty.size === 0) return true;
+    const back: IndicatorSettings = Object.fromEntries([...dirty].map(key => [key, before[key]]));
+    try {
+      // Locked since the edits: nothing this dialog does can take them back,
+      // so it says so and closes rather than holding the user in it.
+      if (inst.setSettings(detached(back)) === false) ctx.toast(locked(), 'error');
+    } catch (error) { report(error); renderPane(); return false; }
     dirty.clear();
-    inst.setSettings(back);
     opts.onChange?.(inst);
+    return true;
   }
   function cancel(): void {
     if (!handle.isOpen()) return;
-    revert();
+    if (!revert()) return;
+    inputControls?.destroy(); form?.destroy();
     handle.close();
     opts.onClose?.(false);
   }
   function ok(): void {
     if (!handle.isOpen()) return;
+    if (form && !form.validate()) return;
     committed = true;
+    inputControls?.destroy(); form?.destroy();
     handle.close();
     opts.onClose?.(true);
   }

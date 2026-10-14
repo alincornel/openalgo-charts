@@ -2,18 +2,19 @@
  * Invalidation model (ARCHITECTURE.md §3.2).
  *
  * A single global level is too coarse for multi-pane indicators and trade
- * overlays, so the mask carries a **global level + a per-pane map + a queue of
- * time-scale operations**. Multiple invalidations within one frame coalesce via
- * {@link InvalidateMask.merge}.
+ * overlays, so the mask carries a **global level + a per-pane map**. Multiple
+ * invalidations within one frame coalesce via {@link InvalidateMask.merge}. It
+ * also keeps a queue of time-scale operations that nothing in the chart reads
+ * (see {@link TimeScaleOp}).
  */
 
 /** How much of a pane (or the whole chart) must be repainted this frame. */
 export const InvalidationLevel = {
   /** Nothing to do. */
   None: 0,
-  /** Repaint only the top (overlay) canvas — crosshair, hover, dragging primitives. */
+  /** Repaint only the top (overlay) canvas: the crosshair and the top-layer primitives. */
   Cursor: 1,
-  /** Repaint the base canvas at the current scales — series moved/changed, no rescale. */
+  /** Repaint the base canvas at the current scales: series moved or changed, no rescale. */
   Light: 2,
   /** Recompute scales/ticks then repaint everything. */
   Full: 3,
@@ -26,7 +27,13 @@ export interface PaneInvalidation {
   autoScale: boolean;
 }
 
-/** Discrete operations applied to the shared time scale before painting. */
+/**
+ * Discrete time-scale operations a mask can queue, kept for compatibility.
+ * The mask queues and merges them, and the chart never reads the queue: pan,
+ * zoom, fit and reset change the shared time scale directly, and the kinetic
+ * and wheel-zoom glides are stepped at the top of the render loop's frame
+ * (ARCHITECTURE.md §3.2).
+ */
 export type TimeScaleOp =
   | { type: 'fitContent' }
   | { type: 'applyBarSpacing'; value: number }
@@ -54,7 +61,7 @@ export class InvalidateMask {
     return this._globalLevel;
   }
 
-  /** Raise the chart-wide level (monotonic — only ever increases). */
+  /** Raise the chart-wide level (monotonic: it only ever increases). */
   public invalidateGlobal(level: InvalidationLevel): void {
     if (level > this._globalLevel) this._globalLevel = level;
   }
@@ -72,6 +79,7 @@ export class InvalidateMask {
     return this._panes;
   }
 
+  /** Queue an operation. The chart never reads the queue; see {@link TimeScaleOp}. */
   public addTimeScaleOp(op: TimeScaleOp): void {
     this._timeScaleOps.push(op);
   }

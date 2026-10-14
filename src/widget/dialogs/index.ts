@@ -32,6 +32,7 @@ export {
   mountDrawingProperties, commonSchema, drawingDefaults, resolvedDrawingValues,
   type DrawingPropertiesOptions,
 } from './drawing-properties';
+export { mountDrawingCoordinates, DRAWING_COORDINATES_CSS, type DrawingCoordinatesHandle } from './drawing-coordinates';
 export { selectionPoint } from '../form';
 export {
   mountLevelEditor, nextRatio, levelLabeller, ladderDrawings, FIB_SEQUENCE, type LevelEditorOptions,
@@ -122,6 +123,17 @@ export const DIALOG_CSS = `
 .oac-widget .oac-row--block textarea { width: 100%; min-height: 56px; resize: vertical; }
 .oac-widget .oac-row--off > .oac-row__label { color: ${v('faint')}; cursor: not-allowed; }
 .oac-widget .oac-row input:disabled, .oac-widget .oac-row select:disabled { opacity: .45; pointer-events: none; }
+/* Inline rows: the lead label, then each member's own label and control. The
+   control column takes what the label leaves and wraps inside itself, so a
+   narrow panel stacks the members rather than scrolling sideways. */
+.oac-widget .oac-row--inline { flex-wrap: wrap; row-gap: 4px; }
+.oac-widget .oac-row--inline > .oac-row__label { flex: 0 1 auto; }
+.oac-widget .oac-row--inline > .oac-row__ctl { width: auto; flex: 1 1 0; min-width: min(100%, 150px); flex-wrap: wrap; row-gap: 4px; }
+.oac-widget .oac-inline__item { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.oac-widget .oac-inline__label { color: ${v('mut')}; white-space: nowrap; cursor: pointer; }
+.oac-widget .oac-inline__item--off > .oac-inline__label { color: ${v('faint')}; cursor: not-allowed; }
+.oac-widget .oac-row--inline .oac-select, .oac-widget .oac-row--inline select { width: auto; }
+.oac-widget .oac-row--inline input[type=text] { width: 96px; }
 
 /* Tab lists: a rail down the left of a settings dialog, or a row above a form. */
 .oac-widget .oac-tabs { min-width: 0; display: flex; gap: 2px; }
@@ -164,6 +176,8 @@ export const DIALOG_CSS = `
 .oac-widget .oac-levels__x { width: 24px; height: 24px; display: grid; place-items: center; padding: 0; background: transparent;
   border: 0; border-radius: 5px; color: ${v('faint')}; }
 .oac-widget .oac-levels__x:hover { background: ${v('elev-2')}; color: ${v('danger')}; }
+/* A row's remove cross stays a size under the panel's close, so the two do not read as one control. */
+.oac-widget .oac-levels__x > .oac-glyph > svg { width: 12px; height: 12px; }
 .oac-widget .oac-levels__foot { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; }
 .oac-widget .oac-levels__foot .oac-spacer { flex: 1 1 auto; }
 
@@ -185,13 +199,12 @@ export const DIALOG_CSS = `
 .oac-widget .oac-ctx__row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 8px; background: transparent;
   border: 0; border-radius: 6px; color: ${v('tx')}; text-align: left; white-space: nowrap; }
 .oac-widget .oac-ctx__row:hover, .oac-widget .oac-ctx__row:focus-visible { background: ${v('elev-2')}; outline: none; }
+.oac-widget .oac-ctx__row:is(:hover, :focus-visible) :is(.oac-ctx__note, .oac-ctx__key) { color: ${v('mut')}; }
 .oac-widget .oac-ctx__row[aria-disabled="true"] { color: ${v('faint')}; cursor: default; background: transparent; }
 .oac-widget .oac-ctx__row.is-danger:not([aria-disabled="true"]):hover { color: ${v('danger')}; }
 .oac-widget .oac-ctx__row[aria-checked="true"] { color: ${v('acc-2')}; }
 .oac-widget .oac-ctx__mark { width: 16px; height: 16px; display: inline-grid; place-items: center; flex: none; color: ${v('mut')}; }
 .oac-widget .oac-ctx__row[aria-checked="true"] .oac-ctx__mark { color: ${v('acc-2')}; }
-.oac-widget .oac-ctx__mark > svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.8;
-  stroke-linecap: round; stroke-linejoin: round; }
 .oac-widget .oac-ctx__dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .oac-widget .oac-ctx__label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .oac-widget .oac-ctx__note { color: ${v('faint')}; font-size: 11px; }

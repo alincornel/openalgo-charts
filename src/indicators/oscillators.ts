@@ -174,7 +174,11 @@ export const BALANCE_OF_POWER: IndicatorDescriptor = {
   calc: (bars) => ({
     bop: bars.map((b) => {
       const range = b.high - b.low;
-      return range === 0 ? null : (b.close - b.open) / range;
+      const change = b.close - b.open;
+      // An overflowed range is undefined, not a zero-strength observation.
+      if (range === 0 || !Number.isFinite(range) || !Number.isFinite(change)) return null;
+      const value = change / range;
+      return Number.isFinite(value) ? value : null;
     }),
   }),
   levels: () => [{ price: 0, color: '#787b86' }],
@@ -339,7 +343,10 @@ export const FISHER_TRANSFORM: IndicatorDescriptor = {
     let prevFish = 0;
     for (let i = 0; i < n; i++) {
       const span = hi[i] - lo[i];
-      if (!Number.isFinite(span)) {
+      // The window extremes skip a missing midpoint, so the span alone can stay
+      // finite on a bar that has none; letting that NaN into the two recursions
+      // would blank the study for the rest of the history.
+      if (!Number.isFinite(span) || !Number.isFinite(mid[i])) {
         prevValue = 0;
         prevFish = 0;
         continue;

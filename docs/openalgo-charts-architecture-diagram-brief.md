@@ -10,6 +10,11 @@ explain the workspace, alert, replay and feed changes shipped during September.
 ARCHITECTURE.md. `website/public/architecture-diagram.svg` is its identical website
 copy, refreshed by the site's sync script. The intrinsic size is 1280 by 1520;
 README displays it at 920 pixels with a link to the full-size vector.
+The site's light theme shows `website/public/architecture-diagram-light.svg`,
+which the same sync step generates from the docs file with
+`website/scripts/diagram-light.mjs`. That script maps every colour to its light
+counterpart and stops the build on a colour it does not know, so a colour added
+to the dark SVG needs its light pair added to the map in the same change.
 
 The map must preserve these distinctions:
 
@@ -35,7 +40,8 @@ The map must preserve these distinctions:
   Grouped timeline events and clustering remain in base; the widget owns details
   UI, and hosts supply their event data and optional detail loader.
 - The workspace tier provides documents, templates, revisioned catalogs and
-  asynchronous storage. It does not render or activate a chart grid itself.
+  asynchronous storage. It does not render or activate a chart grid itself; the
+  widget's `createChartGrid` (2.5.4) does, for widget cells, and a custom host still can.
 - Canvas 2D supplies the base renderer. Optional WebGL2 draws supported series;
   axes, text and primitives remain 2D. Study and profile calculation stays on CPU.
 - Base plus eight optional ESM entries makes nine tiers. Custom study contracts
@@ -47,6 +53,54 @@ transform 4.50 kB, trade 8.01 kB, workspace 5.55 kB, webgl 6.39 kB and widget
 51.06 kB, all decimal Brotli. All tiers total 256.08 kB. Registry counts are
 105 indicators, 87 drawing tools and 15 chart types with the transform tier loaded.
 
+Rechecked on 2.5.4: base 117.42 kB, indicators 36.27 kB, draw 42.53 kB, profile
+14.96 kB, transform 4.50 kB, trade 8.01 kB, workspace 8.67 kB, webgl 6.39 kB and
+widget 71.33 kB; all tiers 310.09 kB. Registry counts are unchanged. The widget chip
+names the grid and go-to panel, and the description names pane collapse, study
+output targets and drawing policies.
+
+Rechecked on 2.5.5: base 119.15 kB, indicators 36.34 kB, draw 44.87 kB, profile
+14.96 kB, transform 4.50 kB, trade 16.64 kB, workspace 9.99 kB, webgl 6.39 kB and
+widget 82.30 kB; all tiers 335.15 kB. Registry counts are unchanged. The trade chip
+names accounts, the workspace chip watchlists and the widget chip the watchlist and
+news panels; the description names the movable price pane, viewport drawings and
+tick schedules.
+
+Rechecked on 2.5.6: base 125.39 kB, indicators 36.44 kB, draw 48.42 kB, profile
+14.96 kB, transform 4.50 kB, trade 16.69 kB, workspace 10.47 kB, webgl 6.39 kB and
+widget 92.72 kB; all tiers 355.97 kB. Registry counts are unchanged. Study policies,
+the draw order, data variants, the session calendar and the widget's undo timeline
+change no box or arrow: they live inside the base engine, draw and widget chips the
+diagram already has.
+
+Rechecked on 2.5.7: base 126.91 kB, indicators 36.44 kB, draw 48.42 kB, profile
+14.96 kB, transform 4.50 kB, trade 16.69 kB, workspace 10.47 kB, webgl 6.39 kB and
+widget 92.72 kB; all tiers 357.50 kB. The release splits the chart's internals into
+collaborator modules inside the base engine and changes no box, arrow or chip.
+
+Rechecked on 2.5.8: base 130.37 kB, indicators 40.38 kB, draw 48.42 kB, profile
+14.96 kB, transform 4.50 kB, trade 16.69 kB, workspace 10.47 kB, webgl 6.39 kB and
+widget 92.72 kB; all tiers 364.91 kB. The level of detail, the allocation-free series pass, in-place study plot
+writes, the repaint scope, the single animation loop and primitive hit boxes live inside
+the base engine, and the sixteen built-in tails inside the indicator tier, so the release
+changes no box, arrow or chip; "Invalidation + frame coalescing" in the rendering box
+still describes it. The base, indicator and all-tier figures (the chips and the
+`<desc>`) move, and are taken from `npm run size` on the 2.5.8 release build like every
+recheck above, never carried over from earlier notes.
+
+Rechecked on 2.5.9: base 131.68 kB, indicators 40.38 kB, draw 55.61 kB, profile
+14.96 kB, transform 4.56 kB, trade 16.69 kB, workspace 11.33 kB, webgl 6.93 kB and
+widget 99.64 kB; all tiers 381.78 kB. Registry counts are unchanged. Drawings per instrument,
+the drawing gestures and the widget's drawing UI live in their tiers and add no box to the diagram.
+
+Rechecked on 2.5.10: base 134.69 kB, indicators 40.43 kB, draw 57.98 kB, profile
+14.97 kB, transform 4.55 kB, trade 16.69 kB, workspace 11.53 kB, webgl 6.93 kB and
+widget 121.36 kB; all tiers 409.13 kB. The widget's seven first-use parts (18.19 kB) are
+files beside the widget tier, not a tier, so they get no chip. Registry counts are unchanged.
+Session phases, session shading and the link channels live inside the base engine's existing
+boxes, and the chart grid, bottom bar and saved layouts inside the widget tier, whose `<desc>`
+names them; the release adds no box or arrow.
+
 Source references: `src/index.ts`, `src/feed/data-controller.ts`,
 `src/feed/instrument.ts`, `src/model/bar.ts`, `src/core/pane.ts`,
 `src/alerts/controller.ts`, `src/replay/group.ts`, `src/link/group.ts`,
@@ -55,8 +109,9 @@ Source references: `src/index.ts`, `src/feed/data-controller.ts`,
 `src/compare/controller.ts`, `src/workspace/`, `src/render/backend.ts`,
 `src/trade/order-engine.ts` and `package.json` exports.
 
-When updating the asset, check both SVG copies, README/ARCHITECTURE alt text, the
-website component's intrinsic dimensions and cache query, and the website guide.
+When updating the asset, check both SVG copies and the light variant,
+README/ARCHITECTURE alt text, the website component's intrinsic dimensions and
+cache query, and the website guide.
 Render at full size and README width in Chromium, Firefox and WebKit; verify text
 bounds, label collisions and actual pixels. Keep historical measurements below
 as a record of the earlier redraw.

@@ -1,14 +1,17 @@
 import * as engine from '/dist/openalgo-charts.mjs';
 import * as drawTier from '/dist/openalgo-charts.draw.mjs';
-import { el, toast } from './ui.js';
+import { el, toast, plural } from './ui.js';
 import { volumeShown, setVolumeShown, volumeSettings, applyVolumeSettings } from './volume.js';
 import { syncTimezoneFromChart } from './timezone.js';
 import { comparisonSnapshot, restoreComparisons, syncComparisons } from './compare.js';
 import { renderIndicatorChips } from './indicators.js';
 import { CHART_TYPES, renderToolbar } from './toolbar.js';
 import { INTERVALS, PERIODS } from './intervals.js';
+import { SESSIONS, sessionOf } from './session.js';
 import { withoutViewportSync } from './split.js';
 import { normalizeLegendIconSize, restorePrimaryStyle } from './chart-settings.js';
+import { keepHostStudy } from './host-study.js';
+import { historyFor, withoutHistory } from './history.js';
 
 // Both read off their namespaces: a dist/ built before either shipped must
 // still read and write layouts, and a layout on such a build simply keeps
@@ -40,7 +43,9 @@ export const QUARANTINE_KEEP = 5;
 // and neither means anything on a different dataset: restoring a day chart's
 // view onto five-minute bars leaves the candles off-screen, which reads as
 // the chart having loaded nothing at all.
-export const datasetKey = (r) => `${r.symbol}|${r.interval}|${r.period}`;
+// The session joins the key only when it is extended, so a key written
+// before sessions existed still names the regular series it described.
+export const datasetKey = (r) => `${r.symbol}|${r.interval}|${r.period}` + (sessionOf(r) === 'extended' ? '|extended' : '');
 
 // ── schema and migrations ──────────────────────────────────────────────
 /**
@@ -69,9 +74,15 @@ const isRecord = (v) => typeof v === 'object' && v !== null && !Array.isArray(v)
 
 function layoutRequest(value) {
   if (!isRecord(value) || typeof value.symbol !== 'string' || !value.symbol.trim()
-    || !INTERVALS.includes(value.interval) || !PERIODS.includes(value.period)) return null;
-  return { symbol: value.symbol.trim(), interval: value.interval, period: value.period };
+    || !INTERVALS.includes(value.interval) || !PERIODS.includes(value.period)
+    || (value.session !== undefined && !SESSIONS.includes(value.session))) return null;
+  return { symbol: value.symbol.trim(), interval: value.interval, period: value.period,
+    ...(value.session === 'extended' ? { session: 'extended' } : {}) };
 }
+
+/** The request as saved: the session only when it is not the default. */
+export const savedRequest = r => ({ symbol: r.symbol, interval: r.interval, period: r.period,
+  ...(sessionOf(r) === 'extended' ? { session: 'extended' } : {}) });
 
 function validTimezone(value) {
   if (typeof value !== 'string' || !value) return false;
@@ -91,7 +102,9 @@ export function primaryLayoutSelection(doc) {
     // A separator in an expression makes the old key ambiguous. Keep its chart
     // state usable, but do not guess which instrument the user intended.
     const fields = doc.dataset.split('|');
-    if (fields.length === 3) request = layoutRequest({ symbol: fields[0], interval: fields[1], period: fields[2] });
+    if (fields.length === 3 || (fields.length === 4 && fields[3] === 'extended')) {
+      request = layoutRequest({ symbol: fields[0], interval: fields[1], period: fields[2], session: fields[3] });
+    }
   }
   const { chartType, pfmode, timezone } = doc;
   if (chartType !== undefined && !CHART_TYPES.some(type => type.v === chartType)) {
@@ -110,7 +123,8 @@ export function restorePrimarySelection(doc = readLayout()) {
   const { request, chartType, pfmode, timezone } = primaryLayoutSelection(doc);
   if (request) {
     app.req = request;
-    for (const [key, value] of Object.entries(request)) el(key).value = value;
+    for (const key of ['symbol', 'interval', 'period']) el(key).value = request[key];
+    el('session').value = sessionOf(request);
   }
   if (chartType !== undefined) el('ctype').value = chartType;
   if (pfmode !== undefined) el('pfmode').value = pfmode;
@@ -323,7 +337,7 @@ export function layoutSnapshot() {
     schema: LAYOUT_SCHEMA,
     ...app.chart.getState(),
     dataset: datasetKey(app.req),
-    request: { symbol: app.req.symbol, interval: app.req.interval, period: app.req.period },
+    request: savedRequest(app.req),
     chartType: el('ctype').value || 'candlestick',
     pfmode: el('pfmode').value || 'atr',
     legendIconSize: normalizeLegendIconSize(app.chart.legendIconSize?.()),
@@ -332,14 +346,16 @@ export function layoutSnapshot() {
     // this flag, so without it a hidden volume comes back on a reload.
     volume: volumeShown(1),
     volumeSettings: volumeSettings(1),
+    inspection: app.inspection1?.dock.state() || app.inspectionState1,
     focusPane: app.focusPane === 2 && app.chart2 ? 2 : 1,
     linkOptions: app.linkGroup?.options(),
     secondary: app.chart2 ? {
-      request: { symbol: app.p2.symbol, interval: app.p2.interval, period: app.p2.period },
+      request: savedRequest(app.p2),
       chartType: app.p2.chartType || 'candlestick',
       pfmode: app.p2.pfmode || 'atr',
       legendIconSize: normalizeLegendIconSize(app.chart2.legendIconSize?.()),
       volumeSettings: volumeSettings(2),
+      inspection: app.inspection2?.dock.state() || app.inspectionState2,
       ...comparisonSnapshot(2),
       state: app.chart2.getState(),
       width: parseFloat(el('pane2').style.flexBasis) || (Number.isFinite(measuredWidth) && measuredWidth > 0 ? measuredWidth : 50),
@@ -368,6 +384,12 @@ export function stripView(doc) {
   return out;
 }
 
+/** The symbol a layout was captured on, or null when it cannot say. */
+function layoutSymbol(doc) {
+  try { return primaryLayoutSelection(doc).request?.symbol ?? null; }
+  catch (_) { return null; }
+}
+
 /**
  * Put a document onto the live chart. `keepView` restores the viewport and
  * the pinned ranges too, which is right only on the dataset they were
@@ -376,11 +398,27 @@ export function stripView(doc) {
  * is on the chart yet and the caller fetches (the way `load()` does, after
  * it has finished its own work). Returns the engine's restore report.
  */
-export function applyLayout(doc, { keepView = true, replaceComparisons = true } = {}) {
+export function applyLayout(doc, options = {}) {
+  // A layout is a new document, not a step: nothing it sets is recorded, and
+  // the timeline it replaces no longer leads anywhere.
+  const report = withoutHistory(1, () => applyLayoutNow(doc, options));
+  if (report.applied) historyFor(1)?.clear();
+  return report;
+}
+
+function applyLayoutNow(doc, { keepView = true, replaceComparisons = true } = {}) {
   if (!app.chart) return { applied: false, series: [], indicators: 0, reason: 'no chart' };
   const primary = app.chart;
   const primaryRequest = datasetKey(app.req);
-  const state = keepView ? doc : stripView(doc);
+  let state = keepView ? doc : stripView(doc);
+  // Drawings belong to the symbol they were drawn on. A layout captured on
+  // another symbol keeps its drawings for that symbol, shown when it loads,
+  // and this chart keeps the ones it has.
+  const own = layoutSymbol(doc);
+  if (own !== null && own !== app.req.symbol && app.instrumentDrawings && state.drawings !== undefined) {
+    app.instrumentDrawings.setDocument({ symbol: own }, state.drawings);
+    state = { ...state, drawings: app.draw.toJSON() };
+  }
   // Mirror the restored indicators into our own spec list so a later chart
   // rebuild (type switch / reload) keeps them.
   app.activeIndicators = (state.indicators || []).map(study => ({ ...study, settings: { ...study.settings } }));
@@ -389,6 +427,8 @@ export function applyLayout(doc, { keepView = true, replaceComparisons = true } 
     toast('error', 'The layout could not be restored: ' + report.reason);
     return report;
   }
+  app.inspectionState1 = state.inspection || { panel: null, width: 300 };
+  app.inspection1?.dock.restore(app.inspectionState1);
   syncTimezoneFromChart();   // the saved zone is the engine's to apply, ours to remember
   restorePrimaryStyle(app.chart, state);
   app.chart.setLegendIconSize?.(normalizeLegendIconSize(state.legendIconSize));
@@ -475,12 +515,47 @@ export function exportLayout() {
   };
 }
 
+const withoutPolicy = (d) => {
+  if (!isRecord(d) || !('policy' in d)) return d;
+  const out = { ...d };
+  delete out.policy;
+  return out;
+};
+
+/**
+ * A chart state with every drawing's `policy` taken off, and nothing else
+ * changed. A policy is a host's restriction on drawings it placed itself, and
+ * a file from elsewhere is not this host: honouring one would let a shared
+ * layout plant a drawing that no control here can move or delete, and that
+ * every autosave then writes back.
+ */
+export function untrustedDrawings(state) {
+  if (!isRecord(state) || state.drawings === undefined) return state;
+  const { drawings } = state;
+  return { ...state, drawings: Array.isArray(drawings) ? drawings.map(withoutPolicy)
+    : isRecord(drawings) && Array.isArray(drawings.drawings) ? { ...drawings, drawings: drawings.drawings.map(withoutPolicy) } : drawings };
+}
+
+/**
+ * A chart state without the studies that carry a policy. A policy is a
+ * host's restriction on a study it placed itself, so such a study is that
+ * host's, not the file's: brought in unrestricted it would be a copy of
+ * someone else's study, and restricted it would be one no control here
+ * removes. This host keeps its own study through an import instead
+ * (`keepHostStudy`).
+ */
+export function untrustedStudies(state) {
+  if (!isRecord(state) || !Array.isArray(state.indicators)) return state;
+  return { ...state, indicators: state.indicators.filter((study) => !isRecord(study) || !('policy' in study)) };
+}
+
 /** Parse and upgrade a file body. Throws `LayoutError` (or a JSON error) for anything that is not a layout. */
 export function parseLayoutFile(text) {
   let parsed;
   try { parsed = JSON.parse(text); } catch (e) { throw new LayoutError('not JSON: ' + e.message); }
-  const doc = isRecord(parsed) && isRecord(parsed.layout) ? parsed.layout : parsed;
-  return upgradeLayout(doc);
+  const doc = untrustedStudies(untrustedDrawings(upgradeLayout(isRecord(parsed) && isRecord(parsed.layout) ? parsed.layout : parsed)));
+  return isRecord(doc.secondary?.state)
+    ? { ...doc, secondary: { ...doc.secondary, state: untrustedStudies(untrustedDrawings(doc.secondary.state)) } } : doc;
 }
 
 /**
@@ -515,11 +590,11 @@ export async function importLayoutFile(file) {
     toast('error', 'That file is not a layout: ' + e.message);
     return false;
   }
-  const report = applyLayout(doc, { keepView: doc.dataset === datasetKey(app.req), replaceComparisons: true });
+  const report = applyLayout(keepHostStudy(app.chart, doc), { keepView: doc.dataset === datasetKey(app.req), replaceComparisons: true });
   if (!report.applied) return false;
   if (report.secondaryReady && !await report.secondaryReady) return false;
   persistLayoutNow();
-  toast('success', `Layout imported: ${report.indicators} indicator(s), ${(doc.drawings && doc.drawings.drawings || []).length} drawing(s).`);
+  toast('success', `Layout imported: ${plural(report.indicators, 'indicator')}, ${plural((doc.drawings && doc.drawings.drawings || []).length, 'drawing')}.`);
   return true;
 }
 
@@ -540,7 +615,7 @@ export function initPersist(a) {
     const did = persistLayoutNow({ retryStorage: true });
     el('status').textContent = did === 'memory'
       ? 'layout kept in memory only (storage refused the write)'
-      : `layout saved · ${app.chart.indicators().length} indicator(s)`;
+      : `layout saved · ${plural(app.chart.indicators().length, 'indicator')}`;
     // The readout is overwritten by the next thing that happens; a save is
     // worth a notice that stays long enough to be read.
     if (did !== 'memory') toast('success', 'Layout saved');
@@ -548,10 +623,10 @@ export function initPersist(a) {
   el('lload').addEventListener('click', () => {
     const doc = app.chart ? readLayout() : null;
     if (!doc) { el('status').textContent = 'no saved layout'; toast('error', 'No saved layout'); return; }
-    const report = applyLayout(doc, { keepView: true, replaceComparisons: true });
+    const report = applyLayout(keepHostStudy(app.chart, doc), { keepView: true, replaceComparisons: true });
     // applyLayout has already raised the toast for a refused document.
     if (!report.applied) { el('status').textContent = 'restore failed: ' + report.reason; return; }
-    el('status').textContent = `layout restored · ${report.indicators} indicator(s) · ${report.series.length} series descriptor(s)`;
+    el('status').textContent = `layout restored · ${plural(report.indicators, 'indicator')} · ${plural(report.series.length, 'series descriptor')}`;
   });
   // The file buttons are optional markup: a page without them still saves.
   const exp = el('lexport');

@@ -29,7 +29,7 @@
  * changes: a key names the option it writes, not the tab it is shown on.
  */
 import type { AxisChromeOptions, Chart, ChartEventOptions, ChartNavigationOptions, ChartWatermarkOptions } from '../core/chart';
-import type { IndicatorInput } from './indicator-registry';
+import type { IndicatorInput, IndicatorInputPresentation } from './indicator-registry';
 import { getChartType } from './chart-type-registry';
 import type { SeriesStyle } from '../render/series-style';
 import type { CanvasOptions, CanvasLineStyle, GridOptions, ScaleCanvasOptions } from '../render/grid';
@@ -62,8 +62,12 @@ export type ChartSettingsTabId = 'price' | 'readout' | 'axes' | 'appearance' | '
  * `enabled` is absent when the pair has no visibility flag behind it (a candle
  * body is always drawn), which is the difference between a row whose checkbox
  * does something and one whose checkbox would be a lie.
+ *
+ * It takes `visibleWhen` and `activeWhen`, and a condition that reads any of
+ * its three value keys reads the pair. It takes no `inline`: the row already
+ * holds a switch and two swatches, so it always stands on its own.
  */
-export interface ChartSettingsColorPairInput {
+export interface ChartSettingsColorPairInput extends Omit<IndicatorInputPresentation, 'inline'> {
   key: string;
   type: 'colorPair';
   label: string;
@@ -467,6 +471,11 @@ function readoutControls(chart: Chart): Control[] {
     ),
     statusSwitch('lastDayChange', 'Change since previous close', 'Show'),
     statusSwitch('lastValueLabel', 'Indicator values', 'Show'),
+    boolCtl(
+      'statusLine.indicatorsCollapsed', 'Collapse indicator legends', 'Show', false,
+      (c) => c.indicatorLegendCollapsed(),
+      (c, v) => c.setIndicatorLegendCollapsed(v),
+    ),
     // The plate is the one switch that is off by default: the row has never had
     // one, so turning it on has to be a deliberate choice.
     boolCtl(
@@ -490,7 +499,7 @@ function readoutControls(chart: Chart): Control[] {
 // ── Axes ──────────────────────────────────────────────────────────────────
 
 const SCALE_MODES: readonly { label: string; value: string }[] = [
-  { label: 'Regular', value: 'linear' },
+  { label: 'Linear', value: 'linear' },
   { label: 'Logarithmic', value: 'logarithmic' },
   { label: 'Percent', value: 'percentage' },
   { label: 'Indexed to 100', value: 'indexed-to-100' },
@@ -545,6 +554,12 @@ function hasLastPriceTag(chart: Chart): boolean {
 
 function axesControls(chart: Chart): Control[] {
   const controls: Control[] = [
+    boolCtl('navigation.panEnabled', 'Enable panning', 'Navigation', true,
+      c => c.navigationOptions().panEnabled !== false,
+      (c, v) => c.setNavigationOptions({ panEnabled: v })),
+    boolCtl('navigation.zoomEnabled', 'Enable zooming', 'Navigation', true,
+      c => c.navigationOptions().zoomEnabled !== false,
+      (c, v) => c.setNavigationOptions({ zoomEnabled: v })),
     selectCtl(
       'navigation.mousePan', 'Mouse drag', 'Navigation', 'both',
       [{ label: 'Horizontal only', value: 'horizontal' }, { label: 'Time and price', value: 'both' }],
@@ -557,18 +572,29 @@ function axesControls(chart: Chart): Control[] {
       (c) => c.navigationOptions().defaultVisibleBars,
       (c, v) => c.setNavigationOptions({ defaultVisibleBars: v }),
     ),
+    numCtl(
+      'navigation.defaultBarSpacing', 'Default bar spacing (0 = use bar count)', 'Navigation', 0,
+      { min: 0, max: 10000, step: 0.5 },
+      (c) => c.navigationOptions().defaultBarSpacing ?? 0,
+      (c, v) => c.setNavigationOptions({ defaultBarSpacing: v }),
+    ),
     selectCtl(
       'scales.mode', 'Scale', 'Price scale', 'linear', SCALE_MODES,
       (c) => c.priceScaleOptions().mode,
       (c, v) => c.setPriceScaleOptions({ mode: v as PriceScaleMode }),
-      'Regular plots the price. Logarithmic gives equal space to equal percentage moves. '
+      'Linear plots the price. Logarithmic gives equal space to equal percentage moves. '
         + 'Percent and Indexed to 100 both rebase to the left edge of the visible range, '
         + 'the first as a change from it, the second as a level starting at 100.',
     ),
     boolCtl(
-      'scales.autoScale', 'Auto (fits data to screen)', 'Price scale', true,
-      (c) => c.panes()[0].priceScale.autoScale,
+      'scales.autoScale', 'Auto-fit to the data', 'Price scale', true,
+      (c) => c.panes()[c.primaryPaneIndex()].priceScale.autoScale,
       (c, v) => c.setAutoScale(v),
+    ),
+    boolCtl(
+      'scales.priceOnly', 'Fit primary prices only', 'Price scale', false,
+      (c) => c.priceOnlyAutoScale(),
+      (c, v) => c.setPriceOnlyAutoScale(v),
     ),
     boolCtl(
       'scales.inverted', 'Invert scale', 'Price scale', false,

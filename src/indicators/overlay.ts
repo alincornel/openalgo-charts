@@ -15,6 +15,8 @@
 import { atr, sourceValues } from 'openalgo-charts';
 import type { IndicatorDescriptor, IndicatorSource } from 'openalgo-charts';
 import { sma, wma, highest, lowest, nulls, smaSeededEma, alma, linreg } from './calc';
+import { emaOfGapped } from './smoothing';
+import { withTail, windowTail, whole } from './tail';
 
 const num = (s: Readonly<Record<string, unknown>>, k: string, d: number): number => {
   const v = s[k];
@@ -32,25 +34,6 @@ const src = (s: Readonly<Record<string, unknown>>, k = 'source'): IndicatorSourc
 
 const highs = (bars: readonly { high: number }[]): number[] => bars.map((b) => b.high);
 const lows = (bars: readonly { low: number }[]): number[] => bars.map((b) => b.low);
-
-/**
- * `smaSeededEma` over a series that itself opens with a warmup gap. the reference `ema`
- * re-seeds from `sma(src, length)` for as long as its own previous value is
- * `na`, and that SMA stays `na` until the window holds `length` real values, so
- * an EMA of an EMA first prints at `2 * length - 2`, not at `length - 1`.
- * `smaSeededEma` seeds unconditionally from index 0, where a leading NaN would poison
- * the recursion forever, so it is only ever shown the live tail.
- */
-function emaOfGapped(values: readonly number[], period: number): number[] {
-  const n = values.length;
-  const out = new Array<number>(n).fill(NaN);
-  let start = 0;
-  while (start < n && !Number.isFinite(values[start])) start += 1;
-  if (start >= n) return out;
-  const tail = smaSeededEma(values.slice(start), period);
-  for (let i = 0; i < tail.length; i++) out[start + i] = tail[i];
-  return out;
-}
 
 /**
  * A rolling extreme that refuses any window containing a warmup gap. `highest` /
@@ -152,38 +135,13 @@ export const DEMA: IndicatorDescriptor = {
   },
 };
 
-/**
- * Weighted average over a period that need not be a whole number, so a Hull
- * average can halve an odd length without losing the remainder. A period of 4.5
- * spans five bars weighted 4.5, 3.5, 2.5, 1.5 and 0.5, and the normaliser is the
- * sum of those weights rather than the usual triangular number.
- *
- * At a whole period this is `wma` term for term, which is why only odd Hull
- * lengths ever disagreed. It lives here rather than in the shared helpers
- * because the Hull average is its only caller.
- */
-function fractionalWma(values: readonly number[], period: number): number[] {
-  const n = values.length;
-  const out = new Array<number>(n).fill(NaN);
-  const span = Math.ceil(period);
-  if (period <= 0 || n < span) return out;
-  let denom = 0;
-  for (let k = 0; k < span; k++) denom += period - k;
-  for (let i = span - 1; i < n; i++) {
-    let acc = 0;
-    for (let k = 0; k < span; k++) acc += values[i - k] * (period - k);
-    out[i] = acc / denom;
-  }
-  return out;
-}
-
 export const HMA: IndicatorDescriptor = {
   id: 'hma',
   name: 'Hull Moving Average',
   category: 'Trend',
   placement: 'onchart',
   inputs: [
-    { key: 'length', type: 'number', label: 'Length', default: 9, min: 2, max: 1000, step: 1 },
+    { key: 'length', type: 'number', label: 'Length', default: 9, min: 1, max: 1000, step: 1 },
     { key: 'source', type: 'source', label: 'Source', default: 'close' },
     { key: 'color', type: 'color', label: 'HMA', default: '#2962ff' },
   ],
@@ -193,20 +151,8 @@ export const HMA: IndicatorDescriptor = {
   }],
   calc: (bars, s) => {
     const values = sourceValues(bars, src(s));
-    const length = int(s, 'length', 9, 2);
-    // The half period is deliberately NOT floored. The reference halves the
-    // length in floating point, so an odd length asks its weighted average for a
-    // 4.5-bar window, and flooring to 4 left the fast leg a fifth of a bar early
-    // and the whole line 0.4 slopes high on a ramp. The outer period does floor
-    // its square root, which is why that one stays whole.
-    const half = Math.max(0.5, length / 2);
-    const root = Math.max(1, Math.floor(Math.sqrt(length)));
-    const fast = fractionalWma(values, half);
-    const slow = wma(values, length);
-    // `wma` carries NaN through its accumulator, so the raw series' warmup
-    // propagates into the smoothing pass without any masking here.
-    const raw = fast.map((v, i) => 2 * v - slow[i]);
-    return { hma: nulls(wma(raw, root)) };
+    const length = int(s, 'length', 9);
+    return { hma: nulls(hullHma(values, length)) };
   },
 };
 
@@ -248,7 +194,7 @@ export const ENVELOPE: IndicatorDescriptor = {
   },
 };
 
-export const DONCHIAN: IndicatorDescriptor = {
+export const DONCHIAN: IndicatorDescriptor = withTail({
   id: 'donchian',
   name: 'Donchian Channels',
   category: 'Volatility',
@@ -284,7 +230,13 @@ export const DONCHIAN: IndicatorDescriptor = {
       lower: nulls(shift(lower, offset)),
     };
   },
-};
+}, (calc) => windowTail(calc, (s) => {
+  // A forward offset only reaches further back. A backward one draws the
+  // forming bar's channel on an earlier slot than the tail covers.
+  const length = int(s, 'length', 20);
+  const offset = Math.round(num(s, 'offset', 0));
+  return whole(length) && offset >= 0 ? length - 1 + offset : null;
+}));
 
 /**
  * Two stacked extremes: an ATR-padded high/low band, then the running extreme of
@@ -519,17 +471,16 @@ const rootSpan = (n: number): number => Math.max(1, Math.round(Math.sqrt(n)));
 function hullHma(values: readonly number[], n: number): number[] {
   const fast = wma(values, span(n / 2));
   const slow = wma(values, n);
-  // `wma` carries NaN through its accumulator, so the raw series' warmup
-  // propagates into the smoothing pass without any masking here.
+  // Each WMA requires a complete finite window, so the outer pass remains
+  // unavailable while its window still contains the raw series' warmup gap.
   return wma(fast.map((v, i) => 2 * v - slow[i]), rootSpan(n));
 }
 
 function hullEhma(values: readonly number[], n: number): number[] {
   const fast = smaSeededEma(values, span(n / 2));
   const slow = smaSeededEma(values, n);
-  // The difference inherits `slow`'s warmup gap, and `smaSeededEma` seeds
-  // unconditionally from index 0 where a leading NaN would poison the
-  // recursion forever, so the outer pass is only ever shown the live tail.
+  // The difference inherits `slow`'s warmup gap. Keep the outer smoothing
+  // pass aligned with that first available difference.
   return emaOfGapped(fast.map((v, i) => 2 * v - slow[i]), rootSpan(n));
 }
 

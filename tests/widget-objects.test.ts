@@ -31,6 +31,9 @@ const profile: ChartObjectSnapshot = {
 // state transition contract while the tests exercise the actual panel and stack.
 class ObjectModel {
   public rows: readonly ChartObjectSnapshot[];
+  /** Where the price pane sits; a host can move it below its studies. */
+  public pricePane = 0;
+  public panes = 2;
   public readonly listeners = new Set<(rows: readonly ChartObjectSnapshot[]) => void>();
   public readonly calls: unknown[][] = [];
   public fail: 'false' | 'throw' | null = null;
@@ -76,6 +79,13 @@ class ObjectModel {
     return true;
   }
   public openSettings(id: string): boolean { return this.accept('settings', id); }
+  public primaryPaneIndex(): number { return this.pricePane; }
+  public paneCount(): number { return this.panes; }
+  public move(id: string, paneIndex: number): boolean {
+    if (!this.accept('move', id, undefined)) return false;
+    this.patch(id, { paneIndex });
+    return true;
+  }
   public focus(id: string): boolean { return this.accept('focus', id); }
   public destroy(): void { this.calls.push(['destroy']); }
 }
@@ -126,7 +136,7 @@ describe('mountObjectsPanel', () => {
   it('shows object state and exposes only supported actions, protecting the primary source', () => {
     const r = rig();
     const panel = mountObjectsPanel(r.ctx);
-    expect(names(panel.el)).toEqual(['Primary price', 'Trend line', 'Open interest', 'Session profile']);
+    expect(names(panel.el)).toEqual(['Primary price', 'Trend line', 'Session profile', 'Open interest']);
     expect(row(panel.el, indicator.id).textContent).toContain('Pane 2');
     expect(row(panel.el, indicator.id).textContent).toContain('Hidden');
     expect(row(panel.el, indicator.id).textContent).toContain('Loading');
@@ -137,6 +147,26 @@ describe('mountObjectsPanel', () => {
     expect(find(panel.el, 'input[type="search"]').getAttribute('aria-label')).toBe('Search objects');
   });
 
+  it('names the price pane wherever it sits, in the pane headings and the move targets', () => {
+    const movable = { ...drawing, capabilities: { ...ALL, move: true } };
+    const r = rig([source, movable, indicator]);
+    const panel = mountObjectsPanel(r.ctx);
+    const headings = (): string[] => node(panel.el).querySelectorAll('.oac-objects__pane-title').map(title => title.textContent);
+    const targets = (): string[] => row(panel.el, movable.id).querySelector('select')!.querySelectorAll('option').map(option => option.textContent);
+    expect(headings()).toEqual(['Price pane', 'Pane 2']);
+    expect(targets()).toEqual(['Price pane', 'Pane 2', 'New pane']);
+    // The price pane moved below the study pane: the names follow it, not the slot.
+    r.model.pricePane = 1;
+    r.model.panes = 2;
+    r.model.publish([{ ...source, paneIndex: 1 }, { ...movable, paneIndex: 1 }, { ...indicator, paneIndex: 0 }]);
+    expect(headings()).toEqual(['Pane 1', 'Price pane']);
+    expect(targets()).toEqual(['Pane 1', 'Price pane', 'New pane']);
+    const search = find(panel.el, 'input');
+    search.value = 'price pane';
+    fire(search, 'input');
+    expect(names(panel.el)).toEqual(['Primary price', 'Trend line']);
+  });
+
   it('filters by name, kind and pane and explains an empty result', () => {
     const r = rig();
     const panel = mountObjectsPanel(r.ctx);
@@ -144,7 +174,7 @@ describe('mountObjectsPanel', () => {
     for (const [query, expected] of [
       ['TREND', ['Trend line']], ['indicator', ['Open interest']],
       ['pane 2', ['Open interest']], ['session profile', ['Session profile']],
-      ['absent', []], ['  ', ['Primary price', 'Trend line', 'Open interest', 'Session profile']],
+      ['absent', []], ['  ', ['Primary price', 'Trend line', 'Session profile', 'Open interest']],
     ] as const) {
       search.value = query;
       fire(search, 'input');
@@ -211,13 +241,13 @@ describe('mountObjectsPanel', () => {
     control(line, 'Unlock Trend line').click();
     control(line, 'Settings for Trend line').click();
     control(line, 'Focus Trend line').click();
-    control(line, 'Remove Trend line').click();
+    control(line, 'Delete Trend line').click();
     expect(r.model.calls).toEqual([
       ['visibility', drawing.id, false], ['visibility', drawing.id, true],
       ['lock', drawing.id, true], ['lock', drawing.id, false],
       ['settings', drawing.id, undefined], ['focus', drawing.id, undefined], ['remove', drawing.id, undefined],
     ]);
-    expect(names(panel.el)).toEqual(['Primary price', 'Open interest', 'Session profile']);
+    expect(names(panel.el)).toEqual(['Primary price', 'Session profile', 'Open interest']);
   });
 
   it.each(['false', 'throw'] as const)('reports a refused action (%s) without optimistic changes', failure => {

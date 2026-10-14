@@ -1,7 +1,7 @@
 /**
  * Chart-type registry (ARCHITECTURE.md §6A). Every series type registers a
  * descriptor: how to draw it and how it contributes to autoscale. The core
- * iterates descriptors, so adding a style is one registration — no core change.
+ * iterates descriptors, so adding a style is one registration and no core change.
  * Phase 5 fills the Family-A (time-indexed) types; Families B/C plug in later.
  */
 import type { Bar } from './bar';
@@ -38,6 +38,16 @@ export interface DrawItem {
    * it is the one that needs a reference the visible window does not hold.
    */
   prevClose?: number;
+  /**
+   * Set only on the neighbour a `connectsBars` renderer gets beyond each edge
+   * of the view: the x (media px) of the plot edge between it and the bars in
+   * view, 0 on the left and the plot width on the right. That neighbour can
+   * sit millions of pixels off screen (a level held for a session on an axis
+   * of five-second bars), so a renderer cuts the segment to it at this x,
+   * plus whatever its stroke needs, rather than draw it all the way out, and
+   * paints nothing of the neighbour's own (a marker, a body).
+   */
+  edgeX?: number;
 }
 
 export interface SeriesRenderContext {
@@ -51,10 +61,20 @@ export interface RendererEntry {
   /** True for the price series whose last close drives the last-price line. */
   isPriceSeries: boolean;
   /**
-   * Paint the visible items on a bitmap-scope 2D context. On screen the pane
-   * reaches this through its render backend (src/render/backend.ts); the 2D
-   * backend calls it as is, and the vector export calls it directly on the
-   * serialising target.
+   * True for a renderer that draws a segment from each bar to the next (a
+   * line, a step, an area, kagi). Its items then carry the nearest bar beyond
+   * each edge of the view as well, marked with `edgeX`, so the segment that
+   * crosses an edge is drawn: a sparse line (a level held for an hour, a
+   * position that steps twice a session) would otherwise lose the part that
+   * enters from off screen. Such a renderer cuts that segment at `edgeX`.
+   */
+  connectsBars?: boolean;
+  /**
+   * Paint the items on a bitmap-scope 2D context: the bars in view, and for a
+   * `connectsBars` renderer the neighbour beyond each edge (`DrawItem.edgeX`).
+   * On screen the pane reaches this through its render backend
+   * (src/render/backend.ts); the 2D backend calls it as is, and the vector
+   * export calls it directly on the serialising target.
    */
   draw(
     ctx: CanvasRenderingContext2D,
@@ -107,7 +127,7 @@ export function getChartType(type: SeriesType | (string & {})): RendererEntry {
   const e = registry.get(type);
   if (e === undefined) {
     if (TRANSFORM_TIER_TYPES.has(type)) {
-      throw new Error(`openalgo-charts: series type "${type}" needs the transform tier — import 'openalgo-charts/transform' first`);
+      throw new Error(`openalgo-charts: series type "${type}" needs the transform tier, import 'openalgo-charts/transform' first`);
     }
     throw new Error(`openalgo-charts: unknown series type "${type}"`);
   }
@@ -160,25 +180,25 @@ registerChartType('high-low', {
 });
 
 registerChartType('line', {
-  defaultStyle: { lineWidth: 1.5 }, isPriceSeries: true,
+  defaultStyle: { lineWidth: 1.5 }, isPriceSeries: true, connectsBars: true,
   draw: (g, items, toY, _bs, dpr, s, rc) => drawLine(g, items, toY, dpr, { ...s, color: s.color ?? rc.theme.lineColor }),
   extents: closeOnly,
 });
 
 registerChartType('line-markers', {
-  defaultStyle: { lineWidth: 1.5, markers: true }, isPriceSeries: true,
+  defaultStyle: { lineWidth: 1.5, markers: true }, isPriceSeries: true, connectsBars: true,
   draw: (g, items, toY, _bs, dpr, s, rc) => drawLine(g, items, toY, dpr, { ...s, color: s.color ?? rc.theme.lineColor, markers: true }),
   extents: closeOnly,
 });
 
 registerChartType('step', {
-  defaultStyle: { lineWidth: 1.5, step: true }, isPriceSeries: true,
+  defaultStyle: { lineWidth: 1.5, step: true }, isPriceSeries: true, connectsBars: true,
   draw: (g, items, toY, _bs, dpr, s, rc) => drawLine(g, items, toY, dpr, { ...s, color: s.color ?? rc.theme.lineColor, step: true }),
   extents: closeOnly,
 });
 
 registerChartType('area', {
-  defaultStyle: { lineWidth: 1.5 }, isPriceSeries: true,
+  defaultStyle: { lineWidth: 1.5 }, isPriceSeries: true, connectsBars: true,
   draw: (g, items, toY, _bs, dpr, s, rc) => drawArea(g, items, toY, dpr, rc.plotHeight, {
     ...s,
     color: s.color ?? rc.theme.lineColor,
@@ -189,13 +209,13 @@ registerChartType('area', {
 });
 
 registerChartType('hlc-area', {
-  defaultStyle: { lineWidth: 1.5 }, isPriceSeries: true,
+  defaultStyle: { lineWidth: 1.5 }, isPriceSeries: true, connectsBars: true,
   draw: (g, items, toY, _bs, dpr, s, rc) => drawHlcArea(g, items, toY, dpr, { ...s, closeColor: s.closeColor ?? rc.theme.lineColor }),
   extents: hiLo,
 });
 
 registerChartType('baseline', {
-  defaultStyle: { baseValue: 0, lineWidth: 1.5 }, isPriceSeries: true,
+  defaultStyle: { baseValue: 0, lineWidth: 1.5 }, isPriceSeries: true, connectsBars: true,
   draw: (g, items, toY, _bs, dpr, s, rc) => drawBaseline(g, items, toY, dpr, {
     ...s,
     topColor: s.topColor ?? rc.theme.baselineTopLine,

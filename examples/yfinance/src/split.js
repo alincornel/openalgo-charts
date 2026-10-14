@@ -1,10 +1,11 @@
 import * as engine from '/dist/openalgo-charts.mjs';
 import { createChart, PaneLegend } from '/dist/openalgo-charts.mjs';
 import { attachAlerts, detachAlerts } from './alerts.js';
+import { attachInspection, detachInspection } from './inspection.js';
 import { DrawingController, DrawingLinkGroup } from '/dist/openalgo-charts.draw.mjs';
-import { el, fmt, fmtVol, UP, DOWN, chartTheme, chartMotionOptions, toast } from './ui.js';
+import { el, fmt, fmtVol, UP, DOWN, chartTheme, chartMotionOptions, toast, MOD } from './ui.js';
 import { clipboardPort } from './clipboard.js';
-import { armCursor, magnetMode, stayMode, syncMobileControls, observeMobileControls, focusChart } from './rail.js';
+import { armCursor, magnetMode, stayMode, syncMobileControls, observeMobileControls, focusChart, toolName } from './rail.js';
 import { fetchBars, fetchNote, feedErrorState } from './feed.js';
 import { attachComparison, comparisonState, invalidateComparisons, restoreComparisons, syncComparisons } from './compare.js';
 import { autosave, stripView } from './persist.js';
@@ -13,14 +14,19 @@ import { tbtn, renderToolbar, CHART_TYPES } from './toolbar.js';
 import { openContextMenu, closeMenu } from './menus.js';
 import { attachVolume, refreshVolume, setVolumeLegend, applyVolumeSettings, volumeValues } from './volume.js';
 import { referenceDataContext, isExpression, fetchExpressionBars } from './expression.js';
+import { requestVariant, sessionOf } from './session.js';
 import { applyTransform } from './transforms.js';
 import { chartDecorationsForRebuild, normalizeLegendIconSize, restorePrimaryStyle } from './chart-settings.js';
 import { bindIndicatorSource } from './indicator-source.js';
 import { openSettings, renderIndicatorChips } from './indicators.js';
 import { capturePaneTarget } from './pane-target.js';
 import { symbolStatus, exchangeOf, nameOf } from './status.js';
+import { axisMinMove, sessionCalendarFor, tickScheduleFor } from './ticks.js';
 import { attachReplay, exitReplay, syncReplayAlertPause } from './replay.js';
 import { attachTimeline } from './timeline.js';
+import { attachHistory, historyFor, withoutHistory } from './history.js';
+import { scopeDrawings } from './drawing-scope.js';
+import { attachCanvasTips } from './canvas-tips.js';
 
 // 1.3 surfaces: chart linking, the bar cache and the interval registry.
 // Same namespace read for the same reason: this page must still draw
@@ -116,7 +122,7 @@ export function joinLink() {
   if (!app.linkGroup) return;
   if (app.chart) {
     app.linkGroup.add(app.chart, {
-      appearance: appearanceAdapter(app.chart),
+      appearance: appearanceAdapter(app.chart, 1),
       symbol: app.req.symbol,
       interval: app.req.interval,
       onInterval: interval => {
@@ -137,7 +143,7 @@ export function joinLink() {
   }
   if (app.chart2) {
     app.linkGroup.add(app.chart2, {
-      appearance: appearanceAdapter(app.chart2),
+      appearance: appearanceAdapter(app.chart2, 2),
       symbol: app.p2.symbol,
       interval: app.p2.interval,
       onInterval: interval => {
@@ -161,10 +167,12 @@ export function joinLink() {
 export const drawingLinkContext = request => ({ symbol: request.symbol, exchange: 'YFINANCE' });
 const drawingContextReader = chart => () => drawingLinkContext(chart.getDataContext() || {});
 
-function appearanceAdapter(chart) {
+// A linked change is the other chart's step, taken back on its timeline and
+// sent here again; on this chart's own timeline it is never a step.
+function appearanceAdapter(chart, pane) {
   return {
     read: () => engine.readChartSettings(chart),
-    apply: values => engine.applyChartSettings(chart, values),
+    apply: values => withoutHistory(pane, () => engine.applyChartSettings(chart, values)),
   };
 }
 
@@ -187,10 +195,15 @@ export function closeSplit() {
   app.loading2 = false;
   app.loadFailed2 = false;
   if (app.chart2) {
+    detachInspection(app, 2);
     detachAlerts(app, 2);
     if (app.linkGroup) app.linkGroup.remove(app.chart2);
+    if (app.instrumentDrawings2) { app.instrumentDrawings2.destroy(); app.instrumentDrawings2 = null; }
     if (app.draw2) { app.draw2.destroy(); app.draw2 = null; }
+    app.offCanvasTips2?.(); app.offCanvasTips2 = null;
     app.chart2.destroy();
+    // A split opened again is a new second chart, with nothing to take back yet.
+    historyFor(2)?.clear();
     app.chart2 = null; price2 = null; app.volume2 = null;
     app.symbolLegend2 = null; app.volLegend2 = null; app.volumeMA2 = null;
     app.volumeReadings2 = null;
@@ -222,9 +235,14 @@ export async function restoreSecondaryLayout(saved, selected = 1) {
     if (!CHART_TYPES.some(type => type.v === chartType) || !['atr', 'percent', 'fixed'].includes(pfmode)) {
       throw new Error('The second chart has invalid chart type settings');
     }
+    if (req.session !== undefined && !['regular', 'extended'].includes(req.session)) {
+      throw new Error('The second chart has an invalid session');
+    }
     app.p2 = { symbol: req.symbol, interval: req.interval, period: req.period, chartType, pfmode,
+      ...(req.session === 'extended' ? { session: 'extended' } : {}),
       legendIconSize: normalizeLegendIconSize(saved.legendIconSize),
       timezone: saved.state?.timezone || app.chartTimezone };
+    app.inspectionState2 = saved.inspection || { panel: null, width: 300 };
     if (Number.isFinite(saved.width)) el('pane2').style.flexBasis = Math.max(18, Math.min(78, saved.width)) + '%';
     const legacyVisible = saved.state?.series?.find(series => series.type === 'histogram')?.style?.visible !== false;
     applyVolumeSettings(2, volumeValues(saved.volumeSettings || { 'volume.visible': legacyVisible }));
@@ -233,7 +251,7 @@ export async function restoreSecondaryLayout(saved, selected = 1) {
     const restoredChart = app.chart2;
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     if (revision !== restoreRevision || !loaded || !restoredChart || app.chart2 !== restoredChart
-      || !['symbol', 'interval', 'period'].every(key => app.p2[key] === req[key])) return false;
+      || !['symbol', 'interval', 'period'].every(key => app.p2[key] === req[key]) || sessionOf(app.p2) !== sessionOf(req)) return false;
     let report;
     withoutViewportSync(() => { report = app.chart2.restoreState(saved.state); });
     if (!report.applied) throw new Error('The second chart layout could not be restored');
@@ -256,26 +274,31 @@ export function buildChart2({ keepView = true, typeChanged = false, state } = {}
   const previous = state || app.chart2?.getState();
   const saved = previous && (keepView ? previous : stripView(previous));
   const decorations = chartDecorationsForRebuild(app.chart2);
+  detachInspection(app, 2);
   detachAlerts(app, 2);
   const dataContext = referenceDataContext(app.p2, app.chart2?.getDataContext());
+  if (app.instrumentDrawings2) { app.instrumentDrawings2.destroy(); app.instrumentDrawings2 = null; }
   if (app.chart2) { if (app.linkGroup) app.linkGroup.remove(app.chart2); app.chart2.destroy(); }
   if (app.draw2) { app.draw2.destroy(); app.draw2 = null; }
   el('chart2').innerHTML = '';
   app.chart2 = createChart(el('chart2'), {
     theme: chartTheme(),
+    navigation: { defaultBarSpacing: 8 },
     priceAxisWidth: 62,
     legendIconSize: normalizeLegendIconSize(app.p2.legendIconSize),
     grid: { vertLines: el('vgrid').checked, horzLines: el('hgrid').checked },
     timezone: app.p2.timezone || app.chartTimezone,
+    // As on the main chart: the price pane moves from the right-click menu.
+    movablePrimaryPane: true,
     ...chartMotionOptions(),
     ...decorations,
   });
   app.p2.timezone = app.chart2.timezone();
   app.chart2.setDataContext(dataContext);
   app.symbolLegend2 = new PaneLegend({ id: 'symbol', title: app.p2.symbol, row: 0, actions: [],
-    status: () => symbolStatus({ symbol: app.p2.symbol, bars: app.chart2.primaryBars(), timezone: app.chart2.timezone() }),
+    status: () => symbolStatus({ symbol: app.p2.symbol, bars: app.chart2.primaryBars(), timezone: app.chart2.timezone(), session: sessionOf(app.p2) }),
   });
-  app.chart2.addPrimitive(app.symbolLegend2, 0);
+  app.chart2.addPrimitive(app.symbolLegend2);
   const chartType = app.p2.chartType || 'candlestick';
   const transformed = chartType.startsWith('t:');
   const { type, data } = transformed
@@ -285,7 +308,10 @@ export function buildChart2({ keepView = true, typeChanged = false, state } = {}
     ? { baseValue: bars2.reduce((sum, bar) => sum + bar.close, 0) / (bars2.length || 1) } : {};
   price2 = app.chart2.addSeries(type, { style });
   price2.setData(data);
-  app.chart2.setPriceScaleOptions({ minMove: /\.(NS|BO)$/i.test(app.p2.symbol) ? 0.05 : 0.01 });
+  // The second chart's own venue hours, as on the main chart.
+  app.chart2.dataLayer.setSessionCalendar?.(sessionCalendarFor(app.p2.symbol));
+  app.chart2.setPriceScaleOptions({ minMove: axisMinMove(app.p2.symbol, /\.(NS|BO)$/i.test(app.p2.symbol) ? 0.05 : 0.01) });
+  app.chart2.setTickSchedule?.(tickScheduleFor(app.p2.symbol));
   attachVolume(2, !transformed || chartType === 't:heikin-ashi');
   app.chart2.subscribeCrosshairMove((e) => setPane2Legend(e.bar ?? app.chart2.primaryBars().at(-1)));
   attachReplay(app.chart2, 2, setPane2Legend);
@@ -308,6 +334,8 @@ export function buildChart2({ keepView = true, typeChanged = false, state } = {}
     const report = app.chart2.restoreState(typeChanged ? { ...saved, series: [] } : saved);
     if (state && !report.applied) throw new Error('The second chart state could not be restored');
   }
+  // As on the main chart: a rebuild or a layout brings this symbol's drawings.
+  app.instrumentDrawings2 = scopeDrawings(app.chart2, app.draw2, 2, saved ? 'live' : 'stored');
   restorePrimaryStyle(app.chart2, saved);
   refreshVolume(2);
   for (const spec of comparisonState(2).items) attachComparison(spec, 2);
@@ -316,19 +344,24 @@ export function buildChart2({ keepView = true, typeChanged = false, state } = {}
     armCursor(el('chart2'), tool);
     if (app.focusPane === 2) syncMobileControls(tool);
   });
-  app.chart2.on('draw:add', () => { el('status').textContent = 'chart 2: ' + app.draw2.drawings().length + ' drawings'; });
-  for (const event of ['draw:add', 'draw:remove', 'draw:update', 'indicatorAdded', 'indicatorRemoved', 'indicatorUpdated']) app.chart2.on(event, autosave);
+  app.chart2.on('draw:add', () => { el('status').textContent = 'Chart 2: ' + app.draw2.drawings().length + ' drawings'; });
+  app.offCanvasTips2 = attachCanvasTips(app.chart2, el('chart2'), 2);
+  for (const event of ['draw:add', 'draw:remove', 'draw:update', 'indicatorAdded', 'indicatorRemoved', 'indicatorUpdated', 'paneCollapsed']) app.chart2.on(event, autosave);
   // No properties widget over here (it is glued to the main chart's box),
   // but the chords apply to the selected plot, so the
   // selection has to say so on this side too.
   app.chart2.on('draw:select', ({ id }) => {
     const d = id ? app.draw2.get(id) : null;
     if (d && typeof app.draw2.copy === 'function') {
-      el('status').textContent = `chart 2: ${d.tool} selected · Ctrl+C copy · Ctrl+X cut · Ctrl+V paste`;
+      el('status').textContent = `Chart 2: ${toolName(d.tool)} selected · ${MOD}+C copy · ${MOD}+X cut · ${MOD}+V paste`;
     }
   });
   joinLink();
   attachTimeline(app, 2, bars2);
+  attachInspection(app, 2);
+  // Last, as on the main chart: the build is not a step, and the second
+  // chart's timeline carries over its rebuilds.
+  attachHistory(2);
 }
 
 export async function loadPane2() {
@@ -347,7 +380,8 @@ export async function loadPane2() {
   app.alerts2?.setPaused(true);
   app.p2.period = clampPeriod(app.p2.interval, app.p2.period);
   const request = { ...app.p2 };
-  const identityChanged = before?.symbol !== request.symbol || before?.interval !== request.interval;
+  const identityChanged = before?.symbol !== request.symbol || before?.interval !== request.interval
+    || before?.variant?.session !== requestVariant(request)?.session;
   const keepView = chart.primaryBars().length > 0 && !identityChanged;
   // Clear while the old context still owns these bars; a refresh keeps its view.
   if (identityChanged) {
@@ -356,7 +390,10 @@ export async function loadPane2() {
     app.volume2?.setData([]);
     setPane2Legend(null);
   }
-  app.chart2.setDataContext(referenceDataContext(app.p2, app.chart2.getDataContext()));
+  // A session change alone is a new source, which only the helper makes the chart see.
+  const context = referenceDataContext(app.p2, app.chart2.getDataContext());
+  if (engine.publishDataContext) engine.publishDataContext(app.chart2, context);
+  else app.chart2.setDataContext(context);
   if (app.linkGroup) app.linkGroup.setSymbol(chart, request.symbol);
   app.linkGroup?.setInterval?.(chart, request.interval);
   app.drawingLinkGroup?.setContext(chart, drawingLinkContext(request));
@@ -365,9 +402,10 @@ export async function loadPane2() {
   setPane2Note('loading ' + app.p2.symbol + ' ' + intervalLabel(app.p2.interval) + '...');
   renderToolbar();
   try {
+    const variant = requestVariant(request);
     const loaded = isExpression(request.symbol)
-      ? (await fetchExpressionBars(request.symbol, request.interval, request.period, { signal: controller.signal, timezone: request.timezone })).bars
-      : await fetchBars(request.symbol, request.interval, request.period, { signal: controller.signal, timezone: request.timezone });
+      ? (await fetchExpressionBars(request.symbol, request.interval, request.period, { signal: controller.signal, timezone: request.timezone, variant })).bars
+      : await fetchBars(request.symbol, request.interval, request.period, { signal: controller.signal, timezone: request.timezone, variant });
     if (revision !== pane2LoadRevision || app.chart2 !== chart) return false;
     bars2 = loaded;
     const note = `${bars2.length} bars${fetchNote()}`;
@@ -385,7 +423,7 @@ export async function loadPane2() {
     const fault = feedErrorState(e);
     if (fault.state === 'aborted') return false;
     app.loadFailed2 = true;
-    setPane2Note('error: ' + fault.message);
+    setPane2Note((fault.state === 'unsupported' ? '' : 'error: ') + fault.message);
     return false;
   } finally {
     if (revision === pane2LoadRevision) {
@@ -399,7 +437,7 @@ export async function loadPane2() {
 }
 
 /**
- * A freshly loaded follower fits its own content, and does so with sync
+ * A freshly loaded follower restores its own default view, with sync
  * suspended, because a fit is not a pan. Two things went wrong without
  * this. Letting the fit broadcast threw the main chart off whatever window
  * the user had it on and replaced it with a month of the follower's
@@ -411,7 +449,7 @@ export async function loadPane2() {
  * or zoom, which is exactly what the group documents viewport sync to do.
  */
 export function placePane2View() {
-  withoutViewportSync(() => app.chart2.fitContent());
+  withoutViewportSync(() => app.chart2.resetScale());
 }
 
 /** Run `fn` with viewport mirroring off, then put it back as it was. */
@@ -457,7 +495,7 @@ export function setPane2Legend(bar) {
 export function renderPane2Bar() {
   const bar = el('p2bar');
   bar.innerHTML = '';
-  const select = tbtn('Chart 2', 'Select chart 2');
+  const select = tbtn('Chart 2', 'Select Chart 2');
   select.addEventListener('click', () => { focusChart(2); el('chart2').focus(); });
   bar.appendChild(select);
 
@@ -466,7 +504,7 @@ export function renderPane2Bar() {
   note.textContent = app.p2.note || '';
   bar.appendChild(note);
 
-  const x = tbtn('&times;', 'Close the split view');
+  const x = tbtn('&times;', 'Close the second chart');
   x.classList.add('tbtn--icon');
   x.addEventListener('click', closeSplit);
   bar.appendChild(x);

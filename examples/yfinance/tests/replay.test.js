@@ -3,7 +3,7 @@ import { fakeDom, flatBar } from './helpers.js';
 
 vi.mock('../src/feed.js', () => ({ fetchBars: vi.fn(), abortFetch: vi.fn() }));
 vi.mock('../src/toolbar.js', () => ({ renderToolbar: vi.fn(), ticon: () => '' }));
-vi.mock('../src/status.js', () => ({ setLegend: vi.fn(), barStamp: () => '' }));
+vi.mock('../src/status.js', async importOriginal => ({ ...await importOriginal(), setLegend: vi.fn(), barStamp: () => '' }));
 import { fetchBars, abortFetch } from '../src/feed.js';
 import { initReplay, enterReplay, startReplayAt, exitReplay, loadReplaySubBars } from '../src/replay.js';
 
@@ -53,6 +53,18 @@ describe('reference replay transitions', () => {
     await loadReplaySubBars();
     expect(fetchBars.mock.calls.map(call => call.slice(0, 3))).toEqual([
       ['FIRST', '60m', '1mo'], ['SECOND', '60m', '1mo'], ['SECOND', '60m', '3mo'],
+    ]);
+  });
+
+  it('keys finer history by session and asks for it in that session', async () => {
+    fetchBars.mockResolvedValue([flatBar(1, 10)]);
+    app.req.interval = '1h';
+    await loadReplaySubBars();
+    // Extended hours are another series: the regular finer bars cannot stand in for them.
+    app.req.session = 'extended';
+    await loadReplaySubBars();
+    expect(fetchBars.mock.calls.map(call => [call[0], call[1], call[3]?.variant])).toEqual([
+      ['FIRST', '15m', undefined], ['FIRST', '15m', { session: 'extended' }],
     ]);
   });
 

@@ -378,8 +378,7 @@ interface LevelAcc {
   volume: number;
 }
 
-/** POC + value area over a level list, expanding from the POC outward. */
-/** `levels` sorted by price, highest first. */
+/** POC + value area over a level list, expanding from the POC outward. `levels` sorted by price, highest first. */
 function pocAndValueArea(
   levels: readonly { price: number; count: number }[],
   vaPct: number,

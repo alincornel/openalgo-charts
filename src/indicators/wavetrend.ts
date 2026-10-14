@@ -10,12 +10,11 @@
  * something across instruments.
  *
  * Four smoothers run back to back (mean, mean deviation, the oscillator, its
- * signal line), and each one starts later than its input. `smaSeededEma` seeds
- * unconditionally from index 0, so one leading NaN poisons its recursion for the
- * whole series and a chained study comes out blank end to end rather than merely
- * late. Every stage therefore goes through `fromFirstValue`, which slices the
- * leading gap off, smooths the live tail and pads the answer back. The cost is
- * paid twice over in warmup: with the defaults the oscillator prints from bar
+ * signal line), and each one starts later than its input. `fromFirstValue`
+ * keeps each stage aligned by slicing off the leading gap, smoothing the tail
+ * and padding the answer back. The smoothers handle their own finite-window
+ * availability. With finite seed windows and the defaults, the oscillator
+ * prints from bar
  * `2 * (n1 - 1) + n2 - 1` = 38, the signal line `sigLen - 1` bars later at 41,
  * and the momentum with it.
  *
@@ -35,8 +34,10 @@
 import { sourceValues } from 'openalgo-charts';
 import type { IndicatorDescriptor, IndicatorSource, SeriesMarker } from 'openalgo-charts';
 import {
-  sma, smaSeededEma, nulls, pivotHigh, pivotLow, barsSince, valueWhen,
+  smaSeededEma, nulls, pivotHigh, pivotLow, barsSince, valueWhen,
 } from './calc';
+import { windowMean } from './window-mean';
+import { fromFirstValue } from './smoothing';
 
 const num = (s: Readonly<Record<string, unknown>>, k: string, d: number): number => {
   const v = s[k];
@@ -64,30 +65,6 @@ const constant = (n: number, value: number): (number | null)[] =>
 
 /** The same colour at 60 percent opacity, for the dimmer hidden-divergence plates. */
 const dim = (hex: string): string => (/^#[0-9a-f]{6}$/i.test(hex) ? `${hex}99` : hex);
-
-/**
- * Smooth the tail that begins at the series' first real value, then pad the
- * answer back to full length.
- *
- * A study does not exist before its first value, so its smoother's window has
- * to start counting there: chaining straight onto a gapped series either drags
- * a NaN through a recursion forever or counts holes as bars. Every stage of the
- * chain below is wrapped in this, which is also what makes the warmup additive
- * and predictable rather than absorbing.
- */
-function fromFirstValue(
-  values: readonly number[],
-  smooth: (tail: readonly number[]) => number[],
-): number[] {
-  const n = values.length;
-  const out = new Array<number>(n).fill(NaN);
-  let start = 0;
-  while (start < n && !Number.isFinite(values[start])) start += 1;
-  if (start >= n) return out;
-  const tail = smooth(values.slice(start));
-  for (let i = 0; i < tail.length && start + i < n; i++) out[start + i] = tail[i];
-  return out;
-}
 
 /** The reading `k` bars back, with no value before the series starts. */
 function shift(values: readonly number[], k: number): number[] {
@@ -217,7 +194,7 @@ export const WAVETREND: IndicatorDescriptor = {
       return dv === 0 ? 0 : (v - esa[i]) / (0.015 * dv);
     });
     const wt1 = fromFirstValue(ci, (t) => smaSeededEma(t, n2));
-    const wt2 = fromFirstValue(wt1, (t) => sma(t, sigLen));
+    const wt2 = fromFirstValue(wt1, (t) => windowMean(t, sigLen));
     const mom = wt1.map((v, i) => v - wt2[i]);
 
     const out = {

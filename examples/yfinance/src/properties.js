@@ -10,13 +10,16 @@
 // the fields their schemas share, and writes through `updateMany` so one
 // edit is one undo entry.
 import {
-  drawingSettingsSchema, readDrawingSettings, applyDrawingSettings, getDrawingTool, chromeIconSvg,
-  formatRatio, gannLabel, cloneLevels, DEFAULT_FIB,
+  drawingSettingsSchema, readDrawingSettings, applyDrawingSettings, getDrawingTool, chromeIconSvg, CHROME_ICON_STROKE,
+  formatRatio, gannLabel, cloneLevels, DEFAULT_FIB, INTERVAL_FIELDS,
 } from '/dist/openalgo-charts.draw.mjs';
-import { el, inTextField } from './ui.js';
+import { el, inTextField, toast, MOD } from './ui.js';
 import { attachTip } from './hover.js';
 import { openTextEditor, EDITOR_CSS } from './text-editor.js';
 import { buildLevelEditor, LEVEL_CSS } from './level-editor.js';
+import { createColorPicker, applyTokens, widgetTokens } from '/dist/openalgo-charts.widget.mjs';
+import { currentTheme, chartTheme } from './ui.js';
+import { INTERVALS, intervalLabel } from './intervals.js';
 
 /** Where the bar's dragged position is kept between sessions. */
 export const PROPBAR_POS_KEY = 'oa-charts-propbar';
@@ -46,6 +49,7 @@ export const PROPERTIES_CSS = `
 .propbar .grip:active { cursor: grabbing; }
 .propbar .pb-name { color: var(--mut); font-size: 11px; padding: 0 6px 0 2px; max-width: 110px;
   overflow: hidden; text-overflow: ellipsis; }
+.propbar .pb-note, .propbar .pb-off { color: var(--faint); font-size: 11px; text-transform: uppercase; padding: 0 6px; }
 .propbar button { height: 28px; min-width: 28px; display: inline-flex; align-items: center; justify-content: center;
   gap: 4px; padding: 0 4px; background: transparent; border: 1px solid transparent; border-radius: 6px;
   color: var(--mut); cursor: pointer; font: inherit; font-size: 12px; flex: none; }
@@ -110,11 +114,15 @@ const GLYPH = {
   levels: 'M2 4h12M2 8h12M2 12h12',
   opacity: 'M3 3h10v10H3zM3 8h10M8 3v10',
   order: 'M2 10h7v4H2zM7 2h7v7H7z',
-  behind: 'M3 12h10M8 2v8M5 7l3 3 3-3',
-  above: 'M3 4h10M8 14V6M5 9l3-3 3 3',
+  // The arrow stops a pixel short of its bar: at the 2px chrome line a tip
+  // one stroke away from the bar joins it.
+  behind: 'M3 13h10M8 2v7M5 6l3 3 3-3',
+  above: 'M3 3h10M8 14V7M5 10l3-3 3 3',
+  // A pushpin: the drawing is fixed to the screen.
+  pin: 'M6 2h4M7 2v4L5 9h6L9 6V2M8 9v5',
 };
 const XMLNS = 'http://www.w3.org/2000/svg';
-const glyph = (id, stroke = 1.5) =>
+const glyph = (id, stroke = CHROME_ICON_STROKE) =>
   `<svg xmlns="${XMLNS}" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor"`
   + ` stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${GLYPH[id]}"/></svg>`;
 const chrome = (id) => chromeIconSvg(id, { size: 16 });
@@ -127,6 +135,9 @@ const linePreview = (width, style, long = false) => {
     + (DASH[style] ? ` stroke-dasharray="${DASH[style]}"` : '') + '/></svg>';
 };
 
+/** A drawing whose policy keeps the user from editing it. */
+const isReadOnly = (d) => d.policy?.editable === false;
+
 /**
  * The fields every one of `toolIds` declares, with the same kind, in the
  * first tool's order. A multi-selection edits this intersection: a field one
@@ -138,6 +149,15 @@ export function commonSchema(toolIds) {
   const [first, ...rest] = schemas;
   const fields = first.fields.filter((f) => rest.every((s) => s.fields.some((g) => g.path === f.path && g.kind === f.kind)));
   return schemas.every((s) => s.textIsContent === true) ? { fields, textIsContent: true } : { fields };
+}
+
+/**
+ * `schema` with the intervals a drawing is shown on added: every tool can be
+ * limited to a range of intervals, and it is this page that lists them, so
+ * the tier declares the pair and the host puts it in.
+ */
+export function withIntervalFields(schema) {
+  return { ...schema, fields: schema.fields.concat(INTERVAL_FIELDS) };
 }
 
 /**
@@ -210,9 +230,11 @@ export function mountPropertiesBar(app, anchorEl) {
   host.appendChild(bar);
 
   let ids = [];        // the selection the bar edits, primary first
+  let shownReadOnly = false;   // whether the bar was built in its read-only form
   let schema = null;   // the fields shared by every selected tool
   let pinned = loadPos();
   let pop = null;      // { el, for } while a popover is open
+  let colorPickerHandle = null;
   let editor = null;   // the inline text editor while one is open
   let off = [];        // unsubscribers on the chart the bar last attached to
   let syncers = [];    // refresh each control's state from the model
@@ -288,9 +310,11 @@ export function mountPropertiesBar(app, anchorEl) {
     const o = chartOffset();
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (const d of live) {
-      for (const p of d.points) {
-        const cx = chart.timeToCoordinate(p.time);
-        const cy = chart.priceToCoordinate(p.price, d.paneIndex);
+      // The controller knows where a drawing pinned to the screen is; the
+      // chart can only map the time and price of one that is not.
+      const pinned = d.space === 'viewport' && typeof app.draw.screenPoints === 'function' ? app.draw.screenPoints(d.id) : null;
+      const at = pinned || d.points.map((p) => ({ x: chart.timeToCoordinate(p.time), y: chart.priceToCoordinate(p.price, d.paneIndex) }));
+      for (const { x: cx, y: cy } of at) {
         if (!Number.isFinite(cx) || cy === null || !Number.isFinite(cy)) continue;
         x0 = Math.min(x0, cx + o.x); x1 = Math.max(x1, cx + o.x);
         y0 = Math.min(y0, cy + o.y); y1 = Math.max(y1, cy + o.y);
@@ -313,6 +337,8 @@ export function mountPropertiesBar(app, anchorEl) {
   // ── popovers ───────────────────────────────────────────────────────────
   function closePop() {
     if (!pop) return;
+    colorPickerHandle?.destroy();
+    colorPickerHandle = null;
     pop.el.remove();
     pop = null;
   }
@@ -348,7 +374,9 @@ export function mountPropertiesBar(app, anchorEl) {
     b.type = 'button';
     b.innerHTML = html;
     if (cls) b.className = cls;
-    attachTip(b, typeof tip === 'function' ? tip : { title: tip, side: 'top' });
+    // A string is the title alone; a spec or a function passes through, or
+    // its chord and sub line are lost and the name reads "[object Object]".
+    attachTip(b, typeof tip === 'string' ? { title: tip, side: 'top' } : tip);
     if (onClick) b.addEventListener('click', (e) => { e.stopPropagation(); onClick(e); });
     bar.appendChild(b);
     return b;
@@ -411,6 +439,7 @@ export function mountPropertiesBar(app, anchorEl) {
           s.type = 'button';
           s.style.background = c;
           s.setAttribute('aria-label', c);
+          s.setAttribute('aria-pressed', String(c === cur));
           if (c === cur) s.classList.add('is-on');
           // Picking a colour for a switched-off paint switches it on: the
           // pick has to show, or it is a control that did nothing.
@@ -421,13 +450,27 @@ export function mountPropertiesBar(app, anchorEl) {
           grid.appendChild(s);
         }
         p.appendChild(grid);
+        p.classList.add('oac-widget', 'host-drawing-widget');
+        applyTokens(p, widgetTokens(chartTheme(), currentTheme()));
+        colorPickerHandle = createColorPicker(document, {
+          id: `pb-shared-${field.path.replace(/[^a-z0-9]/gi, '-')}`,
+          label: `${opts.tip || field.label} picker`, value: current(),
+          openOverlay: app.alertUi?.context.openOverlay,
+          onChange: next => apply(toggle ? { [field.path]: next, [toggle.path]: true } : { [field.path]: next }),
+        });
+        const shared = document.createElement('div');
+        shared.className = 'pb-row pb-shared-color';
+        const sharedLabel = document.createElement('span');
+        sharedLabel.textContent = 'Palette, recent and custom';
+        shared.append(sharedLabel, colorPickerHandle.el);
+        p.appendChild(shared);
         const custom = document.createElement('div');
         custom.className = 'pb-row';
         const inp = document.createElement('input');
         inp.type = 'color';
         inp.className = 'swatch';
         inp.value = hexOf(current()) || DEFAULT_COLOR;
-        inp.setAttribute('aria-label', 'Custom colour');
+        inp.setAttribute('aria-label', 'Custom color');
         inp.addEventListener('change', () => apply(toggle ? { [field.path]: inp.value, [toggle.path]: true } : { [field.path]: inp.value }));
         const lab = document.createElement('label');
         lab.textContent = 'Custom';
@@ -453,6 +496,8 @@ export function mountPropertiesBar(app, anchorEl) {
     lab.textContent = field.label;
     const range = document.createElement('input');
     range.type = 'range';
+    // The label beside it is not tied to it, so the slider carries the name.
+    range.setAttribute('aria-label', field.label);
     range.dataset.path = field.path;
     range.min = '0'; range.max = '100'; range.step = '1';
     const out = document.createElement('output');
@@ -507,6 +552,7 @@ export function mountPropertiesBar(app, anchorEl) {
           const it = document.createElement('button');
           it.type = 'button';
           it.className = 'pb-item' + (cur() === v ? ' is-on' : '');
+          it.setAttribute('aria-pressed', String(cur() === v));
           it.dataset.preset = String(v);
           it.innerHTML = (opts.preview ? opts.preview(v) : '') + '<span>' + fmtNum(v) + unit + '</span>';
           it.addEventListener('click', () => { apply({ [field.path]: v }); closePop(); });
@@ -566,6 +612,7 @@ export function mountPropertiesBar(app, anchorEl) {
           const it = document.createElement('button');
           it.type = 'button';
           it.className = 'pb-item' + (cur() === o.value ? ' is-on' : '');
+          it.setAttribute('aria-pressed', String(cur() === o.value));
           it.dataset.value = o.value;
           it.innerHTML = linePreview(2, o.value, true) + '<span>' + o.label + '</span>';
           it.addEventListener('click', () => { apply({ [field.path]: o.value }); closePop(); });
@@ -654,6 +701,12 @@ export function mountPropertiesBar(app, anchorEl) {
         ctl = selectFor(field, row);
         break;
       }
+      case 'interval': {
+        // This page's own intervals, and an empty choice for no limit that side.
+        const options = [{ value: '', label: 'Any' }].concat(INTERVALS.map((iv) => ({ value: iv, label: intervalLabel(iv) })));
+        ctl = selectFor({ ...field, options }, row);
+        break;
+      }
       case 'text':
       default: {
         const multi = field.path === 'text.value';
@@ -686,7 +739,7 @@ export function mountPropertiesBar(app, anchorEl) {
 
   /** Rows for `fields`, under small uppercase headers per group. */
   function fieldRows(fields, parent) {
-    const GROUPS = { line: 'Line', fill: 'Fill', text: 'Text', levels: 'Levels', behavior: 'Behaviour' };
+    const GROUPS = { line: 'Line', fill: 'Fill', text: 'Text', levels: 'Levels', behavior: 'Behavior', visibility: 'Visibility' };
     let last = null;
     for (const f of fields) {
       const g = f.group || 'behavior';
@@ -721,12 +774,35 @@ export function mountPropertiesBar(app, anchorEl) {
     name.className = 'pb-name';
     name.textContent = live.length === 1 ? toolName(d0) : `${live.length} drawings`;
     bar.appendChild(name);
+    // Its interval range leaves out the one on screen: nothing of it is drawn,
+    // so the bar says why rather than editing a shape the user cannot see.
+    const off = span('pb-off', bar);
+    off.dataset.note = 'interval';
+    const paintOff = () => {
+      const d = primary();
+      const hidden = !!(d && app.draw.shownOnInterval && !app.draw.shownOnInterval(d.id));
+      off.hidden = !hidden;
+      off.textContent = hidden ? 'Hidden on ' + intervalLabel(app.draw.interval()) : '';
+    };
+    paintOff();
+    syncers.push(paintOff);
+
+    // A selection the user may not edit (the host's session marks, say) gets
+    // no control the controller would refuse: it says what it is and offers
+    // a copy, which is the user's own drawing and edits normally.
+    shownReadOnly = live.every(isReadOnly);
+    if (shownReadOnly) {
+      span('pb-note', bar).textContent = 'Read-only';
+      const copy = button(chrome('duplicate'), { title: 'Duplicate as your own drawing', chord: `${MOD}+D`, side: 'top' }, () => { app.draw.duplicate(ids.slice()); });
+      copy.dataset.act = 'duplicate';
+      return;
+    }
 
     // Line: colour, width, dash.
     const colours = colorControls(schema);
     const ctlFor = (path) => colours.find((c) => c.field.path === path);
     const strokeC = ctlFor('style.color');
-    if (strokeC) { take('style.color'); colorBtn(strokeC, { tip: 'Colour' }); }
+    if (strokeC) { take('style.color'); colorBtn(strokeC, { tip: 'Color' }); }
     const widthF = take('style.lineWidth');
     if (widthF) numberBtn(widthF, WIDTH_PRESETS, { unit: 'px', fallback: DEFAULT_LINE_WIDTH, tip: 'Line width', preview: (w) => linePreview(w, 'solid', true) });
     const styleF = take('style.lineStyle');
@@ -752,7 +828,7 @@ export function mountPropertiesBar(app, anchorEl) {
     if (schema.textIsContent) {
       take('text.value');
       const textC = ctlFor('text.color');
-      if (textC) { take('text.color'); colorBtn(textC, { tip: 'Text colour', fallback: () => values()['style.color'] }); }
+      if (textC) { take('text.color'); colorBtn(textC, { tip: 'Text color', fallback: () => values()['style.color'] }); }
       const sizeF = take('text.fontSize');
       if (sizeF) numberBtn(sizeF, FONT_SIZE_PRESETS, { fallback: 14, tip: 'Font size' });
       const famF = take('text.fontFamily');
@@ -773,7 +849,42 @@ export function mountPropertiesBar(app, anchorEl) {
       b.dataset.path = 'text.value';
       b.dataset.pop = 'text';
       b.addEventListener('click', (e) => { e.stopPropagation(); togglePop(b, (p) => fieldRows(textFields, p)); });
-      const paint = () => { b.classList.toggle('is-on', !!values()['text.value']); };
+      // The name follows at once, not on the next hover.
+      const paint = () => {
+        b.classList.toggle('is-on', !!values()['text.value']);
+        b.setAttribute('aria-label', values()['text.value'] ? 'Edit label' : 'Add label');
+      };
+      paint();
+      syncers.push(paint);
+    }
+
+    // Pinned to the screen or following the bars: one toggle, since the
+    // schema offers the two spaces and nothing between them. Writing the
+    // space converts the anchors at the view on screen, so the drawing stays
+    // exactly where it is and only stops following the chart.
+    const spaceF = take('space');
+    if (spaceF) {
+      // One name; the pressed state says pinned.
+      const pin = button(glyph('pin'), () => ({
+        title: 'Pin to the screen',
+        sub: values().space === 'viewport' ? 'Click to follow the bars again' : 'Stays put when the chart pans or zooms',
+        side: 'top',
+      }), () => {
+        const want = values().space === 'viewport' ? 'data' : 'viewport';
+        apply({ space: want });
+        // The controller converts nothing on a pane folded to its strip or
+        // hidden behind a maximized one, and the toggle reads the model back,
+        // so a click that changed nothing says why.
+        if (drawingsOf().some((d) => (d.space || 'data') !== want)) {
+          toast('info', `A drawing can be ${want === 'viewport' ? 'pinned' : 'unpinned'} only while its pane is on screen`);
+        }
+      });
+      pin.dataset.path = 'space';
+      const paint = () => {
+        const on = values().space === 'viewport';
+        pin.classList.toggle('is-on', on);
+        pin.setAttribute('aria-pressed', String(on));
+      };
       paint();
       syncers.push(paint);
     }
@@ -825,21 +936,33 @@ export function mountPropertiesBar(app, anchorEl) {
 
     // Lock, visibility, order, duplicate, delete: not schema fields, since
     // every drawing has them.
-    const lock = button('', () => ({ title: primary() && primary().locked ? 'Unlock' : 'Lock', side: 'top' }), () => {
+    // Lock and the eye keep one name each; the pressed state and the glyph
+    // say locked or hidden, and follow a keyboard press with no hover.
+    const lock = button('', { title: 'Lock', side: 'top' }, () => {
       const on = !(primary() && primary().locked === true);
       app.draw.updateMany(drawingsOf().map((d) => ({ id: d.id, patch: { locked: on } })));
     });
     lock.dataset.act = 'lock';
-    const paintLock = () => { const on = !!(primary() && primary().locked); lock.innerHTML = chrome(on ? 'lock' : 'unlock'); lock.classList.toggle('is-on', on); };
+    const paintLock = () => {
+      const on = !!(primary() && primary().locked);
+      lock.innerHTML = chrome(on ? 'lock' : 'unlock');
+      lock.classList.toggle('is-on', on);
+      lock.setAttribute('aria-pressed', String(on));
+    };
     paintLock();
     syncers.push(paintLock);
 
-    const eye = button('', () => ({ title: primary() && primary().visible === false ? 'Show' : 'Hide', side: 'top' }), () => {
+    const eye = button('', { title: 'Hide', side: 'top' }, () => {
       const hidden = !!(primary() && primary().visible === false);
       app.draw.updateMany(drawingsOf().map((d) => ({ id: d.id, patch: { visible: hidden } })));
     });
     eye.dataset.act = 'visible';
-    const paintEye = () => { const hidden = !!(primary() && primary().visible === false); eye.innerHTML = chrome(hidden ? 'eye-off' : 'eye'); eye.classList.toggle('is-on', hidden); };
+    const paintEye = () => {
+      const hidden = !!(primary() && primary().visible === false);
+      eye.innerHTML = chrome(hidden ? 'eye-off' : 'eye');
+      eye.classList.toggle('is-on', hidden);
+      eye.setAttribute('aria-pressed', String(hidden));
+    };
     paintEye();
     syncers.push(paintEye);
 
@@ -848,17 +971,21 @@ export function mountPropertiesBar(app, anchorEl) {
     order.addEventListener('click', (e) => {
       e.stopPropagation();
       togglePop(order, (p) => {
-        const behind = !!(primary() && primary().zIndex < 0);
+        // Placed between studies (Objects dock) it is on neither side of the series.
+        const d = primary();
+        const between = !!(d?.stackAbove && app.chart.seriesStack?.(d.paneIndex).includes(d.stackAbove));
+        const behind = !between && !!(d && d.zIndex < 0);
         const rows = [
           { act: 'front', icon: chrome('front'), label: 'Bring to front', run: (id) => app.draw.bringToFront(id) },
           { act: 'back', icon: chrome('back'), label: 'Send to back', run: (id) => app.draw.sendToBack(id) },
-          { act: 'above', icon: glyph('above'), label: 'In front of the series', on: !behind, run: (id) => app.draw.bringAboveSeries(id) },
+          { act: 'above', icon: glyph('above'), label: 'In front of the series', on: !behind && !between, run: (id) => app.draw.bringAboveSeries(id) },
           { act: 'behind', icon: glyph('behind'), label: 'Behind the series', on: behind, run: (id) => app.draw.sendBehindSeries(id) },
         ];
         for (const r of rows) {
           const it = document.createElement('button');
           it.type = 'button';
           it.className = 'pb-item' + (r.on ? ' is-on' : '');
+          if (r.on !== undefined) it.setAttribute('aria-pressed', String(r.on));
           it.dataset.act = r.act;
           it.innerHTML = r.icon + '<span>' + r.label + '</span>';
           // The controller reorders one drawing at a time (the list position
@@ -869,7 +996,7 @@ export function mountPropertiesBar(app, anchorEl) {
       });
     });
 
-    const dup = button(chrome('duplicate'), { title: 'Duplicate', chord: 'Ctrl+D', side: 'top' }, () => { app.draw.duplicate(ids.slice()); });
+    const dup = button(chrome('duplicate'), { title: 'Duplicate', chord: `${MOD}+D`, side: 'top' }, () => { app.draw.duplicate(ids.slice()); });
     dup.dataset.act = 'duplicate';
     const del = button(chrome('trash'), { title: 'Delete', chord: 'Del', side: 'top' }, () => {
       if (typeof app.draw.removeMany === 'function') app.draw.removeMany(ids.slice());
@@ -901,7 +1028,8 @@ export function mountPropertiesBar(app, anchorEl) {
   }
 
   // ── inline text ────────────────────────────────────────────────────────
-  const isTextContent = (d) => !!d && drawingSettingsSchema(d.tool).textIsContent === true;
+  // A read-only text drawing is not text the editor could commit.
+  const isTextContent = (d) => !!d && !isReadOnly(d) && drawingSettingsSchema(d.tool).textIsContent === true;
   function editText(id) {
     const d = app.draw ? app.draw.get(id) : undefined;
     if (!d || !isTextContent(d)) return null;
@@ -998,7 +1126,7 @@ export function mountPropertiesBar(app, anchorEl) {
     if (!live.length) { hide(); return; }
     if (same) { sync(); return; }
     closePop();
-    schema = commonSchema(live.map((d) => d.tool));
+    schema = withIntervalFields(commonSchema(live.map((d) => d.tool)));
     build(live);
     bar.hidden = false;
     reposition();
@@ -1006,7 +1134,11 @@ export function mountPropertiesBar(app, anchorEl) {
   /** Refresh every control from the model, then park the bar. */
   function sync() {
     if (bar.hidden) return;
-    if (!drawingsOf().length) { hide(); return; }
+    const live = drawingsOf();
+    if (!live.length) { hide(); return; }
+    // The host made the selection read-only, or lifted that: the controls
+    // on the bar are the wrong set, so it is built again rather than synced.
+    if (live.every(isReadOnly) !== shownReadOnly) { ids = []; show(); return; }
     for (const s of syncers) s();
     reposition();
   }
@@ -1025,6 +1157,9 @@ export function mountPropertiesBar(app, anchorEl) {
     if (!chart || !app.draw) { hide(); return; }
     off.push(chart.on('draw:select', () => show()));
     off.push(chart.on('draw:update', sync));
+    // A new interval leaves a drawing picked from the objects panel selected
+    // while it is still off the chart, and its note must name the new one.
+    off.push(chart.on('data:context', sync));
     // A removal filters the selection without a select event of its own.
     off.push(chart.on('draw:remove', () => { if (!bar.hidden) show(); }));
     off.push(chart.on('viewport', reposition));

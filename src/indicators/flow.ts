@@ -10,7 +10,10 @@
  * disagree for the first `length` bars of every plot that touches them.
  */
 import type { Bar, IndicatorDescriptor } from 'openalgo-charts';
-import { change, cumulative, nulls, smaSeededEma, rollingSum, sma } from './calc';
+import { change, cumulative, nulls, rollingSum, sma } from './calc';
+// A `change` series has no value on bar 0, so its smoothing starts later too:
+// the shared gapped EMA aligns it with the first finite input.
+import { emaOfGapped } from './smoothing';
 
 const num = (s: Readonly<Record<string, unknown>>, k: string, d: number): number => {
   const v = s[k];
@@ -25,10 +28,9 @@ const vol = (b: Bar): number =>
  * The Accumulation/Distribution money-flow term, shared by Chaikin Money Flow
  * and the Chaikin Oscillator.
  *
- * The guard is the reference own and it is load-bearing: a bar with no range has an
- * undefined close location, and the reference platform contributes exactly 0 for it rather
- * than na. Letting the division stand would put a NaN into a running sum and
- * blank every bar after it.
+ * A bar with no range has an undefined close location. Its flow contribution
+ * is deliberately zero, keeping the flat bar neutral in both the rolling and
+ * cumulative calculations that consume this term.
  */
 function moneyFlow(bars: readonly Bar[]): number[] {
   const out = new Array<number>(bars.length);
@@ -37,23 +39,6 @@ function moneyFlow(bars: readonly Bar[]): number[] {
     const degenerate = (b.close === b.high && b.close === b.low) || b.high === b.low;
     out[i] = degenerate ? 0 : ((2 * b.close - b.low - b.high) / (b.high - b.low)) * vol(b);
   }
-  return out;
-}
-
-/**
- * the reference `ema` over a series that opens with a warmup gap.
- *
- * `change` is na on bar 0, so the input to an EMA built on it starts one bar
- * late. the reference seeds from the first *full window of real values*, which pushes
- * the whole plot one bar right; feeding the NaN straight to `smaSeededEma` would
- * instead poison the seed and blank the series forever.
- */
-function emaFromFirstFinite(values: readonly number[], period: number): number[] {
-  const out = new Array<number>(values.length).fill(NaN);
-  const start = values.findIndex((v) => Number.isFinite(v));
-  if (start < 0) return out;
-  const tail = smaSeededEma(values.slice(start), period);
-  for (let i = 0; i < tail.length; i++) out[start + i] = tail[i];
   return out;
 }
 
@@ -107,8 +92,8 @@ export const CHAIKIN_OSCILLATOR: IndicatorDescriptor = {
   plots: [{ key: 'osc', type: 'line', title: 'Chaikin Oscillator', colorKey: 'color', style: { lineWidth: 1.5 } }],
   calc: (bars, s) => {
     const accdist = cumulative(moneyFlow(bars));
-    const fast = emaFromFirstFinite(accdist, num(s, 'short', 3));
-    const slow = emaFromFirstFinite(accdist, num(s, 'long', 10));
+    const fast = emaOfGapped(accdist, num(s, 'short', 3));
+    const slow = emaOfGapped(accdist, num(s, 'long', 10));
     const out = new Array<number>(bars.length);
     for (let i = 0; i < bars.length; i++) out[i] = fast[i] - slow[i];
     return { osc: nulls(out) };
@@ -167,7 +152,7 @@ export const ELDER_FORCE_INDEX: IndicatorDescriptor = {
     const moved = change(bars.map((b) => b.close));
     const force = new Array<number>(bars.length);
     for (let i = 0; i < bars.length; i++) force[i] = moved[i] * vol(bars[i]);
-    return { efi: nulls(emaFromFirstFinite(force, num(s, 'length', 13))) };
+    return { efi: nulls(emaOfGapped(force, num(s, 'length', 13))) };
   },
   levels: () => [{ price: 0, color: '#787b86', title: 'Zero', dashed: true }],
 };

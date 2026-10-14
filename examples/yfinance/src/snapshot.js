@@ -1,7 +1,7 @@
 import { el } from './ui.js';
 import { ticon } from './toolbar.js';
 import { capturePaneTarget } from './pane-target.js';
-import { downloadChartData } from './chart-data.js';
+import { openChartDataControls } from './chart-data-controls.js';
 
 let app;
 let menuTarget = null;
@@ -72,7 +72,7 @@ export function openSnapMenu(anchor) {
     menu.id = 'snapmenu';
     menu.innerHTML =
       '<div class="head">Chart snapshot</div>'
-      + '<button id="snap-save">' + ticon('download') + '<span>Download image</span>'
+      + '<button id="snap-save">' + ticon('download') + '<span>Save PNG</span>'
       + '<span class="key">Ctrl+Alt+S</span></button>'
       + '<button id="snap-copy">' + ticon('copy') + '<span>Copy image</span>'
       + '<span class="key">Ctrl+Shift+S</span></button>'
@@ -80,7 +80,7 @@ export function openSnapMenu(anchor) {
     document.body.appendChild(menu);
     el('snap-save').addEventListener('click', () => downloadSnapshot());
     el('snap-copy').addEventListener('click', () => copySnapshot());
-    el('snap-data').addEventListener('click', () => { const target = menuTarget; closeSnapMenu(); downloadChartData(app, target); });
+    el('snap-data').addEventListener('click', () => { const target = menuTarget; closeSnapMenu(); openChartDataControls(app, target); });
   }
   const r = anchor.getBoundingClientRect();
   menu.hidden = false;
@@ -105,7 +105,8 @@ export function initSnapshot(a) {
     if (menu && !menu.hidden && !menu.contains(e.target)) closeSnapMenu();
   });
   document.addEventListener('keydown', (e) => {
-    if (!e.ctrlKey || e.key.toLowerCase() !== 's') return;
+    // The physical key: Ctrl+Option+S types no 's' on macOS.
+    if (!e.ctrlKey || e.code !== 'KeyS') return;
     if (e.altKey) { e.preventDefault(); downloadSnapshot(capturePaneTarget(app)); }
     else if (e.shiftKey) { e.preventDefault(); copySnapshot(capturePaneTarget(app)); }
   });

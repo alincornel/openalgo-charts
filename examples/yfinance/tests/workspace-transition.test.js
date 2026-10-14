@@ -19,8 +19,9 @@ describe('reference workspace preparation', () => {
     const pending = prepareReferenceWorkspace(fixture(), { fetch });
     const finished = vi.fn(); pending.then(finished);
     await Promise.resolve(); expect(finished).not.toHaveBeenCalled();
+    // The layout saved its daily chart over one year: it loads the five year daily floor.
     expect(fetch.mock.calls.map(([request, options]) => [request, options.timezone])).toEqual([
-      [{ symbol: 'AAPL', interval: '1d', period: '1y' }, 'America/New_York'],
+      [{ symbol: 'AAPL', interval: '1d', period: '5y' }, 'America/New_York'],
       [{ symbol: 'TSLA/MSFT', interval: '15m', period: '1mo' }, 'Asia/Kolkata'],
     ]);
     second.resolve(bars);
@@ -55,6 +56,17 @@ describe('reference workspace preparation', () => {
     const drawing = fixture(); drawing.panes[0].chart.drawings = { version: 2, drawings: [{ tool: 'unknown-host-drawing' }] };
     await expect(prepareReferenceWorkspace(drawing, { fetch })).rejects.toThrow(/drawing/i);
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('takes a drawing document of every version this build reads, and refuses a newer one', async () => {
+    const line = { id: 'l1', tool: 'trend-line', paneIndex: 0, zIndex: 0, style: {},
+      points: [{ time: 1700000000, price: 101 }, { time: 1700086400, price: 104 }] };
+    const withDrawings = (drawings) => { const doc = fixture(); doc.panes[0].chart.drawings = drawings; return doc; };
+    const fetch = async () => bars;
+    // A save with no interval range is still version 2; one with a range is 3.
+    await expect(prepareReferenceWorkspace(withDrawings({ version: 2, drawings: [line] }), { fetch })).resolves.toBeTruthy();
+    await expect(prepareReferenceWorkspace(withDrawings({ version: 3, drawings: [{ ...line, intervals: { to: '1h' } }] }), { fetch })).resolves.toBeTruthy();
+    await expect(prepareReferenceWorkspace(withDrawings({ version: 4, drawings: [line] }), { fetch })).rejects.toThrow(/drawing document version/);
   });
 
   it('stops waiting promptly on cancellation and consumes a late rejected request', async () => {

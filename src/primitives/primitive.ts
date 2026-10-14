@@ -14,13 +14,23 @@ export type ZOrder = 'bottom' | 'normal' | 'top';
 
 export interface PrimitiveRenderContext {
   timeScale: TimeScale;
+  /** Explicitly bound scale, or the pane's right scale for an unbound primitive. */
   priceScale: PriceScale;
   /** The pane's primary visible price series scale, including a moved left axis. */
   readoutPriceScale?: PriceScale;
   dataLayer: DataLayer;
   plotWidth: number;
   plotHeight: number;
+  /** Width of the bound scale's axis column; zero for hidden scales. */
   priceAxisWidth: number;
+  /** Axis placement for price labels. Absent retains the default right axis. */
+  priceAxisSide?: 'left' | 'right' | 'hidden';
+  /**
+   * Plot-relative media-px x of the bound column's inner edge. Defaults to 0 on
+   * the left and plotWidth on the right. An explicit offset confines axis tags
+   * to this column without shifting the primitive's plot coordinates.
+   */
+  priceAxisOffset?: number;
   dpr: number;
   theme: ChartTheme;
   /**
@@ -38,16 +48,26 @@ export interface PrimitiveRenderContext {
   bars?: () => readonly Bar[];
   /** externalId of the primitive hit under the pointer (hover state), if any. */
   hoverId?: string | null;
+  /** Optional subtarget identity; leaves the primitive's external click ID unchanged. */
+  hoverKey?: string | null;
   /** externalId of the line being dragged (active state), if any. */
   dragId?: string | null;
 }
 
 export interface PrimitiveHit {
   externalId: string;
+  /** Distinguishes hover regions which share one external click ID. Omission uses externalId. */
+  hoverKey?: string;
   zOrder: ZOrder;
-  /** Pixel distance from the cursor (smaller wins ties before z-order). */
+  /**
+   * Pixel distance from the cursor (smaller wins ties before z-order). Never
+   * negative: zero is a hit on the shape itself, and the pane stops asking
+   * once the front band has one.
+   */
   distance: number;
   cursor?: string;
+  /** Coordinate scale for a bound primitive's drag prices. Unbound hits omit it. */
+  priceScale?: PriceScale;
   /**
    * Arm a drag on press. Price lines set `cursor: 'ns-resize'` and move on one
    * axis; anything that moves on **both** (a drawing anchor, a whole shape)
@@ -56,6 +76,13 @@ export interface PrimitiveHit {
   draggable?: boolean;
   /** Opt into Escape cancellation without a release. Listen for `drag:cancel` to discard the preview. */
   cancelOnEscape?: boolean;
+  /**
+   * The primitive that paints what was hit, when it is not the one answering:
+   * a drawing layer answers for the layers under it. The chart ranks the hit
+   * by where that primitive paints, so a series painted over it takes the
+   * context menu. Omission means the answering primitive painted it.
+   */
+  paintedBy?: IPrimitive;
 }
 
 /** Injected when a primitive is attached; lets it request a repaint. */
@@ -70,9 +97,13 @@ export interface PrimitiveHost {
  * badge belongs to the CHART: it should sit at an edge of the whole stack, and
  * follow that edge as indicator panes come and go. `chart-bottom` is the common
  * case, and it also survives maximize, which hides the other panes entirely and
- * would otherwise take a pane-0 watermark with it.
+ * would otherwise take a price-pane watermark with it.
+ *
+ * `primary-pane` is the third kind: furniture that describes the price, such
+ * as a symbol badge, follows the primary price pane to whatever slot it is
+ * moved to, and the pane maximized over it while it is hidden.
  */
-export type PrimitiveAnchor = 'chart-top' | 'chart-bottom';
+export type PrimitiveAnchor = 'chart-top' | 'chart-bottom' | 'primary-pane';
 
 /** Passed to `addPrimitive` instead of a pane index to anchor to the chart. */
 export interface PrimitivePlacement {
@@ -98,6 +129,25 @@ export interface IPrimitive {
   afterAutoscale?(): void;
   /** Optional: topmost hit under (x,y) in media px (relative to the pane plot). */
   hitTest?(x: number, y: number, rc: PrimitiveRenderContext): PrimitiveHit | null;
+  /**
+   * Optional: the box, in the coordinates `hitTest` receives, outside which it
+   * answers null, or null when nothing of this primitive can be hit at all.
+   * Edges are inclusive, and an unbounded side may be infinite.
+   *
+   * A pointer move then asks `hitTest` only of primitives whose box it is in,
+   * so a pane carrying hundreds of them pays for the few near the pointer.
+   * The pane asks for the box once and reuses it while nothing it can follow
+   * changes: the time scale and the bars' times, the pane's price scales, its
+   * size and axes, the pixel ratio, the hover and drag state, and the
+   * primitive's own state, which it announces through `requestUpdate`. A box
+   * that follows anything else, such as bar prices, has to request an update
+   * when that changes, or leave this out. Work the box out from the same
+   * geometry `hitTest` answers from, `rc` or what the last `draw` recorded: a
+   * box asked for between a change and the frame that paints it is asked for
+   * again once that frame is painted. Absent, every pointer move asks
+   * `hitTest`.
+   */
+  hitBounds?(rc: PrimitiveRenderContext): { left: number; top: number; right: number; bottom: number } | null;
   attached?(host: PrimitiveHost): void;
   detached?(): void;
 }

@@ -8,8 +8,17 @@
  *   base canvas (2D context, z 0): background, grid, the series pass, the
  *     normal-layer primitives, the axis strip (ladder, last-price tag, value
  *     tags, trading pills). Repainted on Light and Full.
- *   top canvas (2D context, z 1): crosshair, hover highlights, primitives
- *     being dragged. Repainted on Cursor.
+ *   top canvas (2D context, z 1): the crosshair and its tags, and the
+ *     top-layer primitives (drawings over the series or lifted for a drag,
+ *     legends, tables, trading buttons, trade markers). Repainted on Cursor.
+ *     Order and position lines are normal-layer price lines on the base canvas.
+ *
+ * Both canvases are the pane's height. Their backing store is `media x dpr`,
+ * or the device-pixel box the browser reports where it reports one
+ * (`CanvasLayer.setDeviceSize`), and the chart puts every pane boundary on a
+ * device pixel, so neither canvas is ever stretched by a fraction of a pixel.
+ * Under the rule between panes (`setSeparator`) they start one CSS pixel down
+ * at a whole-number ratio and at the pane's top at a fractional one.
  *
  * A GPU backend adds no canvas to the pile. It rasterises the series pass on
  * one page-wide offscreen surface shared by every pane of every chart and
@@ -21,24 +30,30 @@
  * browser's cap on live WebGL contexts never limits how many panes a page
  * can show.
  */
-import { CanvasLayer } from './canvas';
+import { CanvasLayer, hairlineHeight, separatorIsBorder } from './canvas';
 import { PriceScale } from '../scale/price-scale';
 import { type TimeScale } from '../scale/time-scale';
 import { type DataLayer } from '../model/data-layer';
 import type { SeriesRecord, PriceScaleId } from '../model/series';
+import type { PriceScaleState } from '../model/chart-state';
+import { PriceAxisLayout, type PriceAxisPlacement, type PriceAxisSide, type PriceAxisSlot } from '../model/price-axis-layout';
 import { computeGridLines, drawGrid, resolveGridStyle, resolveScaleStyle, type CanvasOptions } from '../render/grid';
-import { getChartType, type DrawItem, type SeriesRenderContext } from '../model/chart-type-registry';
+import { getChartType, registeredChartTypes, type SeriesRenderContext } from '../model/chart-type-registry';
 import type { SeriesStyle } from '../render/series-style';
-import { conflationGroupSize, conflateItems } from '../model/conflation';
+import { lodActive, lodColumnWidth, lodKind } from '../model/conflation';
+import { createSeriesDrawItems, visibleSpan, type LodRequest, type SeriesDrawItems, type VisibleSpan } from '../render/draw-items';
+import { announcingHost, createHitBoxes, inHitBox } from '../render/hit-boxes';
 import {
   drawPriceAxis, drawLeftPriceAxis, drawTimeAxis, drawLastPriceLabel, drawSessionClock,
   drawTimeAxisPill, lastPriceTagHeight, AXIS_LABEL_PRIORITY, resolveAxisLabels, drawSeriesValueTag,
+  axisTagY,
   type PlotLayout, type TickMarkType, type AxisLabelBand,
   type SessionClockOptions, type BarCountdownOptions,
 } from '../render/axis';
 import { drawCrosshair, drawCrosshairTag, resolveCrosshairStyle } from '../render/crosshair';
-import { contrastText } from '../render/pill';
-import { bestHit, type IPrimitive, type PrimitiveHit, type PrimitiveHost, type PrimitiveRenderContext } from '../primitives/primitive';
+import { contrastText, isInvisible } from '../render/pill';
+import type { IPrimitive, PrimitiveHit, PrimitiveHost, PrimitiveRenderContext, ZOrder } from '../primitives/primitive';
+import { PaneLegend } from '../primitives/pane-legend';
 import { backendDegradation, type IRenderBackend, type RendererFallbackReason } from '../render/backend';
 import { Canvas2dBackend } from '../render/canvas2d-backend';
 import type { ChartTheme } from '../theme';
@@ -51,18 +66,35 @@ export interface PaneRenderContext {
   touchTargets?: boolean | number;
   timeScale: TimeScale;
   dataLayer: DataLayer;
+  /** Restrict the primary series' scale, wherever that series is placed. */
+  priceOnlyAutoScale?: boolean;
+  primaryDataId?: SeriesRecord['dataId'];
   dpr: number;
   priceAxisWidth: number;
   /** Target maximum label count for the left and right price axes. */
   priceTickCount?: number;
   /** Left inset (px) reserved chart-wide for a left price axis; 0/absent when none. */
   leftAxisWidth?: number;
+  /** Width of one price column; omitted preserves the legacy single-column layout. */
+  axisColumnWidth?: number;
+  /** Empty panes show the default column only when the whole chart has no scale users. */
+  emptyPriceAxis?: boolean;
   timeAxisHeight: number;
   /** Only the bottom pane draws the time axis. */
   showTimeAxis: boolean;
-  /** Enable OHLC-preserving conflation when bars fall below ~0.5px (§4.4). */
+  /**
+   * The pane is folded to its header strip: its legend rows draw and answer
+   * the pointer, and the time axis when it is the bottom pane. Series, grid,
+   * price axes and every other primitive keep their data and state but
+   * neither paint nor hit-test until it opens again.
+   */
+  collapsed?: boolean;
+  /**
+   * Draw one OHLC-preserving stick per device-pixel column once bars are
+   * narrower than a column (§4.4); false draws every bar at every zoom.
+   */
   conflate: boolean;
-  /** Conflation aggressiveness (1 = perf only; higher = more smoothing). */
+  /** Columns this many sticks wide (1 = one stick, the default; higher = coarser). */
   conflationFactor: number;
   /** Active palette — drives chrome, series defaults, and trade colors. */
   theme: ChartTheme;
@@ -96,6 +128,7 @@ export interface PaneRenderContext {
   barCountdown?: BarCountdownOptions;
   /** externalId of the primitive under the pointer (hover visual state). */
   hoverId?: string | null;
+  hoverKey?: string | null;
   /** externalId of the line currently being dragged (active visual state). */
   dragId?: string | null;
   /**
@@ -104,6 +137,12 @@ export interface PaneRenderContext {
    * document that is meant to sit on the host's own page.
    */
   paintBackground?: boolean;
+  /**
+   * The series a series-band entry ('source:primary', 'indicator:<id>') paints
+   * last on this pane, or undefined when it has none here. A primitive placed
+   * above that entry paints right after it.
+   */
+  stackSlot?(entry: string): SeriesRecord | undefined;
 }
 
 /**
@@ -123,10 +162,31 @@ function seriesTagColor(style: SeriesStyle, up: boolean): string | undefined {
   return undefined;
 }
 
+/** Where a z-order band paints, back to front; the series band sits between 1 and 2. */
+const HIT_RANK: Record<ZOrder, number> = { bottom: 0, normal: 2, top: 3 };
+
+/**
+ * Scratch for the pane's visible-bar walks and its level-of-detail request, so
+ * a frame allocates nothing per bar or per series for them. Shared by every
+ * pane: a frame paints one pane at a time and nothing here outlives a call.
+ */
+const SPAN: VisibleSpan = { start: 0, lastTime: 0 };
+const LOD: LodRequest = { kind: 'ohlc', dpr: 1, factor: 1 };
+
+/**
+ * The renderers the level of detail may hand merged bars to: the built-in ones,
+ * as registered before any host code ran. A host may register its own
+ * renderer under a built-in name, and it gets every bar, as any other custom
+ * type does: it may read fields or neighbours a merge cannot know about.
+ */
+const LOD_RENDERERS = new Set(registeredChartTypes().map(getChartType));
+
 export class Pane {
   public readonly element: HTMLElement;
   public readonly base: CanvasLayer;
   public readonly top: CanvasLayer;
+  /** The rule over the pane's top edge, shown on every pane but the one against the chart's top. */
+  private readonly _separator: HTMLElement;
   /**
    * What paints this pane's series onto `base`. Everything else on that canvas
    * (background, grid, axes, primitives) the pane draws itself on the 2D
@@ -138,7 +198,8 @@ export class Pane {
   private _rightScale = new PriceScale();
   /** Extra scales created on demand: left axis and a hidden overlay (volume). */
   private _leftScale: PriceScale | null = null;
-  private readonly _overlayScales = new Map<string, PriceScale>();
+  private readonly _overlayScales = new Map<PriceScaleId, PriceScale>();
+  private readonly _axisLayout = new PriceAxisLayout();
   /**
    * Scales whose price-per-bar ratio is pinned, with the geometry the ratio was
    * last held against. A lock stores that geometry rather than a number,
@@ -152,8 +213,24 @@ export class Pane {
   public weight = 1;
   private readonly _series: SeriesRecord[] = [];
   private readonly _primitives: IPrimitive[] = [];
+  private readonly _primitiveScales = new Map<IPrimitive, PriceScaleId>();
+  /** Primitives painted inside the series band, each with the entry it sits directly above. */
+  private readonly _stackAbove = new Map<IPrimitive, string>();
+  /**
+   * The chart's price source when it is on this pane. It is the instrument the
+   * readout, the last-price line and the rebasing modes describe wherever it
+   * paints: moved over a study it is no longer the first series here.
+   */
+  private _source: SeriesRecord | null = null;
+  private _destroyed = false;
   private _width = 0;
   private _height = 0;
+  /** Each series' draw items, reused from frame to frame (src/render/draw-items.ts). */
+  private readonly _drawItems = new Map<SeriesRecord, SeriesDrawItems>();
+  /** Hit boxes of the primitives that declare one, kept while nothing they follow changes (src/render/hit-boxes.ts). */
+  private readonly _hitBoxes = createHitBoxes();
+  /** Bumped by every change on this pane that can move a primitive's context: series, scales, axes, primitives. */
+  private _hitEpoch = 0;
 
   /**
    * `backend` defaults to the 2D one so a pane built on its own (tests, a host
@@ -166,9 +243,11 @@ export class Pane {
     this.element.style.width = '100%';
     this.element.style.flex = '1 1 auto';
     this.element.style.overflow = 'hidden';
-    // The rule between stacked panes. A CSS border rather than a canvas line:
-    // it lands on the DOM box boundary, so it cannot drift from the pane it
-    // separates when weights change, and costs nothing to repaint.
+    // The rule between stacked panes is DOM rather than a canvas line: it sits
+    // on the box boundary, so it cannot drift from the pane it separates when
+    // weights change, and costs nothing to repaint. At a whole-number ratio it
+    // is this 1 px border, the canvases starting under it and their last row
+    // clipped; see `setSeparator` for the fractional ones.
     this.element.style.borderTopStyle = 'solid';
     this.element.style.borderTopWidth = '0px';
     this.element.style.boxSizing = 'border-box';
@@ -176,6 +255,19 @@ export class Pane {
     this.top = new CanvasLayer(doc, 1);
     this.element.appendChild(this.base.element);
     this.element.appendChild(this.top.element);
+    // The rule at a fractional ratio: a box laid over the canvases' first rows.
+    const rule = doc.createElement('div');
+    const s = rule.style;
+    s.position = 'absolute';
+    s.left = '0';
+    s.top = '0';
+    s.width = '100%';
+    s.height = '0px';
+    s.zIndex = '2';
+    s.pointerEvents = 'none';
+    s.display = 'none';
+    this._separator = rule;
+    this.element.appendChild(rule);
     this._backend = backend;
     // The base canvas already holds a 2D context (CanvasLayer asks for it on
     // construction), so the backend is handed that one rather than left to ask
@@ -226,10 +318,12 @@ export class Pane {
   public addSeries(record: SeriesRecord): void {
     this._scaleFor(record.scaleId); // create the target scale if needed
     this._series.push(record);
+    this._hitEpoch++;
   }
 
   /** The PriceScale for a scale id, creating the left/overlay scale on first use. */
   private _scaleFor(id: PriceScaleId): PriceScale {
+    this._axisLayout.register(id);
     if (id === 'left') return (this._leftScale ??= new PriceScale());
     if (id === '' || id.startsWith('overlay:')) {
       let scale = this._overlayScales.get(id);
@@ -242,21 +336,68 @@ export class Pane {
   /**
    * The scale for an id, created if this pane has never used it. A host acting
    * on one axis (a price-axis menu) needs the scale a side *would* use, not
-   * only the ones series happen to occupy; an empty scale draws nothing,
-   * because both the axis strip and the left column are gated on a scale
-   * having been measured.
+   * only the ones series happen to occupy. Unused scales retain their settings,
+   * while axis labels and columns follow the series that use them.
    */
   public scaleFor(id: PriceScaleId): PriceScale {
     return this._scaleFor(id);
   }
 
-  /** True when some series on this pane maps to the named scale. */
+  /** True when a series or explicitly bound primitive uses the named scale. */
   public usesScale(id: PriceScaleId): boolean {
-    return this._series.some((s) => s.scaleId === id);
+    if (this._series.some((s) => s.scaleId === id)) return true;
+    for (const bound of this._primitiveScales.values()) if (bound === id) return true;
+    return false;
+  }
+
+  public axisPlacement(id: PriceScaleId): PriceAxisPlacement {
+    return this._axisLayout.get(id);
+  }
+
+  public setAxisPlacement(id: PriceScaleId, side: PriceAxisSide, order?: number): boolean {
+    if (!this._axisLayout.set(id, side, order)) return false;
+    this._hitEpoch++;
+    this._retainPlacedScales();
+    return true;
+  }
+
+  public restoreAxisPlacements(saved: ReadonlyMap<PriceScaleId, PriceAxisPlacement>): void {
+    this._axisLayout.restore(saved);
+    this._hitEpoch++;
+    this._retainPlacedScales();
+  }
+
+  private _retainPlacedScales(): void {
+    // Reordering a live column can also change a previously vacated peer's rank.
+    for (const { scaleId } of this._axisLayout.entries()) {
+      if (this._axisLayout.configured(scaleId)) this._scaleFor(scaleId);
+    }
+  }
+
+  /** Active columns, nearest the plot first on each side. Vacant scales keep their rank. */
+  public visibleAxes(emptyPriceAxis = true): readonly { scaleId: PriceScaleId; side: 'left' | 'right'; order: number }[] {
+    const empty = emptyPriceAxis && this._series.length === 0 && this._primitiveScales.size === 0;
+    return this._axisLayout.entries().filter((entry): entry is typeof entry & { side: 'left' | 'right' } =>
+      entry.side !== 'hidden' && (this.usesScale(entry.scaleId) || (empty && entry.scaleId === 'right')))
+      .sort((a, b) => a.side.localeCompare(b.side) || a.order - b.order);
   }
 
   /**
-   * Move every series on one side's scale to the other side, axis and all.
+   * Column x positions relative to the plot, shared by rendering and chart input.
+   * A collapsed pane has none: it draws no ladder, so no axis gesture may land on it.
+   */
+  public axisSlots(ctx: PaneRenderContext): readonly PriceAxisSlot[] {
+    if (ctx.collapsed === true) return [];
+    const layout = this._layout(ctx), counts = { left: 0, right: 0 };
+    return this.visibleAxes(ctx.emptyPriceAxis).map(entry => {
+      const width = ctx.axisColumnWidth ?? (entry.side === 'left' ? layout.plotLeft : layout.priceAxisWidth);
+      const index = counts[entry.side]++;
+      return { ...entry, width, x: entry.side === 'left' ? -(index + 1) * width : layout.plotWidth + index * width };
+    }).filter(slot => slot.width > 0);
+  }
+
+  /**
+   * Move every series and bound primitive on one side to the other, axis and all.
    *
    * The two scale objects are swapped rather than their state copied across:
    * the range, mode, margins, tick size and any custom formatter are all
@@ -265,15 +406,18 @@ export class Pane {
    * behind carries nothing, so it is reset: keeping its range would label the
    * vacated strip with a ladder for prices that are no longer on that side.
    *
-   * Refuses when the target side already carries series. One side draws one
-   * axis, so a move onto an occupied side could only mean stacking two ladders
+   * Refuses when the target side already carries series or bound primitives.
+   * One side draws one axis, so a move onto an occupied side could only mean stacking two ladders
    * in one strip or silently sending the sitting tenant the other way, and
    * neither is what "move this axis to the left" asks for.
    */
   public moveSeriesScale(from: 'right' | 'left', to: 'right' | 'left'): boolean {
     if (from === to || !this.usesScale(from) || this.usesScale(to)) return false;
+    this._hitEpoch++;
     const moving = this._scaleFor(from);
     const vacated = this._scaleFor(to);
+    this._axisLayout.set(to, to);
+    this._axisLayout.set(from, from);
     if (to === 'left') {
       this._leftScale = moving;
       this._rightScale = vacated;
@@ -282,6 +426,7 @@ export class Pane {
       this._leftScale = vacated;
     }
     for (const s of this._series) if (s.scaleId === from) s.scaleId = to;
+    for (const [primitive, id] of this._primitiveScales) if (id === from) this._primitiveScales.set(primitive, to);
     // `reset` declines to throw away a range a user set by hand, which is right
     // everywhere else and wrong here: there is no series left to re-measure it.
     // A declared band goes first, or the strip would keep the range and the
@@ -346,9 +491,29 @@ export class Pane {
     return out;
   }
 
+  /** Detached scale configuration, excluding data baselines and runtime formatters. */
+  public scaleStates(): Partial<Record<PriceScaleId, PriceScaleState>> {
+    const entries: [PriceScaleId, PriceScale][] = [['right', this.priceScale]];
+    if (this._leftScale !== null) entries.push(['left', this._leftScale]);
+    entries.push(...this._overlayScales);
+    return Object.fromEntries(entries.map(([id, scale]) => {
+      const options = scale.options;
+      const state: PriceScaleState = {
+        marginTop: options.marginTop, marginBottom: options.marginBottom, minMove: options.minMove,
+        minPrecision: options.minPrecision, mode: options.mode, inverted: options.inverted,
+        autoScale: scale.autoScale, fixedRange: scale.fixedRange,
+        placement: this._axisLayout.get(id),
+      };
+      if (!scale.autoScale) state.range = scale.priceRange();
+      const lock = this._ratioLocks.get(id);
+      if (lock && !scale.autoScale) state.ratioLock = { ...lock };
+      return [id, state];
+    }));
+  }
+
   /**
-   * The scales that draw a ladder: the right one and, once something uses it,
-   * the left. The hidden overlay scale is deliberately not here.
+   * Scales configured with a visible column, including temporarily vacant ones.
+   * Hidden overlays are deliberately excluded from chart-wide axis settings.
    *
    * That scale is positioned by whoever created it and by nobody else. A volume
    * histogram sitting in the bottom fifth of the price pane is an overlay with
@@ -359,14 +524,12 @@ export class Pane {
    * from a control that only claims to move the plot inside its own axes.
    */
   public axisScales(): PriceScale[] {
-    const out: PriceScale[] = [this.priceScale];
-    if (this._leftScale !== null) out.push(this._leftScale);
-    return out;
+    return this._axisLayout.entries().filter(entry => entry.side !== 'hidden').map(entry => this._scaleFor(entry.scaleId));
   }
 
-  /** True when a left-axis scale is active (some series maps to it). */
+  /** True when a series or explicitly bound primitive uses the left axis. */
   public hasLeftScale(): boolean {
-    return this._leftScale !== null && this._series.some((s) => s.scaleId === 'left');
+    return this._leftScale !== null && this.usesScale('left');
   }
 
   /** Remove a series record if present; returns true if it was found. */
@@ -374,18 +537,150 @@ export class Pane {
     const i = this._series.indexOf(record);
     if (i < 0) return false;
     this._series.splice(i, 1);
+    this._drawItems.delete(record);
+    this._hitEpoch++;
     // A scale with nothing left on it keeps describing what just left, and a
     // pane is reused when one indicator replaces another. Forget the range so
     // the next occupant is measured on its own terms, or not labelled at all.
-    if (!this._series.some((s) => s.scaleId === record.scaleId)) {
-      this._scaleFor(record.scaleId).reset();
-      if (record.scaleId !== '' && this._overlayScales.delete(record.scaleId)) this._ratioLocks.delete(record.scaleId);
+    if (!this.usesScale(record.scaleId)) {
+      const scale = this._scaleFor(record.scaleId);
+      scale.reset();
+      if (record.scaleId !== '' && this._axisLayout.get(record.scaleId).side === 'hidden'
+        && !this._axisLayout.configured(record.scaleId) && !scale.hasConfiguration()
+        && !this._ratioLocks.has(record.scaleId)) this._overlayScales.delete(record.scaleId);
     }
     return true;
   }
 
   public series(): readonly SeriesRecord[] {
     return this._series;
+  }
+
+  /** Reorder a subset of series without disturbing unrelated sources. */
+  public reorderSeries(ordered: readonly SeriesRecord[]): void {
+    const members = new Set(ordered);
+    const local = ordered.filter(record => this._series.includes(record));
+    this._hitEpoch++;
+    let index = 0;
+    for (let i = 0; i < this._series.length; i++) if (members.has(this._series[i])) this._series[i] = local[index++];
+  }
+
+  /** Name the chart's price source on this pane, or null when it is elsewhere or gone. */
+  public setSourceSeries(record: SeriesRecord | null): void {
+    this._source = record;
+    this._hitEpoch++;
+  }
+
+  /** The price source when it shows a price here, else undefined. */
+  private _shownSource(): SeriesRecord | undefined {
+    const s = this._source;
+    return s !== null && s.style.visible !== false && getChartType(s.type).isPriceSeries && this._series.includes(s) ? s : undefined;
+  }
+
+  /** Move one series to just before `before`, or to the end for null: the price source taking its place. */
+  public moveSeries(record: SeriesRecord, before: SeriesRecord | null): void {
+    const from = this._series.indexOf(record);
+    if (from < 0 || record === before) return;
+    this._hitEpoch++;
+    this._series.splice(from, 1);
+    const at = before === null ? -1 : this._series.indexOf(before);
+    this._series.splice(at < 0 ? this._series.length : at, 0, record);
+  }
+
+  /** Reorder owned visuals within each renderer layer. */
+  public reorderPrimitives(ordered: readonly IPrimitive[]): void {
+    const members = new Set(ordered);
+    const local = ordered.filter(primitive => this._primitives.includes(primitive));
+    this._hitEpoch++;
+    let index = 0;
+    for (let i = 0; i < this._primitives.length; i++) if (members.has(this._primitives[i])) this._primitives[i] = local[index++];
+  }
+
+  /** Transfer ownership without ending an attached primitive's lifetime. */
+  public transferPrimitive(primitive: IPrimitive, target: Pane): boolean {
+    const index = this._primitives.indexOf(primitive);
+    if (index < 0 || target === this || target._destroyed || target.hasPrimitive(primitive)) return false;
+    const scaleId = this._primitiveScales.get(primitive);
+    if (scaleId !== undefined) target._scaleFor(scaleId);
+    const entry = this._stackAbove.get(primitive);
+    this._primitives.splice(index, 1);
+    this._primitiveScales.delete(primitive);
+    this._stackAbove.delete(primitive);
+    this._hitEpoch++;
+    target._hitEpoch++;
+    target._primitives.push(primitive);
+    if (scaleId !== undefined) target._primitiveScales.set(primitive, scaleId);
+    if (entry !== undefined) target._stackAbove.set(primitive, entry);
+    return true;
+  }
+
+  /**
+   * Paint an attached primitive in the series band, directly above the entry
+   * `above` names, instead of in its own z-order band; null puts it back. An
+   * entry with no series on this pane leaves it in its own band.
+   */
+  public setPrimitiveStackAbove(primitive: IPrimitive, above: string | null): boolean {
+    if (this._destroyed || !this.hasPrimitive(primitive)) return false;
+    if (above === null) this._stackAbove.delete(primitive);
+    else this._stackAbove.set(primitive, above);
+    return true;
+  }
+
+  /** The entry a primitive is placed above, or null for one in its own band. */
+  public primitiveStackAbove(primitive: IPrimitive): string | null {
+    return this._stackAbove.get(primitive) ?? null;
+  }
+
+  /**
+   * The placed primitives this frame can honour, keyed by the series each
+   * paints right after, or null when there are none (the common case, which
+   * then costs nothing).
+   */
+  private _slotted(live: readonly IPrimitive[], ctx: PaneRenderContext): Map<IPrimitive, SeriesRecord> | null {
+    if (this._stackAbove.size === 0 || ctx.stackSlot === undefined) return null;
+    let out: Map<IPrimitive, SeriesRecord> | null = null;
+    for (const primitive of live) {
+      const entry = this._stackAbove.get(primitive);
+      const after = entry === undefined ? undefined : ctx.stackSlot(entry);
+      if (after !== undefined && this._series.includes(after)) (out ??= new Map()).set(primitive, after);
+    }
+    return out;
+  }
+
+  /**
+   * Whether `primitive` paints under `record`: in the band behind the series,
+   * or in the series band after an earlier series. The chart asks when a
+   * drawing and a series are both under the pointer, so the one painted on top
+   * takes the context menu.
+   */
+  public paintsBelowSeries(primitive: IPrimitive, record: SeriesRecord, ctx: PaneRenderContext): boolean {
+    const entry = this._stackAbove.get(primitive);
+    const after = entry === undefined ? undefined : ctx.stackSlot?.(entry);
+    const at = after === undefined ? -1 : this._series.indexOf(after);
+    return at >= 0 ? at < this._series.indexOf(record) : primitive.zOrder() === 'bottom';
+  }
+
+  /**
+   * Bind an attached primitive without detaching it. Null restores the right scale.
+   * The owner schedules layout and repaint after finishing its resource transaction.
+   */
+  public bindPrimitiveScale(primitive: IPrimitive, scaleId: PriceScaleId | null): boolean {
+    if (this._destroyed || !this.hasPrimitive(primitive)) return false;
+    if (scaleId !== null && (typeof scaleId !== 'string'
+      || (scaleId !== 'left' && scaleId !== 'right' && scaleId !== '' && !scaleId.startsWith('overlay:')))) return false;
+    if (this.primitiveScaleId(primitive) === scaleId) return false;
+    this._hitEpoch++;
+    if (scaleId === null) this._primitiveScales.delete(primitive);
+    else {
+      this._scaleFor(scaleId);
+      this._primitiveScales.set(primitive, scaleId);
+    }
+    return true;
+  }
+
+  /** Explicit binding, or null for an unbound or unavailable primitive. */
+  public primitiveScaleId(primitive: IPrimitive): PriceScaleId | null {
+    return this._primitiveScales.get(primitive) ?? null;
   }
 
   /** Primitives attached to this pane, in draw order. */
@@ -395,7 +690,10 @@ export class Pane {
 
   public addPrimitive(primitive: IPrimitive, host: PrimitiveHost): void {
     this._primitives.push(primitive);
-    primitive.attached?.(host);
+    this._hitEpoch++;
+    // A primitive with a hit box gets a host that also retires the box when it
+    // announces a change; every other one keeps the chart's host as it was.
+    primitive.attached?.(primitive.hitBounds === undefined ? host : announcingHost(host));
   }
 
   /** Whether this pane currently holds `primitive`. */
@@ -408,12 +706,20 @@ export class Pane {
     const i = this._primitives.indexOf(primitive);
     if (i < 0) return false;
     this._primitives.splice(i, 1);
+    this._primitiveScales.delete(primitive);
+    this._stackAbove.delete(primitive);
+    this._hitEpoch++;
     primitive.detached?.();
     return true;
   }
 
   /** Detach every primitive (lifecycle cleanup) and remove the pane element. */
   public destroy(): void {
+    this._destroyed = true;
+    this._primitiveScales.clear();
+    this._stackAbove.clear();
+    this._drawItems.clear();
+    this._hitBoxes.clear();
     for (const p of this._primitives) p.detached?.();
     this._primitives.length = 0;
     this._backend.destroy();
@@ -422,6 +728,7 @@ export class Pane {
 
   private _primitiveContext(ctx: PaneRenderContext): PrimitiveRenderContext {
     const layout = this._layout(ctx);
+    const slot = this.axisSlots(ctx).find(slot => slot.scaleId === 'right');
     return {
       timeScale: ctx.timeScale,
       priceScale: this.priceScale,
@@ -429,10 +736,13 @@ export class Pane {
       dataLayer: ctx.dataLayer,
       plotWidth: layout.plotWidth,
       plotHeight: layout.plotHeight,
-      priceAxisWidth: ctx.priceAxisWidth,
+      priceAxisWidth: slot?.width ?? 0,
+      priceAxisSide: slot?.side ?? 'hidden',
+      priceAxisOffset: slot ? slot.x + (slot.side === 'left' ? slot.width : 0) : undefined,
       dpr: ctx.dpr,
       theme: ctx.theme,
       hoverId: ctx.hoverId ?? null,
+      hoverKey: ctx.hoverKey ?? null,
       dragId: ctx.dragId ?? null,
       // Carried through explicitly, like everything else here. This context is
       // built field by field rather than spread, so a new option reaches the
@@ -443,7 +753,7 @@ export class Pane {
       // arrived.
       touchTargets: ctx.touchTargets,
       bars: () => {
-        for (const s of this._series) {
+        for (const s of this._source !== null && this._series.includes(this._source) ? [this._source, ...this._series] : this._series) {
           if (getChartType(s.type).isPriceSeries) return ctx.dataLayer.seriesBars(s.dataId);
         }
         return [];
@@ -451,10 +761,141 @@ export class Pane {
     };
   }
 
-  /** Topmost primitive hit at media-px (x,y) relative to this pane's plot. */
-  public hitTestPrimitives(x: number, y: number, ctx: PaneRenderContext): PrimitiveHit | null {
-    const prc = this._primitiveContext(ctx);
-    return bestHit(this._primitives.map((p) => (p.hitTest ? p.hitTest(x, y, prc) : null)));
+  private _boundPrimitiveContext(primitive: IPrimitive, context: PrimitiveRenderContext, ctx: PaneRenderContext): PrimitiveRenderContext {
+    const id = this._primitiveScales.get(primitive);
+    if (id === undefined) return context;
+    const slot = this.axisSlots(ctx).find(slot => slot.scaleId === id);
+    return { ...context, priceScale: this._scaleFor(id), priceAxisSide: slot?.side ?? 'hidden',
+      priceAxisWidth: slot?.width ?? 0,
+      priceAxisOffset: slot ? slot.x + (slot.side === 'left' ? slot.width : 0) : undefined };
+  }
+
+  /** What a frame draws and the pointer can reach: only the legend rows of a collapsed pane. */
+  private _live(ctx: PaneRenderContext): readonly IPrimitive[] {
+    return ctx.collapsed === true ? this._primitives.filter(p => p instanceof PaneLegend) : this._primitives;
+  }
+
+  /**
+   * Topmost primitive hit at media-px (x,y) relative to this pane's plot.
+   * `except` is left out, for the chart's corner mark, which yields to
+   * anything else at the point.
+   *
+   * What paints over the series (the overlay band and the front) beats what
+   * paints with or behind it (a drawing or a primitive placed in the series
+   * band, a drawing sent behind the series, a bottom primitive), whatever the
+   * distance: a box under an order line gives the press to the line, as the
+   * eye does. On either side the nearest wins, then the one painted later in
+   * band order, as `bestHit` ranks them. A hit painted by a primitive placed
+   * in the series band names it (`paintedBy`), so the chart can rank it
+   * against a series painted over it too.
+   *
+   * Two things keep a pointer move from asking every primitive. One that
+   * declares a hit box is skipped when the point is outside it; the boxes are
+   * kept while nothing they depend on changes (`_checkHitBoxes`). And the
+   * walk stops at an exact hit in the front band, which nothing after it can
+   * outrank: a later primitive would need a smaller distance than zero or a
+   * band above the front one, and the order the walk visits primitives in
+   * only ever breaks exact ties, which the first hit wins.
+   */
+  public hitTestPrimitives(x: number, y: number, ctx: PaneRenderContext, except?: IPrimitive | null): PrimitiveHit | null {
+    const prc = this._primitiveContext(ctx), live = this._live(ctx), slotted = this._slotted(live, ctx);
+    this._checkHitBoxes(ctx);
+    let best: PrimitiveHit | null = null, bestRank = 0;
+    for (let i = 0; i < live.length; i++) {
+      const p = live[i];
+      if (!p.hitTest || p === except) continue;
+      // The kept box first, so a primitive the point is nowhere near costs a
+      // read and four comparisons: not even its render context is built.
+      let context: PrimitiveRenderContext | undefined;
+      let box = this._hitBoxes.kept(i);
+      if (box === undefined) box = this._hitBoxes.measure(i, p, context = this._boundPrimitiveContext(p, prc, ctx));
+      if (!inHitBox(box, x, y)) continue;
+      context ??= this._boundPrimitiveContext(p, prc, ctx);
+      let hit = p.hitTest(x, y, context);
+      if (hit === null) continue;
+      if (this._primitiveScales.has(p)) hit = { ...hit, priceScale: context.priceScale };
+      const painter = hit.paintedBy ?? p, after = slotted?.get(painter);
+      if (after !== undefined) hit = { ...hit, paintedBy: painter };
+      const rank = after !== undefined ? 1 + (this._series.indexOf(after) + 1) / (this._series.length + 1)
+        : HIT_RANK[painter === p ? hit.zOrder : painter.zOrder()];
+      // Over the series (rank 2 and up) first, then the nearest, then the higher band.
+      const side = +(rank >= 2) - +(bestRank >= 2);
+      if (best === null || side > 0 || side === 0 && (hit.distance < best.distance || hit.distance === best.distance && rank > bestRank)) {
+        best = hit; bestRank = rank;
+        if (best.distance === 0 && bestRank >= HIT_RANK.top) break;
+      }
+    }
+    return best;
+  }
+
+  /** After an on-screen paint: what the pane shows now is what the key describes (src/render/hit-boxes.ts). */
+  private _paintedHitBoxes(ctx: PaneRenderContext): void {
+    this._checkHitBoxes(ctx);
+    this._hitBoxes.painted();
+  }
+
+  /**
+   * Read the key the kept hit boxes are checked against: what a primitive's
+   * render context can map with (the time scale and the bars' times, every
+   * price scale here, the pane's size and axes, the pixel ratio, the readout
+   * scale, hover and drag, the theme, the session calendar) and this pane's
+   * own count of changes.
+   */
+  private _checkHitBoxes(ctx: PaneRenderContext): void {
+    const key = this._hitBoxes, ts = ctx.timeScale, layer = ctx.dataLayer;
+    key.begin();
+    key.number(this._hitEpoch);
+    key.number(ctx.dpr);
+    key.number(this._width);
+    key.number(this._height);
+    key.number(ctx.priceAxisWidth);
+    key.number(ctx.leftAxisWidth ?? 0);
+    key.number(ctx.axisColumnWidth ?? -1);
+    key.number(ctx.showTimeAxis ? ctx.timeAxisHeight : -1);
+    key.number(ctx.collapsed === true ? 1 : 0);
+    key.number(ctx.emptyPriceAxis === false ? 0 : 1);
+    key.number(ts.barSpacing);
+    key.number(ts.rightOffset);
+    key.number(ts.width);
+    key.number(layer.length);
+    key.number(layer.indexToTime(0) ?? NaN);
+    key.number(layer.indexToTime(layer.baseIndex) ?? NaN);
+    key.scale(this._rightScale);
+    if (this._leftScale !== null) key.scale(this._leftScale);
+    for (const scale of this._overlayScales.values()) key.scale(scale);
+    key.ref(ctx.hoverId ?? null);
+    key.ref(ctx.hoverKey ?? null);
+    key.ref(ctx.dragId ?? null);
+    key.ref(ctx.theme);
+    key.ref(layer.sessionCalendar);
+    key.ref(this._readoutScale());
+    key.ref(this._rightScale);
+    key.end();
+  }
+
+  /**
+   * Draw the rule over this pane's top edge in `color` at device pixel ratio
+   * `dpr`, or none with a null colour.
+   *
+   * At a whole-number ratio it is the pane's 1 px top border, with the
+   * canvases starting under it: 1 px is whole device pixels there, and it is
+   * the layout, and the pane-local y, that every earlier release showed. At a
+   * fractional ratio a 1 px border is 1.25 or 1.5 device pixels, which starts
+   * the canvases part way into a pixel, and the browser then resamples the
+   * whole pane and blends the rule into it. There the rule is a box
+   * `hairlineHeight(dpr)` tall, one device pixel, laid over the canvases'
+   * first rows, and the canvases start on the pane's own top.
+   */
+  public setSeparator(color: string | null, dpr: number): void {
+    const border = separatorIsBorder(dpr) ? color : null;
+    const over = border === null ? color : null;
+    const box = this.element.style;
+    box.borderTopWidth = border === null ? '0px' : '1px';
+    box.borderTopColor = border ?? 'transparent';
+    const s = this._separator.style;
+    s.display = over === null ? 'none' : '';
+    s.height = `${over === null ? 0 : hairlineHeight(dpr)}px`;
+    s.background = over ?? 'transparent';
   }
 
   public resize(width: number, height: number, dpr: number): void {
@@ -506,11 +947,10 @@ export class Pane {
     let easing = false;
     const layout = this._layout(ctx);
     const range = ctx.timeScale.visibleRange();
-    // Right scale also expands for primitives (price lines etc.).
-    easing = this._autoscaleScale(this.priceScale, (s) => s.scaleId === 'right', true, ctx, layout.plotHeight, range, progress) || easing;
-    if (this._leftScale) easing = this._autoscaleScale(this._leftScale, (s) => s.scaleId === 'left', false, ctx, layout.plotHeight, range, progress) || easing;
+    easing = this._autoscaleScale(this.priceScale, 'right', ctx, layout.plotHeight, range, progress) || easing;
+    if (this._leftScale) easing = this._autoscaleScale(this._leftScale, 'left', ctx, layout.plotHeight, range, progress) || easing;
     for (const [id, scale] of this._overlayScales) {
-      easing = this._autoscaleScale(scale, (s) => s.scaleId === id, false, ctx, layout.plotHeight, range, progress) || easing;
+      easing = this._autoscaleScale(scale, id, ctx, layout.plotHeight, range, progress) || easing;
     }
     // After the measuring pass and before anything reads a range: a locked
     // scale is manual, so nothing above touched it, and the correction has to
@@ -525,20 +965,22 @@ export class Pane {
 
   private _autoscaleScale(
     scale: PriceScale,
-    match: (s: SeriesRecord) => boolean,
-    includePrimitives: boolean,
+    scaleId: PriceScaleId,
     ctx: PaneRenderContext,
     plotHeight: number,
     range: { from: number; to: number },
     progress: number,
   ): boolean {
+    const primaryOnly = ctx.priceOnlyAutoScale === true
+      && this._series.some(s => s.dataId === ctx.primaryDataId && s.scaleId === scaleId);
+    const match = (s: SeriesRecord): boolean => s.scaleId === scaleId && (!primaryOnly || s.dataId === ctx.primaryDataId);
     scale.setHeight(plotHeight);
     // Before the manual-range early-out on purpose: an axis-dragged scale still
     // has to label itself, and the gather loop below never runs for it. Guarded
-    // on the mode because visibleBars allocates per series.
+    // on the mode: only the rebasing modes quote against the first visible bar.
     const mode = scale.options.mode;
     if (mode === 'percentage' || mode === 'indexed-to-100') {
-      scale.setBaseline(this._firstVisibleValue(match, ctx, range));
+      scale.setBaseline(this._firstVisibleValue(match, ctx, range, primaryOnly));
     }
     if (!scale.autoScale) return false; // manual (axis-dragged) range: leave it
     let low = Infinity;
@@ -547,20 +989,27 @@ export class Pane {
       if (s.style.visible === false || !match(s)) continue;
       const entry = getChartType(s.type);
       // The same shift the paint pass applies, so the range fits what is drawn.
+      // Walked in place rather than through `visibleBars`, which builds a pair
+      // per bar, every frame of a pan.
       const shift = s.style.barOffset ?? 0;
-      for (const ib of ctx.dataLayer.visibleBars(s.dataId, range.from - shift, range.to - shift)) {
-        const ext = entry.extents(ib.bar, s.style);
+      const layer = ctx.dataLayer, bars = layer.seriesBars(s.dataId), span = SPAN;
+      if (!visibleSpan(layer, bars, range.from - shift, range.to - shift, span)) continue;
+      for (let i = span.start; i < bars.length; i++) {
+        const bar = bars[i];
+        if (bar.time > span.lastTime) break;
+        if (layer.timeToIndex(bar.time) === undefined) continue;
+        const ext = entry.extents(bar, s.style);
         if (ext.min < low) low = ext.min;
         if (ext.max > high) high = ext.max;
       }
     }
-    if (includePrimitives) {
-      for (const p of this._primitives) {
-        const ext = p.autoscaleInfo?.();
-        if (ext) {
-          if (ext.min < low) low = ext.min;
-          if (ext.max > high) high = ext.max;
-        }
+    for (const p of this._primitives) {
+      if (primaryOnly) break;
+      if ((this._primitiveScales.get(p) ?? 'right') !== scaleId) continue;
+      const ext = p.autoscaleInfo?.();
+      if (ext) {
+        if (ext.min < low) low = ext.min;
+        if (ext.max > high) high = ext.max;
       }
     }
     return low <= high ? scale.autoscale(low, high, progress) : false;
@@ -609,11 +1058,21 @@ export class Pane {
     match: (s: SeriesRecord) => boolean,
     ctx: PaneRenderContext,
     range: { from: number; to: number },
+    honorOffset = false,
   ): number | null {
-    for (const s of this._series) {
+    // The price source first: what a rebased axis quotes against must not
+    // change when the source is moved over a study.
+    const source = this._shownSource();
+    for (const s of source ? [source, ...this._series] : this._series) {
       if (s.style.visible === false || !match(s)) continue;
-      for (const ib of ctx.dataLayer.visibleBars(s.dataId, range.from, range.to)) {
-        if (isFinite(ib.bar.close)) return ib.bar.close; // whitespace bars are NaN
+      const shift = honorOffset ? s.style.barOffset ?? 0 : 0;
+      const layer = ctx.dataLayer, bars = layer.seriesBars(s.dataId), span = SPAN;
+      if (!visibleSpan(layer, bars, range.from - shift, range.to - shift, span)) continue;
+      for (let i = span.start; i < bars.length; i++) {
+        const bar = bars[i];
+        if (bar.time > span.lastTime) break;
+        if (layer.timeToIndex(bar.time) === undefined) continue;
+        if (isFinite(bar.close)) return bar.close; // whitespace bars are NaN
       }
     }
     return null;
@@ -635,6 +1094,8 @@ export class Pane {
     // backend has no pixels to put in one.
     const g = target ?? this._backend.overlay2d() ?? this.base.ctx;
     if (target === undefined) this._backend.beginFrame(true);
+    const open = ctx.collapsed !== true;
+    const live = this._live(ctx);
 
     const axisStyle = resolveScaleStyle(ctx.theme, ctx.canvasOptions?.scales);
 
@@ -642,16 +1103,6 @@ export class Pane {
     if (ctx.paintBackground !== false && ctx.theme.background !== 'transparent') {
       g.fillStyle = ctx.theme.background;
       g.fillRect(0, 0, Math.round(this._width * dpr), Math.round(this._height * dpr));
-    }
-
-    // Left price axis strip (absolute coords), drawn before the plot is shifted.
-    if (this._leftScale && layout.plotLeft > 0) {
-      if (this._leftScale.scaled) {
-        drawLeftPriceAxis(
-          g, this._leftScale, layout.plotLeft, layout.plotHeight, dpr, axisStyle,
-          undefined, ctx.priceTickCount,
-        );
-      }
     }
 
     // Shift the plot right by the reserved left-axis width (0 = a no-op).
@@ -665,8 +1116,8 @@ export class Pane {
     const lines = computeGridLines(layout.plotWidth, layout.plotHeight, {
       ...gridOpts,
       spacing: gridOpts?.spacing ?? 60,
-      vertLines: ctx.showVertGrid,
-      horzLines: ctx.showHorzGrid,
+      vertLines: ctx.showVertGrid && open,
+      horzLines: ctx.showHorzGrid && open,
     });
     if (lines.verticals.length > 0 || lines.horizontals.length > 0) {
       drawGrid(g, lines, layout.plotWidth, layout.plotHeight, dpr, resolveGridStyle(ctx.theme, gridOpts, dpr));
@@ -687,74 +1138,91 @@ export class Pane {
 
     // bottom-layer primitives (background zones) draw behind series
     const prc = this._primitiveContext(ctx);
-    for (const p of this._primitives) if (p.zOrder() === 'bottom') p.draw(g, prc);
+    const slotted = this._slotted(live, ctx);
+    for (const p of live) if (p.zOrder() === 'bottom' && !slotted?.has(p)) p.draw(g, this._boundPrimitiveContext(p, prc, ctx));
 
     // series (registry-driven — the core never switches on type)
     const range = ctx.timeScale.visibleRange();
     // Last-price line/tag follows the pane's readout series (the main one),
     // whichever side its scale is drawn on.
     const readout = this._readoutScale();
+    // The instrument owns the last-price line: the price source when it shows
+    // here, else the first price series on the readout scale, as it always was.
+    const source = this._shownSource();
+    const instrument = source !== undefined && this._scaleFor(source.scaleId) === readout ? source
+      : this._series.find(s => s.style.visible !== false && getChartType(s.type).isPriceSeries && this._scaleFor(s.scaleId) === readout);
     let lastEntry:
       { close: number; up: boolean; showLine: boolean; showTag: boolean; fixedColor?: string } | null = null;
-    // Every other series on the readout scale that is currently plotting a
-    // number: an indicator overlay, a comparison line, a study on its own pane.
-    // The main series keeps its dedicated tag above; these are what tells a
-    // reader where a Supertrend or a moving average sits without tracing the
-    // line back to the edge by eye.
-    const valueTags: { price: number; color: string }[] = [];
-    const groupSize = ctx.conflate
-      ? conflationGroupSize(ctx.timeScale.barSpacing, dpr, 0.5, ctx.conflationFactor)
-      : 1;
+    // Every visible axis describes its own sources, even when the pane's main
+    // readout belongs to the other side or a hidden scale.
+    const valueTags: { price: number; color: string; scaleId: PriceScaleId }[] = [];
+    // The level of detail is decided once for the frame: every series shares
+    // the time scale, so they all cross the threshold together.
+    const spacing = ctx.timeScale.barSpacing;
+    const columnWidth = lodColumnWidth(dpr, ctx.conflationFactor);
+    const lodOn = ctx.conflate && lodActive(spacing, dpr, columnWidth);
+    const lod = LOD;
+    lod.dpr = dpr;
+    lod.factor = ctx.conflationFactor;
     for (const s of this._series) {
-      if (s.style.visible === false) continue;
+      // What sits directly above this series paints right after it, hidden or
+      // not: the slot belongs to the entry, not to whether it is showing.
+      if (s.style.visible === false || !open) { this._paintSlot(slotted, s, g, prc, ctx, target); continue; }
       const scale = this._scaleFor(s.scaleId);
-      const priceToY = (p: number): number => scale.priceToY(p);
       const entry = getChartType(s.type);
       // A shifted series is painted `barOffset` bars from where its data sits,
       // so the bars in view are the ones whose shifted position lands in range.
       const shift = s.style.barOffset ?? 0;
-      const visible = ctx.dataLayer.visibleBars(s.dataId, range.from - shift, range.to - shift);
-      let items: DrawItem[] = visible.map((ib) => ({ x: ctx.timeScale.indexToX(ib.index + shift), bar: ib.bar }));
-      if (groupSize > 1) items = conflateItems(items, groupSize);
+      const kind = lodOn && LOD_RENDERERS.has(entry) ? lodKind(s.type) : null;
+      if (kind !== null) lod.kind = kind;
+      let buffer = this._drawItems.get(s);
+      if (buffer === undefined) this._drawItems.set(s, buffer = createSeriesDrawItems());
+      const priceToY = buffer.priceToY;
+      const items = buffer.build(ctx.dataLayer, s.dataId, range.from - shift, range.to - shift, shift, ctx.timeScale,
+        scale, kind === null ? null : lod, entry.connectsBars === true);
+      // A merged stick stands for its whole column, so the renderer sizes it
+      // for the column rather than for one of the bars inside it.
+      const drawSpacing = kind === 'ohlc' ? Math.max(spacing, columnWidth / dpr) : spacing;
       // Previous-close colouring needs the bar left of the visible range to
       // colour the first drawn one; nothing else does, so only that mode pays
       // for the lookup, and only a series with no bar there falls back.
       if (s.style.colorByPreviousClose === true && items.length > 0) {
-        const before = ctx.dataLayer.visibleBars(s.dataId, visible[0].index - 1, visible[0].index - 1);
+        const at = buffer.firstIndex() - 1;
+        const before = ctx.dataLayer.visibleBars(s.dataId, at, at);
         if (before.length > 0) items[0].prevClose = before[0].bar.close;
       }
       let maxVolume = 0;
-      for (const it of items) if ((it.bar.volume ?? 0) > maxVolume) maxVolume = it.bar.volume ?? 0;
+      for (let i = 0; i < items.length; i++) {
+        const volume = items[i].bar.volume ?? 0;
+        if (volume > maxVolume) maxVolume = volume;
+      }
       const rc: SeriesRenderContext = { plotHeight: layout.plotHeight, maxVolume, theme: ctx.theme };
-      if (target === undefined) this._backend.drawSeries(entry, items, priceToY, ctx.timeScale.barSpacing, dpr, s.style, rc);
-      else entry.draw(g, items, priceToY, ctx.timeScale.barSpacing, dpr, s.style, rc);
-      // Only the readout scale has a strip to write into. A volume overlay
-      // sitting on its own hidden scale is excluded by that alone, while a
-      // volume study on a pane of its own is on the readout scale and does get
-      // a tag, formatted by the same scale as the ladder beside it.
-      if (scale === readout) {
-        const last = ctx.dataLayer.lastIndexedBar(s.dataId);
-        if (last !== null && entry.isPriceSeries && lastEntry === null) {
+      if (target === undefined) this._backend.drawSeries(entry, items, priceToY, drawSpacing, dpr, s.style, rc);
+      else entry.draw(g, items, priceToY, drawSpacing, dpr, s.style, rc);
+      const last = ctx.dataLayer.lastIndexedBar(s.dataId);
+      if (last !== null) {
+        const color = seriesTagColor(s.style, last.bar.close >= last.bar.open);
+        if (s === instrument && lastEntry === null) {
           // The first price series on the readout scale is the instrument, and
           // it owns the last-price line and the countdown tag.
           lastEntry = {
             close: last.bar.close,
             up: last.bar.close >= last.bar.open,
             showLine: s.style.priceLineVisible !== false,
-            showTag: s.style.lastValueVisible !== false,
+            showTag: s.style.lastValueVisible !== false && (color === undefined || !isInvisible(color)),
             fixedColor: s.style.lastValueLabelColor,
           };
-        } else if (last !== null && s.style.lastValueVisible !== false) {
+        } else if (s.style.lastValueVisible !== false) {
           // A plot that is currently `na` writes NaN rather than dropping the
           // point, and a tag for it would either be blank or, worse, the stale
           // value from whenever the line last had one. A flipped Supertrend's
           // dormant half shows no tag, which is the honest answer.
-          const color = seriesTagColor(s.style, last.bar.close >= last.bar.open);
-          if (color !== undefined && Number.isFinite(last.bar.close)) {
-            valueTags.push({ price: last.bar.close, color });
+          if (color !== undefined && !isInvisible(color) && Number.isFinite(last.bar.close)) {
+            valueTags.push({ price: last.bar.close, color, scaleId: s.scaleId });
           }
         }
       }
+      this._paintSlot(slotted, s, g, prc, ctx, target);
     }
     // Still inside the clip and before the normal-layer primitives: a backend
     // that batched the series has to land them under the price lines and
@@ -766,82 +1234,22 @@ export class Pane {
     // and not at the end of the frame is the whole point.
     g.restore();
 
-    // axis ticks first, then the last-price line/tag, then trading primitives —
-    // order/position pill groups stay legible when the LTP crosses them
-    // A scale nothing has measured still holds the placeholder 0..1, and
-    // labelling it prints a price ladder the pane has no prices for: an
-    // indicator whose whole output is a table or a set of markers plots no
-    // values, so its pane came up reading 0.00 to 1.00.
-    // The last-price tag lands in the same strip a moment from now, so the tick
-    // it will cover is reserved before the ladder is drawn. Without this the tag
-    // paints straight over a tick label and the two read as mush, which is the
-    // whole reason `resolveAxisLabels` exists.
-    //
-    // Nothing is reserved when there is no tag, or when it falls outside the
-    // plot (where `drawLastPriceLabel` bails), so a pane without one draws every
-    // tick exactly as it always has.
-    const showLastTag = lastEntry !== null && lastEntry.showTag && readout === this._rightScale;
-    // The countdown makes the tag taller, so it must be the same question here
-    // and in the call below, or the reservation would be the wrong size.
-    const withCountdown = ctx.barCountdown?.visible === true;
-    //
-    // The series tags are resolved here rather than left to `drawPriceAxis`,
-    // which drops the flags of whatever it is handed: it decides which ticks
-    // survive a reservation, not which reservations survive each other. Two
-    // moving averages a rupee apart are exactly that second question, and the
-    // last-price tag outranking both of them is the answer we want.
-    const inPlot = (y: number): boolean => y >= 0 && y <= layout.plotHeight * dpr;
-    const bands: AxisLabelBand[] = [];
-    if (lastEntry !== null && showLastTag) {
-      const y = Math.round(readout.priceToY(lastEntry.close) * dpr);
-      if (inPlot(y)) {
-        bands.push({ y, height: lastPriceTagHeight(dpr, withCountdown), priority: AXIS_LABEL_PRIORITY.lastPrice });
-      }
-    }
-    // Series tags share the right-hand strip, so a scale that has moved to the
-    // left has nowhere to put them, the same reason the last-price tag is
-    // suppressed there.
-    const tagBase = bands.length;
-    const showValueTags = readout === this._rightScale;
-    if (showValueTags) {
-      for (const t of valueTags) {
-        const y = Math.round(readout.priceToY(t.price) * dpr);
-        bands.push({
-          y,
-          height: inPlot(y) ? lastPriceTagHeight(dpr) : NaN,
-          priority: AXIS_LABEL_PRIORITY.seriesValue,
-        });
-      }
-    }
-    // Same gap the ladder is resolved with, so a tag that survives here is not
-    // then drawn a pixel from the tick it displaced.
-    const allowed = bands.length > 0 ? resolveAxisLabels(bands, 2 * dpr) : [];
-    const reserved: AxisLabelBand[] | undefined =
-      bands.length > 0 ? bands.filter((_, i) => allowed[i]) : undefined;
-    if (this.priceScale.scaled) {
-      drawPriceAxis(g, this.priceScale, layout, dpr, axisStyle, reserved, ctx.priceTickCount);
-    }
-    if (showValueTags) {
-      for (let i = 0; i < valueTags.length; i++) {
-        if (!allowed[tagBase + i]) continue;
-        drawSeriesValueTag(g, readout, valueTags[i].price, valueTags[i].color, layout, dpr, axisStyle);
-      }
-    }
-    if (lastEntry !== null) {
-      // The tag belongs in the right-hand strip, which a scale that has moved
-      // to the left no longer has: the line still means something without it,
-      // a tag drawn into a column that is not there does not.
-      // A series that names a fixed colour gives it to both directions, which is
-      // the whole point: the tag and the line stop flipping with the bar. The
-      // text is then picked for contrast against it rather than left on the
-      // theme's, which is chosen for the up/down pair and can vanish on a
-      // colour it never expected.
-      const fixed = lastEntry.fixedColor;
-      drawLastPriceLabel(g, readout, lastEntry.close, lastEntry.up, layout, dpr, axisStyle, {
-        up: fixed ?? ctx.theme.lastPriceUp,
-        down: fixed ?? ctx.theme.lastPriceDown,
-        text: fixed !== undefined ? contrastText(fixed) : ctx.theme.lastPriceText,
-      }, lastEntry.showLine, showLastTag, ctx.barCountdown,
+    const slots = this.axisSlots(ctx);
+    const last = lastEntry;
+    // A series that names a fixed colour gives it to both directions, which is
+    // the whole point: the tag and the line stop flipping with the bar. The
+    // text is then picked for contrast against it rather than left on the
+    // theme's, which is chosen for the up/down pair and can vanish on a
+    // colour it never expected.
+    const fixed = last?.fixedColor;
+    const colors = {
+      up: fixed ?? ctx.theme.lastPriceUp,
+      down: fixed ?? ctx.theme.lastPriceDown,
+      text: fixed !== undefined ? contrastText(fixed) : ctx.theme.lastPriceText,
+    };
+    if (last !== null) {
+      drawLastPriceLabel(g, readout, last.close, last.up, layout, dpr, axisStyle, colors, last.showLine, false,
+        undefined, 'right',
         // `fromLastBar` starts the line at the newest bar instead of striping
         // it across the history behind it, which is what a trader watching the
         // right-hand edge actually wants. The default stays full width.
@@ -849,9 +1257,69 @@ export class Pane {
           ? Math.round(ctx.timeScale.indexToX(ctx.dataLayer.baseIndex) * dpr)
           : 0);
     }
+    // The countdown counts to the close of the chart's own bar, so it rides
+    // on the tag of the pane that shows the price source. A study pane's tag
+    // is the study's value: a clock under it named a bar the pane does not
+    // draw, and doubled the tag's height into the study's level tags.
+    const countdown = this._source !== null && this._series.includes(this._source) ? ctx.barCountdown : undefined;
+    const lastTagOn = (scale: PriceScale): boolean => last !== null && last.showTag && readout === scale;
+    /** Paint into one axis strip, clipped to it, in the coordinates its tags use. */
+    const inSlot = (slot: PriceAxisSlot, paint: (scale: PriceScale, columnLayout: PlotLayout) => void): void => {
+      const { side, width } = slot, scale = this._scaleFor(slot.scaleId);
+      if (!scale.scaled) return;
+      g.save();
+      const outer = Math.round(slot.x * dpr), end = Math.round((slot.x + width) * dpr);
+      g.beginPath(); g.rect(outer, 0, end - outer, Math.round(layout.plotHeight * dpr)); g.clip();
+      g.translate(side === 'left' ? end : outer - Math.round(layout.plotWidth * dpr), 0);
+      paint(scale, { ...layout, priceAxisWidth: width, plotLeft: width });
+      g.restore();
+    };
+    // Resolve each strip independently: equal prices on opposite scales do not
+    // overlap. The readout tag outranks series tags, which outrank axis ticks.
+    for (const slot of slots) inSlot(slot, (scale, columnLayout) => {
+      const { side, width, scaleId } = slot;
+      const tags = valueTags.filter(tag => tag.scaleId === scaleId);
+      const bands: AxisLabelBand[] = [];
+      if (last !== null && lastTagOn(scale)) {
+        const height = lastPriceTagHeight(dpr, countdown?.visible === true);
+        const y = axisTagY(Math.round(scale.priceToY(last.close) * dpr), layout.plotHeight * dpr, height, side);
+        if (y !== null) bands.push({ y, height, priority: AXIS_LABEL_PRIORITY.lastPrice });
+      }
+      const tagBase = bands.length;
+      for (const tag of tags) {
+        const height = lastPriceTagHeight(dpr);
+        const y = axisTagY(Math.round(scale.priceToY(tag.price) * dpr), layout.plotHeight * dpr, height, side);
+        bands.push({ y: y ?? NaN, height, priority: AXIS_LABEL_PRIORITY.seriesValue });
+      }
+      const allowed = bands.length > 0 ? resolveAxisLabels(bands, 2 * dpr) : [];
+      const reserved = bands.length > 0 ? bands.filter((_, index) => allowed[index]) : undefined;
+      if (side === 'left') {
+        // The left tick renderer uses absolute pane coordinates; tags use the
+        // same plot-relative coordinates as their source series.
+        g.save();
+        g.translate(-Math.round(width * dpr), 0);
+        drawLeftPriceAxis(g, scale, width, layout.plotHeight, dpr, axisStyle, reserved, ctx.priceTickCount);
+        g.restore();
+      } else drawPriceAxis(g, scale, columnLayout, dpr, axisStyle, reserved, ctx.priceTickCount);
+      for (let i = 0; i < tags.length; i++) {
+        if (allowed[tagBase + i]) drawSeriesValueTag(g, scale, tags[i].price, tags[i].color, columnLayout, dpr, axisStyle, side);
+      }
+    });
 
     // normal-layer primitives (price lines, markers, events) draw over series
-    for (const p of this._primitives) if (p.zOrder() === 'normal') p.draw(g, prc);
+    for (const p of live) if (p.zOrder() === 'normal' && !slotted?.has(p)) p.draw(g, this._boundPrimitiveContext(p, prc, ctx));
+
+    // The readout tag goes on after them: where the market is now outranks a
+    // level's tag (AXIS_LABEL_PRIORITY), so a price line crossing it, a
+    // study's 70 or an order at the touch, does not cover the one number that
+    // moves.
+    // Only the strip that carries the tag is clipped again: a pane with a
+    // strip on each side, or with its tag turned off, pays for no second pass.
+    for (const slot of slots) {
+      if (last === null || !lastTagOn(this._scaleFor(slot.scaleId))) continue;
+      inSlot(slot, (scale, columnLayout) => drawLastPriceLabel(g, scale, last.close, last.up, columnLayout, dpr,
+        axisStyle, colors, false, true, countdown, slot.side));
+    }
 
     if (ctx.showTimeAxis) {
       // The zone goes to the axis rather than being pre-baked into a formatter
@@ -861,9 +1329,29 @@ export class Pane {
       drawTimeAxis(g, ctx.timeScale, ctx.dataLayer, layout, dpr, axisStyle, ctx.timeFormatter, ctx.timezone);
       // The corner the two strips meet in, which no tick, tag or series ever
       // occupies. Drawn last so it sits over the time axis's own row.
-      if (ctx.sessionClock !== undefined) drawSessionClock(g, layout, dpr, ctx.sessionClock, axisStyle);
+      if (ctx.sessionClock !== undefined) drawSessionClock(g,
+        { ...layout, priceAxisWidth: Math.min(layout.priceAxisWidth, ctx.axisColumnWidth ?? layout.priceAxisWidth) },
+        dpr, ctx.sessionClock, axisStyle);
     }
     g.restore(); // end plot shift
+    if (target === undefined) this._paintedHitBoxes(ctx);
+  }
+
+  /**
+   * Paint the primitives placed directly above `record`. A backend that
+   * batches series flushes first, so the batch so far lands under them and
+   * the series after them on top, the way it keeps a 2D fallback type in order.
+   */
+  private _paintSlot(slotted: Map<IPrimitive, SeriesRecord> | null, record: SeriesRecord, g: CanvasRenderingContext2D,
+    prc: PrimitiveRenderContext, ctx: PaneRenderContext, target: CanvasRenderingContext2D | undefined): void {
+    if (slotted === null) return;
+    let flushed = false;
+    for (const [p, after] of slotted) {
+      if (after !== record) continue;
+      if (!flushed && target === undefined) this._backend.endFrame();
+      flushed = true;
+      p.draw(g, this._boundPrimitiveContext(p, prc, ctx));
+    }
   }
 
   /**
@@ -886,10 +1374,15 @@ export class Pane {
     g.save();
     if (layout.plotLeft > 0) g.translate(Math.round(layout.plotLeft * dpr), 0);
     const prc = this._primitiveContext(ctx);
-    for (const p of this._primitives) if (p.zOrder() === 'top') p.draw(g, prc);
+    const live = this._live(ctx);
+    // Resolved only for a top primitive placed in the series band: this runs on
+    // every pointer move, and a drawing's series layers are not top primitives.
+    const slotted = this._stackAbove.size === 0 ? null : this._slotted(live.filter(p => p.zOrder() === 'top' && this._stackAbove.has(p)), ctx);
+    for (const p of live) if (p.zOrder() === 'top' && !slotted?.has(p)) p.draw(g, this._boundPrimitiveContext(p, prc, ctx));
     if (cross !== null) {
       const style = resolveCrosshairStyle(ctx.theme, ctx.canvasOptions?.crosshair, dpr);
-      drawCrosshair(g, cross.x, cross.yLocal, layout.plotWidth, layout.plotHeight, dpr,
+      // A strip has no plot to cross; its time tag below still follows the pointer.
+      if (ctx.collapsed !== true) drawCrosshair(g, cross.x, cross.yLocal, layout.plotWidth, layout.plotHeight, dpr,
         style.color, style.width, style.dash);
 
       // An overridden crosshair colour tints its value tags too, the way the
@@ -900,12 +1393,15 @@ export class Pane {
       // (hovered pane only)
       if (showTags && cross.yLocal !== null) {
         const scale = this._readoutScale();
-        const text = scale.format(scale.yToPrice(cross.yLocal));
-        const onLeft = scale === this._leftScale && layout.plotLeft > 0;
-        // The tag is drawn rightward from the x it is given, so putting one in
-        // the left strip means starting a whole tag-width back from the plot.
-        const x = onLeft ? -this._tagWidth(g, text, dpr) : layout.plotWidth * dpr;
-        drawCrosshairTag(g, text, x, cross.yLocal * dpr, dpr, tagBg, ctx.theme.lastPriceText, 'right');
+        const slot = this.axisSlots(ctx).find(slot => this._scaleFor(slot.scaleId) === scale);
+        if (slot) {
+          const text = scale.format(scale.yToPrice(cross.yLocal));
+          const start = Math.round(slot.x * dpr), end = Math.round((slot.x + slot.width) * dpr);
+          const x = slot.side === 'left' ? end - this._tagWidth(g, text, dpr) : start;
+          g.save(); g.beginPath(); g.rect(start, 0, end - start, Math.round(layout.plotHeight * dpr)); g.clip();
+          drawCrosshairTag(g, text, x, cross.yLocal * dpr, dpr, tagBg, ctx.theme.lastPriceText, 'right');
+          g.restore();
+        }
       }
       // date/time tag on the bottom pane's axis strip (cross.x is plot-relative)
       if (showTags && cross.showTimeTag && cross.x >= 0 && cross.x <= layout.plotWidth) {
@@ -929,15 +1425,19 @@ export class Pane {
       }
     }
     g.restore();
+    if (target === undefined) this._paintedHitBoxes(ctx);
   }
 
   /**
-   * The scale this pane's price readout belongs to: the one its first visible
-   * price series maps to, falling back to the right scale. A pane whose series
+   * The scale this pane's price readout belongs to: the one the chart's price
+   * source maps to while it shows here, else the one its first visible price
+   * series maps to, falling back to the right scale. A pane whose series
    * sit on the left axis has nothing on the right one, and reading the
    * crosshair price off it would tag the cursor with the 0..1 placeholder.
    */
   private _readoutScale(): PriceScale {
+    const source = this._shownSource();
+    if (source !== undefined) return this._scaleFor(source.scaleId);
     for (const s of this._series) {
       if (s.style.visible === false) continue;
       if (getChartType(s.type).isPriceSeries) return this._scaleFor(s.scaleId);

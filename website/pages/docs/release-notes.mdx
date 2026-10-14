@@ -23,7 +23,7 @@ instead of a hairline mesh.
   price-line pills, the footprint ladder and the volume profile draw identically on
   `canvas2d` and `webgl2`.
 - **Upstream 2.1.0**: compact TPO letters, the per-session split and the open/latest
-  markers, all inside `src/profile/market-profile*`, which the fork has never touched —
+  markers, all inside `src/profile/market-profile*`, which the fork has never touched,
   merged with no conflicts in `src/` and nothing to re-apply. The profile tier grows
   11.85 -> 13.12 kB for the compact alphabet.
 - **Upstream 2.1.1 - 2.1.7**: the footprint rewrite (`cellStyle`, OHLC/`tradeCount`/
@@ -43,7 +43,7 @@ instead of a hairline mesh.
   and stream-driven repair with provisional bars. `wheelZoomSensitivity` now multiplies
   upstream's proportional step, on the plot and on a price axis, and the fork's touch
   crosshair keeps its release and teardown paths beside the branding press.
-- **Upstream 2.4.0**: coverage for ported studies — higher-timeframe `securitySeries`,
+- **Upstream 2.4.0**: coverage for ported studies, higher-timeframe `securitySeries`,
   plot and series bar offsets, the recompute guard, alert messages from the firing bar, new
   marker shapes and pane positions, price-pane fills, per-bar wick and border colours,
   tooltips on label and box drawings, interval and time inputs, and a bars provider. The
@@ -58,6 +58,12 @@ instead of a hairline mesh.
   VWAP and Fixed Range Volume Profile drawings, and drawings linked across charts. A drawing
   drag cancelled by a pinch or `pointercancel` is reverted through upstream's
   `cancelDrag()`, leaving no undo step, as before.
+- **Upstream 2.5.3 - 2.5.10**: multiple price axes, the split of `chart.ts` into
+  collaborators, the rendering release, drawing groups and per-interval drawings, session
+  calendars, the chart grid and saved layouts. The fork's touch crosshair, tap-not-pan,
+  pinch and `pointercancel` semantics and `wheelZoomSensitivity` moved into the new input
+  module with the code they extend; the last-price line extent and fixed colour ride on
+  upstream's per-column axis painting.
 
 **Added**
 
@@ -81,6 +87,451 @@ instead of a hairline mesh.
   from the bar's own metadata; `'behind'` is the older delta-coloured range bar; `'gutter'`
   draws a real OHLC candle in a strip beside the ladder, read from the **pane's** price
   series instead. `showCandle: false` still turns all of them off.
+
+## 2.5.10
+
+2026-09-30
+
+Persistence, saved layouts and the chart grid: widget state in IndexedDB, named layouts and
+indicator templates, a shortcuts editor, a bottom bar with ranges in trading sessions and the
+market status, calendars that know pre-open and post-close, a chart grid to sixteen charts, one
+icon registry for the whole widget, and a label pass over every control.
+
+### Added
+
+- **Widget persistence in IndexedDB.** With `persist`, the widget keeps its layout, drawings,
+  preferences and chords in IndexedDB and settles `widget.ready` once the saved state has
+  landed and the first load has gone out for the saved instrument only. Keys an earlier release
+  left in localStorage are copied in once, pending writes survive the page going away, and tabs
+  follow each other's writes. `storage: localStorage` keeps the 2.5.9 behaviour. See
+  [Persistence](/docs/widget#persistence).
+- **Saved layouts and indicator templates.** `workspaces` takes a `WorkspaceStore`: the top bar's
+  Layouts button and menu save, rename, delete and reopen layouts with autosave and conflict
+  handling, and the indicator picker saves and applies templates as one undo step.
+  `createLayoutsController` serves a host's own control. See
+  [Workspaces](/docs/workspaces).
+- **Shortcuts editor.** The ? panel changes any chord the widget owns, names a conflict, and
+  resets one chord or all; the chords are saved with `persist` and shared across a chart grid.
+  See [Keyboard shortcuts](/docs/keyboard-shortcuts).
+- **Bottom bar.** Preset ranges (1D to All) sized in trading sessions, Go to, the market status,
+  a clock with a timezone menu and the scale toggles, under the chart (`bottombar`, on by
+  default).
+- **Market phases and session shading.** Calendars take pre-open, post-close and extended hours;
+  `phaseAt`, `phaseSpans` and `marketStatusAt` say which part of the day an instant is in, and
+  `attachSessionShading` washes those bars in the price pane.
+- **The chart grid to sixteen charts.** 26 layouts, a grid bar with the layout picker, maximize,
+  link groups and capture, swap by drag or keyboard, up to sixteen named link groups, one picture
+  of the whole grid, the desk in IndexedDB with `grid.ready`, one bottom bar for the active
+  chart, and saved desks. See [Chart grid](/docs/chart-grid).
+- **Link channels for the chart type and drawings**, saved in the workspace schema with named
+  groups (`WorkspaceSync`, `WorkspaceLinkGroup`); a 2.5.9 workspace reads and writes back byte
+  for byte.
+- **Workspace revisions.** `expectedRevision` on every catalog change, `subscribe`, and
+  `createMemoryWorkspaceStorage`.
+- **Chrome icons.** 110 glyphs, one per chart type and transform (`chartTypeIcon`), and
+  `layoutIconPath` for layout tiles; the widget draws every picture from them.
+- **Hover labels** on a study legend's eye, gear and cross and on the close box of an order or
+  position line.
+- `TipSpec.label`, `ChartObjectsOptions.drawingName` and `ShortcutEvent.code`.
+
+### Changed
+
+- Widget persistence is asynchronous by default: a host that drives a persisting widget right
+  away awaits `widget.ready` first.
+- The widget loads seven parts a plain widget never opens (the shortcuts editor, the Layouts
+  menu, the templates list, the chart data dialog, the grid bar and its menus, and the IndexedDB
+  store) on first use, from files named by a content hash beside the tier. Serve a tier file and
+  its parts from one release.
+- Go to lives in the bottom bar, or in the top bar with `bottombar: false`.
+- Auto mobile mode follows the container's size, so tablets and touch laptops keep the desktop
+  chrome.
+- The widget says active, not armed.
+- `matchDrawingShortcut` reads the physical key under Alt only when no letter is typed.
+- Wording a host may match on: trading capability reasons in words, "Reset view" and "Fit all
+  bars" in `DEFAULT_KEYMAP`, "Williams VIX Fix" and "Rate of Change", "Linear" and "Auto-fit to
+  the data" in chart settings, and Cmd in the chart's shortcut hints on macOS.
+- Widget labels: toggles keep one name and say their state by attribute, action menu rows are
+  `menuitem`, repeated objects are numbered the same way on every surface ("Relative Strength
+  Index (2)"), alert rows read as the editor lists them, and `renderForm` groups rows under their
+  heading.
+
+### Deprecated
+
+- Widget message keys the widget no longer shows stay valid until 3.0.0; see
+  [Compatibility](/docs/compatibility).
+
+### Fixed
+
+- The status line follows the latest bar after a symbol, interval or live change.
+- Marker labels on neighbouring bars no longer overlap.
+- A touch on a rail group button picks its tool, a command that restores the chart keeps its
+  undo step, and menus name the chord in force.
+
+### Performance
+
+- Marker lanes stay bounded: ten thousand labels over twenty thousand bars paint in 2.0 to
+  4.2 ms.
+- Moving the seven first-use parts out took 9.94 kB (Brotli) off the widget tier file, which
+  measures 121.36 kB against 99.64 kB in 2.5.9 with everything this release adds; the parts
+  measure 18.19 kB together and load only when used. The chart-only import grows from 84.82 to
+  85.73 KiB, almost all of it the marker lanes.
+- Against 2.5.9 on the release bench, frames are on par: on Canvas 2D a full zoom-out takes
+  about 7 percent longer at 50,000 bars and 9 percent at 200,000, pans and ticks are within
+  3 percent, and WebGL2 is within 4 percent.
+
+See [Upgrading to 2.5.10](/docs/upgrading) for what a host may notice, and the
+[benchmark](/benchmarks#2510) measured against 2.5.9.
+
+## 2.5.9
+
+2026-09-28
+
+Drawing interaction and replay: drawings belong to their instrument, new drawing
+gestures and a drawing toolbar, a forming replay bar that never jumps at its close,
+and lines that reach the edges of the view.
+
+### Added
+
+- **Drawings per instrument.** A drawing belongs to the symbol it was drawn on: loading
+  another symbol shows that symbol's own, and deleting them there leaves the first
+  symbol's alone (OpenAlgo issue 2131). The draw tier's `InstrumentDrawings` does it, and
+  the widget and the chart grid use it by default (`drawingScope: 'instrument'`;
+  `'chart'` keeps one set for every symbol).
+- **Drawing gestures.** The magnet works on every pane and in every drag (hold Ctrl for a
+  strong snap), Shift+click lays down a temporary measure, Ctrl+drag box-selects,
+  Alt+drag drags a copy, and an eraser mode deletes what a click or a drag touches. Each
+  turns off through `gestures`.
+- **Visibility per interval.** `Drawing.intervals` shows a drawing only on a range of
+  chart intervals ("from 1m to 1h").
+- **Widget drawing UI.** A floating toolbar over the selected drawings, style templates
+  (a tool's default and named looks, stored through the workspace tier's
+  `DrawingTemplateRepository`), a Coordinates tab with each anchor's exact time and
+  price, and an Objects panel that moves rows from the keyboard.
+- **Replay: simulated forming.** `simulate: { steps }` forms a bar that no finer bar covers
+  over that many steps, along a path from its open to the nearer extreme, the other
+  extreme and its close, and `ReplayState.simulated` says so. Real finer bars win wherever
+  they exist.
+- **Lines across the edges of the view.** `RendererEntry.connectsBars` and `DrawItem.edgeX`
+  let a renderer draw the segment that crosses each edge; the built-in line family and
+  Kagi use them.
+- **Vue 3** integration example and guide.
+- **Release benchmarks**: `npm run bench:release` and the [Benchmarks](/benchmarks) page.
+
+### Changed
+
+- Drawings documents are version 3 when a drawing carries an interval range, and version 2,
+  as before, otherwise.
+- The bar countdown appears only on the price pane's last-price tag; value tags are painted
+  over price-line and level tags; tick labels at a pane's edge are left out instead of cut
+  in half.
+- Eighteen drawing tool glyphs are redrawn, and the widget's faint text meets WCAG AA in
+  both themes.
+
+### Fixed
+
+- **Replay: the open of a forming bar no longer changes.** Each forming step carries the
+  displayed bar's open and stays within its high, low and volume, so nothing jumps back
+  when the bar closes. On a year of NSE daily bars replayed from hourly ones, the open used
+  to move at the close on 199 of 232 candles; now none do.
+- A sparse line, step or area loses no segment at the edges of the view, a dashed line
+  keeps its pattern, and a gap at the edge is never bridged.
+- A detached chart no longer answers hover shortcuts while parked.
+
+### Performance
+
+- A drawing hit test asks only the drawings near the pointer: about a tenth of the time
+  with 500 drawings.
+- Markers read only the bars under the marks they draw, and the data layer rebuilds its
+  index only for the series a change touches.
+- Against 2.5.8, frames are on par: on Canvas 2D at 200,000 bars a full zoom-out and a
+  ten-study tick take about 4 percent longer, a ten-study tick at 50,000 bars is about 15
+  percent quicker, and WebGL2 is within a few percent.
+
+Saved layouts, drawings and workspace documents from 2.5.8 load unchanged. No runtime
+dependencies or package tiers were added.
+
+See [Upgrading to 2.5.9](/docs/upgrading), and the [benchmark](/benchmarks#259) measured
+against 2.5.8.
+
+## 2.5.8
+
+2026-09-26
+
+Rendering performance: a live tick costs far less on a deep history, repaints only
+the panes it changes, and a zoomed-out chart draws one stick per pixel column.
+
+### Added
+
+- **Primitive hit boxes.** An optional `IPrimitive.hitBounds(rc)` returns the box
+  outside which the primitive's `hitTest` answers null, so a pointer move asks only
+  the primitives near it. The box must hold every point `hitTest` can answer, must
+  follow only the scales, layout, hover and drag, or the primitive's own
+  `requestUpdate`, and `hitTest` must be free of side effects.
+- **A render bench in CI.** `npm run bench:render` times a pan, a fully zoomed-out
+  frame and a ten-study tick at 10,000, 50,000 and 200,000 bars on both backends,
+  and fails the run when a p95 is over its budget. A nightly workflow adds the long
+  soak, browser endurance and the bench on a hosted runner.
+
+### Changed
+
+- **Level of detail on by default.** `conflate` now defaults to `true`: below about
+  one CSS px per bar, the bars in each device-pixel column draw as one
+  OHLC-preserving stick, and line and histogram series keep each column's extremes.
+  The default `minBarSpacing: 1` never zooms out that far, so such a chart paints
+  as before. `conflate: false` opts out, and `conflationFactor` is now the column
+  width in sticks.
+- **Plot series receive `update()` on a tick.** A study writes only the plot points
+  that changed, through `SeriesApi.update`, instead of one `setData` of the whole
+  history. A custom `IndicatorHost` must return plot series whose `update` replaces
+  an existing point, an older one included, and appends a newer one.
+- **Sixteen built-ins carry a `calcTail`** (`sma`, `ema`, `wma`, `rsi`, `atr`,
+  `adx`, `macd`, `bollinger`, `vwap`, `supertrend`, `stochastic`, `obv`, `cci`,
+  `keltner-channel`, `donchian`, `parabolic-sar`). It is not enumerable, so a
+  descriptor that spreads a built-in keeps recomputing in full through its own
+  `calc`; copy the tail by name only when your `calc` returns the built-in's result
+  unchanged.
+- **Glides step inside the render frame.** Kinetic scroll and the eased wheel zoom
+  schedule no frames of their own, so each frame paints the step it made and a
+  glide asks for one frame per frame instead of two.
+- Draw items handed to a renderer or render backend are reused from frame to frame:
+  copy what you keep past the call.
+
+### Performance
+
+- A live tick no longer rebuilds the chart's time index, and the sixteen built-ins
+  above step from the last bar instead of recomputing the history, value for value
+  the same.
+- A tick repaints the price pane and the panes of the studies computed from it, and
+  a study recompute only the panes its output lands on. An appended bar still
+  repaints every pane, and so do the panes showing the corner clock or the bar
+  countdown while those are on.
+- The series pass allocates nothing per bar.
+- On the render bench, a ten-study tick at 200,000 bars went from 5591.7 to 152.2 ms
+  on `canvas2d`, and a frame with all 200,000 bars in view from 278.2 to 53 ms. The
+  figures and their conditions are in the
+  [performance notes](https://github.com/marketcalls/openalgo-charts/blob/master/docs/performance-notes.md).
+
+### Fixed
+
+- Browser endurance reads its changed-canvas and candle-pixel gates from the price
+  plot only, so the last-price tag can no longer pass them over a frozen plot.
+
+Saved layouts, drawings and workspace documents from 2.5.7 load unchanged. No
+runtime dependencies or package tiers were added.
+
+See [Upgrading to 2.5.8](/docs/upgrading), and the [benchmark](/benchmarks#258) measured
+against 2.5.7.
+
+## 2.5.7
+
+2026-09-26
+
+An internal release. Nothing a host calls, receives or sees changes.
+
+### Internal
+
+- The chart's code is split by responsibility: `Chart` keeps every public method
+  and its documentation, and the logic for series, studies, panes, legends,
+  scales, primitives, appearance, input, motion, pixel tracking and state lives in
+  internal collaborators. The render-parity check paints the same pixels as 2.5.6,
+  and every test assertion is unchanged.
+- Every source file is held to 1,500 lines by lint, with the few older files over
+  it capped so they can only shrink.
+
+The base engine grows by 1.52 kB Brotli (125.39 to 126.91 kB) for the class
+structure. Saved layouts, drawings and workspace documents from 2.5.6 load
+unchanged.
+
+See [Upgrading to 2.5.7](/docs/upgrading).
+
+## 2.5.6
+
+2026-09-26
+
+### Added
+
+- **One undo timeline for the whole chart.** The widget's `ChartHistory`
+  (`widget.history`) records studies added, removed or edited, scale, pane and
+  chart settings changes and drawings in the order they were made. Ctrl+Z,
+  Ctrl+Y, the rail and the mobile sheets walk it. A step is taken back through
+  the chart's public calls and never past a study's policy.
+- **Study policies.** `IndicatorPolicy` (`removable`, `configurable`, `movable`,
+  `listed`) keeps a study the host places from the user's delete, settings or
+  reorder, the way a drawing's policy does. The legend, the Objects panel and
+  the widget's menus follow it, and the chart state saves only the restrictions.
+- **One draw order per pane.** Sources, studies, drawings and primitives paint in
+  bands, and `chart.moveInSeriesStack`, `draw.placeInStack` and the Objects
+  panel move them. A drawing can sit between two studies, and the pointer takes
+  what is painted on top.
+- **Data variants.** Regular and extended hours, adjusted and raw prices, and a
+  quote currency or unit are each their own provider series
+  (`BarsRequest.variant`, `DataFeed.dataVariants`), with their own cache keys,
+  requests and alert scopes. Nothing is converted locally: an undeclared
+  variant is reported. The widget gains a `variant` option and
+  `widget.setDataVariant`.
+- **Session calendar for the future.** `chart.setSessionCalendar` and
+  `SessionCalendar` lay the space past the last bar out in the venue's hours,
+  and `Instrument.applyTo` sets it. Without one, future times continue at the
+  median of the last 64 bar intervals instead of the last gap.
+- **Study inputs.** A `price` input can pair with a `timestamp` input
+  (`timeKey`) so one pick sets both, with an optional anchor to drag on the
+  pane. Inputs can be shown or enabled by other settings (`visibleWhen`,
+  `activeWhen`) and share a row (`inline`). A study's background shading can
+  target the price pane or a plot's pane.
+- `chart.plotRect`, `chart.priceScaleDefaults`, the `layout:change` event,
+  `chart.setTickSchedule`, and accent registries for the drawing and chrome
+  icon sets.
+
+### Changed
+
+- Chrome icons draw a 2px line, and 19 drawing tool glyphs were redrawn so no
+  two tools share a picture.
+- Pane boundaries land on whole device pixels. At a whole-number pixel ratio a
+  chart whose pane heights are whole pixels paints exactly as before; at 1.25
+  or 1.5 the separator is one device pixel. The chart follows a change of pixel
+  ratio and paints in the same frame as a resize.
+- The OpenAlgo adapters refuse a non-default variant with
+  `DataVariantUnsupportedError`.
+
+### Deprecated
+
+- `mapOrder` (use `decodeOrder`), the `dashed` field of a study level (read
+  `lineStyle`), the flat `shiftKey`, `ctrlKey` and `metaKey` on `click` (read
+  `modifiers`), `chart.movePriceAxis` (use `setPriceAxisPlacement`) and the
+  `depth_level` key in depth frames. All keep working until 3.0.0;
+  COMPATIBILITY.md lists each with its replacement.
+
+Saved layouts, drawings and workspace documents from 2.5.5 load unchanged. No
+runtime dependencies or package tiers were added.
+
+See [Upgrading to 2.5.6](/docs/upgrading) and the [widget guide](/docs/widget).
+
+## 2.5.5
+
+2026-09-26
+
+### Added
+
+- Named **watchlists** with live quote rows and a **news** reader in the widget's
+  panel dock, over optional `QuoteFeed` and `NewsFeed` contracts beside `DataFeed`.
+  A quote row never shows a candle as a quote; news text is shown as text and
+  unsafe links are refused. Lists persist through `WatchlistRepository` in the
+  workspace tier.
+- **Account state and position commands** in the trade tier for brokers that
+  declare them: account selection with balances, equity and margin, order
+  preview, durations and expiry, native close, partial close, reverse and
+  provider brackets, each with its own idempotency and reconciliation. Nothing is
+  simulated: an undeclared operation is refused. The widget shows an account
+  summary when accounts exist.
+- An **opt-in movable price pane** (`movablePrimaryPane`): the price pane can sit
+  below its studies, and everything that means "the price pane" follows it.
+  Hosts that do not opt in see no change to pane 0.
+- **Drawings pinned to the screen** (`space: 'viewport'`) that stay put through
+  pan and zoom, keep inside the visible plot and round-trip in saved layouts.
+- **Price tick schedules**: price-dependent tick bands as instrument metadata,
+  followed by order validation, dragging and the depth-of-market ladder.
+
+### Calculations
+
+- ATR and the studies built on it, Supertrend, VWAP, TWAP, OBV,
+  Accumulation/Distribution, Parabolic SAR, CCI, Stochastic, Fisher Transform,
+  RVI, Mass Index, NVI, PVI and the True Strength family now resume after a
+  missing or non-finite input, so a gap costs only the bars it covers. Complete
+  data reads as before, apart from last-digit changes in TEMA, Stochastic and the
+  True Strength family, and the corrected Trend Strength Index.
+- The indicators page documents the thirteen numerical contract differences from
+  the companion scripting language, and how each built-in treats a missing volume.
+
+Saved layouts, drawings and workspaces from 2.5.4 load unchanged. No runtime
+dependencies or package tiers were added.
+
+See [Upgrading to 2.5.5](/docs/upgrading) and the [widget guide](/docs/widget).
+
+## 2.5.4
+
+2026-09-25
+
+### Added
+
+- Go to a date or an explicit range from the widget toolbar or with
+  `widget.goTo({ from, to? })`. Older history loads first, the view is placed
+  after that load, and a pan, a zoom or a newer request cancels one in flight.
+  Custom hosts get the DOM-free `DateNavigator` and the `openDateNavigation` panel.
+- A lower pane collapses to a strip and opens again at its previous height, from
+  its first study row, the right-click menu or `chart.setPaneCollapsed`.
+- Study drawings and markers can target the price pane or a named plot, with
+  their own layers that follow scale reassignment and study moves.
+- Drawings accept a `policy` (`selectable`, `editable`, `persistent`, `listed`)
+  so a host can place levels the user sees but cannot move, save or delete.
+- `createChartGrid` places several widgets on one page in `1x1` to `2x2` presets,
+  with splitters, one active chart, linked crosshair, viewport, symbol and
+  interval, a tabbed view on narrow screens, and portable workspace documents.
+- CSV export of chosen studies over a UTC range, aligned to what the chart shows.
+- Independent pan and zoom policies, styled study text, smooth study polylines,
+  table cell hover details, richer study inputs (paired exchanges, sessions,
+  prices, timestamps), primary-only auto-fit and collapsible study legends.
+
+### Fixed
+
+- Widget dialogs and menus return focus to their opener on WebKit, which covers
+  Safari and every iOS browser.
+- Pane dividers, pane buttons after a study is closed, hover navigation fading
+  and SVG export of very large coordinates.
+
+### Calculations
+
+- SMA, rolling sums, weighted averages and deviations, SMA-seeded EMA and Wilder
+  averages, directional movement, CPR, Money Flow Index, WaveTrend, AlphaTrend,
+  Balance of Power, Seasonality and RSI handle missing, nonfinite and overflowing
+  inputs as unavailable and recover after them.
+- ADX seeds its readings over one common window, and HMA uses integer windows,
+  so odd HMA lengths produce different values.
+
+Saved layouts, workspaces and drawings from 2.5.3 load unchanged. No runtime
+dependencies or package tiers were added.
+
+Try the [interactive examples](/examples) or follow the [widget guide](/docs/widget).
+
+## 2.5.3
+
+2026-09-23
+
+### Added
+
+- Data and Objects share a resizable information panel. Data follows local and
+  linked crosshairs with OHLC, volume, open interest and named study readings.
+  Missing observations stay unavailable. Narrow hosts use a focused sheet.
+- Object ordering changes actual rendering. Studies can move between panes while
+  retaining their instance IDs and alert references. Named drawing groups support
+  selection, visibility, locking, deletion, undo and saved layouts.
+- Symbol search accepts asset classes, safe image URLs and explicit futures
+  contract groups. Direct typing opens symbol or timeframe entry on the focused
+  chart, while existing shortcuts and editors retain their keys.
+- The indicator picker lists running instances with individual removal controls.
+  Generated forms share compact palettes, recent colours and alpha-aware controls.
+  Nested colour popups use the host overlay stack and dispose with their forms.
+- Reusable data-window, panel-dock, search, typing and colour components, with a
+  complete component stylesheet and AlertUi.context for custom hosts.
+- The yfinance reference host demonstrates the new controls with per-pane state.
+
+### Changed
+
+- Website examples progress from simple charts to advanced integrations. Sine-wave
+  sample prices are replaced with seeded stock-like candles, pullbacks, gaps and
+  varied volume. Sample events have their own rich-detail example.
+- The website and API reference use a wider responsive layout, neutral light/dark
+  themes and shared typography. Prose stays readable while charts use the available
+  space.
+- Homepage indicator and drawing illustrations are clearer, and website links
+  include a social preview of linked anchored VWAP and volume-profile charts.
+
+Old symbol-search results and saved layouts remain valid. Optional panel state and
+named drawing groups are additive. Set panels: false for the previous Objects popup
+or typingNavigation: false when the host owns direct typing. No runtime dependencies
+or package tiers were added.
+TypeScript hosts with exhaustive `ChartObjectKind` maps must add the `group` kind.
+
+Try the [interactive examples](/examples) or follow the [widget guide](/docs/widget).
 
 ## 2.5.2
 

@@ -14,6 +14,21 @@
  * {@link DrawingText}, made `levels` a list of {@link FibLevel} rather than bare
  * ratios, and gave every drawing a `zIndex`. A 1.9.x document is upgraded by
  * `migrateDrawings` on the way in; nothing downstream sees the old shape.
+ *
+ * The one exception to data space is a drawing whose `space` is `'viewport'`:
+ * a note or a box that belongs to the screen rather than to a bar. Its anchors
+ * are {@link ViewportPoint} fractions of its pane's plot, kept in a field of
+ * their own so a time or a price never has to mean a pixel. The field is
+ * optional and additive, which is why the document stays version 2: a save
+ * with no viewport drawing is byte for byte what it was.
+ *
+ * Version 3 added one field, {@link Drawing.intervals}: the range of chart
+ * intervals a drawing is shown on. A version 2 document is a valid version 3
+ * one and loads unchanged, and a document is written as version 3 only when a
+ * drawing in it carries a range, so a save without one is still version 2.
+ * The version is raised for a range because an earlier build would not keep
+ * it: its migration drops the field, and the drawing would show on every
+ * interval there and lose its range on the next save.
  */
 import type { PrimitiveRenderContext, AlertDrawingValue, AlertDrawingLevel } from 'openalgo-charts';
 import type { SettingsSchema } from './schema';
@@ -29,6 +44,32 @@ export interface DrawingPoint {
    * a stroke's width is calibrated to, so a mouse stroke stores nothing here.
    */
   pressure?: number;
+}
+
+/**
+ * Which coordinates a drawing's anchors are in. `'data'`, the default, is time
+ * and price: the drawing moves with the bars when the chart pans or zooms.
+ * `'viewport'` pins it to the screen: its anchors are fractions of its pane's
+ * plot, so pan and zoom leave it where it is and a resize keeps it in
+ * proportion.
+ */
+export type DrawingSpace = 'data' | 'viewport';
+
+/**
+ * One anchor of a viewport drawing, as a fraction of the plot area of the pane
+ * that holds the drawing. Pane-relative, not whole-chart-relative: the pane's
+ * layer paints, clips and hit-tests the drawing, so these are the coordinates
+ * that follow the pane when it moves, resizes or folds.
+ *
+ * `x` is 0 at the plot's left edge and 1 at its right edge; the price axes are
+ * outside that span. `y` is 0 at the top of the pane and 1 at the bottom of its
+ * plot, which on the lowest pane is the top of the time axis. Sizes that a tool
+ * sets in pixels (a font size, a wrap width) stay in pixels: a resize moves a
+ * note in proportion without scaling its type.
+ */
+export interface ViewportPoint {
+  x: number;
+  y: number;
 }
 
 /**
@@ -118,11 +159,69 @@ export interface DrawingStyle {
   pressure?: boolean;
 }
 
+/**
+ * What a host allows the user to do with one drawing. The flags are
+ * independent of one another and of `locked`, and each defaults to true, so a
+ * drawing without a policy behaves exactly as one did before policies
+ * existed. A copy (paste, duplicate) never inherits a policy: it is the
+ * user's own drawing.
+ *
+ * `selectable`, `persistent` and `listed` bind every caller. `editable`
+ * restricts the user: the controller cannot tell a click from a call, so its
+ * methods treat every call as the user's unless it passes `{ force: true }`
+ * (see `DrawingEditOptions`), which is how the host that placed the drawing
+ * moves or retires it. Stacking order (front, back, either side of the
+ * series) is outside the policy.
+ */
+export interface DrawingPolicy {
+  /**
+   * `false`: never joins the selection, whoever asks. A click passes through
+   * to what lies under it, and nothing hovers, drags or selects it.
+   */
+  selectable?: boolean;
+  /**
+   * `false`: read-only to the user. It still selects, copies and duplicates,
+   * but nothing moves, reshapes, restyles, hides, locks, cuts, deletes or
+   * regroups it, and undo and redo never touch it or the group it is in.
+   */
+  editable?: boolean;
+  /**
+   * `false`: transient. Left out of `toJSON`, and so out of the chart state
+   * and every saved layout, while it renders and undoes as usual in the
+   * session. A restore replaces it with what was saved.
+   */
+  persistent?: boolean;
+  /** `false`: left out of the object inventory (`ChartObjects`) and every panel built on it. */
+  listed?: boolean;
+}
+
+/**
+ * The chart intervals a drawing is shown on, both ends included, as interval
+ * codes the chart's data context names (`'1m'`, `'1h'`, `'D'`, or a code the
+ * host registered). An absent end is no limit on that side, so `{ to: '1h' }`
+ * shows the drawing up to hourly bars. Intervals compare by bar length, so the
+ * two ends may be written either way round. See `drawingShownOnInterval`.
+ */
+export interface DrawingIntervalRange {
+  /** The shortest interval the drawing is shown on. */
+  from?: string;
+  /** The longest interval the drawing is shown on. */
+  to?: string;
+}
+
 export interface Drawing {
   id: string;
   /** Registered tool id. */
   tool: string;
+  /** Anchors in time and price. Empty on a viewport drawing, whose anchors are `viewportPoints`. */
   points: DrawingPoint[];
+  /**
+   * Which coordinates the anchors are in. Absent means `'data'`. Only a tool
+   * that declares {@link DrawingTool.viewport} can be anchored to the viewport.
+   */
+  space?: DrawingSpace;
+  /** The anchors of a viewport drawing, one per handle. Present only when `space` is `'viewport'`. */
+  viewportPoints?: ViewportPoint[];
   style: DrawingStyle;
   /** The label (or, for the text tool, the whole content). */
   text?: DrawingText;
@@ -133,16 +232,40 @@ export interface Drawing {
    */
   props?: Record<string, unknown>;
   paneIndex: number;
-  /** Locked drawings render but cannot be selected or dragged. */
+  /**
+   * Locked drawings render but cannot be selected or dragged on the chart.
+   * The user toggles it; a host restriction the user cannot lift is a
+   * {@link DrawingPolicy}.
+   */
   locked?: boolean;
+  /** Host restrictions on this drawing. Absent means none. */
+  policy?: DrawingPolicy;
   /** Default true. */
   visible?: boolean;
   /**
+   * The chart intervals the drawing is shown on. Absent means every interval.
+   * On an interval outside the range the drawing is kept and saved but not
+   * on the chart: it is not painted, hit-tested, boxed or erased there, and
+   * the object inventory marks it. `visible` stays the user's own switch.
+   */
+  intervals?: DrawingIntervalRange;
+  /**
    * Paint order. Below zero paints under the series, at or above zero paints
    * over it. Ties break by array order, so two drawings at 0 paint in the
-   * order they sit in the list.
+   * order they sit in the list. With `stackAbove` it orders the drawings
+   * placed above the same entry.
    */
   zIndex: number;
+  /**
+   * Placed inside the series band, directly above one entry of its pane's
+   * `chart.seriesStack()`: `'source:primary'` or `'indicator:<id>'`. It paints
+   * after that entry's series and before the next entry's. While the entry
+   * plots no series on this drawing's pane (a study removed or moved away) it
+   * paints by `zIndex` as if absent, and returns when the entry does. Absent
+   * means the drawing is not in the series band. See
+   * `DrawingController.placeInStack`.
+   */
+  stackAbove?: string;
   /** Epoch ms, set by the controller when the drawing is added. */
   createdAt?: number;
 }
@@ -158,19 +281,63 @@ export type DrawingInput = Omit<Drawing, 'id' | 'zIndex' | 'createdAt'> & {
   createdAt?: number;
 };
 
-/** The fields `DrawingController.update` and `updateMany` can change. */
-export type DrawingPatch = Partial<Pick<Drawing, 'points' | 'style' | 'text' | 'props' | 'locked' | 'visible' | 'zIndex'>>;
+/**
+ * The fields `DrawingController.update` and `updateMany` can change. `policy`
+ * merges flag by flag, the way `style` does.
+ *
+ * `space` on its own converts the anchors at the view on screen, so the
+ * drawing stays exactly where it is and only stops (or starts) following the
+ * bars. With the new space's anchors in the same patch (`viewportPoints` for
+ * the viewport, `points` for data) they are taken as given. A conversion the
+ * controller cannot make (a tool without viewport support, a pane with no
+ * place on screen) is left out of the patch and the rest of it applies, and
+ * `DrawingController.update` returns false.
+ */
+export type DrawingPatch = Partial<Pick<Drawing,
+  'points' | 'style' | 'text' | 'props' | 'locked' | 'visible' | 'zIndex' | 'policy' | 'space' | 'viewportPoints'>>
+  & {
+    /** A series-band entry to paint directly above, or null to leave the series band. */
+    stackAbove?: string | null;
+    /**
+     * The intervals to show the drawing on, replacing any range it had, or
+     * null (or a range with neither end) to show it on every interval.
+     */
+    intervals?: DrawingIntervalRange | null;
+  };
 
-/** The persisted shape's version; bumped when {@link Drawing} changes. */
-export const DRAWING_STATE_VERSION = 2;
+/**
+ * What `DrawingController.placeInStack` puts a drawing next to: another
+ * drawing of its pane, or an entry of its pane's series band.
+ */
+export type DrawingStackTarget = { drawing: string } | { entry: string };
+
+/**
+ * The newest document version this build reads and writes; bumped when
+ * {@link Drawing} changes in a way an earlier build would lose. A document is
+ * written as the lowest version that holds it (see {@link DrawingsDocument}).
+ */
+export const DRAWING_STATE_VERSION = 3;
+
+/** A named set of drawing ids. A drawing belongs to at most one group. */
+export interface DrawingGroup {
+  id: string;
+  name: string;
+  members: string[];
+}
 
 /**
  * What `toJSON` returns and `ChartState.drawings` carries. Versioned so a 1.9.x
  * save (a bare `Drawing[]`) is recognisable and upgraded rather than misread.
  */
 export interface DrawingsDocument {
-  version: 2;
+  /**
+   * 3 when a drawing carries an interval range, else 2: the lowest version
+   * that holds the content, so an earlier build reads a document without a
+   * range exactly as it wrote one.
+   */
+  version: 2 | 3;
   drawings: Drawing[];
+  groups?: DrawingGroup[];
 }
 
 /** A point mapped to the pane, in media px. */
@@ -275,6 +442,28 @@ export interface DrawingTool {
    * not what Shift means there.
    */
   angleLock?: boolean;
+  /**
+   * The tool can be anchored to the viewport (`Drawing.space`). Declare it
+   * only when `draw` and `distance` read the screen anchors (`pts`) and never
+   * `drawing.points`, which is empty in that space, and when nothing the tool
+   * prints is a price or a time: a label that reads the axis under a pinned
+   * shape would change every time the chart panned. `expand`, `constrain` and
+   * `alertValue` apply to data space only.
+   */
+  viewport?: boolean;
+  /**
+   * The box the drawing covers at `pts`, its anchors in media px (the space
+   * of {@link HitContext}). A drawing anchored to the viewport is always
+   * painted, hit-tested and moved with this box inside its pane's plot, so it
+   * can be seen and grabbed at every edge and after the chart resizes, and no
+   * drag, nudge or handle can take it out. Declare it on a `viewport` tool
+   * that paints beyond its anchors, as the text note and the table do from
+   * their one corner, and the rectangle and the ellipse do for a label above
+   * them or wider than they are; without it the box is the anchors' own
+   * bounds. A handle dragged toward an edge the box reaches first stops short
+   * of it, so the other anchors stay where they are.
+   */
+  bounds?(pts: readonly ScreenPoint[], drawing: Drawing): { x0: number; y0: number; x1: number; y1: number };
   /**
    * Turn the anchors actually clicked into the full anchor set. Lets a tool drop
    * a complete, immediately editable default from fewer clicks: the position

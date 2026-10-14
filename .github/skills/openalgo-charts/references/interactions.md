@@ -2,7 +2,7 @@
 
 *When to read this: wiring or rebinding keyboard shortcuts, changing crosshair behaviour, supporting touch, arming a placement gesture, or making the chart keyboard-accessible.*
 
-Source of truth: `src/core/chart.ts` (`_attachInput` and the pointer/wheel/key handlers), `src/input/wheel.ts`, `src/input/shortcuts.ts`, `src/input/kinetic.ts`, `src/input/touch.ts`, `src/input/crosshair.ts`, `src/primitives/time-navigator.ts`. Tests: `tests/wheel-navigation.test.ts`, `tests/price-scale-transitions.test.ts`, `tests/shortcuts.test.ts`, `tests/interaction.test.ts`, `tests/pointer-button-guard.test.ts`, `tests/placement-mode.test.ts`, `tests/time-navigator.test.ts`.
+Source of truth: `src/core/chart-input.ts` (`_attachInput` and the pointer/wheel/key handlers; `src/core/chart.ts` keeps the listener fields that delegate to it), `src/core/chart-motion.ts` (the eased wheel zoom, the kinetic glide and the autoscale easing), `src/input/wheel.ts`, `src/input/shortcuts.ts`, `src/input/kinetic.ts`, `src/input/touch.ts`, `src/input/crosshair.ts`, `src/primitives/time-navigator.ts`. Tests: `tests/wheel-navigation.test.ts`, `tests/price-scale-transitions.test.ts`, `tests/shortcuts.test.ts`, `tests/interaction.test.ts`, `tests/pointer-button-guard.test.ts`, `tests/placement-mode.test.ts`, `tests/time-navigator.test.ts`.
 
 Everything is built on Pointer Events, so mouse, touch and pen share one code path. Listeners are attached to the container in the constructor and removed in `destroy()`; `keydown` goes on `document` when available, else on the container.
 
@@ -16,7 +16,7 @@ Everything is built on Pointer Events, so mouse, touch and pen share one code pa
 | Wheel over a price axis | scale that left or right price range | pointer price stays anchored and that one scale becomes manual |
 | Drag either price axis | rescale price | `exp(dy * 0.005)` about the range centre, then `setAutoScale(false)` |
 | Drag the time axis (bottom strip of the last pane) | left expands bar spacing; right compresses it | `barSpacing * exp(-dx * 0.005)`, preserving the logical right edge |
-| Drag a pane divider | redistribute height between the two adjacent panes | grab tolerance 4 px, cursor `row-resize`, summed weight preserved, neither side below `min(24, total/4)` px; emits `paneResized` on release |
+| Drag a pane divider | redistribute height between the nearest open panes either side of it: the two adjacent panes, or past a collapsed strip, which keeps its height | grab tolerance 4 px, cursor `row-resize`, summed weight preserved, neither side below `min(24, total/4)` px; emits `paneResized` on release. No divider while a pane is maximized, or beside a strip with no open pane on one side |
 | Double-click | `doubleClick` option: `'reset'` (default) is `resetScale()`, the configured default view plus autoscale on every pane; `'maximize'` toggles `maximizePane` for the pane under the pointer; `'none'` only emits | suppressed while placement mode is on, or when a `dblclick` listener set `handled` on the event; the event carries `paneIndex`, `x`, `y` |
 | Press on a draggable primitive | drags the line instead of panning | arms when `hit.draggable` is true, or `hit.cursor === 'ns-resize'` and `subscribeDrag` is registered |
 | Flick and release | kinetic scroll | see below |
@@ -36,7 +36,7 @@ or Meta-wheel zooms at the pointer even when `zoomAnchor: 'right'` is configured
 inline in a scrolling page traps wheel movement while the pointer is over it; give it its
 own scroll region when the page must retain wheel scrolling.
 
-Kinetic scrolling: a release faster than `triggerSpeed` decelerates as `velocity(t) = v0 · e^(−k·t)`. `DEFAULT_KINETIC_OPTIONS` is `friction: 0.0055` (1/ms, larger stops sooner), `minSpeed: 0.02` px/ms (animation ends), `triggerSpeed: 0.08` px/ms (slower flicks ignored). `KineticAnimation` uses no `Date` or `rAF` internally, so it is deterministic; the next `pointerdown` cancels it.
+Kinetic scrolling: a release faster than `triggerSpeed` decelerates as `velocity(t) = v0 · e^(−k·t)`. `DEFAULT_KINETIC_OPTIONS` is `friction: 0.0055` (1/ms, larger stops sooner), `minSpeed: 0.02` px/ms (animation ends), `triggerSpeed: 0.08` px/ms (slower flicks ignored). `KineticAnimation` uses no `Date` or `rAF` internally, so it is deterministic; the next `pointerdown` cancels it. Since 2.5.8 the chart steps the kinetic glide and the eased wheel zoom at the top of its own render frame, before the study flush, and schedules no frames for them: each frame paints the step it made, a glide asks for one animation frame per frame, and its `pan` or `zoom` event fires in the frame that paints it.
 
 Pinch: a second pointer aborts any single-pointer drag. Each frame compares two `pinchState` snapshots (`factor` (distance ratio) zooms time at the midpoint, `dx` pans time, `dy` pans the pinched pane's price scale) all in the same frame, so spreading while sliding zooms and pans at once.
 
@@ -72,7 +72,13 @@ and bar-spacing limits. Initial data and `resetScale()` use this default, and ch
 the count applies the default view immediately. `fitContent()` continues to fit all
 loaded bars. The count changes no feed request and discards no history; an explicit host
 viewport applied after loading data wins. The widget's ordinary load views honour the
-configured count.
+configured count when no spacing preference is selected.
+
+`navigation.defaultBarSpacing` selects an initial/reset density in CSS pixels per bar.
+Positive values override the count, and `0` disables spacing mode. A count-only edit
+also disables spacing mode. The widget defaults to 8 pixels; saved and explicit count
+preferences remain supported. Resize preserves the current zoom. The spacing preference
+round-trips through chart state and the Axes settings schema.
 
 Both fields appear in the settings schema's Axes / Navigation group as
 `navigation.mousePan` and `navigation.defaultVisibleBars`. `readChartSettings` /
@@ -89,7 +95,7 @@ chart.applyOptions({ crosshairMode: 'normal' }); // takes effect on the next poi
 
 `magnetSnapPrice(price, bar)` returns whichever of `bar.open/high/low/close` is nearest.
 
-**Magnet only snaps in the pane holding the first price series.** Volume and indicator panes are not price scales, so the snap is skipped there. `DrawingController`'s own `magnet` option is separate and snaps on pane 0 only.
+**Magnet only snaps in the pane holding the first price series.** Volume and indicator panes are not price scales, so the snap is skipped there. `DrawingController`'s own `magnet` option is separate and snaps on the price pane only, wherever it sits.
 
 **`CrosshairMode` is not exported by name.** Pass the string literals `'normal'` / `'magnet'`; the type is inlined into `dist/index.d.ts` but absent from the export list.
 
@@ -111,8 +117,8 @@ On by default. `chart.shortcuts` is the `ShortcutManager`, or `null` when disabl
 | `panDown` | Pan down | `ArrowDown` | `panes[0].priceScale.panByPixels(-20)` |
 | `zoomIn` | Zoom in | `Equal`, `Shift+Equal`, `NumpadAdd` | `zoomAtX(width/2, 1.1)` |
 | `zoomOut` | Zoom out | `Minus`, `NumpadSubtract` | `zoomAtX(width/2, 1/1.1)` |
-| `resetScale` | Reset scale | `Home`, `Digit0` | `resetScale()` |
-| `fitContent` | Fit content | `Alt+KeyF` | `timeScale.fitContent(length)` |
+| `resetScale` | Reset view | `Home`, `Digit0` | `resetScale()` |
+| `fitContent` | Fit all bars | `Alt+KeyF` | `timeScale.fitContent(length)` |
 | `screenshot` | Screenshot (PNG) | `Alt+Shift+KeyS` | `downloadScreenshot()` |
 | `toggleGridVert` | Toggle vertical grid | `Alt+KeyV` | flips `grid.vertLines` |
 | `toggleGridHorz` | Toggle horizontal grid | `Alt+KeyH` | flips `grid.horzLines` |
@@ -122,7 +128,7 @@ On by default. `chart.shortcuts` is the `ShortcutManager`, or `null` when disabl
 
 `ALT_PRESET` overlays three: `panLeftFast: Alt+ArrowLeft`, `panRightFast: Alt+ArrowRight`, `screenshot: Mod+Shift+KeyS`. Select it with `preset: 'alt'` or `setPreset('alt')`; user rebinds still win.
 
-**`panUp` and `panDown` always act on pane 0**, whatever pane the pointer is over.
+**`panUp` and `panDown` always act on the price pane**, in whatever slot it sits, whatever pane the pointer is over.
 
 ### Combos
 
@@ -164,6 +170,7 @@ chart.shortcuts?.resetAll();
 chart.shortcuts?.list();   // [{ command, label, combos, isCustom, isDisabled }]
 chart.shortcuts?.state();  // { preset, overrides, disabled }, serializable
 chart.shortcuts?.on((e) => track(e.command)); // { command, combo, isCustom }; returns an unsubscribe
+chart.shortcuts?.onChange(() => redrawHints()); // (since 2.5.10) after every keymap change; returns an unsubscribe
 ```
 
 `shortcuts` also accepts a pre-built `ShortcutManager`, which is how two charts share one keymap.
@@ -172,7 +179,8 @@ chart.shortcuts?.on((e) => track(e.command)); // { command, combo, isCustom }; r
 
 **Reserved combos passed through `overrides` are dropped silently.** Only `setBinding` reports failure, by returning `false`.
 
-**Disabling shortcuts does not disable the TimeNavigator buttons.** They call `_runShortcut` directly; with `shortcuts: false` they still zoom, reset and step, they just lose their keyboard-hint tooltips.
+**Disabling shortcuts does not disable the TimeNavigator buttons.** They call `_runShortcut` directly; with `shortcuts: false` they still zoom, reset and step, they just lose their keyboard-hint tooltips. Since 2.5.10
+the hints follow a rebind (`onChange`) unless the host passed `timeNavigator.hints`.
 
 ## Touch and mobile
 
@@ -184,7 +192,7 @@ A press that lands on a primitive hit reporting `cursor: 'pointer'` (a pill segm
 
 **A scrollable ancestor can still swallow touch before the chart sees it.** Put `touch-action: none` on the scroll container too, or move the chart out of the native-scroll region.
 
-`window.devicePixelRatio` is read at startup and on every resize; override with `pixelRatio: () => 2` for fixed-density screenshots or headless environments.
+`window.devicePixelRatio` is read at startup, on every resize and whenever the ratio changes (the chart watches a `(resolution: Xdppx)` query and the window's `resize`), and every canvas is re-sized and repainted at once; override with `pixelRatio: () => 2` for fixed-density screenshots or headless environments.
 
 The packaged widget adds responsive mobile chrome; the engine itself remains DOM-free.
 See [widget](widget.md#mobile-controls) for the `'auto'`, `'always'` and `'never'` modes,

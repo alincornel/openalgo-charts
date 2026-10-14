@@ -9,10 +9,11 @@ import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 import { darkTheme, lightTheme, registerInterval, type Bar, type DataFeed, type BarsRequest } from '../src/index';
 import {
   createWidget, registerWidgetDialog, unregisterWidgetDialog, widgetDialog, stripView, loadWindow, resolveTheme,
-  SAVE_DEBOUNCE_MS, STATE_KEY, STORAGE_PREFIX, WIDGET_STYLE_ID, TOKEN_PREFIX, themeMode, injectWidgetStyles,
+  SAVE_DEBOUNCE_MS, STATE_KEY, DRAWINGS_KEY_PREFIX, STORAGE_PREFIX, WIDGET_STYLE_ID, TOKEN_PREFIX, themeMode, injectWidgetStyles,
   type Widget, type WidgetOptions, type WidgetContext, type StorageLike,
 } from '../src/widget/index';
 import { fakeWidgetDocument, fakeContainer, fireKey, fire, ensureWindowGlobal, type FakeDocument, type FakeElement } from './helpers/fake-dom-widget';
+import { chromeIconSvg } from 'openalgo-charts/draw';
 
 beforeAll(ensureWindowGlobal);
 
@@ -57,7 +58,44 @@ function make(opts: WidgetOptions = {}, doc: FakeDocument = fakeWidgetDocument()
 
 const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 
+describe('default candle density', () => {
+  it('keeps spacing across screen widths, reloads and symbol changes', async () => {
+    const feed: DataFeed = { getBars: async () => bars(200) };
+    for (const width of [390, 1200]) {
+      const { w } = make({ feed, symbol: 'SAMPLE', persist: false });
+      w.chart.applySize(width, 600);
+      await flush();
+      expect(w.chart.timeScale.barSpacing).toBe(8);
+      w.chart.setVisibleLogicalRange({ from: 0, to: 30 });
+      w.setSymbol('NEXT');
+      await flush();
+      expect(w.chart.timeScale.barSpacing).toBe(8);
+      w.setInterval('5m');
+      await flush();
+      expect(w.chart.timeScale.barSpacing).toBe(8);
+    }
+  });
+
+  it('respects explicitly requested count and spacing preferences', async () => {
+    const feed: DataFeed = { getBars: async () => bars(200) };
+    const counted = make({ feed, symbol: 'SAMPLE', persist: false, navigation: { defaultVisibleBars: 50 } }).w;
+    const spaced = make({ feed, symbol: 'SAMPLE', persist: false, navigation: { defaultBarSpacing: 12 } }).w;
+    await flush();
+    expect(counted.chart.getVisibleLogicalRange()).toEqual({ from: 149, to: 203 });
+    expect(spaced.chart.timeScale.barSpacing).toBe(12);
+  });
+});
+
 describe('the frame', () => {
+  it('names drawing rows the way the rail and the properties title do', () => {
+    const { w } = make();
+    const at = [{ time: 1, price: 2 }];
+    const line = w.draw.add({ tool: 'trend-line', paneIndex: 0, style: {}, points: at });
+    const xabcd = w.draw.add({ tool: 'xabcd-pattern', paneIndex: 0, style: {}, points: at });
+    expect(w.objects.get('drawing:' + line.id)?.name).toBe('Trend Line');
+    expect(w.objects.get('drawing:' + xabcd.id)?.name).toBe('XABCD Pattern');
+  });
+
   it('owns a live objects panel and routes edits to existing settings dialogs', () => {
     const { w, root, doc } = make();
     const drawing = w.draw.add({ tool: 'trend-line', paneIndex: 0, style: {}, points: [] });
@@ -65,7 +103,7 @@ describe('the frame', () => {
     const opener = root.querySelector('.oac-topbar__objects')!;
     expect(opener).not.toBeNull();
     fire(opener, 'click');
-    expect(root.querySelector('.oac-objects')).not.toBeNull();
+    expect(root.querySelector('.oac-objects-content')).not.toBeNull();
     expect(doc.head.children[0].textContent).toContain('.oac-objects__row');
     expect(w.objects.openSettings('drawing:' + drawing.id)).toBe(true);
     expect(root.querySelector('.oac-props')).not.toBeNull();
@@ -235,6 +273,8 @@ describe('symbol, interval and chart type', () => {
     expect(a.root.querySelectorAll('.oac-pills > button').map((b) => b.dataset.interval)).toEqual(['1m', '5m', '15m', '1h', '1d', '1w', '2h']);
     const b = make({ intervals: ['5m', '1d'], interval: '1d' });
     expect(b.root.querySelectorAll('.oac-pills > button').map((x) => x.textContent)).toEqual(['5m', 'D']);
+    // Each name carries the text the pill shows.
+    expect(b.root.querySelectorAll('.oac-pills > button').map((x) => x.getAttribute('aria-label'))).toEqual(['Interval 5m', 'Interval D']);
     (b.root.querySelector('.oac-pills > button[data-interval="5m"]') as FakeElement).click();
     expect(b.w.interval()).toBe('5m');
   });
@@ -378,6 +418,26 @@ describe('state and persistence', () => {
     expect((state as unknown as Record<string, unknown>).viewport).toBeDefined();
   });
 
+  it('stripView clears every axis viewport without mutating saved preferences', () => {
+    const { w } = make();
+    const state = w.getState().chart;
+    const pinned = {
+      marginTop: 0.1, marginBottom: 0.2, minMove: 0.01, minPrecision: 3,
+      mode: 'linear' as const, inverted: true, autoScale: false,
+      range: { min: 10, max: 90 }, fixedRange: { min: 0, max: 100 },
+      ratioLock: { barSpacing: 8, height: 400 },
+    };
+    state.panes = [{ weight: 1, priceScale: { ...pinned }, scales: { left: { ...pinned }, 'overlay:score': { ...pinned } } }];
+    const stripped = stripView(state);
+    for (const scale of [stripped.panes![0].priceScale, ...Object.values(stripped.panes![0].scales!)]) {
+      expect(scale).toMatchObject({ autoScale: true, inverted: true, minPrecision: 3, fixedRange: { min: 0, max: 100 } });
+      expect(scale?.range).toBeUndefined();
+      expect(scale?.ratioLock).toBeUndefined();
+    }
+    expect(state.panes[0].scales!['overlay:score']).toEqual(pinned);
+    expect(state.panes[0].priceScale).toEqual(pinned);
+  });
+
   it('persists the layout under a namespaced key after a debounce, and a new widget picks it up', async () => {
     vi.useFakeTimers();
     try {
@@ -386,7 +446,8 @@ describe('state and persistence', () => {
       a.w.series.setData(bars(20));
       a.w.draw.add({ tool: 'horizontal-line', points: [{ time: T0 + 5 * DAY, price: 100 }], style: {}, paneIndex: 0 });
       a.w.setTheme('light');
-      expect(store.map.size).toBe(0);
+      // The drawing is written at once, under its instrument; the layout waits for the debounce.
+      expect([...store.map.keys()]).toEqual([`${STORAGE_PREFIX}desk:${DRAWINGS_KEY_PREFIX}A`]);
       vi.advanceTimersByTime(SAVE_DEBOUNCE_MS + 1);
       const key = `${STORAGE_PREFIX}desk:${STATE_KEY}`;
       expect(store.map.has(key)).toBe(true);
@@ -398,17 +459,19 @@ describe('state and persistence', () => {
       expect(b.w.interval()).toBe('15m');
       expect(b.w.theme()).toBe('light');
       expect(b.w.draw.drawings()).toHaveLength(1);
-      // An explicit option outranks the saved fact, and the layout still applies.
+      // An explicit option outranks the saved fact, and the layout still
+      // applies, all but its drawings: those are A's, kept for A.
       const c = make({ persist: 'desk', storage: store, symbol: 'Z' });
       expect(c.w.symbol()).toBe('Z');
-      expect(c.w.draw.drawings()).toHaveLength(1);
+      expect(c.w.draw.drawings()).toHaveLength(0);
+      expect(c.w.instrumentDrawings?.document({ symbol: 'A', exchange: '' })?.drawings).toHaveLength(1);
       // Nothing persists without the option.
       const d = make({ storage: store });
       expect(d.w.context.storage.enabled).toBe(false);
       d.w.setTheme('light');
       vi.advanceTimersByTime(SAVE_DEBOUNCE_MS + 1);
       expect(JSON.parse(store.map.get(key) as string).theme).toBe('light');
-      expect(store.map.size).toBe(2);
+      expect(store.map.size).toBe(3);
     } finally {
       vi.useRealTimers();
     }
@@ -420,6 +483,30 @@ describe('state and persistence', () => {
     w.setInterval('1h');
     w.destroy();
     expect(JSON.parse(store.map.get(`${STORAGE_PREFIX}default:${STATE_KEY}`) as string).interval).toBe('1h');
+  });
+
+  it('writes a pending save when the page goes away, and stops listening once destroyed', () => {
+    // The fake document has no window, and the flush listens on the window.
+    const doc = fakeWidgetDocument();
+    const listeners = new Map<string, Set<() => void>>();
+    (doc as unknown as { defaultView: unknown }).defaultView = {
+      addEventListener: (type: string, fn: () => void) => { listeners.set(type, (listeners.get(type) ?? new Set()).add(fn)); },
+      removeEventListener: (type: string, fn: () => void) => { listeners.get(type)?.delete(fn); },
+    };
+    const pagehide = (): void => { for (const fn of [...(listeners.get('pagehide') ?? [])]) fn(); };
+    const store = new MemoryStorage();
+    const key = `${STORAGE_PREFIX}default:${STATE_KEY}`;
+    const { w } = make({ persist: true, storage: store }, doc);
+    w.setInterval('1h');
+    // Still inside the debounce: only the page going away writes it now.
+    expect(store.map.has(key)).toBe(false);
+    pagehide();
+    expect(JSON.parse(store.map.get(key) as string).interval).toBe('1h');
+    w.destroy();
+    store.map.delete(key);
+    pagehide();
+    expect(store.map.has(key)).toBe(false);
+    expect(listeners.get('pagehide')?.size ?? 0).toBe(0);
   });
 });
 
@@ -771,13 +858,15 @@ describe('toasts and the bus', () => {
     expect(JSON.parse(store.map.get(`${STORAGE_PREFIX}default:${STATE_KEY}`) as string).interval).toBe('1h');
   });
 
-  it('the theme button names the theme a click would switch to', () => {
+  it('the theme button shows the theme a click would switch to, as a sun or a moon', () => {
     const { w, root } = make();
     const btn = root.querySelector('.oac-topbar__theme') as FakeElement;
-    expect(btn.textContent).toBe('Light');
+    const glyph = (): string | undefined => btn.querySelector('.oac-glyph')?.innerHTML;
+    expect(glyph()).toBe(chromeIconSvg('sun'));
+    expect(btn.textContent).toBe('');
     btn.click();
     expect(w.theme()).toBe('light');
-    expect(btn.textContent).toBe('Dark');
+    expect(glyph()).toBe(chromeIconSvg('moon'));
     expect(btn.getAttribute('aria-label')).toBe('Switch to the dark theme');
   });
 });

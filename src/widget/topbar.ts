@@ -1,4 +1,4 @@
-import { widgetText, type WidgetTranslationOptions } from './localization';
+import { errorText, widgetText, type WidgetTranslationOptions } from './localization';
 /**
  * The top bar: symbol, interval, chart type, indicators, settings, capture
  * and theme, left to right.
@@ -13,23 +13,22 @@ import { widgetText, type WidgetTranslationOptions } from './localization';
  * they render disabled, with their state visible, rather than dead.
  */
 import { registeredChartTypes, getChartType, exportChartDataCsv } from 'openalgo-charts';
-import { chromeIconSvg } from 'openalgo-charts/draw';
+import { chartTypeIcon, chromeIcon, chromeIconSvg } from 'openalgo-charts/draw';
 import { h, glyph, type WidgetContext } from './context';
 import type { WidgetThemeName } from './tokens';
+import { mountSymbolPicker, type SymbolPickerHandle } from './symbol-picker';
+import { timeBuckets } from './date-navigator';
+export { SEARCH_DEBOUNCE_MS } from './symbol-picker';
+export type { SymbolMatch, SymbolSearch } from './symbol-picker';
+import type { SymbolSearch } from './symbol-picker';
+import type { PanelHandle } from './form';
+import type { LayoutsController } from './layouts';
+import { layoutNeedsAttention, layoutStatusText } from './layouts-widget';
+import { lazyPart, partFailed, usePart, type PartSlot } from './lazy';
+import { ariaKeys } from './keymap';
 
-/** One hit from a host's symbol search. */
-export interface SymbolMatch {
-  symbol: string;
-  exchange?: string;
-  /** Long name, shown muted after the symbol. */
-  name?: string;
-}
-
-/** A host's symbol lookup, called as the user types. Sync or async. */
-export type SymbolSearch = (query: string) => Promise<readonly SymbolMatch[]> | readonly SymbolMatch[];
-
-/** Milliseconds of quiet before the search callback runs. */
-export const SEARCH_DEBOUNCE_MS = 150;
+/** The chart data dialog, fetched when it first opens. Internal. */
+export const dataExportPart = lazyPart(() => import('./chart-data-export-dialog'));
 
 /** Labels for the built-in chart types; anything else is read from its id. */
 export const CHART_TYPE_LABELS: Readonly<Record<string, string>> = {
@@ -83,10 +82,16 @@ export function intervalLabel(code: string): string {
 
 export interface MenuRow {
   label: string;
+  /**
+   * A chrome icon id for a glyph before the label. Once one row has a glyph,
+   * every row keeps the column, so the labels share a left edge; an id the
+   * registry does not carry leaves its slot empty. Since 2.5.10.
+   */
+  icon?: string;
   sub?: string;
   /** Shown at the right edge, for a chord. */
   key?: string;
-  /** Marks the row as the current choice. */
+  /** Makes the row one of a set of choices, true for the current one; a row without it is an action. */
   on?: boolean;
   disabled?: boolean;
   danger?: boolean;
@@ -98,6 +103,10 @@ export interface MenuOptions {
   find?: string;
   ariaLabel?: string;
 }
+
+/** A menu row's glyph: the registry's, or an empty slot the stylesheet sizes like one. */
+const rowGlyph = (id: string | undefined): string =>
+  id !== undefined && chromeIcon(id) !== undefined ? chromeIconSvg(id) : '<svg aria-hidden="true"></svg>';
 
 /**
  * A popup menu under `anchor`. Rows are buttons; a `{ head }` string starts a
@@ -118,6 +127,7 @@ export function openMenu(ctx: WidgetContext, anchor: HTMLElement, rows: Readonly
   const body = h(doc, 'div', 'oac-menu__body');
   m.appendChild(body);
   let close: () => void = () => {};
+  const glyphs = rows.some((r) => typeof r !== 'string' && r.icon !== undefined);
 
   const paint = (q: string): void => {
     const needle = q.trim().toLowerCase();
@@ -135,9 +145,12 @@ export function openMenu(ctx: WidgetContext, anchor: HTMLElement, rows: Readonly
         body.appendChild(g);
         pending = null;
       }
+      // A row with an `on` is one of a set of choices; any other is an action, which has no checked state.
       const b = h(doc, 'button', 'oac-menu__row' + (r.danger ? ' is-danger' : ''), {
-        type: 'button', role: 'menuitemradio', 'aria-checked': String(r.on === true), 'aria-disabled': String(r.disabled === true),
+        type: 'button', role: r.on === undefined ? 'menuitem' : 'menuitemradio', 'aria-disabled': String(r.disabled === true),
       });
+      if (r.on !== undefined) b.setAttribute('aria-checked', String(r.on));
+      if (glyphs) b.appendChild(glyph(doc, rowGlyph(r.icon), 'chrome'));
       const label = h(doc, 'span', 'oac-menu__label');
       label.textContent = r.label;
       b.appendChild(label);
@@ -147,9 +160,11 @@ export function openMenu(ctx: WidgetContext, anchor: HTMLElement, rows: Readonly
         b.appendChild(s);
       }
       if (r.key) {
-        const k = h(doc, 'kbd', 'oac-menu__key');
+        // Shown beside the name, said as the row's shortcut rather than read into its name.
+        const k = h(doc, 'kbd', 'oac-menu__key', { 'aria-hidden': 'true' });
         k.textContent = r.key;
         b.appendChild(k);
+        b.setAttribute('aria-keyshortcuts', ariaKeys(r.key));
       }
       b.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -173,6 +188,9 @@ export function openMenu(ctx: WidgetContext, anchor: HTMLElement, rows: Readonly
     // Enter picks the only remaining row, so a unique search needs no click.
     input.addEventListener('keydown', (e) => {
       if ((e as KeyboardEvent).key !== 'Enter') return;
+      // Bottom bar hook: the pick closes the menu and focus returns to its
+      // button, which the same Enter would otherwise press and reopen.
+      e.preventDefault();
       const only = body.querySelectorAll('.oac-menu__row');
       if (only.length === 1) (only[0] as HTMLElement).click();
     });
@@ -212,15 +230,34 @@ export interface TopbarOptions {
   onIndicators(anchor: HTMLElement): boolean;
   /** A text control for the host's object inventory, omitted without a handler. */
   onObjects?(anchor: HTMLElement): boolean;
+  /** Open the docked data window, omitted without a handler. */
+  onDataWindow?(anchor: HTMLElement): void | boolean;
   onAlerts?(anchor: HTMLElement): boolean;
+  /** Open the docked watchlist, omitted without a handler (the host supplied no lists). */
+  onWatchlist?(anchor: HTMLElement): void | boolean;
+  /** Open the docked news reader, omitted without a handler (the host supplied no news source). */
+  onNews?(anchor: HTMLElement): void | boolean;
+  /** Open the date and range navigation panel, omitted without a handler. */
+  onGoTo?(anchor: HTMLElement): void | boolean;
+  /**
+   * The saved layouts the Layouts button names: it shows the held layout and
+   * marks one with unsaved changes. Omitted, with `onLayouts`, without a store.
+   */
+  layouts?: LayoutsController;
+  /** Open the Layouts menu from `anchor`. */
+  onLayouts?(anchor: HTMLElement): void | boolean;
   settingsAvailable(): boolean;
   indicatorsAvailable(): boolean;
   /** Refuse CSV export while the host is replacing or recovering its data. */
   dataAvailable?(): boolean;
+  /** Hook (chart grid, 2.5.10): more capture menu rows, read on every open; a string starts a group. */
+  captureRows?: () => ReadonlyArray<MenuRow | string>;
 }
 
 export interface TopbarHandle {
   readonly el: HTMLElement;
+  /** Open the shared capture menu from desktop or mobile chrome. */
+  openCapture(anchor: HTMLElement): void;
   /** Repaint every control from `state()`. */
   refresh(): void;
   /** Put the caret in the symbol box, text selected. */
@@ -300,86 +337,33 @@ export function mountTopbar(ctx: WidgetContext, host: HTMLElement, opts: TopbarO
   host.appendChild(symWrap);
   host.appendChild(sep());
 
-  let results: { close: () => void; rows: HTMLElement[]; matches: readonly SymbolMatch[] } | null = null;
-  let searchTimer: ReturnType<typeof setTimeout> | 0 = 0;
-  let searchSeq = 0;
-  const closeResults = (): void => { results?.close(); results = null; };
+  let picker: SymbolPickerHandle | null = null;
   const commit = (symbol: string, exchange?: string): void => {
-    closeResults();
+    picker?.close();
     const s = symbol.trim().toUpperCase();
     if (s === '') { refresh(); return; }
     opts.onSymbol(s, exchange);
     symInput.blur();
   };
-  const showResults = (matches: readonly SymbolMatch[]): void => {
-    closeResults();
-    if (matches.length === 0) return;
-    const m = h(doc, 'div', 'oac-menu oac-sym__results', { role: 'listbox', 'aria-label': widgetText(ctx, 'Symbols') });
-    const rows: HTMLElement[] = [];
-    matches.forEach((hit, i) => {
-      const b = h(doc, 'button', 'oac-menu__row' + (i === 0 ? ' is-active' : ''), { type: 'button', role: 'option' });
-      const label = h(doc, 'span', 'oac-menu__label');
-      label.textContent = hit.exchange ? `${hit.exchange}:${hit.symbol}` : hit.symbol;
-      b.appendChild(label);
-      if (hit.name) {
-        const sub = h(doc, 'span', 'oac-menu__sub');
-        sub.textContent = hit.name;
-        b.appendChild(sub);
-      }
-      b.addEventListener('click', (e) => { e.stopPropagation(); commit(hit.symbol, hit.exchange); });
-      rows.push(b);
-      m.appendChild(b);
-    });
-    // The input keeps the caret: the list is driven from the keyboard there.
-    const close = ctx.openOverlay(m, { anchor: symWrap, placement: 'below', initialFocus: null, onClose: () => { if (results !== null && results.rows === rows) results = null; } });
-    results = { close, rows, matches };
-  };
-  const activeIndex = (): number => (results === null ? -1 : results.rows.findIndex((r) => r.classList.contains('is-active')));
-  const setActive = (i: number): void => {
-    if (results === null) return;
-    const n = results.rows.length;
-    const k = ((i % n) + n) % n;
-    results.rows.forEach((r, j) => r.classList.toggle('is-active', j === k));
-  };
-  const runSearch = (q: string): void => {
-    if (!opts.search) return;
-    const seq = ++searchSeq;
-    Promise.resolve(opts.search(q)).then((hits) => {
-      // A slower answer for an earlier query must not land under a later one.
-      if (seq !== searchSeq || doc.activeElement !== symInput) return;
-      showResults(hits);
-    }).catch(() => { closeResults(); });
-  };
-  symInput.addEventListener('input', () => {
-    if (!opts.search) return;
-    if (searchTimer !== 0) clearTimeout(searchTimer);
-    const q = symInput.value.trim();
-    if (q === '') { closeResults(); return; }
-    searchTimer = setTimeout(() => { searchTimer = 0; runSearch(q); }, SEARCH_DEBOUNCE_MS);
+  if (opts.search) picker = mountSymbolPicker(ctx, symInput, {
+    search: opts.search, onSelect: commit,
+    context: () => `${opts.state().exchange}:${opts.state().symbol}:${opts.state().interval}`,
   });
   symInput.addEventListener('keydown', (e) => {
     const ke = e as KeyboardEvent;
     if (ke.key === 'Enter') {
       ke.preventDefault();
-      const at = activeIndex();
-      if (results !== null && at >= 0) { const hit = results.matches[at]; commit(hit.symbol, hit.exchange); return; }
       commit(symInput.value);
-    } else if (ke.key === 'ArrowDown' && results !== null) { ke.preventDefault(); setActive(activeIndex() + 1); }
-    else if (ke.key === 'ArrowUp' && results !== null) { ke.preventDefault(); setActive(activeIndex() - 1); }
-    else if (ke.key === 'Escape') {
-      // With the list open the overlay stack takes this; with it closed the
-      // typed text is abandoned and the box shows the symbol again.
-      if (results === null) { refresh(); symInput.blur(); }
-    }
+    } else if (ke.key === 'Escape') { refresh(); symInput.blur(); }
   });
   symInput.addEventListener('focus', () => { symInput.select(); });
-  symInput.addEventListener('blur', () => { if (results === null) refresh(); });
+  symInput.addEventListener('blur', () => { refresh(); });
 
   // ── intervals ────────────────────────────────────────────────────────
   const pills = h(doc, 'div', 'oac-pills', { role: 'radiogroup', 'aria-label': widgetText(ctx, 'Interval') });
   const pillByCode = new Map<string, HTMLButtonElement>();
   for (const code of opts.intervals) {
-    const b = h(doc, 'button', undefined, { type: 'button', role: 'radio', 'aria-pressed': 'false', 'aria-label': widgetText(ctx, 'Interval {code}', { code }) });
+    const b = h(doc, 'button', undefined, { type: 'button', role: 'radio', 'aria-pressed': 'false', 'aria-label': widgetText(ctx, 'Interval {code}', { code: intervalLabel(code) }) });
     b.textContent = intervalLabel(code);
     b.dataset.interval = code;
     b.addEventListener('click', () => opts.onInterval(code));
@@ -391,14 +375,16 @@ export function mountTopbar(ctx: WidgetContext, host: HTMLElement, opts: TopbarO
 
   // ── chart type ───────────────────────────────────────────────────────
   const typeBtn = btn(widgetText(ctx, 'Chart type'), 'oac-topbar__type');
+  // The type in force as its glyph and its name; a type with no glyph shows the name alone.
+  const typeGlyph = glyph(doc, '', 'chrome');
   const typeLabel = h(doc, 'span');
-  typeBtn.appendChild(typeLabel);
+  typeBtn.append(typeGlyph, typeLabel);
   typeBtn.appendChild(chev());
   typeBtn.setAttribute('aria-haspopup', 'menu');
   typeBtn.addEventListener('click', () => {
     const cur = opts.state().chartType;
     openMenu(ctx, typeBtn, chartTypeChoices().map((id) => ({
-      label: widgetText(ctx, `schema.chartType.${id}`, {}, chartTypeLabel(id)), on: id === cur, onSelect: () => opts.onChartType(id),
+      label: widgetText(ctx, `schema.chartType.${id}`, {}, chartTypeLabel(id)), icon: `chart-${id}`, on: id === cur, onSelect: () => opts.onChartType(id),
     })), { ariaLabel: widgetText(ctx, 'Chart type') });
   });
   host.appendChild(typeBtn);
@@ -427,12 +413,75 @@ export function mountTopbar(ctx: WidgetContext, host: HTMLElement, opts: TopbarO
   let brandingAnchor: HTMLAnchorElement | null = null;
   host.appendChild(brandingSlot);
 
+  // ── layouts ──────────────────────────────────────────────────────────
+  // The held layout's name on the button: which document the chart is, at a
+  // glance, with a dot while it has changes that are not saved.
+  let offLayouts: (() => void) | null = null;
+  const controller = opts.layouts;
+  if (controller !== undefined && opts.onLayouts) {
+    const title = widgetText(ctx, 'schema.ui.layouts.title', {}, 'Layouts');
+    const held = (): string | null => {
+      const state = controller.state();
+      return state.layoutId === null ? null : state.catalog?.workspaces.find(doc => doc.id === state.layoutId)?.name ?? null;
+    };
+    const layouts = btn(title, 'oac-topbar__layouts');
+    layouts.setAttribute('aria-haspopup', 'dialog');
+    layouts.appendChild(glyph(doc, chromeIconSvg('layout'), 'chrome'));
+    const label = h(doc, 'span', 'oac-topbar__layouts-name');
+    layouts.appendChild(label);
+    ctx.tips.attach(layouts, () => {
+      const name = held();
+      const state = controller.state();
+      const said = name === null ? title : `${title}: ${name}`;
+      const status = layoutStatusText(ctx, state);
+      // The mark is a dot: a screen reader hears what it means with the name.
+      return { title: said, label: layoutNeedsAttention(state) ? `${said}, ${status}` : undefined, sub: status, side: 'bottom' };
+    });
+    const paintLayouts = (): void => {
+      label.textContent = held() ?? title;
+      layouts.dataset.attention = String(layoutNeedsAttention(controller.state()));
+      ctx.tips.refreshLabel(layouts);
+    };
+    offLayouts = controller.subscribe(paintLayouts);
+    paintLayouts();
+    layouts.addEventListener('click', () => { opts.onLayouts?.(layouts); });
+    host.appendChild(layouts);
+    // The bar measures itself, so the name can give way before it wraps (LAYOUTS_BUTTON_CSS).
+    host.classList.add('has-layouts');
+  }
+
+  // Tick and volume bars have no date to go to: greyed with the reason, not dead.
+  const goTo = opts.onGoTo ? btn(widgetText(ctx, 'Go to'), 'oac-topbar__goto') : null;
+  if (goTo !== null) {
+    goTo.textContent = widgetText(ctx, 'Go to');
+    goTo.setAttribute('aria-haspopup', 'dialog');
+    ctx.tips.attach(goTo, () => ({
+      title: widgetText(ctx, 'Go to'),
+      sub: timeBuckets(opts.state().interval) === null ? widgetText(ctx, 'Go to needs a time-based interval') : undefined,
+      side: 'bottom',
+    }));
+    goTo.addEventListener('click', () => { if (!goTo.classList.contains('is-off')) opts.onGoTo?.(goTo); });
+    host.appendChild(goTo);
+  }
   if (opts.onObjects) {
     const objects = btn(widgetText(ctx, 'Objects'), 'oac-topbar__objects');
     objects.textContent = widgetText(ctx, 'Objects');
     objects.setAttribute('aria-haspopup', 'dialog');
     objects.addEventListener('click', () => { opts.onObjects?.(objects); });
     host.appendChild(objects);
+  }
+  if (opts.onDataWindow) {
+    const data = btn(widgetText(ctx, 'schema.ui.dataWindow', {}, 'Data'), 'oac-topbar__data');
+    data.textContent = widgetText(ctx, 'schema.ui.dataWindow', {}, 'Data');
+    data.addEventListener('click', () => { opts.onDataWindow?.(data); });
+    host.appendChild(data);
+  }
+  for (const [key, label, handler] of [['watchlist', 'Watchlist', opts.onWatchlist], ['news', 'News', opts.onNews]] as const) {
+    if (!handler) continue;
+    const control = btn(widgetText(ctx, `schema.ui.dock.${key}`, {}, label), `oac-topbar__${key}`);
+    control.textContent = widgetText(ctx, `schema.ui.dock.${key}`, {}, label);
+    control.addEventListener('click', () => { handler(control); });
+    host.appendChild(control);
   }
   if (opts.onAlerts) {
     const alerts = btn(widgetText(ctx, 'Alerts'), 'oac-topbar__alerts');
@@ -447,12 +496,26 @@ export function mountTopbar(ctx: WidgetContext, host: HTMLElement, opts: TopbarO
   snapBtn.appendChild(glyph(doc, chromeIconSvg('camera'), 'chrome'));
   snapBtn.setAttribute('aria-haspopup', 'menu');
   ctx.tips.attach(snapBtn, { title: widgetText(ctx, 'Capture'), sub: widgetText(ctx, 'PNG, SVG, CSV or the clipboard'), side: 'bottom' });
-  snapBtn.addEventListener('click', () => {
+  let dataDialog: PanelHandle | null = null;
+  const dataSlot: PartSlot = { waiting: null };
+  const openCapture = (anchor: HTMLElement): void => {
     const s = { ...opts.state() };
-    const dataAvailable = (): boolean => !ctx.chart.isDestroyed && opts.dataAvailable?.() !== false && ctx.chart.primaryBars().length > 0;
+    const capturedChart = ctx.chart;
+    const capturedPrimary = capturedChart.primarySeries();
+    const source = capturedChart.getDataContext();
+    const dataAvailable = (): boolean => !capturedChart.isDestroyed && opts.dataAvailable?.() !== false && capturedChart.primaryBars().length > 0;
+    const checkSource = (): void => {
+      const current = opts.state(), context = ctx.chart.getDataContext();
+      if (ctx.chart !== capturedChart || capturedChart.primarySeries() !== capturedPrimary
+        || current.symbol !== s.symbol || current.exchange !== s.exchange || current.interval !== s.interval || current.chartType !== s.chartType
+        || context !== source) {
+        throw new Error(widgetText(ctx, 'The chart changed; reopen Capture for its current source'));
+      }
+      if (!dataAvailable()) throw new Error(widgetText(ctx, 'Wait for this chart to finish loading its data'));
+    };
     const clip = (globalThis as { navigator?: { clipboard?: { write?: unknown } }; ClipboardItem?: unknown });
     const canCopy = clip.navigator?.clipboard?.write !== undefined && clip.ClipboardItem !== undefined;
-    openMenu(ctx, snapBtn, [
+    openMenu(ctx, anchor, [
       { label: widgetText(ctx, 'Download PNG'), onSelect: () => {
         ctx.chart.downloadScreenshot(captureName(s.symbol, s.interval) + '.png');
         ctx.status(widgetText(ctx, 'Saved a PNG of the chart'));
@@ -468,22 +531,32 @@ export function mountTopbar(ctx: WidgetContext, host: HTMLElement, opts: TopbarO
           const Item = (globalThis as { ClipboardItem: new (parts: Record<string, Blob>) => unknown }).ClipboardItem;
           (globalThis.navigator.clipboard as unknown as { write(items: unknown[]): Promise<void> })
             .write([new Item({ 'image/png': blob })])
-            .then(() => ctx.status(widgetText(ctx, 'Chart copied')), (err: unknown) => ctx.status(widgetText(ctx, 'Copy failed: {error}', { error: String((err as Error)?.message ?? err) }), 'error'));
+            .then(() => ctx.status(widgetText(ctx, 'Chart copied')), (err: unknown) => ctx.status(widgetText(ctx, 'Copy failed: {error}', { error: errorText(ctx, err) }), 'error'));
         }, 'image/png');
       } },
       { label: widgetText(ctx, 'Download chart data (CSV)'), disabled: !dataAvailable(), onSelect: () => {
-        try {
-          const current = opts.state();
-          if (current.symbol !== s.symbol || current.exchange !== s.exchange || current.interval !== s.interval || current.chartType !== s.chartType) {
-            throw new Error(widgetText(ctx, 'The chart changed; reopen Capture for its current source'));
-          }
-          if (!dataAvailable()) throw new Error(widgetText(ctx, 'Wait for this chart to finish loading its data'));
-          const ok = downloadText(doc, captureName(s.symbol, s.interval) + '.csv', exportChartDataCsv(ctx.chart), 'text/csv;charset=utf-8');
-          ctx.status(ok ? widgetText(ctx, 'Chart data download started') : widgetText(ctx, 'This runtime cannot save files'), ok ? 'info' : 'error');
-        } catch (error) { ctx.status(widgetText(ctx, 'Data export failed: {error}', { error: String((error as Error)?.message ?? error) }), 'error'); }
+        const failed = (error: unknown): void => ctx.status(widgetText(ctx, 'Data export failed: {error}', { error: errorText(ctx, error) }), 'error');
+        // The dialog loads on first use (lazy.ts), and the chart it captures is checked again when it arrives.
+        usePart(dataExportPart, module => {
+          try {
+            checkSource();
+            dataDialog?.close();
+            dataDialog = module.openChartDataExportDialog(ctx, anchor, options => {
+              checkSource();
+              const csv = exportChartDataCsv(capturedChart, options);
+              checkSource();
+              if (!downloadText(doc, captureName(s.symbol, s.interval) + '.csv', csv, 'text/csv;charset=utf-8')) {
+                throw new Error(widgetText(ctx, 'This runtime cannot save files'));
+              }
+              ctx.status(widgetText(ctx, 'Chart data download started'));
+            });
+          } catch (error) { failed(error); }
+        }, error => ctx.status(partFailed(ctx, widgetText(ctx, 'Download chart data (CSV)'), error), 'error'), () => host.isConnected, { slot: dataSlot, doc, from: anchor });
       } },
+      ...(opts.captureRows?.() ?? []),
     ], { ariaLabel: widgetText(ctx, 'Capture') });
-  });
+  };
+  snapBtn.addEventListener('click', () => openCapture(snapBtn));
   host.appendChild(snapBtn);
 
   // ── settings ─────────────────────────────────────────────────────────
@@ -498,11 +571,11 @@ export function mountTopbar(ctx: WidgetContext, host: HTMLElement, opts: TopbarO
   host.appendChild(setBtn);
 
   // ── theme ────────────────────────────────────────────────────────────
-  // A word rather than a glyph: the chrome set has no sun or moon, and the
-  // name of the theme the click would switch to says more than either.
-  const themeBtn = btn(widgetText(ctx, 'Theme'), 'oac-topbar__theme');
-  const themeLabel = h(doc, 'span');
-  themeBtn.appendChild(themeLabel);
+  // The theme the click switches to, as a sun or a moon; the tip and the
+  // accessible name say it in words.
+  const themeBtn = btn(widgetText(ctx, 'Theme'), 'oac-btn--icon oac-topbar__theme');
+  const themeGlyph = glyph(doc, '', 'chrome');
+  themeBtn.appendChild(themeGlyph);
   ctx.tips.attach(themeBtn, () => ({ title: opts.state().theme === 'dark' ? widgetText(ctx, 'Switch to the light theme') : widgetText(ctx, 'Switch to the dark theme'), side: 'bottom' }));
   themeBtn.addEventListener('click', () => opts.onTheme(opts.state().theme === 'dark' ? 'light' : 'dark'));
   host.appendChild(themeBtn);
@@ -525,11 +598,19 @@ export function mountTopbar(ctx: WidgetContext, host: HTMLElement, opts: TopbarO
       b.setAttribute('aria-pressed', String(on));
       b.setAttribute('aria-checked', String(on));
     }
+    if (typeGlyph.dataset.type !== s.chartType) {
+      typeGlyph.dataset.type = s.chartType;
+      typeGlyph.hidden = chartTypeIcon(s.chartType) === undefined;
+      typeGlyph.innerHTML = typeGlyph.hidden ? '' : chromeIconSvg(`chart-${s.chartType}`);
+    }
     typeLabel.textContent = widgetText(ctx, `schema.chartType.${s.chartType}`, {}, chartTypeLabel(s.chartType));
     setOff(setBtn, !opts.settingsAvailable());
     if (indBtn !== null) setOff(indBtn, !opts.indicatorsAvailable());
-    themeBtn.dataset.theme = s.theme;
-    themeLabel.textContent = s.theme === 'dark' ? widgetText(ctx, 'Light') : widgetText(ctx, 'Dark');
+    if (goTo !== null) setOff(goTo, timeBuckets(s.interval) === null);
+    if (themeBtn.dataset.theme !== s.theme) {
+      themeBtn.dataset.theme = s.theme;
+      themeGlyph.innerHTML = chromeIconSvg(s.theme === 'dark' ? 'sun' : 'moon');
+    }
     ctx.tips.refreshLabel(themeBtn);
     ctx.tips.refreshLabel(setBtn);
     if (indBtn !== null) ctx.tips.refreshLabel(indBtn);
@@ -554,12 +635,14 @@ export function mountTopbar(ctx: WidgetContext, host: HTMLElement, opts: TopbarO
 
   return {
     el: host,
+    openCapture,
     refresh,
     focusSymbol: () => { symInput.focus(); },
     destroy: () => {
+      dataDialog?.close();
+      offLayouts?.();
       offBranding();
-      if (searchTimer !== 0) clearTimeout(searchTimer);
-      closeResults();
+      picker?.destroy();
       host.textContent = '';
     },
   };

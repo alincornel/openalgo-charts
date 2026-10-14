@@ -93,6 +93,7 @@ input[type=checkbox]:checked::after {
   border: solid var(--acc-tx); border-width: 0 2px 2px 0; transform: rotate(45deg);
 }
 input[type=checkbox]:disabled { opacity: .4; cursor: not-allowed; }
+#toolbar-fit:disabled, #fit:disabled { opacity: .45; color: var(--faint); cursor: not-allowed; }
 input[type=checkbox]:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 select {
   appearance: none; -webkit-appearance: none; background-repeat: no-repeat;
@@ -217,9 +218,9 @@ select.field { cursor: pointer; padding-right: 24px; }
    One card, one head, one foot, shared by the indicator, compare, text and
    chart-settings dialogs: title left, close top right, actions bottom right
    with the confirming one last, and any secondary control bottom left. */
-#setmodal, #workspacemodal, #templatemodal, #indsource { position: fixed; inset: 0; z-index: 60; background: var(--scrim);
+#setmodal, #workspacemodal, #templatemodal, #indsource, #chartdatamodal { position: fixed; inset: 0; z-index: 60; background: var(--scrim);
   display: flex; align-items: center; justify-content: center; }
-#setmodal[hidden], #workspacemodal[hidden], #templatemodal[hidden], #indsource[hidden] { display: none; }
+#setmodal[hidden], #workspacemodal[hidden], #templatemodal[hidden], #indsource[hidden], #chartdatamodal[hidden] { display: none; }
 .set-card.source-card { width: min(720px, calc(100vw - 24px)); }
 #indsource-code { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.6 monospace; color: var(--tx); }
 .set-card.ws-card { width: min(480px, calc(100vw - 24px)); }
@@ -228,8 +229,14 @@ select.field { cursor: pointer; padding-right: 24px; }
 .ws-body p { margin: 0; overflow-wrap: anywhere; }
 .ws-body .set-row { grid-template-columns: 0 100px minmax(0, 1fr); }
 .ws-body .set-ctl input, .ws-body .set-ctl select { width: 100%; }
+.csv-card .set-row { grid-template-columns: 0 126px minmax(0, 1fr); }
+#csv-studies { display: grid; gap: 6px; max-height: 150px; overflow: auto; font-size: 12px; color: var(--mut); }
+.csv-study { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.5; cursor: pointer; }
+.csv-study span { min-width: 0; overflow-wrap: anywhere; }
+.csv-study input { flex: none; margin-top: 2px; }
 .ws-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .ws-actions button { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.ws-actions button[hidden] { display: none; }
 .ws-card .btn:disabled { opacity: .45; cursor: not-allowed; }
 .ws-autosave { display: flex; align-items: center; gap: 8px; font-size: 12px; }
 .ws-hint, #ws-notice { color: var(--mut); font-size: 12px; line-height: 1.5; }
@@ -268,6 +275,7 @@ select.field { cursor: pointer; padding-right: 24px; }
 .set-group { color: var(--faint); font-size: 10px; font-weight: 700; text-transform: uppercase;
   letter-spacing: .8px; line-height: 15px; margin: 8px 0 1px; }
 .set-group:first-child { margin-top: 0; }
+.set-rows { display: contents; }
 /* A 3px gap with 24px rows: the row itself carries the breathing room, and
    the densest tab (Appearance, 17 controls over 4 groups) has to fit in one
    panel without a scrollbar. Groups get their air from the header margin. */
@@ -282,8 +290,18 @@ select.field { cursor: pointer; padding-right: 24px; }
   width: 13px; height: 13px; margin-left: 5px; vertical-align: -2px;
   border: 1px solid var(--bd); border-radius: 50%; color: var(--faint);
   font-size: 9px; font-weight: 600; line-height: 1; cursor: help; user-select: none; }
-.set-help:hover, .set-help:focus-visible { color: var(--tx); border-color: var(--bd-hover); outline: none; }
+.set-help:hover { color: var(--tx); border-color: var(--bd-hover); }
 .set-ctl { grid-column: 3; display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.set-ctl:has([data-input-action]) { flex-wrap: wrap; }
+.oac-widget.host-input-actions { position: fixed; inset: 0; z-index: 80; display: block;
+  background: transparent; pointer-events: none; overflow: visible; }
+.set-ctl [data-input-action] { font-size: 11px; padding: 4px 8px; }
+.set-ctl textarea { width: 100%; min-width: 0; min-height: 76px; resize: vertical; box-sizing: border-box;
+  padding: 6px 8px; background: var(--elev); color: var(--tx); border: 1px solid var(--bd); border-radius: 6px;
+  font: inherit; font-size: 12px; }
+.set-input-error { grid-column: 2 / -1; color: var(--danger, #ef5350); font-size: 11px; overflow-wrap: anywhere; }
+.set-input-error[hidden] { display: none; }
+.set-ctl [aria-invalid=true] { border-color: var(--danger, #ef5350); }
 .set-ctl select, .set-ctl input[type=number], .set-ctl input[type=text] {
   flex: 1 1 auto; min-width: 0; height: 24px; background-color: var(--elev); color: var(--tx);
   border: 1px solid var(--bd); border-radius: 6px; padding: 0 8px; font: inherit; font-size: 12px;
@@ -319,6 +337,8 @@ select.field { cursor: pointer; padding-right: 24px; }
 .chip button { border: 0; background: transparent; color: var(--faint); cursor: pointer;
   font-size: 13px; line-height: 1; padding: 2px 3px; border-radius: 4px; }
 .chip button:hover { background: var(--elev-3); color: var(--danger-tx); }
+/* A study the host protects: no remove button, a dashed edge in its place. */
+.chip.is-protected { border-style: dashed; padding-right: 9px; }
 .spacer { flex: 1 1 auto; }
 .hint { color: var(--faint); font-size: 12px; font-style: italic; }
 
@@ -335,6 +355,7 @@ select.field { cursor: pointer; padding-right: 24px; }
   box-shadow: var(--shadow); font: 12px/1.4 system-ui, sans-serif;
   opacity: 0; transition: opacity .09s ease; }
 #tip.is-on { opacity: 1; }
+.tip-spot { position: fixed; width: 1px; height: 1px; pointer-events: none; }
 #tip .tip-chord { color: var(--mut); margin-left: 10px; font-variant-numeric: tabular-nums; }
 /* Second line: a gesture the control also answers to, dimmer than its name. */
 #tip .tip-sub { display: block; margin-top: 2px; color: var(--faint); font-size: 11px; }
@@ -404,7 +425,8 @@ select.field { cursor: pointer; padding-right: 24px; }
 .menu button:hover { background: var(--elev-2); }
 .menu button:disabled { opacity: .45; cursor: not-allowed; }
 .menu button:focus-visible { outline-offset: -2px; }
-.menu button em { margin-left: auto; color: var(--acc-2); font-style: normal; }
+.menu button em { margin-left: auto; color: var(--acc-2); font-style: normal; display: grid; }
+.menu button em svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .menu-find { position: sticky; top: 0; z-index: 1; background: var(--panel); padding: 6px; }
 .menu-find input { width: 100%; box-sizing: border-box; padding: 5px 7px; font: inherit;
   font-size: 12px; color: var(--tx); background: var(--elev); border: 1px solid var(--bd);
@@ -460,6 +482,10 @@ select.field { cursor: pointer; padding-right: 24px; }
 .chartstate__text:empty { display: none; }
 .chartstate__actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .chartstate__actions .btn { height: 28px; padding: 0 12px; }
+/* `.btn` sets a display, which beats the hidden attribute: say it again here,
+   or a card shows the actions its state hid. */
+.chartstate__actions .btn[hidden] { display: none; }
+.chartstate[data-state="unsupported"] .chartstate__card { border-left-color: var(--amber); }
 .chartstate[data-state="empty"] .chartstate__card { border-left-color: var(--amber); }
 .chartstate[data-state="error"] .chartstate__card { border-left-color: var(--sell); }
 /* A load in flight is the dots alone. The card would only repeat the status
@@ -606,6 +632,8 @@ body[data-fullscreen-pane="2"] #chart2 { left: 42px; }
 #replaybar .rclock { color: var(--faint); font-size: 11px; max-width: 100%; white-space: normal; }
 #replaybar .vsep { width: 1px; height: 18px; background: var(--bd-soft); flex: none; }
 #replaybar .rsub { color: var(--acc); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#replaybar .rsim { color: var(--pill-mut); border: 1px solid var(--pill-bd); border-radius: 4px; padding: 0 5px; font-size: 10px; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }
+#replaybar .rsim[hidden] { display: none; }
 
 /* ── select-bar prompt ──────────────────────────────────────────
  * Sits where the transport will be, so the mode reads as one flow:
@@ -666,6 +694,45 @@ body[data-fullscreen-pane="2"] #chart2 { left: 42px; }
   line-height: 1; cursor: pointer; padding: 2px 5px; border-radius: 4px; }
 .cmp-row .cmp-del:hover { background: var(--elev-3); color: var(--danger-tx); }
 
+/* ── sandbox broker panel ───────────────────────────────────── */
+/* Opened in the chart's overlay layer, so the widget tokens and control
+   styles (inputs, .oac-btn, scrollbars) already apply; these rules only lay
+   the panel out. */
+.acct-panel { width: min(430px, calc(100vw - 24px)); overflow: auto; padding-bottom: 8px; }
+.acct-panel > * { flex: none; }
+.acct-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 8px 8px 12px;
+  border-bottom: 1px solid var(--oac-bd-soft); font-weight: 650; color: var(--oac-tx-strong); }
+.acct-x { width: 26px; height: 26px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 6px;
+  background: transparent; color: var(--oac-faint); font-size: 18px; line-height: 1; cursor: pointer; }
+.acct-x:hover { color: var(--oac-tx); background: var(--oac-elev-2); }
+.acct-summary { padding: 9px 12px 0; }
+.acct-summary .oac-account { flex-wrap: wrap; row-gap: 5px; font-size: 11.5px; white-space: normal; }
+.acct-note { margin: 6px 12px 0; color: var(--oac-faint); font-size: 11px; line-height: 1.4; }
+.acct-group { margin: 10px 12px 5px; color: var(--oac-faint); font-size: 10px; font-weight: 700;
+  letter-spacing: .8px; text-transform: uppercase; }
+.acct-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 12px 6px; }
+.acct-field { display: inline-flex; align-items: center; gap: 5px; color: var(--oac-mut); font-size: 12px; }
+.acct-field[hidden] { display: none; }
+.acct-panel .acct-num { width: 76px; height: 26px; }
+.acct-expiry { height: 26px; padding: 0 6px; border: 1px solid var(--oac-bd); border-radius: var(--oac-radius);
+  background: var(--oac-elev); color: var(--oac-tx); color-scheme: inherit; font: inherit; font-size: 12px; }
+.acct-seg { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--oac-bd-soft); border-radius: 7px; }
+.acct-panel .acct-seg .oac-btn { height: 24px; padding: 0 9px; }
+.acct-panel .acct-row > .oac-btn { height: 28px; }
+.acct-panel .acct-row > .oac-btn:not(.oac-btn--primary) { border-color: var(--oac-bd); background: var(--oac-elev); }
+.acct-panel .acct-row > .oac-btn:not(.oac-btn--primary):hover:not(:disabled) { border-color: var(--oac-bd-hover); }
+.acct-actions { justify-content: flex-end; }
+.acct-panel .oac-btn:disabled { cursor: not-allowed; }
+.acct-preview, .acct-position { margin: 0 12px 6px; min-height: 16px; color: var(--oac-mut); font-size: 12px;
+  font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.acct-position { color: var(--oac-tx); }
+.acct-msg { flex: 1 1 180px; min-width: 0; margin: 0; color: var(--oac-mut); font-size: 12px; overflow-wrap: anywhere; }
+.acct-preview.is-error, .acct-msg.is-error { color: var(--oac-danger); }
+.acct-fills { margin: 0 12px 8px; padding: 0; list-style: none; color: var(--oac-tx); font-size: 12px;
+  font-variant-numeric: tabular-nums; }
+.acct-fills li { padding: 2px 0; }
+.acct-fills .acct-empty { color: var(--oac-faint); }
+
 /* ── chart settings dialog ──────────────────────────────────── */
 /* Tabs down the left, controls on the right: the layout chartSettingsSchema()
    describes. The rows themselves are the .set-row widgets the indicator
@@ -722,19 +789,37 @@ body[data-fullscreen-pane="2"] #chart2 { left: 42px; }
 .axrow.is-on .axdot { border-color: var(--acc); background:
   radial-gradient(circle, var(--acc-2) 0 3px, transparent 3.5px); }
 .axrow:disabled .axdot { opacity: .4; }
-.axrow .axarrow { color: var(--faint); font-size: 11px; }
+.axrow .axarrow { color: var(--faint); display: grid; place-items: center; }
+.axrow .axarrow svg { width: 11px; height: 11px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .axmenu hr { border: 0; border-top: 1px solid var(--bd-soft); margin: 5px 7px; }
 .axmenu .axhead { padding: 7px 9px 3px; color: var(--faint); font-size: 10px;
   font-weight: 700; text-transform: uppercase; letter-spacing: .8px; }
 .axrow.is-open { background: var(--elev-2); }
 
+/* ── bottom bar ─────────────────────────────────────────────────
+   The widget tier's strip under the chart, beside the rail. Its root is a
+   layer over the whole stage, so the bar's menus and tips open over the
+   chart; only the strip itself takes the pointer. The chart, its state card
+   and the replay controls stand clear of it. */
+.host-bottombar.oac-widget { z-index: 23; }
+.host-bottombar > .oac-bottombar { position: absolute; left: 0; right: 0; bottom: 0; pointer-events: auto; }
+.stage.has-rail .host-bottombar > .oac-bottombar { left: 42px; }
+.stage.has-bottombar .inspect-layout, .stage.has-bottombar .chartstate { bottom: 28px; }
+.stage.has-bottombar #replaybar, .stage.has-bottombar #replaypick { bottom: 58px; }
+/* One Go to: the bar's wherever the bar shows, the toolbar's in the phone shell. */
+body:has(.stage.has-bottombar) #goto { display: none; }
+
 /* ── small screens and touch ────────────────────────────────────
    Below 900px the rail becomes a strip along the bottom of the stage, its
    flyouts and the popup menus become sheets, and every dialog takes the
-   whole screen. On a coarse pointer (with or without the narrow width)
-   every control grows to a 40px target; the colour squares keep their
-   26px face inside a transparent 40px frame, so the standard's small
-   swatch and the finger's target are the same control. */
+   whole screen. The phone shell (a touch bar in place of the rail) follows
+   the widget's container-size rule rather than the pointer alone: a narrow
+   window, or a phone on its side, which is a coarse pointer at most 960px
+   wide and under 600px tall. A tablet or a touch laptop keeps the rail. Any
+   coarse pointer, whatever the width, still grows every control to a 40px
+   target; the colour squares keep their 26px face inside a transparent
+   40px frame, so the standard's small swatch and the finger's target are
+   the same control. */
 @media (max-width: 900px) {
   .shellbar { padding: 6px 8px; gap: 4px; }
   .status { flex-basis: 100%; max-width: none; justify-content: flex-start; }
@@ -750,7 +835,7 @@ body[data-fullscreen-pane="2"] #chart2 { left: 42px; }
   #symbol.is-live { left: 8px; width: calc(100vw - 16px); }
   /* The field spans the viewport on a phone, so the keys anchor to its right. */
   #symbol.is-live + #symkeys { left: auto; right: 12px; }
-  #setmodal, #cmpmodal, #chartset, #workspacemodal, #templatemodal, #indsource { align-items: stretch; justify-content: stretch; }
+  #setmodal, #cmpmodal, #chartset, #workspacemodal, #templatemodal, #indsource, #chartdatamodal { align-items: stretch; justify-content: stretch; }
   .set-card, .cset-card { width: 100%; max-width: none; max-height: none; height: 100%;
     border-radius: 0; border: 0; }
   .set-card.ws-card { width: 100%; }
@@ -764,17 +849,21 @@ body[data-fullscreen-pane="2"] #chart2 { left: 42px; }
   .toasts { right: 8px; }
   .chartstate__card { max-width: calc(100% - 24px); }
 }
-@media (max-width: 900px), (pointer: coarse) {
+@media (max-width: 900px), (pointer: coarse) and (max-width: 960px) and (max-height: 599px) {
   body[data-fullscreen-pane="2"] #chart2 { left: 0; bottom: 50px; }
-  :root { --h: 40px; }
   .shellbar { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 2px 8px; }
   .shellbar::-webkit-scrollbar { width: 0; height: 0; }
   .shellbar > * { flex: none; }
   .shellbar .status { flex: 0 0 180px; max-width: 180px; }
   .rail { display: none; }
   .stage.has-rail #chart, .stage.has-rail .chartstate { left: 0; bottom: 52px; }
-  #replaybar, #replaypick { bottom: 62px; }
+  .stage.has-rail .inspect-layout { left: 0; bottom: 52px; }
+  #replaybar, #replaypick, .stage.has-bottombar #replaybar, .stage.has-bottombar #replaypick { bottom: 62px; }
   .toasts { bottom: 60px; }
+  /* The touch bar takes the bottom bar's place. Two classes on the root, to
+     outrank the widget sheet's own display rule, which loads after this one. */
+  .host-bottombar.oac-widget > .oac-bottombar { display: none; }
+  body:has(.stage.has-bottombar) #goto { display: inline-flex; }
   .mobilebar { position: absolute; z-index: 24; left: 0; right: 0; bottom: 0; height: 52px;
     box-sizing: border-box; display: flex; align-items: center; gap: 6px; padding: 4px 8px;
     overflow-x: auto; overflow-y: hidden; scrollbar-width: none; touch-action: pan-x;
@@ -787,6 +876,9 @@ body[data-fullscreen-pane="2"] #chart2 { left: 42px; }
   .mobilebar button { padding: 0 12px; cursor: pointer; }
   .mobilebar button:disabled { color: var(--faint); cursor: default; }
   .mobilebar button[aria-pressed="true"] { color: var(--acc-2); border-color: var(--on-bd); background: var(--on-bg); }
+}
+@media (max-width: 900px), (pointer: coarse) {
+  :root { --h: 40px; }
   .tbtn, .btn, .field, .set-foot .btn, .chartstate__actions .btn, #replayleave button, #replaypick button,
   .menu button, #ctxmenu button, .axrow, #snapmenu button, .set-tab, .cset-tab,
   .set-head button, .toast__x, .cmp-row .cmp-del, .fsexit { min-height: 40px; }
@@ -820,3 +912,59 @@ body[data-fullscreen-pane="2"] #chart2 { left: 42px; }
   color: var(--mut); font-size: 12px; line-height: 1; cursor: pointer; user-select: none; }
 .symkey:hover { background: var(--elev, #1a1f2c); border-color: var(--bd); color: var(--tx); }
 .symkey:focus-visible { outline: 2px solid var(--acc, #4f8cff); outline-offset: 1px; }
+
+/* A chart and its information dock share one measured plot row. The widget
+   scope supplies component tokens without imposing the standalone shell grid. */
+.inspect-layout.oac-widget { position: absolute; inset: 0; display: flex; min-width: 0;
+  width: auto; height: auto; grid-template: none; background: transparent; overflow: hidden; }
+.stage.has-rail .inspect-layout { left: 42px; }
+.stage.has-rail .inspect-layout #chart,
+.p2plot .inspect-layout #chart2 { position: relative; inset: auto; flex: 1 1 auto; min-width: 0; height: 100%; }
+body[data-fullscreen-pane="2"] .p2plot .inspect-layout { left: 42px; }
+.oac-widget .host-symbol-search { min-width: 245px; padding: 7px; }
+.oac-widget .host-symbol-search > input { width: 100%; height: 32px; padding: 0 8px;
+  background: var(--oac-elev); border: 1px solid var(--oac-bd); border-radius: 5px; }
+.set-body.host-form-widget.oac-widget { width: auto; height: auto; background: transparent;
+  display: grid; grid-template-rows: none; grid-auto-rows: max-content; overflow: auto; }
+.set-body.host-form-widget.oac-widget:has(.oac-color__popover:not([hidden])) { overflow: visible; }
+.set-card:has(.oac-color__popover:not([hidden])),
+.cset-card:has(.oac-color__popover:not([hidden])) { overflow: visible; }
+.pb-pop.host-drawing-widget.oac-widget { display: block; width: auto; height: auto;
+  overflow: visible; background: var(--panel); }
+.pb-shared-color { justify-content: space-between; }
+.pb-pop .pb-shared-color .oac-color { flex: 0 0 27px; }
+@media (max-width: 900px) {
+  .stage.has-rail .inspect-layout { left: 0; bottom: 52px; }
+  body[data-fullscreen-pane="2"] .p2plot .inspect-layout { left: 0; bottom: 50px; }
+}
+
+/* ── grid view (grid.html) ─────────────────────────────────────
+   The bar reuses the shell's buttons; the stage is the chart grid itself,
+   which draws its own gaps, splitters and active outline from its tokens. */
+.gridbar { flex: none; }
+.gridbar .brand { gap: 8px; padding: 0 4px; }
+.gridbar__name { white-space: nowrap; }
+.gridbar__status { margin-left: auto; color: var(--mut); font-size: 12px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; max-width: 42ch; }
+.gridbar svg { width: 16px; height: 16px; }
+.grid-stage { position: relative; flex: 1 1 0; min-height: 0; }
+.grid-stage > .oac-grid { position: absolute; inset: 0; }
+@media (max-width: 900px) {
+  .gridbar { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .gridbar__status { display: none; }
+}
+
+/* Inline rows in the generated settings form: the lead input's label, then
+   each member's own label and control in the control column. The column takes
+   what the label leaves and wraps its members inside itself on a narrow card,
+   so a row of three never widens the card or scrolls it sideways. */
+.set-row--inline { grid-template-columns: 15px auto minmax(0, 1fr); }
+.set-row--inline .set-ctl { flex-wrap: wrap; row-gap: 4px; }
+.set-inline { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.set-inline > label { color: var(--mut); font-size: 12px; white-space: nowrap; cursor: pointer; }
+.set-inline--off > label { color: var(--faint); cursor: not-allowed; }
+.set-row--inline .set-ctl input[type=number] { flex: 0 0 64px; width: 64px; }
+.set-row--inline .set-ctl select { flex: 0 1 auto; }
+/* A condition hides these through the hidden attribute, which a display rule
+   of their own would otherwise outrank. */
+.set-row[hidden], .set-group[hidden], .set-inline[hidden], .set-row > [hidden] { display: none; }

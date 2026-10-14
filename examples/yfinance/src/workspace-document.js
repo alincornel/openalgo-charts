@@ -1,15 +1,18 @@
 import { parseWorkspacePayload, WorkspaceDocumentError } from '/dist/openalgo-charts.workspace.mjs';
+import { stripView } from '/dist/openalgo-charts.widget.mjs';
 import { primaryLayoutSelection, datasetKey, LAYOUT_SCHEMA } from './persist.js';
-import { clampPeriod } from './intervals.js';
+import { clampPeriod, foldedInterval, PERIODS, PERIOD_DAYS } from './intervals.js';
+import { EXTENDED, extendedSessionAvailable } from './session.js';
 import { VOLUME_DEFAULTS, volumeValues } from './volume.js';
 import { normalizeLegendIconSize } from './chart-settings.js';
 
 const CHART_FIELDS = ['version', 'timezone', 'navigation', 'canvas', 'statusLine', 'watermark',
   'trading', 'events', 'axisChrome', 'viewport', 'barSpacing', 'grid', 'crosshairMode',
-  'crosshairSnapToBar', 'indicators', 'alerts', 'drawings', 'panes', 'series'];
+  'crosshairSnapToBar', 'priceOnlyAutoScale', 'indicatorLegendCollapsed', 'indicators', 'alerts', 'drawings', 'panes', 'primaryPane', 'series'];
 const COMPARISON_MODES = ['percentage', 'indexed-to-100', 'none'];
 const SCALE_MODES = ['linear', 'logarithmic', 'percentage', 'indexed-to-100'];
-const HOST_SETTINGS = ['reference.pfmode', 'reference.compareMode', 'reference.compareBaseMode', 'reference.whenMissing', 'reference.legendIconSize'];
+const HOST_SETTINGS = ['reference.pfmode', 'reference.compareMode', 'reference.compareBaseMode', 'reference.whenMissing', 'reference.legendIconSize',
+  'reference.inspectionPanel', 'reference.inspectionWidth'];
 const fail = message => { throw new WorkspaceDocumentError(message); };
 
 function chartFields(state) {
@@ -23,12 +26,17 @@ function paneFromLayout(saved, state, id, rail, whenMissing) {
     'reference.pfmode': selection.pfmode || 'atr', 'reference.compareMode': saved.compareMode || 'percentage',
     'reference.whenMissing': whenMissing, 'reference.legendIconSize': normalizeLegendIconSize(saved.legendIconSize) };
   if (saved.compareBaseMode != null) settings['reference.compareBaseMode'] = saved.compareBaseMode;
+  if (saved.inspection) {
+    settings['reference.inspectionPanel'] = saved.inspection.panel || 'closed';
+    settings['reference.inspectionWidth'] = saved.inspection.width;
+  }
   const comparisons = (saved.comparisons || []).map((item, index) => ({
     id: `${id}:comparison:${index}`, symbol: item.symbol, exchange: '', visible: item.hidden !== true,
     ...(item.color === undefined ? {} : { color: item.color }),
   }));
   return { id, symbol: selection.request.symbol, interval: selection.request.interval,
     historyPeriod: selection.request.period, exchange: '',
+    ...(selection.request.session === 'extended' ? { variant: { ...EXTENDED } } : {}),
     chartType: selection.chartType || 'candlestick', chart: chartFields(state), settings,
     volume: settings['volume.visible'], magnet: rail.magnet, stay: rail.stay, comparisons,
     comparisonMode: settings['reference.compareMode'] === 'none' ? 'price' : 'percent' };
@@ -63,13 +71,54 @@ function secondaryWidth(payload) {
   return 100 * weights[1] / (weights[0] + weights[1]);
 }
 
+/** One chart, or two side by side: the geometry this page draws itself. */
+const singleOrSplit = payload => {
+  const grid = payload.layout;
+  return grid.rows === 1 && grid.columns === payload.panes.length && grid.columns <= 2
+    && grid.slots.every(slot => slot.row === 0 && slot.rowSpan === 1 && slot.columnSpan === 1);
+};
+
+/** A valid layout whose geometry only the grid view (grid.html) can show. */
+export function needsGridView(input) {
+  try { return !singleOrSplit(parseWorkspacePayload(input)); }
+  catch { return false; }
+}
+
+// The grid view (grid.html) writes each chart's widget theme under this key.
+const GRID_THEME = 'widget.theme';
+// The periods the grid view's server knows and this page has no range for, as
+// the range nearest in length, by ratio: twice and half as long are equally
+// near, and the year to date counts as the year it can reach.
+const NEAREST_PERIOD = new Map([['1d', '1mo'], ['5d', '1mo'], ['3mo', '6mo'], ['ytd', '1y'], ['2y', '1y'], ['10y', '5y']]);
+
+/**
+ * A layout the grid view exported, in this page's terms. This page sets one
+ * theme for the whole page, so the per-chart widget theme is dropped; the
+ * widget's weekly code becomes the source's; and a saved period becomes this
+ * page's nearest range, clamped to what the chart's interval can serve the
+ * way this page clamps its own. The grid view loads its own periods, so a
+ * saved window, which counts bars, would land on other bars here: each chart
+ * opens fitted to its data instead, with its studies and drawings. Any
+ * document without the grid view's theme comes back unchanged, so this page's
+ * own files keep every strict check.
+ */
+export function fromGridView(input) {
+  const panes = Array.isArray(input?.panes) ? input.panes : [];
+  if (!panes.some(pane => Object.prototype.hasOwnProperty.call(pane?.settings ?? {}, GRID_THEME))) return input;
+  return { ...input, panes: panes.map(pane => {
+    const settings = { ...pane?.settings }, interval = pane?.interval === '1w' ? '1wk' : pane?.interval;
+    const period = PERIODS.includes(pane?.historyPeriod) ? pane.historyPeriod : NEAREST_PERIOD.get(pane?.historyPeriod);
+    delete settings[GRID_THEME];
+    return { ...pane, settings, interval, chart: pane?.chart && typeof pane.chart === 'object' ? stripView(pane.chart) : pane?.chart,
+      ...(period === undefined ? {} : { historyPeriod: clampPeriod(interval, period) }) };
+  }) };
+}
+
 /** Library validity does not imply the current host can honor every saved option. */
 export function validateReferenceWorkspace(input) {
   const payload = parseWorkspacePayload(input);
-  const grid = payload.layout;
-  if (grid.rows !== 1 || grid.columns !== payload.panes.length || grid.columns > 2
-    || grid.slots.some(slot => slot.row !== 0 || slot.rowSpan !== 1 || slot.columnSpan !== 1)) {
-    fail('This host supports one chart or two horizontal charts; unsupported workspace geometry');
+  if (!singleOrSplit(payload)) {
+    fail('This page shows one chart or two horizontal charts; open other workspace geometry in the grid view');
   }
   if (payload.panes.length === 2 && (secondaryWidth(payload) < 18 || secondaryWidth(payload) > 78)) {
     fail('The second chart width must be between 18 and 78 percent');
@@ -78,10 +127,27 @@ export function validateReferenceWorkspace(input) {
   for (const pane of payload.panes) {
     if (pane.exchange) fail('This reference feed uses ticker symbols, not separate exchange identifiers');
     const period = pane.historyPeriod ?? clampPeriod(pane.interval, '1y');
+    // This source serves a session and nothing else: regular hours, which are
+    // its default series, and extended hours where it has them. A saved
+    // adjustment, currency or unit, or extended hours it does not have, would
+    // reopen as some other series.
+    if (pane.variant !== undefined) {
+      if (Object.keys(pane.variant).some(key => key !== 'session')) fail('This reference feed serves only regular or extended trading hours');
+      if (pane.variant.session === 'extended'
+        && !extendedSessionAvailable(pane.symbol, foldedInterval(pane.interval)?.foldFrom || pane.interval)) {
+        fail(`Extended hours are not available for ${pane.symbol} ${pane.interval}`);
+      }
+    }
     primaryLayoutSelection({ request: { symbol: pane.symbol, interval: pane.interval, period },
       chartType: pane.chartType, pfmode: pane.settings['reference.pfmode'], timezone: pane.chart.timezone });
-    if (clampPeriod(pane.interval, period) !== period) fail('The saved history period is unavailable at this interval');
-    pane.historyPeriod = period;
+    // A period longer than the interval can serve would reopen with less
+    // history than was saved, so it is refused. One shorter than the
+    // interval's floor (a daily chart saved over a year, before daily charts
+    // loaded five) reopens with more history and the same view, so it is
+    // raised to the floor.
+    const served = clampPeriod(pane.interval, period);
+    if (served !== period && PERIOD_DAYS[period] > PERIOD_DAYS[served]) fail('The saved history period is unavailable at this interval');
+    pane.historyPeriod = served;
     for (const key of Object.keys(pane.settings)) {
       if (!HOST_SETTINGS.includes(key) && !Object.prototype.hasOwnProperty.call(VOLUME_DEFAULTS, key)) {
         fail(`Unsupported workspace setting: ${key}`);
@@ -92,6 +158,10 @@ export function validateReferenceWorkspace(input) {
     if (legendSize !== undefined && legendSize !== normalizeLegendIconSize(legendSize)) {
       fail('Invalid workspace setting: reference.legendIconSize');
     }
+    const dockPanel = pane.settings['reference.inspectionPanel'];
+    const dockWidth = pane.settings['reference.inspectionWidth'];
+    if (dockPanel !== undefined && !['closed', 'data', 'objects'].includes(dockPanel)) fail('Invalid information panel');
+    if (dockWidth !== undefined && (!Number.isInteger(dockWidth) || dockWidth < 240 || dockWidth > 480)) fail('Invalid information panel width');
     for (const key of Object.keys(VOLUME_DEFAULTS)) {
       if (pane.settings[key] !== undefined && pane.settings[key] !== normalizedVolume[key]) fail(`Invalid workspace setting: ${key}`);
     }
@@ -124,14 +194,19 @@ export function validateReferenceWorkspace(input) {
 }
 
 function paneToLayout(pane) {
-  const request = { symbol: pane.symbol, interval: pane.interval, period: pane.historyPeriod };
+  const request = { symbol: pane.symbol, interval: pane.interval, period: pane.historyPeriod,
+    ...(pane.variant?.session === 'extended' ? { session: 'extended' } : {}) };
   return { request, chartType: pane.chartType, pfmode: pane.settings['reference.pfmode'] || 'atr',
     legendIconSize: normalizeLegendIconSize(pane.settings['reference.legendIconSize']),
     volume: pane.volume, volumeSettings: volumeValues({ 'volume.visible': pane.volume, ...pane.settings }),
     comparisons: pane.comparisons.map(item => ({ symbol: item.symbol, hidden: !item.visible,
       ...(item.color === undefined ? {} : { color: item.color }) })),
     compareMode: pane.settings['reference.compareMode'] || (pane.comparisonMode === 'price' ? 'none' : 'percentage'),
-    ...(pane.settings['reference.compareBaseMode'] === undefined ? {} : { compareBaseMode: pane.settings['reference.compareBaseMode'] }) };
+    ...(pane.settings['reference.compareBaseMode'] === undefined ? {} : { compareBaseMode: pane.settings['reference.compareBaseMode'] }),
+    ...(pane.settings['reference.inspectionPanel'] === undefined ? {} : { inspection: {
+      panel: pane.settings['reference.inspectionPanel'] === 'closed' ? null : pane.settings['reference.inspectionPanel'],
+      width: pane.settings['reference.inspectionWidth'] ?? 300,
+    } }) };
 }
 
 /** Validate the entire document before returning anything a live host can apply. */

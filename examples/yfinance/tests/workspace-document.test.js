@@ -33,6 +33,60 @@ function layout() {
 }
 
 describe('reference workspace documents', () => {
+  it('saves a chart on extended hours as the engine variant and reopens it on extended hours', () => {
+    const original = layout();
+    original.secondary.request = { ...original.secondary.request, session: 'extended' };
+    const saved = workspaceFromLayout(original);
+    expect(saved.panes[0]).not.toHaveProperty('variant');
+    expect(saved.panes[1].variant).toEqual({ session: 'extended' });
+    const restored = layoutFromWorkspace(saved);
+    expect(restored.request).not.toHaveProperty('session');
+    expect(restored.secondary.request.session).toBe('extended');
+  });
+  it('refuses a variant this source cannot serve instead of reopening another series', () => {
+    const saved = workspaceFromLayout(layout());
+    const secondary = saved.panes[1];
+    for (const variant of [{ adjustment: 'raw' }, { session: 'extended', currency: 'USD' }]) {
+      expect(() => validateReferenceWorkspace({ ...saved, panes: [saved.panes[0], { ...secondary, variant }] }), JSON.stringify(variant)).toThrow();
+    }
+    // Regular hours by name are this source's default series.
+    expect(layoutFromWorkspace({ ...saved, panes: [saved.panes[0], { ...secondary, variant: { session: 'regular' } }] }).secondary.request)
+      .not.toHaveProperty('session');
+    // Extended hours for a daily chart, which this source has none of.
+    expect(() => validateReferenceWorkspace({ ...saved, panes: [{ ...saved.panes[0], interval: '1d', variant: { session: 'extended' } }, secondary] }))
+      .toThrow(/not available/);
+  });
+  it.each(['priceOnlyAutoScale', 'indicatorLegendCollapsed'])('retains independent %s choices in both chart slots', preference => {
+    const original = layout();
+    original[preference] = true;
+    original.secondary.state[preference] = false;
+    const restored = layoutFromWorkspace(workspaceFromLayout(original));
+    expect(restored[preference]).toBe(true);
+    expect(restored.secondary.state[preference]).toBe(false);
+  });
+  it('keeps a price pane moved below its studies in either chart slot', () => {
+    const original = layout();
+    const panes = [{ weight: 0.32, priceScale: { marginTop: 0.1, marginBottom: 0.1, minMove: 0, mode: 'linear', inverted: false, autoScale: true } },
+      { weight: 1, priceScale: { marginTop: 0.1, marginBottom: 0.1, minMove: 0.01, mode: 'linear', inverted: false, autoScale: true } }];
+    Object.assign(original, { version: 2, panes, primaryPane: 1 });
+    original.secondary.state = { ...original.secondary.state, version: 2, panes, primaryPane: 1 };
+    const saved = workspaceFromLayout(original);
+    expect(saved.panes.map(pane => [pane.chart.version, pane.chart.primaryPane])).toEqual([[2, 1], [2, 1]]);
+    const restored = layoutFromWorkspace(saved);
+    expect([restored.version, restored.primaryPane]).toEqual([2, 1]);
+    expect(restored.secondary.state.primaryPane).toBe(1);
+    // A layout with its price pane on top is written exactly as before.
+    expect('primaryPane' in layoutFromWorkspace(workspaceFromLayout(layout()))).toBe(false);
+  });
+  it('round-trips independent information dock choices and widths', () => {
+    const original = layout();
+    original.inspection = { panel: 'data', width: 280 };
+    original.secondary.inspection = { panel: 'objects', width: 340 };
+    const saved = workspaceFromLayout(original);
+    expect(layoutFromWorkspace(saved)).toMatchObject({
+      inspection: original.inspection, secondary: { inspection: original.secondary.inspection },
+    });
+  });
   it('round-trips independent legend button sizes and defaults legacy layouts', () => {
     const original = layout();
     original.legendIconSize = 24;
@@ -54,7 +108,8 @@ describe('reference workspace documents', () => {
     expect(document.layout.columnWeights).toEqual([65, 35]);
     expect(document.activePaneId).toBe(document.layout.slots[1].paneId);
     const restored = layoutFromWorkspace(document);
-    expect(restored).toMatchObject({ request: { symbol: 'AAPL', interval: '1d', period: '1y' },
+    // The layout saved its daily chart over one year, before daily charts loaded five.
+    expect(restored).toMatchObject({ request: { symbol: 'AAPL', interval: '1d', period: '5y' },
       chartType: original.chartType, pfmode: 'percent', timezone: 'America/New_York',
       compareMode: 'indexed-to-100', compareBaseMode: 'logarithmic', comparisons: original.comparisons,
       focusPane: 2, linkOptions: original.linkOptions, volume: false, volumeSettings: original.volumeSettings,
@@ -90,10 +145,32 @@ describe('reference workspace documents', () => {
     const source = layout(); delete source.secondary; delete source.request; delete source.chartType; delete source.pfmode;
     const saved = workspaceFromLayout(source);
     expect(saved.panes).toHaveLength(1);
-    expect(saved.panes[0]).toMatchObject({ symbol: 'AAPL', chartType: 'candlestick', historyPeriod: '1y' });
-    expect(layoutFromWorkspace(saved)).toMatchObject({ focusPane: 1, request: { symbol: 'AAPL', interval: '1d', period: '1y' } });
+    // The legacy key names a daily year, which opens at the five year daily floor.
+    expect(saved.panes[0]).toMatchObject({ symbol: 'AAPL', chartType: 'candlestick', historyPeriod: '5y' });
+    expect(layoutFromWorkspace(saved)).toMatchObject({ focusPane: 1, request: { symbol: 'AAPL', interval: '1d', period: '5y' } });
     expect(layoutFromWorkspace(saved).secondary).toBeUndefined();
     expect(() => workspaceFromLayout({ ...source, dataset: 'A|B|1d|1y' })).toThrow(/source|request/i);
+  });
+
+  it('raises a period saved under the interval floor, and still refuses one past its cap', () => {
+    const saved = workspaceFromLayout(layout());
+    const opened = (interval, historyPeriod) => {
+      Object.assign(saved.panes[0], { interval, historyPeriod });
+      return validateReferenceWorkspace(saved).panes[0].historyPeriod;
+    };
+    // More history than was saved, over the same view: the chart opens rather than being refused.
+    expect(opened('1d', '1y')).toBe('5y');
+    expect(layoutFromWorkspace(saved).request).toMatchObject({ interval: '1d', period: '5y' });
+    expect(['1mo', '6mo'].map(period => opened('1d', period))).toEqual(['5y', '5y']);
+    expect(opened('1mo', '1y')).toBe('5y');
+    // The ranges an interval serves are kept as saved.
+    expect(['5y', 'max'].map(period => opened('1d', period))).toEqual(['5y', 'max']);
+    expect(opened('1h', '6mo')).toBe('6mo');
+    // Less history than was saved would reopen as some other view.
+    for (const [interval, period] of [['1h', '5y'], ['15m', '6mo'], ['5m', 'max']]) {
+      Object.assign(saved.panes[0], { interval, historyPeriod: period });
+      expect(() => validateReferenceWorkspace(saved), `${interval} ${period}`).toThrow(/unavailable at this interval/);
+    }
   });
 
   it('keeps legacy volume visibility when a partial settings object does not repeat it', () => {

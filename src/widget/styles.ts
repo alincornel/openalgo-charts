@@ -30,6 +30,14 @@ export const WIDGET_CSS = `
 .oac-widget button { cursor: pointer; }
 .oac-widget kbd { font: 11px/1 ${v('mono')}; font-variant-numeric: tabular-nums; }
 .oac-widget [hidden] { display: none !important; }
+.oac-widget .oac-row:has(> .oac-input-error:not([hidden])) { flex-wrap: wrap; }
+.oac-widget .oac-input-error { flex-basis: 100%; min-width: 0; color: ${v('danger')}; font-size: 11px; overflow-wrap: anywhere; }
+.oac-widget .oac-row__ctl:has([data-input-action]) { flex-wrap: wrap; }
+.oac-widget .oac-row__ctl [data-input-action] { font-size: 11px; padding: 3px 7px; }
+.oac-widget [aria-invalid="true"] { border-color: ${v('danger')}; }
+.oac-widget .oac-input-pick { position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px; max-width: calc(100% - 16px); padding: 8px;
+  color: ${v('tx')}; background: ${v('panel')}; border: 1px solid ${v('bd')}; border-radius: 6px; pointer-events: auto; }
 
 /* Scrollbars: a thumb one step lighter than its panel, and no visible track. */
 .oac-widget * { scrollbar-width: thin; scrollbar-color: ${v('sb-thumb')} transparent; }
@@ -108,10 +116,11 @@ export const WIDGET_CSS = `
   width: 13px; height: 13px; margin-left: 5px; vertical-align: -2px; flex: none;
   border: 1px solid ${v('bd')}; border-radius: 50%; color: ${v('faint')};
   font-size: 9px; font-weight: 600; line-height: 1; cursor: help; user-select: none; }
-.oac-widget .oac-help:hover, .oac-widget .oac-help:focus-visible {
-  color: ${v('tx')}; border-color: ${v('bd-hover')}; outline: none; }
+.oac-widget .oac-help:hover { color: ${v('tx')}; border-color: ${v('bd-hover')}; }
+/* A heading's rows as one named group, laid out as if the box were not there. */
+.oac-widget .oac-form__group { display: contents; }
 
-/* Buttons: flat, 28px tall, a tint when pressed or armed. */
+/* Buttons: flat, 28px tall, a tint when pressed or active. */
 .oac-widget .oac-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   height: ${v('ctl-h')}; padding: 0 9px; background: transparent; border: 1px solid transparent;
   border-radius: ${v('radius')}; color: ${v('tx')}; white-space: nowrap; transition: background .1s, border-color .1s, color .1s; }
@@ -130,7 +139,7 @@ export const WIDGET_CSS = `
 .oac-widget .oac-glyph { display: inline-grid; place-items: center; line-height: 0; flex: none; }
 .oac-widget .oac-glyph > svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
 .oac-widget .oac-glyph--tool > svg { width: 24px; height: 24px; stroke-width: 2; }
-.oac-widget .oac-glyph--chrome > svg { width: 16px; height: 16px; stroke-width: 1.5; }
+.oac-widget .oac-glyph--chrome > svg { width: 16px; height: 16px; stroke-width: 2; }
 .oac-widget .oac-glyph--text { display: inline-grid; place-items: center; width: 24px; height: 24px;
   font-size: 12px; font-weight: 600; }
 .oac-widget .oac-chev { display: inline-grid; place-items: center; line-height: 0; color: ${v('mut')}; }
@@ -177,6 +186,9 @@ export const WIDGET_CSS = `
 .oac-widget .oac-menu__sub { color: ${v('faint')}; font-size: 11px; }
 .oac-widget .oac-menu__key { margin-left: auto; color: ${v('faint')}; }
 .oac-widget .oac-menu__empty { padding: 8px 10px; color: ${v('faint')}; }
+/* A hovered row is elev-2, where faint text no longer reads: its hints brighten with it. */
+.oac-widget .oac-menu__row:is(:hover, :focus-visible, .is-active) :is(.oac-menu__sub, .oac-menu__key),
+.oac-widget .oac-fly__row:is(:hover, :focus-visible) .oac-fly__chord { color: ${v('mut')}; }
 
 /* Stage: the rail on the left, the chart filling the rest. */
 .oac-widget .oac-stage { grid-row: 2; position: relative; min-height: 0; min-width: 0; display: flex; }
@@ -249,12 +261,14 @@ export const WIDGET_CSS = `
 .oac-widget .oac-fly__star[aria-pressed="false"] > svg { fill: none; }
 
 /* Tooltip */
+.oac-widget .oac-tip-spot { position: absolute; width: 1px; height: 1px; pointer-events: none; }
 .oac-widget .oac-tip { position: absolute; z-index: 200; left: 0; top: 0; max-width: 260px; pointer-events: none;
   padding: 5px 9px; border-radius: 6px; background: ${v('elev-2')}; color: ${v('tx')}; border: 1px solid ${v('bd')};
   box-shadow: ${v('shadow')}; font-size: 12px; line-height: 1.4; opacity: 0; transition: opacity .09s ease; }
 .oac-widget .oac-tip.is-on { opacity: 1; }
 .oac-widget .oac-tip__chord { margin-left: 10px; color: ${v('mut')}; }
-.oac-widget .oac-tip__sub { display: block; margin-top: 2px; color: ${v('faint')}; font-size: 11px; }
+/* The tip sits on elev-2, a step above the surfaces faint text is measured on. */
+.oac-widget .oac-tip__sub { display: block; margin-top: 2px; color: ${v('mut')}; font-size: 11px; }
 
 /* Status line */
 .oac-widget .oac-statusline { grid-row: 3; display: flex; align-items: center; gap: 12px; height: ${v('status-h')}; padding: 0 10px;
@@ -265,8 +279,8 @@ export const WIDGET_CSS = `
 .oac-widget .oac-statusline__field { display: inline-flex; align-items: center; gap: 4px; }
 .oac-widget .oac-statusline__field > i { font-style: normal; color: ${v('faint')}; }
 .oac-widget .oac-statusline__field > b { font-weight: 500; color: ${v('tx')}; }
-.oac-widget .oac-statusline .is-up > b { color: ${v('buy')}; }
-.oac-widget .oac-statusline .is-down > b { color: ${v('sell')}; }
+.oac-widget .oac-statusline .is-up > b { color: ${v('up')}; }
+.oac-widget .oac-statusline .is-down > b { color: ${v('down')}; }
 .oac-widget .oac-statusline__msg { margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: ${v('mut')}; }
 .oac-widget .oac-statusline__msg.is-error { color: ${v('danger')}; }
 .oac-widget .oac-statusline__tz { color: ${v('faint')}; }
@@ -305,6 +319,8 @@ export const WIDGET_CSS = `
 .oac-widget .oac-mobile-sheet__controls { grid-column: 1 / -1; display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr)); border-bottom: 1px solid ${v('bd-soft')}; margin-bottom: 6px; }
 .oac-widget .oac-mobile-sheet__body small { display: block; color: ${v('faint')}; }
+/* A sheet row with a glyph (a chart type): the glyph sits on the middle of its label, not the baseline. */
+.oac-widget .oac-mobile-sheet .oac-mobile__action > .oac-glyph { vertical-align: middle; margin: -2px 8px 0 0; }
 .oac-widget .oac-mobile-results { width: min(360px, calc(100% - 16px)); max-height: min(50%, 360px); overflow: hidden;
   display: flex; flex-direction: column; background: ${v('panel')}; border: 1px solid ${v('bd')}; border-radius: 10px; box-shadow: ${v('shadow')}; }
 .oac-widget .oac-mobile-results__head { flex: none; display: flex; align-items: center; gap: 8px; min-height: 44px;
@@ -347,6 +363,11 @@ export const WIDGET_CSS = `
 .oac-widget .oac-dialog__foot { flex: none; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 14px 12px;
   border-top: 1px solid ${v('bd-soft')}; }
 .oac-widget .oac-dialog__foot > .oac-spacer { flex: 1 1 auto; }
+.oac-widget .oac-csv { width: 490px; }
+.oac-widget .oac-csv__ranges, .oac-widget .oac-csv .oac-dialog__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.oac-widget .oac-csv__hint { color: ${v('mut')}; line-height: 1.5; }
+.oac-widget .oac-csv__error { color: ${v('danger')}; overflow-wrap: anywhere; }
+.oac-widget .oac-csv__error:empty { display: none; }
 
 /* Shortcuts panel */
 .oac-widget .oac-keys { columns: 2; column-gap: 24px; min-width: 520px; }
@@ -391,4 +412,15 @@ export function injectWidgetStyles(doc: Document, extra = '', nonce?: string): H
   style.textContent = WIDGET_CSS + extra;
   if (existing === null) (doc.head ?? doc.body ?? doc.documentElement).appendChild(style);
   return style;
+}
+
+/**
+ * Add the rules of a part that loads on first use (lazy.ts) to the sheet,
+ * once per document. Appended to the widget's own sheet they keep its CSP
+ * nonce, and they come after every rule they refine, as they did when the
+ * part was bundled in. A page with no sheet gets none here, as before.
+ */
+export function addWidgetStyles(doc: Document, css: string): void {
+  const style = doc.getElementById(WIDGET_STYLE_ID);
+  if (style !== null && !(style.textContent ?? '').includes(css)) style.appendChild(doc.createTextNode(css));
 }

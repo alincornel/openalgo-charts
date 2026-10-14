@@ -5,8 +5,8 @@ export { VERSION, version } from './version';
 
 export { createChart, Chart, compactVolume, PRICE_SCALE_MODES } from './core/chart';
 export type {
-  ChartOptions, ChartNavigationOptions, ChartWatermarkOptions, BrandingChangedEvent, AddSeriesOptions, CrosshairMoveEvent, ChartEventOptions,
-  ContextMenuEvent, ContextMenuTarget, ContextMenuTargetKind, PriceAxisState,
+  ChartOptions, ChartNavigationOptions, ChartWatermarkOptions, BrandingChangedEvent, PlotRect, AddSeriesOptions, CrosshairMoveEvent, ChartEventOptions,
+  ContextMenuEvent, ContextMenuTarget, ContextMenuTargetKind, PriceAxisState, LayoutChangeEvent, LayoutSetter,
   AxisChromeOptions, ZoomAnchor, DoubleClickAction, DoubleClickEvent, ExportSvgOptions,
   PointerModifiers, PointerKind, PointerSample, PointerInfo,
   ChartClickEvent, ChartEventClick, ChartDragEvent, ChartDragEndEvent, RendererFallbackEvent,
@@ -16,12 +16,13 @@ export type {
 export { SvgContext, SvgLinearGradient } from './render/svg-export';
 export type { SvgContextOptions } from './render/svg-export';
 export { exportChartDataCsv } from './model/chart-data-export';
-export type { ChartDataCsvOptions } from './model/chart-data-export';
+export type { ChartDataCsvOptions, ChartDataCsvRange, ChartDataColumn, ChartDataProjectionContext, ChartDataCsvFormatters } from './model/chart-data-export';
 export { Pane } from './core/pane';
 export { ChartObjects } from './model/chart-objects';
 export type {
   ChartObjectKind, ChartObjectCapabilities, ChartObjectSnapshot, ChartObjectDefinition,
-  ChartObjectProvider, ChartObjectDrawing, ChartObjectDrawingSource, ChartObjectsOptions,
+  ChartObjectProvider, ChartObjectDrawing, ChartObjectDrawingSource, ChartObjectDrawingGroup, ChartObjectsOptions,
+  ChartObjectBand,
 } from './model/chart-objects';
 export { darkTheme, lightTheme, DEFAULT_THEME } from './theme';
 export type { ChartTheme } from './theme';
@@ -41,6 +42,7 @@ export type { LogicalRange, TimeScaleOptions } from './scale/time-scale';
 export { niceTicks, precisionForStep } from './scale/ticks';
 // `AxisStyle` is what `resolveScaleStyle` returns, so it belongs with it.
 export type { TickMarkType, AxisStyle } from './render/axis';
+export type { PriceAxisSide, PriceAxisPlacement, PriceAxisSlot } from './model/price-axis-layout';
 
 // canvas option block (grid, crosshair, scales, margins). The resolvers are
 // values because a host building its own settings dialog previews with them.
@@ -93,30 +95,48 @@ export {
 export type {
   IndicatorDescriptor,
   IndicatorInput,
+  IndicatorInputCondition,
+  IndicatorInputConditionValue,
+  IndicatorInputPresentation,
   IndicatorPlot,
   PlotBarColor,
   IndicatorBarsRequest,
   IndicatorBarsProvider,
+  IndicatorBarsProviderAccess,
+  IndicatorSnapshotRequest,
+  IndicatorRequestState,
+  RequestedBarsSnapshot,
   IndicatorFillSpec,
+  IndicatorTableSpec,
   IndicatorLevel,
   IndicatorLevelContext,
   IndicatorLineStyle,
   IndicatorSettings,
   IndicatorSource,
+  IndicatorStudySource,
+  IndicatorStudyOutput,
   IndicatorStore,
   IndicatorValues,
   IndicatorAttachContext,
   IndicatorCalcContext,
+  IndicatorExecutionContext,
   IndicatorAlertSpec,
+  IndicatorAlertFrequency,
   IndicatorAlertContext,
   IndicatorAlertPayload,
   IndicatorDrawing,
+  IndicatorMarker,
+  IndicatorOutputTarget,
+  IndicatorBackgroundSpec,
   DrawAnchor,
 } from './model/indicator-registry';
 export type { IndicatorApi, IndicatorHost } from './model/indicator-instance';
+// What a user may do with a study, and the host's way past it.
+export { parseIndicatorPolicy } from './model/indicator-policy';
+export type { IndicatorPolicy, IndicatorEditOptions } from './model/indicator-policy';
 
 // serialisable chart state (saved layouts / templates / drawings passthrough)
-export { CHART_STATE_VERSION } from './model/chart-state';
+export { CHART_STATE_VERSION, parsePaneState } from './model/chart-state';
 export type {
   ChartState,
   PaneState,
@@ -124,6 +144,7 @@ export type {
   SeriesState,
   IndicatorState,
   RestoreReport,
+  ChartRestoreOptions,
 } from './model/chart-state';
 
 // settings dialog: a declarative schema in the same control vocabulary the
@@ -140,7 +161,7 @@ export type {
 export { ReplayController } from './replay/controller';
 export { isReplaying } from './model/replay-window';
 export type {
-  ReplayOptions, ReplayState, ReplayScheduler, ReplayChartHost, ReplayViewport,
+  ReplayOptions, ReplayState, ReplaySimulation, ReplayScheduler, ReplayChartHost, ReplayViewport,
 } from './replay/controller';
 export type { ReplayTiming, ReplayBarEndTime } from './replay/timeline';
 export { ReplayGroup } from './replay/group';
@@ -162,13 +183,13 @@ export { LinkGroup, createLinkGroup, followerIndex, followerRange, LinkCrosshair
 export type {
   LinkChart, LinkOptions, LinkMemberOptions, ResolvedLinkOptions,
   LinkDataLayer, LinkMissingPolicy,
-  LinkAppearanceAdapter, LinkAppearanceValues,
+  LinkAppearanceAdapter, LinkAppearanceValues, LinkDrawingsAdapter,
 } from './link/index';
 
 export { CandleBuilder, DEFAULT_CANDLE_BUILDER_OPTIONS } from './feed/candle-builder';
 export type { CandleBuilderOptions, Tick, CandleUpdate, VolumeMode, LateTickPolicy } from './feed/candle-builder';
 
-export type { SeriesApi, PriceScaleId, PriceFormat } from './model/series';
+export type { SeriesApi, PriceScaleId, PriceFormat, BarConfirmationOptions, SeriesUpdateOptions, SeriesDataState } from './model/series';
 
 // primitives / plugin API
 export { bestHit } from './primitives/primitive';
@@ -179,7 +200,7 @@ export { IndicatorDrawings } from './primitives/indicator-draws';
 export { IndicatorBackground } from './primitives/indicator-background';
 // `chart.dataLayer` is public, so its type has to be nameable by a consumer —
 // and a tier that takes one in its own public API needs to name *this* one.
-export type { DataLayer, IndexedBar, SeriesId } from './model/data-layer';
+export type { DataLayer, IndexedBar, SeriesId, SessionCalendarSource } from './model/data-layer';
 export { PriceLine } from './primitives/price-line';
 export type { PriceLineOptions, PriceLinePillSegment } from './primitives/price-line';
 // price-level family: previous close, session high/low, extended-hours opens
@@ -200,6 +221,9 @@ export { TextWatermark } from './primitives/text-watermark';
 export type { TextWatermarkOptions } from './primitives/text-watermark';
 export { ReplayShade } from './primitives/replay-shade';
 export type { ReplayShadeOptions } from './primitives/replay-shade';
+// opt-in wash behind pre-open, post-close and extended-hours bars, from a session calendar
+export { SessionShade, attachSessionShading } from './primitives/session-shade';
+export type { SessionShadeOptions, SessionShading } from './primitives/session-shade';
 export { BuySellButtons } from './primitives/buy-sell-buttons';
 export type { BuySellButtonsOptions } from './primitives/buy-sell-buttons';
 export { ChartTable, tableOrigin, DEFAULT_CHART_TABLE_OPTIONS } from './primitives/table';
@@ -230,13 +254,25 @@ export type { Bar, LinePoint, Whitespace, SeriesDataItem, UTCSeconds, OriginalTi
 export { isWhitespace, toBar } from './model/bar';
 
 export type { DataFeed, TradeFeed, BarsRequest, BarsPageRequest, BarsPage, BarSubscriptionOptions, LiveBarMeta, MarketDepth, DepthLevel, OrderSide, OrderType, PlaceOrder, UnsubscribeFn } from './feed/types';
-export { Instrument } from './feed/instrument';
-export type { InstrumentMetadata, InstrumentCalendar, InstrumentSession } from './feed/instrument';
+export type { InstrumentKey, QuoteSnapshot, QuoteRequest, QuoteStreamStatus, QuoteStreamHandlers, QuoteFeed, NewsRequest, NewsItem, NewsPage, NewsFeed } from './feed/types';
+export { Instrument, SessionCalendar } from './feed/instrument';
+export type { InstrumentMetadata, InstrumentCalendar, InstrumentSession, SessionCalendarSpec } from './feed/instrument';
+// market phases and status, derived from a calendar when the host supplies none
+export { marketStatusAt, calendarMarketPhase } from './feed/market-status';
+export type { SessionPhase, SessionPhaseSpan, SessionPhaseSource, MarketStatus } from './feed/market-status';
+export { TickSchedule } from './feed/tick-schedule';
+export type { TickBand } from './feed/tick-schedule';
 export { checkTradingCapability, assertTradingCapability, TradingCapabilityError } from './feed/trading-capabilities';
 export type { TradingOperation, TradingCapabilities, TradingCapabilityRequest, TradingCapabilitySource, TradingCapabilityResult } from './feed/trading-capabilities';
 export { HistoryRequestPool, sharedHistoryRequests } from './feed/request-pool';
 export type { HistoryRequestPoolOptions } from './feed/request-pool';
 export { DataLoadingController } from './feed/data-controller';
+export {
+  normalizeDataVariant, dataVariantKey, unsupportedDataVariant, dataVariantError, publishDataContext,
+} from './feed/data-variant';
+export type {
+  DataVariant, DataSession, DataAdjustment, DataVariantDimension, DataVariantCapabilities, DataVariantQuery, DataContextTarget,
+} from './feed/data-variant';
 export type { DataLoadingOptions, DataLoadingSnapshot, DataLoadingStatus, HistoryLoadingStatus, DataUpdateReason } from './feed/data-controller';
 export type { ChartDataContext, IndicatorDataChange, IndicatorDataStatus } from './model/indicator-registry';
 export { OpenAlgoDataFeed, mapHistoryResponse, rowTimeToUtcSeconds } from './feed/openalgo-rest';
@@ -359,7 +395,7 @@ export type {
 } from './input/shortcuts';
 
 export { beginPick } from './input/pick';
-export type { PickKind, PickHost } from './input/pick';
+export type { PickKind, PickHost, PickOptions, PickHandle, PickPoint } from './input/pick';
 
 export { AlertController } from './alerts/controller';
 export { alertSettingsSchema } from './alerts/schema';

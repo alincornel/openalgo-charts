@@ -108,7 +108,9 @@ interface ChartOptions {
   doubleClick?: 'reset' | 'maximize' | 'none';
   /** Mouse/pen pan direction and the initial/reset view. */
   navigation?: Partial<ChartNavigationOptions>;
+  /** Level of detail: one OHLC-preserving stick per device-pixel column under about one CSS px per bar. Default true. */
   conflate?: boolean;
+  /** Column width in sticks for the level of detail. Default 1. */
   conflationFactor?: number;
   /** Which backend paints the series. Default 'canvas2d'; 'webgl2' needs the webgl tier. */
   renderer?: 'canvas2d' | 'webgl2' | 'auto';
@@ -165,10 +167,13 @@ invisible and unclickable.
 createChart(el, { legendOffset: { top: 40 } });   // clear a two-line overlay
 ```
 
-It follows whichever pane currently renders at that corner: normally pane 0,
-but maximizing a lower pane moves it there instead, so the offset moves with it.
-Other panes keep the default corner, since a short lower pane would have its
-legend, and its settings / close / move-pane buttons, pushed off it entirely.
+It follows the price pane, which is the top pane until a user moves it below
+its studies: a readout of the price belongs to the price pane, wherever it sits.
+Maximizing a study pane hides the price pane and puts the maximized one in that
+corner, so the offset moves with it. Other panes keep the default corner, since a
+short study pane would have its legend, and its settings / close / move-pane
+buttons, pushed off it entirely. A readout drawn as DOM over the price pane should
+follow `chart.panes()[chart.primaryPaneIndex()].element` after `paneMoved`.
 </Callout>
 
 Options passed to `createChart(container, options)`. All fields are optional; defaults are sensible for browser use.
@@ -181,6 +186,7 @@ interface ChartNavigationOptions {
   mousePan: 'horizontal' | 'both';
   /** Newest loaded bars in the initial/reset view. 0 fits all loaded bars. */
   defaultVisibleBars: number;
+  defaultBarSpacing?: number;
 }
 ```
 
@@ -201,7 +207,7 @@ requests or discard data. See [Interactions](/docs/interactions).
 interface AddSeriesOptions {
   paneIndex?: number;
   style?: SeriesStyle;
-  priceScaleId?: 'right' | 'left' | '';
+  priceScaleId?: PriceScaleId;
   priceFormat?:
     | { type: 'price'; precision?: number; minMove?: number }
     | { type: 'volume' }
@@ -209,7 +215,7 @@ interface AddSeriesOptions {
 }
 ```
 
-Options passed to `chart.addSeries(type, options)`. `paneIndex` defaults to `0` (price pane); higher indices create sub-panes on demand. `priceScaleId` picks the axis: `'right'` (default) and `'left'` autoscale independently and each draw an axis; `''` is a hidden overlay scale (volume-in-price-pane). `priceFormat` sets that series' axis and crosshair-tag formatting. See [Scales & panes](/docs/scales-and-panes#left-right--overlay-price-scales).
+Options passed to `chart.addSeries(type, options)`. `paneIndex` defaults to `0` (price pane); higher indices create sub-panes on demand. `priceScaleId` is `'right'`, `'left'`, `''` or a named `overlay:name` scale. Each ID has an independent range; the built-in side IDs default to that side and overlays default to hidden. `setPriceAxisPlacement` changes visible placement without changing identity. `priceFormat` sets that scale's axis and crosshair-tag formatting. See [Scales & panes](/docs/scales-and-panes#multiple-axes-on-the-same-side).
 
 ### `CrosshairMoveEvent`
 
@@ -275,7 +281,7 @@ interface ContextMenuTarget {
 }
 ```
 
-Payload of `chart.on('contextmenu', ...)`. `target` is the part a canvas cannot work out for itself: it hands your app an object rather than a pixel. On a `'price-scale'` hit, `scaleId` is the scale that strip actually draws, which is `''` when the pane's values all live on the hidden overlay scale, and it is the argument the `priceAxis*` calls take. See [Settings & Menus](/docs/settings-and-menus#the-right-click-menu).
+Payload of `chart.on('contextmenu', ...)`. `target` is the part a canvas cannot work out for itself: it hands your app an object rather than a pixel. On a `'price-scale'` hit, `scaleId` identifies the column under the pointer, including a named overlay exposed on either side. Pass it to the `priceAxis*` calls. Unused outer cells reserved for another pane do not target a price scale. See [Settings & Menus](/docs/settings-and-menus#the-right-click-menu).
 
 ### `PriceAxisState`
 
@@ -284,7 +290,7 @@ interface PriceAxisState {
   paneIndex: number;
   scaleId: PriceScaleId;
   side: 'right' | 'left';
-  active: boolean;      // some series on the pane maps to this scale
+  active: boolean;      // attached series or an explicitly bound primitive uses this scale
   autoFit: boolean;
   inverted: boolean;
   mode: PriceScaleMode;
@@ -294,7 +300,7 @@ interface PriceAxisState {
 }
 ```
 
-Returned by `chart.priceAxisState(paneIndex, scaleId)`, or `null` for a pane that does not exist. Everything a menu over one axis needs to tick its own rows and grey what does not apply. The writers are `setPriceAxisOptions`, `setPriceAxisAutoFit`, `setPriceAxisLockRatio` and `movePriceAxis`; the last two return whether the axis is now in the state asked for. See [Settings & Menus](/docs/settings-and-menus#the-price-axis-menu).
+Returned by `chart.priceAxisState(paneIndex, scaleId)`, or `null` for a pane that does not exist. Everything a menu over one axis needs to tick its own rows and grey what does not apply. The writers are `setPriceAxisOptions`, `setPriceAxisAutoFit`, `setPriceAxisLockRatio`, `setPriceAxisPlacement` and the deprecated `movePriceAxis` (removed in 3.0.0); the last three return whether the axis is now in the state asked for. See [Settings & Menus](/docs/settings-and-menus#the-price-axis-menu).
 
 ### `PickKind`
 
@@ -317,11 +323,60 @@ interface PickHost {
 }
 ```
 
-The slice of a chart the standalone `beginPick(host, kind, cb)` needs. Structural, so `Chart` satisfies it with nothing to cast, and the module never imports the core. `chart.beginPick` is sugar over the exported function.
+The slice of a chart the standalone `beginPick(host, kind, cb)` needs. Structural,
+so `Chart` satisfies it without a cast. The chart method additionally checks plot
+bounds and supports explicit pane and scale targets.
+
+### `PickHandle`
+
+`PickHandle` is the callable cancellation handle returned by a pick. Its
+readonly `active(): boolean` method reports ownership of that invocation. It
+becomes false before `pick:end`, including when a notification listener cancels
+or replaces the pick synchronously.
+
+### `PickOptions`
+
+```ts
+interface PickOptions {
+  paneIndex?: number;
+  priceScaleId?: PriceScaleId;
+}
+```
+
+The optional third argument to `chart.beginPick`. Price-scale targeting applies
+to price picks only. The pane and scale must already exist; omitted fields retain
+the ordinary chart pick behavior.
 
 ---
 
 ## Scales
+
+### `PriceAxisSide`, `PriceAxisPlacement`, `PriceAxisSlot`
+
+```ts
+type PriceAxisSide = 'left' | 'right' | 'hidden';
+
+interface PriceAxisPlacement {
+  side: PriceAxisSide;
+  order: number;       // zero is nearest the plot
+}
+
+interface PriceAxisSlot {
+  scaleId: PriceScaleId;
+  side: 'left' | 'right';
+  order: number;
+  x: number;           // left edge in absolute pane CSS pixels from Chart.priceAxisLayout
+  width: number;       // width of this column in CSS pixels
+}
+```
+
+These types are exported from `openalgo-charts`. `priceAxisPlacement(pane, id)`
+returns a detached placement or `null`; `setPriceAxisPlacement(pane, id, side,
+order?)` returns whether placement changed. `priceAxisLayout(pane = 0)` returns
+the active columns. Placement can remain configured when a scale has no column.
+The optional `PriceScaleState.placement` field saves it in full chart and
+workspace state; indicator templates do not yet preserve column placement.
+See [multiple axes](/docs/scales-and-panes#multiple-axes-on-the-same-side).
 
 ### `PriceRange`
 
@@ -510,10 +565,14 @@ The string token passed to `chart.addSeries(type)`. See [Chart Types](/docs/char
 interface DrawItem {
   x: number; // bar center, media px
   bar: Bar;
+  /** Close of the bar left of the view, on the first item, when previous-close colouring asks. */
+  prevClose?: number;
+  /** On a neighbour beyond the view only: the x of the plot edge it lies past (media px). */
+  edgeX?: number;
 }
 ```
 
-One rendered bar slot passed to a custom renderer's `draw` function.
+One rendered bar slot passed to a custom renderer's `draw` function. For a renderer that sets `connectsBars`, the first and last item can be the series' nearest bar beyond each edge of the view, marked by `edgeX` (since 2.5.9): `0` on the left, the plot width on the right. Such a neighbour can sit millions of pixels off screen, so cut the segment to it at `edgeX` rather than stroke it all the way out, and draw nothing of its own. It is the series' very next bar, value or not: when it, or the bar in view next to it, has no value, join nothing across it.
 
 ### `SeriesRenderContext`
 
@@ -534,6 +593,8 @@ interface RendererEntry {
   defaultStyle: SeriesStyle;
   /** True for price series whose last close drives the last-price line. */
   isPriceSeries: boolean;
+  /** True for a renderer that joins each bar to the next: its items gain the neighbour beyond each edge. */
+  connectsBars?: boolean;
   draw(
     ctx: CanvasRenderingContext2D,
     items: readonly DrawItem[],
@@ -548,6 +609,8 @@ interface RendererEntry {
 ```
 
 Descriptor for a registered chart type. `extents` returns the min/max price contribution of a single bar for autoscaling. Register custom types with `registerChartType(name, entry)`. See [Chart Types](/docs/chart-types).
+
+`connectsBars` (since 2.5.9) is for a renderer that draws a segment from each bar to the next, as the built-in line, line-markers, step, area, HLC area and baseline do, and kagi in the transform tier. Its `items` then carry the series' nearest bar beyond each edge of the view as well as the bars in it, so the segment that crosses an edge is drawn: without them a sparse line (a level held for an hour, a position that steps twice a session) loses the part that enters from off screen, or all of it when none of its bars is in view. Autoscale still reads only the bars in view.
 
 ---
 
@@ -621,7 +684,7 @@ interface PrimitiveHit {
 }
 ```
 
-Returned by `IPrimitive.hitTest` when the pointer lands on the primitive. `externalId` is routed to `chart.subscribeClick`. `distance` is the pixel distance from the cursor; smaller values win ties before `zOrder` is considered.
+Returned by `IPrimitive.hitTest` when the pointer lands on the primitive. `externalId` is routed to `chart.subscribeClick`. `distance` is the pixel distance from the cursor, never negative; smaller values win ties before `zOrder` is considered.
 
 ### `PrimitiveHost`
 
@@ -641,12 +704,13 @@ interface IPrimitive {
   draw(ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext): void;
   autoscaleInfo?(): { min: number; max: number } | null;
   hitTest?(x: number, y: number, rc: PrimitiveRenderContext): PrimitiveHit | null;
+  hitBounds?(rc: PrimitiveRenderContext): { left: number; top: number; right: number; bottom: number } | null;
   attached?(host: PrimitiveHost): void;
   detached?(): void;
 }
 ```
 
-The extension point for custom overlays, indicators, and profiles. `autoscaleInfo` optionally expands the pane's price range so the primitive is not clipped by autoscale. `hitTest` receives media-px coordinates relative to the pane plot.
+The extension point for custom overlays, indicators, and profiles. `autoscaleInfo` optionally expands the pane's price range so the primitive is not clipped by autoscale. `hitTest` receives media-px coordinates relative to the pane plot. `hitBounds` returns the box, in those coordinates, outside which `hitTest` answers `null` (or `null` when nothing can be hit): a pointer move then asks `hitTest` only where the point is inside it. The pane keeps the box until the scales, the pane's layout, hover or the primitive's own state (announced through `requestUpdate`) change.
 
 ### `PriceLineOptions`
 
@@ -668,7 +732,7 @@ interface PriceLineOptions {
 }
 ```
 
-Options for `chart.addPriceLine(opts, paneIndex)`. `lineWidth` defaults to 1. `lineStyle` is the three-way form of `dashed` (`'solid' | 'dashed' | 'dotted'`, the same `CanvasLineStyle` the grid and crosshair use) and wins when both are set; with only `dashed` set, a line draws exactly as it always did. `id` is the `externalId` returned by hit-tests and routed to click/drag callbacks. `extentFromRight` (0..1) controls how far the line spans from the right axis (`1` = full width, the default). `badge`, `qty`, `leftLabel`, and `closeButton` compose the broker-style segmented pill group at the left end of the line (`[badge][qty][leftLabel][✕]`), where `badge` is a solid segment in the line color (e.g. `BUY`, `SL`), `qty` and `leftLabel` are neutral boxed segments, and the `✕` segment hit-tests as `${id}::close`. `PriceLine.setDragGhost(price | null)` shows a dimmed reference line at the pre-drag price while dragging.
+Options for `chart.addPriceLine(opts, paneIndex)`. `lineWidth` defaults to 1. `lineStyle` is the three-way form of `dashed` (`'solid' | 'dashed' | 'dotted'`, the same `CanvasLineStyle` the grid and crosshair use) and wins when both are set; with only `dashed` set, a line draws exactly as it always did. `id` is the `externalId` returned by hit-tests and routed to click/drag callbacks. `extentFromRight` (0..1) controls how far the line spans from the right axis (`1` = full width, the default). `badge`, `qty`, `leftLabel`, and `closeButton` compose the broker-style segmented pill group at the left end of the line (`[badge][qty][leftLabel][close]`), where `badge` is a solid segment in the line color (e.g. `BUY`, `SL`), `qty` and `leftLabel` are neutral boxed segments, and the close segment hit-tests as `${id}::close`. `PriceLine.setDragGhost(price | null)` shows a dimmed reference line at the pre-drag price while dragging.
 
 ### `PriceLevelStyle`
 
@@ -1146,14 +1210,14 @@ Config for `OpenAlgoTradeFeed`. `defaultProduct` defaults to `'MIS'`.
 
 ```ts
 interface SupertrendPoint {
-  /** The Supertrend band value, or NaN during ATR warmup. */
+  /** The Supertrend band value, or NaN during ATR warmup and on a bar with no ATR or no close. */
   value: number;
   /** -1 = uptrend (bullish), +1 = downtrend (bearish). */
   direction: -1 | 1;
 }
 ```
 
-One element per bar in the array returned by `supertrend(bars, period, multiplier)`. `value` holds the Supertrend band level; it is `NaN` for warmup bars while ATR accumulates the required history. `direction` follows the OpenAlgo convention: `-1` means the band is below price and acting as support (uptrend, bullish); `+1` means it is above price and acting as resistance (downtrend, bearish).
+One element per bar in the array returned by `supertrend(bars, period, multiplier)`. `value` holds the Supertrend band level; it is `NaN` for warmup bars while ATR accumulates the required history, and on a bar with no ATR or no close, which leaves the bands and the direction as they were for the next complete bar. `direction` follows the OpenAlgo convention: `-1` means the band is below price and acting as support (uptrend, bullish); `+1` means it is above price and acting as resistance (downtrend, bearish).
 
 ```ts
 import type { SupertrendPoint } from 'openalgo-charts';
@@ -1180,7 +1244,11 @@ interface IndicatorCalcContext {
 
 The optional trailing argument to a descriptor's `calc` (fourth) and `calcTail` (sixth): what the calculation cannot read off the bars themselves. Being optional and trailing is the point, since every descriptor written against `calc(bars, settings, store)` keeps its exact signature and behaviour.
 
-`isConfirmed` is inferred from the last bar's gap against the chart clock, the only interval signal the engine has, so a session break or a holiday widens it. `isRealtime` is sticky once set. `symbol` and `interval` are `undefined` under `chart.addIndicator`, since the core is handed bars and never an instrument. See [The calculation context](/docs/indicators#the-calculation-context).
+`isConfirmed` uses the declared duration or calendar boundary. Unknown and count-driven
+intervals remain unconfirmed. Hosts without an interval retain the legacy gap estimate;
+empty history is confirmed. `isRealtime` is sticky once set. `symbol` and `interval`
+come from `chart.setDataContext` or a custom host and remain undefined when not supplied.
+See [The calculation context](/docs/indicators#the-calculation-context).
 
 ### `IndicatorAlertSpec`
 

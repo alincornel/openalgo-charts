@@ -13,20 +13,31 @@ import { widgetText } from '../localization';
  * hand off to their own surfaces (the level editor, the inline text editor)
  * because a ladder of eight rows and a box laid over the canvas are not
  * things a form row can hold.
+ *
+ * A second tab lists every anchor as a date, a time and a price
+ * (`drawing-coordinates.ts`). The template control bottom left saves the
+ * look as the tool's default or by name, and applies a saved one, when the
+ * widget was given a template store.
  */
 import { applyDrawingSettings, drawingSettingsSchema, getDrawingTool, readDrawingSettings } from 'openalgo-charts/draw';
 import type { Drawing, DrawingTool, SettingsSchema } from 'openalgo-charts/draw';
-import type { WidgetContext } from '../context';
+import { editableIds, type WidgetContext } from '../context';
+import { commandChord } from '../keymap';
 import {
-  button, controlsFromFields, dialogFrame, el, glyphSvg, openPanel, placePanel, renderForm, selectionPoint,
+  button, controlsFromFields, dialogFrame, el, openPanel, placePanel, renderForm, selectionPoint, tabList,
   type ButtonSpec, type FormHandle, type PanelHandle,
 } from '../form';
+import { openMenu } from '../topbar';
+import { templateMenuRows } from '../drawing-templates';
+import { mountDrawingCoordinates, type DrawingCoordinatesHandle } from './drawing-coordinates';
 import { mountLevelEditor } from './level-editor';
 import { mountTextEditor } from './text-editor';
 
 export interface DrawingPropertiesOptions {
   /** The drawings to edit; they become the selection. Default: the current selection. */
   ids?: readonly string[];
+  /** The tab to open on: the settings (default) or the anchors. */
+  tab?: 'style' | 'coordinates';
   /** Runs once when the dialog is gone. */
   onClose?(): void;
 }
@@ -91,9 +102,6 @@ export function resolvedDrawingValues(d: Drawing, schema: SettingsSchema, tool: 
   return out;
 }
 
-const ABOVE_GLYPH = 'M3 4h10M8 14V6M5 9l3-3 3 3';
-const BEHIND_GLYPH = 'M3 12h10M8 2v8M5 7l3 3 3-3';
-
 function toolOf(id: string): DrawingTool | null {
   try { return getDrawingTool(id); } catch { return null; }
 }
@@ -118,8 +126,12 @@ export function mountDrawingProperties(ctx: WidgetContext, anchor?: HTMLElement,
   let schema = commonSchema(live.map((d) => d.tool));
   let tool = toolOf(live[0].tool);
   let form: FormHandle | null = null;
+  let shownWhy: string | null = null;
 
   const titleOf = (): string => (live.length === 1 ? widgetText(ctx, `schema.drawing.${live[0].tool}.name`, {}, tool?.name ?? live[0].tool) : widgetText(ctx, '{count} drawings', { count: live.length }));
+  // A selection the user may not edit opens read-only: every value stays
+  // readable, and every control that would change one is greyed with why.
+  const lockedOut = (): string | null => editableIds(draw, ids).length === 0 ? widgetText(ctx, 'read-only') : null;
   const values = (): Record<string, unknown> => resolvedDrawingValues(live[0], schema, tool, ctx.chartTheme.lineColor);
 
   /** Write `{ path: value }` to every selected drawing as one undo entry. */
@@ -132,6 +144,12 @@ export function mountDrawingProperties(ctx: WidgetContext, anchor?: HTMLElement,
       if (Object.keys(p).length > 0) patches.push({ id: d.id, patch: p });
     }
     if (patches.length > 0) draw.updateMany(patches);
+    // The controller converts nothing on a pane that is folded or hidden
+    // behind a maximized one; the row reads the model back, so say why it
+    // did not move.
+    if (typeof patch.space === 'string' && live.some((d) => (draw.get(d.id)?.space ?? 'data') !== patch.space)) {
+      ctx.toast(widgetText(ctx, "The anchor changes only while the drawing's pane is on screen"), 'info');
+    }
   }
 
   const frame = dialogFrame(doc, { translate: ctx.translate, title: titleOf(), className: 'oac-props', onClose: () => handle.close() });
@@ -140,40 +158,60 @@ export function mountDrawingProperties(ctx: WidgetContext, anchor?: HTMLElement,
   tools.setAttribute('aria-label', widgetText(ctx, 'Drawing actions'));
   frame.el.insertBefore(tools, frame.body);
   const pane = el(doc, 'div', 'oac-props__pane');
-  frame.body.appendChild(pane);
+  const anchors = el(doc, 'div', 'oac-props__pane oac-props__anchors');
+  let tab: 'style' | 'coordinates' = opts.tab ?? 'style';
+  const tabs = tabList(doc, [
+    { id: 'style', label: widgetText(ctx, 'Style'), icon: 'brush' },
+    { id: 'coordinates', label: widgetText(ctx, 'Coordinates'), icon: 'coordinates' },
+  ], tab, 'row', (next) => { tab = next as 'style' | 'coordinates'; showTab(); });
+  frame.body.append(tabs.el, pane, anchors);
+  let coords: DrawingCoordinatesHandle | null = null;
+  function showTab(): void {
+    pane.hidden = tab !== 'style';
+    anchors.hidden = tab !== 'coordinates';
+    // Built on first view: most edits never open it.
+    if (tab === 'coordinates' && coords === null) coords = mountDrawingCoordinates(ctx, anchors, () => ids, lockedOut);
+  }
 
   function renderTools(): void {
     tools.innerHTML = '';
     const primary = live[0];
     const locked = primary.locked === true;
     const hidden = primary.visible === false;
-    const behind = primary.zIndex < 0;
-    const add = (spec: ButtonSpec, act: string, pressed?: boolean): void => {
+    // Between studies it is on neither side of the series, so neither toggle is pressed.
+    const between = primary.stackAbove !== undefined && ctx.chart.seriesStack(primary.paneIndex).includes(primary.stackAbove);
+    const behind = !between && primary.zIndex < 0;
+    const why = lockedOut();
+    const add = (spec: ButtonSpec, act: string, pressed?: boolean, edits = false): void => {
       const b = button(doc, { ...spec, iconOnly: true });
       b.dataset.act = act;
       if (pressed !== undefined) b.setAttribute('aria-pressed', pressed ? 'true' : 'false');
+      if (edits && why !== null) { b.disabled = true; b.title += ` (${why})`; }
       tools.appendChild(b);
     };
     const sep = (): void => { tools.appendChild(el(doc, 'span', 'oac-sep')); };
-    add({ label: locked ? widgetText(ctx, 'Unlock') : widgetText(ctx, 'Lock'), icon: locked ? 'lock' : 'unlock',
-      onClick: () => { draw.updateMany(ids.map((id) => ({ id, patch: { locked: !locked } }))); } }, 'lock', locked);
-    add({ label: hidden ? widgetText(ctx, 'Show') : widgetText(ctx, 'Hide'), icon: hidden ? 'eye-off' : 'eye',
-      onClick: () => { draw.updateMany(ids.map((id) => ({ id, patch: { visible: hidden } }))); } }, 'visible', hidden);
+    // The toggles keep one name each; the pressed state and the icon say locked or hidden.
+    add({ label: widgetText(ctx, 'Lock'), icon: locked ? 'lock' : 'unlock',
+      onClick: () => { draw.updateMany(ids.map((id) => ({ id, patch: { locked: !locked } }))); } }, 'lock', locked, true);
+    add({ label: widgetText(ctx, 'Hide'), icon: hidden ? 'eye-off' : 'eye',
+      onClick: () => { draw.updateMany(ids.map((id) => ({ id, patch: { visible: hidden } }))); } }, 'visible', hidden, true);
     sep();
     // The controller reorders one drawing at a time (the list position is part
     // of the order), so a multi-selection is several calls.
     add({ label: widgetText(ctx, 'Bring to front'), icon: 'front', onClick: () => { for (const id of ids) draw.bringToFront(id); } }, 'front');
     add({ label: widgetText(ctx, 'Send to back'), icon: 'back', onClick: () => { for (const id of ids) draw.sendToBack(id); } }, 'back');
-    add({ label: widgetText(ctx, 'In front of the series'), svg: glyphSvg(ABOVE_GLYPH),
-      onClick: () => { for (const id of ids) draw.bringAboveSeries(id); } }, 'above', !behind);
-    add({ label: widgetText(ctx, 'Behind the series'), svg: glyphSvg(BEHIND_GLYPH),
+    add({ label: widgetText(ctx, 'In front of the series'), icon: 'above-series',
+      onClick: () => { for (const id of ids) draw.bringAboveSeries(id); } }, 'above', !behind && !between);
+    add({ label: widgetText(ctx, 'Behind the series'), icon: 'behind-series',
       onClick: () => { for (const id of ids) draw.sendBehindSeries(id); } }, 'behind', behind);
     sep();
-    add({ label: widgetText(ctx, 'Duplicate'), icon: 'duplicate', chord: 'Ctrl+D', onClick: () => { draw.duplicate(ids); } }, 'duplicate');
-    add({ label: widgetText(ctx, 'Delete'), icon: 'trash', chord: 'Del', variant: 'danger', onClick: () => { draw.removeMany(ids); } }, 'delete');
+    add({ label: widgetText(ctx, 'Duplicate'), icon: 'duplicate', chord: commandChord(ctx.keymap, 'duplicate', 'Mod+D'), onClick: () => { draw.duplicate(ids); } }, 'duplicate');
+    add({ label: widgetText(ctx, 'Delete'), icon: 'trash', chord: commandChord(ctx.keymap, 'delete', 'Delete'), variant: 'danger', onClick: () => { draw.removeMany(ids); } }, 'delete', undefined, true);
+    restore.disabled = why !== null;
   }
 
   function renderPane(): void {
+    form?.destroy();
     pane.innerHTML = '';
     const controls = controlsFromFields(schema.fields, { translate: ctx.translate, scope: `drawing.${live[0].tool}` });
     if (controls.length === 0) {
@@ -181,14 +219,17 @@ export function mountDrawingProperties(ctx: WidgetContext, anchor?: HTMLElement,
       form = null;
       return;
     }
+    const why = shownWhy = lockedOut();
     form = renderForm(pane, controls, {
-      values: values(), translate: ctx.translate,
+      values: values(), translate: ctx.translate, openOverlay: ctx.openOverlay,
       idPrefix: 'oac-props',
+      unavailable: () => why,
       onChange: (key, value) => { apply({ [key]: value }); form?.sync(values()); },
       custom: (c) => {
         if (c.custom !== 'levels') return null;
         const b = button(doc, { label: widgetText(ctx, 'Edit levels...'), onClick: (e) => { mountLevelEditor(ctx, e.currentTarget as HTMLElement, { ids }); } });
         b.dataset.act = 'edit-levels';
+        b.disabled = why !== null;
         return b;
       },
     });
@@ -197,17 +238,15 @@ export function mountDrawingProperties(ctx: WidgetContext, anchor?: HTMLElement,
     if (schema.textIsContent === true && live.length === 1) {
       const row = pane.querySelector('[data-key="text.value"]');
       if (row !== null) {
-        const b = button(doc, { label: widgetText(ctx, 'Edit on chart'), icon: 'text', onClick: () => { mountTextEditor(ctx, undefined, { id: live[0].id }); } });
+        const b = button(doc, { label: widgetText(ctx, 'Edit text'), icon: 'text', onClick: () => { mountTextEditor(ctx, undefined, { id: live[0].id }); } });
         b.dataset.act = 'edit-text';
+        b.disabled = why !== null;
         row.appendChild(b);
       }
     }
   }
 
-  renderTools();
-  renderPane();
-
-  frame.lead.appendChild(button(doc, {
+  const restore = frame.lead.appendChild(button(doc, {
     label: widgetText(ctx, 'Restore defaults'),
     onClick: () => {
       // The tool's own defaults where it has them; a field it leaves unset is
@@ -225,7 +264,19 @@ export function mountDrawingProperties(ctx: WidgetContext, anchor?: HTMLElement,
       form?.sync(values());
     },
   }));
+  // The template picker sits with Restore defaults, bottom left: both set the look as a whole.
+  const saved = ctx.drawingTemplates;
+  if (saved !== undefined) {
+    const picker = frame.lead.appendChild(button(doc, { label: widgetText(ctx, 'Templates'), onClick: () => {
+      openMenu(ctx, picker, templateMenuRows(ctx, saved, ids, picker), { ariaLabel: widgetText(ctx, 'Templates') });
+    } }));
+    picker.dataset.act = 'templates';
+    picker.setAttribute('aria-haspopup', 'menu');
+  }
   frame.actions.appendChild(button(doc, { label: widgetText(ctx, 'Done'), variant: 'primary', onClick: () => handle.close() }));
+  renderTools();
+  renderPane();
+  showTab();
 
   /** Follow the selection: the same one refreshes in place, a new one rebuilds, none closes. */
   function refresh(): void {
@@ -235,8 +286,12 @@ export function mountDrawingProperties(ctx: WidgetContext, anchor?: HTMLElement,
     if (sameIds(next, ids)) {
       live = drawingsOf();
       if (live.length === 0) { handle.close(); return; }
-      form?.sync(values());
+      // A host that makes the selection read-only, or lifts that, mid-dialog
+      // gets the form redrawn to match rather than controls that lie.
+      if (lockedOut() !== shownWhy) renderPane();
+      else form?.sync(values());
       renderTools();
+      coords?.refresh();
       return;
     }
     ids = next;
@@ -247,6 +302,7 @@ export function mountDrawingProperties(ctx: WidgetContext, anchor?: HTMLElement,
     frame.setTitle(titleOf());
     renderTools();
     renderPane();
+    coords?.refresh();
   }
   const off = [
     chart.on('draw:update', refresh),
@@ -254,24 +310,25 @@ export function mountDrawingProperties(ctx: WidgetContext, anchor?: HTMLElement,
     chart.on('draw:remove', refresh),
   ];
 
+  let closedOnce = false;
+  const cleanup = (): void => {
+    if (closedOnce) return;
+    closedOnce = true;
+    form?.destroy();
+    coords?.destroy();
+    for (const dispose of off) dispose();
+    opts.onClose?.();
+  };
   const session = openPanel(
     ctx, frame.el,
-    anchor === undefined ? { placement: 'below', dismissOnOutside: true } : { anchor, placement: 'below' },
-    () => {},
+    { ...(anchor === undefined ? { placement: 'below' as const, dismissOnOutside: true } : { anchor, placement: 'below' as const }), onClose: cleanup },
+    cleanup,
   );
-  if (anchor === undefined) placePanel(ctx.root, frame.el, { point: selectionPoint(ctx.root, chart, live) });
-
-  let closedOnce = false;
+  if (anchor === undefined) placePanel(ctx.root, frame.el, { point: selectionPoint(ctx.root, chart, live, (id) => draw.screenPoints(id)) });
   const handle: PanelHandle = {
     el: frame.el,
     isOpen: session.isOpen,
-    close: () => {
-      if (closedOnce) return;
-      closedOnce = true;
-      for (const f of off) f();
-      session.close();
-      opts.onClose?.();
-    },
+    close: () => { form?.destroy(); session.close(); cleanup(); },
   };
   return handle;
 }

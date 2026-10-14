@@ -10,24 +10,32 @@ import { createChart, PaneLegend } from '/dist/openalgo-charts.mjs';
 // imported by the modules that call into them; the indicators tier is only
 // ever registered, so it is imported here.
 import '/dist/openalgo-charts.indicators.mjs';
-import { el, fmt, round2, initShell, chartTheme, chartMotionOptions, setChartState, toast } from './ui.js';
+// The bottom bar and its ranges, read off the namespace like the engine's newer surfaces below.
+import * as widgetTier from '/dist/openalgo-charts.widget.mjs';
+import { el, initShell, chartTheme, chartMotionOptions, setChartState, toast, currentTheme } from './ui.js';
 import { initHover } from './hover.js';
-import { fillIntervalSelect, clampPeriod } from './intervals.js';
+import { fillIntervalSelect, clampPeriod, rangeLoad } from './intervals.js';
 import { initFeed, fetchBars, fetchNote, feedErrorState } from './feed.js';
 import { applyTransform } from './transforms.js';
 import { isExpression, fetchExpressionBars, mountOperatorKeypad, referenceDataContext } from './expression.js';
 import { initStatus, nameOf, symbolStatus } from './status.js';
-import { DEFAULT_TZ, initTimezone } from './timezone.js';
-import { initAxisChrome, applyAxisChrome, applyStatusLineChoice, applyTradeChoice } from './axis-chrome.js';
+import { requestVariant, sessionOf, sessionLabel } from './session.js';
+import { DEFAULT_TZ, initTimezone, syncTimezoneFromChart } from './timezone.js';
+import { initAxisChrome, applyAxisChrome, applyStatusLineChoice, applyTradeChoice, followBottombar } from './axis-chrome.js';
 import { initVolume, attachVolume, refreshVolume, setVolumeShown, setLegend, applyVolumeSettings } from './volume.js';
 import {
   initOrders, saveState, restoreState, cancelOrder, attachOrderLines, removeAllOrders,
-  updatePositionLine, restyleTradeChrome, clearPosition, executionAllowed,
+  updatePositionLine, restyleTradeChrome, clearPosition, executionAllowed, repriceOrder,
 } from './orders.js';
+import { tickScheduleFor, axisMinMove, sessionCalendarFor } from './ticks.js';
 import { initBracket, attachBracketLines, setBracketPrice, updateBracket, removeBracket } from './bracket.js';
+import { initAccount } from './account.js';
 import { initIndicators, fillIndicatorPicker, renderIndicatorChips, openSettings, rememberIndicators } from './indicators.js';
-import { chartDecorationsForRebuild, initChartSettings, normalizeLegendIconSize, restorePrimaryStyle } from './chart-settings.js';
+import { afterChartSettingsWrite, chartDecorationsForRebuild, initChartSettings, normalizeLegendIconSize, restorePrimaryStyle } from './chart-settings.js';
+import { initHistory, attachHistory, historyFor, recordChartType } from './history.js';
 import { bindIndicatorSource, initIndicatorSource } from './indicator-source.js';
+import { initRoutedStudy } from './routed-study.js';
+import { initAnchoredStudy } from './anchored-study.js';
 import { initCompare, attachComparison, invalidateComparisons, syncComparisons, restoreComparisons } from './compare.js';
 import { initSnapshot } from './snapshot.js';
 import { initReplay, exitReplay, attachReplay, syncReplayAlertPause } from './replay.js';
@@ -37,6 +45,7 @@ import { initClipboard } from './clipboard.js';
 import { initMenus, openContextMenu } from './menus.js';
 import { initPersist, datasetKey, applyLayout, stripView, autosave, restorePrimarySelection, primaryLayoutSelection } from './persist.js';
 import { attachAlerts, detachAlerts } from './alerts.js';
+import { initInspection, attachInspection, detachInspection } from './inspection.js';
 import { initToolbar, renderToolbar } from './toolbar.js';
 import { initRail, buildRail, initMobile, focusChart, setMagnetMode, setStayMode } from './rail.js';
 import { initWorkspaceHost } from './workspace-host.js';
@@ -44,8 +53,11 @@ import { initWorkspaces } from './workspaces.js';
 import { initTemplates } from './templates.js';
 import { mountPropertiesBar } from './properties.js';
 import { initDrawing, attachDrawing } from './drawing.js';
-import { capturePaneTarget } from './pane-target.js';
+import { scopeDrawings } from './drawing-scope.js';
+import { capturePaneTarget, selectedPane } from './pane-target.js';
 import { attachTimeline } from './timeline.js';
+import { initGoTo, openGoTo } from './goto.js';
+import { attachCanvasTips } from './canvas-tips.js';
 
 // Price-level family (previous close, session extremes, extended hours,
 // bid/ask). Read off the namespace rather than named above on purpose: a
@@ -58,6 +70,10 @@ const { PriceLevels } = engine;
 // against an older dist/ and say which features that dist cannot serve,
 // rather than failing at link time and showing a blank document.
 const { createLinkGroup, withBarCache, barCloseSec, registerInterval, bucketStartOf } = engine;
+// A session change alone is a change of source, which only this helper makes
+// the chart see; a dist/ from before sessions sets the context directly.
+const publishContext = (chart, context) => (engine.publishDataContext
+  ? engine.publishDataContext(chart, context) : chart.setDataContext(context));
 
 /**
  * A tick size for the demo, by market. yfinance does not report one, and a
@@ -118,6 +134,9 @@ const app = {
   volLegend: null,
   bracket: null,         // { side, entry, target, stop, qty }
   bLines: null,          // { entry, tp, sl } price-line primitives on the current chart
+  // The loaded symbol's tick schedule, when the host holds one (see ticks.js).
+  // Null means two-decimal order prices, which is every symbol but one.
+  ticks: null,
   // { symbol, color, bars, handle, legend, byTime, hidden }. The spec survives
   // a chart rebuild and a saved layout; the handle and legend do not.
   comparisons: [],
@@ -147,10 +166,15 @@ const app = {
   // The main chart's drawing controller, and the tool id -> chord table the
   // rail labels its rows from once the draw tier has answered.
   draw: null,
+  // What keeps each chart's drawings per symbol (drawing-scope.js). Rebuilt
+  // with the chart it follows.
+  instrumentDrawings: null,
+  instrumentDrawings2: null,
   shortcuts: {},
   cache: null,           // the bar cache wrapping the feed; null on a dist/ without one
   offBranding: null,     // refreshes the host link when setBranding changes at runtime
   load: null,            // set below: the modules reach the loader through the app
+  bottombar: null,       // the widget tier's bottom bar under the stage (initBottombar)
 };
 app.load = load;
 app.render = render;
@@ -172,19 +196,26 @@ function render({ keepView = true, state } = {}) {
   if (state) decorations.legendIconSize = normalizeLegendIconSize(state.legendIconSize);
   const dataContext = referenceDataContext(app.req, app.chart?.getDataContext());
   if (app.offBranding) { app.offBranding(); app.offBranding = null; }
+  detachInspection(app);
   detachAlerts(app);
+  if (app.instrumentDrawings) { app.instrumentDrawings.destroy(); app.instrumentDrawings = null; }
   if (app.draw) { app.draw.destroy(); app.draw = null; }
   if (app.chart) app.chart.destroy();
   el('chart').innerHTML = '';
   app.chart = createChart(el('chart'), {
     // DEFAULT_THEME is the light palette; the shell's switch decides which.
     theme: chartTheme(),
+    navigation: { defaultBarSpacing: 8 },
     priceAxisWidth: 72, // free crosshair (follows pointer)
     legendIconSize: 16,
     grid: { vertLines: el('vgrid').checked, horzLines: el('hgrid').checked },
     // A chart-type switch builds a new chart; the zone the user picked is
     // the demo's to carry across, like activeIndicators.
     timezone: app.chartTimezone,
+    // The price pane can go below the studies from the right-click menu. Every
+    // part of this host that means the price pane asks primaryPaneIndex() or
+    // names no pane, which is what the option asks of a host before it is on.
+    movablePrimaryPane: true,
     ...chartMotionOptions(),
     ...decorations,
   });
@@ -202,9 +233,9 @@ function render({ keepView = true, state } = {}) {
   // legend draws nothing for a field with no data, so these switches are live
   // only because this hands them something.
   app.symbolLegend = new PaneLegend({ id: 'symbol', title: '', params: '', row: 0, actions: [],
-    status: () => symbolStatus({ symbol: app.req.symbol, bars: app.chart.primaryBars(), timezone: app.chart.timezone() }),
+    status: () => symbolStatus({ symbol: app.req.symbol, bars: app.chart.primaryBars(), timezone: app.chart.timezone(), session: sessionOf(app.req) }),
   });
-  app.chart.addPrimitive(app.symbolLegend, 0);
+  app.chart.addPrimitive(app.symbolLegend);
 
   // Previous close, session high/low and the rest. Off the namespace, so a
   // dist/ built before the family shipped leaves this null and the price-axis
@@ -212,12 +243,15 @@ function render({ keepView = true, state } = {}) {
   app.priceLevels = null;
   if (PriceLevels) {
     app.priceLevels = new PriceLevels({ timezone: app.chartTimezone, levels: app.priceLevelState });
-    app.chart.addPrimitive(app.priceLevels, 0);
+    app.chart.addPrimitive(app.priceLevels);
   }
 
   const sel = el('ctype').value;
   const isTransform = sel.startsWith('t:');
   el('pfmode').hidden = sel !== 't:point-figure';
+  // What the chart was last built as, so a switch from the select can be
+  // recorded with the type it replaced.
+  app.renderedType = { chartType: sel, pfmode: el('pfmode').value };
 
   // Family-B transforms replace the plotted series with derived elements, so
   // Trading uses real prices. Volume also needs a source-bar mapping, which
@@ -233,6 +267,14 @@ function render({ keepView = true, state } = {}) {
   }
   app.price = app.chart.addSeries(type, { style }); // first series -> drives the OHLC legend
   app.price.setData(data);
+  // The venue's hours for the empty space right of the last candle, so a
+  // trend line or a box drawn there after Friday's close ends on Monday's
+  // bars. Optional-called: an older dist/ has no calendar to take.
+  app.chart.dataLayer.setSessionCalendar?.(sessionCalendarFor(app.req.symbol));
+  // The pre-open and post-close hours in that calendar, washed behind their
+  // bars: on an extended-hours chart a move made on thin pre-open volume then
+  // reads as what it is. A regular-hours chart has no bars there to wash.
+  engine.attachSessionShading?.(app.chart);
 
   // Tell the engine the instrument's tick. Left unset, `minMove` is 0, which
   // means "infer precision from the visible range": the axis then renders a
@@ -242,7 +284,15 @@ function render({ keepView = true, state } = {}) {
   // yfinance carries no tick size, so this demo picks one by market and says
   // so plainly. A real host reads it from its own instrument master, the way
   // OpenAlgo reads tick_size out of its symbol table, rather than guessing.
-  app.chart.setPriceScaleOptions({ minMove: tickFor(app.req.symbol) });
+  //
+  // A symbol the host holds metadata for gives the axis its price tick, which
+  // with a tick schedule is the grid every band lies on: every price it can
+  // trade at is on it, whichever band that price is in.
+  app.ticks = tickScheduleFor(app.req.symbol);
+  app.chart.setPriceScaleOptions({ minMove: axisMinMove(app.req.symbol, tickFor(app.req.symbol)) });
+  // The chart rounds a dragged price alert by the same bands, since the axis
+  // grid alone accepts prices a coarse band does not trade at.
+  app.chart.setTickSchedule?.(app.ticks);
   attachVolume(1, !isTransform || sel === 't:heikin-ashi');
   if (!isTransform) {
     app.markersApi = app.price.createMarkers();
@@ -258,7 +308,9 @@ function render({ keepView = true, state } = {}) {
   if (!isTransform) {
     for (const spec of rebuildState ? [] : app.activeIndicators) {
       try {
-        const instance = app.chart.addIndicator(spec.indicatorId, spec.settings, { paneIndex: spec.paneIndex });
+        // A study the host protects comes back protected: the policy rides with the spec.
+        const instance = app.chart.addIndicator(spec.indicatorId, spec.settings, { paneIndex: spec.paneIndex,
+          ...(spec.policy ? { policy: spec.policy } : {}) });
         if (spec.visible === false) instance.setVisible(false);
       }
       catch (e) { console.warn('indicator', spec.indicatorId, e.message); }
@@ -276,6 +328,11 @@ function render({ keepView = true, state } = {}) {
     refreshVolume(1);
     renderIndicatorChips();
   }
+  // After the restore: a rebuild carries this symbol's drawings from the chart
+  // it replaces (a symbol change swapped them there, on the old chart, the
+  // moment its context moved), and a layout brings its own. A chart built
+  // fresh takes what the store holds for the symbol.
+  app.instrumentDrawings = scopeDrawings(app.chart, app.draw, 1, rebuildState ? 'live' : 'stored');
 
   // Restore the price pane before attaching comparisons, which own a temporary scale mode.
   for (const c of app.comparisons) attachComparison(c, 1);
@@ -286,10 +343,7 @@ function render({ keepView = true, state } = {}) {
   app.chart.subscribeDrag((externalId, p) => {
     if (!executionAllowed()) return;
     if (externalId.startsWith('bk-')) { setBracketPrice(externalId.slice(3), p); return; }
-    if (externalId.startsWith('order:')) {
-      const o = app.orders.find((x) => `order:${x.id}` === externalId);
-      if (o && o.line) { o.price = round2(p); o.line.setPrice(o.price); el('status').textContent = `${o.side} ${o.type} order -> ${fmt(o.price)}`; saveState(); }
-    }
+    if (externalId.startsWith('order:')) repriceOrder(externalId, p);
   });
   // Click the cancel box on a line: cancel that order, or close the position.
   app.chart.subscribeClick((id) => {
@@ -302,6 +356,9 @@ function render({ keepView = true, state } = {}) {
     if (id.endsWith('::close')) cancelOrder(id.slice(0, -'::close'.length));
   });
   attachOrderLines();
+  // The canvas's own controls say what they do under the pointer.
+  app.offCanvasTips?.();
+  app.offCanvasTips = attachCanvasTips(app.chart, el('chart'), 1);
   updatePositionLine(); // redraw the position line on the rebuilt chart
   if (app.bracket) {
     el('bracket').hidden = false;
@@ -349,6 +406,12 @@ function render({ keepView = true, state } = {}) {
   // chart-type switch is the failure this call exists to prevent.
   joinLink();
   attachTimeline(app, 1, app.currentBars);
+  attachInspection(app);
+  // Last: everything above built this chart, and none of it is a step. The
+  // timeline itself carries over from the chart this one replaced.
+  attachHistory(1);
+  // The bar acts on the chart this call just built.
+  app.bottombar?.refresh();
   window.__chart = () => app.chart;
   window.__draw = () => app.draw;
   window.__chart2 = () => app.chart2;
@@ -369,7 +432,8 @@ function installWorkspace({ layout, bars }) {
   invalidateComparisons(1);
   removeBracket(); removeAllOrders(); clearPosition();
   app.req = { ...selection.request };
-  for (const [key, value] of Object.entries(app.req)) el(key).value = value;
+  for (const key of ['symbol', 'interval', 'period']) el(key).value = app.req[key];
+  el('session').value = sessionOf(app.req);
   el('ctype').value = selection.chartType || 'candlestick';
   el('pfmode').value = selection.pfmode || 'atr';
   app.chartTimezone = selection.timezone || DEFAULT_TZ;
@@ -377,6 +441,8 @@ function installWorkspace({ layout, bars }) {
   app.idxByTime.clear();
   app.currentBars.forEach((bar, index) => app.idxByTime.set(bar.time, index));
   app.activeIndicators = (layout.indicators || []).map(study => ({ ...study, settings: { ...study.settings } }));
+  app.inspectionState1 = layout.inspection || { panel: null, width: 300 };
+  app.inspectionState2 = layout.secondary?.inspection || { panel: null, width: 300 };
   applyVolumeSettings(1, layout.volumeSettings || { 'volume.visible': layout.volume !== false });
   restoreComparisons(layout, 1);
   restoreState(app.req.symbol);
@@ -386,6 +452,9 @@ function installWorkspace({ layout, bars }) {
   // is applied against the final plot width, without a later resize correction.
   installSecondaryWorkspace(layout.secondary, bars[1]);
   render({ state: layout });
+  // A workspace is a new document: no step taken on the one it replaced applies to it.
+  historyFor(1)?.clear();
+  historyFor(2)?.clear();
   focusChart(layout.focusPane);
   const focused = app.focusPane === 2 ? app.chart2 : app.chart;
   const request = app.focusPane === 2 ? app.p2 : app.req;
@@ -413,20 +482,22 @@ async function load(opts) {
   const period = clampPeriod(interval, wanted);
   if (period !== wanted) el('period').value = period;
   const prev = app.req || {};
-  app.req = { symbol: el('symbol').value.trim(), interval, period };
+  app.req = { symbol: el('symbol').value.trim(), interval, period,
+    ...(el('session').value === 'extended' ? { session: 'extended' } : {}) };
   // A different instrument or timeframe means the bars on screen are about to
   // be replaced rather than refreshed, so the stage blanks under the loading
   // dots. A reload of the same request keeps them: they are still correct,
   // and blanking a chart to redraw the same chart is just a flicker.
+  // Extended hours are another series, so a session change blanks the stage too.
   const identityChanged =
-    prev.symbol !== app.req.symbol || prev.interval !== app.req.interval;
+    prev.symbol !== app.req.symbol || prev.interval !== app.req.interval || sessionOf(prev) !== sessionOf(app.req);
   if (app.chart) {
     // Context subscribers must never read the previous source's bars as the new one.
     if (identityChanged) {
       app.price?.setData([]);
       app.volume?.setData([]);
     }
-    app.chart.setDataContext(referenceDataContext(app.req, app.chart.getDataContext()));
+    publishContext(app.chart, referenceDataContext(app.req, app.chart.getDataContext()));
   }
   // Announced before the fetch, not after it: the follower starts loading
   // the same instrument in parallel instead of a second behind. Recorded
@@ -442,9 +513,10 @@ async function load(opts) {
     // quick symbol switch cannot land the older answer on the newer name.
     // A symbol box holding arithmetic (`AAPL/MSFT`) fetches every leg and folds
     // them into one series. Anything else takes the ordinary single-symbol path.
+    const variant = requestVariant(app.req);
     const bars = isExpression(app.req.symbol)
-      ? (await fetchExpressionBars(app.req.symbol, app.req.interval, app.req.period, { ...(opts || {}) })).bars
-      : await fetchBars(app.req.symbol, app.req.interval, app.req.period, { ...(opts || {}), slot: 'main' });
+      ? (await fetchExpressionBars(app.req.symbol, app.req.interval, app.req.period, { ...(opts || {}), variant })).bars
+      : await fetchBars(app.req.symbol, app.req.interval, app.req.period, { ...(opts || {}), slot: 'main', variant });
     // Read the cache verdict now: `syncComparisons()` below fetches too, and
     // `lastFetch` describes whichever load ran most recently, so composing
     // the line at the end would report the comparison's verdict as this
@@ -473,6 +545,7 @@ async function load(opts) {
     if (revision !== loadRevision) return;
     renderToolbar();
     status.textContent = `${app.req.symbol} · ${bars.length} bars · ${app.req.interval}/${app.req.period}`
+      + (sessionOf(app.req) === 'extended' ? ' · ' + sessionLabel('extended').toLowerCase() : '')
       + (period !== wanted ? `  (${wanted} unavailable at ${interval})` : '')
       + note
       + (MISSING.length ? `  ·  dist/ predates: ${MISSING.join(', ')}` : '');
@@ -482,6 +555,13 @@ async function load(opts) {
     if (fault.state === 'aborted') return;
     if (revision !== loadRevision) return;
     app.loadFailed = true;
+    if (fault.state === 'unsupported') {
+      // Not a failure to retry: the source has no such series. The card says
+      // so and offers the one choice that will load, and nothing is relabelled.
+      status.textContent = fault.message;
+      setChartState('unsupported', { ...app.req, message: fault.message, retry: () => { el('session').value = 'regular'; load(opts); } });
+      return;
+    }
     status.textContent = 'error: ' + fault.message;
     setChartState('error', { ...app.req, message: fault.message, retry: () => load(opts) });
     toast('error', `Could not load ${app.req.symbol}: ${fault.message}`);
@@ -495,10 +575,124 @@ async function load(opts) {
   }
 }
 
+// ── bottom bar ─────────────────────────────────────────────────────────
+// The widget tier's strip under the stage: preset ranges and Go to on the
+// left, the market status, the clock and the price scale toggles on the
+// right, all acting on whichever chart has the focus. Its root is a layer
+// over the whole stage, so its menus and tips open above the chart and
+// outlive every chart render() throws away; only the strip takes the pointer.
+//
+// A range here is the page's own: the source serves history by named period,
+// so a range picks the interval nearest its own among those this page offers
+// that reach back to its first session, and the shortest period that does,
+// loads them through the ordinary load path unless the pane holds them
+// already, and then places the sessions on the bars that arrived.
+/** The range each pane last took, with the chart it was placed on: a rebuilt chart has left it. */
+const paneRanges = new Map();
+let rangeRequest = 0;
+
+async function applyRange(id) {
+  const { DEFAULT_RANGES, DateNavigator, rangeInterval, rangeWindow } = widgetTier;
+  const range = DEFAULT_RANGES.find(r => r.id === id);
+  const target = capturePaneTarget(app);
+  if (!range || !target?.current()) return { status: 'cancelled' };
+  const mine = ++rangeRequest;
+  const now = Date.now() / 1000;
+  const calendar = sessionCalendarFor(target.request.symbol);
+  const reach = now - rangeWindow(range, { end: now, zone: target.chart.timezone(), calendar }).from;
+  const { interval, period } = rangeLoad(range, reach, rangeInterval);
+  paneRanges.delete(target.pane);
+  const request = { ...target.request, interval, period };
+  // History already on screen only needs the view moved: loading it again
+  // would rebuild the chart, and while a bar is forming it would come from
+  // the wire, all of it, for a change of view. A load under way is about to
+  // replace the chart the view would move on, so the range loads in its place.
+  const onScreen = target.request.interval === interval && target.request.period === period
+    && !(target.pane === 2 ? app.loading2 || app.loadFailed2 : app.loading || app.loadFailed)
+    && !app.replay && !app.replayPicking && !app.replayLoading;
+  if (!onScreen && target.pane === 2) {
+    Object.assign(app.p2, request);
+    await app.loadSecondary();
+  } else if (!onScreen) {
+    for (const key of ['symbol', 'interval', 'period']) el(key).value = request[key];
+    await load();
+  }
+  renderToolbar();
+  if (mine !== rangeRequest) return { status: 'cancelled' };
+  const chart = target.pane === 2 ? app.chart2 : app.chart;
+  // The split was closed while its history loaded, and the range went with it.
+  if (!chart) return { status: 'cancelled' };
+  if (target.pane === 2 ? app.loadFailed2 : app.loadFailed) return { status: 'error', error: new Error(`${request.symbol} history could not load`) };
+  const bars = chart.primaryBars();
+  if (bars.length === 0) return { status: 'no-data' };
+  paneRanges.set(target.pane, { id, chart });
+  const span = rangeWindow(range, { end: bars[bars.length - 1].time, zone: chart.timezone(), calendar: chart.dataLayer.sessionCalendar, bars });
+  const result = await new DateNavigator({ chart }).goTo(span);
+  if (result.status !== 'partial' || !result.clipped || chart.isDestroyed) return result;
+  // A range ends at the latest bar, so one wider than the plot gives up its
+  // oldest bars rather than its newest: the last price stays on screen.
+  const lastBar = bars[bars.length - 1];
+  const last = chart.dataLayer.timeToIndex(lastBar.time) ?? bars.length - 1;
+  const view = chart.getVisibleLogicalRange();
+  const from = last + 0.5 - (view.to - view.from);
+  chart.setVisibleLogicalRange({ from, to: last + 0.5 });
+  return { ...result, from: chart.dataLayer.indexToTime(Math.ceil(from + 0.5)) ?? result.from, to: lastBar.time };
+}
+
+function initBottombar() {
+  const { mountBottombar, createOverlayStack, createTipController, applyTokens, widgetTokens, injectWidgetStyles, WIDGET_COMPONENT_CSS } = widgetTier;
+  const stage = document.querySelector('main.stage');
+  if (!mountBottombar || !stage) return;
+  // The bar's rules ride the widget sheet. The alert layer injects it as well;
+  // whichever comes first fills it and the other call leaves it alone.
+  injectWidgetStyles(document, WIDGET_COMPONENT_CSS);
+  const layer = document.createElement('div');
+  layer.className = 'oac-widget oac-alert-host host-bottombar';
+  const strip = document.createElement('div');
+  layer.appendChild(strip);
+  stage.appendChild(layer);
+  stage.classList.add('has-bottombar');
+  const theme = () => {
+    layer.dataset.theme = currentTheme();
+    applyTokens(layer, widgetTokens(chartTheme(), currentTheme()));
+  };
+  theme();
+  document.addEventListener('oac:theme', theme);
+  const overlays = createOverlayStack(layer, document);
+  const tips = createTipController(layer, overlays.layer, document);
+  const context = {
+    document, tips,
+    openOverlay: (node, options) => overlays.open(node, options),
+    status: (text) => { el('status').textContent = text; },
+  };
+  app.bottombar = mountBottombar(context, strip, {
+    target: () => {
+      const target = capturePaneTarget(app);
+      if (!target) return null;
+      return {
+        // Read when used: a range loads through the page, which builds the
+        // pane a new chart, and what the range did is read off that one. A
+        // split closed meanwhile leaves none, and applyRange cancels then.
+        get chart() { return target.pane === 2 ? app.chart2 : app.chart; },
+        interval: () => target.request.interval,
+        range: () => { const held = paneRanges.get(target.pane); return held && held.chart === target.chart ? held.id : null; },
+        setRange: applyRange,
+      };
+    },
+    onGoTo: (anchor) => openGoTo(anchor),
+    // A zone picked on the main chart survives the next rebuild, the way one picked in the settings does.
+    onTimezone: () => { if (selectedPane(app) === 1) syncTimezoneFromChart(); autosave(); },
+  });
+  // The phone shell hides the bar and a wider window brings it back, and the
+  // corner clock takes whichever side the bar leaves.
+  if (typeof ResizeObserver === 'function') new ResizeObserver(() => followBottombar()).observe(strip);
+}
+
 // Module wiring, in the order the original page registered its listeners.
 initHover();
 // Before the first render(): the shell sets the theme the chart is built in.
 initShell(app);
+initHistory(app);
 initStatus(app);
 initTimezone(app);
 initAxisChrome(app);
@@ -506,8 +700,11 @@ initFeed(app);
 initVolume(app);
 initOrders(app);
 initBracket(app);
+initAccount(app);
 initIndicators(app);
 initIndicatorSource();
+initRoutedStudy();
+initAnchoredStudy();
 
 // The operator keypad lives beside the symbol field. Mounted once: it writes
 // into the field and the ordinary Enter handler does the loading, so nothing
@@ -518,6 +715,8 @@ initCompare(app);
 initSnapshot(app);
 initReplay(app);
 initSplit(app);
+initGoTo(app);
+initBottombar();
 initLink(app);
 initClipboard(app);
 initMenus(app);
@@ -525,7 +724,7 @@ initMenus(app);
 // Wrapped, not passed: `load` now takes options, and handing it straight to
 // addEventListener would pass a MouseEvent as the options bag.
 el('load').addEventListener('click', () => load());
-el('fit').addEventListener('click', () => { if (app.chart) app.chart.resetScale(); });
+el('fit').addEventListener('click', () => { if (app.chart && app.chart.navigationOptions?.().zoomEnabled !== false) app.chart.resetScale(); });
 el('symbol').addEventListener('keydown', (e) => { if (e.key === 'Enter') load(); });
 // Export the full chart (all layers composited) - native right-click "Save image"
 // only grabs the canvas under the pointer (the transparent crosshair overlay).
@@ -537,7 +736,32 @@ el('save').addEventListener('click', () => {
   a.click();
 });
 // switching chart type / P&F box mode re-renders cached bars (no network round-trip)
-['ctype', 'pfmode'].forEach((id) => el(id).addEventListener('change', () => { if (app.currentBars.length) render(); }));
+['ctype', 'pfmode'].forEach((id) => el(id).addEventListener('change', () => {
+  if (!app.currentBars.length) return;
+  const from = app.renderedType;
+  render();
+  if (from) recordChartType(1, from, app.renderedType, showPrimaryType);
+}));
+
+/** Build the main chart as `type`: what undoing or redoing a type switch does. */
+function showPrimaryType(type) {
+  el('ctype').value = type.chartType;
+  el('pfmode').value = type.pfmode;
+  render();
+  renderToolbar();
+  autosave();
+}
+app.showPrimaryType = showPrimaryType;
+
+// An undo or redo can bring back a study, a zone or a scale the demo keeps
+// its own copy of; read them back from the chart, the way a rebuild does.
+app.afterHistory = (pane) => {
+  afterChartSettingsWrite(capturePaneTarget(app, pane));
+  if (pane === 1) rememberIndicators();
+  renderIndicatorChips();
+  renderToolbar();
+  autosave();
+};
 // toggle grid lines live (no rebuild needed)
 // These legacy fields belong to the primary chart; the shared toolbar captures its owner.
 const applyGrid = () => {
@@ -550,11 +774,12 @@ el('hgrid').addEventListener('change', applyGrid);
 // price scale, so switching it back on is instant.
 el('volshow').addEventListener('change', () => setVolumeShown(el('volshow').checked, 1));
 initPersist(app);
+initInspection(app);
 
 // Escape is the overlay stack's (ui.js): one layer per press, each closed
 // through its own close control, so chart settings still revert.
 initToolbar(app);
-app.onFocusPane = () => { renderToolbar(); renderIndicatorChips(); autosave(); };
+app.onFocusPane = () => { renderToolbar(); renderIndicatorChips(); autosave(); app.bottombar?.refresh(); };
 // The rail mounts the properties bar for the selected drawing on the stage,
 // so a bar docked to it comes along into chart-only full screen.
 initRail(app, { mountPropertiesBar });

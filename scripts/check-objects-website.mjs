@@ -12,7 +12,7 @@ const browser = await chromium.launch();
 async function checkBounds(widget, panel) {
   const host = await widget.boundingBox();
   const bounds = await panel.boundingBox();
-  const done = await panel.getByRole('button', { name: 'Done', exact: true }).boundingBox();
+  const done = await panel.getByRole('button', { name: 'Close', exact: true }).boundingBox();
   assert.ok(host && bounds && done);
   assert.ok(bounds.x >= host.x - 1 && bounds.x + bounds.width <= host.x + host.width + 1,
     'Objects panel must fit the chart width');
@@ -35,15 +35,15 @@ try {
       has: page.getByRole('button', { name: 'Open Objects', exact: true }),
     });
     const widget = demo.locator('.oac-widget');
-    const panel = widget.locator('.oac-objects');
+    const panel = widget.locator('.oac-panel-dock');
     const shot = name => join(output, `objects-${route.replace('/', '-')}-${name}.png`);
     const open = async () => {
       await demo.getByRole('button', { name: 'Open Objects', exact: true }).click();
       await expect(panel.getByRole('searchbox')).toBeFocused();
     };
     const close = async () => {
-      await panel.getByRole('button', { name: 'Done', exact: true }).click();
-      await expect(panel).toHaveCount(0);
+      await panel.getByRole('button', { name: 'Close', exact: true }).click();
+      await expect(panel).toBeHidden();
     };
     await expect(widget.locator('canvas').first()).toBeVisible();
     await open();
@@ -64,17 +64,17 @@ try {
     await expect(panel.getByText('No objects match your search.', { exact: true })).toBeVisible();
     await panel.getByRole('searchbox').fill('trend');
     const line = panel.locator('[data-object-id^="drawing:"]').filter({
-      has: page.getByText('Trend line', { exact: true }),
+      has: page.getByText('Trend Line', { exact: true }),
     });
-    await line.getByRole('button', { name: 'Select Trend line', exact: true }).click();
-    await expect(line.getByRole('button', { name: 'Select Trend line', exact: true }))
+    await line.getByRole('button', { name: 'Select Trend Line', exact: true }).click();
+    await expect(line.getByRole('button', { name: 'Select Trend Line', exact: true }))
       .toHaveAttribute('aria-pressed', 'true');
-    await line.getByRole('button', { name: 'Hide Trend line', exact: true }).click();
+    await line.getByRole('button', { name: 'Hide Trend Line', exact: true }).click();
     await expect(line).toContainText('Hidden');
-    await line.getByRole('button', { name: 'Show Trend line', exact: true }).click();
-    await line.getByRole('button', { name: 'Lock Trend line', exact: true }).click();
-    await expect(line.getByRole('button', { name: 'Unlock Trend line', exact: true })).toBeVisible();
-    await line.getByRole('button', { name: 'Remove Trend line', exact: true }).click();
+    await line.getByRole('button', { name: 'Show Trend Line', exact: true }).click();
+    await line.getByRole('button', { name: 'Lock Trend Line', exact: true }).click();
+    await expect(line.getByRole('button', { name: 'Unlock Trend Line', exact: true })).toBeVisible();
+    await line.getByRole('button', { name: 'Delete Trend Line', exact: true }).click();
     await expect(line).toHaveCount(0);
     await close();
     await demo.getByRole('button', { name: 'Undo drawing action', exact: true }).click();

@@ -40,8 +40,15 @@ nonnegative cooldownSeconds, UTC-seconds expiresAt, and opaque payload.
 `{ kind: 'indicator', instanceId, plotKey, value, upperValue? }`; a named
 predicate uses `{ kind: 'barCondition', id }`.
 A drawing uses `{ kind: 'drawing', drawingId, level?, input? }`.
-`AlertScope` captures symbol, exchange and interval from chart data context.
+`AlertScope` captures symbol, exchange and interval from chart data context,
+and `variant` when the chart shows a non-default data variant (none for the
+default series, so existing scopes and documents are unchanged).
 Set that context before creating alerts; alerts do not migrate to a new market.
+An alert evaluates only on its own variant, like its own interval, and
+`availability` asks for that variant. A fixed price level stays visible, paused,
+on another session or adjustment of the instrument, but not in another currency
+or unit, where the same number is another price. `parseAlertsDocument` refuses
+a scope variant this build cannot name.
 From 2.5.0, price-source levels remain visible across intervals for the same
 symbol and exchange. On another interval they show the original timeframe;
 armed levels are paused and cannot drag. Triggered, disabled and expired levels
@@ -74,7 +81,10 @@ expiry and cooldown, defaulting to Date.now()/1000. One timer follows the next
 armed expiry, including on an idle feed. Disabled and once-triggered records do
 not keep an expiry timer. Destruction cancels it.
 `AlertChartHost` is the structural chart interface, allowing a host integration
-without a nominal dependency on a specific bundled Chart class.
+without a nominal dependency on a specific bundled Chart class. Its optional
+`primaryPaneIndex()` names the price pane's slot: price alerts draw there, a study
+alert on an `overlay` plot reports it, and a drawing on it needs no input plot.
+Without it the price pane is slot 0.
 
 ## Finished alert lines
 
@@ -188,8 +198,10 @@ controller when replacing that drawing controller or rebuilding its chart.
 `AlertDrawingLevel` entries (id and title). `draw.alertInfo(id)` reports which
 levels the tool supports. `draw.valueAt(id, time, level?)` uses its actual pane
 projection and logical time axis. Lines respect finite spans and extensions,
-logarithmic projections and collapsed session gaps. A missing/out-of-span value
-is unavailable, never zero.
+logarithmic projections and collapsed session gaps. A drawing on a pane collapsed
+to its header strip, where the chart maps no price, is read through that pane's
+own scale, so its alert keeps firing. A missing/out-of-span value is unavailable,
+never zero.
 
 Channel bands support enteringRange/leavingRange. For a crossing or greater/less
 condition, explicitly select base, boundary or middle. Fib tools require an
@@ -307,7 +319,12 @@ alerts. Left and independent scales keep their own units. A range bound stops
 at a valid tick inside the opposite bound. No declared tick means no rounding.
 Manually entered thresholds are preserved until you move them.
 
-`Chart.snapPrice(paneIndex, price)` uses that pane's right-axis tick. For another
+`Chart.snapPrice(paneIndex, price)` uses that pane's right-axis tick, or on the
+price pane of an instrument with a tick schedule (`chart.setTickSchedule`, or
+`Instrument.applyTo` with `tickBands`), the tick of the band the price falls in; a
+dragged price alert takes the same band, so an alert dropped in a coarse band
+lands on a price it trades at. An `AlertChartHost` may expose `tickSchedule()` for
+that. For another
 series scale, use `series.priceScale().snapToTick(price)`. A custom
 `AlertChartHost` may expose `primarySeries()` for the owning scale, or use the
 optional `snapPrice` fallback when it has no series handle. Without scale tick

@@ -6,14 +6,10 @@
  * These are reproductions, not inspirations: overlaying one of these on the same
  * symbol upstream has to give the same numbers, including the warmup gap.
  *
- * Almost every study here is *chained smoothing*, and that is what makes the
- * warmup the hard part rather than an afterthought. The upstream `ema` re-seeds
- * from `sma(src, length)` for as long as its own previous value is `na`, so an
- * EMA stacked on a series that already starts late begins `length - 1` bars
- * after its input does, not at `length - 1`. `smaSeededEma` seeds
- * unconditionally from index 0, where a single leading NaN poisons the recursion
- * for the whole series, so it is never fed a gapped series directly:
- * `emaOfGapped` below is the only entry point used for chaining.
+ * Almost every study here chains smoothers, so each stage's warmup must stay
+ * aligned with the preceding stage. `emaOfGapped` slices off the leading gap
+ * and pads the result back into place, while `smaSeededEma` handles finite-window
+ * seeding and subsequent input gaps.
  *
  * The base bundle's own `ema` is deliberately absent from this file. It seeds
  * from bar 0 rather than from an SMA, so it disagrees with the upstream
@@ -22,7 +18,8 @@
  */
 import { sourceValues } from 'openalgo-charts';
 import type { IndicatorDescriptor, IndicatorSource } from 'openalgo-charts';
-import { sma, nulls, smaSeededEma, change, roc, highest, lowest } from './calc';
+import { sma, nulls, change, roc, highest, lowest } from './calc';
+import { emaOfGapped } from './smoothing';
 
 const num = (s: Readonly<Record<string, unknown>>, k: string, d: number): number => {
   const v = s[k];
@@ -36,26 +33,6 @@ const text = (s: Readonly<Record<string, unknown>>, k: string, d: string): strin
   typeof s[k] === 'string' ? (s[k] as string) : d;
 
 /**
- * The upstream `ema` over a series that itself opens with a warmup gap.
- *
- * The leading NaN run is sliced off, `smaSeededEma` runs on the live tail, and
- * the answer is re-padded into place. That reproduces the upstream re-seeding
- * rule and, more importantly, keeps a NaN out of the recursion: `prev * (1 - k)`
- * never recovers once `prev` is NaN, so a chained study would otherwise be blank
- * end to end instead of merely starting late.
- */
-function emaOfGapped(values: readonly number[], period: number): number[] {
-  const n = values.length;
-  const out = new Array<number>(n).fill(NaN);
-  let start = 0;
-  while (start < n && !Number.isFinite(values[start])) start += 1;
-  if (start >= n) return out;
-  const tail = smaSeededEma(values.slice(start), period);
-  for (let i = 0; i < tail.length; i++) out[start + i] = tail[i];
-  return out;
-}
-
-/**
  * The upstream `tsi(source, shortLength, longLength)`.
  *
  * Blau's double smoothing runs **long first, then short**, even though the
@@ -67,6 +44,11 @@ function emaOfGapped(values: readonly number[], period: number): number[] {
  *
  * `change` is `na` on bar 0, so both smoothed legs inherit that gap and the
  * first printed value lands at `longLength + shortLength - 1`.
+ *
+ * The 100 is applied before the division, the arrangement the definition
+ * fixes. Near the top of the double range that product can overflow where the
+ * ratio would not. The infinity it leaves is absent to every consumer: the
+ * signal average skips it and `nulls` prints a gap.
  */
 function tsiSeries(values: readonly number[], shortLength: number, longLength: number): number[] {
   const pc = change(values);
@@ -74,7 +56,7 @@ function tsiSeries(values: readonly number[], shortLength: number, longLength: n
     emaOfGapped(emaOfGapped(v, longLength), shortLength);
   const smoothed = doubleSmooth(pc);
   const smoothedAbs = doubleSmooth(pc.map((v) => Math.abs(v)));
-  return smoothed.map((v, i) => 100 * (v / smoothedAbs[i]));
+  return smoothed.map((v, i) => (100 * v) / smoothedAbs[i]);
 }
 
 /**
@@ -99,7 +81,7 @@ export const MOMENTUM: IndicatorDescriptor = {
 };
 
 /**
- * Rate Of Change: the same comparison as Momentum, expressed as a percentage of
+ * Rate of Change: the same comparison as Momentum, expressed as a percentage of
  * the older price so readings are comparable across instruments and across time.
  *
  * A zero reference price makes the ratio undefined, which is drawn upstream as a
@@ -107,7 +89,7 @@ export const MOMENTUM: IndicatorDescriptor = {
  */
 export const ROC: IndicatorDescriptor = {
   id: 'roc',
-  name: 'Rate Of Change',
+  name: 'Rate of Change',
   category: 'Momentum',
   placement: 'pane',
   inputs: [

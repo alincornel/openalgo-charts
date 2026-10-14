@@ -1,40 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTheme } from 'next-themes';
 import type { MarketDepth } from '../../src/feed/types';
-import type { Bar } from '../../src/model/bar';
 import type { LadderRow } from '../../src/trade/dom-ladder';
+import { chartBar, makeDepth, DEPTH_TICK_SIZE } from './depth-market';
 
-const TICK_SIZE = 0.05;
+const TICK_SIZE = DEPTH_TICK_SIZE;
 const UPDATE_MS = 750;
 type Scenario = 'option-option' | 'spot-option';
-
-function chartClose(sequence: number, scenario: Scenario): number {
-  return scenario === 'spot-option'
-    ? Math.round((24000 + Math.sin(sequence / 13) * 18 + Math.sin(sequence / 4) * 5) * 100) / 100
-    : (2000 + Math.round(Math.sin(sequence / 8) * 3)) * TICK_SIZE;
-}
-
-function chartBar(sequence: number, scenario: Scenario): Bar {
-  const open = chartClose(sequence - 1, scenario);
-  const close = chartClose(sequence, scenario);
-  const wick = scenario === 'spot-option' ? 2.5 : TICK_SIZE;
-  return {
-    time: 1700000000 + (sequence + 80) * 60,
-    open, close,
-    high: Math.max(open, close) + wick,
-    low: Math.min(open, close) - wick,
-  };
-}
-
-function makeDepth(frame: number, levels: number): MarketDepth {
-  const centreTick = 2000 + Math.round(Math.sin(frame / 8) * 3);
-  const side = (direction: number) => Array.from({ length: levels }, (_, index) => ({
-    price: ((centreTick + direction * (index + 1)) * 5) / 100,
-    qty: 20 + ((index * 37 + frame * 19 + (direction > 0 ? 43 : 0)) % 180)
-      + (index % 11 === 0 ? 240 : 0),
-  }));
-  return { bids: side(-1), asks: side(1), ltp: (centreTick * 5) / 100 };
-}
 
 interface DemoRuntime {
   render: (depth: MarketDepth, frame: number, groupBy: number, scenario: Scenario) => LadderRow[];
@@ -252,8 +224,13 @@ export default function DepthLadderDemo() {
         .depth-book tr { background: transparent; }
         .depth-book button { width: 100%; min-height: 26px; font: inherit; color: inherit; cursor: pointer; border-radius: 3px; }
         .depth-book button:hover { background: color-mix(in srgb, var(--oac-accent) 12%, transparent); }
-        .depth-bid { color: ${dark ? '#66d8bb' : '#08765c'}; }
-        .depth-ask { color: ${dark ? '#ff9b9b' : '#bc3339'}; }
+        /* Keyed to the page class, not to resolvedTheme: a colour interpolated here
+           changes the scoped class name, and hydration keeps the server's name, so
+           the quotes rendered before hydration kept the dark shades on a light page. */
+        .depth-bid { color: #08765c; }
+        .depth-ask { color: #bc3339; }
+        :global(.dark) .depth-bid { color: #66d8bb; }
+        :global(.dark) .depth-ask { color: #ff9b9b; }
         .depth-footer { display: grid; gap: 5px; padding: 12px 16px; border-top: 1px solid var(--oac-card-border); color: var(--oac-muted); font-size: 11px; }
         .depth-footer p { margin: 4px 0 0; }
         @media (max-width: 760px) {

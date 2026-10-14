@@ -5,8 +5,176 @@
  * has no logical index). Per-series rows are addressable by that shared index.
  */
 import type { Bar } from './bar';
+import type { InstrumentSession } from '../feed/instrument';
+import type { SessionPhaseSpan } from '../feed/market-status';
 
 export type SeriesId = number;
+
+/**
+ * Trading hours the time axis follows past the last bar. `Instrument` and
+ * `SessionCalendar` both satisfy it.
+ */
+export interface SessionCalendarSource {
+  /** The window active at `utcSeconds`, or else the next one to open; null when none opens. */
+  sessionFrom(utcSeconds: number): InstrumentSession | null;
+  /**
+   * Optional: the phases of the trading day over a range, which session
+   * shading and `marketStatusAt` read from the chart's calendar. The axis
+   * never calls it. `Instrument` and `SessionCalendar` provide it.
+   */
+  phaseSpans?(fromUtcSeconds: number, toUtcSeconds: number): readonly SessionPhaseSpan[];
+}
+
+const DAY = 86400;
+/** Recent gaps a spacing is read from: enough to outvote a weekend and a few holidays. */
+const SAMPLE = 64;
+/**
+ * Future bar times generated from a calendar, and calendar reads spent on one
+ * plan. Past either, the axis continues at the average pace of what was
+ * generated, so an anchor years out costs a bounded amount once rather than a
+ * walk through every session in between.
+ */
+const MAX_SLOTS = 4096;
+const MAX_LOOKUPS = 512;
+
+/**
+ * The lower median of some gaps, sorting them in place. Lower, because a
+ * closure only ever lengthens a gap: after Thursday, Friday and Monday the
+ * answer is one day, not three.
+ */
+function lowerMedian(gaps: number[]): number {
+  gaps.sort((a, b) => a - b);
+  return gaps[(gaps.length - 1) >> 1];
+}
+
+function gapsOf(t: readonly number[]): number[] {
+  const gaps: number[] = [];
+  for (let i = 1; i < t.length; i++) gaps.push(t[i] - t[i - 1]);
+  return gaps;
+}
+
+/** Largest index in `a[0..hi]` whose value is at most `v`; the caller ensures `a[0] <= v`. */
+function floorIndex(a: readonly number[], v: number, hi: number): number {
+  let lo = 0;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (a[mid] <= v) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo;
+}
+
+/**
+ * The bar times to the right of the data, from the last bar on. `slots` grows
+ * on demand from `next`; past it the axis runs at `step` per bar.
+ */
+interface FuturePlan {
+  version: number;
+  readonly tail: readonly number[];
+  readonly slots: number[];
+  /** The next bar time; null when the calendar has no more, NaN when a budget ran out. */
+  next: (() => number | null) | null;
+  step: number;
+}
+
+/**
+ * A generator of future bar times that follows `calendar`, or null when the
+ * recent bars `w` do not sit in its sessions (hours that do not describe this
+ * feed, such as regular hours against extended-hours bars).
+ *
+ * Bars sharing a session are intraday: the spacing is their median gap, and a
+ * session that ends restarts at the next opening, at the offset the feed's
+ * bars keep from that opening. The offset belongs to each window, since one
+ * bar grid can meet the windows of a day differently: hourly bars on the
+ * clock put 09:00 at a 09:00 opening and 12:00 before a 12:30 one after
+ * lunch, and 09:00 before a 09:15 open. One bar per session is daily: each
+ * later trading date, at the last bar's offset from its opening. Weekly and
+ * longer bars keep the median.
+ */
+function sessionSlots(w: readonly number[], calendar: SessionCalendarSource, median: number): (() => number | null) | null {
+  let lookups = 0;
+  const from = (time: number): InstrumentSession | null | undefined =>
+    ++lookups > MAX_LOOKUPS ? undefined : calendar.sessionFrom(time);
+  let s = from(w[0]);
+  if (!s) return null;
+  const same: number[] = [], opens = [s.open];
+  let lead = s.open - w[0];
+  for (let i = 1; i < w.length; i++) {
+    if (w[i] < s.close) same.push(w[i] - w[i - 1]);
+    else if (!(s = from(w[i]))) return null;
+    opens.push(s.open);
+    lead = Math.max(lead, s.open - w[i]);
+  }
+  const last = w[w.length - 1];
+  let session = s, cur = last;
+  if (same.length > 0) {
+    const step = lowerMedian(same);
+    // A bar a whole step before the session it is filed under is outside it.
+    if (lead >= step) return null;
+    // Where a bar sits against its opening, as the first bar's offset: zero,
+    // or up to a step before the opening for a bar stamped on an earlier grid.
+    const offsetOf = (t: number, open: number): number => {
+      const phase = (((t - open) % step) + step) % step;
+      return phase > 1e-6 && step - phase > 1e-6 ? phase - step : 0;
+    };
+    // Each window's offset, keyed by its opening's time of day and read from
+    // the latest bar in a window like it. A window no bar has shown, such as
+    // a special session or an opening the clocks moved, takes the last bar's.
+    const offsets = new Map<number, number>();
+    for (let i = 0; i < w.length; i++) offsets.set(opens[i] % DAY, offsetOf(w[i], opens[i]));
+    const fallback = offsetOf(last, session.open);
+    return () => {
+      let t = cur + step;
+      while (t >= session.close) {
+        const n = from(session.close);
+        if (!n) return n === null ? null : NaN;
+        session = n;
+        // Back-to-back windows with a first bar stamped before the open would
+        // step backwards; the next bar is then simply one step on.
+        const first = n.open + (offsets.get(n.open % DAY) ?? fallback);
+        if (first > cur) t = first;
+      }
+      return (cur = t);
+    };
+  }
+  if (median >= 2 * DAY || lead >= DAY) return null;
+  const offset = last - session.open;
+  return () => {
+    // Skip the later windows of the same date, a lunch break's afternoon.
+    for (const date = session.date; session.date === date;) {
+      const n = from(session.close);
+      if (!n) return n === null ? null : NaN;
+      session = n;
+    }
+    const t = session.open + offset;
+    return t > cur ? (cur = t) : null;
+  };
+}
+
+/** One more future bar time, or the end of generation and the spacing that replaces it. */
+function grow(p: FuturePlan): void {
+  const s = p.slots, m = s.length - 1;
+  let t: number | null = NaN;
+  if (m < MAX_SLOTS) {
+    try { t = p.next!(); } catch { t = null; }
+  }
+  if (t !== null && t > s[m]) {
+    s.push(t);
+    return;
+  }
+  p.next = null;
+  // A budget ran out: continue at the pace the calendar set, weekends and
+  // nights included. A calendar with nothing more, or one that threw, leaves
+  // the median, which is the answer without a calendar.
+  if (t !== null && Number.isNaN(t) && m > 0) p.step = (s[m] - s[0]) / m;
+}
+
+function futureSlot(p: FuturePlan, k: number): number {
+  const s = p.slots;
+  while (s.length <= k && p.next) grow(p);
+  const m = s.length - 1;
+  return k <= m ? s[k] : s[m] + (k - m) * p.step;
+}
 
 interface SeriesEntry {
   /** Bars sorted ascending by time. */
@@ -19,6 +187,27 @@ export interface IndexedBar {
 }
 
 const EMPTY_BARS: readonly Bar[] = [];
+
+/**
+ * Where the bar at `time` sits in a series, or -1. A study writes a revised
+ * older point of its plot through `update`, so this runs per point per tick and
+ * searches rather than scans. A miss scans after all: only a series holding a
+ * time that does not order (NaN) can be out of order, and a miss is followed by
+ * an insert that costs more than the scan.
+ */
+function indexOfTime(bars: readonly Bar[], time: number): number {
+  let lo = 0;
+  let hi = bars.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const t = bars[mid].time;
+    if (t === time) return mid;
+    if (t < time) lo = mid + 1;
+    else if (t > time) hi = mid - 1;
+    else break;
+  }
+  return bars.findIndex((b) => b.time === time);
+}
 
 /**
  * Sort ascending by time and collapse repeated times, keeping the **last**
@@ -35,6 +224,11 @@ const EMPTY_BARS: readonly Bar[] = [];
  * value when a live bar arrives alongside the historical one it supersedes.
  */
 function sortedUniqueByTime(bars: readonly Bar[]): Bar[] {
+  // A study's plots and most feeds arrive in time order already, so that case
+  // is checked for first rather than paid a sort for.
+  let ordered = true;
+  for (let i = 1; i < bars.length && ordered; i++) ordered = bars[i].time > bars[i - 1].time;
+  if (ordered) return bars.slice();
   const out = bars.slice().sort((a, b) => a.time - b.time);
   let w = 0;
   for (let r = 0; r < out.length; r++) {
@@ -45,21 +239,42 @@ function sortedUniqueByTime(bars: readonly Bar[]): Bar[] {
   return out;
 }
 
-/** Whether every time in sorted `previous` is still in sorted `next`. */
-function keepsEveryTime(previous: readonly Bar[], next: readonly Bar[]): boolean {
-  let j = 0;
-  for (const b of previous) {
-    while (j < next.length && next[j].time < b.time) j++;
-    if (j === next.length || next[j].time !== b.time) return false;
-  }
-  return true;
-}
-
 export class DataLayer {
   private readonly _series = new Map<SeriesId, SeriesEntry>();
   private _sortedTimes: number[] = [];
   private readonly _indexByTime = new Map<number, number>();
+  /** How many series hold each time on the axis; a time leaves the axis at zero. */
+  private readonly _timeRefs = new Map<number, number>();
   private _nextId: SeriesId = 1;
+  /** Bumped whenever the time axis changes, so the future plan knows to look again. */
+  private _version = 0;
+  private _calendar: SessionCalendarSource | null = null;
+  private _future: FuturePlan | null = null;
+
+  /**
+   * Trading hours for the time axis to the right of the last bar, or null for
+   * none. With a calendar, the bar after a session's last one is the next
+   * session's first, across a night, a weekend or a closed date, so an anchor
+   * placed there lands on a time the market will print. Without one, or when
+   * the recent bars do not sit in its sessions, the axis continues at the
+   * median of the recent bar spacing.
+   *
+   * This changes where times fall but asks for no frame: the data layer has
+   * no way to reach the chart, so a drawing already placed past the last bar
+   * stays where it was painted until something repaints. `chart.setSessionCalendar`
+   * sets the same and repaints, and so do `SessionCalendar.applyTo` and
+   * `Instrument.applyTo`, which go through it; call this directly only where
+   * bars or a view change follow anyway.
+   */
+  public setSessionCalendar(calendar: SessionCalendarSource | null): void {
+    this._calendar = calendar;
+    this._future = null;
+  }
+
+  /** The calendar the time axis follows past the last bar, or null. */
+  public get sessionCalendar(): SessionCalendarSource | null {
+    return this._calendar;
+  }
 
   /** Register a new series; returns its id. */
   public createSeries(): SeriesId {
@@ -69,21 +284,27 @@ export class DataLayer {
   }
 
   public removeSeries(id: SeriesId): void {
+    const entry = this._series.get(id);
+    if (entry === undefined) return;
+    this._replaceBars(entry, []);
     this._series.delete(id);
-    this._rebuild();
   }
 
   /**
-   * Bulk-load (full replace) one series' data, then re-merge the time axis.
-   * Input is sorted and de-duplicated by time by a private `sortedUniqueByTime`.
+   * Bulk-load (full replace) one series' data. Input is sorted and
+   * de-duplicated by time by a private `sortedUniqueByTime`.
+   *
+   * The shared index is rebuilt only when the set of times changes, and then
+   * only where it changed. Most whole writes do not change the set: a study's
+   * plots carry the source's own times, which the source put in the index
+   * before any study recomputed, and a colour overlay on the source keeps its
+   * times. Ten studies on a long history used to pay for the index two dozen
+   * times per tick while it came out unchanged.
    */
   public setSeriesData(id: SeriesId, bars: readonly Bar[]): void {
     const entry = this._series.get(id);
     if (entry === undefined) throw new Error(`openalgo-charts: unknown series ${id}`);
-    const previous = entry.bars;
-    entry.bars = sortedUniqueByTime(bars);
-    if (this._axisHolds(entry.bars) && keepsEveryTime(previous, entry.bars)) return;
-    this._rebuild();
+    this._replaceBars(entry, sortedUniqueByTime(bars));
   }
 
   /**
@@ -102,10 +323,7 @@ export class DataLayer {
     const byTime = new Map<number, Bar>();
     for (const b of entry.bars) byTime.set(b.time, b);
     for (const b of bars) byTime.set(b.time, b);
-    entry.bars = Array.from(byTime.values()).sort((a, b) => a.time - b.time);
-    // An upsert never drops a time, so only a time the axis lacks can move it.
-    if (this._axisHolds(bars)) return;
-    this._rebuild();
+    this._replaceBars(entry, Array.from(byTime.values()).sort((a, b) => a.time - b.time));
   }
 
   /**
@@ -125,6 +343,7 @@ export class DataLayer {
       bars.push(bar);
       const n = this._sortedTimes.length;
       const globalLast = n > 0 ? this._sortedTimes[n - 1] : undefined;
+      const isNew = this._retain(bar.time);
       if (globalLast === undefined || bar.time > globalLast) {
         this._appendTime(bar.time); // genuine global right-edge append
         return 'append';
@@ -132,8 +351,8 @@ export class DataLayer {
       // Series-local append but NOT the global newest: the time belongs mid-axis.
       // If it already exists globally (another series has it) no new index is
       // added; otherwise reindex so _sortedTimes stays ordered.
-      if (this._indexByTime.has(bar.time)) return 'replace';
-      this._rebuild();
+      if (!isNew) return 'replace';
+      this._rebuild([bar.time], false);
       return 'insert';
     }
     if (bar.time === last.time) {
@@ -141,7 +360,7 @@ export class DataLayer {
       return 'replace';
     }
     // older than the last bar: replace if the time exists, else insert into history
-    const i = bars.findIndex((b) => b.time === bar.time);
+    const i = indexOfTime(bars, bar.time);
     if (i >= 0) {
       bars[i] = bar;
       return 'replace';
@@ -154,6 +373,7 @@ export class DataLayer {
     if (!this._indexByTime.has(time)) {
       this._indexByTime.set(time, this._sortedTimes.length);
       this._sortedTimes.push(time);
+      this._version++;
     }
   }
 
@@ -177,13 +397,19 @@ export class DataLayer {
 
   /**
    * Fractional logical index → UTC seconds, interpolating between bars and
-   * extrapolating past either edge at the nearest bar spacing.
+   * extrapolating past either edge.
    *
    * `indexToTime` only answers for indices that have a bar. Anything anchored to
    * an arbitrary x — a drawing endpoint, a cursor readout, a projection to the
    * right of the last bar — needs a time for positions *between* bars too, which
    * the gapless axis (§5.3) makes common: everything a weekend or a session
    * break collapsed away lands there. Returns NaN when there is no data.
+   *
+   * Past the last bar the whole indices are the bar times still to come: from
+   * the session calendar when one is set (`setSessionCalendar`), otherwise one
+   * median recent spacing apart. Never the last gap alone, which is the gap most
+   * likely to be a night or a weekend. Left of the first bar the first gap
+   * applies.
    */
   public indexToTimeFloat(index: number): number {
     const t = this._sortedTimes;
@@ -191,7 +417,10 @@ export class DataLayer {
     if (n === 0) return NaN;
     if (n === 1) return t[0];
     if (index <= 0) return t[0] + index * (t[1] - t[0]);
-    if (index >= n - 1) return t[n - 1] + (index - (n - 1)) * (t[n - 1] - t[n - 2]);
+    if (index >= n - 1) {
+      const p = this._plan(), d = index - (n - 1), k = Math.floor(d), a = futureSlot(p, k);
+      return d === k ? a : a + (d - k) * (futureSlot(p, k + 1) - a);
+    }
     const i = Math.floor(index);
     return t[i] + (index - i) * (t[i + 1] - t[i]);
   }
@@ -207,19 +436,39 @@ export class DataLayer {
       return step > 0 ? (time - t[0]) / step : 0;
     }
     if (time >= t[n - 1]) {
-      const step = t[n - 1] - t[n - 2];
-      return step > 0 ? n - 1 + (time - t[n - 1]) / step : n - 1;
+      const p = this._plan(), s = p.slots;
+      while (p.next && s[s.length - 1] <= time) grow(p);
+      const m = s.length - 1;
+      if (time >= s[m]) return n - 1 + m + (time - s[m]) / p.step;
+      const k = floorIndex(s, time, m);
+      return n - 1 + k + (time - s[k]) / (s[k + 1] - s[k]);
     }
-    // Largest index whose time is <= `time`.
-    let lo = 0;
-    let hi = n - 1;
-    while (lo < hi) {
-      const mid = (lo + hi + 1) >> 1;
-      if (t[mid] <= time) lo = mid;
-      else hi = mid - 1;
+    const lo = floorIndex(t, time, n - 1);
+    return lo + (time - t[lo]) / (t[lo + 1] - t[lo]);
+  }
+
+  /**
+   * The future plan for the current last bars and calendar. A rebuild that
+   * leaves the recent bars as they were (a page of older history, a gap filled
+   * well to the left) keeps the plan and the times it already generated.
+   */
+  private _plan(): FuturePlan {
+    const t = this._sortedTimes, from = Math.max(0, t.length - 1 - SAMPLE);
+    let p = this._future;
+    if (p !== null && p.version !== this._version
+      && p.tail.length === t.length - from && p.tail.every((time, i) => time === t[from + i])) p.version = this._version;
+    if (p === null || p.version !== this._version) {
+      const tail = t.slice(from), median = lowerMedian(gapsOf(tail));
+      let next: (() => number | null) | null = null;
+      try {
+        if (this._calendar) next = sessionSlots(tail, this._calendar, median);
+      } catch {
+        // A calendar that cannot answer, such as a window in a daylight-saving
+        // gap, must not stop a chart painting: the median answers instead.
+      }
+      p = this._future = { version: this._version, tail, slots: [tail[tail.length - 1]], next, step: median };
     }
-    const span = t[lo + 1] - t[lo];
-    return span > 0 ? lo + (time - t[lo]) / span : lo;
+    return p;
   }
 
   /**
@@ -286,30 +535,77 @@ export class DataLayer {
     return index === undefined ? null : { index, bar };
   }
 
-  /**
-   * Whether every time in `bars` already has a logical index.
-   *
-   * Together with "the series kept every time it had", this is exactly the
-   * condition under which re-merging the axis would rebuild the same axis: no
-   * time is added, and none can be lost. It is the common case, not an edge —
-   * an indicator plot re-set after the candles took a page of history, a volume
-   * series prepended onto the times the candles just brought — and the re-merge
-   * walks every bar of every series.
-   */
-  private _axisHolds(bars: readonly Bar[]): boolean {
-    for (const b of bars) if (!this._indexByTime.has(b.time)) return false;
-    return true;
+  /** Count one more series holding `time`; true when no series held it before. */
+  private _retain(time: number): boolean {
+    const n = this._timeRefs.get(time) ?? 0;
+    this._timeRefs.set(time, n + 1);
+    return n === 0;
   }
 
-  private _rebuild(): void {
-    const times = new Set<number>();
-    for (const entry of this._series.values()) {
-      for (const bar of entry.bars) times.add(bar.time);
+  /**
+   * Swap a series' bars and bring the time axis along. The counts say which
+   * times entered or left the union, so the work is the series' own change,
+   * never every series the chart holds: re-sending the same times touches no
+   * index at all, times past the right edge are appended, and anything else
+   * is merged in by `_rebuild`.
+   */
+  private _replaceBars(entry: SeriesEntry, next: Bar[]): void {
+    const prev = entry.bars;
+    entry.bars = next;
+    // Both are sorted, so the times they share from the start are the same set
+    // and their counts stand. A refresh, or a refresh with a bar appended,
+    // leaves nothing or one bar past it.
+    let p = 0;
+    while (p < prev.length && p < next.length && prev[p].time === next[p].time) p++;
+    // Count the new bars before releasing the old, so a time both hold never
+    // passes through zero. `next` is sorted, so `added` comes out sorted.
+    let added: number[] | null = null;
+    for (let i = p; i < next.length; i++) if (this._retain(next[i].time)) (added ??= []).push(next[i].time);
+    let removed = false;
+    for (let i = p; i < prev.length; i++) {
+      const t = prev[i].time, n = this._timeRefs.get(t) ?? 0;
+      if (n <= 1) { this._timeRefs.delete(t); removed = true; } else this._timeRefs.set(t, n - 1);
     }
-    this._sortedTimes = Array.from(times).sort((a, b) => a - b);
-    this._indexByTime.clear();
-    for (let i = 0; i < this._sortedTimes.length; i++) {
-      this._indexByTime.set(this._sortedTimes[i], i);
+    if (added === null && !removed) return;
+    const edge = this._sortedTimes.length > 0 ? this._sortedTimes[this._sortedTimes.length - 1] : -Infinity;
+    if (!removed && added !== null && added[0] > edge) {
+      for (const t of added) this._appendTime(t);
+      return;
     }
+    this._rebuild(added ?? [], removed);
+  }
+
+  /**
+   * Merge `added` (sorted, new to the axis) into it and drop the times no
+   * series holds any longer. Indices before the first change keep their value,
+   * so a change near the right edge reindexes only what moved. A time that
+   * does not order (NaN) cannot be merged, and the union is sorted afresh.
+   */
+  private _rebuild(added: readonly number[] = [], removed = true): void {
+    const old = this._sortedTimes;
+    if (added.some(Number.isNaN) || old.some(Number.isNaN)) {
+      const all = Array.from(this._timeRefs.keys()).sort((a, b) => a - b);
+      this._indexByTime.clear();
+      for (let k = 0; k < all.length; k++) this._indexByTime.set(all[k], k);
+      this._sortedTimes = all;
+      this._version++;
+      return;
+    }
+    const merged: number[] = [];
+    let i = 0, j = 0;
+    while (i < old.length || j < added.length) {
+      if (j >= added.length || (i < old.length && old[i] < added[j])) {
+        const t = old[i++];
+        if (!removed || this._timeRefs.has(t)) merged.push(t);
+        else this._indexByTime.delete(t);
+      } else {
+        merged.push(added[j++]);
+      }
+    }
+    let first = 0;
+    while (first < merged.length && first < old.length && merged[first] === old[first]) first++;
+    for (let k = first; k < merged.length; k++) this._indexByTime.set(merged[k], k);
+    this._sortedTimes = merged;
+    this._version++;
   }
 }

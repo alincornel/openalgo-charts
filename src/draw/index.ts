@@ -38,6 +38,16 @@ export type {
 } from './analysis';
 export { DrawingLinkGroup, createDrawingLinkGroup } from './drawing-link';
 export type { DrawingLinkContext, DrawingLinkContextSource, DrawingLinkOptions, DrawingLinkChart } from './drawing-link';
+// Drawings per instrument. DOM-free: the store is the host's, localStorage
+// only when the host hands it over.
+export {
+  InstrumentDrawings, createInstrumentDrawings, instrumentDrawingsKey, memoryDrawingStore, webStorageDrawingStore,
+  migrateUnscopedDrawings,
+} from './instrument-drawings';
+export type {
+  DrawingInstrument, DrawingDocumentStore, DrawingTextStorage, InstrumentDrawingsChart, InstrumentDrawingsError,
+  InstrumentDrawingsOptions,
+} from './instrument-drawings';
 
 registerBuiltinDrawingTools(); // side effect on tier import
 
@@ -77,8 +87,8 @@ export {
 export {
   composeSettings, readDrawingSetting, readDrawingSettings, coerceSettingValue, applyDrawingSettings,
   LINE_FIELDS, FILL_FIELDS, EXTEND_FIELDS, LEVEL_FIELDS, TEXT_FIELDS, FONT_FIELDS, SHAPE_TEXT_FIELDS, PLATE_TEXT_FIELDS,
-  COLOR_FIELD, LINE_WIDTH_FIELD, LINE_STYLE_FIELD, SHOW_LABELS_FIELD, TEXT_VALUE_FIELD,
-  LINE_STYLE_OPTIONS, ALIGN_OPTIONS, VALIGN_OPTIONS, TEXT_POSITION_OPTIONS, FONT_OPTIONS,
+  COLOR_FIELD, LINE_WIDTH_FIELD, LINE_STYLE_FIELD, SHOW_LABELS_FIELD, TEXT_VALUE_FIELD, SPACE_FIELD, INTERVAL_FIELDS,
+  LINE_STYLE_OPTIONS, ALIGN_OPTIONS, VALIGN_OPTIONS, TEXT_POSITION_OPTIONS, FONT_OPTIONS, SPACE_OPTIONS,
   type FieldKind, type FieldGroup, type SettingsField, type SettingsSchema,
 } from './schema';
 
@@ -94,10 +104,13 @@ export {
 // shows a tool reads from one source.
 export {
   DRAWING_TOOL_ICONS, drawingToolIcon, drawingToolIconIds,
+  DRAWING_TOOL_ACCENTS, drawingToolAccent,
   ICON_VIEWBOX, ICON_STROKE, ICON_ATTRS,
   CHROME_ICONS, CHROME_ICON_FILLED, chromeIcon, chromeIconIds,
+  CHROME_ICON_ACCENTS, chromeIconAccent,
   CHROME_ICON_VIEWBOX, CHROME_ICON_STROKE, CHROME_ICON_ATTRS,
-  type IconAttrs,
+  chartTypeIcon, layoutIconPath,
+  type IconAttrs, type LayoutIconSlot,
 } from './icons';
 export {
   iconSvg, chromeIconSvg, iconSprite, iconUse, toolCursor, ICON_SYMBOL_PREFIX,
@@ -109,6 +122,10 @@ export {
   DrawingController,
   type DrawingControllerOptions,
   type DrawingChangeKind,
+  type DrawingChangeEvent,
+  type DrawingEditOptions,
+  type DrawingPlacementOptions,
+  type DrawingGestureOptions,
 } from './controller';
 
 // Keyboard editing. Pure: the host owns the listener and asks what a key means.
@@ -146,11 +163,23 @@ export {
 // and wants the 2.0 shape without a controller.
 export { migrateDrawings } from './migrate';
 export { DRAWING_STATE_VERSION } from './types';
+// Visibility per interval, for a host marking what a range hides without a
+// controller at hand; the controller's own answer is `shownOnInterval`.
+export { drawingShownOnInterval } from './intervals';
 export type {
   Drawing,
   DrawingInput,
   DrawingPatch,
+  DrawingPolicy,
+  // Where `placeInStack` puts a drawing: next to another drawing or a series-band entry.
+  DrawingStackTarget,
   DrawingPoint,
+  // Viewport anchoring: a drawing pinned to the screen instead of to time and price.
+  DrawingSpace,
+  ViewportPoint,
+  // The chart intervals a drawing is shown on.
+  DrawingIntervalRange,
+  DrawingGroup,
   DrawingStyle,
   DrawingText,
   DrawingsDocument,
@@ -173,6 +202,12 @@ export type {
 // What `new DrawingController(chart)` accepts. Exported so a host wiring the
 // controller to something other than a Chart can state what it must provide.
 export type { DrawingChartHost } from './controller';
+
+// Where a study's price input is picked and anchored. The controller draws a
+// paired input's anchor there; a host's own settings form asks the same
+// question before it offers a pick.
+export { studyInputTarget } from './input-anchors';
+export type { StudyInputTarget, InputAnchorStep } from './input-anchors';
 
 export type { ShortcutEvent } from './tools';
 

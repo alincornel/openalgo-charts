@@ -4,6 +4,7 @@ description: Markers, event badges, price lines, custom chart types, and the IPr
 ---
 
 import RunnableExample from '../../components/RunnableExample'
+import { STOCK_BARS_SOURCE } from '../../components/synthetic-market'
 import { Callout } from 'nextra/components'
 
 # Primitives & plugins
@@ -52,6 +53,34 @@ markers.setMarkers([
 
 chart.timeScale.fitContent(bars.length);
 return chart;`} caption="Label plates: the tail points at the anchor price, the body clears it." />
+
+Markers that carry text above or below the bar, or on a pane edge, take **lanes**. A label
+is wider than a bar, so on a whipsaw the signals on neighbouring bars would land on each
+other: each one moves outward just past any earlier label on its side that it overlaps,
+and a label that overlaps nothing stays exactly where it was. A label moves at most five
+of its own heights, so where labels outnumber the room, as at a wide zoom, the rest
+overlap on their bars instead of stacking out of the pane. Labels hold their lanes while
+the chart pans. A mark at a price or in the bar keeps its place.
+
+<RunnableExample height={340} code={`${STOCK_BARS_SOURCE}
+const chart = lib.createChart(el);
+const bars = stockBars(1700000000, 160, 300, 1480, 17, 0.003);
+const series = chart.addSeries('candlestick');
+series.setData(bars);
+
+// A fast crossover on simulated prices whipsaws, so signals land on neighbouring bars.
+const mean = (i, n) => bars.slice(i - n + 1, i + 1).reduce((sum, bar) => sum + bar.close, 0) / n;
+const signals = [];
+for (let i = 5; i < bars.length; i++) {
+  const now = mean(i, 2) - mean(i, 5), before = mean(i - 1, 2) - mean(i - 1, 5);
+  if (now > 0 && before <= 0) signals.push({ time: bars[i].time, position: 'belowBar', shape: 'labelUp', size: 'small', color: '#2962ff', text: 'Buy' });
+  if (now < 0 && before >= 0) signals.push({ time: bars[i].time, position: 'aboveBar', shape: 'labelDown', size: 'small', color: '#ef5350', text: 'Sell' });
+}
+series.createMarkers().setMarkers(signals);
+// Headroom above and below the bars for labels stacked in outer lanes.
+chart.setPriceScaleOptions({ marginTop: 0.2, marginBottom: 0.2 });
+chart.timeScale.fitContent(bars.length);
+return chart;`} caption="Simulated prices. Crossover signals on neighbouring bars take lanes instead of covering each other." />
 
 `drawLabel(ctx, up, cx, anchorY, text, color, fontPx)` is exported if you want the same
 plate inside a custom primitive. Coordinates are bitmap px. Multiply media px by `dpr`
@@ -225,6 +254,42 @@ and the font size actually drawn. Empty columns retain a 28 px minimum.
 With `fontSize: 'auto'`, width measurement uses an 11 px baseline unless the cell
 overrides its font. Text always clips to its own cell.
 
+Cells support `bold`, `italic`, `fontFamily` (a CSS font-family list), `fontSize`,
+horizontal `align`, and `verticalAlign: 'top' | 'middle' | 'bottom'`. Middle is
+the default. A newline in `text` creates another line; automatic widths measure
+the widest line, and automatic font sizing fits the whole text block. Fixed
+fonts also shrink to fit the available row height. The default font remains
+`system-ui, sans-serif`.
+
+Set `colSpan` or `rowSpan` on the top-left cell to merge a rectangle. Both default
+to one and must be positive safe integers. The rectangle must fit within the
+row count and the longest row's column count. Covered ordinary cells are ignored;
+overlapping explicit spans are rejected. `setRows` validates the entire grid before
+replacing it, so invalid spans leave the previous rows intact. A merged cell uses
+its anchor's text and appearance, with one clip over the combined area. Automatic
+widths distribute any extra width needed by merged text across its columns.
+
+`frameColor` adds a separate outer frame, with optional `frameWidth` in media pixels
+(default one). Cell borders continue to use `borderColor` and `borderWidth`.
+
+Add `tooltip` to a cell for plain-text hover details. Explicit newlines are kept,
+long lines wrap, and the tooltip stays inside the plot. A merged cell uses its
+anchor's tooltip; covered cells are ignored. Empty or omitted tooltips leave
+ordinary table rendering unchanged. Malformed nonstring tooltip values reject
+before `setRows` replaces the current table.
+
+The table's optional `id` remains its click ID across all cells. When it is absent,
+only tooltip cells have hit targets, with an opaque generated ID. Supply an `id`
+when handling table clicks. Tooltip state clears after content, layout or ownership
+changes and is omitted from SVG exports.
+
+```js
+table.setRows([
+  [{ text: 'Session', colSpan: 2, tooltip: 'Regular hours\nValues update with the newest bar' }, { text: '' }],
+  [{ text: 'Range' }, { text: '4.75', tooltip: 'Session high minus session low' }],
+]);
+```
+
 Fixed sizing uses `cellWidth` (a number, or an array for per-column widths)
 and `cellHeight`, in media px. Proportional: `widthPercent` and `heightPercent` stretch
 the grid to a share of the plot, preserving the column proportions declared in
@@ -259,13 +324,21 @@ should stay at the chart's edge as indicator panes come and go. Pass a placement
 an index:
 
 ```ts
-chart.addPrimitive(mark, { anchor: 'chart-bottom' })   // or 'chart-top'
+chart.addPrimitive(mark, { anchor: 'chart-bottom' })   // or 'chart-top', or 'primary-pane'
 ```
 
-The engine re-homes it whenever a pane is added, removed, moved or maximized. Maximize is
-the case worth knowing about: it **hides** the other panes, so a mark pinned to pane 0 does
-not merely sit in the wrong place, it disappears with the pane. An anchored primitive
-follows the visible edge.
+The engine re-homes it whenever a pane is added, removed, moved, maximized or collapsed.
+`'chart-bottom'` means the lowest open pane, since a collapsed pane draws only its legend
+row. Maximize is the case worth knowing about: it **hides** the other panes, so a mark
+pinned to the price pane does not merely sit in the wrong place, it disappears with the pane. An
+anchored primitive follows the visible edge.
+
+`'primary-pane'` is for furniture that describes the price, such as a symbol badge: it
+follows the price pane to whatever slot it is moved to (see
+[Moving the price pane](/docs/scales-and-panes#moving-the-price-pane-below-its-studies)), and
+the pane maximized over it while it is hidden. The chart's own background text and study
+count use it. A plain `addPrimitive(p)` with no second argument lands on the price pane
+too, and then moves with that pane like any pane primitive.
 
 Before this existed a host had to do it by hand, removing and re-adding the primitive on
 `chart.panes().length - 1` after anything that might have created a pane, and listening to
@@ -417,6 +490,53 @@ registerChartType('my-style', {
 chart.addSeries('my-style').setData(bars);
 ```
 
+`items` holds the visible bars, each with its `x` in media px. The array and its
+objects belong to the pane until it draws the series again, when it rewrites them in
+place, so copy what you keep past the call. A custom renderer, even one registered
+under a built-in name, always receives every bar: the level of detail
+(`conflate`) reduces only the built-in renderers.
+
+A renderer that joins each bar to the next (a line, a step, a band) sets
+`connectsBars: true` (since 2.5.9). Its `items` then also hold the series' nearest bar
+beyond each edge of the view, so the segment that crosses the edge is drawn, and a
+sparse line (a level held for a session) still spans the plot with none of its bars in
+view. Those two items carry `edgeX`, the x of the plot edge they lie past: cut the
+segment there rather than stroke it out to a bar that can be millions of pixels away,
+and draw no marker of their own. A neighbour is the series' very next bar, value or
+not, so a gap at the edge (a whitespace item, or a study's NaN) breaks the line there
+as it does anywhere else.
+
+```ts
+registerChartType('my-line', {
+  defaultStyle: { color: '#fff' },
+  isPriceSeries: true,
+  connectsBars: true,
+  draw: (ctx, items, toY, barSpacing, dpr, style) => {
+    ctx.strokeStyle = style.color ?? '#fff';
+    ctx.beginPath();
+    let joined = false; // whether the previous point had a value
+    items.forEach(({ x, bar, edgeX }, i) => {
+      let px = x, py = toY(bar.close);
+      if (edgeX !== undefined && items.length > 1) {
+        // Cut the leg to a neighbour beyond the view a few pixels past the edge.
+        const inner = items[i === 0 ? 1 : items.length - 2];
+        const iy = toY(inner.bar.close);
+        const cut = i === 0 ? Math.max(x, edgeX - 8) : Math.min(x, edgeX + 8);
+        py = iy + (py - iy) * ((cut - inner.x) / (x - inner.x));
+        px = cut;
+      }
+      // A bar with no value breaks the line; so does a cut next to one.
+      if (!Number.isFinite(py)) { joined = false; return; }
+      if (joined) ctx.lineTo(px * dpr, py * dpr);
+      else ctx.moveTo(px * dpr, py * dpr);
+      joined = true;
+    });
+    ctx.stroke();
+  },
+  extents: (bar) => ({ min: bar.close, max: bar.close }),
+});
+```
+
 ## A custom primitive
 
 Implement `IPrimitive` and attach it - the same contract markers, profiles, and the trade
@@ -432,7 +552,7 @@ const watermark: IPrimitive = {
     ctx.font = '700 48px system-ui';
     ctx.fillText('OPENALGO', 24, host.plotHeight - 24);
   },
-  // optional: hitTest(point), autoscaleInfo(), attached(host), detached()
+  // optional: hitTest(x, y, rc), hitBounds(rc), autoscaleInfo(), attached(host), detached()
 };
 
 chart.addPrimitive(watermark, 0);
@@ -460,6 +580,88 @@ draw(ctx, rc) {
 ```
 
 The array is the live one the data layer holds. Treat it as read-only.
+
+### Painting between studies
+
+`zOrder()` picks a band: `'bottom'` behind every series, `'normal'` over them with the
+price lines and markers, `'top'` on the overlay canvas. A primitive can also paint inside
+the series band, directly above the price source or one study of its pane, with
+`chart.setPrimitiveStackAbove(primitive, entry)`. The entry is an id from
+`chart.seriesStack(paneIndex)`: `'source:primary'` or `'indicator:<instance id>'`.
+
+```ts
+chart.addPrimitive(shade, 0);
+// Over the candles, under every study drawn after them.
+chart.setPrimitiveStackAbove(shade, 'source:primary');
+// Back to its own band.
+chart.setPrimitiveStackAbove(shade, null);
+```
+
+It paints right after that entry's last series on the pane, and a renderer that batches
+series (the WebGL2 backend) flushes first, so the order holds on every backend. While the
+entry plots no series on that pane the primitive paints in its own `zOrder()` band. A
+placed primitive repaints with the base canvas whatever its `zOrder()`, and the pointer
+ranks it by where it paints: a primitive painted over the series (a `'normal'` or
+`'top'` one in its own band) takes the press wherever it answers, and a study painted
+over it takes the context menu. This is how the draw tier puts a drawing between
+studies; see [Draw order](/docs/drawing-tools#draw-order).
+The call returns false for a primitive that is on no pane.
+
+## Hit boxes
+
+A pointer move asks `hitTest` of every primitive on the pane unless the primitive says
+where it can answer. The optional `hitBounds(rc)` (2.5.8) returns that box, in the same
+plot-relative media px `hitTest` receives (edges inclusive, and a side may be infinite),
+or `null` when nothing of the primitive can be hit. The pane then asks `hitTest` only
+when the pointer is inside the box, so a pane carrying hundreds of annotations pays for
+the few near the pointer.
+
+```ts
+const GRAB = 4; // how far from the segment hitTest still answers, in media px
+
+const segment = {
+  zOrder: () => 'normal' as const,
+  draw(ctx, rc) { /* paint the segment from (t0, p0) to (t1, p1) */ },
+  hitTest(x, y, rc) { /* answer within GRAB px of the segment */ },
+  hitBounds(rc) {
+    const x0 = rc.timeScale.indexToX(rc.dataLayer.timeToIndexFloat(t0));
+    const x1 = rc.timeScale.indexToX(rc.dataLayer.timeToIndexFloat(t1));
+    const y0 = rc.priceScale.priceToY(p0);
+    const y1 = rc.priceScale.priceToY(p1);
+    const pad = GRAB + 0.5; // everything hitTest answers, rounding included
+    return {
+      left: Math.min(x0, x1) - pad, top: Math.min(y0, y1) - pad,
+      right: Math.max(x0, x1) + pad, bottom: Math.max(y0, y1) + pad,
+    };
+  },
+};
+```
+
+A primitive that declares a box promises:
+
+- **The box holds every point `hitTest` can answer.** A point outside it is never
+  asked, so a box that is too tight loses hits. A NaN edge makes the pane ask anyway.
+- **It changes only with what the pane follows**: the time scale and the bars' times,
+  the pane's price scales, size and axes, the pixel ratio, hover and drag, the theme
+  and the session calendar, or the primitive's own state, announced through
+  `host.requestUpdate()`. The pane keeps the box until one of those changes. A box that
+  depends on anything else, bar prices say, must request an update when that changes,
+  or leave the hook out.
+- **It comes from the same geometry `hitTest` uses**, `rc` or what the last `draw`
+  recorded. A box asked for between a change and the frame that paints it is asked for
+  again once that frame is painted.
+- **`hitTest` is free of side effects.** The pane may skip it, outside the box and also
+  after an exact hit (`distance: 0`) among the primitives painted in front, which
+  nothing after it can outrank.
+
+A primitive that declares `hitBounds` is attached with a host object that wraps the
+chart's, so the pane hears its `requestUpdate`; do not compare that host with another
+by identity. The built-in primitives declare no box yet, so they are asked on every move
+as before. The draw tier's layers keep a box per drawing of their own instead: the pane
+asks a layer on every move, and the layer asks only the drawings whose box the pointer
+is in, 4.5 of 500 trend lines per move in `node scripts/bench-pane.mjs`. A host driving
+a `DrawingLayer` itself hands a drawing edited in place over again with `setDrawings`,
+as the controller does, for a hover to see where it now is.
 
 ## `bestHit` helper
 
@@ -493,6 +695,18 @@ function bestHit(hits: readonly (PrimitiveHit | null)[]): PrimitiveHit | null
 ```
 
 `null` entries in the input array are skipped. Returns `null` if every entry is `null`.
+
+A primitive that answers for others (the draw tier's front layer answers for the
+layers under it) sets `paintedBy` on a hit to the primitive that painted it. Where
+that hit and a series lie under a right-click, the chart compares where each paints
+and gives the context menu to the one on top. A hit without `paintedBy` takes the
+menu over any series, as it always did.
+
+Composite primitives may return an optional `hoverKey` to distinguish regions
+that share an `externalId`. The chart forwards the key in `PrimitiveRenderContext`
+and repaints when it changes; click IDs and public `hover` event IDs remain the
+external ID. Existing primitives can omit it. SVG exports clear transient hover
+IDs and keys.
 
 ## `InvalidationLevel`
 

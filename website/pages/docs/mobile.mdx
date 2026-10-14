@@ -74,7 +74,7 @@ chart.subscribeDrag(
 
 ## Responsive layout
 
-The chart installs a `ResizeObserver` on its container element at construction time. Whenever the container changes size -- viewport resize, device orientation change, or a flex/grid parent reflowing -- the chart recalculates pane layout and repaints automatically with no extra code required.
+The chart installs a `ResizeObserver` on its container element at construction time. Whenever the container changes size -- viewport resize, device orientation change, or a flex/grid parent reflowing -- the chart recalculates pane layout and repaints automatically with no extra code required. It paints inside the observer's callback, before the browser shows the frame, so a resize or a rotation never flashes a cleared chart.
 
 Use a fluid container so the chart fills its available space:
 
@@ -94,10 +94,30 @@ For a fixed aspect ratio at any screen width:
 ## Packaged mobile widget controls
 
 `WidgetOptions.mobile` accepts `'auto'`, `'always'` or `'never'`. The default is
-`'auto'`, which switches when the widget container is at most 640 CSS px wide or the
-primary pointer is coarse. It observes the container rather than the browser viewport,
-so a narrow chart in a wide dashboard receives the compact controls, and a phone retains
-them in landscape.
+`'auto'`, which decides from the size of the widget container rather than the browser
+viewport, so a narrow chart in a wide dashboard receives the compact controls too. The
+pointer is the primary one, as the `(pointer: coarse)` media query reports it:
+
+| Widget container (CSS px) | Fine pointer | Coarse pointer |
+| --- | --- | --- |
+| At most 640 wide | Compact | Compact |
+| 641 to 960 wide, under 600 tall | Desktop | Compact |
+| 641 to 960 wide, 600 tall or more | Desktop | Desktop |
+| Wider than 960 | Desktop | Desktop |
+
+A phone therefore keeps the compact controls in both orientations: turned on its side it
+is wide but short. A tablet in either orientation, and a touch laptop, get the full top
+bar and drawing rail, which keep every tool one tap away. From 2.5.10; earlier releases
+chose the compact controls for any coarse pointer, whatever the container size.
+
+The widget decides again whenever the container is resized (a rotation, a split view, a
+dashboard cell changing size) and whenever the primary pointer changes, as it does when
+a convertible folds into tablet mode. Two cases keep the current layout. A container that
+measures 0 wide (hidden, or not laid out yet) starts with the desktop controls, and one
+that later drops to 0 wide or 0 tall keeps the layout it had, so hiding a tab does not
+close an open sheet. While a form field inside the widget has focus (the symbol box, or
+an input in a dialog), a switch waits until focus leaves it, so an on-screen keyboard
+that shortens the container never hides the field being typed in.
 
 ```ts
 import { createWidget } from 'openalgo-charts/widget';
@@ -111,12 +131,12 @@ const widget = createWidget('#terminal', {
 When active, the desktop top bar, status line and drawing rail are replaced by a touch
 header and bottom bar. The header provides symbol entry and interval selection. The
 bottom bar provides Draw, Studies, Objects and More as enabled by `topbar`, `rail` and
-`indicators`. More contains theme, chart settings and chart type. Selecting a drawing
-shows Properties, Lock or Unlock, and Delete. While a tool is active, the Drawing sheet
-also provides Finish, Cancel, Undo, Magnet and Stay controls.
+`indicators`. More opens with Undo and Redo, then theme, chart settings and chart type.
+Selecting a drawing shows Properties, Lock or Unlock, and Delete. While a tool is active, the
+Drawing sheet also provides Finish, Cancel, Undo, Redo, Magnet and Stay controls.
 
 The mobile and desktop controls use the same `DrawingController`, object inventory,
-selection, undo history, settings dialogs and overlay stack. Changing layout does not
+selection, [chart-wide undo history](/docs/undo-history), settings dialogs and overlay stack. Changing layout does not
 copy or reset drawings. `rail.tools` filters both the desktop rail and mobile Drawing
 sheet to the same allowed ids.
 
@@ -133,6 +153,8 @@ the rest of the chrome. See [The Widget Tier](/docs/widget#mobile-widget-control
 ## Crisp rendering
 
 The chart reads `window.devicePixelRatio` automatically at startup and draws every canvas at the physical pixel density of the screen. On 2x Retina displays and 3x mobile screens the output is sharp with no CSS-scaling blur.
+
+It follows a change of ratio too: a window dragged to a screen of another density, or a zoom. The chart watches a resolution media query for the ratio in force, made again after each change, and the window's `resize`, and re-sizes and repaints every canvas at once. Pane boundaries land on whole device pixels at every ratio. At fractional ratios such as 1.25 and 1.5, common on laptop screens, the separator is one device pixel tall, laid over the top of the lower pane, so no pane is stretched by a fraction of a pixel; at whole ratios it is the 1 px border it has always been. Where the browser reports a canvas's device-pixel box (Chromium, Firefox), the canvas takes exactly that many pixels.
 
 To override the ratio -- for testing, fixed-density screenshots, or environments without `window` -- pass a `pixelRatio` function in `ChartOptions`. The value is re-read on every resize and repaint, so a function that reads `window.devicePixelRatio` dynamically is valid:
 

@@ -22,7 +22,7 @@ function lineStart(lineFromX?: number): number {
   scale.setHeight(400);
   scale.setPriceRange({ min: 90, max: 110 });
   const layout = { plotWidth: 600, plotHeight: 400 } as PlotLayout;
-  drawLastPriceLabel(ctx, scale, 100, true, layout, 1, undefined, undefined, true, false, undefined, lineFromX);
+  drawLastPriceLabel(ctx, scale, 100, true, layout, 1, undefined, undefined, true, false, undefined, 'right', lineFromX);
   return moves[0];
 }
 

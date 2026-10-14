@@ -15,9 +15,19 @@ import { applyChartSettings, chartSettingsSchema, readChartSettings } from 'open
 import type { ChartSettingsTab, ChartSettingsTabId, ChartSettingsValues } from 'openalgo-charts';
 import type { WidgetContext } from '../context';
 import {
-  button, controlsFromInputs, dialogFrame, el, glyphSvg, openPanel, renderForm, tabList,
+  button, controlsFromInputs, dialogFrame, el, openPanel, renderForm, tabList,
   type FormHandle, type PanelHandle,
 } from '../form';
+
+/**
+ * The chrome glyph beside each settings tab, keyed by the schema's tab id
+ * rather than by position, so a reordering in the engine cannot shuffle the
+ * pictures. Typed on the full id union: a tab the engine adds fails the build
+ * here until it has a picture.
+ */
+const SETTINGS_TAB_ICONS: Readonly<Record<ChartSettingsTabId, string>> = {
+  price: 'chart-candlestick', readout: 'legend', axes: 'axes', appearance: 'panels', trading: 'trading',
+};
 
 export interface SettingsDialogOptions {
   /** The tab to open on. Default: the first tab with a control in it. */
@@ -33,19 +43,6 @@ export interface SettingsDialogOptions {
   /** Runs once when the dialog is gone; `committed` is false after Cancel or Escape. */
   onClose?(committed: boolean): void;
 }
-
-/**
- * A glyph per tab, keyed by the schema's tab id rather than by position so a
- * reordering in the engine cannot shuffle the pictures; a tab this table does
- * not know draws none.
- */
-const TAB_GLYPH: Readonly<Record<string, string>> = {
-  price: 'M5 2v12M3 5h4v6H3zM11 2v12M9 4h4v7H9z',
-  readout: 'M2 4h8M2 8h12M2 12h9',
-  axes: 'M3 2v11h11M3 6h2M3 10h2M7 13v-2M11 13v-2',
-  appearance: 'M2 3h12v10H2zM2 8h12M7 3v10',
-  trading: 'M2 12l4-4 3 2 5-6M11 4h3v3M2 14h12',
-};
 
 /** The defaults of one tab as a patch: both halves and the switch of a paired colour included. */
 export function tabDefaults(tab: ChartSettingsTab): ChartSettingsValues {
@@ -81,9 +78,17 @@ export function mountSettingsDialog(
   let form: FormHandle | null = null;
   let committed = false;
 
+  // The whole session is one step on the chart's timeline, and a Cancel that
+  // puts everything back leaves none. Settings are not announced by the
+  // chart, so each write is a transaction the history can measure.
+  const endStep = ctx.history?.group('Chart settings') ?? ((): void => {});
+  const applyNow = (patch: ChartSettingsValues): void => {
+    if (ctx.history !== undefined) ctx.history.transact(() => applyChartSettings(chart, patch));
+    else applyChartSettings(chart, patch);
+  };
   const write = (patch: ChartSettingsValues): void => {
     for (const k of Object.keys(patch)) dirty.add(k);
-    applyChartSettings(chart, patch);
+    applyNow(patch);
     opts.onApply?.(patch);
   };
 
@@ -91,11 +96,12 @@ export function mountSettingsDialog(
   const main = el(doc, 'div', 'oac-settings__main');
   const pane = el(doc, 'div', 'oac-settings__pane');
   frame.body.appendChild(main);
-  const nav = tabList(doc, tabs.map((t) => ({ id: t.id, label: widgetText(ctx, `schema.settings.tab.${t.id}`, {}, t.label), icon: glyphSvg(TAB_GLYPH[t.id] ?? '') })),
+  const nav = tabList(doc, tabs.map((t) => ({ id: t.id, label: widgetText(ctx, `schema.settings.tab.${t.id}`, {}, t.label), icon: SETTINGS_TAB_ICONS[t.id] })),
     activeTab, 'rail', (id) => { activeTab = id; renderPane(); });
   main.appendChild(nav.el);
 
   function renderPane(): void {
+    form?.destroy();
     const tab = tabs.find((t) => t.id === activeTab);
     pane.innerHTML = '';
     form = null;
@@ -106,7 +112,7 @@ export function mountSettingsDialog(
     // Re-read on every paint: edits apply live, so a tab left and returned to
     // has to show what the chart is drawing now, not what it drew when opened.
     form = renderForm(pane, controlsFromInputs(tab.inputs, { translate: ctx.translate, scope: 'settings' }), {
-      values: readChartSettings(chart), translate: ctx.translate,
+      values: readChartSettings(chart), translate: ctx.translate, openOverlay: ctx.openOverlay,
       idPrefix: 'oac-cset',
       live: true,
       unavailable: (key, option) => key === 'statusLine.openInterest' && chart.hasOpenInterest === false
@@ -138,7 +144,7 @@ export function mountSettingsDialog(
 
   // Escape and the scrim are the shell's, and both mean Cancel.
   const offContext = chart.on('data:context', renderPane);
-  const handle = openPanel(ctx, frame.el, { placement: 'center', modal: true, onClose: offContext }, () => cancel());
+  const handle = openPanel(ctx, frame.el, { placement: 'center', modal: true, onClose: () => { offContext(); form?.destroy(); endStep(); } }, () => cancel());
 
   function revert(): void {
     if (committed || dirty.size === 0) return;
@@ -148,18 +154,20 @@ export function mountSettingsDialog(
       if (v !== undefined) back[key] = v;
     }
     dirty.clear();
-    applyChartSettings(chart, back);
+    applyNow(back);
     opts.onApply?.(back);
   }
   function cancel(): void {
     if (!handle.isOpen()) return;
     revert();
+    form?.destroy();
     handle.close();
     opts.onClose?.(false);
   }
   function ok(): void {
     if (!handle.isOpen()) return;
     committed = true;
+    form?.destroy();
     handle.close();
     opts.onClose?.(true);
   }

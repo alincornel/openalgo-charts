@@ -13,7 +13,7 @@ import {
   Chart, darkTheme, readChartSettings, registerIndicator, chartSettingsSchema,
 } from 'openalgo-charts';
 import type { Bar, ContextMenuEvent, ContextMenuTarget, IndicatorDescriptor } from 'openalgo-charts';
-import { DrawingController, registerBuiltinDrawingTools, DEFAULT_FIB, type FibLevel } from 'openalgo-charts/draw';
+import { DrawingController, registerBuiltinDrawingTools, DEFAULT_FIB, formatRatio, type FibLevel } from 'openalgo-charts/draw';
 import { createOverlayStack, WidgetBus, WidgetStorage, type OverlayStack, type WidgetContext } from '../src/widget/context';
 import {
   mountSettingsDialog, tabDefaults,
@@ -282,6 +282,38 @@ describe('mountSettingsDialog', () => {
 // ── indicator picker ──────────────────────────────────────────────────────
 
 describe('mountIndicatorPicker', () => {
+  it('lists running study instances separately and removes only the selected duplicate', () => {
+    const rig = makeRig();
+    const first = rig.chart.addIndicator('test-ma');
+    const second = rig.chart.addIndicator('test-ma');
+    const handle = mountIndicatorPicker(rig.ctx);
+    const running = rig.qa('.oac-pick__running-row');
+    expect(running.map(row => row.dataset.instanceId)).toEqual([first.id, second.id]);
+    const find = rig.q('.oac-pick__find') as FakeElement;
+    find.value = 'no such study';
+    find.fire('input');
+    expect(rig.qa('.oac-pick__running-row').length).toBe(2);
+    (running[1].querySelector('.oac-pick__remove') as FakeElement).click();
+    expect(rig.chart.indicators().map(inst => inst.id)).toEqual([first.id]);
+    expect(rig.qa('.oac-pick__running-row').map(row => row.dataset.instanceId)).toEqual([first.id]);
+    rig.chart.removeIndicator(first.id);
+    expect(rig.q('.oac-pick__running-empty')?.textContent).toBe('No running studies');
+    handle.close();
+  });
+  it('leaves a study its host keeps unlisted out of the running list, and greys the remove of a protected one', () => {
+    const rig = makeRig();
+    const shown = rig.chart.addIndicator('test-ma');
+    rig.chart.addIndicator('test-ma', {}, { policy: { listed: false } });
+    const pinned = rig.chart.addIndicator('test-ma', {}, { policy: { removable: false } });
+    const handle = mountIndicatorPicker(rig.ctx);
+    const running = rig.qa('.oac-pick__running-row');
+    expect(running.map(row => row.dataset.instanceId)).toEqual([shown.id, pinned.id]);
+    const remove = running[1].querySelector('.oac-pick__remove') as FakeElement;
+    expect(remove.disabled).toBe(true);
+    remove.click();
+    expect(rig.chart.indicators()).toContain(pinned);
+    handle.close();
+  });
   it('lists the registry by category, filters as you type, and adds on click or Enter', () => {
     const rig = makeRig();
     const added: string[] = [];
@@ -362,6 +394,34 @@ describe('mountIndicatorSettings', () => {
     expect(rig.chart.panes()[0].series().some((s) => s.style.color === '#ff0000')).toBe(true);
   });
 
+  it('reports a write the host refused after locking the study, counts nothing, and still closes on Cancel', () => {
+    const rig = makeRig();
+    const inst = rig.chart.addIndicator('test-ma', { period: 30 });
+    const changed: string[] = [];
+    let closed: boolean | null = null;
+    mountIndicatorSettings(rig.ctx, undefined, { instanceId: inst.id,
+      onChange: (study) => changed.push(study.id), onClose: (ok) => { closed = ok; } });
+    const period = rig.q(`#oac-ind-${inst.id}-period`) as FakeElement;
+    period.value = '5';
+    period.fire('change');
+    expect(changed).toEqual([inst.id]);
+    inst.setPolicy({ configurable: false });
+    const locked = rig.q(`#oac-ind-${inst.id}-period`) as FakeElement;
+    locked.value = '9';
+    locked.fire('change');
+    expect(inst.settings().period).toBe(5);
+    expect(changed).toEqual([inst.id]);
+    expect(rig.toasts).toContain('error:Test MA settings are protected');
+    // The field shows what the study holds, not the refused value.
+    expect((rig.q(`#oac-ind-${inst.id}-period`) as FakeElement).value).toBe('5');
+    // Cancel cannot put the earlier edit back through the lock: it says so and closes.
+    (rig.qa('.oac-dialog__actions button')[0]).click();
+    expect(closed).toBe(false);
+    expect(rig.stack.size()).toBe(0);
+    expect(inst.settings().period).toBe(5);
+    expect(rig.toasts.filter(text => text === 'error:Test MA settings are protected')).toHaveLength(2);
+  });
+
   it('Cancel puts back the touched keys, Defaults restores the tab, OK keeps', () => {
     const rig = makeRig();
     const inst = rig.chart.addIndicator('test-ma', { period: 30 });
@@ -439,8 +499,11 @@ describe('mountDrawingProperties', () => {
     act('lock').click();
     expect(rig.draw.get(a.id)?.locked).toBe(true);
     expect(act('lock').getAttribute('aria-pressed')).toBe('true');
+    // The toggles keep their names; the pressed state says locked or hidden.
+    expect(act('lock').getAttribute('aria-label')).toBe('Lock');
     act('visible').click();
     expect(rig.draw.get(a.id)?.visible).toBe(false);
+    expect([act('visible').getAttribute('aria-label'), act('visible').getAttribute('aria-pressed')]).toEqual(['Hide', 'true']);
     act('behind').click();
     expect(rig.draw.get(a.id)?.zIndex).toBeLessThan(0);
     expect(act('behind').getAttribute('aria-pressed')).toBe('true');
@@ -489,6 +552,8 @@ describe('mountDrawingProperties', () => {
     rig.draw.select(t.id);
     mountDrawingProperties(rig.ctx);
     expect(rig.q('[data-key="text.value"] textarea')).not.toBeNull();
+    // The same words as the right-click menu row that opens the same editor.
+    expect((rig.q('[data-act="edit-text"]') as FakeElement).textContent).toContain('Edit text');
     (rig.q('[data-act="edit-text"]') as FakeElement).click();
     expect(rig.q('.oac-textedit')).not.toBeNull();
   });
@@ -512,6 +577,34 @@ describe('mountDrawingProperties', () => {
 // ── level editor ──────────────────────────────────────────────────────────
 
 describe('mountLevelEditor', () => {
+  it('uses the shared palette for level colours and keeps each edit in the level list', () => {
+    const rig = makeRig();
+    const f = fib(rig.draw);
+    rig.draw.select(f.id);
+    mountLevelEditor(rig.ctx);
+    const row = rig.qa('.oac-levels__row')[0];
+    (row.querySelector('.oac-color__trigger') as FakeElement).click();
+    (rig.q('.oac-color__palette button') as FakeElement).click();
+    expect(rig.draw.get(f.id)?.style.levels?.[0].color).toBe('#4f8cff');
+  });
+  it('names the controls of each row by its level, so no two rows read the same', () => {
+    const rig = makeRig();
+    const f = fib(rig.draw);
+    rig.draw.select(f.id);
+    mountLevelEditor(rig.ctx);
+    const rows = rig.qa('.oac-levels__row');
+    const names = (selector: string): string[] => rows.map((row) => (row.querySelector(selector) as FakeElement).getAttribute('aria-label') ?? '');
+    for (const selector of ['input[type="checkbox"]', 'input[type="number"]', '.oac-color__trigger', 'input[type="text"]', '.oac-levels__x']) {
+      expect(new Set(names(selector)).size, selector).toBe(rows.length);
+    }
+    expect(names('.oac-levels__x')[1]).toBe(`Remove level ${formatRatio(DEFAULT_FIB[1].ratio)}`);
+    // A changed ratio renames its row at once.
+    const ratio = rows[1].querySelector('input[type="number"]') as FakeElement;
+    ratio.value = '0.25';
+    ratio.fire('change');
+    expect((rows[1].querySelector('.oac-levels__x') as FakeElement).getAttribute('aria-label')).toBe(`Remove level ${formatRatio(0.25)}`);
+  });
+
   it('draws one row per level and writes the whole list back on every edit', () => {
     const rig = makeRig();
     const f = fib(rig.draw);
@@ -703,6 +796,20 @@ describe('contextMenuEntries', () => {
     expect(ids(off).filter((i) => i.startsWith('order-'))).toEqual(['order-buy-market', 'order-sell-market']);
   });
 
+  it('prices order rows only over the price pane: a study pane reads its own units, not the instrument', () => {
+    const rig = makeRig();
+    // An oscillator in a pane of its own, reading around 50.
+    rig.chart.addSeries('line', { paneIndex: 1 }).setData(BARS.map((bar) => ({ time: bar.time, value: 50 + (bar.close % 10) })));
+    const orders: OrderRequest[] = [];
+    const study = contextMenuEntries(rig.ctx, event(rig, { kind: 'empty', id: null }, { paneIndex: 1, price: 58.75 }), { onOrder: (o) => orders.push(o) });
+    expect(ids(study).filter((i) => i.startsWith('order-'))).toEqual(['order-buy-market', 'order-sell-market']);
+    expect(items(study).some((i) => i.label.includes('58.75'))).toBe(false);
+    (items(study).find((i) => i.id === 'order-buy-market') as MenuItem).run?.();
+    expect(orders).toEqual([{ side: 'BUY', type: 'MARKET', price: null, paneIndex: 1 }]);
+    const price = contextMenuEntries(rig.ctx, event(rig, { kind: 'empty', id: null }, { paneIndex: 0 }), { onOrder: () => {} });
+    expect(ids(price)).toContain('order-buy-limit');
+  });
+
   it('acts on the drawing under the pointer: it becomes the selection and every action reaches the controller', () => {
     const rig = makeRig();
     const a = line(rig.draw);
@@ -728,16 +835,29 @@ describe('contextMenuEntries', () => {
     const del = items(again).find((i) => i.id === 'draw-delete') as MenuItem;
     expect(del.disabled).toBe(true);
     expect(del.note).toBe('locked');
-    expect((items(again).find((i) => i.id === 'draw-lock') as MenuItem).label).toBe('Unlock');
+    const lock = items(again).find((i) => i.id === 'draw-lock') as MenuItem;
+    // A checkbox row keeps its name; the check says locked.
+    expect([lock.label, lock.on]).toEqual(['Lock', true]);
     (items(again).find((i) => i.id === 'draw-duplicate') as MenuItem).run?.();
     expect(rig.draw.drawings().length).toBe(3);
+  });
+
+  it('names the hide row Hide and checks it for a hidden drawing', () => {
+    const rig = makeRig();
+    const a = line(rig.draw);
+    rig.draw.update(a.id, { visible: false });
+    const hide = items(contextMenuEntries(rig.ctx, event(rig, { kind: 'drawing', id: `draw:${a.id}` }))).find((i) => i.id === 'draw-hide') as MenuItem;
+    expect([hide.label, hide.on]).toEqual(['Hide', true]);
   });
 
   it('adds text and level rows only for tools that have them', () => {
     const rig = makeRig();
     const t = text(rig.draw);
     const f = fib(rig.draw);
-    expect(ids(contextMenuEntries(rig.ctx, event(rig, { kind: 'drawing', id: `draw:${t.id}` })))).toContain('draw-text');
+    const onText = contextMenuEntries(rig.ctx, event(rig, { kind: 'drawing', id: `draw:${t.id}` }));
+    expect(ids(onText)).toContain('draw-text');
+    // No key opens the text editor in the widget, so the row names none.
+    expect((items(onText).find((i) => i.id === 'draw-text') as MenuItem).chord).toBeUndefined();
     const fibIds = ids(contextMenuEntries(rig.ctx, event(rig, { kind: 'drawing', id: `draw:${f.id}` })));
     expect(fibIds).toContain('draw-levels');
     expect(fibIds).not.toContain('draw-text');
@@ -762,11 +882,14 @@ describe('contextMenuEntries', () => {
     const rig = makeRig();
     const entries = contextMenuEntries(rig.ctx, event(rig, { kind: 'price-scale', id: null, side: 'right', scaleId: 'right' }));
     expect(ids(entries)).toEqual([
-      'axis-autofit', 'axis-invert', 'axis-lock', 'axis-mode-linear', 'axis-mode-logarithmic', 'axis-mode-percentage',
+      'axis-autofit', 'axis-price-only', 'axis-invert', 'axis-lock', 'axis-mode-linear', 'axis-mode-logarithmic', 'axis-mode-percentage',
       'axis-mode-indexed-to-100', 'axis-move', 'axis-settings',
     ]);
     const by = (id: string): MenuItem => items(entries).find((i) => i.id === id) as MenuItem;
     expect(by('axis-autofit').on).toBe(true);
+    expect(by('axis-price-only').on).toBe(false);
+    by('axis-price-only').run?.();
+    expect(rig.chart.priceOnlyAutoScale()).toBe(true);
     expect(by('axis-mode-linear').on).toBe(true);
     expect(by('axis-mode-linear').mark).toBe('radio');
     expect(by('axis-lock').disabled).toBe(false);
@@ -781,6 +904,30 @@ describe('contextMenuEntries', () => {
     const move = items(left).find((i) => i.id === 'axis-move') as MenuItem;
     expect(move.disabled).toBe(true);
     expect(move.note).toBe('nothing on this side');
+  });
+
+  it('moves and reorders a named axis without changing its scale or menu target', () => {
+    const rig = makeRig();
+    rig.chart.addSeries('line', { priceScaleId: 'left' }).setData(BARS);
+    const series = rig.chart.addSeries('line', { priceScaleId: 'overlay:menu' });
+    series.setData(BARS);
+    const scale = series.priceScale();
+    rig.chart.setPriceAxisPlacement(0, 'overlay:menu', 'right');
+    const entries = () => items(contextMenuEntries(rig.ctx, event(rig,
+      { kind: 'price-scale', id: null, side: 'right', scaleId: 'overlay:menu' })));
+    const by = (id: string) => entries().find(item => item.id === id)!;
+    expect(by('axis-move').disabled).toBe(false);
+    by('axis-move').run?.();
+    expect(rig.chart.priceAxisPlacement(0, 'overlay:menu')).toEqual({ side: 'left', order: 1 });
+    expect(series.priceScale()).toBe(scale);
+    expect(by('axis-move').label).toBe('Move the scale to the right');
+    by('axis-closer').run?.();
+    expect(rig.chart.priceAxisLayout().filter(column => column.side === 'left').map(column => column.scaleId))
+      .toEqual(['overlay:menu', 'left']);
+    expect(by('axis-closer').disabled).toBe(true);
+    by('axis-mode-logarithmic').run?.();
+    expect(scale.options.mode).toBe('logarithmic');
+    expect(rig.chart.panes()[0].scaleFor('left').options.mode).toBe('linear');
   });
 
   it('appends a host\'s own rows after everything else', () => {
@@ -868,5 +1015,45 @@ describe('mountContextMenu', () => {
     const menu = rig.q('.oac-ctx') as FakeElement;
     expect(menu.style.left).toBe('500px');
     expect(menu.querySelectorAll('[data-act]').map((r) => r.dataset.act)).toEqual(['draw-paste', 'chart-fit', 'chart-indicators', 'chart-settings']);
+  });
+});
+
+describe('nested color overlay lifecycle', () => {
+  it('keeps chart settings open on picker Escape and releases the picker on tab change or parent close', () => {
+    const rig = makeRig();
+    const panel = mountSettingsDialog(rig.ctx, undefined, { tab: 'appearance' });
+    (rig.q('.oac-color__trigger') as FakeElement).click();
+    expect(rig.stack.size()).toBe(2);
+    escape(rig);
+    expect(rig.stack.size()).toBe(1); expect(panel.isOpen()).toBe(true);
+    (rig.q('.oac-color__trigger') as FakeElement).click();
+    (rig.q('[data-tab="price"]') as FakeElement).click();
+    expect(rig.stack.size()).toBe(1);
+    (rig.q('.oac-color__trigger') as FakeElement).click();
+    panel.close(); expect(rig.stack.size()).toBe(0);
+  });
+  it('disposes indicator settings color overlays with their parent', () => {
+    const rig = makeRig(); const study = rig.chart.addIndicator('test-ma');
+    const panel = mountIndicatorSettings(rig.ctx, undefined, { instanceId: study.id, tab: 'style' });
+    (rig.q('.oac-color__trigger') as FakeElement).click();
+    expect(rig.stack.size()).toBe(2);
+    panel.close(); expect(rig.stack.size()).toBe(0);
+  });
+  it('disposes drawing properties color overlays on selection replacement and parent dismissal', () => {
+    const rig = makeRig(); const first = rect(rig.draw); const second = line(rig.draw);
+    rig.draw.select(first.id); const panel = mountDrawingProperties(rig.ctx);
+    (rig.q('.oac-color__trigger') as FakeElement).click(); expect(rig.stack.size()).toBe(2);
+    rig.draw.select(second.id); expect(rig.stack.size()).toBe(1);
+    (rig.q('.oac-color__trigger') as FakeElement).click();
+    panel.close(); expect(rig.stack.size()).toBe(0);
+  });
+  it('keeps level colors in the shared stack and disposes them on close', () => {
+    const rig = makeRig();
+    const drawing = rig.draw.add({ tool: 'fib-retracement', paneIndex: 0, style: {}, points: [{ time: T0, price: 90 }, { time: T0 + 60, price: 110 }] });
+    const panel = mountLevelEditor(rig.ctx, undefined, { ids: [drawing.id] });
+    (rig.q('.oac-color__trigger') as FakeElement).click(); expect(rig.stack.size()).toBe(2);
+    escape(rig); expect(panel.isOpen()).toBe(true); expect(rig.stack.size()).toBe(1);
+    (rig.q('.oac-color__trigger') as FakeElement).click();
+    panel.close(); expect(rig.stack.size()).toBe(0);
   });
 });

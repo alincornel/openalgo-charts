@@ -6,6 +6,8 @@ import { attachTip } from './hover.js';
 import { setLegend } from './volume.js';
 import { capturePaneTarget } from './pane-target.js';
 import { replayBarEndTime } from './replay-timing.js';
+import { requestVariant, sessionOf } from './session.js';
+import { INTERVAL_MAX_DAYS, PERIOD_DAYS } from './intervals.js';
 export { replayBarEndTime } from './replay-timing.js';
 
 // Read off the namespace rather than named above on purpose: a missing named
@@ -25,7 +27,8 @@ let replaySpeed = 1;
 /** Base-interval bars under the displayed ones, for intra-bar replay. */
 let replaySubBars = new Map();
 let replayLoadRevision = 0;
-const requestKey = req => JSON.stringify([req.symbol, req.interval, req.period]);
+// The session is part of the key: extended finer bars are another series.
+const requestKey = req => JSON.stringify([req.symbol, req.interval, req.period, sessionOf(req)]);
 const readouts = new WeakMap();
 let controlHomes = [];
 export function syncReplayAlertPause() {
@@ -69,13 +72,20 @@ function validateAllTargets() {
 }
 
 function syncScopeControls() {
-  const label = app.replayScope === 'all' ? 'All charts' : `Chart ${app.replayTarget?.pane || 1}`;
-  for (const id of ['rp-pick-scope', 'rp-scope']) {
+  const all = app.replayScope === 'all';
+  // The pick prompt has no owner label, so its toggle names the chart. The
+  // transport bar already names it in #rp-owner, and a toggle saying the same
+  // thing beside it read as "Chart 1 Chart 1": there it names the scope.
+  const labels = {
+    'rp-pick-scope': all ? 'All charts' : `Chart ${app.replayTarget?.pane || 1}`,
+    'rp-scope': all ? 'All charts' : 'This chart',
+  };
+  for (const [id, label] of Object.entries(labels)) {
     const button = el(id);
     if (!button) continue;
     button.textContent = label;
+    // Named for the scope in force, so no pressed state says it a second time.
     button.setAttribute('aria-label', 'Replay scope: ' + label);
-    button.setAttribute('aria-pressed', String(app.replayScope === 'all'));
     button.disabled = Boolean(app.replayLoading);
   }
 }
@@ -156,6 +166,18 @@ export const REPLAY_SUB_INTERVAL = {
   '1d': '60m', '1wk': '1d', '1mo': '1d', '1q': '1d',
 };
 
+/**
+ * How many steps a candle takes when that finer rung has no bars for it: the
+ * finer bars it would have held, so a simulated candle forms at the pace a real
+ * one does (five for 5 minutes over 1 minute, seven hours in an NSE session).
+ * yfinance keeps about a week of 1-minute bars, so every older 5-minute candle
+ * takes this path; the transport marks each of its steps as simulated.
+ */
+export const REPLAY_SIMULATED_STEPS = {
+  '5m': 5, '15m': 3, '30m': 2, '60m': 4, '1h': 4,
+  '1d': 7, '1wk': 5, '1mo': 21, '1q': 63,
+};
+
 /** Where the newest bar sits while replay is running (or the real one). */
 export const lastBar = () => {
   const member = memberState(app.chart);
@@ -222,8 +244,10 @@ export function setShadeIndex(index) {
     target.node.classList.toggle('is-picking', active);
     if (target.chart.isDestroyed) continue;
     const panes = target.chart.panes ? target.chart.panes() : [];
+    // The cut line belongs on the price pane, wherever it sits; the other panes only dim.
+    const price = typeof target.chart.primaryPaneIndex === 'function' ? target.chart.primaryPaneIndex() : 0;
     for (let i = target.shades.length; i < panes.length; i++) {
-      const shade = new ReplayShade({ index: null, lineVisible: i === 0 });
+      const shade = new ReplayShade({ index: null, lineVisible: i === price });
       target.chart.addPrimitive(shade, i);
       target.shades.push(shade);
     }
@@ -313,7 +337,8 @@ export async function startReplayAt(index) {
     const members = loaded.filter(item => ready(item.target)).map(({ target: item, sub }) => {
       const timing = { barEndTime: replayBarEndTime(item.request.interval, item.timezone),
         subBarEndTime: replayBarEndTime(REPLAY_SUB_INTERVAL[item.request.interval], item.timezone) };
-      const options = { series: [item.series], timing };
+      const steps = REPLAY_SIMULATED_STEPS[item.request.interval];
+      const options = { series: [item.series], timing, ...(steps ? { simulate: { steps } } : {}) };
       try { new ReplayController(item.chart, { ...options, autoStart: false }); }
       catch {
         item.unavailable = `Chart ${item.pane} has overlapping or unordered candle times. Use time-based chart data.`;
@@ -346,8 +371,8 @@ export async function startReplayAt(index) {
     el('replaybar').hidden = false;
     syncScopeControls(); syncReplayBar(); renderToolbar();
     el('status').textContent = fallback.length
-      ? `${fallback.join(', ')}: finer history unavailable; replay uses completed candles`
-      : 'Replay advances by available observations; history gaps use completed candles';
+      ? `${fallback.join(', ')}: finer history unavailable; candles form along a simulated path, marked Simulated`
+      : 'Replay advances by available observations; candles without finer history form along a simulated path, marked Simulated';
   } catch (error) {
     if (revision !== replayLoadRevision) return;
     if (app.replay) exitReplay();
@@ -356,6 +381,25 @@ export async function startReplayAt(index) {
       ? 'Candle times overlap or are unordered. Check the intervals or use time-based chart data.' : error.message;
     el('status').textContent = 'Replay could not start: ' + reason;
   }
+}
+
+/** Periods the history endpoint serves, with their length in days, shortest first. */
+const FINER_PERIODS = [['5d', 5], ['1mo', 31], ['3mo', 92], ['6mo', 186], ['1y', 366]];
+
+/**
+ * The period to ask the finer interval for: the chart's own, unless that is
+ * longer than the source keeps for the finer interval, then the longest it does
+ * keep. A 5-minute chart over a month asks for five days of 1-minute bars, not
+ * a month the source refuses outright, so the last week forms from real bars
+ * and only the older candles are simulated.
+ */
+export function finerPeriod(finer, period) {
+  const cap = INTERVAL_MAX_DAYS[finer];
+  const days = PERIOD_DAYS[period];
+  if (cap === undefined || days === undefined || days <= cap) return period;
+  let best = FINER_PERIODS[0][0];
+  for (const [name, length] of FINER_PERIODS) if (length <= cap) best = name;
+  return best;
 }
 
 /**
@@ -376,7 +420,8 @@ export async function loadReplaySubBars(target = owner()) {
   if (replaySubBars.has(key)) return replaySubBars.get(key);
   const revision = replayLoadRevision;
   try {
-    const bars = await fetchBars(req.symbol, finer, req.period, { slot: 'replay:' + target.pane, timezone: target.timezone });
+    const bars = await fetchBars(req.symbol, finer, finerPeriod(finer, req.period), { slot: 'replay:' + target.pane, timezone: target.timezone,
+      variant: requestVariant(req) });
     if (!bars || bars.length === 0) return null;
     if (revision !== replayLoadRevision || !target.current()) return null;
     replaySubBars.set(key, bars);
@@ -398,7 +443,7 @@ export function showReplayMark(on) {
     if (target.chart.isDestroyed) continue;
     const active = on && memberState(target.chart)?.active;
     if (active && !target.mark) {
-      target.mark = new TextWatermark({ text: 'Replay' }); target.chart.addPrimitive(target.mark, 0);
+      target.mark = new TextWatermark({ text: 'Replay' }); target.chart.addPrimitive(target.mark);
     } else target.mark?.setOptions({ text: active ? 'Replay' : '' });
   }
 }
@@ -521,6 +566,15 @@ export function buildReplayBar() {
   sub.className = 'rsub';
   sub.id = 'rp-sub';
   bar.appendChild(sub);
+  // Said on screen, not only in the status line: a simulated step's prices were
+  // never traded, and a trader testing a stop against them has to know.
+  const simulated = document.createElement('span');
+  simulated.className = 'rsim';
+  simulated.id = 'rp-sim';
+  simulated.textContent = 'Simulated';
+  simulated.hidden = true;
+  simulated.title = 'No finer bars for this candle: it forms along a path through its own open, high, low and close, and closes on the real candle';
+  bar.appendChild(simulated);
   const clock = document.createElement('span');
   clock.className = 'rclock';
   clock.id = 'rp-clock';
@@ -549,6 +603,8 @@ export function syncReplayBar() {
   // whole-bar replay does not carry a permanent "1/1".
   const sub = el('rp-sub');
   if (sub) sub.textContent = focused?.subSteps > 1 ? `${focused.subIndex + 1}/${focused.subSteps}` : '';
+  const simulated = el('rp-sim');
+  if (simulated) simulated.hidden = !focused?.simulated;
   const back = el('rp-back');
   const fwd = el('rp-fwd');
   const unit = 'one observation';

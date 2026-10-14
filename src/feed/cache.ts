@@ -6,7 +6,10 @@
  *
  * The design decisions, all of which are load-bearing:
  *
- * **Key.** `symbol | exchange | interval`. The requested range is deliberately
+ * **Key.** `symbol | exchange | interval`, then the data variant when the
+ * request names one (extended hours, raw prices): each is a separate provider
+ * series, and the default variant adds nothing, so keys written before
+ * variants existed still match. The requested range is deliberately
  * NOT part of the key: one entry per series holds the widest set fetched so
  * far, and a narrower request is served by slicing it. Keying on the range
  * would miss on every pan and on every "same chart, one bar later" reload,
@@ -80,6 +83,7 @@
 import type { Bar, UTCSeconds } from '../model/bar';
 import type { BarsPage, BarsPageRequest, BarsRequest, DataFeed, MarketDepth, UnsubscribeFn, LiveBarMeta } from './types';
 import { nextBucketStart, tryResolveInterval } from './intervals';
+import { dataVariantKey, type DataVariantCapabilities, type DataVariantQuery } from './data-variant';
 
 export type MaybePromise<T> = T | Promise<T>;
 
@@ -199,10 +203,6 @@ export interface BarCacheOptions {
   /** Injectable clock (ms), for tests and for hosts with a server clock. */
   now?: () => number;
   /**
-   * Interval token to seconds, for feeds with tokens this does not know
-   * (tick, Renko, range bars). Return 0 to disable caching for that interval.
-   */
-  /**
    * Override how the cache decides when a bar closes. Return null for "unknown",
    * which makes the cache refuse to store the series rather than guess. Defaults
    * to {@link barCloseSec}, which asks the interval registry.
@@ -286,7 +286,8 @@ export function barCloseSec(interval: string, barStartSec: UTCSeconds, zone?: st
 // the parameter to a `Pick` would reject a full request literal instead, on the
 // excess-property check.
 export function barCacheKey(req: BarsRequest): string {
-  return `${req.symbol}|${req.exchange}|${req.interval}`;
+  const variant = dataVariantKey(req.variant);
+  return `${req.symbol}|${req.exchange}|${req.interval}${variant && '|' + variant}`;
 }
 
 /** Bars are mutated in place by live builders; never hand out our own objects. */
@@ -414,6 +415,9 @@ export class BarCache implements DataFeed {
     if (typeof feed.getBarsPage === 'function') {
       this.getBarsPage = (req): Promise<BarsPage> => feed.getBarsPage!(req);
     }
+    if (typeof feed.dataVariants === 'function') {
+      this.dataVariants = (query): DataVariantCapabilities | Promise<DataVariantCapabilities> => feed.dataVariants!(query);
+    }
   }
 
   // `...rest` is part of the signature so a caller holding the concrete
@@ -421,6 +425,7 @@ export class BarCache implements DataFeed {
   public subscribeBars?: (req: BarsRequest, onBar: (bar: Bar, meta?: LiveBarMeta) => void, ...rest: unknown[]) => UnsubscribeFn;
   public subscribeDepth?: (req: BarsRequest, onDepth: (depth: MarketDepth) => void, ...rest: unknown[]) => UnsubscribeFn;
   public getBarsPage?: (req: BarsPageRequest) => Promise<BarsPage>;
+  public dataVariants?: (query: DataVariantQuery) => DataVariantCapabilities | Promise<DataVariantCapabilities>;
 
   public async getBars(req: CachedBarsRequest): Promise<Bar[]> {
     throwIfAborted(req.signal);
@@ -603,7 +608,7 @@ export class BarCache implements DataFeed {
    * being reachable by `clear()` before that. A store that outlives the process
    * is responsible for its own overall quota.
    */
-  public async invalidate(req?: Pick<BarsRequest, 'symbol' | 'exchange' | 'interval'>): Promise<void> {
+  public async invalidate(req?: Pick<BarsRequest, 'symbol' | 'exchange' | 'interval' | 'variant'>): Promise<void> {
     if (req === undefined) return this.clear();
     await this._drop(barCacheKey(req));
   }
@@ -1227,6 +1232,10 @@ export class BarCache implements DataFeed {
  * Wrap any `DataFeed` in a warm-load bar cache.
  *
  *     const feed = withBarCache(new OpenAlgoDataFeed(cfg), { ttlMs, max, storage });
+ *
+ * A hit ends at the last closed bar; a live subscription supplies the forming
+ * one. A host with none must ask again with `noCache: true` when a hit ends
+ * before a bar it has already shown, or its chart steps back to an older close.
  */
 export function withBarCache(feed: DataFeed, options?: BarCacheOptions): BarCache {
   return new BarCache(feed, options);

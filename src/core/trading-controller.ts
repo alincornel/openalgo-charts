@@ -8,6 +8,7 @@
  */
 import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, ZOrder } from '../primitives/primitive';
 import { PriceLine, type PriceLineOptions, type PriceLinePillSegment } from '../primitives/price-line';
+import type { TickSchedule } from '../feed/tick-schedule';
 import { contrastText, roundRectPath } from '../render/pill';
 
 export type PositionSide = 'long' | 'short';
@@ -134,6 +135,13 @@ export interface TradingHost {
   ): void;
   /** Optional: route trading events onto the chart's unified `chart.on(...)` bus. */
   emit?(event: string, payload: unknown): void;
+  /**
+   * Optional: the instrument's tick schedule when the layer is built. The
+   * layer is built on first use, often after the instrument was applied, and
+   * applying one cannot build the layer early: its click and drag
+   * subscriptions would replace the host's own.
+   */
+  tickSchedule?(): TickSchedule | null;
 }
 
 export const DEFAULT_TRADING_COLORS: TradingColors = {
@@ -316,9 +324,11 @@ export class TradingController {
   private _markers: TradeMarkersPrimitive | null = null;
   /** Position id → when its close was armed, for the two-tap flatten. */
   private readonly _closeArmed = new Map<string, number>();
+  private _ticks: TickSchedule | null;
 
   public constructor(host: TradingHost) {
     this._host = host;
+    this._ticks = host.tickSchedule?.() ?? null;
     host.subscribeClick((externalId) => this._onClick(externalId));
     host.subscribeDrag(
       (externalId, price) => this._onDrag(externalId, price),
@@ -362,6 +372,23 @@ export class TradingController {
   }
 
   public getSettings(): TradingColors { return { ...this._colors }; }
+
+  /**
+   * Snap dragged order and bracket lines, and the price their modify events
+   * carry, to the instrument's ticks. Null, the default, passes the pointer's
+   * price through unrounded, as it always has. The host's own validation stays
+   * authoritative either way; this only stops a drag previewing a price the
+   * instrument cannot trade at. `Instrument.applyTo` and
+   * `chart.setTickSchedule` set it, so call this after either to override it.
+   */
+  public setTickSchedule(schedule: TickSchedule | null): void {
+    // Refused here, where the host made the mistake, rather than as a pointer
+    // handler error on the first drag.
+    if (schedule != null && typeof (schedule as Partial<TickSchedule>).round !== 'function') {
+      throw new TypeError('chart.trading.setTickSchedule takes a schedule built with new TickSchedule(bands), or null');
+    }
+    this._ticks = schedule ?? null;
+  }
 
   // ── data ──────────────────────────────────────────────────────────────────
   public setPositions(positions: readonly TradingPosition[]): void { this._sync(this._positions, positions, 'pos'); }
@@ -724,8 +751,9 @@ export class TradingController {
     }
   }
 
-  private _onDrag(externalId: string, price: number): void {
+  private _onDrag(externalId: string, raw: number): void {
     if (!externalId.startsWith('ord:')) return;
+    const price = this._ticks?.round(raw) ?? raw;
     const cur = this._orders.get(externalId.slice(4));
     if (cur === undefined) return;
     const id = externalId.slice(4);
@@ -736,8 +764,9 @@ export class TradingController {
     cur.line.setPrice(price);
   }
 
-  private _onDragEnd(externalId: string, price: number): void {
+  private _onDragEnd(externalId: string, raw: number): void {
     if (!externalId.startsWith('ord:')) return;
+    const price = this._ticks?.round(raw) ?? raw;
     const id = externalId.slice(4);
     const cur = this._orders.get(id);
     // Where the line stood when the finger landed, which a sync arriving

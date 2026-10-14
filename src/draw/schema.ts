@@ -1,7 +1,8 @@
 /**
  * The per-tool settings schema: what a host may show in a drawing's settings
  * dialog, expressed as dot paths into the drawing (`style.color`,
- * `text.fontSize`, `props.foo`, `zIndex`) with a control kind and a label.
+ * `text.fontSize`, `props.foo`, `intervals.from`, `zIndex`, `space`) with a
+ * control kind and a label.
  *
  * The rule the whole module exists for: a tool declares only fields its `draw`
  * actually reads. A schema is not a wish list. A host renders exactly what is
@@ -11,18 +12,23 @@
  * Pure: no DOM, no registry. The registry lookup (`drawingSettingsSchema`)
  * lives in tools.ts so this file has no import that could loop back here.
  */
-import type { Drawing, DrawingText, FibLevel } from './types';
+import type { Drawing, DrawingSpace, DrawingText, FibLevel } from './types';
 
-export type FieldKind = 'color' | 'number' | 'select' | 'lineStyle' | 'boolean' | 'text' | 'opacity' | 'levels';
+/**
+ * The control a field wants. `interval` is a chart interval code, which the
+ * host offers from its own interval list (the engine has none), with an
+ * empty choice for no limit.
+ */
+export type FieldKind = 'color' | 'number' | 'select' | 'lineStyle' | 'boolean' | 'text' | 'opacity' | 'levels' | 'interval';
 
 /** The section a host groups a field under. */
-export type FieldGroup = 'line' | 'fill' | 'text' | 'levels' | 'behavior';
+export type FieldGroup = 'line' | 'fill' | 'text' | 'levels' | 'behavior' | 'visibility';
 
 export interface SettingsField {
   /**
-   * Dot path into the drawing. Two segments under `style`, `text` or `props`
-   * (`style.lineWidth`), or one of the top-level flags `locked`, `visible`,
-   * `zIndex`.
+   * Dot path into the drawing. Two segments under `style`, `text`, `props`
+   * or `intervals` (`style.lineWidth`, `intervals.to`), or one of the
+   * top-level fields `locked`, `visible`, `zIndex`, `space`.
    */
   path: string;
   label: string;
@@ -72,6 +78,12 @@ export const TEXT_POSITION_OPTIONS: ReadonlyArray<{ value: string; label: string
   { value: 'outside', label: 'Outside' },
 ];
 
+/** The two coordinate spaces, as a host offers them: follow the bars, or stay on screen. */
+export const SPACE_OPTIONS: ReadonlyArray<{ value: DrawingSpace; label: string }> = [
+  { value: 'data', label: 'Time and price' },
+  { value: 'viewport', label: 'Screen' },
+];
+
 /**
  * Font stacks a host can offer. Values are real CSS stacks, so a drawing's
  * `text.fontFamily` needs no translation before it reaches `ctx.font`; a host
@@ -105,6 +117,29 @@ export const FILL_FIELDS: readonly SettingsField[] = [
 export const EXTEND_FIELDS: readonly SettingsField[] = [
   { path: 'style.extendLeft', label: 'Extend left', kind: 'boolean', group: 'behavior' },
   { path: 'style.extendRight', label: 'Extend right', kind: 'boolean', group: 'behavior' },
+];
+
+/**
+ * Where the drawing is anchored: to time and price, or to the screen. Declared
+ * only by tools that set `viewport`, since the controller converts nothing
+ * else. Writing it converts the anchors at the view on screen, so the drawing
+ * keeps its place and only stops (or starts) following the bars.
+ */
+export const SPACE_FIELD: SettingsField = {
+  path: 'space', label: 'Anchor', kind: 'select', options: SPACE_OPTIONS, group: 'behavior', defaultValue: 'data',
+};
+
+/**
+ * The intervals a drawing is shown on (`Drawing.intervals`), as two interval
+ * codes, each end included and either one left empty for no limit. No tool
+ * declares them, since the engine cannot list a host's intervals: a host that
+ * offers visibility per interval adds them to a tool's schema with
+ * `composeSettings`, and `applyDrawingSettings` writes the pair as the patch's
+ * `intervals`, with both ends cleared meaning every interval.
+ */
+export const INTERVAL_FIELDS: readonly SettingsField[] = [
+  { path: 'intervals.from', label: 'Show from', kind: 'interval', group: 'visibility' },
+  { path: 'intervals.to', label: 'Show up to', kind: 'interval', group: 'visibility' },
 ];
 
 export const SHOW_LABELS_FIELD: SettingsField = {
@@ -197,11 +232,11 @@ export function composeSettings(
 
 // ── dot-path access ───────────────────────────────────────────────────────
 
-type BagRoot = 'style' | 'text' | 'props';
-type FlagRoot = 'locked' | 'visible' | 'zIndex';
+type BagRoot = 'style' | 'text' | 'props' | 'intervals';
+type FlagRoot = 'locked' | 'visible' | 'zIndex' | 'space';
 
-const BAG_ROOTS: ReadonlySet<string> = new Set<BagRoot>(['style', 'text', 'props']);
-const FLAG_ROOTS: ReadonlySet<string> = new Set<FlagRoot>(['locked', 'visible', 'zIndex']);
+const BAG_ROOTS: ReadonlySet<string> = new Set<BagRoot>(['style', 'text', 'props', 'intervals']);
+const FLAG_ROOTS: ReadonlySet<string> = new Set<FlagRoot>(['locked', 'visible', 'zIndex', 'space']);
 
 /** A path split and checked. `null` for anything the model has no home for. */
 function parsePath(path: string): { root: BagRoot; key: string } | { root: FlagRoot; key: null } | null {
@@ -296,6 +331,11 @@ export function coerceSettingValue(field: SettingsField, raw: unknown): unknown 
       // A select with no option list is free-form (a font stack the user typed).
       return field.options === undefined || field.options.some((o) => o.value === raw) ? raw : undefined;
     }
+    case 'interval': {
+      // Empty is no limit on that side, which is the key removed.
+      const code = typeof raw === 'string' ? raw.trim() : '';
+      return code === '' ? undefined : code;
+    }
     case 'levels': {
       if (!Array.isArray(raw)) return undefined;
       const out: FibLevel[] = [];
@@ -315,7 +355,9 @@ export function coerceSettingValue(field: SettingsField, raw: unknown): unknown 
  * partial a controller's `update` accepts. Bags come back whole
  * (`style: { ...d.style, color }`), so it does not matter whether the
  * controller merges or replaces them. A value of `undefined` removes the key,
- * which is how a host offers "reset to default".
+ * which is how a host offers "reset to default". The `intervals` pair comes
+ * back whole as well, as the range to replace the drawing's; with neither end
+ * left it is `{}`, which a controller takes as no range, every interval.
  *
  * With a `schema`, each value is coerced to its field's kind and any path the
  * schema does not declare is dropped: a host can hand over its form state as
@@ -343,6 +385,8 @@ export function applyDrawingSettings(
       if (value === undefined) continue;
       if (p.root === 'zIndex') {
         if (typeof value === 'number' && Number.isFinite(value)) out.zIndex = value;
+      } else if (p.root === 'space') {
+        if (value === 'data' || value === 'viewport') out.space = value;
       } else if (typeof value === 'boolean') {
         out[p.root] = value;
       }
@@ -355,6 +399,10 @@ export function applyDrawingSettings(
   }
   if (bags.style !== undefined) out.style = bags.style as Drawing['style'];
   if (bags.props !== undefined) out.props = bags.props;
+  if (bags.intervals !== undefined) {
+    const { from, to } = bags.intervals;
+    out.intervals = { ...(typeof from === 'string' ? { from } : {}), ...(typeof to === 'string' ? { to } : {}) };
+  }
   if (bags.text !== undefined) {
     // `value` is the one required field, but a tool with only a readout (a fib
     // ladder's labels) carries a face and no content, so a missing value is

@@ -14,6 +14,8 @@ const MODULES = readdirSync(SRC).filter((f) => f.endsWith('.js') && f !== 'main.
 
 /** The init hook each module hands its state to, where it has one. */
 const INIT = {
+  'account.js': 'initAccount',
+  'anchored-study.js': 'initAnchoredStudy',
   'axis-chrome.js': 'initAxisChrome',
   'bracket.js': 'initBracket',
   'chart-settings.js': 'initChartSettings',
@@ -21,8 +23,12 @@ const INIT = {
   'compare.js': 'initCompare',
   'drawing.js': 'initDrawing',
   'feed.js': 'initFeed',
+  'goto.js': 'initGoTo',
+  'grid.js': 'initGridView',
+  'history.js': 'initHistory',
   'hover.js': 'initHover',
   'indicators.js': 'initIndicators',
+  'inspection.js': 'initInspection',
   'indicator-source.js': 'initIndicatorSource',
   'link.js': 'initLink',
   'menus.js': 'initMenus',
@@ -30,6 +36,7 @@ const INIT = {
   'persist.js': 'initPersist',
   'rail.js': 'initRail',
   'replay.js': 'initReplay',
+  'routed-study.js': 'initRoutedStudy',
   'snapshot.js': 'initSnapshot',
   'split.js': 'initSplit',
   'status.js': 'initStatus',
@@ -43,11 +50,12 @@ const INIT = {
 describe('demo modules', () => {
   it('lists the modules the README documents', () => {
     expect(MODULES).toEqual([
-      'alerts.js', 'axis-chrome.js', 'bracket.js', 'chart-data.js', 'chart-settings.js', 'clipboard.js', 'compare.js',
-      'drawing.js', 'expression.js', 'feed.js', 'hover.js', 'indicator-source.js', 'indicator-templates.js', 'indicators.js', 'intervals.js', 'level-editor.js',
-      'link.js', 'menus.js', 'orders.js', 'pane-target.js', 'persist.js', 'properties.js', 'rail-flyout.js',
-      'rail.js', 'replay-timing.js', 'replay.js', 'snapshot.js', 'split.js', 'status.js', 'templates.js', 'text-editor.js',
-      'timeline.js', 'timezone.js', 'toolbar.js', 'transforms.js', 'ui.js', 'volume.js', 'workspace-catalog.js', 'workspace-document.js', 'workspace-host.js', 'workspace-transition.js', 'workspaces.js',
+      'account.js', 'alerts.js', 'anchored-study.js', 'axis-chrome.js', 'bracket.js', 'canvas-tips.js', 'chart-data-controls.js', 'chart-data.js', 'chart-settings.js', 'clipboard.js', 'compare.js', 'drawing-scope.js', 'drawing.js',
+      'expression.js', 'feed.js', 'goto.js', 'grid-view.js', 'grid.js', 'history.js', 'host-study.js', 'hover.js', 'indicator-input-controls.js', 'indicator-source.js', 'indicator-templates.js',
+      'indicators.js', 'inspection.js', 'intervals.js', 'level-editor.js',
+      'link.js', 'market-panels.js', 'menus.js', 'orders.js', 'pane-target.js', 'persist.js', 'properties.js', 'rail-flyout.js',
+      'rail.js', 'replay-timing.js', 'replay.js', 'routed-study.js', 'session-marks.js', 'session.js', 'snapshot.js', 'split.js', 'status.js', 'symbol-search.js', 'templates.js', 'text-editor.js',
+      'ticks.js', 'timeline.js', 'timezone.js', 'toolbar.js', 'transforms.js', 'ui.js', 'volume.js', 'workspace-catalog.js', 'workspace-document.js', 'workspace-host.js', 'workspace-transition.js', 'workspaces.js',
     ]);
   });
 

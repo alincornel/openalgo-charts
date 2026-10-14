@@ -40,7 +40,7 @@ everywhere at once:
 A window is also unable to page back **across** the closure: to reach Friday from the
 Sunday open at one minute a bar you must ask for a window wider than 49 hours, and a chart
 that holds 960 bars asks for a window sized to what it holds. Every drag then repeats the
-same empty answer. A count has nothing to be wrong about — 144 more bars ending at the
+same empty answer. A count has nothing to be wrong about: 144 more bars ending at the
 oldest bar painted walks over the weekend by itself, because the server counts bars too.
 
 <Callout type="info">
@@ -75,7 +75,10 @@ chart, so a fast wrong price is a worse failure here than a slow right one.
 The trailing forming bar is **dropped on store**, and coverage ends at the last
 closed bar. `getCachedBars(req)` may supply only part of a requested window. Treat
 that snapshot as refreshing until authoritative history arrives; a live stream
-alone does not repair missing closed candles.
+alone does not repair missing closed candles. A host with no live subscription has
+nothing to supply the bar a hit leaves out: when a hit ends before a bar the page has
+already shown (the forming candle, or the day's candle after the close), ask again with
+`noCache: true`, as the reference host does, or the chart steps back to an older close.
 
 <Callout type="warning">
 Anything you build that computes off `bars[bars.length - 1]` inherits this rule. Keep the
@@ -84,24 +87,27 @@ completed history and re-fetch only the tail.
 
 ## The key deliberately excludes the range
 
-An entry is keyed `symbol | exchange | interval`. What was requested is **not** part of the
-key, and it is not stored either — coverage **is** the bars. The left edge is `bars[0]`, the
-right edge is the close of the last bar, and nothing between them is claimed that is not
-held:
+An entry is keyed `symbol | exchange | interval`, then the request's
+[data variant](/docs/data-variants) when it names one: extended hours or raw prices are
+another series, so they are another entry. The default variant adds nothing, so the key
+of a request without one is the key it always was. What was requested is **not** part of
+the key, and it is not stored either, coverage **is** the bars. The left edge is
+`bars[0]`, the right edge is the close of the last bar, and nothing between them is
+claimed that is not held:
 
 - one entry per series holds the set that was fetched, and a **narrower** request is served
   by slicing it;
 - a request the entry cannot cover refetches, and the result is **unioned** into the entry, so
   a ten-bar tail fetch extends the series instead of shrinking it to ten bars. Inside the
-  window the server actually answered — its first returned bar to its last, **not** the
-  requested `from`/`to` — the answer wins outright: a corrected close replaces the stored one
+  window the server actually answered, its first returned bar to its last, **not** the
+  requested `from`/`to`, the answer wins outright: a corrected close replaces the stored one
   and a bar the server no longer reports is deleted rather than left as a ghost. A truncated
   answer therefore cannot punch a hole through bars the server never spoke about;
 - the one case that still **replaces** is a fetch separated from the entry by a band nobody
   asked about. "Adjacent" is judged on the **bar grid** and on the **ask**, not on the
   answer: a page whose last bar sits immediately before the entry's first one is adjacent
   and unions, and so is a page that *asked* up to the entry's left edge and came back with
-  Friday's bars because the market was shut in between — that band was answered, and
+  Friday's bars because the market was shut in between, that band was answered, and
   answered empty. A fetch that stops short of the entry with an unasked band between them
   replaces, because nothing has spoken for what is in it.
 
@@ -116,7 +122,7 @@ entry actually holds, and they fail for different reasons:
 | Gate | Test | Why |
 |---|---|---|
 | Tail freshness | `now - storedAt` is within `ttlMs`, **or** the ask ends short of the last two bar spans | A closed bar is immutable, so age alone says nothing about it. Only the recent tail can still change under you (a late print, a backend correction), so the TTL gates the tail and nothing else. |
-| Left edge | The entry holds `count` bars at or before `endSec` — or, for a window ask, its oldest bar is not newer than `from` — **or** the entry is `short` and that belief is younger than `ttlMs` | Fewer bars than you asked for is a real gap, and painting a chart that silently starts late is worse than a refetch. A market that was shut is not a gap, and only the server can tell the two apart. |
+| Left edge | The entry holds `count` bars at or before `endSec`, or, for a window ask, its oldest bar is not newer than `from`, **or** the entry is `short` and that belief is younger than `ttlMs` | Fewer bars than you asked for is a real gap, and painting a chart that silently starts late is worse than a refetch. A market that was shut is not a gap, and only the server can tell the two apart. |
 | Right edge | The ask ends before the close of the last bar held, **or** the bar after it is still forming | Nothing new can have closed, so a fetch would return the same bars. |
 
 The right-edge gate is measured on the feed's **own bar grid** (`nextClose`), not against UTC
@@ -125,11 +131,11 @@ than the wrong boundary. The effect is what you want from a warm cache: yesterda
 session stays usable for days, while the live tail is re-read once per TTL.
 
 A window ask is deliberately gated on its own `from` rather than on the count it implies:
-a window ending at `now` always has room for one more bar than can ever be stored — the
-forming one — so counting it would miss on every live request.
+a window ending at `now` always has room for one more bar than can ever be stored, the
+forming one, so counting it would miss on every live request.
 
 An entry past its TTL is **kept**, not deleted. Its closed bars are still the fastest correct
-paint available, and only the request that reaches into the tail pays for a refetch — which
+paint available, and only the request that reaches into the tail pays for a refetch, which
 then rewrites the same entry. Drop one by hand with `invalidate()`.
 
 ## `short`: the server's own word for "there is no more"
@@ -146,13 +152,13 @@ answered by the party that knows.
 **It is a belief, not a fact, and it carries its age** in `shortAt`. A server clamp, a heal in flight or a
 store still filling all answer short for reasons that pass, so `short` is **re-checked once
 per `ttlMs`**: the first left-edge ask after the belief goes stale reaches the network, and
-either proves there is older history — the entry grows and the flag clears — or renews the
+either proves there is older history, the entry grows and the flag clears, or renews the
 belief for another TTL. An exhausted series therefore costs one probe per TTL, not a loop,
 and a transient shortfall costs one TTL of paging rather than the life of the entry.
 
 `shortAt` is deliberately **not** `storedAt`: the tail is revalidated on every new bar, so a
 clock shared with it would never grow old. For the same reason a tail fetch carries the
-previous stamp rather than renewing it — an answer that established nothing about the left
+previous stamp rather than renewing it, an answer that established nothing about the left
 edge cannot renew a verdict about it either.
 
 Besides the probe, `short` is cleared by:
@@ -219,21 +225,21 @@ subscription continues. That gives the entry one shape and three rules:
 
 - it never grows past `maxBars`;
 - it is **never shrunk below** that by an older page. A scroll-back past the window is
-  answered from the network and simply **not cached** — nothing is written, so a deep page
+  answered from the network and simply **not cached**, nothing is written, so a deep page
   costs no IndexedDB traffic and cannot take the tail's place;
 - the left edge it no longer holds is no longer claimed: `short` is cleared by the trim, so a
   request reaching further back misses and refetches rather than being served a series that
   silently starts late.
 
 The one disjoint fetch that still **replaces** the entry is one that lands **newer** than
-everything it holds — a fortnight's absence, where the stale bars are behind a band nobody
+everything it holds, a fortnight's absence, where the stale bars are behind a band nobody
 asked about and the tail is what is being replaced rather than thrown away.
 
 <Callout type="warning">
 **Over IndexedDB, keep `maxBars` in the low thousands.** Because a put now unions, an entry
 grows until it hits the cap, and every put pays for the whole entry: one read, one merge, one
 write. Measured here on a structured-clone store, a 10-bar tail put against a **50,000-bar**
-entry costs **15-22 ms** and moves **4.5 MB in and 4.5 MB out** — a main-thread stall the
+entry costs **15-22 ms** and moves **4.5 MB in and 4.5 MB out**, a main-thread stall the
 user feels, several times a session. The same put against a **5,000-bar** entry is **1.8 ms**
 and 0.45 MB. The 250,000 default suits the in-memory `Map` it ships with, not a persistent
 store; a persistent host should set `maxBars` to roughly what its charts actually paint.
@@ -261,7 +267,7 @@ a minute would make the cache believe a new bar had closed every 60 seconds.
 
 <Callout type="info">
 A code nothing recognises, and a tick or Renko series whose bars have no clock length at all,
-resolve to `null` — nothing says which of their bars are complete, so they are passed straight
+resolve to `null`, nothing says which of their bars are complete, so they are passed straight
 through, uncached, rather than guessed at. Register a
 [custom interval](/docs/custom-intervals) and the cache learns it with everything else.
 
@@ -290,7 +296,7 @@ await feed.getBars({ ...req, endSec, count });  // the last `count` bars at or b
 await feed.getBars({ ...req, from, to });       // a clock window, answered as a window
 await feed.getBars({ ...req, noCache: true });  // always fetch, and refresh the entry
 await feed.peek(req);                           // read the entry, never fetch
-await feed.invalidate(req);                     // drop one series (symbol/exchange/interval)
+await feed.invalidate(req);                     // drop one series (symbol/exchange/interval/variant)
 await feed.invalidate();                        // same as clear()
 await feed.clear();                             // drop everything this cache knows of
 await feed.prune(7 * 86_400_000);               // drop entries older than a week, this session or not
@@ -336,7 +342,7 @@ Two empty answers, meaning different things:
 | `undefined` | Nothing is stored for this series. Load it cold. |
 | `{ bars: [], … }` | An entry exists, but nothing it holds is inside the window you asked for. Peek again without one to see where its bars are. |
 
-A peek touches LRU recency — an entry you are about to extend must not be the next victim.
+A peek touches LRU recency, an entry you are about to extend must not be the next victim.
 Nothing is written and nothing is evicted by the peek itself, but the touch **adopts** the
 entry into this session's index, which is the whole point after a reload, and from then on it
 counts towards `max` and `maxBars`. A later put can therefore evict something on its behalf:
@@ -371,7 +377,7 @@ The default store is an in-memory `Map`, and the engine will not reach for `loca
 IndexedDB itself: choosing a persistence layer is the host's business, one of them is
 synchronous and small and the other is asynchronous. Inject your own instead. Every store
 method may return a promise, and `CachedBars` (`{ bars, storedAt, nextClose, short? }`) is
-plain JSON — `shortAt` rides beside `short` — so it round-trips through `JSON.stringify`
+plain JSON, `shortAt` rides beside `short`, so it round-trips through `JSON.stringify`
 unchanged:
 
 ```ts
@@ -395,7 +401,7 @@ const feed = withBarCache(source, { storage: store, maxBars: 20_000 });
 **The persisted shape changed in this release.** `CachedBars` no longer carries `from`/`to`;
 coverage is the bars, plus `short`/`shortAt`. Entries written by an older version are missing `short`
 and are simply read as "not known to be short", but a host that keyed its store on a
-namespace should **bump it** and let the old keys be swept — an entry whose left edge was
+namespace should **bump it** and let the old keys be swept, an entry whose left edge was
 established by a truncated answer would otherwise be trusted a little further than it earned.
 </Callout>
 
@@ -410,14 +416,14 @@ than deleted. Left alone it sits in IndexedDB for ever.
 await feed.prune(7 * 86_400_000);  // drop entries whose tail is over a week old; returns the count
 ```
 
-`prune` walks the **store's** keys — the ones the in-memory index does not have are exactly
-the ones it exists to find — so it needs `keys()` on your store. Without it, `prune` returns 0
+`prune` walks the **store's** keys, the ones the in-memory index does not have are exactly
+the ones it exists to find, so it needs `keys()` on your store. Without it, `prune` returns 0
 and does nothing rather than pretending. Call it once at startup, or on a timer.
 
 <Callout type="warning">
 Recency and size are tracked **in memory**, so with a persistent store `clear()` drops only
 what this session has touched. A key written by an earlier session is adopted when it is next
-read — expired or not, since expiry now only forces a tail refetch — and comes under this
+read, expired or not, since expiry now only forces a tail refetch, and comes under this
 session's bounds from then on. A store that outlives the process is responsible for its own
 overall quota, which for `localStorage` means keeping `maxBars` small.
 </Callout>

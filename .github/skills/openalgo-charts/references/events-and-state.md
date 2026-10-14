@@ -31,14 +31,14 @@ secondary-series writes do not emit it. Read `chart.primaryBars()` for the
 readonly source history without copying it. The event follows indicator
 invalidation; `chart.indicators()` flushes studies when a host needs their values.
 
-Every name emitted by the engine, verified against the `emit(` call sites in `src/core/chart.ts`, `src/core/trading-controller.ts`, `src/draw/controller.ts`, and `src/replay/controller.ts`.
+Every name emitted by the engine, verified against the `emit(` call sites in `src/core/chart.ts` and the `src/core/chart-*.ts` modules it delegates to, `src/core/trading-controller.ts`, `src/draw/controller.ts`, and `src/replay/controller.ts`.
 
 | Event | Payload | Fires when |
 |---|---|---|
 | `ready` | `{}` | Once, on a microtask after the constructor, a subscription on the next line still receives it. |
 | `crosshair:move` | `{ time, index, price, bar, point: { x, y }, paneIndex, pressed, modifiers, pointerType, pressure, samples? }` | Pointer moves over the plot. `time`/`bar` are `null` off the data. `pressed` is true while a pointer is down; `samples` (container x, pane-local y, pressure per coalesced position) is present only then, which is how a freehand stroke reads its trail in placement mode. |
 | `crosshair:move` (leave) | `{ time: null, index: null, price: null, bar: null, point: null, paneIndex: null }` | Pointer leaves the plot. Note: no `pressed` key on this payload. |
-| `click` | `{ id, price, time, paneIndex, point: { x, y }, shiftKey, ctrlKey, metaKey, modifiers, pointerType, pressure, viaDrag? }` | A clean click anywhere in the plot. `id` is the hit primitive's `externalId`, or `null` on empty plot. `pressure` is the press pressure (a release always reads 0). |
+| `click` | `{ id, price, time, paneIndex, point: { x, y }, shiftKey, ctrlKey, metaKey, modifiers, pointerType, pressure, viaDrag? }` | A clean click anywhere in the plot. `id` is the hit primitive's `externalId`, or `null` on empty plot. `pressure` is the press pressure (a release always reads 0). The flat `shiftKey`, `ctrlKey` and `metaKey` are deprecated and go in 3.0.0: read `modifiers`. |
 | `dblclick` | `{}` | Plot double-clicked. Also resets the scale unless a drawing tool is armed. |
 | `hover` | `{ id }` | Pointer enters (`id` = `externalId`) or leaves (`id` = `null`) a hit-testable primitive. State-change rate, not pointer rate. |
 | `drag:start` | `ChartDragEndEvent`: `{ id, price, time, paneIndex, point, modifiers, pointerType, pressure }` | A primitive press arms a drag, before any movement. |
@@ -51,10 +51,13 @@ Every name emitted by the engine, verified against the `emit(` call sites in `sr
 | `renderer:fallback` | `RendererFallbackEvent`: `{ from, to: 'canvas2d', reason: 'context-lost' \| 'unavailable' }` | Once per chart, when a GPU render backend lost its context or its device turned out unusable. Every pane is on `canvas2d` for the rest of the session and `chart.rendererKind` already reads it. See [core-api](core-api.md#render-backends). |
 | `lazy-load` | `{ from, to, direction: 'backward' }` | The viewport neared the oldest bar and the history loader ran. |
 | `paneRemoved` | `{ paneIndex }` | A pane was removed. |
-| `paneMoved` | `{ from, to }` | A pane swapped position. |
+| `paneMoved` | `{ from, to }` | A pane swapped position with its neighbour, the price pane included on a chart built with `movablePrimaryPane`. `setPrimaryPaneIndex` and a restore that moves the price pane emit one per step; read `primaryPaneIndex()` after one rather than assuming slot 0. |
 | `paneMaximized` | `{ paneIndex }` | A pane was maximized; `paneIndex` is `null` when un-maximizing. |
+| `paneCollapsed` | `{ paneIndex, collapsed }` | A study pane folded to its header strip (`collapsed: true`) or opened again, through `setPaneCollapsed`, its legend's collapse button or a host menu. Collapsing the maximized pane first emits `paneMaximized` with `null`. |
 | `paneResized` | `{ paneIndex }` | A pane-divider drag released. |
-| `priceAxisMoved` | `{ paneIndex, from, to }` | `movePriceAxis` succeeded: a pane's prices and their scale changed strip. Re-read `priceAxisState` for any menu still open on that axis. |
+| `priceAxisMoved` | `{ paneIndex, from, to }` | Deprecated, removed in 3.0.0 with `movePriceAxis`, the only call that emits it: listen for `priceAxisPlacementChanged`, which `setPriceAxisPlacement` emits. `movePriceAxis` succeeded: a pane's prices and their scale changed strip. Re-read `priceAxisState` for any menu still open on that axis. |
+| `priceAxisPlacementChanged` | `{ paneIndex, scaleId, side, order }` | `setPriceAxisPlacement` moved or reordered a price scale's column. The scale keeps its id; `side` and `order` are where it now draws. |
+| `layout:change` | `LayoutChangeEvent`: `{ setter }`, a `LayoutSetter` | A setter that changes what `getState` saves, and has no event of its own, has run: `setPaneWeight`, `setPriceAxisOptions`, `setPriceAxisAutoFit`, `setPriceAxisLockRatio`, `setPriceScaleOptions`, `setAutoScale`, `setGridOptions`, `setCanvasOptions`, `setStatusLineOptions`, `setWatermarkOptions`, `setTradingSettings`, `setAxisChromeOptions`, `setEventOptions` or `applyOptions`. Once per outermost call, after the change is applied (`setCanvasOptions` setting the grid on its way is one event); nothing for a call naming no pane the chart has, and nothing during a restore, which has `state:restore:start` and `state:restore:end`. Setting a value to what it already was still fires, so compare if that matters. The hook for saving a layout or recording an undo step outside a transaction. |
 | `indicatorRemoved` | `{ instanceId, indicatorId, paneIndex }` | An indicator instance was removed (legend button or `removeIndicator`). |
 | `indicatorSettings` | `{ instanceId, indicatorId, paneIndex }` | The legend's settings button was clicked. The engine ships no form, render your own. |
 | `objects:change` | `{}` | The primary source or indicator inventory/state changed, including indicator settings and visibility. Re-read the inventory; this is an invalidation event, not an object snapshot. |
@@ -70,13 +73,13 @@ Every name emitted by the engine, verified against the `emit(` call sites in `sr
 | `trading:position_close` | `{ positionId }` | A position's close box was clicked. |
 | `trading:position_click` | `{ position }` | A position pill was clicked. |
 | `trading:bracket_modify` | `{ parentId, bracketRole, newPrice }` | A bracket leg (TP/SL) was dragged. |
-| `draw:tool` | `{ tool }` | A drawing tool was armed or disarmed (`null`). Drawing tier only. |
+| `draw:tool` | `{ tool, space? }` | A drawing tool was armed or disarmed (`null`). `space: 'viewport'` is present only while the armed tool places a drawing pinned to the screen (`setTool(id, { space: 'viewport' })`); `activeToolSpace()` reads the same. Drawing tier only. |
 | `draw:add` | `{ drawing }` | A drawing was created. Drawing tier only. |
 | `draw:update` | `{ drawing }` | A drawing's points, style, text, props or flags changed. Fires once per drawing, so a multi-drag emits one per member. Drawing tier only. |
 | `draw:remove` | `{ drawing }` | A drawing was deleted. Drawing tier only. |
 | `draw:select` | `{ id }` | Selection changed; `id` is the primary (first picked) id, `null` on deselect. Drawing tier only. |
 | `drawing:select` | `{ ids }` | The whole selection in pick order, empty on deselect. Fires with `draw:select`, and only when the selection actually changed. Drawing tier only. |
-| `drawing:change` | `{ ids, kind }` | One event per model mutation, after the per-drawing `draw:*` events; `kind` is `'add' | 'update' | 'remove' | 'reorder'`. Drawing tier only. |
+| `drawing:change` | `{ ids, kind }` | One event per model mutation, after the per-drawing `draw:*` events; `kind` is `'add' | 'update' | 'remove' | 'reorder'`, or `'undo' | 'redo'`. `ids` is empty for an undo step that changed no drawing (a study input anchor's drag), so an Undo control still refreshes. Drawing tier only. |
 | `draw:copy` | `{ drawings }` | A copy reached the clipboard (deep copies, not the live objects). Drawing tier only. |
 | `draw:cut` | `{ drawings }` | A cut wrote **and then** deleted. A refused write emits nothing. Drawing tier only. |
 | `draw:paste` | `{ drawings }` | The newly created drawings, after their own `draw:add` events. Drawing tier only. |
@@ -114,30 +117,57 @@ subscription or an explicit `objects.refresh()` after a host-side change.
 
 ## getState and restoreState
 
-`chart.getState(): ChartState & ChartSettingsState` returns a JSON-safe snapshot; `chart.restoreState(state): RestoreReport` puts it back. The widened return type is still a `ChartState` to every existing consumer.
+`chart.getState(): ChartState & ChartSettingsState` returns a JSON-safe snapshot; `chart.restoreState(state, options?: ChartRestoreOptions): RestoreReport` puts it back. The widened return type is still a `ChartState` to every existing consumer.
+
+`ChartRestoreOptions.preserveScaleFormats` selects existing `{ paneIndex, scaleId }`
+targets whose runtime formatter callback or default formatter must survive automatic
+study-series recreation. Numeric saved scale settings still apply. Invalid or absent
+targets reject before mutation. No callbacks are serialized, and later explicit
+settings/formatter changes retain normal behavior. Forward the workspace template
+planner's `restoreOptions` when applying its state patch. Omitted options preserve
+ordinary full-restore semantics.
+
+A synchronous newer restore from `state:restore:start` supersedes the older call,
+which returns `applied: false`. Hosts must not roll back over that newer state.
 
 | Captured in `ChartState` | Restored |
 |---|---|
-| `version` (`CHART_STATE_VERSION`) | validated |
+| `version` (`CHART_STATE_VERSION`, now `2`) | validated; a state newer than the build is refused. `getState()` writes `1` unless the price pane has moved, so a layout with the price pane on top is written exactly as before and every older reader still opens it |
 | `viewport` `{ from, to }` (logical range), `barSpacing` | yes, viewport only when the chart already has data |
 | `grid` `{ vertLines, horzLines }` plus the grid style keys | yes |
 | `canvas` (grid, crosshair, scales, margins), `statusLine`, `trading` colours, `events` filters | yes; `canvas` is applied **before** the panes, so a pane's own saved margins are the more specific answer and win |
-| `navigation` (`mousePan`, `defaultVisibleBars`) | yes; controls pointer panning and the initial/reset view. An explicitly restored viewport takes precedence until reset |
+| `navigation` (`mousePan`, `defaultVisibleBars`, optional `defaultBarSpacing`) | yes; controls pointer panning and the initial/reset view. Positive spacing selects CSS pixels per bar. An explicitly restored viewport takes precedence until reset |
 | `crosshairMode` `'normal' \| 'magnet'` | yes |
 | `timezone` (IANA name) | yes, but a name this runtime does not recognise is **skipped**, not thrown, so one stale zone cannot cost the whole layout |
-| `panes[]`: `weight`, and per-pane `priceScale` `{ marginTop, marginBottom, minMove, mode, inverted, autoScale, range? }` | yes; panes are created as needed, `range` only present when `autoScale` is false |
-| `indicators[]`: `{ indicatorId, instanceId?, settings, paneIndex, visible? }` | yes, replaced not appended; saved identities are stable, legacy entries receive new IDs |
-| `drawings` | round-tripped opaquely; only present when a drawing state has been set. The draw tier writes a `DrawingsDocument` (`{ version: 2, drawings }`) here and reads a 1.9.x bare array too |
+| `panes[]`: `weight`, right `priceScale`, optional secondary `scales`, optional `collapsed` | yes; every scale retains margins, `minMove`, optional `minPrecision`, mode, inversion, auto-scale, manual `range`, declared `fixedRange` and `ratioLock` geometry. `collapsed: true` is written only for a folded pane; a pane saved without it restores open, and the price pane always restores open. A restore that lists panes or rebuilds studies also opens a pane it does not list |
+| `primaryPane` (version 2 only) | yes: the slot of the price pane in `panes`, written only when it is not `0`. Every `paneIndex` in a state (panes, series, studies, drawings) is a visual slot, so this says which one is the price pane. Omitted with `panes` present means slot `0`, which is how an old layout loads unchanged. It needs `panes` and must name one of them, it is refused in a version 1 state, and a slot other than `0` is refused by a chart built without `movablePrimaryPane`; each refusal comes before anything is applied. A restore without `panes` leaves the price pane where it is |
+| `indicators[]`: `{ indicatorId, instanceId?, settings, paneIndex, visible?, policy? }` | yes, replaced not appended; saved identities are stable, legacy entries receive new IDs. `policy` holds only a study's restrictions (`IndicatorPolicy` flags that are false) and is omitted for an unrestricted study; a malformed one refuses the restore before anything applies |
+| `sourceAbove` | yes, with `indicators`: the instance id of the study the price source paints directly above, written only after the source was moved over a study (`chart.moveInSeriesStack`). Without it the source paints behind the restored studies, as in every older layout; a non-string refuses the restore |
+| `drawings` | round-tripped opaquely; only present when a drawing state has been set. Emitted to the draw tier (`drawings:restore`) before empty study panes are pruned, so a pane the restore removes shifts restored drawings with every other pane. The draw tier writes a `DrawingsDocument` (`{ version: 2, drawings }`) here, without transient drawings (`policy.persistent: false`), and reads a 1.9.x bare array too |
 | `alerts` | optional `AlertsDocument`; lifecycle, scope, anchors and consumed bars survive reload; unsupported runtime payloads reject serialization |
 | `series[]`: `{ type, style, paneIndex, priceScaleId }` | **no**, reported back to you |
 | series **data** | **no**, never captured |
 
-**`restoreState` never recreates series.** The chart does not know your symbol, timeframe, or feed. It restores what it owns and hands back the descriptors so you rebuild and refeed them.
+**`restoreState` never recreates host source series.** It rebuilds registered indicator outputs. The returned descriptors include both kinds, so use the host's source manifest when rebuilding and feeding price, volume or comparison series.
 
 Indicator visibility is saved with its instance settings. Drawing visibility and
 lock remain in the drawing document. `ChartObjects` provider callbacks, profile
 data and profile state are host-owned and are not serialized; re-register them
 after chart replacement and persist them separately when needed.
+
+`PaneState.priceScale` remains the right-axis field for older readers;
+`PaneState.scales` is keyed by secondary `PriceScaleId`. `PriceScaleState.ratioLock`
+contains `{ barSpacing, height }` paired with the saved manual range, preserving
+its proportion when the restored chart has a different size. `Pane.scaleStates()`
+returns detached snapshots of its existing scales, including the right scale;
+`Pane.clearRatioLocks()` releases its locks without changing ranges.
+
+`parsePaneState(value, allowLegacyPartial = false)` validates and copies a pane
+snapshot, throwing on invalid settings, including a `collapsed` flag that is not
+a boolean. The optional legacy mode supplies defaults
+for missing primary-scale settings; secondary settings remain complete. Both
+chart restoration and workspace parsing use it. Layouts cannot serialize runtime
+formatter functions or a price scale's data-derived baseline.
 
 `RestoreReport`:
 
@@ -148,9 +178,9 @@ after chart replacement and persist them separately when needed.
 | `indicators` | `number` | Instances actually recreated. |
 | `reason` | `string?` | Set only on rejection. |
 
-Rejection is total, never partial: a non-object, or one without a numeric `version`, gives `reason: 'not a chart state object'`; a `version` greater than `CHART_STATE_VERSION` gives `state version N is newer than M`. An **older** version is accepted. `CHART_STATE_VERSION` is `1` and is exported from the package root.
+Rejection is total, never partial: a non-object, or one without a numeric `version`, gives `reason: 'not a chart state object'`; a `version` greater than `CHART_STATE_VERSION` gives `state version N is newer than M`. An **older** version is accepted. `CHART_STATE_VERSION` is `2` and is exported from the package root; since `getState()` still writes `1` for a chart whose price pane is on top, a host validating a saved state should refuse only `version > CHART_STATE_VERSION`, never demand equality.
 
-**An indicator whose tier was never imported is skipped, not thrown.** `restoreState` checks `hasIndicator(id)` and moves on, so a layout saved with `openalgo-charts/indicators` loaded still restores everything else in an app that omits the tier. Any pane left empty as a result (index > 0, no series) is then removed, so a skipped indicator does not leave a blank region claiming height.
+**An indicator whose tier was never imported is skipped, not thrown.** `restoreState` checks `hasIndicator(id)` and moves on, so a layout saved with `openalgo-charts/indicators` loaded still restores everything else in an app that omits the tier. Empty positive panes are then removed. A pane containing a live study or host primitive survives even with no series, including studies that render only levels or perform calculations without plots.
 
 **Restore the viewport after your data lands.** Logical ranges index bars, so `viewport` is skipped entirely while `dataLayer.length === 0`. Calling `restoreState` a second time is safe and idempotent, indicators are removed and rebuilt, not duplicated.
 
@@ -207,3 +237,12 @@ Missing restored drawing or plot anchors emit removal reasons. See
 - [replay-and-compare](replay-and-compare.md): the `replay:*` payload, and the comparison controller's own state.
 - [settings-and-menus](settings-and-menus.md): the settings slice of the state, and the `contextmenu` target.
 - [react-integration](react-integration.md), unsubscribing on unmount.
+
+
+## Readout observers (2.5.3)
+
+`crosshair:readout` carries `CrosshairMoveEvent` for both physical and linked
+crosshairs, including clearing. Unlike the single setCrosshairMoveHandler callback,
+multiple chart.on subscriptions can observe it. `crosshair:move` retains its
+physical-pointer semantics for linking. `timezone:changed` reports `{ timezone }`
+after setTimezone changes the chart calendar. Dispose subscriptions with the host.

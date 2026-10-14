@@ -1,7 +1,7 @@
-import { el, esc, currentTheme, toggleTheme } from './ui.js';
+import { el, esc, currentTheme, toggleTheme, plural } from './ui.js';
 import { attachTip, hideTip } from './hover.js';
-import { cycleMagnet, magnetMode, focusChart } from './rail.js';
-import { INTERVALS, intervalLabel, intervalName, periodsFor, clampPeriod } from './intervals.js';
+import { cycleMagnet, magnetMode, focusChart, syncNavigationControls } from './rail.js';
+import { INTERVALS, intervalLabel, intervalName, periodsFor, clampPeriod, foldedInterval } from './intervals.js';
 import { popupMenu } from './menus.js';
 import { openCompare, comparisonState } from './compare.js';
 import { enterReplay, askExitReplay } from './replay.js';
@@ -13,11 +13,34 @@ import { openCacheMenu } from './feed.js';
 import { openChartSettings } from './chart-settings.js';
 import { openAlerts } from './alerts.js';
 import { capturePaneTarget, selectedPane } from './pane-target.js';
-import { LONG_NAMES } from './status.js';
 import { autosave } from './persist.js';
-import { addIndicator } from './indicators.js';
+import { rememberIndicators, renderIndicatorChips } from './indicators.js';
+import { recordChartType } from './history.js';
+import { mountSymbolPicker, mountIndicatorPicker } from '/dist/openalgo-charts.widget.mjs';
+import { referenceSymbolSearch } from './symbol-search.js';
+import { toggleInspection } from './inspection.js';
+import { openGoTo } from './goto.js';
+import { extendedSessionAvailable, sessionLabel, sessionOf } from './session.js';
 
 let app;
+let symbolPicker = null;
+let symbolSearchClose = null;
+let indicatorPicker = null;
+
+function closeIndicatorPicker() {
+  const picker = indicatorPicker;
+  indicatorPicker = null;
+  picker?.close();
+}
+
+function closeSymbolSearch() {
+  const picker = symbolPicker;
+  symbolPicker = null;
+  picker?.destroy();
+  const close = symbolSearchClose;
+  symbolSearchClose = null;
+  close?.();
+}
 
 // ══ toolbar shell ══════════════════════════════════════════════════════
 // Buttons and popup menus rather than native <select>s: a select cannot show
@@ -62,6 +85,9 @@ export const TOOLBAR_ICON = {
   link: '<path d="M8.4 11.6a3 3 0 0 1 0-4.2l1.8-1.8a3 3 0 1 1 4.2 4.2l-.9.9"/><path d="M11.6 8.4a3 3 0 0 1 0 4.2l-1.8 1.8a3 3 0 1 1-4.2-4.2l.9-.9"/>',
   // One frame divided: the layout, not the group.
   split: '<rect x="2.5" y="4" width="15" height="12" rx="1.6"/><path d="M10 4v12"/>',
+  // The frame divided both ways: the grid view with rows as well as columns.
+  // Its own key: a second `grid` took the grid lines' icon from the Grid button.
+  gridView: '<rect x="2.5" y="4" width="15" height="12" rx="1.6"/><path d="M10 4v12M2.5 10h15"/>',
   // A stack of stored rows with a tick: something held, and held valid.
   cache: '<ellipse cx="10" cy="5.4" rx="6.2" ry="2.4"/><path d="M3.8 5.4v4.6c0 1.3 2.8 2.4 6.2 2.4s6.2-1.1 6.2-2.4V5.4"/><path d="M3.8 10v4.6c0 1.3 2.8 2.4 6.2 2.4"/><path d="M13 15l1.8 1.8L18 13"/>',
   // The mirror of `download`: a layout file going the other way.
@@ -76,11 +102,11 @@ export const CHART_TYPES = [
   { group: 'Time-indexed' },
   { v: 'candlestick', label: 'Candles', icon: 'candles' },
   { v: 'hollow-candle', label: 'Hollow candles', icon: 'candles' },
-  { v: 'bar', label: 'Bars (OHLC)', icon: 'bars' },
-  { v: 'high-low', label: 'High-Low', icon: 'bars' },
+  { v: 'bar', label: 'Bars', icon: 'bars' },
+  { v: 'high-low', label: 'High-low', icon: 'bars' },
   { v: 'volume-candle', label: 'Volume candles', icon: 'candles' },
   { v: 'line', label: 'Line', icon: 'line' },
-  { v: 'line-markers', label: 'Line + markers', icon: 'line' },
+  { v: 'line-markers', label: 'Line with markers', icon: 'line' },
   { v: 'step', label: 'Step line', icon: 'line' },
   { v: 'area', label: 'Area', icon: 'area' },
   { v: 'hlc-area', label: 'HLC area', icon: 'area' },
@@ -90,7 +116,7 @@ export const CHART_TYPES = [
   { v: 't:renko', label: 'Renko', icon: 'renko' },
   { v: 't:range', label: 'Range bars', icon: 'renko' },
   { v: 't:line-break', label: 'Line break', icon: 'renko' },
-  { v: 't:point-figure', label: 'Point & Figure', icon: 'pnf' },
+  { v: 't:point-figure', label: 'Point and figure', icon: 'pnf' },
   { v: 't:kagi', label: 'Kagi', icon: 'line' },
 ];
 
@@ -161,7 +187,7 @@ function currentTarget(target) {
   return false;
 }
 
-function changeRequest(target, patch) {
+export function changeRequest(target, patch) {
   if (!currentTarget(target)) return;
   const request = { ...target.request, ...patch };
   request.period = clampPeriod(request.interval, request.period);
@@ -170,6 +196,7 @@ function changeRequest(target, patch) {
     app.loadSecondary();
   } else {
     for (const key of ['symbol', 'interval', 'period']) el(key).value = request[key];
+    el('session').value = sessionOf(request);
     app.load();
   }
   renderToolbar();
@@ -179,21 +206,33 @@ function changeType(target, chartType, pfmode) {
   if (!currentTarget(target)) return;
   const busy = target.pane === 2 ? app.loading2 || app.loadFailed2 : app.loading || app.loadFailed;
   if (busy) { el('status').textContent = 'wait for chart history before changing its type'; return; }
-  if (target.pane === 2) {
-    app.p2.chartType = chartType;
-    app.p2.pfmode = pfmode;
-    app.rebuildSecondary({ typeChanged: true });
-  } else {
-    el('ctype').value = chartType;
-    el('pfmode').value = pfmode;
-    app.render();
-  }
-  renderToolbar();
-  autosave();
+  const pane = target.pane;
+  const from = pane === 2
+    ? { chartType: app.p2.chartType || 'candlestick', pfmode: app.p2.pfmode || 'atr' }
+    : { chartType: el('ctype').value, pfmode: el('pfmode').value };
+  // The type is a rebuild here, so the switch is recorded as a command that
+  // rebuilds again: one step on that chart's timeline.
+  const show = (type) => {
+    if (pane === 2) {
+      app.p2.chartType = type.chartType;
+      app.p2.pfmode = type.pfmode;
+      app.rebuildSecondary({ typeChanged: true });
+    } else {
+      el('ctype').value = type.chartType;
+      el('pfmode').value = type.pfmode;
+      app.render();
+    }
+    renderToolbar();
+    autosave();
+  };
+  show({ chartType, pfmode });
+  recordChartType(pane, from, { chartType, pfmode }, show);
 }
 
 /** Rebuild shared controls from their explicitly selected chart. */
 export function renderToolbar() {
+  closeSymbolSearch();
+  closeIndicatorPicker();
   syncFullscreenChrome();
   const bar = el('shellbar');
   const pane = selectedPane(app);
@@ -245,10 +284,35 @@ export function renderToolbar() {
   // symbol
   const sym = tbtn(ticon('search') + '<b>' + esc((request.symbol || '').toUpperCase()) + '</b>', 'Change symbol');
   sym.addEventListener('click', () => {
-    popupMenu(sym, Object.entries(LONG_NAMES).map(([symbol, name]) => ({
-      label: symbol + '  ' + name, on: request.symbol === symbol,
-      onSelect: () => changeRequest(target, { symbol }),
-    })), { find: 'Symbol or expression', onSubmit: symbol => changeRequest(target, { symbol }) });
+    const symbolContext = app['inspection' + pane]?.context;
+    if (!target?.current() || !symbolContext) return;
+    closeSymbolSearch();
+    const box = document.createElement('div');
+    box.className = 'oac-menu host-symbol-search';
+    const input = document.createElement('input');
+    input.type = 'search';
+    input.placeholder = 'Symbol or expression';
+    input.setAttribute('aria-label', 'Symbol or expression');
+    input.setAttribute('autocomplete', 'off');
+    input.setAttribute('spellcheck', 'false');
+    box.appendChild(input);
+    symbolSearchClose = symbolContext.openOverlay(box, {
+      anchor: sym, placement: 'below', initialFocus: input,
+      onClose: () => { symbolSearchClose = null; symbolPicker?.destroy(); symbolPicker = null; },
+    });
+    symbolPicker = mountSymbolPicker(symbolContext, input, {
+      search: referenceSymbolSearch,
+      context: () => target.current() ? `${pane}:${target.request.symbol}:${target.request.interval}` : 'changed',
+      onSelect: symbol => { closeSymbolSearch(); changeRequest(target, { symbol }); },
+    });
+    input.addEventListener('keydown', event => {
+      if (event.key !== 'Enter' || event.defaultPrevented || !symbolPicker?.canCommitRaw()) return;
+      const query = input.value.trim();
+      if (!query) return;
+      event.preventDefault();
+      closeSymbolSearch();
+      changeRequest(target, { symbol: query.toUpperCase() });
+    });
   });
   bar.appendChild(sym);
   bar.appendChild(divider());
@@ -261,6 +325,7 @@ export function renderToolbar() {
     b.textContent = intervalLabel(iv);
     b.title = intervalName(iv);
     b.className = request.interval === iv ? 'is-on' : '';
+    b.setAttribute('aria-pressed', String(request.interval === iv));
     b.addEventListener('click', () => changeRequest(target, { interval: iv }));
     ig.appendChild(b);
   }
@@ -275,6 +340,34 @@ export function renderToolbar() {
     onSelect: () => changeRequest(target, { period: p }),
   }))));
   bar.appendChild(range);
+  // Trading session. Extended hours are the source's own pre and post market
+  // bars, served only for intraday bars of a US listed stock, so the row is
+  // greyed with the reason everywhere else. A chart already on extended hours
+  // keeps that choice through an interval change and says it is unavailable,
+  // rather than quietly showing regular hours under the old label.
+  const session = sessionOf(request);
+  const wire = foldedInterval(request.interval)?.foldFrom || request.interval;
+  const extendedServed = extendedSessionAvailable(request.symbol, wire);
+  const sessionButton = tbtn('<span>' + esc(sessionLabel(session)) + '</span>' + ticon('chevron'), 'Trading session',
+    extendedServed ? 'Regular or extended hours' : 'Extended hours are served only for intraday bars of US listed stocks');
+  sessionButton.id = 'session-menu';
+  sessionButton.setAttribute('aria-haspopup', 'menu');
+  if (session === 'extended') sessionButton.classList.add('is-on');
+  sessionButton.addEventListener('click', () => popupMenu(sessionButton, [
+    { label: sessionLabel('regular'), on: session === 'regular', onSelect: () => changeRequest(target, { session: 'regular' }) },
+    { label: sessionLabel('extended'), on: session === 'extended', disabled: !extendedServed,
+      reason: extendedServed ? '' : `Not available for ${request.symbol || 'this symbol'} at ${request.interval}`,
+      onSelect: () => changeRequest(target, { session: 'extended' }) },
+  ], { role: 'menu' }));
+  bar.appendChild(sessionButton);
+  // Go to a date or range, loading a longer period when the date is older
+  // than the one on screen.
+  const goTo = tbtn('<span>Go to</span>', 'Go to a date or range', 'Loads older history when it is needed');
+  goTo.id = 'goto';
+  goTo.setAttribute('aria-haspopup', 'dialog');
+  goTo.disabled = !target?.current() || Boolean(pane === 2 ? app.loading2 || app.loadFailed2 : app.loading || app.loadFailed);
+  goTo.addEventListener('click', () => openGoTo(goTo));
+  bar.appendChild(goTo);
   bar.appendChild(divider());
 
   // chart type menu
@@ -300,19 +393,24 @@ export function renderToolbar() {
   // indicators
   const ind = tbtn(ticon('indicators') + '<span>Indicators</span>', 'Add an indicator');
   ind.addEventListener('click', () => {
-    const rows = [];
-    let group = null;
-    for (const o of el('indpick').options) {
-      const g = o.parentElement.label;
-      if (g && g !== group) { group = g; rows.push({ group: g }); }
-      rows.push({
-        label: o.textContent,
-        onSelect: () => addIndicator(o.value, target),
-      });
-    }
-    popupMenu(ind, rows, { find: 'Search ' + (rows.length - new Set(rows.filter((r) => r.group).map((r) => r.group)).size) + ' indicators' });
+    if (!target?.current()) return;
+    const context = app['inspection' + pane]?.context;
+    if (!context) return;
+    closeIndicatorPicker();
+    indicatorPicker = mountIndicatorPicker(context, ind, { onAdd: () => {
+      if (pane === 1) rememberIndicators();
+      renderIndicatorChips();
+      autosave();
+    } });
   });
   bar.appendChild(ind);
+  const PANELS = { data: ['Data', 'Data window'], objects: ['Objects', 'Chart objects'], watchlist: ['Watchlist', 'Watchlists and quotes'], news: ['News', 'News for this symbol'] };
+  for (const [panel, [label, title]] of Object.entries(PANELS)) {
+    const control = tbtn(label, title);
+    control.setAttribute('aria-pressed', String(app['inspection' + pane]?.dock.state().panel === panel));
+    control.addEventListener('click', () => toggleInspection(pane, panel));
+    bar.appendChild(control);
+  }
   const templates = tbtn('Templates', 'Indicator templates');
   templates.setAttribute('aria-label', 'Templates'); templates.setAttribute('aria-haspopup', 'dialog');
   templates.setAttribute('aria-controls', 'templatemodal');
@@ -373,7 +471,7 @@ export function renderToolbar() {
   if (app.cache) {
     const s = app.cache.stats();
     const cc = tbtn(ticon('cache') + '<span>' + s.hits + '/' + (s.hits + s.misses) + '</span>',
-      `Bar cache: ${s.hits} warm of ${s.hits + s.misses} loads, ${s.entries} series held`);
+      `Bar cache: ${s.hits} warm of ${plural(s.hits + s.misses, 'load')}, ${s.entries} series held`);
     if (s.hits > 0) cc.classList.add('is-on');
     cc.addEventListener('click', () => openCacheMenu(cc));
     bar.appendChild(cc);
@@ -381,7 +479,11 @@ export function renderToolbar() {
   bar.appendChild(divider());
 
   // view + layout icons
-  bar.appendChild(iconBtn('fit', 'Reset view', () => { if (currentTarget(target)) target.chart.resetScale(); }));
+  const fit = iconBtn('fit', 'Reset view', () => {
+    if (currentTarget(target) && target.chart.navigationOptions?.().zoomEnabled !== false) target.chart.resetScale();
+  });
+  fit.id = 'toolbar-fit';
+  bar.appendChild(fit);
   // Anchor on the button that was clicked: by the time the handler runs,
   // bar.lastChild is whatever the toolbar appended last, not this button.
   bar.appendChild(iconBtn('grid', 'Grid', (ev) => {
@@ -402,7 +504,7 @@ export function renderToolbar() {
   // The magnet is the rail's three-way mode (off, weak, strong); this button
   // cycles it, so the shell and the rail can never disagree.
   const mg = iconBtn('magnet', 'Magnet: ' + magnetMode(), () => { cycleMagnet(); renderToolbar(); },
-    'snaps anchors to O/H/L/C; off, weak, strong');
+    'Snaps anchors to a bar or study value: off, weak, strong');
   if (magnetMode() !== 'off') mg.classList.add('is-on');
   bar.appendChild(mg);
   bar.appendChild(iconBtn('camera', 'Save PNG', () => downloadSnapshot(target)));
@@ -419,16 +521,25 @@ export function renderToolbar() {
   // user had no way to reach them, which also stranded the Trading tab's
   // entry and exit colours with nothing on the chart to recolour.
   bar.appendChild(divider());
-  const buy = tbtn('<b>Buy</b>', 'Place a Buy OCO bracket: entry, target and stop', pane === 2 ? 'Trading simulation is available on chart 1' : undefined);
+  const buy = tbtn('<b>Buy</b>', 'Place a Buy OCO bracket: entry, target and stop', pane === 2 ? 'Trading is available on Chart 1' : undefined);
   buy.disabled = pane === 2;
   buy.classList.add('tbtn--buy');
   buy.addEventListener('click', () => { if (pane === 1 && currentTarget(target)) el('buy').click(); });
   bar.appendChild(buy);
-  const sell = tbtn('<b>Sell</b>', 'Place a Sell OCO bracket: entry, target and stop', pane === 2 ? 'Trading simulation is available on chart 1' : undefined);
+  const sell = tbtn('<b>Sell</b>', 'Place a Sell OCO bracket: entry, target and stop', pane === 2 ? 'Trading is available on Chart 1' : undefined);
   sell.disabled = pane === 2;
   sell.classList.add('tbtn--sell');
   sell.addEventListener('click', () => { if (pane === 1 && currentTarget(target)) el('sell').click(); });
   bar.appendChild(sell);
+  // The sandbox broker: the trade tier's account, preview and native close
+  // contract against a simulated provider, beside the page's own simulation.
+  const account = tbtn('<span>Account</span>', 'Sandbox broker account',
+    pane === 2 ? 'The sandbox broker trades Chart 1' : 'Figures, preview, durations, native close and reverse');
+  account.id = 'account';
+  account.disabled = pane === 2;
+  account.setAttribute('aria-haspopup', 'dialog');
+  account.addEventListener('click', () => { if (pane === 1 && currentTarget(target)) app.openAccount?.(account); });
+  bar.appendChild(account);
 
   bar.appendChild(divider());
   bar.appendChild(iconBtn('gear', 'Chart settings (or right-click the chart)', () => openChartSettings(undefined, target)));
@@ -449,6 +560,7 @@ export function renderToolbar() {
   // assign to #status directly and every one of them would have to remember.
   status.addEventListener('pointerenter', () => { status.title = statusText.textContent; });
   bar.appendChild(status);
+  syncNavigationControls();
   app.refreshWorkspaceControls?.();
 }
 
@@ -459,6 +571,10 @@ export function tbtn(html, title, sub) {
   // Styled label rather than `title`: half of these buttons are a bare
   // glyph, and the native box arrives a second late in the wrong theme.
   attachTip(b, { title, sub, side: 'bottom' });
+  // A button that shows words (a symbol, a range, a chart type) is named by
+  // them too: the tip's title alone would hide the value on it.
+  const shown = b.textContent.trim();
+  if (shown !== '' && !title.toLowerCase().includes(shown.toLowerCase())) b.setAttribute('aria-label', `${title}, ${shown}`);
   return b;
 }
 export function iconBtn(icon, title, onClick, sub) {
@@ -475,6 +591,8 @@ export function divider() {
 
 export function initToolbar(a) {
   app = a;
+  app.changeRequest = changeRequest;
+  app.renderToolbar = renderToolbar;
   document.addEventListener('fullscreenchange', () => {
     if (!isChartFull()) app.fullscreenPane = null;
     hideTip(); syncFullscreenChrome(); renderToolbar();

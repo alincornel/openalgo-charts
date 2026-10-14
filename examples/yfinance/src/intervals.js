@@ -116,7 +116,10 @@ export function foldToBuckets(bars, bucketing, zone) {
 export const INTERVALS = ['5m', '15m', '30m', '1h', '1d']
   .concat(registerInterval ? CUSTOM_INTERVALS.map((i) => i.code) : ['1wk']);
 export const intervalLabel = (iv) => (customInterval(iv) || { label: iv.toUpperCase() }).label;
+// Words, not codes: "5M bars" read as five months beside the bottom bar's 1M.
+const INTERVAL_NAMES = { '5m': '5 minute bars', '15m': '15 minute bars', '30m': '30 minute bars', '1h': 'Hourly bars', '1d': 'Daily bars', '1wk': 'Weekly bars' };
 export const intervalName = (iv) => {
+  if (INTERVAL_NAMES[iv]) return INTERVAL_NAMES[iv];
   const c = customInterval(iv);
   if (c) return c.name + (c.foldFrom ? ' (folded from ' + c.foldFrom.toUpperCase() + ' bars)' : '');
   return iv.toUpperCase() + ' bars';
@@ -146,12 +149,15 @@ export const PERIODS = ['1mo', '6mo', '1y', '5y', 'max'];
    the default 1y range silently drew nothing while 1h and 1d worked. Clamp
    the range to what the interval can actually serve. */
 export const PERIOD_DAYS = { '1mo': 31, '6mo': 186, '1y': 366, '5y': 1830, max: 1e6 };
-export const INTERVAL_MAX_DAYS = { '1m': 7, '2m': 60, '5m': 60, '15m': 60, '30m': 60, '90m': 60, '1h': 730 };
+export const INTERVAL_MAX_DAYS = { '1m': 7, '2m': 60, '5m': 60, '15m': 60, '30m': 60, '60m': 730, '90m': 60, '1h': 730 };
 /* A calendar frame needs years of source bars to draw anything: a quarter
    chart over one month is a single candle, which reads as a broken load
-   rather than as a range the frame cannot fill. */
-export const INTERVAL_MIN_DAYS = { '1mo': 1500, '1q': 1800 };
-/** Periods this interval can serve, longest last. Daily and up: all of them. */
+   rather than as a range the frame cannot fill. A daily chart loads at least
+   five years, so it always holds 500 candles or more where the instrument has
+   that much history: two years is about 495 sessions on NSE, and the source
+   has no three-year period. */
+export const INTERVAL_MIN_DAYS = { '1d': 1830, '1mo': 1500, '1q': 1800 };
+/** Periods this interval can serve, longest last: up to an intraday frame's cap, from a daily or calendar frame's floor. */
 export function periodsFor(interval) {
   const cap = INTERVAL_MAX_DAYS[interval];
   const floor = INTERVAL_MIN_DAYS[interval];
@@ -169,4 +175,20 @@ export function clampPeriod(interval, wanted) {
   if (ok.includes(wanted)) return wanted;
   if (ok.length === 0) return PERIODS[0];
   return PERIOD_DAYS[wanted] < PERIOD_DAYS[ok[0]] ? ok[0] : ok[ok.length - 1];
+}
+
+/**
+ * The interval and period a preset range loads, for a range reaching
+ * `reachSec` back from now: `nearest` (the widget tier's `rangeInterval`)
+ * picks among the intervals with a period that reaches that far, and the
+ * shortest such period goes with it. Only those can show the whole range: a
+ * month back to midnight is often a little more than the month of 30-minute
+ * bars this page asks for, and the range would stop short.
+ */
+export function rangeLoad(range, reachSec, nearest) {
+  const reaches = (p) => PERIOD_DAYS[p] * 86400 >= reachSec;
+  const reaching = INTERVALS.filter((iv) => periodsFor(iv).some(reaches));
+  const interval = nearest(range, reaching.length ? reaching : INTERVALS);
+  const periods = periodsFor(interval);
+  return { interval, period: periods.find(reaches) ?? periods[periods.length - 1] };
 }

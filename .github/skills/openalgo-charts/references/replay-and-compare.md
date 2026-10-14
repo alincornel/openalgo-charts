@@ -141,11 +141,16 @@ const replay = new ReplayController(chart, {
 });
 ```
 
-Four things are worth knowing before wiring it up:
+Worth knowing before wiring it up:
 
 - **A bucket closes on the displayed bar verbatim**, not on the aggregate. Two
   feeds that disagree mid-bar therefore still agree on every close, so nothing
   drifts and a replayed session ends where the plain one does.
+- **A forming bar stays inside the bar it closes on.** It carries the displayed
+  bar's open from the first step, its high and low never pass the displayed
+  bar's, and its volume never exceeds it. The official open and the first
+  minute's open differ on most days, and without this the open jumped when the
+  bucket closed and a high could fall back: a price no live candle shows.
 - **`state().bar` is the partial bar**, not the completed one, which is what
   makes it the right thing to drive a host's OHLC readout or its own forming
   volume bar from.
@@ -157,7 +162,37 @@ Four things are worth knowing before wiring it up:
   Scrubbing onto a half-formed candle would make the same slider position mean
   different things on the way past.
 - A bucket the finer feed does not cover takes **one** step and shows the
-  displayed bar: a gap costs that bar its formation, not its existence.
+  displayed bar: a gap costs that bar its formation, not its existence. Unless
+  `simulate` is set, below.
+
+### Simulated forming
+
+Feeds keep far less fine history than coarse: about a week of 1-minute bars
+against years of 5-minute ones. With `simulate`, a bar no finer bar forms takes
+the steps you name anyway, along a path through its own prices:
+
+```ts
+const replay = new ReplayController(chart, {
+  series: [price],
+  subBars: oneMinute,          // real bars win wherever they exist
+  simulate: { steps: 5 },      // ReplaySimulation: a 5-minute bar over 1-minute pace
+});
+replay.state().simulated;      // true while the newest bar forms along the path
+```
+
+- The path runs from the open to the extreme nearer it, the other extreme, then
+  the close, each step covering the same share of it. The forming bar carries the
+  real open from the first step, only widens toward the real high and low, and
+  closes on the bar itself, so every rule above still holds.
+- **The order of the extremes is an assumption.** A bar's prices say where it
+  went, not when. Show `state().simulated` to the user: a stop or a target tested
+  inside a simulated bar was never tested against traded prices.
+- Volume grows in proportion; open interest holds the reading before the bar.
+- On the availability clock the steps fall at even shares of the candle's
+  interval. A candle whose finer bars leave no forming prefix (a daily candle
+  stamped at midnight over a session that opens at 09:15) is simulated too.
+- `steps` is a whole number from 2 to 240; pick the finer bars the displayed one
+  would hold, so simulated and real candles form at the same pace.
 
 Pick the rung one step down, not the finest available. 1-minute bars under a
 daily chart are 375 steps per candle, which is not a replay, it is a stall.
@@ -199,7 +234,7 @@ bn.remove();
 | `color` | `string` | none | Shorthand; `style.color` wins if both are given. |
 | `style` | `SeriesStyle` | `{}` | Merged over the chart type's defaults. |
 | `type` | `SeriesType` | `'line'` | Any registered series type. |
-| `paneIndex` | `number` | `0` | The price pane by default. |
+| `paneIndex` | `number` | the price pane | The price pane by default, wherever it sits. A handle's `paneIndex` is read live, so it follows its pane through a move. |
 
 `ComparisonHandle`: `symbol`, `series`, `paneIndex`, `priceScale()`, `alignment()`, `barAt(time)`, `setBars(bars)`, `remove()`, `list()`.
 

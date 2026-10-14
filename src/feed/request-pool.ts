@@ -1,5 +1,6 @@
 import type { Bar } from '../model/bar';
 import type { BarsPage, BarsPageRequest, BarsRequest, DataFeed } from './types';
+import { dataVariantKey } from './data-variant';
 
 /** Limits apply to each pool, whose identity belongs to one data feed. */
 export interface HistoryRequestPoolOptions {
@@ -102,12 +103,17 @@ export class HistoryRequestPool {
     let timeout: number;
     try { timeout = deadline(req.timeoutMs ?? this._timeout); }
     catch (error) { return Promise.reject(error); }
-    // Every field that changes the ANSWER belongs in the key. `endSec`/`count`
-    // are a second request shape, not decoration: two count-shaped asks for one
-    // series differing only in `count` hashed to the same job, and the second
-    // caller was handed the first one's bars.
-    const key = JSON.stringify([page, req.symbol, req.exchange, req.interval, req.from, req.to,
-      req.endSec, req.count, req.countBack, req.noCache === true, 'before' in req ? req.before : null]);
+    let key: string;
+    try {
+      // Every field that changes the ANSWER belongs in the key. `endSec`/`count`
+      // are a second request shape, not decoration: two count-shaped asks for one
+      // series differing only in `count` hashed to the same job, and the second
+      // caller was handed the first one's bars. Two variants of one series are
+      // two answers too, so they never share a job either.
+      key = JSON.stringify([page, req.symbol, req.exchange, req.interval, req.from, req.to,
+        req.endSec, req.count, req.countBack, req.noCache === true, 'before' in req ? req.before : null,
+        dataVariantKey(req.variant)]);
+    } catch (error) { return Promise.reject(error); }
     let job = this._jobs.get(key);
     if (!job) {
       // Consumer timers own the deadline. A provider's shorter default must

@@ -3,12 +3,14 @@
 The optional `openalgo-charts/workspace` entry point provides portable configuration
 documents, a catalog repository and an IndexedDB storage adapter. It creates no UI,
 chart or market-data subscription. Hosts own their layout controls, data loading,
-template application and save notifications.
+template application and save notifications. The widget tier's `createChartGrid` is
+one such host: `grid.getWorkspace()` writes a payload this tier accepts, and
+`grid.applyWorkspace(parseWorkspacePayload(text))` applies one all or nothing.
 
 ```ts
 import {
   WorkspaceRepository, createIndexedDbWorkspaceStorage,
-  parseWorkspacePayload, parseWorkspaceDocument,
+  parseWorkspacePayload, parseWorkspaceDocument, captureIndicatorTemplate,
 } from 'openalgo-charts/workspace';
 
 // Browser initialization. Use an opaque namespace for the authenticated user.
@@ -36,8 +38,8 @@ await repository.saveWorkspace(saved.id, {
   ...payload,
   panes: [{ ...payload.panes[0], chart: chart.getState() }],
 });
-const template = await repository.createTemplate('My studies', chart.getState().indicators ?? []);
-await repository.saveTemplate(template.id, chart.getState().indicators ?? []);
+const template = await repository.createTemplate('My studies', captureIndicatorTemplate(chart));
+await repository.saveTemplate(template.id, captureIndicatorTemplate(chart));
 
 const exported = await repository.exportDocument('workspace', saved.id);
 const checked = parseWorkspaceDocument(exported);
@@ -51,7 +53,7 @@ await storage.close();
 ## Portable documents
 
 `WORKSPACE_VERSION` is `1`. `parseWorkspaceDocument`, `parseWorkspacePayload`,
-`parseIndicatorTemplate` and `parseIndicatorStates` accept unknown input, detach
+`parseIndicatorTemplate`, `parseIndicatorTemplatePayload` and `parseIndicatorStates` accept unknown input, detach
 the supported configuration and reject malformed documents with
 `WorkspaceDocumentError`. JSON text is accepted for complete documents and arrays.
 Unsupported versions are rejected before a host changes its charts.
@@ -78,12 +80,59 @@ Use namespaced host keys such as `volume.maPeriod`; do not put account data ther
 Comparisons carry stable IDs, symbols, exchanges, optional colors and visibility.
 Neither primary bars nor comparison bars belong in these documents.
 
-Indicator templates contain `IndicatorState[]`. Repeated descriptor IDs are
+Indicator templates contain `IndicatorState[]` and optional `IndicatorTemplateLayout`
+metadata. `captureIndicatorTemplate(chart)` returns an `IndicatorTemplatePayload`
+with study settings, effective per-plot scale bindings, pane weights and scale
+configuration. It excludes market data and runtime formatter functions. Repeated descriptor IDs are
 separate instances. Empty templates are valid. Unknown custom descriptor IDs are
 retained so an export does not destroy configuration from another installation.
 The applying host must load/register required studies, check availability and
 report missing studies before replacing the current set. The repository does not
 apply a template to a chart or choose append versus replace.
+
+### Templates with pane and scale settings
+
+`IndicatorTemplateInput` accepts a captured payload or the existing study array.
+`parseIndicatorTemplatePayload` validates and detaches either form. A layout has
+`panes`, `plots: IndicatorTemplatePlotBinding[]` and an optional `primaryScaleId`.
+Each plot binding names its study instance, exact plot key, pane index and scale ID.
+Layout-bearing documents retain unique source study IDs to describe these links.
+Applying them allocates fresh identities and remaps declared study dependencies
+and saved range ownership. Opaque settings are not rewritten.
+
+`planIndicatorTemplateState(chart, incoming, mode, options?)` returns an
+`IndicatorTemplatePlan` containing `indicators`, an optional `panes` patch and
+optional `restoreOptions` for retained destination formatters.
+It validates the loaded descriptors and layout relationships before mutation.
+The host applies the result with `chart.restoreState(state, plan.restoreOptions)`, retains current drawings
+and alerts, and checks the restore report. The planner does not fetch data or
+change the chart.
+
+Forward `restoreOptions` to preserve runtime number formatting on retained
+destination scales, including existing studies rebuilt during append. Copied
+scales and replaced study-only panes receive their incoming descriptor formats.
+Callbacks are never captured in template JSON. Later explicit settings and
+formatter changes keep their normal behavior.
+
+`IndicatorTemplateApplyOptions` controls two independent choices:
+
+| Option | Default | Effect |
+| --- | --- | --- |
+| `scalePolicy` | `'copy'` | Give non-primary main-pane scales fresh IDs. Shared source plots remain together; repeated copies stay independent. |
+| `scalePolicy: 'share'` | Opt in | Reuse matching main-pane scale IDs. Existing destination settings win. Study panes still get separate groups. |
+| `rangePolicy` | `'auto'` | Reset copied manual ranges and ratio locks; recompute indicator-owned default bands. Host fixed bands remain. |
+| `rangePolicy: 'preserve'` | Opt in | Keep copied manual ranges and ratio references, remapping study-owned range identities. |
+
+A binding to the source's primary price scale follows the destination's actual
+primary scale, including a primary scale moved to the left. Its destination view
+is retained under either policy. New visible main-pane columns follow existing
+columns on each side. Study pane weights retain their ratio to the main pane.
+Append creates new positive pane groups; replace reuses study-only slots while
+retaining panes that contain host series. Both preserve the host's source handles.
+
+Save and apply the whole payload to retain layout metadata. Updating a saved
+template with an array removes its previous layout metadata. Documents without
+layout keep the legacy planner behavior below.
 
 `planIndicatorTemplate(current, incoming, mode, available, nextPaneIndex)` prepares
 a detached `IndicatorState[]` before the host changes its chart. `mode` uses the
@@ -96,14 +145,18 @@ Replacement preserves incoming pane grouping and accepts an empty study list.
 Append retains current studies and their instance identities, keeps incoming
 overlays on pane zero, and maps each positive incoming pane group to a separate
 new pane. Repeated studies remain separate even when their settings match.
-Incoming instance identities are discarded so reusable templates cannot claim
-existing alert anchors. Settings, plot styles and visibility are detached copies.
+Independent incoming instance identities are discarded. Connected templates get
+fresh identities and their declared dependency references are remapped, so reusable
+templates cannot claim existing alert anchors. Settings, plot styles and visibility
+are detached copies.
 
 Apply the plan to the chart owner captured when the user opened the template
 controls. Validate that owner again after asynchronous work. A `restoreState`
 application must also supply the current drawings and alert document to retain
 them; omitted fields clear those slots. Verify the restore report and indicator
-count, and restore the previous studies/drawings/alerts if application fails.
+count, and restore the previous studies/drawings/alerts if application fails while
+the operation still owns the chart. A nested newer restore invalidates recovery
+ownership even if it targets the same chart object.
 Template application does not require reloading source bars or restoring a
 different symbol, price series, viewport or trading state.
 
@@ -136,9 +189,9 @@ a sandbox for hostile JavaScript objects such as proxies.
 Constructor options can supply `now` and `id` factories; the defaults are
 `Date.now` and `crypto.randomUUID`.
 
-`saveTemplate(id, indicators)` updates an existing template while preserving its
-ID, name and creation time. It strips reusable study instance identities, captures
-detached inputs when called and advances the update timestamp monotonically.
+`saveTemplate(id, input)` updates an existing template while preserving its
+ID, name and creation time. It captures detached input when called, retains the
+identities needed for layout/dependency links and advances the update timestamp monotonically.
 Empty updates are valid. Missing template IDs, invalid input and failed atomic
 writes reject without replacing the stored template.
 
@@ -166,6 +219,19 @@ write transaction when the signal aborts, preserving the previous active/recent
 selection and revision. Abort a preparation's controller when its owner changes
 or a newer open supersedes it. Cancellation cannot undo an already committed
 transaction; retain host generation checks when publishing the prepared grid.
+
+Since 2.5.10 every change (`createWorkspace`, `saveWorkspace`, `rename`, `duplicate`,
+`remove`, `setAutosave`, `createTemplate`, `saveTemplate`, `importDocument`) takes the same
+`expectedRevision` in its `WorkspaceOperationOptions`: a catalog that moved past it rejects
+with `WorkspaceConflictError` after the read and before any write. `subscribe(listener)` is
+called with a detached catalog copy after each commit, before that change's promise
+resolves, and returns the unsubscribe. The repository implements `WorkspaceStore`, the
+contract the widget tier's `createLayoutsController` takes. `createMemoryWorkspaceStorage(seed?)`
+keeps the same compare-and-write contract in memory, for tests and previews.
+`WorkspaceStore` also has two optional members since 2.5.10, `captureIndicatorTemplate(chart)`
+and `planIndicatorTemplateState(chart, input, mode, options?)`, which `WorkspaceRepository`
+implements; the widget's indicator picker reaches templates through them, so the widget
+tier never loads this tier on its own.
 
 `setAutosave` stores a preference. Hosts must debounce actual saves, suppress
 them during restoration and replay, cancel pending timers on account changes,
@@ -201,6 +267,62 @@ When a write receives an abort signal, a custom adapter must reject cancellation
 before commit without changing storage. Do not acknowledge cancellation after
 committing a write. A remote adapter needs an explicit transactional cancellation
 protocol to provide this guarantee; aborting only its HTTP response is insufficient.
+
+## Named watchlists
+
+The same tier keeps named symbol lists with the same storage discipline as the
+workspace catalog. It is DOM-free; the widget tier's Watchlist panel, or a host's own
+view, reads it. Added in 2.5.5.
+
+```ts
+import {
+  WatchlistRepository, WatchlistConflictError, createIndexedDbWatchlistStorage, watchlistKey,
+} from 'openalgo-charts/workspace';
+
+const lists = new WatchlistRepository(createIndexedDbWatchlistStorage(window.indexedDB), 'user-42');
+const tech = await lists.createList('Tech', [{ symbol: 'INFY', exchange: 'NSE' }]);
+await lists.addEntry(tech.id, { symbol: 'RELIANCE', exchange: 'BSE' });
+await lists.setActiveList(tech.id);
+const off = lists.subscribe(catalog => render(catalog));
+
+// A move is computed from a position, so it carries the revision it was computed from.
+const { revision } = await lists.load();
+try {
+  await lists.moveEntry(tech.id, { symbol: 'RELIANCE', exchange: 'BSE' }, 0, { expectedRevision: revision });
+} catch (error) {
+  if (error instanceof WatchlistConflictError) render(await lists.load());
+}
+```
+
+An entry is the exact `{ symbol, exchange }` pair (`InstrumentKey` from the base
+entry). Neither part is parsed or case-folded, so one ticker on NSE and BSE is two
+entries. `watchlistKey(entry)` is that identity as one string: JSON of the pair, so a
+separator inside a symbol cannot make two instruments collide. An exact repeat in one
+list is refused. A namespace holds up to 100 lists and a list up to 500 entries.
+
+`WatchlistRepository(storage, namespace, { now?, id? })` supports `load`,
+`createList(name, entries?)`, `renameList`, `duplicateList`, `removeList` (which clears
+`activeListId` when it pointed there), `setActiveList(id | null)`,
+`addEntry(id, entry, { index? })`, `removeEntry`, `moveEntry(id, entry, index)` and
+`subscribe(listener)`. Writes are queued like the workspace repository's, and each
+change is applied to the catalog as stored at that moment, so an edit made in another
+tab survives. Every mutation takes `WatchlistOperationOptions` (`signal`,
+`expectedRevision`); a stale revision, or a storage write that loses a race, rejects
+with `WatchlistConflictError` and writes nothing. `parseWatchlistCatalog` validates a
+whole catalog before any mutation, and corrupt storage raises `WorkspaceDocumentError`
+and is never replaced.
+
+`createIndexedDbWatchlistStorage(indexedDB, databaseName?)` compares and writes in one
+IndexedDB transaction across tabs, as the workspace adapter does, and has `close()`.
+`createMemoryWatchlistStorage(seed?)` is revision-checked memory for tests, previews
+and hosts without IndexedDB. A server adapter implements `WatchlistStorage`, with the
+same atomic compare-and-write rule as `WorkspaceStorage` above.
+
+The widget's panel takes a `WatchlistStore`: the repository's members without
+`duplicateList`, which the panel never calls. A host with server-side lists can
+implement that contract directly. Its `subscribe` listeners must run after a change
+commits and before that change's promise resolves, as the repository's do: the panel
+computes a queued move, such as a held Alt+ArrowDown, from the catalog they deliver.
 
 ## Migration and restoration
 

@@ -16,7 +16,9 @@
  * replay-aware code anywhere in the indicator tier.
  */
 import type { Bar } from '../model/bar';
-import type { SeriesApi } from '../model/series';
+import { foldFiner, formingWithin, simulatedForming, startFiner } from './forming';
+import type { BarConfirmationOptions, SeriesApi } from '../model/series';
+import { seriesConfirmation } from '../model/series-provenance';
 import { clamp } from '../helpers/math';
 import { setReplayWindow } from '../model/replay-window';
 import { ReplayTimeline, type ReplayTiming } from './timeline';
@@ -87,6 +89,22 @@ export interface ReplayState {
    */
   subIndex: number;
   subSteps: number;
+  /**
+   * True while the newest bar forms along a simulated path (`simulate`), because
+   * no finer bar covers it. Its forming prices were never traded, so a host shows
+   * that plainly; the bar closes on the real bar either way.
+   */
+  simulated: boolean;
+}
+
+/** How a bar without finer data forms under `ReplayOptions.simulate`. */
+export interface ReplaySimulation {
+  /**
+   * Steps such a bar takes, the last being the bar itself: a whole number from 2
+   * to 240. The displayed interval over the finer one it stands in for (5 for a
+   * 5-minute chart over 1-minute data) keeps the pace the same either way.
+   */
+  steps: number;
 }
 
 export interface ReplayOptions {
@@ -121,7 +139,11 @@ export interface ReplayOptions {
    * outside any displayed bucket are ignored. The last step of a bucket emits
    * the displayed bar **verbatim** rather than the aggregate, so a bucket always
    * closes on exactly the number the chart would have shown without this option,
-   * whatever the two feeds disagree about in between.
+   * whatever the two feeds disagree about in between. Every step before it is
+   * held inside that bar, the way a live candle grows: the displayed bar's open
+   * from the first step, the finer extremes and close within its high and low,
+   * and volume no more than its volume. A forming bar never shows a price its
+   * closed bar denies.
    *
    * Only the first driven series forms partially. Followers are cut to completed
    * buckets, because the controller cannot know how to half-aggregate an
@@ -130,6 +152,17 @@ export interface ReplayOptions {
    * wants a growing volume bar writes it from there.
    */
   subBars?: readonly Bar[];
+  /**
+   * Form a displayed bar that no finer bar covers over simulated steps instead
+   * of landing it whole: the 5-minute bars older than the 1-minute history a feed
+   * keeps, or every bar when there is no finer feed at all. The path runs from
+   * the open to the nearer extreme, the other extreme and the close, held inside
+   * the bar like every forming bar (see `subBars`), and closes on the bar itself.
+   * Real finer bars always win where they exist. `ReplayState.simulated` says
+   * which steps are simulated. Off by default, so a bar without finer data takes
+   * one step as before.
+   */
+  simulate?: ReplaySimulation;
   /** Bar to open at (0-based). Default 0. */
   startIndex?: number;
   /** Wall-clock milliseconds per bar at speed 1. Default 1000. */
@@ -157,30 +190,28 @@ function countUpTo(bars: readonly Bar[], cutoff: number): number {
 }
 
 /**
- * One partial bar from the sub-bars of a bucket consumed so far. Open is the
- * first one's, close the last one's, extremes and volume accumulate: the same
- * merge a live candle builder does, so a bar formed here and a bar formed from
- * ticks are the same shape.
+ * The forming bar after the sub-bars `from..to` of a bucket: their aggregate
+ * (extremes and volume accumulate, the same merge a live candle builder does),
+ * held inside `final`, the displayed bar the bucket closes on, so the open never
+ * moves and nothing shrinks back at the close (see `formingWithin`).
  *
  * `time` is the bucket's, not the sub-bar's, or the chart would index the
  * partial as a new bar every step instead of replacing the forming one.
  */
-function mergeSubBars(subs: readonly Bar[], from: number, to: number, time: number): Bar {
-  const first = subs[from];
-  let high = first.high;
-  let low = first.low;
-  let volume = first.volume ?? 0;
-  let oi = first.oi;
-  for (let i = from + 1; i <= to; i++) {
-    const b = subs[i];
-    if (b.high > high) high = b.high;
-    if (b.low < low) low = b.low;
-    volume += b.volume ?? 0;
-    if (b.oi !== undefined) oi = b.oi;
+function mergeSubBars(subs: readonly Bar[], from: number, to: number, final: Bar): Bar {
+  const raw = startFiner(subs[from], final.time);
+  for (let i = from + 1; i <= to; i++) foldFiner(raw, subs[i]);
+  return formingWithin(raw, final);
+}
+
+/** `simulate.steps` as a count, or 0 when simulation is off. Throws on a count it cannot use. */
+function simulationSteps(simulate: ReplaySimulation | undefined): number {
+  if (simulate === undefined) return 0;
+  const steps = simulate.steps;
+  if (!Number.isInteger(steps) || steps < 2 || steps > 240) {
+    throw new Error('openalgo-charts: replay simulate.steps must be a whole number from 2 to 240');
   }
-  return { time, open: first.open, high, low, close: subs[to].close, volume,
-    ...(oi === undefined ? {} : { oi }),
-  };
+  return steps;
 }
 
 export class ReplayController {
@@ -189,6 +220,7 @@ export class ReplayController {
   private readonly _bars: readonly Bar[];
   /** What each driven series held before replay took over, for `stop()`. */
   private readonly _restore: readonly Bar[][];
+  private readonly _restoreConfirmation: readonly (BarConfirmationOptions | undefined)[];
   private readonly _view: { barSpacing: number; rightOffset: number };
   private readonly _onFrame: ((state: ReplayState) => void) | null;
   private readonly _now: () => number;
@@ -211,6 +243,8 @@ export class ReplayController {
   private readonly _subStart: Int32Array;
   private readonly _subCount: Int32Array;
   private readonly _intra: boolean;
+  /** Steps a bar without finer data takes under `simulate`; 0 when off. */
+  private readonly _simSteps: number;
   private _speed: number;
   private _index: number;
   /** Step within the forming bar, 0-based. Always 0 without `subBars`. */
@@ -218,6 +252,7 @@ export class ReplayController {
   private _playing = false;
   /** True once replay owns the chart's data; false before start and after stop. */
   private _active = false;
+  private _transition = 0;
   private _cancel: (() => void) | null = null;
   private _interval = 0;
   /** Clock reading the last advance was charged to; keeps playback drift-free. */
@@ -244,16 +279,18 @@ export class ReplayController {
     }
     this._series = list;
     this._restore = list.map((s) => s.getData());
+    this._restoreConfirmation = list.map(seriesConfirmation);
     this._bars = options.bars ?? this._restore[0];
     this._view = { barSpacing: chart.timeScale.barSpacing, rightOffset: chart.timeScale.rightOffset };
     this._subBars = options.subBars ?? [];
-    this._intra = this._subBars.length > 0 && this._bars.length > 0;
+    this._simSteps = simulationSteps(options.simulate);
+    this._intra = (this._subBars.length > 0 || this._simSteps > 0) && this._bars.length > 0;
     const buckets = this._buildBuckets();
     this._subStart = buckets.start;
     this._subCount = buckets.count;
     this._startIndex = clamp(Math.floor(options.startIndex ?? 0), 0, Math.max(0, this._bars.length - 1));
     this._index = this._startIndex;
-    this._timeline = options.timing ? new ReplayTimeline(this._bars, this._subBars, options.timing) : null;
+    this._timeline = options.timing ? new ReplayTimeline(this._bars, this._subBars, options.timing, this._simSteps) : null;
     if (options.startTime !== undefined && (!this._timeline || !Number.isFinite(options.startTime))) {
       throw new Error('openalgo-charts: replay start time must be finite and requires timing');
     }
@@ -308,7 +345,24 @@ export class ReplayController {
   private _steps(index: number): number {
     if (this._timeline) return this._timeline.steps[index] ?? 1;
     if (!this._intra) return 1;
-    return Math.max(1, this._subCount[index]);
+    const covered = this._subCount[index];
+    return covered > 0 ? covered : Math.max(1, this._simSteps);
+  }
+
+  /** Whether the bar at `index` forms along the simulated path. */
+  private _simulated(index: number): boolean {
+    if (this._timeline) return !!this._timeline.points[this._pointIndex]?.simulated;
+    return this._simSteps > 0 && index >= 0 && index < this._bars.length && this._subCount[index] === 0;
+  }
+
+  /** The bar shown at step `sub` of `index`, for a step before its last. */
+  private _formingAt(index: number, sub: number): Bar {
+    const final = this._bars[index];
+    if (this._subCount[index] > 0) {
+      const from = this._subStart[index];
+      return mergeSubBars(this._subBars, from, from + sub, final);
+    }
+    return simulatedForming(final, sub, this._simSteps, this._bars[index - 1]?.oi);
   }
 
   // ── transport ───────────────────────────────────────────────────────────
@@ -334,8 +388,16 @@ export class ReplayController {
     if (!this._timeline) throw new Error('openalgo-charts: replay seekTime requires timing');
     if (!Number.isFinite(time)) throw new Error('openalgo-charts: replay time must be finite');
     const pointIndex = this._timeline.at(time);
+    const changedTime = this._time !== time;
     this._time = time;
-    if (this._active && pointIndex === this._pointIndex) return;
+    if (this._active && pointIndex === this._pointIndex) {
+      if (changedTime) {
+        const point = this._timeline.points[pointIndex];
+        setReplayWindow(this._chart, { time: point?.bar.time ?? Number.NEGATIVE_INFINITY, asOf: time,
+          forming: !!point && point.subIndex < point.subSteps - 1 });
+      }
+      return;
+    }
     const first = !this._active, point = this._timeline.points[pointIndex];
     this._active = true;
     this._pointIndex = pointIndex;
@@ -450,6 +512,7 @@ export class ReplayController {
     this._playing = false;
     this._stopTimer();
     if (!this._active) return;
+    const transition = ++this._transition;
     this._active = false;
     this._index = this._startIndex;
     this._sub = 0;
@@ -461,13 +524,19 @@ export class ReplayController {
       this._sub = point?.subIndex ?? 0;
     }
     setReplayWindow(this._chart);
-    for (let i = 0; i < this._series.length; i++) this._series[i].setData(this._restore[i]);
+    if (transition !== this._transition) return;
+    for (let i = 0; i < this._series.length; i++) {
+      this._series[i].setData(this._restore[i], this._restoreConfirmation[i]);
+      if (transition !== this._transition) return;
+    }
     // Bar spacing and right offset *are* the viewport: the visible logical
     // range is (baseIndex + rightOffset) back by width / barSpacing, and
     // restoring the data restores baseIndex.
     const ts = this._chart.timeScale;
     ts.setBarSpacing(this._view.barSpacing);
+    if (transition !== this._transition) return;
     ts.setRightOffset(this._view.rightOffset);
+    if (transition !== this._transition) return;
     this._chart.emit('replay:stop', this.state());
   }
 
@@ -479,10 +548,7 @@ export class ReplayController {
       bar = this._timeline.points[this._pointIndex]?.bar ?? null;
     } else if (total > 0) {
       bar = this._bars[this._index];
-      if (this._intra && this._sub < steps - 1 && this._subCount[this._index] > 0) {
-        const from = this._subStart[this._index];
-        bar = mergeSubBars(this._subBars, from, from + this._sub, bar.time);
-      }
+      if (this._intra && this._sub < steps - 1) bar = this._formingAt(this._index, this._sub);
     }
     return {
       index: this._index,
@@ -492,6 +558,7 @@ export class ReplayController {
       bar,
       subIndex: this._sub,
       subSteps: steps,
+      simulated: total > 0 && this._simulated(this._index),
     };
   }
 
@@ -519,20 +586,22 @@ export class ReplayController {
     // closes on the number the chart would have shown without `subBars`. Only
     // the steps before it are aggregates, and only when the finer feed actually
     // covers this bucket.
-    if (this._intra && nextSub < steps - 1 && this._subCount[next] > 0) {
-      const from = this._subStart[next];
-      shown[next] = mergeSubBars(this._subBars, from, from + nextSub, this._bars[next].time);
-    }
+    if (this._intra && nextSub < steps - 1) shown[next] = this._formingAt(next, nextSub);
     const forming = this._intra && nextSub < steps - 1;
     this._write(shown, forming, first);
   }
 
   private _write(shown: Bar[], forming: boolean, first: boolean): void {
+    const transition = ++this._transition;
     // Other data owners must know the boundary before the primary write can
     // paint or notify a host. A comparison added later reads the same boundary.
     const lastTime = shown[shown.length - 1]?.time ?? Number.NEGATIVE_INFINITY;
-    setReplayWindow(this._chart, { time: lastTime, forming });
+    setReplayWindow(this._chart, { time: lastTime, forming,
+      ...(this._timeline && this._time !== null ? { asOf: this._time } : {}) });
+    // A boundary listener can stop or seek again before the first series write.
+    if (transition !== this._transition) return;
     this._series[0].setData(shown);
+    if (transition !== this._transition) return;
     // Followers cut by time, not by count: a volume series may be shorter than
     // the price series, or start later. Under intra-bar replay they stop at the
     // last *completed* bucket, because summing a volume histogram and merging a
@@ -545,10 +614,13 @@ export class ReplayController {
     for (let i = 1; i < this._series.length; i++) {
       const snap = this._restore[i];
       this._series[i].setData(snap.slice(0, countUpTo(snap, cutoff)));
+      if (transition !== this._transition) return;
     }
     if (first) this._chart.emit('replay:start', this.state());
+    if (transition !== this._transition) return;
     const s = this.state();
     this._onFrame?.(s);
+    if (transition !== this._transition) return;
     this._chart.emit('replay:frame', s);
   }
 

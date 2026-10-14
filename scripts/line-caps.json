@@ -1,0 +1,10 @@
+{
+  "maxLines": 1500,
+  "caps": {
+    "src/core/chart.ts": 2592,
+    "src/draw/controller.ts": 2509,
+    "src/draw/tools.ts": 2759,
+    "src/model/indicator-instance.ts": 1984,
+    "src/widget/history.ts": 1635
+  }
+}

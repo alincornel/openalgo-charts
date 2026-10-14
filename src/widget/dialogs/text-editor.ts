@@ -103,14 +103,18 @@ export interface TextFrame {
  * box's top-left, its size, and the typesetting it used. `fallback` is what
  * the tool prints for an empty value (the text tool says "Text"), because
  * that is the frame actually on screen. Null when an anchor is off the pane.
+ * `at` is the anchor in the same container px when the caller already has
+ * it, which a drawing pinned to the viewport needs: its position is not a
+ * time and a price the chart could map.
  */
 export function textFrame(
   chart: Pick<Chart, 'timeToCoordinate' | 'priceToCoordinate'>, d: Drawing, measure: (s: string) => number, fallback = 'Text',
+  at?: { x: number; y: number } | null,
 ): TextFrame | null {
   const p = d.points[0];
-  if (p === undefined) return null;
-  const x = chart.timeToCoordinate(p.time);
-  const y = chart.priceToCoordinate(p.price, d.paneIndex);
+  const anchor = at ?? (p === undefined ? null : { x: chart.timeToCoordinate(p.time), y: chart.priceToCoordinate(p.price, d.paneIndex) });
+  if (anchor === null) return null;
+  const { x, y } = anchor;
   if (!Number.isFinite(x) || y === null || !Number.isFinite(y)) return null;
   const t: TextLike = d.text ?? { value: '' };
   const size = t.fontSize ?? TEXT_SIZE;
@@ -177,13 +181,16 @@ export function mountTextEditor(ctx: WidgetContext, _anchor?: HTMLElement, opts:
   const id = opts.id ?? (sel.length === 1 ? sel[0] : undefined);
   const d = id === undefined ? undefined : draw.get(id);
   if (!isTextContent(d)) return declined(ctx, widgetText(ctx, 'Select a text drawing first'), opts.onDone);
+  // A box whose commit the controller would refuse is not offered.
+  if (d.policy?.editable === false) return declined(ctx, widgetText(ctx, 'read-only'), opts.onDone);
   const tool = ((): { defaultText?: DrawingText } | null => { try { return getDrawingTool(d.tool); } catch { return null; } })();
   const fallback = tool?.defaultText?.value !== undefined && tool.defaultText.value !== '' ? tool.defaultText.value : widgetText(ctx, 'Text');
   const t: TextLike = d.text ?? { value: '' };
   const size = t.fontSize ?? TEXT_SIZE;
   const font = fontOf(t, size);
   const measure = measurer(doc, font, size);
-  const frame = textFrame(chart, d, measure, fallback);
+  // A pinned note has no time and price to map; the controller knows where it is.
+  const frame = textFrame(chart, d, measure, fallback, d.space === 'viewport' ? draw.screenPoints(d.id)?.[0] ?? null : undefined);
   const container = chartContainer(chart);
   if (frame === null || container === null) return declined(ctx, widgetText(ctx, 'That text is off the chart'), opts.onDone);
 

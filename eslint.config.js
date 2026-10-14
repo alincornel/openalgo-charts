@@ -16,6 +16,8 @@
  */
 import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
+import { deprecationVersionRule } from './scripts/check-deprecated.mjs';
+import { readFileSync } from 'node:fs';
 
 /**
  * Lazy tiers: each is its own bundle and its own size budget. The widget is the
@@ -32,6 +34,16 @@ const BASE_DIRS = [
   'core', 'render', 'scale', 'model', 'primitives',
   'input', 'feed', 'replay', 'compare', 'link', 'helpers', 'alerts',
 ];
+
+/**
+ * File length. A source file past `maxLines` is usually doing more than one
+ * job: chart.ts reached 6,729 lines before 2.5.7 split it by responsibility.
+ * The files in `caps` were already over the limit when it arrived, so each is
+ * held to its size on the day it was listed. A cap may be lowered, never
+ * raised, and tests/line-caps.test.ts makes a file that drops under the limit
+ * leave the list.
+ */
+const LINES = JSON.parse(readFileSync(new URL('./scripts/line-caps.json', import.meta.url), 'utf8'));
 
 const crossTier = (tiers, why) => ({
   patterns: tiers.map((t) => ({
@@ -125,6 +137,18 @@ export default tseslint.config(
     },
   },
 
+  // ── the deprecation policy ─────────────────────────────────────────────────
+  // COMPATIBILITY.md keeps a deprecated API until the next major. Every
+  // `@deprecated` tag in shipped source names the release that removes it, and
+  // fails once the package reaches that release. The rule lives in
+  // scripts/check-deprecated.mjs, where tests/deprecation-policy.test.ts
+  // drives it through this config.
+  {
+    files: ['src/**/*.ts'],
+    plugins: { oac: { rules: { 'deprecation-version': deprecationVersionRule } } },
+    rules: { 'oac/deprecation-version': 'error' },
+  },
+
   // `openalgo-trade.ts` is the OpenAlgo broker adapter. It is types-plus-one-
   // validator against the trade tier, and it lives in `feed/` because that is
   // where the OpenAlgo transports live. Named rather than silently allowed: if
@@ -140,6 +164,17 @@ export default tseslint.config(
   // makes them safe to ship in base; the indicator TIER is
   // `indicators/index.ts` and stays out. The ACL above targets `src/<dir>/**`,
   // so the entry point is outside it by construction and needs no exemption.
+
+  // File length (see LINES above). Blank lines and comments count, because a
+  // long file is long to read whatever its lines hold.
+  {
+    files: ['src/**/*.ts'],
+    rules: { 'max-lines': ['error', { max: LINES.maxLines, skipBlankLines: false, skipComments: false }] },
+  },
+  ...Object.entries(LINES.caps).map(([file, max]) => ({
+    files: [file],
+    rules: { 'max-lines': ['error', { max, skipBlankLines: false, skipComments: false }] },
+  })),
 
   // Node scripts (.cjs / .mjs). `no-undef` is off for the same reason as in TS:
   // enumerating the Node globals here just to satisfy it buys nothing, and

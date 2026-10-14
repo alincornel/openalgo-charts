@@ -297,6 +297,12 @@ export class OpenAlgoTradeFeed implements OrderFeed {
 
   public async place(request: PlaceRequest & { mode: TradeMode }): Promise<{ orderId: string }> {
     const req = { ...request };
+    // placeorder has no account, duration, expiry or leverage field; one key is
+    // one account. Dropping them would place the order on the key's account at
+    // the broker's default validity, which is not what was asked for.
+    if (req.account !== undefined || req.duration !== undefined || req.expiresAt !== undefined || req.leverage !== undefined) {
+      throw preflight('openalgo-charts: the OpenAlgo placeorder route has no account, duration, expiry or leverage field; nothing was sent');
+    }
     const capabilityRequest = { operation: 'place' as const, symbol: req.symbol,
       exchange: req.exchange ?? 'NSE', type: req.type, mode: req.mode };
     assertTradingCapability(this.capabilities, capabilityRequest);
@@ -649,6 +655,11 @@ export function decodeOrder(r: RawOrder, path = 'order'): OrderDecodeResult {
  * and showing `BUY` is exactly the fail-open this replaced.
  *
  * `getOrders` does not use this: it quarantines such rows outright.
+ *
+ * @deprecated Removed in 3.0.0. Use {@link decodeOrder} (since 1.6.0), which
+ * returns the reason a row could not be read, or
+ * {@link OpenAlgoTradeFeed.getOrderBook}, which sets such rows aside as
+ * `quarantined`.
  */
 export function mapOrder(r: RawOrder): DecodedOrder {
   const res = decodeOrder(r);

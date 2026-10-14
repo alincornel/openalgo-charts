@@ -107,11 +107,16 @@ display latency, nor prove that every animation callback painted a new chart.
 Long-task counts and durations are included as diagnostic evidence.
 
 Initial and final price canvases must contain candle-colored pixels, and the
-price-plot pixel hash must change on every live chart. Axis labels and crosshair
-overlays have separate canvases and cannot satisfy this change check. `start.png`
-and `end.png` preserve full rendered charts for visual inspection. Inspect both
-images before citing a report as release evidence. The run finally destroys the
-live charts and requires zero remaining canvas elements.
+pixel hash of each live chart's price plot must change. Both are read from the
+plot rectangle of the price-pane base canvas only. That canvas also carries the
+price-axis strip, whose last-price tag moves with every tick in the candle
+colours, so a probe over the whole canvas could pass both gates on the axis
+alone; reports produced before the probe was narrowed to the plot stand for
+their screenshots, not for those two gates. The crosshair is on the separate
+overlay canvas and is not read. `start.png` and `end.png` preserve full
+rendered charts for visual inspection. Inspect both images before citing a report
+as release evidence. The run finally destroys the live charts and requires zero
+remaining canvas elements.
 
 ## Gates
 
@@ -153,6 +158,60 @@ follow-up used the documented 60-second smoke with the default five-second
 warmup. The failed report was retained. A short result must not be called an
 endurance result, and a warmup or duration change must be recorded explicitly.
 
+## Recorded results
+
+### Bar count, 2.5.5
+
+Three runs of the default live workload, changing only the bar count, on the
+2.5.5 build on 2026-09-26:
+
+```sh
+node scripts/browser-endurance.mjs --bars 2000 --duration-seconds 120 --sample-seconds 30 --cycles 5 --output /absolute/p3-2k-bars
+node scripts/browser-endurance.mjs --bars 10000 --duration-seconds 120 --sample-seconds 30 --cycles 5 --output /absolute/p3-10k-bars
+node scripts/browser-endurance.mjs --bars 50000 --duration-seconds 120 --sample-seconds 30 --cycles 5 --output /absolute/p3-50k-bars
+```
+
+Each run had two charts, 150 bars in view, ten requested forming-bar replacements
+per second per chart, five studies per chart (EMA, Bollinger Bands, RSI, MACD,
+volume), Canvas2D, a 1440 by 900 viewport and DPR 1. The machine was an 8-core
+desktop CPU (16 logical processors, 31.2 GiB RAM) running headless Chromium
+149.0.7827.55; each `report.json` records the CPU model and operating system.
+Other builds and test runs were active on the machine; the harness does not
+control concurrent host activity.
+
+| Bars per chart | Result | Frame p95 | Frame p99 | Frames over 50 ms | Pointer p95 | Updates delivered |
+| --- | --- | --- | --- | --- | --- | --- |
+| 2,000 | passed | 17 ms | 17 ms | 0% | 28 ms | 1,195 of 1,200 requested |
+| 10,000 | failed | 134 ms | 150 ms | 49% | 137 ms | 958 of 1,200 |
+| 50,000 | failed | 717 ms | 734 ms | 44% | 738 ms | 194 of 1,200 |
+
+At 2,000 bars every gate passed. At 10,000 the frame-interval, slow-frame and
+update-delivery gates failed; at 50,000 the pointer-latency and frame-count gates
+failed as well. The memory, teardown, painted-candle and browser-error gates
+passed in all three, and the screenshots show both charts drawn. The view
+is the same 150 bars throughout, so the growth is work over the whole history
+rather than drawing. Treat these as the recorded state of 2.5.5 on this machine,
+not as a guarantee for another device. Frame budgets per bar count belong to the
+render bench, which times the pan, zoom-out and tick paths directly;
+[performance notes](performance-notes.md) records its measurements and budgets.
+
+## Nightly run
+
+`.github/workflows/nightly.yml` runs the thirty-minute workload every night on
+the day's `master`, on a hosted Linux runner, with the defaults above:
+
+```sh
+node scripts/browser-endurance.mjs --duration-seconds 1800 --sample-seconds 30 --output "$RUNNER_TEMP/p3-nightly-endurance"
+```
+
+A failed gate fails the run, and the output directory is uploaded as the
+`browser-endurance` artifact whether it passed or not, screenshots included. The
+same workflow runs `scripts/soak.mjs` with `SOAK_TICKS=90000` (a 6.25-hour
+session at four ticks a second) and `SOAK_CYCLES=1000`, and the render bench.
+A nightly result is evidence for that runner: a shared virtual machine with a
+software GL device, not the reference desktop the recorded results above came
+from.
+
 ## Artifacts and completion
 
 | Artifact | Purpose |
@@ -177,8 +236,8 @@ The heap measurement covers collected JavaScript objects, with additional CDP
 embedder/backing-store fields preserved when available. It does not cover total
 browser RSS, all native Canvas2D resources, the GPU process, or physical-device
 thermals. CDP DOM counters and zero-canvas checks narrow teardown risks but do not
-prove the absence of every native leak. Hardware acceleration can use a software
-renderer in headless environments, which is declared in the report.
+prove the absence of every native leak. A headless browser may draw with a software
+renderer instead of the graphics device; the report declares which one it used.
 
 Only the selected Chromium build is covered. Firefox, WebKit, WebGL, other DPRs,
 mobile devices, appends, backfills, reconnects and actual host/broker behavior

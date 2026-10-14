@@ -11,6 +11,8 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { Chart } from '../src/core/chart';
 import type { PaneRenderContext } from '../src/core/pane';
 import { SvgContext, SvgLinearGradient } from '../src/render/svg-export';
+import { IndicatorDrawings } from '../src/primitives/indicator-draws';
+import type { PrimitiveRenderContext } from '../src/primitives/primitive';
 import { fakeDocument } from './helpers/fake-dom';
 import type { RecordingContext } from './helpers/fake-ctx';
 import { DrawingController } from '../src/draw/index';
@@ -34,10 +36,10 @@ const bars = (n: number): Bar[] =>
  * A chart that paints synchronously: the recorder canvases hold a full frame
  * by the time a call returns, and the export sees measured scales.
  */
-function makeChart(): Chart {
+function makeChart(ratio = 1): Chart {
   const chart = new Chart(fakeDocument().createElement('div'), {
     document: fakeDocument(),
-    pixelRatio: () => 1,
+    pixelRatio: () => ratio,
     shortcuts: false,
     raf: { schedule: (cb: () => void) => { cb(); return 1; }, cancel: () => {} },
   });
@@ -50,8 +52,8 @@ function makeChart(): Chart {
  * area (the one series that fills with a gradient), a dashed price line and a
  * rectangle drawing. Between them they touch every op the export has to carry.
  */
-function loaded(): { chart: Chart; data: Bar[] } {
-  const chart = makeChart();
+function loaded(ratio = 1): { chart: Chart; data: Bar[] } {
+  const chart = makeChart(ratio);
   const data = bars(120);
   chart.addSeries('candlestick').setData(data);
   chart.addSeries('histogram', { paneIndex: 1 }).setData(data.map((b) => ({ time: b.time, open: 0, high: b.volume ?? 0, low: 0, close: b.volume ?? 0 })));
@@ -164,17 +166,37 @@ describe('chart.exportSVG', () => {
     const { chart } = loaded();
     const [p0, p1] = chart.panes();
     const total = p0.weight + p1.weight;
-    const h0 = Math.round(((H * p0.weight) / total) * 100) / 100;
-    const h1 = Math.round(((H * p1.weight) / total) * 100) / 100;
+    // The boundary between the panes sits on a whole pixel, as it does on
+    // screen at ratio 1, the ratio the document is at.
+    const h0 = Math.round((H * p0.weight) / total);
+    const h1 = H - h0;
     const svg = chart.exportSVG();
     expect(count(svg, /<g data-pane="/g)).toBe(2);
     // The first pane sits at the top; the second is one row down, behind the
-    // separator the DOM draws as its border, and one row shorter for it.
+    // separator the DOM draws as its border at ratio 1, and one row shorter for it.
     expect(svg).toContain(`<g data-pane="0" transform="translate(0 0)" clip-path="url(#`);
     expect(svg).toContain(`<g data-pane="1" transform="translate(0 ${h0 + 1})" clip-path="url(#`);
     const clips = svg.match(/<clipPath id="c\d+"><rect x="0" y="0" width="800" height="([\d.]+)"\/><\/clipPath>/g) ?? [];
     expect(clips.map((c) => /height="([\d.]+)"/.exec(c)?.[1])).toEqual([String(h0), String(h1 - 1)]);
     expect(svg).toContain(`<rect x="0" y="${h0}" width="800" height="1" fill="${chart.theme().paneSeparator}"/>`);
+  });
+
+  it('is the same document at every screen pixel ratio', () => {
+    // Three panes whose boundaries round differently at 1, 1.5 and 2.
+    const exports = [1, 1.5, 2].map((ratio) => {
+      const { chart } = loaded(ratio);
+      chart.addSeries('line', { paneIndex: 2 }).setData(bars(120).map((b) => ({ time: b.time, value: b.close })));
+      chart.applySize(W, 517);
+      const screen = (): unknown => chart.panes().map((pane, i) => [pane.priceScale.height, chart.priceToCoordinate(100, i)]);
+      const before = screen();
+      const svg = chart.exportSVG();
+      // And the screen's own layout is put back afterwards.
+      expect(screen()).toEqual(before);
+      return svg;
+    });
+    expect(exports[0]).toMatch(/<g data-pane="2" transform="translate\(0 \d+\)"/);
+    expect(exports[1]).toBe(exports[0]);
+    expect(exports[2]).toBe(exports[0]);
   });
 
   it('keeps the axis labels as text', () => {
@@ -247,6 +269,54 @@ describe('SvgContext', () => {
   };
   const defs = (c: SvgContext): string => /<defs>(.*)<\/defs>/.exec(c.toString())?.[1] ?? '';
 
+  it.each([
+    [1e307, '1e+307'],
+    [-1e307, '-1e+307'],
+    [Number.MAX_VALUE, '1.7976931348623157e+308'],
+    [-Number.MAX_VALUE, '-1.7976931348623157e+308'],
+  ])('preserves the finite coordinate %s when decimal scaling would overflow', (value, serialized) => {
+    const c = new SvgContext(240, 180, { strict: true });
+    c.moveTo(value, 60);
+    c.lineTo(120, 60);
+    c.stroke();
+    expect(body(c)).toContain(`d="M${serialized} 60L120 60"`);
+    expect(c.toString()).not.toMatch(/Infinity|NaN/);
+  });
+
+  it('retains ordinary rounding, zero normalization and the nonfinite fallback', () => {
+    const c = new SvgContext(240, 180);
+    c.moveTo(1.234, -1.236);
+    c.lineTo(NaN, Infinity);
+    c.lineTo(-Infinity, -0.001);
+    c.lineTo(Number.MIN_VALUE, -0);
+    c.stroke();
+    expect(body(c)).toContain('d="M1.23 -1.24L0 0L0 0L0 0"');
+  });
+
+  it('exports a clipped smooth path with huge finite anchors and controls', () => {
+    const primitive = new IndicatorDrawings();
+    primitive.setItems([{
+      kind: 'polyline', curve: 'smooth',
+      points: [{ time: 0, price: -1e307 }, { time: 60, price: 60 }, { time: 120, price: 1e307 }],
+    }]);
+    const rc = {
+      dpr: 1, plotWidth: 240, plotHeight: 180, theme: { axisText: '#fff' },
+      timeScale: { indexToX: (n: number) => n },
+      dataLayer: { timeToIndexFloat: (n: number) => n },
+      priceScale: { priceToY: (n: number) => n },
+    } as unknown as PrimitiveRenderContext;
+    const c = new SvgContext(240, 180, { strict: true });
+    primitive.draw(c.asCanvasContext(), rc);
+    const svg = c.toString();
+    expect(svg).toContain('clip-path="url(#c1)"');
+    expect(svg).toContain('d="M0 -1e+307C');
+    expect(svg).toContain('120 1e+307"');
+    expect(svg.match(/C/g)).toHaveLength(2);
+    expect(svg).not.toMatch(/Infinity|NaN/);
+    expect(c.unsupported).toEqual([]);
+    assertWellFormed(svg);
+  });
+
   it('writes a rect path and a filled path', () => {
     const c = new SvgContext(10, 10);
     c.fillStyle = '#abc';
@@ -270,6 +340,24 @@ describe('SvgContext', () => {
     c.stroke();
     expect(body(c)).toBe('<path d="M0 0.5L10 0.5" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="4 2" opacity="0.5"/>');
     expect(c.getLineDash()).toEqual([4, 2]);
+  });
+
+  it('carries a dash offset with the dash list, and not without one', () => {
+    const c = new SvgContext(10, 10);
+    c.setLineDash([6, 4]);
+    c.save();
+    c.lineDashOffset = 7.25;
+    c.beginPath(); c.moveTo(0, 0); c.lineTo(10, 0); c.stroke();
+    c.restore();
+    c.beginPath(); c.moveTo(0, 1); c.lineTo(10, 1); c.stroke();
+    expect(c.lineDashOffset).toBe(0);
+    const paths = body(c).split('/>');
+    expect(paths[0]).toContain('stroke-dasharray="6 4" stroke-dashoffset="7.25"');
+    expect(paths[1]).not.toContain('stroke-dashoffset');
+    const solid = new SvgContext(10, 10);
+    solid.lineDashOffset = 3;
+    solid.beginPath(); solid.moveTo(0, 0); solid.lineTo(1, 1); solid.stroke();
+    expect(body(solid)).not.toContain('stroke-dashoffset');
   });
 
   it('turns an empty dash list back into a solid line', () => {

@@ -6,13 +6,18 @@
  * (`../index`), not deep paths — see the note in `src/indicators/index.ts`.
  */
 import {
-  supertrend, atr, sourceValues,
-  sessionStartFlags, calendarPeriodFlags, isNewZonedPeriod,
+  supertrend, atr, sourceValues, sourceValue,
+  sessionStartFlags, calendarPeriodFlags, isNewZonedPeriod, isNewIstDay, isNewZonedDay,
   utcSecondsToIstParts, IST_OFFSET_SECONDS,
   DEFAULT_TIMEZONE, isValidTimezone,
 } from 'openalgo-charts';
-import type { Bar, IndicatorDescriptor, IndicatorSource } from 'openalgo-charts';
+import type { Bar, IndicatorDescriptor, IndicatorSource, IndicatorStudySource } from 'openalgo-charts';
 import { sma, wma, stdev, highest, lowest, nulls, smaSeededEma } from './calc';
+import type { NumericalWindowOptions } from './statistics';
+import { withTail, whole, cell, claimOf, settle, windowTail, machineTail, type Tail } from './tail';
+import { seeded, smooth, observed, observedStep, supertrendState, supertrendStep, sarState, sarStep } from './steppers';
+
+type Calc = IndicatorDescriptor['calc'];
 
 const num = (s: Readonly<Record<string, unknown>>, k: string, d: number): number => {
   const v = s[k];
@@ -43,38 +48,104 @@ const zoneOf = (s: Readonly<Record<string, unknown>>): string => {
   return isValidTimezone(v) ? v : DEFAULT_TIMEZONE;
 };
 
-/** A moving-average descriptor — the three MAs differ only in their kernel. */
-function movingAverage(
-  id: string,
-  name: string,
-  color: string,
-  kernel: (values: readonly number[], period: number) => number[],
-): IndicatorDescriptor {
-  return {
+type Kernel = (values: readonly number[], period: number, options?: NumericalWindowOptions) => number[];
+
+/**
+ * A moving-average descriptor. The three MAs differ only in their kernel, and
+ * in their tail: a window average reads its window again, the exponential one
+ * resumes its running value.
+ */
+function movingAverage(id: string, name: string, color: string, kernel: Kernel, recursive: boolean): IndicatorDescriptor {
+  const calc: Calc = (bars, s, _store, context) => {
+    const source = src(s) as IndicatorSource | IndicatorStudySource;
+    const values = typeof source === 'string' ? sourceValues(bars, source)
+      : sourceValues(bars, source, context).map(value => value ?? NaN);
+    return { ma: nulls(kernel(values, num(s, 'length', 9),
+      typeof source === 'string' ? undefined : { missing: 'propagate' })) };
+  };
+  return withTail({
     id,
     name,
     category: 'Trend',
     placement: 'onchart',
     inputs: [
       { key: 'length', type: 'number', label: 'Length', default: 9, min: 1, max: 1000, step: 1 },
-      { key: 'source', type: 'source', label: 'Source', default: 'close' },
+      { key: 'source', type: 'source', label: 'Source', default: 'close', allowStudyOutputs: true },
       { key: 'color', type: 'color', label: 'Color', default: color },
     ],
     plots: [{ key: 'ma', type: 'line', title: name, colorKey: 'color', style: { color, lineWidth: 1.5 } }],
-    calc: (bars, s) => ({ ma: nulls(kernel(sourceValues(bars, src(s)), num(s, 'length', 9))) }),
+    calc,
+  }, (own) => (recursive ? emaTail(own) : windowAverageTail(own, kernel)));
+}
+
+/**
+ * A price source reruns `calc` over the last window. A study output cannot go
+ * through `calc` on a slice, since its resolver hands back the whole column,
+ * so the kernel reruns over that column's last window instead.
+ */
+function windowAverageTail(calc: Calc, kernel: Kernel): Tail {
+  const byBars = windowTail(calc, (s) => {
+    const length = num(s, 'length', 9);
+    return whole(length) ? length - 1 : null;
+  });
+  return (bars, s, from, previous, store, ctx) => {
+    const source = src(s) as IndicatorSource | IndicatorStudySource;
+    if (typeof source === 'string') return byBars(bars, s, from, previous, store, ctx);
+    const length = num(s, 'length', 9);
+    const claim = claimOf(store, calc, bars, from);
+    const column = claim === undefined ? undefined : ctx?.resolveSource?.(source);
+    if (claim === undefined || !whole(length) || !Array.isArray(column) || column.length !== bars.length) return null;
+    const start = Math.max(0, from - length);
+    const values = column.slice(start).map(value => value ?? NaN);
+    return settle(claim, { ma: nulls(kernel(values, length, { missing: 'propagate' })) }, from - start, previous, from);
   };
 }
 
-export const SMA: IndicatorDescriptor = movingAverage('sma', 'SMA', '#4f8cff', sma);
-export const WMA: IndicatorDescriptor = movingAverage('wma', 'WMA', '#ab47bc', wma);
+/** The exponential average resumes its running value, over a price or over a study output. */
+function emaTail(calc: Calc): Tail {
+  return (bars, s, from, previous, store, ctx) => {
+    const length = num(s, 'length', 9);
+    if (!whole(length)) return null;
+    const source = src(s) as IndicatorSource | IndicatorStudySource;
+    if (typeof source === 'string') {
+      return machineTail(calc, `${length}|${source}`, {
+        keys: ['ma'],
+        start: seeded,
+        step: (st, i, row) => { row[0] = cell(smooth(st, sourceValue(bars[i], source), length, true)); },
+      }, bars, from, previous, store);
+    }
+    if (claimOf(store, calc, bars, from) === undefined) return null;
+    const column = ctx?.resolveSource?.(source);
+    if (!Array.isArray(column) || column.length !== bars.length) return null;
+    return machineTail(calc, `${length}|${source.instanceId}|${source.plotKey}`, {
+      keys: ['ma'],
+      start: observed,
+      step: (st, i, row) => { row[0] = cell(observedStep(st, column[i] ?? NaN, length)); },
+    }, bars, from, previous, store);
+  };
+}
+
+export const SMA: IndicatorDescriptor = movingAverage('sma', 'SMA', '#4f8cff', sma, false);
+export const WMA: IndicatorDescriptor = movingAverage('wma', 'WMA', '#ab47bc', wma, false);
 // `smaSeededEma`, not the base bundle's `ema`: the plotted EMA has to open where
 // the standard definition opens, on the simple mean of the first `length` values
 // at index `length - 1`. The base `ema` seeds from bar 0 to match `openalgo.ta`
 // and is public API in its own right, so it keeps that behaviour and this
 // descriptor stops using it. Every other EMA in the tier already reads this way.
-export const EMA: IndicatorDescriptor = movingAverage('ema', 'EMA', '#f5a623', smaSeededEma);
+export const EMA: IndicatorDescriptor = movingAverage('ema', 'EMA', '#f5a623', smaSeededEma, true);
 
-export const BOLLINGER: IndicatorDescriptor = {
+function bollinger(bars: readonly Bar[], s: Readonly<Record<string, unknown>>): Record<string, (number | null)[]> {
+  const values = sourceValues(bars, src(s));
+  const length = num(s, 'length', 20);
+  const mult = num(s, 'stdDev', 2);
+  const basis = sma(values, length);
+  const dev = stdev(values, length);
+  const upper = basis.map((b, i) => b + mult * dev[i]);
+  const lower = basis.map((b, i) => b - mult * dev[i]);
+  return { upper: nulls(upper), basis: nulls(basis), lower: nulls(lower) };
+}
+
+export const BOLLINGER: IndicatorDescriptor = withTail({
   id: 'bollinger',
   name: 'Bollinger Bands',
   category: 'Volatility',
@@ -91,17 +162,12 @@ export const BOLLINGER: IndicatorDescriptor = {
     { key: 'basis', type: 'line', title: 'BB Basis', colorKey: 'basisColor', style: { lineWidth: 1.5 } },
     { key: 'lower', type: 'line', title: 'BB Lower', colorKey: 'bandColor', style: { lineWidth: 1 } },
   ],
-  calc: (bars, s) => {
-    const values = sourceValues(bars, src(s));
-    const length = num(s, 'length', 20);
-    const mult = num(s, 'stdDev', 2);
-    const basis = sma(values, length);
-    const dev = stdev(values, length);
-    const upper = basis.map((b, i) => b + mult * dev[i]);
-    const lower = basis.map((b, i) => b - mult * dev[i]);
-    return { upper: nulls(upper), basis: nulls(basis), lower: nulls(lower) };
-  },
-};
+  calc: bollinger,
+}, (calc) => windowTail(calc, (s) => {
+  // The basis and the deviation both read one window of the source.
+  const length = num(s, 'length', 20);
+  return whole(length) ? length - 1 : null;
+}));
 
 /**
  * Which calendar boundary restarts the accumulation. The reference also offers
@@ -180,7 +246,156 @@ function shiftColumn(col: readonly number[], by: number): number[] {
   return out;
 }
 
-export const VWAP: IndicatorDescriptor = {
+const HOUR = 3600;
+const DAY = 86400;
+
+/**
+ * Where the session reading of a history stands (`sessionStartIndices` in the
+ * base bundle), summarised so that one appended bar can be judged without
+ * reading the history again: the median bar gap and how many gaps sit below and
+ * at it, then the session opens and how many of the spans between them are
+ * short. Plus the time and restart flag of the last bar.
+ */
+interface Reading {
+  gaps: number; median: number; below: number; equal: number;
+  opens: number; short: number; open: number; last: number; flag: boolean;
+}
+
+const readable = (r: Reading): boolean => r.median > 0 && r.median < DAY;
+const breakGap = (r: Reading): number => Math.max(4 * r.median, 4 * HOUR);
+/** Sessions are read from the gaps; otherwise every bar is tested against the calendar. */
+const bySession = (r: Reading): boolean => readable(r) && r.opens > 0 && r.short > r.opens >> 1;
+
+function readingOf(times: readonly number[], flag: boolean): Reading {
+  const gaps: number[] = [];
+  for (let i = 1; i < times.length; i++) if (times[i] > times[i - 1]) gaps.push(times[i] - times[i - 1]);
+  gaps.sort((a, b) => a - b);
+  const median = gaps.length === 0 ? 0 : gaps[gaps.length >> 1];
+  const r: Reading = {
+    gaps: gaps.length, median, below: 0, equal: 0, opens: 0, short: 0, open: times[0], last: times[times.length - 1], flag,
+  };
+  for (const g of gaps) if (g < median) r.below++; else if (g === median) r.equal++;
+  if (readable(r)) {
+    for (let i = 1; i < times.length; i++) {
+      if (times[i] - times[i - 1] < breakGap(r)) continue;
+      r.opens++;
+      if (times[i] - r.open <= 36 * HOUR) r.short++;
+      r.open = times[i];
+    }
+  }
+  return r;
+}
+
+/**
+ * Take one appended bar into the reading and return its restart flag, or null
+ * when the bar would move the reading of the bars before it: a new median gap
+ * moves the session threshold for every bar, and a switch between session
+ * reading and calendar fallback recasts every flag.
+ */
+function advance(r: Reading, time: number, anchor: Exclude<VwapAnchor, 'continuous'>, zone: string): boolean | null {
+  const before = bySession(r);
+  const gap = time - r.last;
+  if (gap > 0) {
+    if (r.gaps === 0) return null;
+    const mid = (r.gaps + 1) >> 1;
+    const below = r.below + (gap < r.median ? 1 : 0);
+    const equal = r.equal + (gap === r.median ? 1 : 0);
+    if (below > mid || mid >= below + equal) return null;
+    r.gaps++;
+    r.below = below;
+    r.equal = equal;
+  }
+  const opens = readable(r) && gap >= breakGap(r);
+  const prevOpen = r.open;
+  const prevLast = r.last;
+  if (opens) {
+    r.opens++;
+    if (time - r.open <= 36 * HOUR) r.short++;
+    r.open = time;
+  }
+  if (bySession(r) !== before) return null;
+  r.last = time;
+  if (anchor === 'session') {
+    r.flag = before ? opens : zone === DEFAULT_TIMEZONE ? isNewIstDay(prevLast, time) : isNewZonedDay(prevLast, time, zone);
+  } else r.flag = before ? opens && periodBoundary(anchor, zone)(prevOpen, time) : periodBoundary(anchor, zone)(prevLast, time);
+  return r.flag;
+}
+
+interface VwapState { pv: number; vol: number; pv2: number; reading: Reading | null }
+
+/**
+ * VWAP's tail resumes its three running totals. A restart flag depends on the
+ * whole history's gaps, so a replaced last bar keeps the flag it had and an
+ * appended one is judged against the reading summary; a bar that would recast
+ * the history's flags goes back to a full `calc`, as does any offset, which
+ * moves the forming bar's value onto an earlier slot.
+ */
+function vwapTail(calc: Calc): Tail {
+  return (bars, s, from, previous, store) => {
+    const n = bars.length;
+    if (Math.round(num(s, 'offset', 0)) !== 0 || n - from > 2) return null;
+    const source = src(s);
+    const anchor = (typeof s.anchor === 'string' ? s.anchor : 'session') as VwapAnchor;
+    const zone = zoneOf(s);
+    const percent = s.calcMode === 'percent';
+    const shows = [s.showBand1 !== false, s.showBand2 === true, s.showBand3 === true];
+    const mults = [num(s, 'bandMult1', 1), num(s, 'bandMult2', 2), num(s, 'bandMult3', 3)];
+    // Restart flags: for a replay, those of the history the held result was
+    // computed on, which ends at bar `from`; for the tail, `ready` sets them.
+    let flags: boolean[] = [];
+    let ahead: boolean[] = [];
+    return machineTail(calc, `${anchor}|${source}|${zone}|${percent}|${shows.join()}|${mults.join()}`, {
+      keys: ['vwap', 'upper1', 'lower1', 'upper2', 'lower2', 'upper3', 'lower3'],
+      start: (): VwapState => {
+        const head = from + 1 === n ? bars : bars.slice(0, from + 1);
+        flags = anchorRestarts(head, anchor, zone);
+        return {
+          pv: 0, vol: 0, pv2: 0,
+          reading: anchor === 'continuous' ? null : readingOf(head.map((b) => b.time), flags[from]),
+        };
+      },
+      ready: (st) => {
+        const r = st.reading;
+        if (r === null || anchor === 'continuous') {
+          ahead = [false, false];
+          return true;
+        }
+        if (r.last !== bars[from].time) return false;
+        // Read before `advance`, which moves the reading on to the appended bar.
+        const current = r.flag;
+        const appended = n === from + 2 ? advance(r, bars[n - 1].time, anchor, zone) : false;
+        ahead = [current, appended === true];
+        return appended !== null;
+      },
+      step: (st, i, row) => {
+        if (i < from ? flags[i] : ahead[i - from]) { st.pv = 0; st.vol = 0; st.pv2 = 0; }
+        const bar = bars[i];
+        const v = bar.volume ?? 0;
+        const x = sourceValue(bar, source);
+        let mean = NaN;
+        let basis = NaN;
+        if (Number.isFinite(x) && Number.isFinite(v)) {
+          st.pv += x * v;
+          st.pv2 += x * x * v;
+          st.vol += v;
+          if (st.vol > 0) {
+            mean = st.pv / st.vol;
+            const variance = Math.max(0, st.pv2 / st.vol - mean * mean);
+            basis = percent ? mean * 0.01 : Math.sqrt(variance);
+          }
+        }
+        row[0] = cell(mean);
+        const live = Number.isFinite(mean) && Number.isFinite(basis);
+        for (let b = 0; b < 3; b++) {
+          row[1 + 2 * b] = shows[b] && live ? cell(mean + basis * mults[b]) : null;
+          row[2 + 2 * b] = shows[b] && live ? cell(mean - basis * mults[b]) : null;
+        }
+      },
+    }, bars, from, previous, store);
+  };
+}
+
+export const VWAP: IndicatorDescriptor = withTail({
   id: 'vwap',
   name: 'VWAP',
   category: 'Volume',
@@ -262,6 +477,11 @@ export const VWAP: IndicatorDescriptor = {
       if (restarts[i]) { pv = 0; vol = 0; pv2 = 0; }
       const v = bars[i].volume ?? 0;
       const x = values[i];
+      // A missing price or an unusable volume leaves this bar absent and the
+      // totals as they were. Adding it in would blank the line and every band
+      // until the next restart, which on the continuous anchor is never. An
+      // undefined volume is still a bar that traded nothing.
+      if (!Number.isFinite(x) || !Number.isFinite(v)) continue;
       pv += x * v;
       pv2 += x * x * v;
       vol += v;
@@ -301,9 +521,9 @@ export const VWAP: IndicatorDescriptor = {
       lower3: nulls(shiftColumn(band(b3, m3, -1), offset)),
     };
   },
-};
+}, vwapTail);
 
-export const SUPERTREND: IndicatorDescriptor = {
+export const SUPERTREND: IndicatorDescriptor = withTail({
   id: 'supertrend',
   name: 'Supertrend',
   category: 'Trend',
@@ -350,9 +570,26 @@ export const SUPERTREND: IndicatorDescriptor = {
     }
     return { up, down, bodyMid };
   },
-};
+}, (calc) => (bars, s, from, previous, store) => {
+  const period = num(s, 'period', 10);
+  const multiplier = num(s, 'multiplier', 3);
+  if (!whole(period)) return null;
+  const turn: { direction: -1 | 1 } = { direction: 1 };
+  return machineTail(calc, `${period}|${multiplier}`, {
+    keys: ['up', 'down', 'bodyMid'],
+    start: supertrendState,
+    step: (st, i, row) => {
+      const value = supertrendStep(st, bars, i, period, multiplier, turn);
+      const live = Number.isFinite(value);
+      const bar = bars[i];
+      row[0] = live && turn.direction === -1 ? value : null;
+      row[1] = live && turn.direction === 1 ? value : null;
+      row[2] = live && bar !== undefined ? (bar.open + bar.close) / 2 : null;
+    },
+  }, bars, from, previous, store);
+});
 
-export const PARABOLIC_SAR: IndicatorDescriptor = {
+export const PARABOLIC_SAR: IndicatorDescriptor = withTail({
   id: 'parabolic-sar',
   name: 'Parabolic SAR',
   category: 'Trend',
@@ -370,21 +607,38 @@ export const PARABOLIC_SAR: IndicatorDescriptor = {
   calc: (bars, s) => {
     const n = bars.length;
     const out = new Array<number>(n).fill(NaN);
-    if (n < 2) return { sar: nulls(out) };
     const step = num(s, 'start', 0.02);
     const inc = num(s, 'increment', 0.02);
     const max = num(s, 'maximum', 0.2);
 
-    let rising = bars[1].close >= bars[0].close;
-    let sar = rising ? bars[0].low : bars[0].high;
-    let ep = rising ? bars[1].high : bars[1].low;
+    // Only complete bars take part. A bar missing its high, low or close is a
+    // gap that leaves the stop, trend and acceleration as they were: it cannot
+    // seed, and the clamp reads the two complete bars before this one, so one
+    // hole cannot turn the stop NaN for the rest of the history.
+    let prev: Bar | undefined;
+    let prev2: Bar | undefined;
+    let rising = false;
+    let sar = NaN;
+    let ep = NaN;
     let af = step;
-    // The seed bar carries the seed itself. Accelerating and testing for a
-    // reversal on it uses an extreme point taken from that same bar, which can
-    // flip the trend before a single step has been walked.
-    out[1] = sar;
 
-    for (let i = 2; i < n; i++) {
+    for (let i = 0; i < n; i++) {
+      const bar = bars[i];
+      if (!Number.isFinite(bar.high) || !Number.isFinite(bar.low) || !Number.isFinite(bar.close)) continue;
+      if (prev === undefined) { prev = bar; continue; }
+      if (prev2 === undefined) {
+        rising = bar.close >= prev.close;
+        sar = rising ? prev.low : prev.high;
+        ep = rising ? bar.high : bar.low;
+        // The seed bar carries the seed itself. Accelerating and testing for a
+        // reversal on it uses an extreme point taken from that same bar, which can
+        // flip the trend before a single step has been walked.
+        out[i] = sar;
+        prev2 = prev;
+        prev = bar;
+        continue;
+      }
+
       sar += af * (ep - sar);
 
       // The reversal is decided on the propagated stop, before the clamp below:
@@ -393,30 +647,37 @@ export const PARABOLIC_SAR: IndicatorDescriptor = {
       // the stop is the ending trend's extreme, and that extreme includes this
       // bar: a stop left inside the bar that triggered it is already breached
       // the moment it is plotted.
-      if (rising && bars[i].low < sar) {
-        rising = false; sar = Math.max(ep, bars[i].high); ep = bars[i].low; af = step;
-      } else if (!rising && bars[i].high > sar) {
-        rising = true; sar = Math.min(ep, bars[i].low); ep = bars[i].high; af = step;
-      } else if (rising && bars[i].high > ep) {
-        ep = bars[i].high; af = Math.min(max, af + inc);
-      } else if (!rising && bars[i].low < ep) {
-        ep = bars[i].low; af = Math.min(max, af + inc);
+      if (rising && bar.low < sar) {
+        rising = false; sar = Math.max(ep, bar.high); ep = bar.low; af = step;
+      } else if (!rising && bar.high > sar) {
+        rising = true; sar = Math.min(ep, bar.low); ep = bar.high; af = step;
+      } else if (rising && bar.high > ep) {
+        ep = bar.high; af = Math.min(max, af + inc);
+      } else if (!rising && bar.low < ep) {
+        ep = bar.low; af = Math.min(max, af + inc);
       }
 
       // SAR may not penetrate the prior two bars' range, on whichever side the
       // trend now runs. Applied last so a reversal stop is contained too.
-      const lo1 = bars[i - 1].low;
-      const hi1 = bars[i - 1].high;
-      const lo2 = bars[i - 2].low;
-      const hi2 = bars[i - 2].high;
-      if (rising) sar = Math.min(sar, lo1, lo2);
-      else sar = Math.max(sar, hi1, hi2);
+      if (rising) sar = Math.min(sar, prev.low, prev2.low);
+      else sar = Math.max(sar, prev.high, prev2.high);
 
       out[i] = sar;
+      prev2 = prev;
+      prev = bar;
     }
     return { sar: nulls(out) };
   },
-};
+}, (calc) => (bars, s, from, previous, store) => {
+  const start = num(s, 'start', 0.02);
+  const inc = num(s, 'increment', 0.02);
+  const max = num(s, 'maximum', 0.2);
+  return machineTail(calc, `${start}|${inc}|${max}`, {
+    keys: ['sar'],
+    start: () => sarState(start),
+    step: (st, i, row) => { row[0] = cell(sarStep(st, bars[i], start, inc, max)); },
+  }, bars, from, previous, store);
+});
 
 /** Shift a series by `k` bars: positive = forward (later), negative = backward. */
 function shift(values: readonly number[], k: number): number[] {
@@ -465,10 +726,14 @@ export const ICHIMOKU: IndicatorDescriptor = {
   }],
   calc: (bars, s) => {
     const n = bars.length;
-    const conv = num(s, 'conversionPeriod', 9);
-    const base = num(s, 'basePeriod', 26);
-    const lag = num(s, 'laggingSpanPeriod', 52);
-    const disp = num(s, 'displacement', 26);
+    // Whole bars, the way the other built-ins read a length: `mid` indexes
+    // bars with the period, so a fractional one read a bar that does not exist
+    // and threw, and a fractional displacement found nothing to copy.
+    const period = (k: string, d: number): number => Math.max(1, Math.round(num(s, k, d)));
+    const conv = period('conversionPeriod', 9);
+    const base = period('basePeriod', 26);
+    const lag = period('laggingSpanPeriod', 52);
+    const disp = Math.round(num(s, 'displacement', 26));
 
     // Donchian midpoint over `p` bars.
     const mid = (p: number): number[] => {

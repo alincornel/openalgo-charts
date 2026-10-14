@@ -6,6 +6,42 @@ Source of truth: `src/primitives/primitive.ts`, `src/primitives/*.ts`, `src/core
 
 Everything the chart draws that is not a series is a primitive: markers, event badges, price lines, the pane legend, the time navigator, the drawing layer, and the whole trading tier. One interface covers all of them.
 
+`PaneLegendOptions.visible` defaults to true. Setting it to false removes that
+row's painting and hit targets without changing the underlying series or study.
+Chart-wide `setIndicatorLegendCollapsed(true)` separately suppresses study-owned
+rows and retains a count control. Expanding restores each row's own visibility;
+host-added symbol and OHLC legends retain their visibility throughout.
+
+## Table cells
+
+`ChartTable` stays in pane screen space. `TableCell` accepts newline-separated
+text, `bold`, `italic`, CSS `fontFamily`, `fontSize`, horizontal `align` and
+`verticalAlign: 'top' | 'middle' | 'bottom'` (default middle). Measurement and
+painting use the same font. Automatic columns measure the widest line; automatic
+fonts fit the block. Text always clips to its cell.
+
+`colSpan` and `rowSpan` merge a rectangle from its top-left cell. Positive safe
+integers only, default one. The rectangle must fit inside the total rows and
+maximum column count. Its anchor supplies text and appearance; covered ordinary
+cells are ignored. Overlapping explicit spans throw. All spans are validated
+before `setRows` replaces the previous grid. Ragged rows remain supported.
+Automatic columns measure ordinary cells first, then share any merged text's
+width deficit among its columns. Weighted and percentage heights also apply to
+merged cells.
+
+`ChartTableOptions.frameColor` and optional `frameWidth` (default one media pixel)
+draw a separate outer frame after the cells. `borderColor`/`borderWidth` retain
+their cell-border behavior. These fields also work in descriptor `table`/`tables`
+results; existing compiled adapters must explicitly emit new fields to use them.
+
+`TableCell.tooltip` adds plain-text hover detail, with explicit newlines and
+automatic wrapping inside the plot. A merged cell uses only its anchor's detail.
+Empty or omitted tooltips retain the existing behavior. Nonstring tooltip values
+reject before replacing rows. Hover content clears when rows, sizing or ownership
+change, and SVG exports omit it. A configured table `id` remains the click ID for
+every cell. Without an `id`, only tooltip cells become hit targets and use an
+opaque generated ID; supply an ID for stable application routing.
+
 ## `IPrimitive`
 
 ```ts
@@ -14,6 +50,8 @@ interface IPrimitive {
   draw(ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext): void; // required
   autoscaleInfo?(): { min: number; max: number } | null;
   hitTest?(x: number, y: number, rc: PrimitiveRenderContext): PrimitiveHit | null;
+  // The box, in hitTest's coordinates, outside which hitTest answers null; null: never hit.
+  hitBounds?(rc: PrimitiveRenderContext): { left: number; top: number; right: number; bottom: number } | null;
   attached?(host: PrimitiveHost): void;
   detached?(): void;
 }
@@ -22,10 +60,12 @@ type ZOrder = 'bottom' | 'normal' | 'top';
 interface PrimitiveHost { requestUpdate(): void; }
 interface PrimitiveHit {
   externalId: string;
+  hoverKey?: string;     // optional transient subtarget identity, separate from click IDs
   zOrder: ZOrder;
-  distance: number;      // media px from the cursor; smaller wins
+  distance: number;      // media px from the cursor; smaller wins; never negative
   cursor?: string;
   draggable?: boolean;   // arms a two-axis drag on press
+  priceScale?: PriceScale; // coordinate scale for bound drag prices
 }
 ```
 
@@ -40,17 +80,36 @@ interface PrimitiveHit {
 | Field | Type | Notes |
 |---|---|---|
 | `timeScale` | `TimeScale` | `indexToX(index)` returns **media** px; accepts fractional indices. |
-| `priceScale` | `PriceScale` | The pane's **right** scale. `priceToY`/`yToPrice` in media px, plus `format(price)`. |
+| `priceScale` | `PriceScale` | Explicit primitive binding, or the pane's right scale when unbound. `priceToY`/`yToPrice` in media px, plus `format(price)`. |
+| `readoutPriceScale?` | `PriceScale` | The primary visible price series' scale, independent of the primitive binding. |
 | `dataLayer` | `DataLayer` | `timeToIndex`, `timeToIndexFloat`, `indexToTime`, `indexedBars`, `visibleBars`. |
 | `plotWidth` / `plotHeight` | `number` | Media px, excluding the price axis and time axis strips. |
-| `priceAxisWidth` | `number` | Media px. |
+| `priceAxisWidth` | `number` | Bound scale's column width in media px; zero for hidden scales. |
+| `priceAxisSide?` | `'left' \| 'right' \| 'hidden'` | Price-label placement; absent retains right-axis behavior. |
 | `dpr` | `number` | Device pixel ratio for this frame. |
 | `theme` | `ChartTheme` | Palette. `theme.background` may be the literal `'transparent'`. |
 | `bars?` | `() => readonly Bar[]` | Lazy; the pane's primary price series. Optional, guard with `rc.bars?.()`. |
 | `hoverId?` | `string \| null` | `externalId` currently hovered, for hover styling. |
+| `hoverKey?` | `string \| null` | Optional hover subtarget, falling back to `externalId` for ordinary hits. |
 | `dragId?` | `string \| null` | `externalId` currently being dragged. |
 
-A primitive attached to a pane with a left or overlay scale still receives the **right** scale in `rc.priceScale`. Convert against it, or carry your own values.
+`pane.bindPrimitiveScale(primitive, id)` binds an attached primitive to `'left'`,
+`'right'`, `''` or `overlay:name`; null removes the override. It returns false for
+invalid, unavailable or unchanged requests. `pane.primitiveScaleId(primitive)`
+returns the override or null. The owner schedules layout and repaint after the
+resource transaction. Study-owned price resources use this binding automatically.
+
+Bindings route every paint layer, hit-test and SVG export through the same scale,
+follow pane transfers and whole-axis moves, and clear on removal. Bound resources
+keep their scale alive and count toward visible axis occupancy. The pane adds
+`PrimitiveHit.priceScale` to explicitly bound hits without mutating the primitive's
+hit object. Chart retains that coordinate scale for drag start, movement and end;
+unbound hits keep their legacy readout routing. Pointer cancellation retains it
+through the compatibility release before clearing it.
+
+`PriceLine` draws its axis pill in the bound left or right column and omits it for
+hidden scales. Left pills fit inside the column and pane edges. The plot line,
+its optional segmented label and its hit-test remain active on hidden scales.
 
 ## The dpr contract
 
@@ -68,11 +127,11 @@ The reason is in `src/core/canvas.ts`: the backing buffer is sized `round(media 
 
 `pane.paintBase()` draws to the base canvas (z-index 0) in this exact order:
 
-1. Pane background, then the left price axis strip (if any)
+1. Pane background
 2. Grid
 3. **`zOrder() === 'bottom'` primitives**
 4. Series (registry-driven)
-5. Right price axis ticks
+5. Left and right price axis ticks, with per-side value-tag reservations
 6. Last-price line and tag
 7. **`zOrder() === 'normal'` primitives**
 8. Time axis (bottom pane only)
@@ -81,6 +140,8 @@ The reason is in `src/core/canvas.ts`: the backing buffer is sized `round(media 
 
 1. **`zOrder() === 'top'` primitives**
 2. Crosshair, price tag, time tag
+
+A primitive placed with `chart.setPrimitiveStackAbove(primitive, entry)` paints inside step 4 instead of its own band: right after the last series of that entry (`'source:primary'` or `'indicator:<id>'` from `chart.seriesStack(paneIndex)`) on its pane, with a batching backend flushed first. `null` puts it back; an entry with no series on the pane leaves it in its own band, and such a primitive repaints with the base canvas whatever its `zOrder()`. The price source stays the pane's instrument (readout, last-price line, rebased axis) wherever the series band puts it.
 
 Within a z-order band, primitives paint in attach order. `top` sits on the cheap-repaint canvas, so anything that must react to the cursor without a full repaint belongs there. `normal` deliberately paints *after* the last-price line so order pills stay legible when the LTP crosses them.
 
@@ -98,19 +159,24 @@ function bestHit(hits: readonly (PrimitiveHit | null)[]): PrimitiveHit | null
 
 Smallest `distance` wins; on a tie the higher z-order wins (`top` > `normal` > `bottom`). `null` entries are skipped. Use it directly inside a composite primitive that delegates to sub-objects.
 
-Routing, from `src/core/chart.ts`:
+The pane ranks its primitives' hits by paint band before distance: a hit painted over the series (a `'normal'` or `'top'` primitive in its own band) beats one painted with or behind the series (a primitive placed with `chart.setPrimitiveStackAbove`, a drawing layer under the front one, a `'bottom'` primitive) wherever both answer. Within each side it is `bestHit`'s order: nearest, then the higher band.
+
+A primitive answering for others sets `PrimitiveHit.paintedBy` to the primitive that painted the hit (the draw tier's front layer does for the layers under it), and the pane sets it on a hit from a primitive placed in the series band. The band ranking reads it, and for the context menu target the chart compares paint order: where that primitive paints under the series under the pointer, the series is the target. A hit without `paintedBy` keeps the menu, as before.
+
+Routing, from `src/core/chart-input.ts`:
 
 - **Click**: on pointerup without movement, the pane is hit-tested at the press point. A hit fires `chart.subscribeClick(cb)` with the `externalId`, and the `click` bus event carries `{ id, price, time, paneIndex, point }` with `id: null` on empty plot.
 - **Drag**: on pointerdown, a hit arms a drag when `hit.draggable === true`, or when `hit.cursor === 'ns-resize'` and `subscribeDrag` has a callback. The press emits `drag:start`. Moves fire `subscribeDrag(onDrag)` and a `drag` bus event `{ id, price, time, paneIndex, fromPrice, fromTime }`; release fires `onDragEnd` and `drag:end`. Listen for `drag:cancel` to discard drafts on pointer cancellation or pinch. Set `PrimitiveHit.cancelOnEscape: true` only when the consumer handles cancellation without requiring an end notification; it enables Escape rollback, including with shortcuts disabled. Pointer cancellation retains the legacy end notification after cancellation.
 - A drag that never moved is replayed as a click, so a draggable primitive is still clickable.
 - `hoverId` / `dragId` are pushed back into `PrimitiveRenderContext` each frame, which is how `PriceLine` renders its hover and dragging states without any state of its own.
+- A composite primitive can return a unique `hoverKey` for each region while keeping one `externalId`. Key changes repaint the hover state without adding duplicate public `hover` events for the same external ID. SVG export clears both hover fields.
 
 Namespacing convention used by the built-ins, one primitive, several targets:
 
 | Primitive | `externalId` |
 |---|---|
 | `PriceLine` | `id`, and `${id}::close` for the cancel segment |
-| `PaneLegend` | `${id}::close` / `::hide` / `::settings` / `::up` / `::down` / `::maximize`, `${id}::row` |
+| `PaneLegend` | `${id}::close` / `::hide` / `::settings` / `::source` / `::up` / `::down` / `::collapse` / `::maximize`, `${id}::row` |
 | `BuySellButtons` | `${id}:buy` / `${id}:sell` / `${id}:qty` |
 | `TimeNavigator` | `${id}::zoomIn` / `::zoomOut` / `::panLeftBar` / `::panRightBar` |
 | `DrawingLayer` | `draw:<drawingId>`, `draw:<drawingId>#<anchorIndex>` |
@@ -119,9 +185,33 @@ Namespacing convention used by the built-ins, one primitive, several targets:
 
 Record hit geometry during `draw` and read it in `hitTest`, that is how `PriceLine`, `BuySellButtons`, and `PaneLegend` stay in sync with what was actually painted, and it means a primitive that has not drawn yet correctly reports no hit.
 
+### Hit boxes (`hitBounds`)
+
+A pointer move asks `hitTest` of every primitive on the pane unless it declares where it can answer. `hitBounds(rc)` returns that box in the same media px, relative to the plot (edges inclusive, a side may be infinite), or `null` when nothing of it can be hit. The pane then asks `hitTest` only when the point is inside, so 500 annotations cost the handful near the pointer (4.5 asked per move instead of 500 in `node scripts/bench-pane.mjs`).
+
+```ts
+hitBounds(rc) {
+  const x0 = rc.timeScale.indexToX(rc.dataLayer.timeToIndexFloat(this.t0));
+  const x1 = rc.timeScale.indexToX(rc.dataLayer.timeToIndexFloat(this.t1));
+  const y0 = rc.priceScale.priceToY(this.p0), y1 = rc.priceScale.priceToY(this.p1);
+  const pad = GRAB + 0.5; // cover everything hitTest answers, rounding included
+  return { left: Math.min(x0, x1) - pad, top: Math.min(y0, y1) - pad, right: Math.max(x0, x1) + pad, bottom: Math.max(y0, y1) + pad };
+}
+```
+
+- **The box must hold every point `hitTest` can answer.** A point outside it is never asked, so a box that is too tight loses hits. A NaN edge makes the pane ask anyway.
+- **The pane keeps the box** while nothing it follows changes: the time scale and the bars' times, the pane's price scales, size and axes, the pixel ratio, hover and drag, the theme and session calendar, and the primitive's own state, announced through `host.requestUpdate()`. A box that depends on anything else (bar prices) must request an update when that changes, or leave the hook out.
+- **Compute it from the same geometry `hitTest` uses**, `rc` or what the last `draw` recorded. A box asked for between a change and the frame that paints it is asked for again once that frame is painted.
+- The pane also stops walking at an exact hit (`distance: 0`) among the primitives painted in front, which nothing after it can outrank. `hitTest` must be free of side effects either way: a primitive can be skipped.
+- **A primitive that declares `hitBounds` is attached with a host that wraps the chart's**, so the pane hears its `requestUpdate`. Do not compare that host with another primitive's by identity.
+
+The hook arrived in 2.5.8. The built-in primitives do not declare boxes yet, so they are asked on every move as before. The draw tier's layers keep a box per drawing of their own instead (since 2.5.9): the pane asks a layer on every move, and the layer asks only the drawings whose box the pointer is in, 4.5 of 500 trend lines per move in `node scripts/bench-pane.mjs`. The boxes follow the same scales and plot size, and a new drawing list; a host driving a `DrawingLayer` itself hands a drawing edited in place over again with `setDrawings`, as the controller does, for a hover to see where it now is.
+
 ## `autoscaleInfo`
 
-Returning `{ min, max }` **expands the pane's right price scale** so the primitive is not clipped. It is consulted only for the right scale, only when that scale is on `autoScale`, and once per autoscale pass alongside every visible bar.
+Returning `{ min, max }` expands the primitive's bound price scale while that scale
+is on `autoScale`. Unbound primitives contribute to the right scale. Each primitive
+is consulted once per applicable autoscale pass, alongside that scale's visible bars.
 
 Return `null` for anything that overlays rather than drives the range, the drawing layer, indicator fills, watermarks, legends, and on-chart buttons all do. `PriceLine` returns `{ min: price, max: price }`, which is what keeps an order line on screen.
 
@@ -133,13 +223,14 @@ Keep it cheap: it runs on every `Full` invalidation, which includes every `serie
 |---|---|---|---|
 | `PriceLine` | `normal` | Horizontal level with a right-axis tag and an optional broker-style pill group. | `price`, `color`, `lineWidth`, `dashed`, `id`, `label`, `badge`, `qty`, `leftLabel`, `note`, `extentFromRight`, `pillInsetFromRight`, `autoscale`, `closeButton`, `cursor`; `setPrice`, `setOptions`, `setLeftLabel`, `setDragGhost`, `options()` |
 | `PriceLevels` | `normal` | The ten **derived** reference levels (previous close, session high / low, last price, four extended-hours levels, bid, ask), each a line plus an axis tag. It computes its own prices from the bars and the viewport; you do not set them. | `levels` (per-kind `{ line, label, color, lineWidth, lineStyle, text, extentFromRight }`), `timezone`, `marketPhase`, `quote`; `setLevel`, `setOptions`, `setQuote`, `values()`, `available(kind)`, `level(kind)`. See below |
-| `SeriesMarkers` | `normal` | Bar-anchored signal glyphs, visible-range culled and stacked per bar. `MarkerShape` covers `arrowUp`/`arrowDown`, `circle`, `square`, `triangleUp`/`triangleDown`, `diamond`, `flag`, `text`, and the `labelUp`/`labelDown` text plates (tail pointing at the anchor price, `text` required). | `setMarkers(SeriesMarker[])`; renderers `drawShape`, `drawLabel`, `markerSizePx`, `effectiveMarkerPx` |
+| `SeriesMarkers` | `normal` | Bar-anchored signal glyphs, visible-range culled and stacked per bar; markers with text above or below the bar (or on a pane edge) take lanes, so labels on neighbouring bars do not overlap: a label moves outward by at most five of its own heights, one that overlaps nothing does not move, and past five (a wide zoom) labels overlap on their bars as before. `MarkerShape` covers `arrowUp`/`arrowDown`, `circle`, `square`, `triangleUp`/`triangleDown`, `diamond`, `flag`, `text`, and the `labelUp`/`labelDown` text plates (tail pointing at the anchor price, `text` required). | `setMarkers(SeriesMarker[])`; renderers `drawShape`, `drawLabel`, `markerSizePx`, `effectiveMarkerPx` |
 | `EventMarkers` | `normal` | Timeline badge strip with optional group filtering and clustering. | `setEvents`, `events`, `setGroups`, `groups`, `setGroupVisible`, `isGroupVisible`, `setOptions`, `options`, `detailsForHit` |
 | `LogoWatermark` | `top` (option) | Corner brand mark with an optional hover-revealed label and link. | `src`/`image`, `position`, `height` (28), `margin` (12), `opacity` (0.7), `tint`, `label`, `padding`, `href`; `setOptions`, `href()` |
 | `TextWatermark` | `bottom` (option) | A word stamped faintly across the plot to say what mode the chart is in, `Replay` being the case it exists for. Shrinks to fit a narrow pane, hit-tests to nothing, and is captured by `takeScreenshot()` because it is drawn on the canvas. | `text`, `fontSize` (64), `opacity` (0.08), `color`, `font`, `zOrder`; `setOptions` |
 | `ReplayShade` | `top` (option) | Dims every bar after `index` and rules a line at the cut. Used while a replay start bar is being chosen: picking one while the next twenty bars are readable is picking on hindsight. Add one per pane, or a bright volume pane gives away what the price pane is hiding. | `index` (null draws nothing), `color`, `lineColor`, `lineWidth`, `lineVisible`; `setOptions` |
+| `SessionShade` | `bottom` | Faint wash behind pre-open, post-close and extended-hours bars, from a session calendar's `phaseSpans`. Nothing is shaded until a host attaches it; a regular-hours feed, daily bars and views wider than 90 days shade nothing. `attachSessionShading(chart, options?)` adds one per chart to the price pane (anchored `primary-pane`, so it follows a moved price pane and fills a maximized one) and returns a `SessionShading` handle; attaching again merges the options and puts back a shade a host removed. | `calendar` (absent or null reads the chart's calendar each frame), `preColor`, `postColor`, `extendedColor` (null leaves that phase unshaded; defaults are faint theme tints, with the built-in theme's colour standing in for a named or hsl() theme colour), `visible`; `setOptions`, `options`; handle `setOptions`, `options`, `destroy` |
 | `BuySellButtons` | `top` | Docked in-plot BUY / qty / SELL panel. | `id` (`trade`), `position` (`top-left`), `margin` (12), `qty`, `buyColor`, `sellColor`, `showPrices`, `scale` (0.6 to 1.5); `setPrices`, `setMark`, `setQty`, `setColors` |
-| `PaneLegend` | `top` | Canvas-drawn legend row: swatch, title, params, live values, action buttons, and the status line. | `id`, `title`, `params`, `color`, `valueColor`, `row`, `actions`, `hidden`, `maximized`, `font` (11), `left` (8), `top` (6), `statusLine` (per-field switches), `status` (host data or a per-frame getter); `setValue`, `setValues` (readings may carry `field: 'ohlc' \| 'change' \| 'volume'`), `setOptions`. See [settings-and-menus](settings-and-menus.md) |
+| `PaneLegend` | `top` | Canvas-drawn legend row: swatch, title, params, live values, action buttons, and the status line. | `id`, `title`, `params`, `color`, `valueColor`, `row`, `actions`, `hidden`, `maximized`, `collapsed` (the collapse glyph points the way the pane will go), `font` (11), `left` (8), `top` (6), `statusLine` (per-field switches), `status` (host data or a per-frame getter); `setValue`, `setValues` (readings may carry `field: 'ohlc' \| 'change' \| 'volume'`), `setOptions`. See [settings-and-menus](settings-and-menus.md) |
 | `TimeNavigator` | `top` (option) | Hover-revealed zoom, reset and step controls above the time axis. | Created by the chart itself from `ChartOptions.timeNavigator` (default `true`); `buttons`, `size` (26), `bottomMargin` (10), `revealHeight` (64), `labels`, `hints`, `showTooltip`. `TimeNavigatorAction` includes `'resetScale'`, placed between zoom and step controls by default, with the **Reset view** tooltip and `Home` hint. |
 | `LinkCrosshair` | `top` | The crosshair a linked chart shows for a cursor in **another** chart: a vertical line only, at `LINK_CROSSHAIR_ALPHA` (0.55) of the pane's crosshair colour. A mirrored horizontal line would assert a price belonging to another instrument. Normally created for you by `LinkGroup`, one per pane. | `setIndex(index \| null)`, `index()`. See [chart-linking](chart-linking.md) |
 | `IndicatorFill` | `bottom` | Two-tone band between two indicator `calc` columns (Ichimoku cloud, Keltner, a shaded overbought/oversold band), split at exact crossings. The columns need not be plotted. | `colorUp`, `colorDown`, `opacity` (0.12); `setPoints(FillPoint[])`, `setOptions`, `setVisible` |
@@ -147,13 +238,15 @@ Keep it cheap: it runs on every `Full` invalidation, which includes every `serie
 Attachment:
 
 ```ts
-chart.addPrimitive(primitive, paneIndex = 0);
+// Every paneIndex below defaults to the price pane: slot 0, or wherever it sits
+// on a chart built with movablePrimaryPane. Omit it for price-pane furniture.
+chart.addPrimitive(primitive, paneIndex?);
 chart.removePrimitive(primitive);
 
-chart.addPriceLine({ price, color, lineWidth, dashed, id }, paneIndex = 0); // returns PriceLine
-chart.addEventMarkers(paneIndex = 0, { clustering: false });                // returns EventMarkers
+chart.addPriceLine({ price, color, lineWidth, dashed, id }, paneIndex?);    // returns PriceLine
+chart.addEventMarkers(paneIndex?, { clustering: false });                   // returns EventMarkers
 series.createMarkers();                                                     // returns SeriesMarkers, wired to that series
-chart.tradeHost(paneIndex = 0);                                             // { addPrimitive, removePrimitive } for the trade tier
+chart.tradeHost(paneIndex?);                                                // { addPrimitive, removePrimitive } for the trade tier
 ```
 
 `PaneLegend` fits its row inside the plot, including hover actions and hit areas.
@@ -215,11 +308,11 @@ Chart conveniences:
 
 | API | Contract |
 |---|---|
-| `setEvents(events, paneIndex = 0)` | Owns the event data and applies `setEventOptions` type filters. |
+| `setEvents(events, paneIndex = primaryPaneIndex())` | Owns the event data and applies `setEventOptions` type filters. |
 | `eventMarkers()` | Returns that chart-owned primitive, or null before data/options install it. |
 | `setEventMarkerOptions(options)` | Configures clustering on the chart-owned strip. |
 | `setEventGroups(groups)` / `setEventGroupVisible(id, visible)` | Configures its hierarchy and visibility. |
-| `addEventMarkers(paneIndex = 0, options = {})` | Creates a separately owned primitive; the host supplies its data and filters. |
+| `addEventMarkers(paneIndex = primaryPaneIndex(), options = {})` | Creates a separately owned primitive; the host supplies its data and filters. |
 
 For chart-owned markers, `chart.on('event:click', handler)` delivers `ChartEventClick`,
 which extends `EventMarkerDetails` with `point: { x, y }` and `paneIndex`. A custom
@@ -274,7 +367,7 @@ const levels = new PriceLevels({
   },
   timezone: 'America/New_York',
 });
-chart.addPrimitive(levels, 0);
+chart.addPrimitive(levels);   // the price pane, wherever it sits
 
 levels.setLevel('previousClose', { color: '#8b95a8', lineStyle: 'dashed' });
 levels.values().previousClose;      // number | null, as of the last frame
@@ -383,7 +476,7 @@ class SupplyZone implements IPrimitive {
   }
 }
 
-chart.addPrimitive(new SupplyZone(24100, 24250), 0);
+chart.addPrimitive(new SupplyZone(24100, 24250));   // the price pane
 chart.subscribeClick((id) => { if (id === 'supply-zone') openZoneEditor(); });
 ```
 
@@ -413,7 +506,9 @@ registerChartType('range-band', {
 chart.addSeries('range-band').setData(bars);
 ```
 
-`RendererEntry` in full: `defaultStyle: SeriesStyle`, `isPriceSeries: boolean`, `draw(ctx, items, toY, barSpacing, dpr, style, rc)`, `extents(bar, style)`. `items` is `{ x: number /* bar centre, media px */, bar: Bar }[]`, already culled to the visible range and conflated when `conflate` is on. `rc` is `{ plotHeight, maxVolume, theme }`, media px, the visible-window volume peak, and the palette.
+`RendererEntry` in full: `defaultStyle: SeriesStyle`, `isPriceSeries: boolean`, `connectsBars?: boolean`, `draw(ctx, items, toY, barSpacing, dpr, style, rc)`, `extents(bar, style)`. `items` is `DrawItem[]`, each `{ x: number /* bar centre, media px */, bar: Bar, prevClose?: number, edgeX?: number }`, already culled to the visible range. Set `connectsBars: true` (since 2.5.9) for a renderer that draws a segment from each bar to the next (the built-in line, line-markers, step, area, hlc-area and baseline do, and so does the transform tier's kagi): its `items` then also carry the series' nearest bar beyond each edge of the view, off screen, so the segment crossing an edge is drawn. Without it a sparse line loses the part entering from off screen.
+
+Those two neighbours, and only they, carry `edgeX` (since 2.5.9): the x (media px) of the plot edge between them and the bars in view, `0` on the left and the plot width on the right. A neighbour can sit millions of pixels away (a level held for a session on an axis of five-second bars), so cut the segment to it at `edgeX`, plus whatever your stroke needs, rather than stroke it all the way out: a renderer that builds its own geometry (a quad per dash, a vertex per step) would otherwise pay for the whole off-screen length on every frame. Draw nothing of the neighbour's own (a dot, a body); it is there for the segment. A neighbour is the series' very next bar, value or not: when it, or the bar in view next to it, has no value (a whitespace item or a study's NaN), join nothing across it. Autoscale still reads only the bars in view, through `extents`. The built-in renderers also keep a dashed line's pattern anchored to the first bar in view, so drawing the neighbours moves no dash that was already on screen. A custom type is never reduced by the level of detail (`conflate`), even one registered under a built-in name; the built-in renderers are below one CSS px per bar. The array and its objects belong to the pane, which rewrites them in place the next time it draws the series: copy anything kept past that. `rc` is `{ plotHeight, maxVolume, theme }`, media px, the visible-window volume peak, and the palette.
 
 `registeredChartTypes()` lists every registered id. `'point-figure'` and `'kagi'` live in the transform tier and only resolve once `openalgo-charts/transform` is imported.
 
@@ -429,22 +524,29 @@ chart.addSeries('range-band').setData(bars);
 
 **`rc.bars()` returns the live array the data layer holds.** Treat it as read-only, and guard the call, a synthetic render context may not supply it.
 
-**`series.update()` schedules a `Full` repaint,** which re-runs every `autoscaleInfo()` and every `draw`. Cache anything expensive across frames.
+**`series.update()` schedules a `Full` repaint** of the panes it changes (the series' own pane and those of the studies computed from it; every pane when it appends a bar), which re-runs every `autoscaleInfo()` and every `draw` on them. Cache anything expensive across frames.
 
 Related: [core-api](core-api.md) (`addPrimitive`, invalidation levels, the event bus), [chart-types](chart-types.md) (the built-in renderers), [drawing-tools](drawing-tools.md) (`DrawingLayer`, a primitive built on this contract), [trading](trading.md) and [trade-tier](trade-tier.md) (order lines and `tradeHost`), [indicators](indicators.md) (`IndicatorFill`, `PaneLegend`), [events-and-state](events-and-state.md) (click and drag routing), [scales-and-panes](scales-and-panes.md) (which scale a primitive sees).
 
 ## Anchoring to the chart instead of a pane (1.6.0)
 
 ```ts
-chart.addPrimitive(mark, { anchor: 'chart-bottom' })   // or 'chart-top'
+chart.addPrimitive(mark, { anchor: 'chart-bottom' })   // or 'chart-top', or 'primary-pane'
 ```
 
 Pass a placement instead of a pane index and the engine re-homes the primitive whenever a
-pane is added, removed, moved or maximized. Use it for anything that is chart furniture
-rather than pane furniture: a watermark, a corner clock, a brand mark.
+pane is added, removed, moved, maximized or collapsed. Use it for anything that is chart furniture
+rather than pane furniture: a watermark, a corner clock, a brand mark. `'chart-bottom'`
+resolves to the lowest open pane, so a collapsed bottom pane, which draws only its legend
+row, hands the primitive to the pane above it. `'chart-top'` is the top pane with a share of
+the chart. `'primary-pane'` follows the price pane to whatever slot it is moved to
+(`setPrimaryPaneIndex`), and the pane maximized over it while it is hidden: use it for
+furniture that describes the price, such as a symbol badge. The chart's own background
+text and study count use it. `addPrimitive(p)` with no second argument is a plain pane
+primitive on the price pane at the time of the call, and moves with that pane.
 
 Maximize is the reason this exists rather than a `paneAdded` listener. It HIDES the other
-panes, so a primitive pinned to pane 0 disappears with it instead of merely sitting in the
+panes, so a primitive pinned to the price pane disappears with it instead of merely sitting in the
 wrong place, and no amount of host bookkeeping fixes that from outside.
 
 `removePrimitive` also clears the anchor registration, so a removed primitive stays removed;

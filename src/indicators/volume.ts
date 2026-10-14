@@ -2,8 +2,11 @@
  * Tier-1 volume indicators, computed from the chart's own OHLCV.
  * Part of the lazy `openalgo-charts/indicators` tier.
  */
-import type { IndicatorDescriptor } from 'openalgo-charts';
-import { nulls, sma, wma, rma, vwma, smaSeededEma, stdev } from './calc';
+import type { Bar, IndicatorDescriptor } from 'openalgo-charts';
+import { nulls, sma, stdev } from './calc';
+import { smoothingMa, SMOOTHING_MA_TYPES, BOLLINGER_MA } from './smoothing';
+import { withTail, machineTail, claimOf, settle, whole, cell } from './tail';
+import { seeded, smooth } from './steppers';
 
 const num = (s: Readonly<Record<string, unknown>>, k: string, d: number): number => {
   const v = s[k];
@@ -17,41 +20,13 @@ const str = (s: Readonly<Record<string, unknown>>, k: string, d: string): string
   return typeof v === 'string' && v !== '' ? v : d;
 };
 
-/** The selectable smoothing kernels of the "Smoothing" block. */
-const SMOOTHING_MA_TYPES: readonly { label: string; value: string }[] = [
-  { label: 'None', value: 'None' },
-  { label: 'SMA', value: 'SMA' },
-  { label: 'SMA + Bollinger Bands', value: 'SMA + Bollinger Bands' },
-  { label: 'EMA', value: 'EMA' },
-  { label: 'SMMA (RMA)', value: 'SMMA (RMA)' },
-  { label: 'WMA', value: 'WMA' },
-  { label: 'VWMA', value: 'VWMA' },
-];
-
-/** Set by `maType` when the two Bollinger band plots become visible. */
-const BOLLINGER_MA = 'SMA + Bollinger Bands';
-
 /**
- * The smoothing block's kernel switch. No warmup-gap handling here, unlike the
- * same block on a windowed study: a running total prints from bar 0, so the
- * smoother's window can start there too.
+ * A bar's volume for a running total: a bar the feed gave no usable volume for
+ * traded nothing, as the flow studies read it. `?? 0` covered only an absent
+ * volume, so one NaN reached the total and blanked it for the rest of the history.
  */
-function smoothingMa(
-  kind: string,
-  values: readonly number[],
-  volumes: readonly number[],
-  length: number,
-): number[] {
-  switch (kind) {
-    case 'EMA': return smaSeededEma(values, length);
-    case 'SMMA (RMA)': return rma(values, length);
-    case 'WMA': return wma(values, length);
-    case 'VWMA': return vwma(values, volumes, length);
-    // 'SMA', the Bollinger variant, and (because a settings blob can carry
-    // anything) everything else.
-    default: return sma(values, length);
-  }
-}
+const vol = (b: Bar): number =>
+  typeof b.volume === 'number' && Number.isFinite(b.volume) ? b.volume : 0;
 
 export const VOLUME: IndicatorDescriptor = {
   id: 'volume',
@@ -86,7 +61,31 @@ export const VOLUME: IndicatorDescriptor = {
   },
 };
 
-export const OBV: IndicatorDescriptor = {
+/** OBV's smoothing block over a run of OBV values, shared by `calc` and the tail's windowed kinds. */
+function obvSmoothing(
+  out: readonly number[], volumes: readonly number[], s: Readonly<Record<string, unknown>>,
+): Record<string, (number | null)[]> {
+  const n = out.length;
+  const maType = str(s, 'maType', 'None');
+  const maLength = int(s, 'maLength', 9);
+  const mult = num(s, 'bbMult', 2);
+  const ma = maType === 'None'
+    ? new Array<number>(n).fill(NaN)
+    : smoothingMa(maType, out, volumes, maLength);
+  // The band offset exists only for the Bollinger kernel, and an absent
+  // offset makes both band columns absent too, which is how the reference
+  // keeps the two plots and their fill hidden for every other type.
+  const band = maType === BOLLINGER_MA
+    ? stdev(out, maLength).map((v) => v * mult)
+    : new Array<number>(n).fill(NaN);
+  return {
+    ma: nulls(ma),
+    bbUpper: nulls(ma.map((v, i) => v + band[i])),
+    bbLower: nulls(ma.map((v, i) => v - band[i])),
+  };
+}
+
+export const OBV: IndicatorDescriptor = withTail({
   id: 'obv',
   name: 'On-Balance Volume',
   category: 'Volume',
@@ -123,34 +122,49 @@ export const OBV: IndicatorDescriptor = {
     let acc = 0;
     for (let i = 0; i < n; i++) {
       if (i > 0) {
-        const v = bars[i].volume ?? 0;
+        const v = vol(bars[i]);
         if (bars[i].close > bars[i - 1].close) acc += v;
         else if (bars[i].close < bars[i - 1].close) acc -= v;
       }
       out[i] = acc;
     }
-
-    const maType = str(s, 'maType', 'None');
-    const maLength = int(s, 'maLength', 9);
-    const mult = num(s, 'bbMult', 2);
-    const ma = maType === 'None'
-      ? new Array<number>(n).fill(NaN)
-      : smoothingMa(maType, out, bars.map((b) => b.volume ?? 0), maLength);
-    // The band offset exists only for the Bollinger kernel, and an absent
-    // offset makes both band columns absent too, which is how the reference
-    // keeps the two plots and their fill hidden for every other type.
-    const band = maType === BOLLINGER_MA
-      ? stdev(out, maLength).map((v) => v * mult)
-      : new Array<number>(n).fill(NaN);
-
-    return {
-      obv: nulls(out),
-      ma: nulls(ma),
-      bbUpper: nulls(ma.map((v, i) => v + band[i])),
-      bbLower: nulls(ma.map((v, i) => v - band[i])),
-    };
+    return { obv: nulls(out), ...obvSmoothing(out, bars.map(vol), s) };
   },
-};
+}, (calc) => (bars, s, from, previous, store) => {
+  // The running total resumes. An exponential or Wilder smoothing resumes with
+  // it; a window over the total reads the held values before the tail, which
+  // are exact wherever finite and absent wherever the total was not, and a
+  // window treats every absent value alike.
+  const maType = str(s, 'maType', 'None');
+  const maLength = int(s, 'maLength', 9);
+  if (!whole(maLength)) return null;
+  const recursive = maType === 'EMA' || maType === 'SMMA (RMA)';
+  const tail = machineTail(calc, `${maType}|${maLength}`, {
+    keys: recursive ? ['obv', 'ma', 'bbUpper', 'bbLower'] : ['obv'],
+    start: () => ({ acc: 0, ma: seeded() }),
+    step: (st, i, row) => {
+      if (i > 0) {
+        const v = vol(bars[i]);
+        if (bars[i].close > bars[i - 1].close) st.acc += v;
+        else if (bars[i].close < bars[i - 1].close) st.acc -= v;
+      }
+      row[0] = cell(st.acc);
+      if (!recursive) return;
+      row[1] = cell(smooth(st.ma, st.acc, maLength, maType === 'EMA'));
+      row[2] = null;
+      row[3] = null;
+    },
+  }, bars, from, previous, store);
+  if (tail === null || recursive) return tail;
+  const held = previous.obv;
+  const claim = claimOf(store, calc, bars, from);
+  if (claim === undefined || held === undefined || held.length < from) return null;
+  const start = Math.max(0, from - maLength);
+  const run: number[] = [];
+  for (let j = start; j < bars.length; j++) run.push((j < from ? held[j] : tail.obv[j - from]) ?? NaN);
+  const smoothed = settle(claim, obvSmoothing(run, bars.slice(start).map(vol), s), from - start, previous, from);
+  return smoothed === null ? null : { obv: tail.obv, ...smoothed };
+});
 
 export const ADL: IndicatorDescriptor = {
   id: 'adl',
@@ -164,10 +178,20 @@ export const ADL: IndicatorDescriptor = {
     let acc = 0;
     for (let i = 0; i < bars.length; i++) {
       const b = bars[i];
+      // A bar missing its high, low or close, or whose span or term overflows, has
+      // no term: it is absent and the total stays where it was. Added in, one NaN
+      // would blank the line for the rest of the history, and a missing high used
+      // to pass for a doji and print the carried total as if it were a reading.
+      if (!Number.isFinite(b.high) || !Number.isFinite(b.low) || !Number.isFinite(b.close)) continue;
       const span = b.high - b.low;
+      if (!Number.isFinite(span)) continue;
       // A doji bar (high === low) has an undefined money-flow multiplier;
       // the standard treatment is to contribute nothing.
-      if (span > 0) acc += (((b.close - b.low) - (b.high - b.close)) / span) * (b.volume ?? 0);
+      if (span > 0) {
+        const term = (((b.close - b.low) - (b.high - b.close)) / span) * vol(b);
+        if (!Number.isFinite(term)) continue;
+        acc += term;
+      }
       out[i] = acc;
     }
     return { adl: nulls(out) };

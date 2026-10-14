@@ -113,9 +113,9 @@ called the draw tier 34 tools while `registeredDrawingTools()` returned 43.
 | A new type appearing in a public signature | Export it from its tier entry point, or `npx typedoc` warns and the reference has a dead link |
 | A **new tier** | `typedoc.json` `entryPoints`, `.size-limit.json`, `package.json` exports, README tier table, `ARCHITECTURE.md` section 2, website Getting Started, the architecture diagram |
 | Indicators, chart types or drawing tools | Their counts in README, `pages/index.mdx` and `theme.config.tsx` meta descriptions, `components/landing.tsx` stats and feature cards, the diagram |
-| Anything that moves a bundle size | README badge and both size tables, `components/landing.tsx` `STATS`, website Getting Started, `theme.config.tsx` footer and meta description, the diagram subtitle and tier legend |
+| Anything that moves a bundle size | README badge and both size tables, `components/landing.tsx` `STATS` (home page sizes), website Getting Started, `theme.config.tsx` footer and meta description, the diagram subtitle and tier legend |
 | A new descriptor hook or capability | `references/indicators.md`, the website docs page, a live example in `website/pages/examples.mdx` |
-| A release | `CHANGELOG.md`, `website/pages/docs/release-notes.mdx`, and drop every "(unreleased)" marker for what just shipped |
+| A release | `CHANGELOG.md`, `website/pages/docs/release-notes.mdx`, drop every "(unreleased)" marker for what just shipped, and the release benchmark (`npm run bench:release`: `benchmarks/releases.json`, `website/pages/benchmarks.mdx` and the home page's `BENCH` in `components/landing.tsx`) |
 
 ### Before every npm publish
 
@@ -134,6 +134,24 @@ does not change what a reader of that release sees. Every item is mandatory:
    meets first.
 7. `.github/skills/` for anything a downstream author would now do differently.
 8. `npm run verify`, then the registry counts, then `npm run skills:coverage`.
+9. **The release benchmark, measured on the build that is about to ship.**
+   After the version bump and the final build, on the reference machine with
+   nothing else running, `npm run bench:release` rebuilds the previous release
+   from its tag, runs the render bench five times on each build in one
+   session, and writes the version's entry into `benchmarks/releases.json` and
+   the website's Benchmarks page. Commit both with the release, and link the
+   entry from the release notes (`/benchmarks#<version without dots>`).
+   `tests/release-benchmarks.test.ts` fails a package version with no entry,
+   and CI fails when the page and the data disagree.
+
+**A benchmark is measured, never carried over.** Like a size, it belongs to the
+build that ships and to the machine and session that timed it. Never copy an
+earlier entry's figures, never compare an entry with another entry measured on
+another machine or day, and never run it while agents, test suites or a browser
+session share the machine: load only adds time, and the previous release is
+timed again in the same session precisely so that both columns share one set of
+conditions. A run of the new build that fails its render bench budgets stops the
+script; that is a regression to fix, not a figure to publish.
 
 **Measure the sizes last, and substitute them by row label.** They move by
 hundredths whenever the bundle changes at all, including from the version string
@@ -162,11 +180,15 @@ not reduce the testing needed for changes to loading, drawing, replay or trading
    and actual `/trading` browser harness. Preserve order authority, quantity units,
    exchange timestamps, session bucketing, volume accounting and replay guards.
    A dependency upgrade cannot substitute for a required consumer migration.
+   For a minor or major release, run this as a dry run even when OpenAlgo is not
+   upgrading in the same cycle, from the version it pins today, and report what its
+   migration will meet. Commit and push nothing to OpenAlgo for a dry run.
 5. Update package and lockfile versions, `src/version.ts`, changelog, website release
    notes, current-version references, examples, API docs and skills. Follow the
    measured-facts checklist above; preserve historical release facts. Run the full
    package verification, skills coverage, API generation without warnings and the
-   website build before committing.
+   website build before committing. Run `npm run bench:release` last, on an idle
+   machine, and commit the benchmark entry and page with the release.
 6. Review the final diff and commit using Conventional Commits. Push and wait for
    required CI. Publish only within the user's existing authorization; do not ask
    again when the user has already authorized this release. Otherwise prepare the
@@ -214,6 +236,50 @@ trusting the source.
 Examples are not decoration, they are the proof a feature is usable. An example that
 throws is worse than a missing one. Anything overlaid on the chart as HTML must stop
 `pointerdown`, or the chart's pointer capture eats the click.
+
+## Keep the code lean
+
+Bloat is debt. Every byte in a tier ships to every host that imports it, and every line
+is read by the next person who changes the code. A feature is worth its cost or it does
+not ship, so the cost is measured, not guessed:
+
+- **A change reports what it costs.** Brotli bytes per tier (`npx size-limit`) and the
+  chart-only import (`npm run shake`) against the previous release, plus the lines it
+  adds. Raise a budget only to the measured need, in the release that needs it, never
+  with headroom for later.
+- **The base engine and the chart-only import carry only what a plain chart needs.** A
+  feature a plain chart does not use goes behind an opt-in import, a lazy tier or a
+  function the host calls, so a host that never uses it never pays for it.
+- **Reuse before adding.** Search for an existing helper, module or pattern first.
+  Duplicate logic, an abstraction with one caller, and an option or setting no host
+  asked for are rejected in review, the same way a control with nothing behind it is.
+- **Delete as well as add.** Dead code, unused exports, superseded helpers and duplicate
+  tests leave in the change that makes them dead. A compatibility shim names its removal
+  version (COMPATIBILITY.md; `scripts/check-deprecated.mjs` enforces the tag) and is
+  removed in that version.
+- **A release candidate gets a leanness review** before it ships: growth per feature in
+  bytes, lines and public surface, with every proposed cut verified before it is applied.
+
+## Quality gates for every release
+
+Intentions do not survive a busy release, so these are checks, run before every
+release candidate is tagged. The ones marked checked at release have no script yet;
+turning each into a script is the preferred fix whenever one of them is missed.
+
+- **Compatibility.** Diff every tier's public `.d.ts` against the previous release and
+  against the version OpenAlgo pins. A removal or a narrowed type fails the release
+  unless it is a deliberate deprecation for the next major. Saved chart state,
+  workspaces and layouts written by those versions load and round-trip in tests.
+- **Warnings.** Zero lint warnings and zero typedoc warnings.
+- **Structure.** No import cycles between modules (checked at release); a module has one
+  job and its index is its only door; `scripts/line-caps.json` caps only ever go down, so
+  a file that outgrows its cap is split, never given a larger cap.
+- **Surface.** No unused exports (checked at release); `npm run skills:coverage` at 100
+  percent; every `@deprecated` names its removal version.
+- **Tests.** No skipped test without a written reason beside it (checked at release), and
+  a flaky test is fixed or reported with its failure rate, never retried into green.
+- **Readability.** Comments say why; names match the vocabulary already in the tier; the
+  same thing is done the same way across tiers.
 
 ## Testing traps that have already cost real time
 
@@ -275,7 +341,10 @@ close time. Anything that computes off `bars[bars.length - 1]` inherits this rul
 
 When fanning out agents over this repo, **file ownership must be exclusive**, and
 `src/core/chart.ts` and `src/core/pane.ts` need a single writer per run. Working-tree
-corruption here comes from parallel agents, not from any other process.
+corruption here comes from parallel agents, not from any other process. Since 2.5.7 the
+chart's logic lives in `src/core/chart-*.ts` collaborators (ARCHITECTURE.md, Chart
+internals): different agents may own different collaborator files in one run, provided
+only one of them edits `chart.ts` itself, where the host interfaces meet.
 
 ## Timezone
 

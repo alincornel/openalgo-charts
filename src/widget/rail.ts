@@ -19,7 +19,9 @@ import {
   iconSprite, iconUse, chromeIconSvg, toolCursor, DRAWING_TOOL_ICONS,
   type MagnetMode,
 } from 'openalgo-charts/draw';
-import { h, glyph, TIP_DWELL_MS, type TipSpec, type WidgetContext } from './context';
+import { h, glyph, editableIds, historyPress, historyReady, TIP_DWELL_MS, type TipSpec, type WidgetContext } from './context';
+import { commandChord } from './keymap';
+import { chromeGlyph } from './form';
 
 export const MAGNET_MODES: readonly MagnetMode[] = ['off', 'weak', 'strong'];
 
@@ -186,8 +188,6 @@ export function toolGlyph(doc: Document, id: string): HTMLElement {
   return span;
 }
 
-const chromeGlyph = (doc: Document, id: string): HTMLElement => glyph(doc, chromeIconSvg(id), 'chrome');
-
 /** Validate a stored preference object field by field, dropping what this build cannot honour. */
 export function sanitizeRailPrefs(raw: unknown, groups: readonly RailGroup[], toolsOf: (g: RailGroup) => string[]): RailPrefs {
   const out: RailPrefs = { favorites: [], magnet: 'off', stay: false, last: {} };
@@ -234,12 +234,15 @@ export function mountRail(ctx: WidgetContext, host: HTMLElement, opts: RailOptio
   const savePrefs = (): void => { ctx.storage.set(RAIL_PREFS_KEY, prefs); };
   const lastOf = (g: RailGroup): string | null => prefs.last[g.id ?? ''] ?? toolsOf(g)[0] ?? null;
 
+  // Tips read the chord in force, so a tool the user moved shows where it
+  // went. A keymap without the shell's commands (a host mounting the rail on
+  // its own) falls back to the tool's declared chord, an unbound one to none.
   let chords: Record<string, string> | null = null;
+  const chordFor = (command: string, fallback: string | undefined): string | undefined => commandChord(ctx.keymap, command, fallback);
   const chordOf = (id: string | null): string | undefined => {
     if (id === null) return undefined;
     if (chords === null) chords = drawingShortcuts();
-    const c = chords[id];
-    return c === undefined ? undefined : ctx.keymap.format(c);
+    return chordFor(`tool:${id}`, chords[id]);
   };
 
   // ── controller plumbing ──────────────────────────────────────────────
@@ -250,6 +253,9 @@ export function mountRail(ctx: WidgetContext, host: HTMLElement, opts: RailOptio
     return one === null ? [] : [one];
   };
   const allLocked = (ids: readonly string[]): boolean => ids.length > 0 && ids.every((id) => draw.get(id)?.locked === true);
+  /** Why lock, eye and trash are off for a selection the user may not edit, else nothing. */
+  const readOnlyNote = (ids: readonly string[]): string | undefined =>
+    editableIds(draw, ids).length === 0 ? widgetText(ctx, 'read-only') : undefined;
   const allHidden = (ids: readonly string[]): boolean => ids.length > 0 && ids.every((id) => draw.get(id)?.visible === false);
 
   const armCursor = (tool: string | null): void => {
@@ -272,9 +278,10 @@ export function mountRail(ctx: WidgetContext, host: HTMLElement, opts: RailOptio
   const cycleMagnet = (): MagnetMode => {
     const next = MAGNET_MODES[(MAGNET_MODES.indexOf(prefs.magnet) + 1) % MAGNET_MODES.length];
     setMagnetMode(next);
+    // The magnet snaps to study values too (draw/snap.ts), not only to O/H/L/C.
     ctx.status(next === 'off' ? widgetText(ctx, 'Magnet off')
-      : next === 'weak' ? widgetText(ctx, 'Magnet weak: snaps when O/H/L/C is within a few pixels')
-      : widgetText(ctx, 'Magnet strong: every anchor lands on the nearest O/H/L/C'));
+      : next === 'weak' ? widgetText(ctx, 'Magnet weak: snaps when a bar or study value is within a few pixels')
+      : widgetText(ctx, 'Magnet strong: every anchor lands on the nearest bar or study value'));
     return next;
   };
   const setStayMode = (on: boolean): void => {
@@ -282,7 +289,7 @@ export function mountRail(ctx: WidgetContext, host: HTMLElement, opts: RailOptio
     savePrefs();
     applyStay();
     refreshControls();
-    ctx.status(prefs.stay ? widgetText(ctx, 'Tools stay armed after each drawing') : widgetText(ctx, 'One drawing per pick'));
+    ctx.status(prefs.stay ? widgetText(ctx, 'Tools stay active after each drawing') : widgetText(ctx, 'One drawing per pick'));
   };
   const setDrawLock = (on: boolean): void => {
     latch = on === true;
@@ -298,7 +305,7 @@ export function mountRail(ctx: WidgetContext, host: HTMLElement, opts: RailOptio
   const hold = (tool: string): void => {
     setDrawLock(true);
     arm(tool);
-    ctx.status(widgetText(ctx, '{name} stays armed until Escape', { name: translatedTool(tool) }));
+    ctx.status(widgetText(ctx, '{name} stays active until Escape', { name: translatedTool(tool) }));
   };
 
   // ── building ─────────────────────────────────────────────────────────
@@ -346,7 +353,8 @@ export function mountRail(ctx: WidgetContext, host: HTMLElement, opts: RailOptio
     const b = makeBtn({
       cls: 'oac-rail__tool oac-rail__fav',
       glyphEl: toolGlyph(doc, id),
-      tip: () => ({ title: translatedTool(id), chord: chordOf(id), sub: widgetText(ctx, 'Pinned. Right-click to unpin'), side: 'right' }),
+      // Its name is not the group button's, which may show the same tool.
+      tip: () => ({ title: widgetText(ctx, '{name} (pinned)', { name: translatedTool(id) }), chord: chordOf(id), sub: widgetText(ctx, 'Pinned. Right-click to unpin'), side: 'right' }),
       onClick: (e) => {
         if (e.detail >= 2 && !prefs.stay) { hold(id); return; }
         setDrawLock(false);
@@ -360,18 +368,25 @@ export function mountRail(ctx: WidgetContext, host: HTMLElement, opts: RailOptio
 
   const groupButton = (g: RailGroup): HTMLButtonElement => {
     const tools = toolsOf(g);
+    // Where the press went down, not where the click lands: a browser that
+    // adjusts a touch onto the nearest target moves a tap on the face onto
+    // the small chevron, which would open the list instead of the tool. A
+    // touch opens the list by long press or by tapping the active tool again.
+    let downOnChevron = false;
     const b = makeBtn({
       cls: 'oac-rail__tool oac-rail__group',
       glyphEl: toolGlyph(doc, lastOf(g) ?? tools[0]),
       tip: () => ({
         title: translatedTool(lastOf(g)),
         chord: chordOf(lastOf(g)),
-        sub: widgetText(ctx, prefs.stay ? '{group}: chevron for the rest' : '{group}: chevron for the rest. Double-click keeps it armed', { group: g.title === undefined ? '' : widgetText(ctx, `schema.rail.${g.id}.title`, {}, g.title) }),
+        sub: widgetText(ctx, prefs.stay ? '{group}: chevron for the rest' : '{group}: chevron for the rest. Double-click keeps it active', { group: g.title === undefined ? '' : widgetText(ctx, `schema.rail.${g.id}.title`, {}, g.title) }),
         side: 'right',
       }),
       onClick: (e) => {
-        const target = e.target as HTMLElement | null;
-        const onChevron = target !== null && typeof target.closest === 'function' && target.closest('.oac-rail__chev') !== null;
+        // A keyboard click (detail 0) never means the chevron, even after a
+        // press that went down on it and was dragged away.
+        const onChevron = downOnChevron && e.detail !== 0;
+        downOnChevron = false;
         if (fly !== null && b.getAttribute('aria-expanded') === 'true') { closeFlyout(); return; }
         if (onChevron) { openGroupFlyout(g, b, false); return; }
         if (e.detail >= 2 && !prefs.stay) { const t = lastOf(g); if (t !== null) hold(t); return; }
@@ -382,6 +397,10 @@ export function mountRail(ctx: WidgetContext, host: HTMLElement, opts: RailOptio
         arm(lastOf(g));
       },
       onContext: () => openGroupFlyout(g, b, false),
+    });
+    b.addEventListener('pointerdown', (e) => {
+      const target = e.target as Element | null;
+      downOnChevron = (e as PointerEvent).pointerType !== 'touch' && typeof target?.closest === 'function' && target.closest('.oac-rail__chev') !== null;
     });
     b.dataset.tools = tools.join(',');
     b.dataset.group = g.id ?? '';
@@ -421,8 +440,9 @@ export function mountRail(ctx: WidgetContext, host: HTMLElement, opts: RailOptio
       name.textContent = translatedTool(tool);
       row.appendChild(name);
       const pinned = isFavorite(tool);
+      // One name; the pressed state says pinned.
       const star = h(doc, 'button', 'oac-fly__star', {
-        type: 'button', 'aria-pressed': String(pinned), 'aria-label': pinned ? widgetText(ctx, 'Unpin from rail') : widgetText(ctx, 'Pin to rail'),
+        type: 'button', 'aria-pressed': String(pinned), 'aria-label': widgetText(ctx, 'Pin to rail'),
       });
       star.tabIndex = -1;
       star.innerHTML = chromeIconSvg(pinned ? 'star-filled' : 'star');
@@ -434,7 +454,6 @@ export function mountRail(ctx: WidgetContext, host: HTMLElement, opts: RailOptio
         const on = !isFavorite(tool);
         toggleFavorite(tool, on);
         star.setAttribute('aria-pressed', String(on));
-        star.setAttribute('aria-label', on ? widgetText(ctx, 'Unpin from rail') : widgetText(ctx, 'Pin to rail'));
         star.innerHTML = chromeIconSvg(on ? 'star-filled' : 'star');
       };
       star.addEventListener('click', (e) => { e.stopPropagation(); togglePin(); });
@@ -522,8 +541,8 @@ export function mountRail(ctx: WidgetContext, host: HTMLElement, opts: RailOptio
       glyphEl: toolGlyph(doc, 'magnet'),
       tip: () => ({
         title: widgetText(ctx, 'Magnet: {mode}', { mode: widgetText(ctx, `schema.magnet.${prefs.magnet}`, {}, prefs.magnet) }),
-        sub: prefs.magnet === 'off' ? widgetText(ctx, 'Click for weak: snaps when O/H/L/C is within a few pixels')
-          : prefs.magnet === 'weak' ? widgetText(ctx, 'Click for strong: every anchor lands on the nearest O/H/L/C')
+        sub: prefs.magnet === 'off' ? widgetText(ctx, 'Click for weak: snaps when a bar or study value is within a few pixels')
+          : prefs.magnet === 'weak' ? widgetText(ctx, 'Click for strong: every anchor lands on the nearest bar or study value')
           : widgetText(ctx, 'Click to switch the magnet off'),
         side: 'right',
       }),
@@ -534,21 +553,21 @@ export function mountRail(ctx: WidgetContext, host: HTMLElement, opts: RailOptio
       cls: 'oac-rail__btn--chrome',
       glyphEl: chromeGlyph(doc, 'link'),
       tip: () => ({
-        title: widgetText(ctx, 'Keep tool armed'),
-        sub: prefs.stay ? widgetText(ctx, 'On: the tool stays armed after each drawing') : widgetText(ctx, 'Off: one drawing per pick'),
+        title: widgetText(ctx, 'Keep tool active'),
+        sub: prefs.stay ? widgetText(ctx, 'On: the tool stays active after each drawing') : widgetText(ctx, 'Off: one drawing per pick'),
         side: 'right',
       }),
       onClick: () => setStayMode(!prefs.stay),
     });
     box.appendChild(ctl.stay);
     box.appendChild(sep());
+    // Lock and the eye keep one name each; the pressed state and the glyph say locked or hidden.
     ctl.lock = makeBtn({
       cls: 'oac-rail__btn--chrome',
-      glyphEl: chromeGlyph(doc, 'lock'),
+      glyphEl: chromeGlyph(doc, 'unlock'),
       tip: () => {
         const sel = selectionOf();
-        if (sel.length === 0) return { title: widgetText(ctx, 'Lock drawing'), sub: widgetText(ctx, 'Select a drawing first'), side: 'right' };
-        return { title: allLocked(sel) ? widgetText(ctx, 'Unlock drawing') : widgetText(ctx, 'Lock drawing'), side: 'right' };
+        return { title: widgetText(ctx, 'Lock drawing'), sub: sel.length === 0 ? widgetText(ctx, 'Select a drawing first') : readOnlyNote(sel), side: 'right' };
       },
       onClick: () => {
         const sel = selectionOf();
@@ -563,10 +582,8 @@ export function mountRail(ctx: WidgetContext, host: HTMLElement, opts: RailOptio
       glyphEl: chromeGlyph(doc, 'eye'),
       tip: () => {
         const sel = selectionOf();
-        if (sel.length === 0) return { title: widgetText(ctx, 'Hide drawing'), sub: widgetText(ctx, 'Select a drawing first'), side: 'right' };
-        return allHidden(sel)
-          ? { title: widgetText(ctx, 'Show drawing'), side: 'right' }
-          : { title: widgetText(ctx, 'Hide drawing'), sub: widgetText(ctx, 'Stays selected, so the eye brings it back'), side: 'right' };
+        return { title: widgetText(ctx, 'Hide drawing'), side: 'right', sub: sel.length === 0 ? widgetText(ctx, 'Select a drawing first')
+          : readOnlyNote(sel) ?? (allHidden(sel) ? undefined : widgetText(ctx, 'Stays selected, so the eye brings it back')) };
       },
       onClick: () => {
         const sel = selectionOf();
@@ -581,19 +598,28 @@ export function mountRail(ctx: WidgetContext, host: HTMLElement, opts: RailOptio
       glyphEl: chromeGlyph(doc, 'trash'),
       tip: () => {
         const sel = selectionOf();
+        // The count is what the press deletes: read-only drawings stay.
+        const n = editableIds(draw, sel).length;
+        // A locked selection stays, as the drawing toolbar and the menu say.
+        const why = readOnlyNote(sel) ?? (n > 0 && allLocked(sel) ? widgetText(ctx, 'locked') : undefined);
         return sel.length > 0
-          ? { title: sel.length > 1 ? widgetText(ctx, 'Delete {count} drawings', { count: sel.length }) : widgetText(ctx, 'Delete drawing'), chord: 'Del', sub: widgetText(ctx, 'Right-click to remove all'), side: 'right' }
-          : { title: widgetText(ctx, 'Delete drawing'), chord: 'Del', sub: widgetText(ctx, 'Select one first. Right-click to remove all'), side: 'right' };
+          ? { title: n > 1 ? widgetText(ctx, 'Delete {count} drawings', { count: n }) : widgetText(ctx, 'Delete drawing'), chord: chordFor('delete', 'Delete'), sub: why ?? widgetText(ctx, 'Right-click to remove all'), side: 'right' }
+          : { title: widgetText(ctx, 'Delete drawing'), chord: chordFor('delete', 'Delete'), sub: widgetText(ctx, 'Select one first. Right-click to remove all'), side: 'right' };
       },
       onClick: () => {
-        for (const id of selectionOf()) draw.remove(id);
+        const sel = selectionOf();
+        if (!allLocked(sel)) for (const id of sel) draw.remove(id);
         refreshControls();
       },
       onContext: () => {
-        const n = draw.drawings().length;
+        // Each count is what the row would act on: an unselectable drawing
+        // never joins a selection and a read-only one survives a clear.
+        const all = draw.drawings();
+        const picked = all.filter((d) => d.policy?.selectable !== false).length;
+        const n = editableIds(draw, all.map((d) => d.id)).length;
         openRailMenu(ctl.trash, [
-          { label: widgetText(ctx, 'Select all ({count})', { count: n }), icon: 'cursor', disabled: n === 0, onSelect: () => {
-            draw.select(draw.drawings().map((d) => d.id));
+          { label: widgetText(ctx, 'Select all ({count})', { count: picked }), icon: 'cursor', disabled: picked === 0, onSelect: () => {
+            draw.select(all.map((d) => d.id));
             refreshControls();
           } },
           { label: widgetText(ctx, 'Remove all drawings ({count})', { count: n }), icon: 'trash', danger: true, disabled: n === 0, onSelect: () => {
@@ -609,15 +635,16 @@ export function mountRail(ctx: WidgetContext, host: HTMLElement, opts: RailOptio
     ctl.undo = makeBtn({
       cls: 'oac-rail__btn--chrome',
       glyphEl: chromeGlyph(doc, 'undo'),
-      tip: () => ({ title: widgetText(ctx, 'Undo'), chord: ctx.keymap.format('Mod+Z'), side: 'right' }),
-      onClick: () => { draw.undo(); refreshControls(); },
+      tip: () => ({ title: widgetText(ctx, 'Undo'), chord: chordFor('undo', 'Mod+Z'), side: 'right' }),
+      onClick: () => { historyPress(ctx, 'undo'); refreshControls(); },
     });
     box.appendChild(ctl.undo);
     ctl.redo = makeBtn({
       cls: 'oac-rail__btn--chrome',
       glyphEl: chromeGlyph(doc, 'redo'),
-      tip: () => ({ title: widgetText(ctx, 'Redo'), chord: ctx.keymap.format('Mod+Y'), side: 'right' }),
-      onClick: () => { draw.redo(); refreshControls(); },
+      // Ctrl+Y while it still redoes, else wherever the listed Redo went.
+      tip: () => ({ title: widgetText(ctx, 'Redo'), chord: chordFor('redo-alt', 'Mod+Y') ?? chordFor('redo', undefined), side: 'right' }),
+      onClick: () => { historyPress(ctx, 'redo'); refreshControls(); },
     });
     box.appendChild(ctl.redo);
     return box;
@@ -644,16 +671,17 @@ export function mountRail(ctx: WidgetContext, host: HTMLElement, opts: RailOptio
     ctl.magnet.dataset.mode = prefs.magnet;
     setState(ctl.stay, { on: prefs.stay, pressed: prefs.stay });
     const sel = selectionOf();
-    const none = sel.length === 0;
+    // A read-only selection has nothing these three could change.
+    const none = editableIds(draw, sel).length === 0;
     const locked = !none && allLocked(sel);
     const hidden = !none && allHidden(sel);
-    setState(ctl.lock, { off: none, on: locked, pressed: locked, glyph: locked ? 'unlock' : 'lock' });
+    setState(ctl.lock, { off: none, on: locked, pressed: locked, glyph: locked ? 'lock' : 'unlock' });
     setState(ctl.eye, { off: none, on: hidden, pressed: hidden, glyph: hidden ? 'eye-off' : 'eye' });
-    setState(ctl.trash, { off: none });
-    setState(ctl.undo, { off: !draw.canUndo() });
-    setState(ctl.redo, { off: !draw.canRedo() });
-    // The accessible name says what the button would do now, not what it
-    // said when it was built or last hovered.
+    setState(ctl.trash, { off: none || locked });
+    setState(ctl.undo, { off: !historyReady(ctx, 'undo') });
+    setState(ctl.redo, { off: !historyReady(ctx, 'redo') });
+    // The accessible name follows the tip now, not what it said when it was
+    // built or last hovered (the trash counts what it deletes).
     for (const b of Object.values(ctl)) ctx.tips.refreshLabel(b);
   };
 
@@ -783,6 +811,8 @@ export function mountRail(ctx: WidgetContext, host: HTMLElement, opts: RailOptio
   for (const ev of ['draw:select', 'drawing:select', 'drawing:change', 'draw:add', 'draw:remove', 'draw:update', 'draw:paste', 'draw:cut']) {
     offs.push(chart.on(ev, refreshControls));
   }
+  // A study, a pane or a setting is a step too, and none of them is a drawing event.
+  if (ctx.history !== undefined) offs.push(ctx.history.subscribe(refreshControls));
 
   applyMagnet();
   applyStay();

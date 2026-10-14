@@ -6,8 +6,56 @@ provider tokens, `formatPrice` formats without changing data, `sessionAt` return
 an `InstrumentSession` (UTC open/close and local opening date), and `applyTo` applies
 timezone, tick, primary price formatting and source context after source guards.
 Date exceptions replace weekly sessions; overnight windows belong to their opening
-date. Crypto can use `0000-0000`. See [instrument rules](../../../../docs/instruments.md)
+date. Crypto can use `0000-0000`. Optional `tickBands` (`TickBand[]`) declare a
+price-dependent tick; `instrument.tickSchedule` is the validated `TickSchedule`,
+or null for a constant tick (one rule, `priceTick`, everywhere). With bands,
+`priceTick` must equal the schedule's `minMove`, the common grid of every band, and
+that is the `minMove` `applyTo` gives the price scale. `applyTo` also hands the
+schedule to the chart (`chart.setTickSchedule`, read with `chart.tickSchedule()`),
+which rounds dragged price alerts and `chart.snapPrice` on the price pane by band,
+and to `chart.trading` (a layer built later starts from it, and a constant-tick
+instrument clears it on a symbol switch); call `chart.setTickSchedule` after
+`applyTo` to override it for the alerts and the order lines together. See [instrument rules](../../../../docs/instruments.md)
 for breaks, DST, validation, quantity units and safe host source transitions.
+
+`sessionFrom(t)` returns the window active at `t`, or else the next one to open
+(about a year of lookahead, null when nothing opens). `SessionCalendar` is the same
+hours without price or quantity rules: `new SessionCalendar({ timezone, sessions,
+exceptions })` (a `SessionCalendarSpec`) validates, detaches and freezes like an
+instrument's calendar, throws `Invalid session calendar: ...`, and reads with
+`sessionAt` and `sessionFrom`. Either one, or any object with `sessionFrom`, is a
+`SessionCalendarSource` for `chart.setSessionCalendar(calendar)`, which sets the
+hours and repaints every pane, so a drawing already past the last bar moves to the
+time it now means (`null` clears). `calendar.applyTo(chart)` on a `SessionCalendar`
+and `Instrument.applyTo` both go through it. `chart.dataLayer.setSessionCalendar(calendar)`
+sets the same and asks for no frame, for a host about to load bars or move the view
+anyway; read either back with the `chart.dataLayer.sessionCalendar` getter. An
+instrument's hours are dropped when the chart's data context moves to another symbol
+or exchange; hours a host set itself stay until it replaces them.
+See [times past the last bar](#times-past-the-last-bar) for what it changes.
+
+`InstrumentCalendar` (and `SessionCalendarSpec`) also take optional `preMarketMinutes`
+and `postMarketMinutes`, whole minutes 0 to 1439 counted back from each trading date's
+first regular opening and on from its last close, so a shortened day, a special session
+and a closed date move them, and `extendedHours`, windows written like `sessions` for
+hours of their own such as an overnight `'2000-0400:12345'` (none on a date the
+exceptions close). `phaseAt(t)` on an `Instrument` or `SessionCalendar` returns a
+`SessionPhase`: `'pre'`, `'regular'`, `'post'`, `'extended'`, `'closed'` or `'holiday'`
+(a date an exception closes although its weekly sessions would open, midnight to
+midnight in the calendar's zone); overlaps resolve regular, then pre, post, extended.
+`phaseSpans(from, to)` returns consecutive `SessionPhaseSpan` objects
+(`{ phase, start, end }`, UTC seconds, end exclusive) over at most 400 days.
+`marketStatusAt(t)` returns a `MarketStatus` (`phase`, `changesAt`, `nextPhase`,
+`opensAt`, `closesAt`, null past a 14-day horizon); the free `marketStatusAt(source, t)`
+does the same for any `SessionPhaseSource`, such as `chart.dataLayer.sessionCalendar` (a
+`SessionCalendarSource` may now carry an optional `phaseSpans`), and returns null when
+there is none. `calendarMarketPhase(source)` is the `MarketPhaseFn` that `PriceLevels`
+takes for its extended-hours levels. Boundaries resolve per date in the calendar's IANA
+zone; nothing changes for a calendar without these fields. A window whose boundary a
+daylight-saving change removes throws on that date, as `sessionAt` does; `phaseAt` then
+throws from the day before to two days after it and a status from about fifteen days
+before to four after, so a readout on a timer catches it. `attachSessionShading` shades
+these phases on the chart: see [primitives-and-plugins](primitives-and-plugins.md).
 
 `OpenAlgoConfig.hasOpenInterest(request)` optionally supplies instrument
 capability to the REST adapter. Explicit false removes the API's placeholder
@@ -95,7 +143,7 @@ Consequences you must design around:
 - **One bar per time, per series, is an invariant.** Times map through a `Set`, so two bars sharing a time resolve to the same x and draw on top of each other. `setData` collapses duplicates keeping the last occurrence in the caller's array (`Array#sort` is stable); `addBars`/`prependData` upsert through a `Map`, so incoming bars win.
 - **Reconnect overlap is safe.** Re-fetch a window that overlaps what you already have and hand it to `prependData`, the merge dedupes by time. No gap arithmetic needed.
 - **Logical indices are not stable across a prepend.** Anything you cached as an index is wrong afterwards. Cache times, not indices.
-- **The axis is gapless, so most x positions have no bar behind them.** `indexToTime(i)` answers only for whole indices that have a bar; `indexToTimeFloat(i)` interpolates between bars and extrapolates past either edge at the nearest bar spacing, and `timeToIndexFloat(t)` is its inverse. Both return `NaN` with no data. `chart.coordinateToTime(x)` / `chart.timeToCoordinate(time)` wrap them.
+- **The axis is gapless, so most x positions have no bar behind them.** `indexToTime(i)` answers only for whole indices that have a bar; `indexToTimeFloat(i)` interpolates between bars and extrapolates past either edge (see below), and `timeToIndexFloat(t)` is its exact inverse. Both return `NaN` with no data. `chart.coordinateToTime(x)` / `chart.timeToCoordinate(time)` wrap them.
 - `visibleBars(id, from, to)` binary-searches into the window, so a repaint costs `O(log n + visible)`, not `O(total)`. Prefer it over scanning `seriesBars(id)` (which returns the live array, treat as read-only).
 
 `DataLayer.update` classifies each live bar and returns the kind, which is what drives the auto-scroll decision:
@@ -105,6 +153,16 @@ Consequences you must design around:
 | `'append'` | Newer than this series' last bar **and** newer than every time on the shared axis. |
 | `'replace'` | Same time as the last bar (intra-bar tick), or any existing time. |
 | `'insert'` | An older time that does not exist yet (late / out-of-order arrival). |
+
+### Times past the last bar
+
+Whole indices right of the last bar are the bar times still to come; drawing anchors, study shapes and linked viewports placed there all go through them.
+
+- **With a session calendar** (`chart.setSessionCalendar(calendar)`, `calendar.applyTo(chart)` for a `SessionCalendar`, `Instrument.applyTo` for an instrument, or `chart.dataLayer.setSessionCalendar(calendar)` where a repaint follows anyway), the bar after a session's last one is the next session's first: Friday's 15:25 is followed by Monday's 09:15, a closed date is skipped, a shortened day ends early and a lunch break is stepped over. Intraday bars keep, in each window, the offset the feed's bars keep from that window's opening, read from the recent bars in windows opening at the same time of day: hourly bars on the clock stay on the clock at a 09:00 morning opening and at 12:00 before a 12:30 afternoon one, and hourly bars stamped 09:00 against a 09:15 open stay on the hour. A window no recent bar sat in (a special session, or an opening a daylight-saving change moved) takes the last bar's offset. Daily bars step through trading dates at the last bar's offset from its opening; weekly and longer bars use the median below.
+- **Without one**, or when the last 64 bars do not sit in its sessions (regular hours against extended-hours data), the axis continues at the lower median of the last 64 bar intervals. Never at the last gap alone: that is the gap most likely to be a night or a weekend. Bars that happen to sit inside hours that are not theirs cannot show it, which is why an instrument's hours leave with its symbol. Left of the first bar the spacing is the first gap.
+- A position between two future bar times interpolates across the closed hours between them, as it does between two loaded bars, and converts back exactly. A calendar that throws (a window in a daylight-saving gap) falls back to the median; it never stops the paint.
+- Generation is lazy and bounded: past 4096 future bars or 512 calendar reads the axis continues at the average pace already generated, so an anchor years ahead stays cheap.
+- Stored drawings keep their times. A host with no calendar still gets the median, which removes the weekend-sized spacing on its own.
 
 ## Infinite history paging
 
@@ -270,24 +328,32 @@ The four cases are the `Bucketing` union from the interval registry, and `TickTi
 
 For interval bars built from an LTP/quote stream, use `CandleBuilder` instead, see [feeds-and-live](feeds-and-live.md).
 
-## Conflation
+## Level of detail (`conflate`)
 
-Off by default. Enabling it changes nothing until bars fall below the pixel threshold.
+On by default. Once bars are narrower than the stick a candle is drawn with, the series pass stops drawing one mark per bar and draws one per device-pixel column instead, so a frame costs the plot's width rather than the number of bars in view: 200,000 bars fitted into a 944 px plot paint about 2,900 marks with candles and volume, against 400,000 bar by bar (`node scripts/bench-pane.mjs`).
 
 ```ts
-const chart = createChart(el, { conflate: true, conflationFactor: 1 });
+// Let the view zoom out past one bar per CSS px; the level of detail keeps it cheap.
+const chart = createChart(el, { timeScale: { minBarSpacing: 0.01 } });
+// Opt out: every bar drawn at every zoom.
+const every = createChart(el, { conflate: false });
 ```
 
 | Option | Default | Effect |
 |---|---|---|
-| `conflate` | `false` | Enables OHLC-preserving downsampling at draw time. |
-| `conflationFactor` | `1` | Aggressiveness multiplier; raise to 2-4 to merge sooner and harder. |
+| `conflate` | `true` | Draw per column below the threshold; `false` draws every bar. |
+| `conflationFactor` | `1` | Column width in sticks; `2` to `4` merge sooner into wider, coarser columns. |
 
-`conflationGroupSize(barSpacing, dpr, minPx = 0.5, factor = 1)` returns `1` while `barSpacing * dpr >= minPx * max(1, factor)`, otherwise `ceil(threshold / widthPx)`. The pane calls it with `minPx = 0.5`.
+- **Threshold.** A candle's column is one stick wide, `max(1, floor(dpr))` device px, times the factor; a line's or a histogram's is one device pixel times the factor. The level of detail engages for every series at once when `barSpacing * dpr` is under a candle's column, which at the default factor is under one CSS px at a whole pixel ratio. At or above it every bar has a column of its own and the frame is exactly what it was without the option. The default time scale floor (`minBarSpacing: 1`) never goes below it, so a chart that keeps the floor draws as before.
+- **Candles, OHLC bars and high-low bars** merge each column into one stick: open from the first bar, close from the last, high and low the column's extremes, volume summed, open interest the last reading, and the colour overrides of the bar that closed the column. Never averaged. The sticks sit on the column grid and tile without overlap; a column holding only whitespace draws nothing.
+- **The HLC area** keeps what lines keep plus each run's highest high and lowest low, with one gap bar per gap, so its close line, band edges and gaps match the full frame.
+- **Lines, steps, areas and baselines** keep real bars: the first, lowest, highest and last of each unbroken run in a column, which cover the pixels the full line covers. A gap stays a gap, kept as one whitespace bar.
+- **Columns and histograms** keep each column's lowest and highest bar, drawn from the base, which cover what every bar in it would.
+- **Any other renderer** (a host's `registerChartType` renderer, even one registered under a built-in name, Point and Figure, Kagi) is drawn in full: it may read fields or neighbours a merge cannot know about.
 
-Merging is lossless for candle shape: open from the first bar, close from the last, high/low from the extremes, volume summed. Never averaged. The merged bar takes the **first** bar's time; `conflateItems` places x at the group centre.
+It is a render-time step only: the DataLayer, `getData()`, indicators, autoscale and the crosshair readout all see every bar.
 
-Conflation is a render-time transform only, the DataLayer, your `getData()`, indicators and autoscale all still see every source bar. What changes is what you see: a group of candles becomes one wider-range candle, so wick counts and per-bar colors no longer correspond 1:1 to your data at extreme zoom-out. The helpers `conflateBars(bars, groupSize)` and `mergeBars(group)` are exported for manual use.
+The fixed-size helpers are exported for a host that downsamples bars itself: `conflationGroupSize(barSpacing, dpr, minPx = 0.5, factor = 1)` returns `1` while `barSpacing * dpr >= minPx * max(1, factor)`, otherwise `ceil(threshold / widthPx)`; `conflateBars(bars, groupSize)` and `mergeBars(group)` merge fixed groups the same OHLC-preserving way (the merged bar takes the **first** bar's time), and `conflateItems` places x at the group centre. The pane does not use them.
 
 ## Related
 

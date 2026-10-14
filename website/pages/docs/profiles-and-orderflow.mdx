@@ -5,6 +5,7 @@ description: Volume Profile, Market Profile (TPO), Footprint and cumulative delt
 
 import RunnableExample from '../../components/RunnableExample'
 import { Callout } from 'nextra/components'
+import { OrderflowDemo } from '../../components/ProfileShowcase'
 
 # Profiles & order flow
 
@@ -90,8 +91,8 @@ isolated ask print flags a buy imbalance more readily. The ladder compares again
 one there, so `imbalanceRatio` still damps it: a print has to reach the ratio outright before
 an empty row counts as beaten. `imbalanceThreshold` is the other knob, and sets the quantity a
 side has to reach before it counts at all. (The exported `diagonalImbalances` compares against
-a bare zero by default — a positive quantity against nothing IS an imbalance for an analytics
-caller reading a sparse ladder — and takes a `minOpposing` argument for the renderer's rule.)
+a bare zero by default, a positive quantity against nothing IS an imbalance for an analytics
+caller reading a sparse ladder, and takes a `minOpposing` argument for the renderer's rule.)
 
 ### What a row says, and what colours it
 
@@ -378,18 +379,11 @@ classification for illustration.
 
 Seven readable, one-minute bars replay a **deterministic NIFTY simulation around 23,800**.
 Executions use a one-point simulation grid and are grouped into **2-point price rows** by
-default. Each simulated execution represents 1–16 lots of 65 quantity units. These are demo settings,
+default. Each simulated execution represents 1 to 16 lots of 65 quantity units. These are demo settings,
 rather than a statement of current exchange contract specifications. This is an illustration,
 not a live market feed. The demo opens paused so you can inspect the numbers before resuming.
 
-<a href="/openalgo-charts/demos/orderflow/index.html?paused=1" target="_blank" rel="noreferrer">Open full-size order-flow demo ↗</a>
-
-<iframe
-  src="/openalgo-charts/demos/orderflow/index.html?paused=1"
-  title="Interactive footprint chart with profile, cluster ladder and heatmap styles"
-  loading="lazy"
-  style={{ width: '100%', height: 660, border: '1px solid #343b46', borderRadius: 8, marginTop: 12 }}
-/>
+<OrderflowDemo />
 
 | Control | What changes |
 | --- | --- |
@@ -509,7 +503,7 @@ highlights and brackets; pass `stackedImbalances: 0` to hide the brackets.
 
 ### Raw quantity and lots
 
-Use **Quantity → Lots** to divide the displayed numbers by **Lot size**, initially `65` in
+Set **Quantity** to **Lots** to divide the displayed numbers by **Lot size**, initially `65` in
 this NIFTY simulation. Edit that positive whole-number setting to compare other divisors,
 or select **Raw** to see the underlying quantities. Try the
 [NIFTY table in lots](/demos/orderflow/index.html?paused=1&table=1&units=lots&lot=65).
@@ -583,11 +577,11 @@ Use the independent `tableRows` option when you want cards and a table together.
 | `bidVolume` | Executed volume at the bid |
 | `deltaPct` | Delta as a percentage of the bar's bid plus ask volume |
 | `cvd` | `cvdOffset` plus cumulative delta across the loaded bars |
-| `trades` | Actual execution count from `tradeCount`; unavailable legacy counts display `—` |
+| `trades` | Actual execution count from `tradeCount`; unavailable legacy counts display `-` |
 
 `footprint.stats()` exposes the same calculations. Its `trades` value is `null` when an older
 manually assembled bar has no count metadata; occupied price levels are not a trade count.
-`minDelta` and `maxDelta` also return `null` and display `—` when legacy bars lack intrabar
+`minDelta` and `maxDelta` also return `null` and display `-` when legacy bars lack intrabar
 extrema. They describe the running execution-by-execution delta path, not the largest or
 smallest price-row delta; aggregated cells alone cannot recover them. Replaying the same
 retained executions with a different price grouping preserves both extrema.

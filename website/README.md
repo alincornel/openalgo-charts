@@ -61,6 +61,11 @@ The 2.2.0 build retains these captures because their renderer/demo source
 fingerprints are unchanged. The gallery shows the current profile implementation;
 the 2.1.1 release notes record when its themes and footprint controls shipped.
 CI and Pages run the profile, depth and drawing checks before publishing the site.
+CI also runs the site design check, which holds the pages and the API reference to
+phone widths (320 and 390 px) without horizontal scrolling. Before it opens a page it
+reads the sources in `pages/` and `components/` and fails on example prices or study
+outputs written as a formula of the bar index (a sine, a ramp, a sawtooth): examples
+draw from the seeded random walk in `components/synthetic-market.ts`.
 
 ## Interactive and API checks
 
@@ -83,6 +88,13 @@ public data endpoint; the feed unit tests run without external requests.
 The depth demo uses simulated updates and the published tick-grouping API.
 The drawing playground exercises the same controller used by applications.
 The homepage, guides and API reference share the site's dark and light palettes.
+A first visit opens in the light theme; the navbar toggle saves the reader's
+choice for later visits. Live examples, the embedded profile and order-flow
+demos, example code and the architecture diagram follow the active theme, so
+host controls in an example take their colours from the page (`light-dark()`)
+or, for anything drawn on the canvas, from the chart's palette rather than a
+fixed dark value. The light diagram is generated from the dark one by
+`scripts/diagram-light.mjs` during the sync step.
 Intro animations respect the visitor's reduced-motion preference.
 
 The homepage chart uses public BTC/USD exchange candles through

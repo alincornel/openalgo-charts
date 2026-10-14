@@ -17,7 +17,8 @@ import {
   atr, sourceValues, sessionStartFlags, DEFAULT_TIMEZONE, isValidTimezone,
 } from 'openalgo-charts';
 import type { Bar, IndicatorDescriptor, IndicatorInput, IndicatorSource } from 'openalgo-charts';
-import { sma, wma, rma, nulls, smaSeededEma, vwma, percentileNearestRank } from './calc';
+import { sma, rma, nulls, smaSeededEma, vwma, percentileNearestRank } from './calc';
+import { emaOfGapped, smoothingMa } from './smoothing';
 
 const num = (s: Readonly<Record<string, unknown>>, k: string, d: number): number => {
   const v = s[k];
@@ -75,26 +76,6 @@ function shift(values: readonly number[], k: number): number[] {
     const j = i - k;
     if (j >= 0 && j < n) out[i] = values[j];
   }
-  return out;
-}
-
-/**
- * `smaSeededEma` over a series that itself opens with a warmup gap. the reference `ema`
- * re-seeds from `sma(src, length)` for as long as its own previous value is
- * `na`, and that SMA stays `na` until the window holds `length` real values, so
- * an EMA chained onto a gapped series starts `length - 1` bars after the inner
- * series does, not at `length - 1`. `smaSeededEma` seeds unconditionally from index 0,
- * where a leading NaN would poison the recursion forever and blank the whole
- * column, so it is only ever shown the live tail and the answer is re-padded.
- */
-function emaOfGapped(values: readonly number[], period: number): number[] {
-  const n = values.length;
-  const out = new Array<number>(n).fill(NaN);
-  let start = 0;
-  while (start < n && !Number.isFinite(values[start])) start += 1;
-  if (start >= n) return out;
-  const tail = smaSeededEma(values.slice(start), period);
-  for (let i = 0; i < tail.length; i++) out[start + i] = tail[i];
   return out;
 }
 
@@ -276,22 +257,6 @@ const MA_TYPE_OPTIONS: readonly { label: string; value: string }[] = [
   { label: 'VWMA', value: 'VWMA' },
 ];
 
-function movingAverage(
-  kind: string,
-  values: readonly number[],
-  vols: readonly number[],
-  length: number,
-): number[] {
-  switch (kind) {
-    case 'EMA': return smaSeededEma(values, length);
-    case 'SMMA (RMA)': return rma(values, length);
-    case 'WMA': return wma(values, length);
-    case 'VWMA': return vwma(values, vols, length);
-    // 'SMA' and, because a settings blob can carry anything, anything else.
-    default: return sma(values, length);
-  }
-}
-
 /**
  * The ribbon's four lanes are configured identically, so the inputs are
  * generated rather than written out four times. `group` puts each lane's five
@@ -345,7 +310,7 @@ export const MA_RIBBON: IndicatorDescriptor = {
         continue;
       }
       const values = sourceValues(bars, src(s, `ma${lane}Source`));
-      out[`ma${lane}`] = nulls(movingAverage(
+      out[`ma${lane}`] = nulls(smoothingMa(
         str(s, `ma${lane}Type`, 'SMA'),
         values,
         vols,
@@ -357,13 +322,18 @@ export const MA_RIBBON: IndicatorDescriptor = {
 };
 
 /**
- * Triple EMA — `3 * (ema1 - ema2) + ema3`, which cancels the lag of a linear
+ * Triple EMA: `3 * ema1 - 3 * ema2 + ema3`, which cancels the lag of a linear
  * trend exactly rather than merely reducing it.
  *
  * Three chained EMAs, each running over a series that is already `na` for its
  * own warmup, so the first printed bar is `3 * length - 3` and not `length - 1`
  * — see `emaOfGapped`. `close` is hard-coded in the reference, so there is no
  * source setting.
+ *
+ * The three terms are added left to right, as the definition writes them, not
+ * regrouped as `3 * (ema1 - ema2) + ema3`: the two round differently in the last
+ * digits, and the grouped form can hide an overflowing term. Any absent term, or
+ * a sum that is not finite, leaves the bar absent (`nulls`).
  */
 export const TEMA: IndicatorDescriptor = {
   id: 'tema',
@@ -384,7 +354,7 @@ export const TEMA: IndicatorDescriptor = {
     const e1 = smaSeededEma(values, length);
     const e2 = emaOfGapped(e1, length);
     const e3 = emaOfGapped(e2, length);
-    return { tema: nulls(e1.map((v, i) => 3 * (v - e2[i]) + e3[i])) };
+    return { tema: nulls(e1.map((v, i) => 3 * v - 3 * e2[i] + e3[i])) };
   },
 };
 
@@ -433,7 +403,11 @@ export const TWAP: IndicatorDescriptor = {
     let count = 0;
     for (let i = 0; i < bars.length; i++) {
       if (restarts !== null && restarts[i]) { sum = 0; count = 0; }
-      sum += values[i];
+      // A bar with no price is a gap: it neither joins the sum nor counts as a
+      // bar, so it costs only its own reading instead of the rest of the session.
+      const value = values[i];
+      if (!Number.isFinite(value)) continue;
+      sum += value;
       count += 1;
       out[i] = sum / count;
     }

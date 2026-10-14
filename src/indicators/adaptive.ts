@@ -12,9 +12,12 @@
  * `atr`, `trueRange`, and the `sourceValues` helper come from the base bundle
  * (`openalgo-charts`), not deep paths. See the note in `src/indicators/index.ts`.
  */
-import { atr, trueRange, sourceValues } from 'openalgo-charts';
+import { atr, trueRange, sourceValues, sourceValue } from 'openalgo-charts';
 import type { IndicatorDescriptor, IndicatorSource } from 'openalgo-charts';
 import { sma, rma, nulls, smaSeededEma, change, roc, rollingSum, linreg } from './calc';
+import { emaOfGapped } from './smoothing';
+import { withTail, machineTail, whole, cell } from './tail';
+import { seeded, smooth, wilder, atrStep, trueRangeAt, meanAt } from './steppers';
 
 const num = (s: Readonly<Record<string, unknown>>, k: string, d: number): number => {
   const v = s[k];
@@ -33,26 +36,6 @@ const flag = (s: Readonly<Record<string, unknown>>, k: string, d: boolean): bool
 };
 const src = (s: Readonly<Record<string, unknown>>, k = 'source'): IndicatorSource =>
   (s[k] as IndicatorSource) ?? 'close';
-
-/**
- * `smaSeededEma` over a series that itself opens with a warmup gap. the reference `ema`
- * re-seeds from `sma(src, length)` for as long as its own previous value is
- * `na`, and that SMA stays `na` until the window holds `length` real values, so
- * an EMA chained onto a gapped series starts `length - 1` bars after the inner
- * series does, not at `length - 1`. `smaSeededEma` seeds unconditionally from index 0,
- * where a leading NaN would poison the recursion forever, so it is only ever
- * shown the live tail and the answer is re-padded back into place.
- */
-function emaOfGapped(values: readonly number[], period: number): number[] {
-  const n = values.length;
-  const out = new Array<number>(n).fill(NaN);
-  let start = 0;
-  while (start < n && !Number.isFinite(values[start])) start += 1;
-  if (start >= n) return out;
-  const tail = smaSeededEma(values.slice(start), period);
-  for (let i = 0; i < tail.length; i++) out[start + i] = tail[i];
-  return out;
-}
 
 /**
  * Kaufman's Adaptive Moving Average: an EMA whose smoothing constant is chosen
@@ -93,10 +76,9 @@ export const KAMA: IndicatorDescriptor = {
     const out = new Array<number>(n).fill(NaN);
     if (n <= erLength) return { kama: nulls(out) };
 
-    // Bar 0 has no predecessor, so its step is unknown. A zero keeps the rolling
-    // sum finite (`rollingSum` cannot recover from a NaN entering the window),
-    // and the sum is never read before index `erLength`, by which point every
-    // term in it is a real bar-to-bar move.
+    // This path calculation treats nonfinite steps, including bar 0's missing
+    // predecessor, as zero contribution. By the first path read, the initial
+    // placeholder has left the rolling window.
     const steps = change(values, 1);
     for (let i = 0; i < n; i++) steps[i] = Number.isFinite(steps[i]) ? Math.abs(steps[i]) : 0;
     const path = rollingSum(steps, erLength);
@@ -141,7 +123,7 @@ const CHANNEL_FILL_OPACITY = 0.05;
  * ignoring gaps entirely. Each has its own warmup, and the plotted band starts at
  * whichever of the rail and the basis is slower.
  */
-export const KELTNER_CHANNEL: IndicatorDescriptor = {
+export const KELTNER_CHANNEL: IndicatorDescriptor = withTail({
   id: 'keltner-channel',
   name: 'Keltner Channels',
   category: 'Volatility',
@@ -206,7 +188,31 @@ export const KELTNER_CHANNEL: IndicatorDescriptor = {
     }
     return { upper: nulls(upper), basis: nulls(basis), lower: nulls(lower) };
   },
-};
+}, (calc) => (bars, s, from, previous, store) => {
+  const length = int(s, 'length', 20);
+  const atrLength = int(s, 'atrlength', 10);
+  if (!whole(length) || !whole(atrLength)) return null;
+  const mult = num(s, 'mult', 2);
+  const source = src(s);
+  const exp = flag(s, 'exp', true);
+  const style = str(s, 'bandsStyle', 'Average True Range');
+  const at = (j: number): number => sourceValue(bars[j], source);
+  return machineTail(calc, `${length}|${atrLength}|${mult}|${source}|${exp}|${style}`, {
+    keys: ['upper', 'basis', 'lower'],
+    start: () => ({ basis: seeded(), range: seeded(), atr: wilder() }),
+    step: (st, i, row) => {
+      const bar = bars[i];
+      const basis = exp ? smooth(st.basis, at(i), length, true) : meanAt(at, i, length);
+      const rail = style === 'True Range' ? trueRangeAt(bars, i)
+        : style === 'Range' ? smooth(st.range, bar.high - bar.low, length, false)
+          : atrStep(st.atr, trueRangeAt(bars, i), atrLength);
+      const offset = rail * mult;
+      row[0] = cell(basis + offset);
+      row[1] = cell(basis);
+      row[2] = cell(basis - offset);
+    },
+  }, bars, from, previous, store);
+});
 
 /**
  * Least Squares Moving Average: the endpoint of a least-squares line fitted over

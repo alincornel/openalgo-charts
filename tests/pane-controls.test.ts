@@ -54,9 +54,12 @@ describe('pane weights', () => {
     expect(chart.paneWeight(1)).toBe(0.8);
     // The DOM flex-basis must equal the pixel height the canvas was sized to —
     // when they diverge, every hit-test lands somewhere other than what's drawn.
+    // The boundary between them sits on a whole pixel (the ratio is 1 here),
+    // and the pane below takes what the one above leaves.
     const total = 1 + 0.8;
-    const expected = (H * 0.8) / total;
+    const expected = H - Math.round(H / total);
     expect(chart.panes()[1].element.style.flex).toBe(`0 0 ${expected}px`);
+    expect(chart.panes()[1].base.mediaHeight).toBe(expected);
   });
 
   it('clamps a non-positive weight instead of collapsing the layout', () => {
@@ -138,7 +141,7 @@ describe('pane legend rows', () => {
     chart.addIndicator('ema'); // onchart → same pane
     expect(symbol.options().row).toBe(0);
     const ema = chart.indicators()[0].legend();
-    expect(ema?.options().row).toBe(1);
+    expect(ema?.options().row).toBe(2); // the persistent study count reserves one row
   });
 
   it('starts indicator legends below a host overlay when legendOffset says so', () => {
@@ -158,7 +161,7 @@ describe('pane legend rows', () => {
     const opts = chart.indicators()[0].legend()?.options();
     expect(opts?.top).toBe(40);
     expect(opts?.left).toBe(14);
-    expect(opts?.row).toBe(0); // still the first row, just lower down
+    expect(opts?.row).toBe(1); // below the count, with the same host overlay offset
   });
 
   it('offsets only the overlaid pane, leaving lower panes at the corner', () => {
@@ -312,6 +315,12 @@ describe('pane removal, ordering, and maximize', () => {
     expect(rsi.paneIndex).toBe(2);
     expect(chart.movePane(0, 1)).toBe(false);  // the price pane is pinned
     expect(chart.movePane(1, -1)).toBe(false); // ...and cannot be displaced
+    // Off either end is refused too. A host that opts in with
+    // `movablePrimaryPane` can move the price pane (primary-pane-reorder.test.ts).
+    expect(chart.movePane(0, -1)).toBe(false);
+    expect(chart.movePane(2, 1)).toBe(false);
+    expect(chart.movePane(1, 2 as unknown as 1)).toBe(false);
+    expect([chart.primaryPaneIndex(), macd.paneIndex, rsi.paneIndex]).toEqual([0, 1, 2]);
   });
 
   it('maximizePane gives one pane the whole chart and hides the rest', () => {
@@ -337,6 +346,9 @@ describe('pane removal, ordering, and maximize', () => {
     expect(chart.maximizedPane()).toBeNull();
     expect(chart.panes().map((p) => p.weight)).toEqual(before);
     expect(chart.panes()[0].element.style.display).toBe('');
+    // Restored, the study pane sits under the price pane again and wears the rule.
+    expect(chart.panes()[1].element.style.borderTopWidth).toBe('1px');
+    expect(chart.panes()[0].element.style.borderTopWidth).toBe('0px');
   });
 
   it('hands the time axis to the maximized pane', () => {

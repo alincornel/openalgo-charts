@@ -43,6 +43,33 @@ Other codes pass through unchanged, including `D`, `W`, `M` and the minute code 
 Non-OK HTTP responses reject the load. A JSON response with `status: 'error'` also
 rejects, using its `message` when present, even when the HTTP status is 200.
 
+## Explicit bar confirmation
+
+Native series accept optional confirmation metadata. Use it when your provider
+knows whether the latest bar is still forming, especially for tick-count or
+volume-driven bars whose close cannot be inferred from a clock.
+
+```ts
+series.setData(bars, { confirmation: 'forming' });
+series.update(latestBar, { confirmation: 'confirmed' });
+series.update(latestBar, { confirmation: 'auto' });
+series.update(correctedBar, { source: 'history' });
+```
+
+`forming` and `confirmed` override interval inference. A confirmation-only update
+is sufficient to recalculate indicators; OHLC values need not change. Same-time
+updates retain an explicit state unless replaced or cleared with `auto`. A new
+tail, replacement dataset, or changed instrument/timeframe clears old metadata.
+Prepending history retains confirmation for an unchanged tail. An older-bar
+correction cannot change the current tail's confirmation.
+
+`setData` is always a historical replacement, even if all timestamps match the
+previous dataset. `update` is live by default; use `source: 'history'` for a
+historical tail correction or append. Updates to older timestamps are historical
+automatically. Replay supplies its own forming/completed state and restores the
+saved data and confirmation when stopped. Historical loads and replay do not
+trigger native live indicator alerts.
+
 ## Realtime (WebSocket)
 
 LTP / Quote / Depth come from the WS adapter. Feed its LTP ticks through a `CandleBuilder`
@@ -91,8 +118,8 @@ larger value, the close stays with the ticks). `DataLoadingController.pushBar(ba
 later ticks. After a reconnect, reseed with `builder.seed(builder.current())` so the
 bucket opened after the gap is provisional too, then refresh.
 
-The WS adapter speaks the documented OpenAlgo protocol (authenticate → numeric-mode subscribe
-→ `market_data`), with connection and control callbacks (`onState` / `onControl`).
+The WS adapter speaks the documented OpenAlgo protocol (authenticate, then a numeric-mode subscribe,
+then `market_data`), with connection and control callbacks (`onState` / `onControl`).
 Market-data frames can carry `symbol` and `exchange` on the top-level envelope with
 prices inside `data`. Non-empty identity fields inside `data` take precedence, followed
 by the envelope fields and then the legacy `topic` fallback.
@@ -138,7 +165,7 @@ new OpenAlgoWsFeed({
 ## All-in-one live feed
 
 `OpenAlgoLiveDataFeed` composes REST history + WebSocket + the candle builder so you get a
-seamless history → live seam from a single object:
+history that joins live data without a seam, from a single object:
 
 ```ts
 import { OpenAlgoLiveDataFeed } from 'openalgo-charts';

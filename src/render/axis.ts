@@ -16,7 +16,7 @@ import type { DataLayer } from '../model/data-layer';
 import { contrastText } from './pill';
 import {
   DEFAULT_TIMEZONE, IST_OFFSET_SECONDS, formatIstDate, formatIstTime, formatIstTimeSeconds,
-  formatZonedDate, formatZonedTime, formatZonedTimeSeconds, isNewIstDay, isNewZonedDay,
+  formatZonedDate, formatZonedTime, formatZonedTimeSeconds, isNewZonedDay,
   isNewZonedMonth, isNewZonedYear, isValidTimezone, utcSecondsToIstParts, zoneOffsetSeconds,
 } from '../feed/time';
 import { roundRectPath } from './pill';
@@ -214,6 +214,20 @@ function survivingTicks(
 }
 
 /**
+ * Whether a tick label centred on `y` fits whole between the strip's top and
+ * `bottom`, in device px. A label is a tag-height band here, as it is to the
+ * collision rule above, so a rung within half a tag of the pane's edge, where
+ * the next pane or the time axis would cut its label in two and leave a
+ * different number, or none, is not labelled. The gridline stays, and so do
+ * its neighbours. Judged on the band rather than on measured ink, so the same
+ * rungs are labelled in every engine and with every font.
+ */
+function tickFits(y: number, bottom: number, dpr: number): boolean {
+  const half = (AXIS_TAG_HEIGHT / 2) * dpr;
+  return y >= half && y <= bottom - half;
+}
+
+/**
  * Draw price tick labels in the right axis strip (bitmap scope).
  *
  * `reserved` lists the bands other labels have already claimed (last price,
@@ -254,7 +268,7 @@ export function drawPriceAxis(
     if (keep !== null && !keep[i]) continue;
     const price = ticks[i];
     const y = Math.round(priceScale.priceToY(price) * dpr);
-    if (y < 0 || y > layout.plotHeight * dpr) continue;
+    if (!tickFits(y, layout.plotHeight * dpr, dpr)) continue;
     ctx.fillText(priceScale.format(price), xStart + 6 * dpr, y);
   }
   ctx.restore();
@@ -299,7 +313,7 @@ export function drawLeftPriceAxis(
     if (keep !== null && !keep[i]) continue;
     const price = ticks[i];
     const y = Math.round(priceScale.priceToY(price) * dpr);
-    if (y < 0 || y > plotHeight * dpr) continue;
+    if (!tickFits(y, plotHeight * dpr, dpr)) continue;
     ctx.fillText(priceScale.format(price), xEdge - 6 * dpr, y);
   }
   ctx.restore();
@@ -335,6 +349,24 @@ function tickMarkBetween(
     : isNewZonedMonth(prevUtcSeconds, utcSeconds, zone) ? 'month'
       : isNewZonedDay(prevUtcSeconds, utcSeconds, zone) ? 'day'
         : clock;
+}
+
+/**
+ * Whether two instants fall on different IST dates, as `isNewIstDay` answers it
+ * but without its two dates and two part objects per call: the time axis asks
+ * for every bar in view on every frame of a pan. IST keeps one offset all
+ * year, so the date is the day count of the shifted instant, taken the way a
+ * `Date` takes it (whole milliseconds, then days); an instant a `Date` cannot
+ * hold is a new day, as it is there.
+ */
+export function isNewIstDayCount(prevUtcSeconds: number, utcSeconds: number): boolean {
+  const a = istDayCount(prevUtcSeconds);
+  return a !== a || a !== istDayCount(utcSeconds);
+}
+
+function istDayCount(utcSeconds: number): number {
+  const ms = Math.trunc((utcSeconds + IST_OFFSET_SECONDS) * 1000);
+  return Math.abs(ms) <= 8.64e15 ? Math.floor(ms / 86_400_000) : NaN;
 }
 
 /**
@@ -399,7 +431,7 @@ export function drawTimeAxis(
   // cannot move, and that they never depend on the host's ICU build.
   const defaultZone = zone === DEFAULT_TIMEZONE;
   const isNewDay = defaultZone
-    ? isNewIstDay
+    ? isNewIstDayCount
     : (prev: number, t: number): boolean => isNewZonedDay(prev, t, zone);
   const dateLabel = defaultZone ? formatIstDate : (t: number): string => formatZonedDate(t, zone);
   const timeLabel = defaultZone ? formatIstTime : (t: number): string => formatZonedTime(t, zone);
@@ -641,18 +673,39 @@ export function lastPriceTagHeight(dpr: number, countdown = false): number {
   return (countdown ? AXIS_TAG_HEIGHT_COUNTDOWN : AXIS_TAG_HEIGHT) * dpr;
 }
 
-/**
- * The current value of one plotted series, as a tag in the price-axis strip.
- *
- * This is the last-price tag's smaller sibling and is deliberately the same
- * shape, because it means the same thing: where this line is right now. What it
- * does not get is the dashed line across the plot, since the series already
- * draws itself all the way to the edge, nor the bar countdown, which belongs to
- * the instrument and not to a study computed from it.
- *
- * The price is formatted by the scale the series maps to, so a tag reads at the
- * same precision as the ticks above and below it.
- */
+/** Shared placement keeps left-axis collision reservations aligned with their tags. */
+export function axisTagY(y: number, plotHeight: number, tagHeight: number, side: 'left' | 'right'): number | null {
+  if (!Number.isFinite(y) || y < 0 || y > plotHeight) return null;
+  if (side === 'right') return y;
+  if (plotHeight < tagHeight) return null;
+  return Math.max(tagHeight / 2, Math.min(plotHeight - tagHeight / 2, y));
+}
+
+/** Fit left labels inside their existing column without changing right-axis geometry. */
+function fillLeftTag(
+  ctx: CanvasRenderingContext2D, y: number, height: number,
+  rows: readonly { text: string; font: string; offset: number }[],
+  layout: PlotLayout, dpr: number, fill: string, text: string,
+): void {
+  const available = Math.round(layout.plotLeft * dpr) - 1;
+  if (!(available > 0)) return;
+  const pad = Math.min(6 * dpr, available / 4);
+  const widths = rows.map(row => { ctx.font = row.font; return ctx.measureText(row.text).width; });
+  const width = Math.min(available, Math.max(...widths) + pad * 2);
+  const x = -1 - width;
+  ctx.fillStyle = fill;
+  ctx.fillRect(x, y - height / 2, width, height);
+  ctx.fillStyle = text;
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const size = Number(/(^|[^\d.])(\d{1,5}(?:\.\d{1,4})?)px/.exec(row.font)?.[2]);
+    const heightFactor = size > 0 ? (height / rows.length - 2 * dpr) / size : 1;
+    const widthFactor = widths[i] > 0 ? (width - pad * 2) / widths[i] : 1;
+    ctx.font = scaleFont(row.font, Math.min(1, widthFactor, heightFactor));
+    ctx.fillText(row.text, x + pad, y + row.offset);
+  }
+}
+
 /**
  * One filled tag in the axis strip, sized to its own text. Shared by the
  * last-price tag and the per-series ones so the two cannot drift apart in
@@ -670,6 +723,18 @@ function fillTag(
   ctx.fillText(label, xStart + 1 + padX, y);
 }
 
+/**
+ * The current value of one plotted series, as a tag in the price-axis strip.
+ *
+ * This is the last-price tag's smaller sibling and is deliberately the same
+ * shape, because it means the same thing: where this line is right now. What it
+ * does not get is the dashed line across the plot, since the series already
+ * draws itself all the way to the edge, nor the bar countdown, which belongs to
+ * the instrument and not to a study computed from it.
+ *
+ * The price is formatted by the scale the series maps to, so a tag reads at the
+ * same precision as the ticks above and below it.
+ */
 export function drawSeriesValueTag(
   ctx: CanvasRenderingContext2D,
   priceScale: PriceScale,
@@ -678,16 +743,22 @@ export function drawSeriesValueTag(
   layout: PlotLayout,
   dpr: number,
   style: AxisStyle = DEFAULT_AXIS_STYLE,
+  side: 'left' | 'right' = 'right',
 ): void {
   if (!Number.isFinite(price)) return;
-  const y = Math.round(priceScale.priceToY(price) * dpr);
-  if (y < 0 || y > layout.plotHeight * dpr) return;
+  const y = axisTagY(Math.round(priceScale.priceToY(price) * dpr), layout.plotHeight * dpr, lastPriceTagHeight(dpr), side);
+  if (y === null) return;
   ctx.save();
   ctx.font = scaleFont(style.font, dpr);
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  fillTag(ctx, Math.round(layout.plotWidth * dpr), y, lastPriceTagHeight(dpr), 6 * dpr,
-    priceScale.format(price), fill, contrastText(fill));
+  if (side === 'left') {
+    fillLeftTag(ctx, y, lastPriceTagHeight(dpr), [{ text: priceScale.format(price), font: ctx.font, offset: 0 }],
+      layout, dpr, fill, contrastText(fill));
+  } else {
+    fillTag(ctx, Math.round(layout.plotWidth * dpr), y, lastPriceTagHeight(dpr), 6 * dpr,
+      priceScale.format(price), fill, contrastText(fill));
+  }
   ctx.restore();
 }
 
@@ -703,6 +774,7 @@ export function drawLastPriceLabel(
   showLine = true,
   showTag = true,
   countdown?: BarCountdownOptions,
+  side: 'left' | 'right' = 'right',
   /**
    * Where the dashed line begins, in device px. Defaults to the left edge,
    * which is the classic full-width reading; a host that wants the line to
@@ -713,7 +785,7 @@ export function drawLastPriceLabel(
 ): void {
   if (!showLine && !showTag) return;
   const y = Math.round(priceScale.priceToY(price) * dpr);
-  if (y < 0 || y > layout.plotHeight * dpr) return;
+  if (!Number.isFinite(y) || y < 0 || y > layout.plotHeight * dpr) return;
   const color = up ? colors.up : colors.down;
   const xStart = Math.round(layout.plotWidth * dpr);
 
@@ -733,7 +805,7 @@ export function drawLastPriceLabel(
   }
 
   if (showTag) {
-    // filled price tag on the right axis
+    // The price line stays at the quoted value when an edge tag is shifted to fit.
     const label = priceScale.format(price);
     const withCountdown = countdown !== undefined && countdown.visible === true;
     const priceFont = scaleFont(style.font, dpr);
@@ -742,7 +814,17 @@ export function drawLastPriceLabel(
     const boxH = lastPriceTagHeight(dpr, withCountdown);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    if (!withCountdown) {
+    if (side === 'left') {
+      const tagY = axisTagY(y, layout.plotHeight * dpr, boxH, side);
+      if (tagY !== null) {
+        const rows = [{ text: label, font: priceFont, offset: withCountdown ? -boxH / 4 : 0 }];
+        if (withCountdown) rows.push({
+          text: formatCountdown(barCountdownSeconds(countdown.lastBarTime, countdown.intervalSec, countdown.now())),
+          font: scaleFont(style.font, dpr * 0.9), offset: boxH / 4,
+        });
+        fillLeftTag(ctx, tagY, boxH, rows, layout, dpr, color, colors.text);
+      }
+    } else if (!withCountdown) {
       fillTag(ctx, xStart, y, boxH, padX, label, color, colors.text);
     } else {
       const clock = formatCountdown(

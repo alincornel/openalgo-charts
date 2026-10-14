@@ -68,7 +68,8 @@ Import only what you use. Each tier is a separate entry point, so a feature you 
 | `openalgo-charts/widget` | `createWidget`: the chart with a top bar, drawing rail, responsive mobile controls, status line, settings and indicator dialogs, drawing properties, event details, right-click menu, keymap and optional persistence. The only tier that ships DOM; imports the draw tier itself | 51.50 kB |
 | `openalgo-charts/workspace` | Portable workspace/template documents, asynchronous catalog repository and atomic IndexedDB adapter; no UI or market data | 6 kB |
 
-Limits are the CI-enforced budgets in `.size-limit.json`. This reference targets 2.5.2.
+Limits are the CI-enforced budgets in `.size-limit.json`. This reference targets 2.5.10; a
+section marked (unreleased) is on the main branch only and is not in that release.
 In a source checkout, run `npm run size` before quoting byte counts. In a consumer app,
 check the installed version and measure its actual imports with the app's bundler.
 Reference measurements and every budget row live in [bundling-and-tiers](references/bundling-and-tiers.md).
@@ -129,12 +130,13 @@ Detailed reference for each topic is in `references/`. Read the one that matches
 | [drawing-tools](references/drawing-tools.md) | The 87 tools, `DrawingController`, anchors, magnet, undo, copy/cut/paste and the clipboard payload, persistence, shortcuts, custom tools |
 | [primitives-and-plugins](references/primitives-and-plugins.md) | `IPrimitive`, z-order, hit-testing, the dpr contract, built-in primitives including the `PriceLevels` reference-level family, `registerChartType` |
 | [replay-and-compare](references/replay-and-compare.md) | `ReplayController` and its transport events, `addComparison`, the overlay-scale mechanism, timestamp alignment |
-| [chart-linking](references/chart-linking.md) | `createLinkGroup`, the sync-by-instant rule, `followerIndex` / `followerRange`, the linked crosshair, host-driven symbol sync, appearance adapters and `DrawingLinkGroup` |
+| [chart-linking](references/chart-linking.md) | `createLinkGroup`, the sync-by-instant rule, `followerIndex` / `followerRange`, the linked crosshair, host-driven symbol, interval and chart type sync, appearance adapters, the drawings channel over `DrawingLinkGroup`, and saved link groups (`WorkspaceSync`) |
 | [settings-and-menus](references/settings-and-menus.md) | `chartSettingsSchema` and its round trip, the five tabs, the `colorPair` row, the timezone control, canvas options (grid, crosshair, scales, margins), status-line switches, the `contextmenu` event and the price-axis menu |
 | [trading](references/trading.md) | The data-driven on-chart trading layer, `trading:*` events, order/position/bracket lines |
 | [trade-tier](references/trade-tier.md) | `OrderEngine`, order state machine, validation, analyzer mode, DOM ladder, broker adapters |
 | [profiles-and-orderflow](references/profiles-and-orderflow.md) | Volume Profile, Market Profile (TPO), Footprint, cumulative delta, the trade-data dependency |
 | [react-integration](references/react-integration.md) | React and Next.js lifecycle, keeping orchestration out of React, SSR, resize |
+| [vue-integration](references/vue-integration.md) | Vue 3 composable and component, keeping the chart out of `ref()`/`reactive()`, props to data, KeepAlive, Nuxt |
 | [bundling-and-tiers](references/bundling-and-tiers.md) | Entry points, registry identity, tree-shaking, script/ESM/import-map loading, size budget |
 | [widget](references/widget.md) | `createWidget` and the widget tier: options, the handle, events, the context every dialog is handed, the keymap scopes, the tokens, every exported mount and helper, packaging |
 | [workspaces](references/workspaces.md) | Portable multi-chart workspaces, indicator templates, async catalog transactions, account namespaces and atomic browser storage |
@@ -169,7 +171,7 @@ Detailed reference for each topic is in `references/`. Read the one that matches
 | Custom overlay | primitive vs chart type | `IPrimitive` + `addPrimitive` | a custom chart type for decoration |
 | Bar-by-bar replay | `ReplayController` | headless controller + host transport bar; indicators rebuild from the prefix | a second chart, or slicing data by hand |
 | Two symbols on one chart | `addComparison` | hidden overlay scale + a rebasing pane mode | a second series on the same price axis |
-| A grid of charts moving together | `createLinkGroup` | independent cursor, viewport, symbol, interval and appearance channels; drawing links in the draw tier; everything syncs by **time**, never by logical index | copying `getVisibleLogicalRange()` between charts |
+| A grid of charts moving together | `createLinkGroup` | independent cursor, viewport, symbol, interval, chart type, appearance and drawings channels (drawings moved by the draw tier's `DrawingLinkGroup`); everything syncs by **time**, never by logical index | copying `getVisibleLogicalRange()` between charts |
 | Linked crosshair shows the wrong bar | the index-to-time conversion | `followerIndex(target.dataLayer, time, whenMissing)` | assuming index N is the same instant on both charts |
 | Port a study that reads a higher timeframe, draws ahead of the last bar, or compares against another symbol | [coverage additions (2.4.0)](references/indicators.md#coverage-additions-240) | `securitySeries`, `plot.offset`, `ctx.requestBars` with `chart.setBarsProvider`, `IndicatorInputError` | folding bars by hand, emitting future times into the axis, or fetching a benchmark from inside `calc` |
 | Slaving the symbol across charts | who owns the instrument | the host emits `'symbol'` / calls `setSymbol`, each member gets an `onSymbol` loader | expecting the engine to know what a symbol is |
@@ -185,7 +187,9 @@ Detailed reference for each topic is in `references/`. Read the one that matches
 | A level or axis row with no data | `available(kind)`, `state.active` | render it disabled with its state visible | hiding the control |
 | Corner clock, bar-close countdown | `ChartOptions.axisChrome` | `{ sessionClock: true, barCountdown: true }`, plus a `clock` for a delayed feed | a DOM overlay positioned over the axis |
 | Named multi-chart layouts and templates | [workspaces](references/workspaces.md) | `WorkspaceRepository` plus a storage adapter; each pane carries `getState()` | treating a single chart snapshot as the whole host workspace |
+| Watchlists with live prices, or symbol news | [widget](references/widget.md#watchlist-and-news-panels-255), [workspaces](references/workspaces.md#named-watchlists-255) | `WatchlistRepository` plus a `QuoteFeed` and a `NewsFeed`, as the widget's `watchlist` and `news` options | pricing a row from the last candle, or rendering provider text as HTML |
 | React lifecycle | where the chart instance lives | create in an effect, hold in a ref, `chart.destroy()` on cleanup | chart instance in state |
+| Vue lifecycle, or replay and picks misbehaving in a Vue app | is the chart in `ref()` or `reactive()` | `shallowRef` or `markRaw`, create in `onMounted`, `destroy()` in `onBeforeUnmount`; see [vue-integration](references/vue-integration.md) | `ref(chart)`, which hands back a proxy the library does not recognise as its chart |
 | Bundle size | which tiers are imported | drop the unused tier import | code-splitting the base |
 
 ## Core API cheat sheet
@@ -272,7 +276,7 @@ draw.clipboard().lastError();
 
 // reference levels (a primitive: previous close, session high/low, bid/ask, ...)
 const levels = new PriceLevels({ levels: { previousClose: { line: true, label: true } } });
-chart.addPrimitive(levels, 0);
+chart.addPrimitive(levels);   // the price pane, wherever it sits
 levels.setLevel(kind, patch) / levels.setQuote(q) / levels.values() / levels.available(kind);
 computePriceLevels({ bars, anchorTime });   // the same numbers, pure, no canvas
 ```
@@ -284,7 +288,7 @@ computePriceLevels({ bars, anchorTime });   // the same numbers, pure, no canvas
 - **Verify option names against local typings before writing them.** Many similarly named options exist at chart, series, pane and scale level. Confirm which level owns the option.
 - **Minimal snippets.** One feature per code block. Combining an indicator, a drawing tool and a trading line in one snippet hides which API does what.
 - **Import from the package entry or a published tier specifier.** Never a deep path.
-- **Match the user's host.** A React user wants the effect lifecycle; a vanilla user does not; a no-bundler user needs the standalone build.
+- **Match the user's host.** A React user wants the effect lifecycle; a Vue user wants the composable with a `shallowRef`; a vanilla user wants neither; a no-bundler user needs the standalone build.
 - **State which tier a feature needs** whenever the answer uses one.
 - **Do not invent.** If a name does not appear in the installed typings or upstream source, it does not exist.
 

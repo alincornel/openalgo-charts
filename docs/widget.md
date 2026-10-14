@@ -109,14 +109,93 @@ Dialogs fit the actual widget container, including a 350px pane on a wide page.
 Tabs adapt to a horizontal row, fields wrap and content scrolls inside the dialog
 while its actions remain reachable.
 
+## Watchlist and news panels
+
+The panel dock can carry two more panels beside Data and Objects: a Watchlist of
+named lists with quote rows, and a News reader for the chart's instrument. Each is
+optional, and its tab, top bar button and mobile More entry appear only when the host
+supplies its source. Both need `panels` on. Added in 2.5.5.
+
+```ts
+import { createWidget } from 'openalgo-charts/widget';
+import { WatchlistRepository, createIndexedDbWatchlistStorage } from 'openalgo-charts/workspace';
+
+const widget = createWidget('#chart', {
+  feed, symbol: 'INFY', exchange: 'NSE',
+  watchlist: { store: new WatchlistRepository(createIndexedDbWatchlistStorage(indexedDB), 'user-42'), quotes },
+  news: { feed: newsFeed, pageSize: 20 },
+});
+widget.openWatchlist(); // false without a watchlist source, with panels off, or after destroy()
+widget.openNews();
+```
+
+- **Prices come only from a `QuoteFeed`.** `quotes.getQuotes({ instruments, signal })`
+  answers snapshots, and the optional `subscribeQuotes(instruments, { onQuote,
+  onStatus })` streams them. The panel never reads the chart's bars: without a quote
+  source every row shows its symbol and `n/a`. Change figures come from the provider's
+  `previousClose`.
+- **Only rows on screen hold a stream.** Rows subscribe one instrument per call as
+  they scroll into view and release as they leave; a list switch, a hidden page,
+  closing or switching the panel and `destroy()` release them all.
+- **Stale is shown, and costs nothing while it lasts.** A quote held while its stream
+  reconnects or disconnects, or a snapshot older than `staleAfterMs` (60 seconds), is
+  shown muted as stale. The panel waits only for the next row that can still age into
+  stale, so a quiet board holds no timer. A source without `subscribeQuotes` is polled
+  every `pollMs` (15 seconds; 0 turns it off) while rows are visible.
+- **Rows name what the widget charts.** Choosing a row calls `setSymbol(symbol,
+  exchange)`, which upper-cases the symbol, so the widget compares and saves entries in
+  that form: a lower-case entry is the chart's own row, and its upper-case twin is
+  refused as already listed.
+- **Sorting holds still, and survives.** Sort by symbol, last, change or percent change
+  from the headers; a third click returns to list order. The sort outlives a panel
+  switch, and with `persist` it is saved with the widget's other preferences. While
+  the pointer or focus is on the rows, prices update in place
+  but rows do not move. Alt+ArrowUp and Alt+ArrowDown reorder a row in list order, one
+  saved move at a time.
+- **News is text.** The `NewsFeed` answers `getNews({ symbol, exchange, cursor, limit,
+  signal })` with `{ items, nextCursor }`. The reader follows the chart's instrument,
+  cancels on a switch, drops repeats across pages and shows every provider string as
+  text. It links an article only for `safeNewsUrl(url)`: absolute http or https
+  without credentials, opened with `rel="noopener noreferrer"`.
+
+A host with its own chrome can mount the same panels into `mountPanelDock` with
+`mountWatchlistPanel(ctx, host, options)` and `mountNewsPanel(ctx, host, options)`;
+the watchlist then takes `onSelect` and an optional `normalize(instrument)` for its
+host's own naming. `WATCHLIST_PANEL_CSS` and `NEWS_PANEL_CSS` are part of the widget
+stylesheet. The DOM-free `QuoteBoard` and `NewsReader` controllers, and
+`quoteChange(quote)`, serve a host that draws its own view. The yfinance reference host
+mounts the panels in both of its pages. See
+[workspaces](./workspaces.md#named-watchlists) for the lists themselves.
+
+## Saved layouts
+
+`createLayoutsController(store, target, options?)` (since 2.5.10) holds one saved layout
+for a widget or a chart grid, DOM-free, over a `WorkspaceStore` from
+`openalgo-charts/workspace` that it takes as a type only. Its target captures and applies
+workspace payloads (`grid.getWorkspace()` and `grid.applyWorkspace(payload)` for a grid),
+and it runs save, save as, rename, delete, open and autosave one at a time with revision
+checks. See [workspaces](./workspaces.md#catalog-transactions-and-storage) and the
+website's Workspaces page for its state and conflict rules.
+
+Since 2.5.10 `createWidget(el, { workspaces })` builds that controller over the widget
+itself (`widget.layouts`) with a Layouts menu in the top bar and the More sheet
+(`widget.openLayouts()`, and `openLayoutsMenu(ctx, controller, anchor?)`, which resolves
+with the menu's handle once the menu has loaded, and rejects when it cannot load or the
+widget was destroyed by then), reopens the active
+layout on load, and offers indicator templates in the picker when the store has
+`planIndicatorTemplateState` (`applyIndicatorTemplate`, `saveIndicatorTemplate`).
+`widgetLayoutTarget(widget)` is the widget's own target.
+
 ## Mobile controls and navigation
 
-Since 2.1.8, `mobile: 'auto'` selects compact controls when the widget container is at
-most 640 CSS px wide or the primary pointer is coarse. Use `'always'` to force them or
-`'never'` to keep desktop controls. The mobile symbol header, interval picker, bottom
-bar and drawing sheets reuse the existing drawing controller, object inventory and
-dialogs. Changing layout retains drawings, selection and undo history; `rail.tools`
-restricts the same tool ids in both layouts.
+`mobile: 'auto'` selects compact controls when the widget container is at most 640 CSS
+px wide, or, with a coarse primary pointer, at most 960 px wide and under 600 px tall
+(a phone on its side); tablets and touch laptops keep the desktop controls. From 2.1.8
+to 2.5.9 any coarse pointer selected them. Use `'always'` to force them or `'never'` to
+keep desktop controls. The mobile symbol header, interval picker, bottom bar and
+drawing sheets reuse the existing drawing controller, object inventory and dialogs.
+Changing layout retains drawings, selection and undo history; `rail.tools` restricts
+the same tool ids in both layouts.
 
 Vertical wheel input zooms time proportionally; dominant horizontal input and Shift-wheel
 pan time. A vertical wheel movement over a visible price axis scales that axis around
@@ -128,6 +207,22 @@ primary data replacement, reset and destruction cancel pending navigation motion
 The widget disables omitted `animZoom` and `animAutoscale` options when the user prefers
 reduced motion; explicit host settings win. A bare `createChart` host manages that
 preference and its own mobile controls. See the [mobile guide and live example](https://marketcalls.github.io/openalgo-charts/docs/mobile/).
+
+## Bottom bar
+
+Since 2.5.10 the widget mounts a 28 px bar under the chart (`bottombar`, default on):
+preset ranges sized in trading sessions (`ranges`, `widget.setRange('1D')`), **Go to**,
+the market status from the chart's session calendar, a clock in the chart's timezone
+that opens a timezone menu, and the Auto, Log and Percent price scale toggles. Go to
+lives in this bar; with `bottombar: false` it is back in the top bar and the status line
+shows the market status. `sessionCalendar` gives the chart its trading hours, and
+`sessionShading` (default on) washes pre-open, post-close and extended-hours bars. The
+phone layout hides the bar and lists its controls in the More sheet. In a chart grid the
+bar is the grid's: `ChartGridOptions.bottombar` (default false) puts one bar under the grid
+for the active chart; see the
+[chart grid](https://marketcalls.github.io/openalgo-charts/docs/chart-grid/). See the
+[bottom bar](https://marketcalls.github.io/openalgo-charts/docs/widget/#bottom-bar) on the
+website.
 
 ## Options
 
@@ -149,17 +244,49 @@ to `createChart` unchanged.
 | `statusline` | `boolean` | The status line under the chart. |
 | `mobile` | `'auto'` \| `'always'` \| `'never'` | Responsive touch controls; default `'auto'`. Observes container width and primary pointer capability. |
 | `indicators` | `boolean` | The Indicators button and picker. Turn it off for a host that manages indicators itself. |
-| `persist` | `boolean` \| `string` | `true` saves the state under the `default` namespace (`oac-widget:default:state`) and restores it on the next `createWidget`; a string names the namespace, for more than one widget per origin. |
-| `storage` | `StorageLike` \| `null` | The store behind `persist`. Default: the page's `localStorage`. |
+| `persist` | `boolean` \| `string` | `true` saves the state under the `default` namespace (`oac-widget:default:state`) and restores it on the next `createWidget`; a string names the namespace, for more than one widget per origin. Since 2.5.10 the state lands when `widget.ready` settles (see [Persistence](#persistence)). |
+| `storage` | `StorageLike` \| `AsyncStorageLike` \| `null` | The store behind `persist`. Default: IndexedDB (since 2.5.10), else the page's `localStorage`. Pass `localStorage` to restore synchronously, as before. |
 | `locale` | `string` | A BCP 47 tag the status line formats numbers with. |
 | `symbolSearch` | `(query) => SymbolMatch[] \| Promise<SymbolMatch[]>` | Called as the user types in the symbol box; the results open as a menu under it. |
 | `lookbackBars` | `number` | Bars per load. Default 500. |
 | `now` | `() => number` | The clock for the load window and the capture filename. Default `Date.now`. |
 | `onOrder` | `(order: OrderRequest) => void` | Order entry from the right-click menu (`{ side, type, price, paneIndex }`). Without it the menu draws no trade rows. |
+| `watchlist` | `WidgetWatchlistOptions` | A docked Watchlist: `store` (a `WatchlistStore`), `quotes?` (a `QuoteFeed`), `staleAfterMs?`, `pollMs?`, `formatPrice?`. See [Watchlist and news panels](#watchlist-and-news-panels). |
+| `news` | `WidgetNewsOptions` | A docked News reader: `feed` (a `NewsFeed`), `pageSize?`, `staleAfterMs?`, `maxItems?`. |
 
 The chrome switches (`rail`, `topbar`, `statusline`, `indicators`) default to on, so a
 bare `createWidget(el)` is the full terminal. `persist` defaults to off: nothing is
 written to storage until you ask.
+
+## Persistence
+
+With `persist` the widget keeps its layout, rail preferences, panels and each
+instrument's drawings in IndexedDB (since 2.5.10; before, `localStorage`). IndexedDB
+answers later, so the widget is built on its defaults, kept out of sight, and asks the
+feed for nothing until the saved layout has been read; then it applies it and loads the
+saved instrument. Await `widget.ready` before reading or editing the restored state:
+
+```ts
+const widget = createWidget(el, { feed, persist: 'desk' });
+await widget.ready;
+widget.symbol();   // the saved symbol
+```
+
+- **Upgrading.** The first visit copies the `oac-widget:<namespace>:` keys an earlier
+  release left in `localStorage` into IndexedDB, once, and leaves them where they were.
+- **Several tabs.** Each write that lands is announced to the other tabs on the
+  database, so a tab opened earlier shows the lines another tab drew since and does not
+  write over them. A hidden tab writes its layout only when it has a change pending.
+- **Unload.** The writes still pending when the page hides or closes are kept in a small
+  `localStorage` journal and written at the next load.
+- **Failures.** A store that cannot be read runs the session on memory; a refused write
+  is sent again with the next change. Both are reported on the status line.
+- **Keeping localStorage.** `storage: localStorage` (or any synchronous `StorageLike`)
+  restores before `createWidget` returns, exactly as before 2.5.10.
+- **Another store.** `createIndexedDbWidgetStorage(indexedDB, 'my-app-charts')` names the
+  database. Any object with `entries(prefix)`, `setItem` and `removeItem` returning
+  promises (`AsyncStorageLike`) works too. An optional `subscribe(listener)` lets the widget
+  follow the changes others make to it.
 
 ## Events
 
@@ -218,6 +345,14 @@ against an implementation detail.
 Everything the UI standard in `CLAUDE.md` asks of a host is already done: styled
 scrollbars, small square swatches, up and down colours on one row, themed checkboxes and
 selects, tab lists with glyphs, dialog furniture in the standard places.
+
+Every glyph comes from the draw tier's icon registry: the rail and its flyouts, the menus
+and dialogs, the chart type menu and button (each type beside its `chart-<type>` glyph, on
+a phone too), and the theme button, a sun on the dark theme and a moon on the light one,
+whose tip and accessible name say the theme a click switches to. Since 2.5.10 no widget
+file draws a picture of its own, so the registry's grid, overlap and crispness checks cover
+all of them. A row of `openMenu` takes an optional `icon`, a chrome icon id, for a host that
+builds its own menu the same way.
 
 ## Extending the rail with your own tools
 
@@ -278,14 +413,39 @@ needed:
 The standalone script (`openalgo-charts.standalone.js`) is base-only and cannot host the
 widget: a tier loaded beside it would import its own second engine.
 
+Some of the widget loads on first use. The shortcuts panel, the Layouts menu, the
+indicator templates list, the chart data dialog, a chart grid's bar and menus, and the
+IndexedDB store a persisting widget reads are not in `openalgo-charts.widget.mjs` but in
+files beside it (`openalgo-charts.widget.<part>-<hash>.mjs`), fetched with `import()`
+the first time they are needed. A part resolves against the tier's own URL, so `dist/`
+or a CDN path needs nothing more, and a bundler splits it the same way. Under a Content
+Security Policy, `script-src` must allow the tier's origin, as it already must for the
+tier itself; a part's rules join the widget's stylesheet and keep its nonce. A part that
+cannot load says so in a toast (the store, on the status line) each time it is asked
+for, and the rest of the widget goes on working; a browser keeps a failed module fetch
+until the page reloads. While a part loads, a control pressed again asks once, the last
+control pressed is the one answered, and a user who has moved on by the time it arrives
+(a press elsewhere, Escape, or typing into another field) is not interrupted by it.
+
+A tier file and its parts must come from the same release, because a part uses the
+tier's internals and those change from build to build. The hash in a part's name is of
+its content, so a new tier file asks for its own parts, never for a copy a cache kept. A
+host serving `dist/` itself should serve the tier files, whose names stay the same from
+release to release, with revalidation (`Cache-Control: no-cache`), and may cache the
+hashed parts for a long time (`max-age=31536000, immutable`). A CDN URL must pin the
+exact version, never a range or no version at all. A `script-src` that lists files
+cannot name a part either: allow the origin, or the directory as a path ending in `/`.
+
 ## Size
 
-Budgets from `.size-limit.json`, Brotli, enforced by `npm run size`:
+Budgets from `.size-limit.json` and measurements from the 2.5.10 build, Brotli, enforced by
+`npm run size`:
 
-| Row | Files | Budget |
-|---|---|---|
-| Widget tier | `openalgo-charts.widget.mjs` | 49.25 kB |
-| Widget terminal | base + draw + indicators + widget | 207.75 kB |
+| Row | Files | Budget | Actual |
+|---|---|---|---|
+| Widget tier | `openalgo-charts.widget.mjs` | 121.36 kB | 121.36 kB |
+| Widget first-use parts | `openalgo-charts.widget.<part>-<hash>.mjs`, seven files | 18.19 kB | 18.19 kB |
+| Widget terminal | base + draw + indicators + widget | 354.46 kB | 354.46 kB |
 
 The widget is a tier because of these rows. A host that never calls `createWidget`
 downloads none of it, and the base engine's own budget is unchanged. Measure, do not
@@ -299,6 +459,9 @@ owns DOM of its own and re-rendering around it is wasted work.
 
 ## Navigation preferences
 
+The widget defaults to 8 CSS pixels per bar. Wider containers show more bars while
+preserving candle width. Set `navigation.defaultBarSpacing` to customize the density;
+the preference survives load, reset and saved layouts. Resize preserves current zoom.
 Pass `navigation: { mousePan: 'both', defaultVisibleBars: 100 }` to
 `createWidget` to open on the latest 100 bars. Axes settings expose both
 preferences and saved widget layouts retain them. The count controls the initial

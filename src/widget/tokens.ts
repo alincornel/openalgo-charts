@@ -14,6 +14,12 @@
  * touches an element, and it only writes `style.setProperty`.
  */
 import type { ChartTheme } from 'openalgo-charts';
+// A pure helper, so importing it by path inlines the one function and nothing
+// else. It reads the canvas module's `Rgba`, which the widget's own `Rgba` below
+// matches field for field. The widget keeps its own declaration because it is
+// published: re-exporting the canvas one would move the reference page and hand
+// the type the pill module's header as its doc comment.
+import { srgbLuminance } from '../render/pill';
 
 /** Every custom property carries this prefix, so a host stylesheet cannot collide with one. */
 export const TOKEN_PREFIX = '--oac-';
@@ -69,15 +75,53 @@ export function formatColor(c: Rgba): string {
   return `rgba(${Math.round(c.r)},${Math.round(c.g)},${Math.round(c.b)},${Math.round(c.a * 1000) / 1000})`;
 }
 
-/** Relative luminance, 0 (black) to 1 (white), on the sRGB curve. */
+/**
+ * Relative luminance, 0 (black) to 1 (white), on the sRGB curve. The canvas
+ * helpers' arithmetic read through this module's parser, so a colour only the
+ * widget can parse (space-separated `rgb()`) still gets a real reading.
+ */
 export function luminance(color: string): number {
   const c = parseColor(color);
-  if (c === null) return 0.5;
-  const lin = (v: number): number => {
-    const s = v / 255;
-    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
-  };
-  return 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b);
+  return c === null ? 0.5 : srgbLuminance(c);
+}
+
+/**
+ * The WCAG contrast ratio of two colours, 1 (none) to 21 (black on white).
+ * Alpha is ignored: a token is read as the colour it is painted in.
+ */
+export function contrastRatio(a: string, b: string): number {
+  const la = luminance(a);
+  const lb = luminance(b);
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+
+/** The WCAG AA minimum for body-size text, which every chrome label is. */
+export const TEXT_CONTRAST = 4.5;
+
+/**
+ * `color` as text on every one of `surfaces`: unchanged when it already reads
+ * at `min` against each, else stepped toward `pole` by the least amount that
+ * does. The least, so a dim role stays as dim as the rule allows and keeps
+ * its place below the brighter ones. A pole that cannot reach `min` gives
+ * the pole itself, the most any colour could do on those surfaces.
+ */
+export function readableOn(color: string, surfaces: readonly string[], pole: string, min = TEXT_CONTRAST): string {
+  const passes = (c: string): boolean => surfaces.every((s) => contrastRatio(c, s) >= min);
+  if (passes(color)) return color;
+  if (!passes(pole)) return pole;
+  let lo = 0;
+  let hi = 1;
+  // Twenty halvings resolve the blend far below one step of an 8-bit channel.
+  for (let i = 0; i < 20; i++) {
+    const mid = (lo + hi) / 2;
+    if (passes(mix(color, pole, mid))) hi = mid; else lo = mid;
+  }
+  // The blend rounds to whole channels, which can land a hair under the line.
+  for (let t = hi; t <= 1; t += 1 / 256) {
+    const c = mix(color, pole, t);
+    if (passes(c)) return c;
+  }
+  return pole;
 }
 
 /** Which of the two modes a theme is, judged from its background. */
@@ -99,7 +143,12 @@ export function mix(a: string, b: string, t: number): string {
   });
 }
 
-/** The colour with its alpha replaced. */
+/**
+ * The colour with its alpha replaced, written as a token value: `#rrggbb` when
+ * opaque, otherwise `rgba()` with the alpha clamped and rounded. Deliberately
+ * not the base package's `withAlpha`, which feeds canvas and always writes
+ * `rgba()` with the alpha as given; callers of each rely on its output.
+ */
 export function withAlpha(color: string, alpha: number): string {
   const c = parseColor(color);
   if (c === null) return color;
@@ -133,20 +182,33 @@ export function widgetTokens(theme: ChartTheme, mode: WidgetThemeName = themeMod
   const step = (t: number): string => mix(bg, pole, t);
   const accent = theme.lineColor;
   const text = mix(theme.axisText, pole, dark ? 0.55 : 0.6);
+  const panel = step(dark ? 0.035 : 0.02);
+  const panel2 = step(dark ? 0.02 : 0.045);
+  const elev = step(dark ? 0.07 : 0.06);
+  const elev2 = step(dark ? 0.11 : 0.1);
+  // Where chrome text rests: the chart, the bars, the rail and a raised
+  // control. A hovered row and the tooltip sit a step higher on `elev-2`, so
+  // text there takes `mut`, which reads on that step as well.
+  const resting = [bg, panel, panel2, elev];
+  const readable = (color: string, on: readonly string[] = resting): string => readableOn(color, on, pole);
   const t: Record<string, string> = {
     bg,
-    panel: step(dark ? 0.035 : 0.02),
-    'panel-2': step(dark ? 0.02 : 0.045),
-    elev: step(dark ? 0.07 : 0.06),
-    'elev-2': step(dark ? 0.11 : 0.1),
+    panel,
+    'panel-2': panel2,
+    elev,
+    'elev-2': elev2,
     'elev-3': step(dark ? 0.18 : 0.16),
     bd: theme.axisLine,
     'bd-soft': theme.paneSeparator,
     'bd-hover': mix(theme.axisLine, pole, 0.25),
     tx: text,
     'tx-strong': mix(text, pole, 0.5),
-    mut: theme.axisText,
-    faint: mix(theme.axisText, bg, 0.4),
+    // The axis colour is the host's; as panel text it has to read on every
+    // step, the hovered one included.
+    mut: readable(theme.axisText, [...resting, elev2]),
+    // Dimmer than `mut`, but only as far as the text contrast minimum allows:
+    // hints, chords and section heads are read, not decoration.
+    faint: readable(mix(theme.axisText, bg, 0.4)),
     acc: accent,
     'acc-2': mix(accent, pole, dark ? 0.2 : 0.1),
     'on-bg': withAlpha(accent, 0.16),
@@ -155,8 +217,12 @@ export function widgetTokens(theme: ChartTheme, mode: WidgetThemeName = themeMod
     'ring-soft': withAlpha(accent, 0.2),
     buy: theme.upColor,
     sell: theme.downColor,
-    amber: dark ? '#e6b53c' : '#b8860b',
-    danger: mix(theme.downColor, pole, dark ? 0.3 : 0.1),
+    // The candle pair as text (a change, a watchlist move): a light theme's
+    // green is a fill colour and too pale to read at label size.
+    up: readable(theme.upColor),
+    down: readable(theme.downColor),
+    amber: readable(dark ? '#e6b53c' : '#b8860b'),
+    danger: readable(mix(theme.downColor, pole, dark ? 0.3 : 0.1), [...resting, elev2]),
     scrim: dark ? 'rgba(6,8,12,0.55)' : 'rgba(24,30,40,0.38)',
     shadow: dark ? '0 14px 40px rgba(0,0,0,0.55)' : '0 14px 40px rgba(24,32,48,0.16)',
     'sb-thumb': step(dark ? 0.16 : 0.2),

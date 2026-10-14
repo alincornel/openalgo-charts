@@ -267,7 +267,7 @@ describe('magnet and stay', () => {
 
   it('stay is a mode the toggle owns; the double-click hold is separate and Escape clears only the hold', () => {
     const d = setup();
-    const stay = railButtons(page).find((b) => b.getAttribute('aria-label') === 'Keep tool armed');
+    const stay = railButtons(page).find((b) => b.getAttribute('aria-label') === 'Keep tool active');
     expect(stayMode()).toBe(false);
     clickOn(stay);
     expect(stayMode()).toBe(true);
@@ -284,7 +284,7 @@ describe('magnet and stay', () => {
     clickOn(groupButton(page, 'lines'), { detail: 2 });
     expect(d.state.opts.stayInDrawingMode).toBe(true);
     expect(groupButton(page, 'lines').classList.contains('is-held')).toBe(true);
-    expect(page.status.textContent).toMatch(/stays armed/);
+    expect(page.status.textContent).toMatch(/stays active until Escape/);
     setDrawLock(false);
     expect(d.state.opts.stayInDrawingMode).toBe(false);
     expect(groupButton(page, 'lines').classList.contains('is-held')).toBe(false);
@@ -312,6 +312,50 @@ describe('magnet and stay', () => {
   });
 });
 
+describe('the eraser and the ruler', () => {
+  /** The fake controller, with the eraser and the ruler the rail reads. */
+  const withGestures = (d) => {
+    d.state.erasing = false;
+    d.state.measuring = false;
+    d.erasing = () => d.state.erasing;
+    d.measuring = () => d.state.measuring;
+    d.setEraser = (on) => { d.state.erasing = on; d.calls.push(['setEraser', on]); app.chart.emit('draw:eraser', { active: on }); };
+    return d;
+  };
+
+  it('the eraser button turns the mode on and off, and the cursor button stands against it', () => {
+    const d = withGestures(setup());
+    buildRail();
+    const eraser = page.rail.querySelector('.rail__btn--eraser');
+    const cursor = toolButtons(page)[0];
+    expect(eraser.getAttribute('aria-pressed')).toBe('false');
+    expect(cursor.getAttribute('aria-pressed')).toBe('true');
+    clickOn(eraser);
+    expect(names(d.calls, 'setEraser')).toEqual([['setEraser', true]]);
+    expect(eraser.getAttribute('aria-pressed')).toBe('true');
+    expect(eraser.classList.contains('is-on')).toBe(true);
+    expect(cursor.getAttribute('aria-pressed')).toBe('false');
+    clickOn(eraser);
+    expect(d.state.erasing).toBe(false);
+    expect(eraser.getAttribute('aria-pressed')).toBe('false');
+    expect(cursor.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('Escape reaches cancel() while the eraser or a ruler is up, and not otherwise', () => {
+    const d = withGestures(setup());
+    d.state.erasing = true;
+    pressKey('Escape');
+    expect(names(d.calls, 'cancel')).toHaveLength(1);
+    d.state.erasing = false;
+    d.state.measuring = true;
+    pressKey('Escape');
+    expect(names(d.calls, 'cancel')).toHaveLength(2);
+    d.state.measuring = false;
+    pressKey('Escape');
+    expect(names(d.calls, 'cancel')).toHaveLength(2);
+  });
+});
+
 describe('selection controls', () => {
   const byLabel = (label) => railButtons(page).find((b) => b.getAttribute('aria-label') === label);
 
@@ -336,10 +380,12 @@ describe('selection controls', () => {
     expect(names(d.calls, 'update')).toEqual([['update', 'a', { locked: true }], ['update', 'b', { locked: true }]]);
     expect(lock.getAttribute('aria-pressed')).toBe('true');
     expect(useIds(lock)).toHaveLength(0);   // chrome glyphs are inline, not sprite
-    expect(lock.dataset.glyph).toBe('unlock');
+    // The closed padlock while locked, as every other surface shows it; one name throughout.
+    expect(lock.dataset.glyph).toBe('lock');
+    expect(lock.getAttribute('aria-label')).toBe('Lock drawing');
     clickOn(lock);
     expect(names(d.calls, 'update').pop()).toEqual(['update', 'b', { locked: false }]);
-    expect(lock.dataset.glyph).toBe('lock');
+    expect(lock.dataset.glyph).toBe('unlock');
 
     clickOn(eye);
     expect(names(d.calls, 'update').pop()).toEqual(['update', 'b', { visible: false }]);
@@ -391,6 +437,48 @@ describe('selection controls', () => {
     page.doc.body.querySelectorAll('.rail-menu button')[1].dispatchEvent(new FakeEvent('click'));
     expect(names(d.calls, 'clear')).toHaveLength(1);
     expect(page.status.textContent).toBe('removed 3 drawings');
+  });
+
+  it('turns lock, eye and trash off for a read-only selection and counts only what each row reaches', () => {
+    const d = setup();
+    d.state.drawings = [
+      { id: 'fixed', policy: { editable: false } },
+      { id: 'ghost', policy: { selectable: false } },
+      { id: 'mine' },
+    ];
+    d.select(['fixed']);
+    app.chart.emit('drawing:select', { ids: ['fixed'] });
+    const [lock, eye, trash] = ['Lock drawing', 'Hide drawing', 'Delete drawing'].map(byLabel);
+    for (const b of [lock, eye, trash]) expect(b.classList.contains('is-off')).toBe(true);
+    trash.dispatchEvent(new FakeEvent('contextmenu'));
+    const rows = page.doc.body.querySelectorAll('.rail-menu button');
+    expect(rows.map((r) => r.textContent)).toEqual(['Select all (2)', 'Remove all drawings (2)']);
+    rows[1].dispatchEvent(new FakeEvent('click'));
+    expect(page.status.textContent).toBe('removed 2 drawings');
+  });
+
+  it('selects only the drawings on the chart at its interval, and still removes them all', () => {
+    const d = setup();
+    d.state.drawings = [{ id: 'a' }, { id: 'intraday', intervals: { to: '1h' } }, { id: 'c' }];
+    // On daily bars the intraday level is not drawn: Select all must not
+    // pick it, or the delete that follows would take a drawing no one sees.
+    d.hiddenOnInterval = () => ['intraday'];
+    const trash = byLabel('Delete drawing');
+    trash.dispatchEvent(new FakeEvent('contextmenu'));
+    const rows = page.doc.body.querySelectorAll('.rail-menu button');
+    expect(rows.map((r) => r.textContent)).toEqual(['Select all (2)', 'Remove all drawings (3)']);
+    rows[0].dispatchEvent(new FakeEvent('click'));
+    expect(names(d.calls, 'select').pop()).toEqual(['select', ['a', 'c']]);
+  });
+
+  it('counts only what the trash deletes in a selection that mixes read-only and editable drawings', () => {
+    const d = setup();
+    d.state.drawings = [{ id: 'fixed', policy: { editable: false } }, { id: 'a' }, { id: 'b' }];
+    d.select(['fixed', 'a', 'b']);
+    app.chart.emit('drawing:select', { ids: ['fixed', 'a', 'b'] });
+    const trash = byLabel('Delete 2 drawings');
+    expect(trash).toBeDefined();
+    expect(trash.classList.contains('is-off')).toBe(false);
   });
 });
 
@@ -549,6 +637,33 @@ describe('tooltips', () => {
     vi.advanceTimersByTime(TIP_DWELL_MS);
     expect(tip.textContent).toContain('Magnet: weak');
     expect(magnet.getAttribute('aria-label')).toBe('Magnet: weak');
+    vi.useRealTimers();
+  });
+
+  it('say active, never armed, for the stay mode and the double-click hold', () => {
+    vi.useFakeTimers();
+    setup();
+    const said = [];
+    const tipText = (b) => {
+      pointer('pointerenter', b);
+      vi.advanceTimersByTime(TIP_DWELL_MS);
+      const text = page.doc.body.querySelector('.rail-tip').textContent;
+      pointer('pointerleave', b);
+      said.push(text);
+      return text;
+    };
+    const stay = railButtons(page).find((b) => (b.getAttribute('aria-label') || '').startsWith('Keep tool'));
+    expect(tipText(stay)).toContain('Keep tool active');
+    expect(tipText(groupButton(page, 'lines'))).toContain('Double-click keeps it active');
+    setStayMode(true);
+    said.push(page.status.textContent);
+    expect(page.status.textContent).toBe('tools stay active after each drawing');
+    expect(tipText(stay)).toContain('On: the tool stays active after each drawing');
+    setStayMode(false);
+    clickOn(groupButton(page, 'lines'), { detail: 2 });
+    said.push(page.status.textContent);
+    for (const text of said) expect(text).not.toMatch(/arm(ed|ing|s)?/i);
+    setDrawLock(false);
     vi.useRealTimers();
   });
 

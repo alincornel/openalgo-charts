@@ -2,11 +2,12 @@ import {
   getDrawingTool, hasDrawingTool, drawingShortcuts, matchDrawingShortcut, keyToDrawingAction,
   iconSprite, toolCursor, DRAWING_TOOL_ICONS, BUILTIN_DRAWING_TOOLS,
 } from '/dist/openalgo-charts.draw.mjs';
-import { el, inTextField } from './ui.js';
+import { el, inTextField, MOD } from './ui.js';
 import {
   RAIL_FLYOUT_CSS, toolGlyph, chromeGlyph, attachRailTip, hideRailTip, refreshTipLabel,
   openFlyout, closeFlyout, flyoutOpen, flyoutEl, openRailMenu, closeRailMenu, railMenuOpen,
 } from './rail-flyout.js';
+import { historyPress, historyReady, initHistory, onHistoryChange } from './history.js';
 
 let app;
 
@@ -181,6 +182,7 @@ export function focusChart(pane) {
 }
 const eachDraw = (fn) => { for (const d of [app.draw, app.draw2]) if (d) fn(d); };
 const mobileObserved = new WeakSet();
+const navigationObserved = new WeakSet();
 const selectionOf = (d) => {
   if (!d) return [];
   if (typeof d.selection === 'function') return d.selection().slice();
@@ -197,6 +199,26 @@ const selectionOf = (d) => {
 export function armCursor(box, tool) {
   if (tool && DRAWING_TOOL_ICONS[tool]) box.style.setProperty('--tool-cursor', toolCursor(tool));
   else box.style.removeProperty('--tool-cursor');
+}
+
+// ── eraser ─────────────────────────────────────────────────────────────
+/**
+ * The eraser's glyph, on the chrome grid in the chrome stroke: a tilted
+ * block over the line it wipes. The tier ships no eraser glyph, so the rail
+ * draws its own, inline like the tier's.
+ */
+const ERASER_GLYPH = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16" fill="none" '
+  + 'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+  + '<path d="M9 2.5l4.5 4.5-6 6H4.5L2.5 11zM5.75 5.75l4.5 4.5M9.5 14h4"/></svg>';
+
+const erasing = () => Boolean(app.draw && typeof app.draw.erasing === 'function' && app.draw.erasing());
+
+/** Eraser mode on the active chart's controller, or off. The controller disarms any tool. */
+export function setEraser(on) {
+  if (!app.draw || typeof app.draw.setEraser !== 'function') return;
+  setDrawLock(false);
+  app.draw.setEraser(on === true);
+  syncRail(app.draw.activeTool());
 }
 
 // ── magnet and stay ────────────────────────────────────────────────────
@@ -225,9 +247,9 @@ export function cycleMagnet() {
   setMagnetMode(next);
   const status = el('status');
   if (status) {
-    status.textContent = next === 'off' ? 'magnet off'
-      : next === 'weak' ? 'magnet weak: snaps when O/H/L/C is within a few pixels'
-      : 'magnet strong: every anchor lands on the nearest O/H/L/C';
+    status.textContent = next === 'off' ? `magnet off · hold ${MOD} to snap while placing or dragging`
+      : next === 'weak' ? 'magnet weak: snaps when a bar or study value is within a few pixels'
+      : 'magnet strong: every anchor lands on the nearest bar or study value';
   }
 }
 
@@ -247,7 +269,7 @@ export function setStayMode(on) {
   applyStay();
   refreshControls();
   const status = el('status');
-  if (status) status.textContent = prefs.stay ? 'tools stay armed after each drawing' : 'one drawing per pick';
+  if (status) status.textContent = prefs.stay ? 'tools stay active after each drawing' : 'one drawing per pick';
 }
 
 /**
@@ -362,7 +384,7 @@ function hold(tool) {
   setDrawLock(true);
   arm(tool);
   const status = el('status');
-  if (status) status.textContent = `${toolName(tool)} stays armed until Escape`;
+  if (status) status.textContent = `${toolName(tool)} stays active until Escape`;
 }
 
 function groupButton(g) {
@@ -373,7 +395,7 @@ function groupButton(g) {
     tip: () => ({
       title: toolName(lastOf(g)),
       chord: chordOf(lastOf(g)),
-      sub: g.title + ': chevron for the rest' + (prefs.stay ? '' : '. Double-click keeps it armed'),
+      sub: g.title + ': chevron for the rest' + (prefs.stay ? '' : '. Double-click keeps it active'),
       side: 'right',
     }),
     onClick: (e) => {
@@ -434,21 +456,35 @@ function controlsBlock() {
     glyph: toolGlyph('magnet'),
     tip: () => ({
       title: 'Magnet: ' + prefs.magnet,
-      sub: prefs.magnet === 'off' ? 'Click for weak: snaps when O/H/L/C is within a few pixels'
-        : prefs.magnet === 'weak' ? 'Click for strong: every anchor lands on the nearest O/H/L/C'
-        : 'Click to switch the magnet off',
+      sub: (prefs.magnet === 'off' ? 'Click for weak: snaps when a bar or study value is within a few pixels'
+        : prefs.magnet === 'weak' ? 'Click for strong: every anchor lands on the nearest bar or study value'
+        : 'Click to switch the magnet off') + `. Hold ${MOD} for a strong snap while placing or dragging`,
       side: 'right',
     }),
     onClick: cycleMagnet,
   });
   box.appendChild(ctl.magnet);
 
+  ctl.eraser = makeBtn({
+    cls: 'rail__btn--chrome rail__btn--eraser',
+    glyph: ERASER_GLYPH,
+    tip: () => ({
+      title: erasing() ? 'Eraser: on' : 'Eraser',
+      chord: erasing() ? 'Esc' : undefined,
+      sub: erasing() ? 'Click or drag across drawings to delete them. Click to stop'
+        : 'Click, then click or drag across drawings to delete them',
+      side: 'right',
+    }),
+    onClick: () => setEraser(!erasing()),
+  });
+  box.appendChild(ctl.eraser);
+
   ctl.stay = makeBtn({
     cls: 'rail__btn--chrome',
     glyph: chromeGlyph('link'),
     tip: () => ({
-      title: 'Keep tool armed',
-      sub: prefs.stay ? 'On: the tool stays armed after each drawing' : 'Off: one drawing per pick',
+      title: 'Keep tool active',
+      sub: prefs.stay ? 'On: the tool stays active after each drawing' : 'Off: one drawing per pick',
       side: 'right',
     }),
     onClick: () => setStayMode(!prefs.stay),
@@ -458,11 +494,12 @@ function controlsBlock() {
 
   ctl.lock = makeBtn({
     cls: 'rail__btn--chrome',
-    glyph: chromeGlyph('lock'),
+    glyph: chromeGlyph('unlock'),
     tip: () => {
       const sel = selectionOf(app.draw);
-      if (!sel.length) return { title: 'Lock drawing', sub: 'Select a drawing first', side: 'right' };
-      return { title: allLocked(sel) ? 'Unlock drawing' : 'Lock drawing', side: 'right' };
+      // One name; the pressed state and the glyph say locked. A disabled
+      // button says why it is off.
+      return { title: 'Lock drawing', sub: !sel.length ? 'Select a drawing first' : readOnlySub(sel), side: 'right' };
     },
     onClick: () => {
       const sel = selectionOf(app.draw);
@@ -478,10 +515,8 @@ function controlsBlock() {
     glyph: chromeGlyph('eye'),
     tip: () => {
       const sel = selectionOf(app.draw);
-      if (!sel.length) return { title: 'Hide drawing', sub: 'Select a drawing first', side: 'right' };
-      return allHidden(sel)
-        ? { title: 'Show drawing', side: 'right' }
-        : { title: 'Hide drawing', sub: 'Stays selected, so the eye brings it back', side: 'right' };
+      return { title: 'Hide drawing', side: 'right', sub: !sel.length ? 'Select a drawing first'
+        : readOnlySub(sel) ?? (allHidden(sel) ? undefined : 'Stays selected, so the eye brings it back') };
     },
     onClick: () => {
       const sel = selectionOf(app.draw);
@@ -497,8 +532,10 @@ function controlsBlock() {
     glyph: chromeGlyph('trash'),
     tip: () => {
       const sel = selectionOf(app.draw);
+      // The count is what the press deletes: read-only drawings stay.
+      const n = sel.filter((id) => isEditable(app.draw.get(id))).length;
       return sel.length
-        ? { title: sel.length > 1 ? `Delete ${sel.length} drawings` : 'Delete drawing', chord: 'Del', sub: 'Right-click to remove all', side: 'right' }
+        ? { title: n > 1 ? `Delete ${n} drawings` : 'Delete drawing', chord: 'Del', sub: readOnlySub(sel) ?? 'Right-click to remove all', side: 'right' }
         : { title: 'Delete drawing', chord: 'Del', sub: 'Select one first. Right-click to remove all', side: 'right' };
     },
     onClick: () => {
@@ -507,10 +544,19 @@ function controlsBlock() {
     },
     onContext: () => {
       if (!app.draw) return;
-      const n = app.draw.drawings().length;
+      // Each count is what its row reaches: an unselectable drawing never
+      // joins a selection, and a read-only one survives a clear. Select all
+      // takes only what is on the chart: a drawing whose interval range hides
+      // it here would otherwise go with the delete that follows, unseen.
+      // Remove all is every drawing, as its count says.
+      const all = app.draw.drawings();
+      const off = new Set(app.draw.hiddenOnInterval?.() ?? []);
+      const onChart = all.filter((d) => !off.has(d.id));
+      const picked = onChart.filter((d) => d.policy?.selectable !== false).length;
+      const n = all.filter(isEditable).length;
       openRailMenu(ctl.trash, [
-        { label: `Select all (${n})`, icon: 'cursor', disabled: n === 0, onSelect: () => {
-          app.draw.select(app.draw.drawings().map((d) => d.id));
+        { label: `Select all (${picked})`, icon: 'cursor', disabled: picked === 0, onSelect: () => {
+          app.draw.select(onChart.map((d) => d.id));
           refreshControls();
         } },
         { label: `Remove all drawings (${n})`, icon: 'trash', danger: true, disabled: n === 0, onSelect: () => {
@@ -528,20 +574,25 @@ function controlsBlock() {
   ctl.undo = makeBtn({
     cls: 'rail__btn--chrome',
     glyph: chromeGlyph('undo'),
-    tip: () => ({ title: 'Undo', chord: 'Ctrl+Z', side: 'right' }),
-    onClick: () => { app.draw.undo(); refreshControls(); },
+    tip: () => ({ title: 'Undo', chord: `${MOD}+Z`, side: 'right' }),
+    // The main chart's whole timeline: a study or a pane, not only a drawing.
+    onClick: () => { historyPress('undo', 1); refreshControls(); },
   });
   box.appendChild(ctl.undo);
   ctl.redo = makeBtn({
     cls: 'rail__btn--chrome',
     glyph: chromeGlyph('redo'),
-    tip: () => ({ title: 'Redo', chord: 'Ctrl+Y', side: 'right' }),
-    onClick: () => { app.draw.redo(); refreshControls(); },
+    tip: () => ({ title: 'Redo', chord: `${MOD}+Y`, side: 'right' }),
+    onClick: () => { historyPress('redo', 1); refreshControls(); },
   });
   box.appendChild(ctl.redo);
   return box;
 }
 
+/** Whether the user may edit `d`: a drawing whose policy says otherwise is the host's. */
+const isEditable = (d) => !!d && d.policy?.editable !== false;
+/** The sub line of a control that is off because nothing selected may be edited. */
+const readOnlySub = (ids) => (ids.some((id) => isEditable(app.draw.get(id))) ? undefined : 'Read-only');
 const allLocked = (ids) => ids.length > 0 && ids.every((id) => { const d = app.draw.get(id); return d && d.locked === true; });
 const allHidden = (ids) => ids.length > 0 && ids.every((id) => { const d = app.draw.get(id); return d && d.visible === false; });
 
@@ -564,18 +615,20 @@ export function refreshControls() {
   setState(ctl.magnet, { on: prefs.magnet === 'strong', pressed: prefs.magnet !== 'off' });
   ctl.magnet.classList.toggle('is-weak', prefs.magnet === 'weak');
   ctl.magnet.dataset.mode = prefs.magnet;
+  setState(ctl.eraser, { on: erasing(), pressed: erasing() });
   setState(ctl.stay, { on: prefs.stay, pressed: prefs.stay });
   const sel = d ? selectionOf(d) : [];
-  const none = sel.length === 0;
+  // A read-only selection leaves these three nothing they could change.
+  const none = !sel.some((id) => isEditable(d.get(id)));
   const locked = !none && allLocked(sel);
   const hidden = !none && allHidden(sel);
-  setState(ctl.lock, { off: none, on: locked, pressed: locked, glyph: locked ? 'unlock' : 'lock' });
+  setState(ctl.lock, { off: none, on: locked, pressed: locked, glyph: locked ? 'lock' : 'unlock' });
   setState(ctl.eye, { off: none, on: hidden, pressed: hidden, glyph: hidden ? 'eye-off' : 'eye' });
   setState(ctl.trash, { off: none });
-  setState(ctl.undo, { off: !d || !d.canUndo() });
-  setState(ctl.redo, { off: !d || !d.canRedo() });
-  // The accessible name says what the button would do now, not what it
-  // said when it was built or last hovered.
+  setState(ctl.undo, { off: !historyReady('undo', 1) });
+  setState(ctl.redo, { off: !historyReady('redo', 1) });
+  // The accessible name follows the tip now, not what it said when it was
+  // built or last hovered (the trash counts what it deletes).
   for (const b of Object.values(ctl)) refreshTipLabel(b);
 }
 
@@ -649,6 +702,8 @@ function observe() {
     for (const ev of ['drawing:select', 'draw:select', 'drawing:change', 'draw:add', 'draw:remove', 'draw:update', 'draw:paste', 'draw:cut']) {
       c.on(ev, refreshControls);
     }
+    // The eraser is a mode the cursor button stands against, so both follow it.
+    c.on('draw:eraser', () => syncRail(app.draw ? app.draw.activeTool() : null));
     // The properties bar listens to the chart too, and the old chart is
     // gone: hand it the new one here, where the rebuild is first noticed.
     if (propertiesBar && typeof propertiesBar.attach === 'function') propertiesBar.attach();
@@ -662,7 +717,8 @@ export function syncRail(tool) {
   let armed = null;
   for (const b of rail.querySelectorAll('.rail__tool')) {
     const tools = (b.dataset.tools || '').split(',').filter(Boolean);
-    const on = tool === null ? tools.length === 0 : tools.includes(tool);
+    // The cursor is the mode with no tool armed and no eraser.
+    const on = tool === null ? tools.length === 0 && !erasing() : tools.includes(tool);
     b.classList.toggle('is-on', on);
     b.classList.toggle('is-held', on && latch && tools.length > 0);
     b.setAttribute('aria-pressed', String(on));
@@ -761,7 +817,9 @@ function onGlobalKey(e) {
     hasSelection: d.selected() !== null,
     hasTarget: typeof d.hovered === 'function' && d.hovered() !== null,
     editingText: false,
-    placing: d.activeTool() !== null,
+    // A ruler or the eraser takes Escape the way a tool being placed does.
+    placing: d.activeTool() !== null || (typeof d.measuring === 'function' && d.measuring())
+      || (typeof d.erasing === 'function' && d.erasing()),
   });
   if (!action) {
     // The focused chart's alert is a fallback only after drawing ownership.
@@ -782,8 +840,9 @@ function onGlobalKey(e) {
     return h ? [h] : [];
   };
   switch (action.type) {
-    case 'undo': d.undo(); break;
-    case 'redo': d.redo(); break;
+    // The focused chart's timeline, which holds its drawings with everything else.
+    case 'undo': historyPress('undo', d === app.draw2 ? 2 : 1); break;
+    case 'redo': historyPress('redo', d === app.draw2 ? 2 : 1); break;
     case 'delete': for (const id of targets()) d.remove(id); break;
     case 'duplicate': if (typeof d.duplicate === 'function') d.duplicate(targets()); break;
     case 'nudge': if (typeof d.nudge === 'function') d.nudge(targets(), action.dx, action.dy); break;
@@ -830,12 +889,15 @@ export function openTextDialog(id) {
  */
 export function initRail(a, opts = {}) {
   app = a;
+  initHistory(a);
   loadPrefs();
   const rail = el('rail');
   if (typeof opts.mountPropertiesBar === 'function') {
     propertiesBar = opts.mountPropertiesBar(app, rail ? rail.parentElement : document.body) || null;
   }
   ensureChrome();
+  // A study or a pane changes what Undo would do without any drawing event.
+  onHistoryChange(refreshControls);
   window.addEventListener('keydown', onGlobalKey, true);
   const closeAll = () => { closeFlyout(); closeRailMenu(); hideRailTip(); };
   window.addEventListener('blur', closeAll);
@@ -855,6 +917,7 @@ export function initRail(a, opts = {}) {
 export function zoomVisibleRange(chart, factor) {
   if (!chart || typeof chart.getVisibleLogicalRange !== 'function'
       || typeof chart.setVisibleLogicalRange !== 'function'
+      || chart.navigationOptions?.().zoomEnabled === false
       || !Number.isFinite(factor) || factor <= 0) return false;
   const range = chart.getVisibleLogicalRange();
   if (!range || !Number.isFinite(range.from) || !Number.isFinite(range.to) || range.to <= range.from) return false;
@@ -869,26 +932,44 @@ export function zoomVisibleRange(chart, factor) {
   return true;
 }
 
+/** Update buttons in place so policy changes do not close an open toolbar dialog. */
+export function syncNavigationControls() {
+  if (!app) return;
+  const allowed = chart => Boolean(chart && chart.isDestroyed !== true && chart.navigationOptions?.().zoomEnabled !== false);
+  const selected = allowed(activeChart());
+  for (const id of ['mobile-zoom-in', 'mobile-zoom-out', 'mobile-fit', 'toolbar-fit', 'fit']) {
+    const control = el(id);
+    if (!control) continue;
+    control.disabled = !(id === 'fit' ? allowed(app.chart) : selected);
+    control.setAttribute('aria-disabled', String(control.disabled));
+  }
+}
+
 /** Keep the compact picker and stateful controls aligned with the shared host state. */
 export function syncMobileControls(tool) {
+  syncNavigationControls();
   const picker = el('mobile-draw');
   if (picker) picker.value = tool || '';
   const magnet = el('mobile-magnet');
   if (magnet) {
     const mode = magnetMode();
-    magnet.textContent = 'Magnet ' + mode;
+    magnet.textContent = 'Magnet: ' + mode;
     magnet.setAttribute('aria-pressed', String(mode !== 'off'));
   }
-  const draw = activeDraw();
   const undo = el('mobile-undo');
   const redo = el('mobile-redo');
-  if (undo) undo.disabled = !draw || (typeof draw.canUndo === 'function' && !draw.canUndo());
-  if (redo) redo.disabled = !draw || (typeof draw.canRedo === 'function' && !draw.canRedo());
+  if (undo) undo.disabled = !historyReady('undo');
+  if (redo) redo.disabled = !historyReady('redo');
 }
 
 /** Follow history changes regardless of whether they came from touch, keyboard or another host control. */
 export function observeMobileControls(chart, draw) {
-  if (!chart || !draw || typeof chart.on !== 'function' || mobileObserved.has(chart)) return;
+  if (!chart || typeof chart.on !== 'function') return;
+  if (!navigationObserved.has(chart)) {
+    navigationObserved.add(chart);
+    for (const event of ['objects:change', 'state:restore:end', 'destroy']) chart.on(event, syncNavigationControls);
+  }
+  if (!draw || mobileObserved.has(chart)) return;
   mobileObserved.add(chart);
   for (const event of ['drawing:select', 'draw:select', 'drawing:change', 'draw:add', 'draw:remove', 'draw:update', 'draw:paste', 'draw:cut']) {
     chart.on(event, () => {
@@ -909,6 +990,7 @@ function setMobileTool(tool) {
 /** Wire the host-owned touch bar to the same controllers and actions as the desktop chrome. */
 export function initMobile(a) {
   app = a;
+  initHistory(a);
   const picker = el('mobile-draw');
   if (!picker) return;
   picker.innerHTML = '';
@@ -925,12 +1007,13 @@ export function initMobile(a) {
 
   picker.addEventListener('change', () => setMobileTool(picker.value));
   el('mobile-cursor').addEventListener('click', () => setMobileTool(null));
-  el('mobile-undo').addEventListener('click', () => { const draw = activeDraw(); if (draw) draw.undo(); syncMobileControls(draw?.activeTool()); });
-  el('mobile-redo').addEventListener('click', () => { const draw = activeDraw(); if (draw) draw.redo(); syncMobileControls(draw?.activeTool()); });
+  el('mobile-undo').addEventListener('click', () => { historyPress('undo'); syncMobileControls(activeDraw()?.activeTool()); });
+  el('mobile-redo').addEventListener('click', () => { historyPress('redo'); syncMobileControls(activeDraw()?.activeTool()); });
+  onHistoryChange(() => syncMobileControls(activeDraw()?.activeTool()));
   el('mobile-magnet').addEventListener('click', () => { cycleMagnet(); syncMobileControls(activeDraw()?.activeTool()); });
   el('mobile-zoom-out').addEventListener('click', () => zoomVisibleRange(activeChart(), 1.25));
   el('mobile-zoom-in').addEventListener('click', () => zoomVisibleRange(activeChart(), 0.8));
-  el('mobile-fit').addEventListener('click', () => { const chart = activeChart(); if (chart) chart.resetScale(); });
+  el('mobile-fit').addEventListener('click', () => { const chart = activeChart(); if (chart && chart.navigationOptions?.().zoomEnabled !== false) chart.resetScale(); });
 
   el('mobilebar').addEventListener('pointerdown', (event) => event.stopPropagation());
   for (const [id, pane] of [['chart', 1], ['chart2', 2]]) {
@@ -960,15 +1043,15 @@ export const RAIL_CSS = `
   cursor: pointer; transition: background .1s, color .1s, border-color .1s; }
 .rail .rail__btn:hover { background: var(--elev); color: var(--tx); }
 .rail .rail__btn:focus-visible { outline: 2px solid var(--acc-2); outline-offset: -2px; }
-.rail .rail__btn.is-on { background: rgba(34,193,164,.16); border-color: #1d6b5e; color: var(--acc-2); }
+.rail .rail__btn.is-on { background: var(--on-bg); border-color: var(--on-bd); color: var(--acc-2); }
 .rail .rail__btn.is-weak { color: var(--acc-2); }
 .rail .rail__btn.is-off { color: var(--faint); cursor: default; }
 .rail .rail__btn.is-off:hover { background: transparent; color: var(--faint); }
-.rail .rail__btn--danger:not(.is-off):hover { color: #ff8b8b; }
+.rail .rail__btn--danger:not(.is-off):hover { color: var(--danger-tx); }
 .rail .rail__glyph { display: grid; place-items: center; width: 24px; height: 24px; line-height: 0; }
 .rail .rail__glyph > svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2;
   stroke-linecap: round; stroke-linejoin: round; }
-.rail .rail__btn--chrome .rail__glyph > svg { width: 16px; height: 16px; stroke-width: 1.5; }
+.rail .rail__btn--chrome .rail__glyph > svg { width: 16px; height: 16px; stroke-width: 2; }
 .rail .rail__chev { position: absolute; right: 0; bottom: 0; width: 13px; height: 13px; display: grid;
   place-items: center; border-radius: 5px 0 6px 0; color: var(--mut); opacity: 0; transition: opacity .1s, background .1s; }
 .rail .rail__chev > svg { width: 9px; height: 9px; fill: none; stroke: currentColor; stroke-width: 2.2;
@@ -984,7 +1067,7 @@ export const RAIL_CSS = `
 .rail .rail__sep { width: 22px; height: 1px; background: var(--bd-soft); margin: 4px 0; flex: none; }
 .rail .rail__favs { display: contents; }
 .rail .rail__ctl { margin-top: auto; position: sticky; bottom: 0; display: flex; flex-direction: column;
-  align-items: center; gap: 2px; width: 100%; padding: 4px 0 6px; background: #0c0f16;
+  align-items: center; gap: 2px; width: 100%; padding: 4px 0 6px; background: var(--panel-2);
   border-top: 1px solid var(--bd-soft); flex: none; }
 .rail .rail__ctl .rail__sep { margin: 3px 0; }
 @media (prefers-reduced-motion: reduce) { .rail .rail__btn, .rail .rail__chev { transition: none; } }

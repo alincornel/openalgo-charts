@@ -101,7 +101,9 @@ describe('IndicatorFill on a long history', () => {
     fill.setPoints(points);
     const { ctx, rec } = makeCtx();
     fill.draw(ctx, rcFor(700, 2)); // index 10, the band's top, is off screen
-    const translate = rec.ops.find((op) => op.type === 'translate');
-    expect(translate?.args).toEqual([0, 100 - 95]);
+    // Upstream 2.5.x builds the gradient on the price axis itself rather than
+    // translating a unit one, so its top is where the band's top is anchored.
+    const gradient = rec.ops.find((op) => op.type === 'createLinearGradient');
+    expect(gradient?.args[1]).toBe(100 - 95);
   });
 });

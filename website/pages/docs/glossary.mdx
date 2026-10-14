@@ -167,8 +167,9 @@ See also: [Series and Styling](/docs/series-and-styling)
 ### Pane
 
 A horizontally-stacked chart area that owns one price scale and a set of series and
-primitives. Pane 0 is the main price pane; pane 1, 2, and so on are created automatically
-when you pass `paneIndex: 1` (or higher) to `addSeries`. All panes share the same time
+primitives. The price pane is pane 0, unless a chart built with `movablePrimaryPane` lets
+it move below its studies (`primaryPaneIndex()` says where); pane 1, 2, and so on are created
+automatically when you pass `paneIndex: 1` (or higher) to `addSeries`. All panes share the same time
 axis and scroll together. The price pane takes full weight; sub-panes default to 32% of
 the chart height.
 
@@ -279,10 +280,11 @@ See also: [Core Concepts](/docs/core-concepts), [Data Loading](/docs/data-loadin
 
 ### Conflation
 
-An optional OHLC-preserving downsampling step activated when bars become sub-pixel wide
-at high zoom-out. Groups of consecutive bars are merged into one: open = first open,
-close = last close, high = max high, low = min low, volume = sum. This is strictly
-lossless for candle shape and never averages prices. Enabled via `ChartOptions.conflate`.
+The chart's level of detail: an OHLC-preserving step that engages when bars become narrower
+than about one CSS px at high zoom-out. The bars sharing a device-pixel column are drawn as
+one stick: open = first open, close = last close, high = max high, low = min low, volume =
+sum. It never averages prices, and data, indicators and autoscale still see every bar. On by
+default; `ChartOptions.conflate: false` turns it off.
 
 See also: [Core Concepts](/docs/core-concepts)
 
@@ -707,7 +709,7 @@ See also: [Live Data](/docs/live-data), [Data Feeds](/docs/data-feeds)
 
 A `TradeFeed` implementation that calls the OpenAlgo REST order-management endpoints and
 subscribes to live order and position updates via the API. Maps broker order objects to
-`TradingOrder` and `TradingPosition` records via `mapOrder` and `mapPosition`.
+`TradingOrder` and `TradingPosition` records, decoding each order row with `decodeOrder`.
 
 See also: [Trading API](/docs/trading-api), [Data Feeds](/docs/data-feeds)
 

@@ -2,8 +2,10 @@ import type { Bar } from '../model/bar';
 import type { BarsRequest, DataFeed, LiveBarMeta, UnsubscribeFn } from './types';
 import { type HistoryRequestPool, sharedHistoryRequests, withHistoryDeadline } from './request-pool';
 import { tryResolveInterval } from './intervals';
+import { dataVariantError, normalizeDataVariant, unsupportedDataVariant, type DataVariantDimension } from './data-variant';
 
-export type DataLoadingStatus = 'idle' | 'loading' | 'ready' | 'empty' | 'refreshing' | 'stale' | 'error';
+/** `unsupported`: the provider does not declare the requested variant, so nothing was fetched. */
+export type DataLoadingStatus = 'idle' | 'loading' | 'ready' | 'empty' | 'refreshing' | 'stale' | 'error' | 'unsupported';
 export type HistoryLoadingStatus = 'idle' | 'loading' | 'error' | 'exhausted' | 'limited';
 export type DataUpdateReason = 'load' | 'cache' | 'live' | 'refresh' | 'prepend' | 'resume' | 'state';
 
@@ -18,6 +20,8 @@ export interface DataLoadingSnapshot {
   readonly historyError?: Error;
   readonly reason: DataUpdateReason;
   readonly paused: boolean;
+  /** With status `unsupported`: the first field of the request's variant the provider does not serve. */
+  readonly unsupported?: DataVariantDimension;
 }
 
 export interface DataLoadingOptions {
@@ -135,6 +139,12 @@ export class DataLoadingController {
   private _poll: ReturnType<typeof setTimeout> | null = null;
   private _visible = true;
   private _destroyed = false;
+  /**
+   * Whether the provider has said it serves the current request's variant, or
+   * the request names none. Until it has, nothing fetches, refreshes or pages
+   * that variant: a declaration that failed is not a declaration.
+   */
+  private _declared = true;
   /** Seconds per bar of the current request, null when the interval is not fixed-length. */
   private _seconds: number | null = null;
   /** Bucket whose open is only the first tick a builder saw, until history covers it. */
@@ -188,8 +198,17 @@ export class DataLoadingController {
     this._provisionalTime = null;
     const found = tryResolveInterval(req.interval);
     this._seconds = found?.bucketing.mode === 'interval' ? found.bucketing.seconds : null;
-    const request = { ...req, signal: undefined, timeoutMs: req.timeoutMs ?? this._options.timeoutMs };
+    const request: BarsRequest = { ...req, signal: undefined, timeoutMs: req.timeoutMs ?? this._options.timeoutMs };
+    // The default variant is no variant at all, so a request naming `{}` keys,
+    // shares and fetches exactly like one that names nothing. A malformed one
+    // is left for `_load` to report.
+    try {
+      const variant = normalizeDataVariant(req.variant);
+      if (variant) request.variant = variant;
+      else delete request.variant;
+    } catch { /* reported by _load */ }
     this._state = { request, bars: [], status: 'loading', historyStatus: 'idle', hasMore: null, reason: 'load', paused: false };
+    this._declared = request.variant === undefined;
     let complete!: (bars: readonly Bar[]) => void;
     const work = new Promise<readonly Bar[]>(resolve => { complete = resolve; });
     this._loadWork = work;
@@ -206,6 +225,21 @@ export class DataLoadingController {
     callerSignal?.addEventListener('abort', abort, { once: true });
     if (callerSignal?.aborted) scope.abort();
     try {
+      if (req.variant !== undefined) {
+        // Ask before the cache or the network: a variant the provider never
+        // declared is not fetched and relabelled, it is reported. A malformed
+        // one throws below, which is reported as an error.
+        const declared = this._feed.dataVariants;
+        const capabilities = declared === undefined ? undefined : await withHistoryDeadline({ signal: scope.signal, timeoutMs: req.timeoutMs },
+          signal => Promise.resolve(declared.call(this._feed, { symbol: req.symbol, exchange: req.exchange, interval: req.interval, signal })));
+        if (!this._current(generation)) return this._bars;
+        const unsupported = unsupportedDataVariant(capabilities, req.variant);
+        if (unsupported !== null) {
+          this._publish('state', { status: 'unsupported', unsupported, error: dataVariantError(unsupported, req.variant) });
+          return this._bars;
+        }
+        this._declared = true;
+      }
       let cached: Bar[] | undefined;
       if (!req.noCache && this._feed.getCachedBars) {
         try {
@@ -245,8 +279,12 @@ export class DataLoadingController {
   }
 
   private async _refresh(repair?: Repair): Promise<readonly Bar[]> {
-    if (this._destroyed || !this._state.request) return this._bars;
+    if (this._destroyed || !this._state.request || this._state.status === 'unsupported') return this._bars;
     if (this._loadWork) return this._loadWork;
+    // The provider never answered for this variant (its declaration failed or
+    // timed out), so a retry asks it again, through a load, rather than
+    // fetching a series it may not serve.
+    if (!this._declared) return this.load(this._state.request);
     const generation = this._generation;
     const id = ++this._refreshId;
     const previous = this._refreshAbort;
@@ -353,7 +391,7 @@ export class DataLoadingController {
    * undone by the next tick.
    */
   public pushBar(value: Bar, meta?: LiveBarMeta): void {
-    if (this._destroyed || !this._state.request) return;
+    if (this._destroyed || !this._state.request || this._state.status === 'unsupported') return;
     let bar: Bar;
     try { bar = normalize([value])[0]; } catch (error) {
       this._publish('state', { status: this._bars.length ? 'stale' : 'error', error: asError(error) });
@@ -419,9 +457,15 @@ export class DataLoadingController {
     this._repairTimer = null;
   }
 
-  public loadMore(): Promise<readonly Bar[]> {
+  /**
+   * One older page. `until` (UTC seconds) widens a date feed's window to reach
+   * it in one request, up to `maxBars` bars of a fixed interval; a paged feed
+   * keeps its ordinary window.
+   */
+  public loadMore(until?: number): Promise<readonly Bar[]> {
     if (this._pageWork) return this._pageWork;
-    if (this._destroyed || !this._state.request || this._loadWork || this._state.paused || this._state.hasMore === false) return Promise.resolve(this._bars);
+    if (this._destroyed || !this._state.request || this._loadWork || this._state.paused || this._state.hasMore === false
+      || !this._declared) return Promise.resolve(this._bars);
     if (this._bars.length >= this._options.maxBars!) {
       this._publish('state', { historyStatus: 'limited' });
       return Promise.resolve(this._bars);
@@ -430,14 +474,18 @@ export class DataLoadingController {
     let complete!: (bars: readonly Bar[]) => void;
     const work = new Promise<readonly Bar[]>(resolve => { complete = resolve; });
     this._pageWork = work;
-    void this._loadMore(generation).then(complete);
+    void this._loadMore(generation, until).then(complete);
     void work.then(() => { if (this._pageWork === work) this._pageWork = null; });
     return work;
   }
 
-  private async _loadMore(generation: number): Promise<readonly Bar[]> {
+  private async _loadMore(generation: number, until?: number): Promise<readonly Bar[]> {
     const req = this._state.request!;
-    const window = this._options.pageWindowSec ?? Math.max(1, (req.to ?? 0) - (req.from ?? 0) || 86400);
+    const pageWindow = this._options.pageWindowSec ?? Math.max(1, (req.to ?? 0) - (req.from ?? 0) || 86400);
+    // A paged feed counts back from `before`, so widening its dates buys nothing.
+    // A date feed's window stops at what retention could keep: anything older is
+    // fetched only to be dropped, and one very wide request can outlast the pool.
+    const reach = this._feed.getBarsPage || !Number.isFinite(until) ? 0 : this._options.maxBars! * (this._seconds ?? Infinity);
     const abort = new AbortController();
     this._pageAbort = abort;
     this._publish('state', { historyStatus: 'loading', historyError: undefined });
@@ -445,6 +493,7 @@ export class DataLoadingController {
       for (let attempt = 0; attempt < this._options.maxEmptyPages!; attempt++) {
         const before = this._before ?? this._bars[0]?.time ?? req.from;
         if (before === undefined) throw new Error('Older history needs a starting time');
+        const window = reach > 0 ? Math.max(pageWindow, Math.min(reach, before - until!)) : pageWindow;
         const request = windowed({ ...req, from: before - window, to: before - 0.000001, before,
           countBack: this._options.pageSize!, signal: abort.signal });
         const page = this._feed.getBarsPage ? await this._pool.getBarsPage(request)

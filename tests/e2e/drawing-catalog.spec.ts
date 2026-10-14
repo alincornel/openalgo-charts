@@ -25,6 +25,13 @@ test('the gallery exposes every registered drawing in both its picker and rail',
   expect(missing).toEqual([]);
 });
 
+test('the status line says what opens the properties of a drawing, and double-click is not it', async ({ page }) => {
+  await mount(page);
+  // Right-click or the drawing's toolbar opens them; a double-click resets the scale.
+  await expect(page.locator('#status')).toContainText('Right-click a drawing, or use its toolbar, for properties.');
+  await expect(page.locator('#status')).not.toContainText('Double-click a drawing');
+});
+
 test('every drawing paints, restores and stays clipped inside the chart', async ({ page }, info) => {
   test.setTimeout(180_000);
   const errors: string[] = [];
@@ -161,7 +168,7 @@ test('every drawing can be moved by its painted body without changing its shape'
       const { chart, draw } = widget;
       draw.select(null);
       const drawing = draw.drawings()[0];
-      const pane = chart._panes[0], rc = chart._renderContext(true);
+      const pane = chart._panes[0], rc = chart._renderContext(0);
       const anchors = drawing.points.map((p: any) => ({ x: chart.timeToCoordinate(p.time), y: chart.priceToCoordinate(p.price) }));
       const canvas = document.querySelectorAll('#chart canvas')[1].getBoundingClientRect();
       const points: { x: number; y: number }[] = [];

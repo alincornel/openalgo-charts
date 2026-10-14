@@ -61,9 +61,24 @@ Before the first available observation, the chart is empty and `state()` returns
 `index: -1` and `bar: null`. Finer bars build a partial candle only while they
 cover a contiguous prefix. A missing or straddling finer bar leaves the last
 known prefix until the full candle becomes available. At its declared end, the
-original candle replaces the aggregate exactly. OI retains the last available
+original candle replaces the aggregate exactly. Until then the partial candle is
+held inside the one it closes on, as a live candle grows: it carries that
+candle's open from the first observation, its high and low stay within that
+candle's range, and its volume never exceeds that candle's. A feed whose first
+minute opened away from the official open, or whose minutes ran past the day's
+high, never makes the open jump or the high fall back at the close. OI retains the last available
 reading and is never summed or copied early from the final candle. Comparisons
 and independent followers withhold forming closes.
+
+A feed keeps far less fine history than coarse, about a week of 1-minute bars
+against years of 5-minute ones, so older candles have nothing to form from. Pass
+`simulate: { steps: 5 }` and such a candle still forms over five steps, along a
+path from its open to the nearer extreme, the other extreme and its close. It
+keeps its real open, never passes its real high or low, and closes on the real
+candle; real finer bars win wherever they exist. The order of the extremes is an
+assumption (a bar's prices say where it went, not when), so `state().simulated`
+is true on those steps and the host should say so: a stop tested inside a
+simulated candle was not tested against traded prices.
 
 `seek(index)` still selects a complete primary candle. Step/play move through
 available observations. `time()` reports the UTC playhead; `timePoints()` returns
@@ -74,6 +89,48 @@ The host must fence live chart writes and trading before selection or loading
 begins. `AlertController` suspends evaluation and threshold dragging when it
 receives `replay:start`; call `alerts.setPaused(true)` for the earlier selection
 and loading phases too. See [Alerts](/docs/alerts).
+
+### Requested snapshots during replay
+
+Studies created with `createRequestedIndicator` request explicit availability and
+confirmation through the host's snapshot provider. Availability-aware replay
+supplies the current `asOf` cutoff, including playhead moves between two source
+observations. The chart clamps any requested cutoff to that clock and notifies
+the study even when the visible source-bar count stays unchanged.
+
+The provider must return the values **as known at that cutoff**, or reject when
+it cannot. Availability timestamps do not reconstruct older value versions from
+today's final OHLC. A provider with only final historical bars should not claim
+point-in-time snapshot support.
+
+Legacy index-based replay has no explicit knowledge cutoff. The managed snapshot
+study reports `unsupported` there and clears its requested output; existing raw
+bar requests keep their behavior. Configure `timing` for strict requested-data
+replay. Provider replacement, source identity changes and backward replay cancel
+obsolete generations. Forward movement coalesces pending refreshes, so the study
+follows the latest requested cutoff without queuing every playhead update.
+
+See [Managed requested snapshots](/docs/indicators#managed-requested-snapshots)
+for the provider and lifecycle contract, and the
+[deferred-provider example](/examples#requested-snapshots-from-a-deferred-provider)
+for explicit update and confirmation controls.
+
+### External point studies during replay
+
+Raw-point studies created with `createTier2Indicator` are unsupported during
+native replay unless their descriptor sets `supportsReplay: true`. An opt-in
+loader receives `Tier2Context.asOf` and must return values as known at that finite
+cutoff, using point timestamps that represent availability. Raw `requestBars`
+remains unchanged; the loader must obtain historical versions from its own source.
+
+The wrapper stops live subscriptions during replay, filters points beyond the
+cutoff and replaces the full response on forward movement. Entering, leaving or
+seeking backward clears the old dataset and cancels obsolete work. Legacy replay
+without a finite availability clock remains unsupported, including for opted-in
+studies. Hosts without native request-state metadata keep their existing behavior.
+
+See [External point revisions and replay](/docs/indicators#native-revisions-and-replay-for-external-points)
+and the [runnable example](/examples#external-points-with-live-revisions).
 
 ## One clock across charts
 
@@ -185,12 +242,12 @@ chart.timeScale.setBarSpacing(6);
 // The engine ships no transport bar. This is one, in the host's own DOM.
 el.style.position = 'relative';
 const strip = document.createElement('div');
-strip.style.cssText = 'position:absolute;left:10px;top:8px;z-index:5;display:flex;gap:6px;align-items:center;font:12px ui-monospace,monospace;color:#cbd5e1';
+strip.style.cssText = 'position:absolute;left:10px;top:8px;z-index:5;display:flex;gap:6px;align-items:center;font:12px ui-monospace,monospace;color:light-dark(#151515,#cbd5e1)';
 el.appendChild(strip);
 const button = (label) => {
   const b = document.createElement('button');
   b.textContent = label;
-  b.style.cssText = 'font:12px ui-monospace,monospace;padding:3px 9px;border-radius:5px;border:1px solid #3b4453;background:#1b2029;color:#cbd5e1;cursor:pointer';
+  b.style.cssText = 'font:12px ui-monospace,monospace;padding:3px 9px;border-radius:5px;border:1px solid light-dark(#e4e4e4,#3b4453);background:light-dark(#fff,#1b2029);color:light-dark(#151515,#cbd5e1);cursor:pointer';
   strip.appendChild(b);
   return b;
 };

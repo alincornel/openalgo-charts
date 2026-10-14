@@ -15,13 +15,19 @@ import { widgetText } from '../localization';
  * `priceAxis*` calls, so the menu can never claim a state the axis is not in,
  * and the same rows serve the price ladder, a left-hand scale and an indicator
  * pane's.
+ *
+ * The pane rows move the pane under the pointer up or down a slot, the price
+ * pane included, which is how a trader puts the price below the studies; a
+ * study pane also folds to its header strip. The price pane is found by
+ * `primaryPaneIndex`, never assumed to be the top one.
  */
 import { checkTradingCapability, getIndicator, isReplaying, PRICE_SCALE_MODES } from 'openalgo-charts';
-import type { Chart, ContextMenuEvent, ContextMenuTarget, PriceScaleId, PriceScaleMode, TradingCapabilityRequest, TradingCapabilitySource } from 'openalgo-charts';
+import type { Chart, ContextMenuEvent, ContextMenuTarget, IndicatorApi, PriceScaleId, PriceScaleMode, TradingCapabilityRequest, TradingCapabilitySource } from 'openalgo-charts';
 import { drawingSettingsSchema } from 'openalgo-charts/draw';
 import type { Drawing } from 'openalgo-charts/draw';
-import type { WidgetContext } from '../context';
-import { boxInRoot, chromeGlyph, el, glyphSvg, openPanel, placePanel, stopOwnKeys, type PanelHandle } from '../form';
+import { editableIds, type WidgetContext } from '../context';
+import { ariaKeys, commandChord } from '../keymap';
+import { boxInRoot, chromeGlyph, el, openPanel, placePanel, stopOwnKeys, type PanelHandle } from '../form';
 import { mountDrawingProperties } from './drawing-properties';
 import { mountIndicatorPicker } from './indicator-picker';
 import { mountIndicatorSettings } from './indicator-settings';
@@ -34,7 +40,11 @@ import { mountAlertEditor, mountAlertsPanel } from './alerts';
 export interface OrderRequest {
   side: 'BUY' | 'SELL';
   type: 'MARKET' | 'LIMIT' | 'SL';
-  /** The price under the pointer; null for a market order raised off the plot. */
+  /**
+   * The price under the pointer, not snapped to the instrument's tick or
+   * tick schedule, which the widget does not know; round it (`validatePrice`
+   * does) before sending. Null for a market order raised off the plot.
+   */
   price: number | null;
   paneIndex: number;
 }
@@ -84,11 +94,6 @@ export interface ContextMenuOptions {
 const SEP: MenuEntry = { kind: 'separator' };
 const header = (label: string): MenuEntry => ({ kind: 'header', label });
 
-const ABOVE_GLYPH = 'M3 4h10M8 14V6M5 9l3-3 3 3';
-const BEHIND_GLYPH = 'M3 12h10M8 2v8M5 7l3 3 3-3';
-const FIT_GLYPH = 'M2 8h12M4 5l-2 3 2 3M12 5l2 3-2 3';
-const TICK = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3.5 3.5L13 4"/></svg>';
-
 /** Our words for the four scale modes, in the engine's order. */
 export const SCALE_MODE_LABELS: Readonly<Record<PriceScaleMode, string>> = {
   linear: 'Linear',
@@ -118,25 +123,35 @@ function drawingEntries(ctx: WidgetContext, primary: Drawing, ids: readonly stri
   const out: MenuEntry[] = [];
   const locked = primary.locked === true;
   const hidden = primary.visible === false;
-  const behind = primary.zIndex < 0;
+  // Placed between studies it is on neither side: neither radio is on, and
+  // either one takes it out of the series band.
+  const between = primary.stackAbove !== undefined && ctx.chart.seriesStack(primary.paneIndex).includes(primary.stackAbove);
+  const behind = !between && primary.zIndex < 0;
   const many = ids.length > 1;
+  // A selection with nothing the user may edit keeps its edit rows, greyed
+  // with the reason; the controller would refuse each one anyway. Cut and
+  // delete count only what they take.
+  const mine = editableIds(draw, ids).length;
+  const fixed = mine === 0;
+  const why = fixed ? widgetText(ctx, 'read-only') : undefined;
   out.push({ id: 'draw-props', label: many ? widgetText(ctx, 'Properties of the selection...') : widgetText(ctx, 'Properties...'), icon: 'settings',
     run: () => { mountDrawingProperties(ctx, undefined, { ids }); } });
   if (!many && isTextContent(primary)) {
-    out.push({ id: 'draw-text', label: widgetText(ctx, 'Edit text'), icon: 'text', chord: 'Enter', run: () => { mountTextEditor(ctx, undefined, { id: primary.id }); } });
+    out.push({ id: 'draw-text', label: widgetText(ctx, 'Edit text'), icon: 'text', disabled: fixed, note: why, run: () => { mountTextEditor(ctx, undefined, { id: primary.id }); } });
   }
   if (schema.fields.some((f) => f.kind === 'levels')) {
-    out.push({ id: 'draw-levels', label: widgetText(ctx, 'Edit levels...'), run: () => { mountLevelEditor(ctx, undefined, { ids }); } });
+    out.push({ id: 'draw-levels', label: widgetText(ctx, 'Edit levels...'), disabled: fixed, note: why, run: () => { mountLevelEditor(ctx, undefined, { ids }); } });
   }
   out.push(SEP);
-  out.push({ id: 'draw-copy', label: many ? widgetText(ctx, 'Copy {count} drawings', { count: ids.length }) : widgetText(ctx, 'Copy drawing'), icon: 'copy', chord: 'Ctrl+C', run: () => { void draw.copy(ids); } });
-  out.push({ id: 'draw-cut', label: many ? widgetText(ctx, 'Cut {count} drawings', { count: ids.length }) : widgetText(ctx, 'Cut drawing'), chord: 'Ctrl+X', disabled: locked, note: locked ? widgetText(ctx, 'locked') : undefined,
+  out.push({ id: 'draw-copy', label: many ? widgetText(ctx, 'Copy {count} drawings', { count: ids.length }) : widgetText(ctx, 'Copy drawing'), icon: 'copy', chord: commandChord(ctx.keymap, 'copy', 'Mod+C'), run: () => { void draw.copy(ids); } });
+  out.push({ id: 'draw-cut', label: mine > 1 ? widgetText(ctx, 'Cut {count} drawings', { count: mine }) : widgetText(ctx, 'Cut drawing'), chord: commandChord(ctx.keymap, 'cut', 'Mod+X'), disabled: locked || fixed, note: why ?? (locked ? widgetText(ctx, 'locked') : undefined),
     run: () => { void draw.cut(ids); } });
-  out.push({ id: 'draw-duplicate', label: widgetText(ctx, 'Duplicate'), icon: 'duplicate', chord: 'Ctrl+D', run: () => { draw.duplicate(ids); } });
+  out.push({ id: 'draw-duplicate', label: widgetText(ctx, 'Duplicate'), icon: 'duplicate', chord: commandChord(ctx.keymap, 'duplicate', 'Mod+D'), run: () => { draw.duplicate(ids); } });
   out.push(SEP);
-  out.push({ id: 'draw-lock', label: locked ? widgetText(ctx, 'Unlock') : widgetText(ctx, 'Lock'), icon: locked ? 'lock' : 'unlock', mark: 'check', on: locked,
+  // Checkbox rows keep their names; the check says locked or hidden.
+  out.push({ id: 'draw-lock', label: widgetText(ctx, 'Lock'), icon: locked ? 'lock' : 'unlock', mark: 'check', on: locked, disabled: fixed, note: why,
     run: () => { draw.updateMany(ids.map((id) => ({ id, patch: { locked: !locked } }))); } });
-  out.push({ id: 'draw-hide', label: hidden ? widgetText(ctx, 'Show') : widgetText(ctx, 'Hide'), icon: hidden ? 'eye-off' : 'eye', mark: 'check', on: hidden,
+  out.push({ id: 'draw-hide', label: widgetText(ctx, 'Hide'), icon: hidden ? 'eye-off' : 'eye', mark: 'check', on: hidden, disabled: fixed, note: why,
     run: () => { draw.updateMany(ids.map((id) => ({ id, patch: { visible: hidden } }))); } });
   out.push(SEP);
   out.push(header(widgetText(ctx, 'Order')));
@@ -144,17 +159,17 @@ function drawingEntries(ctx: WidgetContext, primary: Drawing, ids: readonly stri
   // of the order), so a multi-selection is several calls.
   out.push({ id: 'draw-front', label: widgetText(ctx, 'Bring to front'), icon: 'front', run: () => { for (const id of ids) draw.bringToFront(id); } });
   out.push({ id: 'draw-back', label: widgetText(ctx, 'Send to back'), icon: 'back', run: () => { for (const id of ids) draw.sendToBack(id); } });
-  out.push({ id: 'draw-above', label: widgetText(ctx, 'In front of the series'), icon: glyphSvg(ABOVE_GLYPH), mark: 'radio', on: !behind,
+  out.push({ id: 'draw-above', label: widgetText(ctx, 'In front of the series'), icon: 'above-series', mark: 'radio', on: !behind && !between,
     run: () => { for (const id of ids) draw.bringAboveSeries(id); } });
-  out.push({ id: 'draw-behind', label: widgetText(ctx, 'Behind the series'), icon: glyphSvg(BEHIND_GLYPH), mark: 'radio', on: behind,
+  out.push({ id: 'draw-behind', label: widgetText(ctx, 'Behind the series'), icon: 'behind-series', mark: 'radio', on: behind,
     run: () => { for (const id of ids) draw.sendBehindSeries(id); } });
   out.push(SEP);
-  out.push({ id: 'draw-delete', label: many ? widgetText(ctx, 'Delete {count} drawings', { count: ids.length }) : widgetText(ctx, 'Delete'), icon: 'trash', chord: 'Del', danger: true,
-    disabled: locked, note: locked ? widgetText(ctx, 'locked') : undefined, run: () => { draw.removeMany(ids); } });
+  out.push({ id: 'draw-delete', label: mine > 1 ? widgetText(ctx, 'Delete {count} drawings', { count: mine }) : widgetText(ctx, 'Delete'), icon: 'trash', chord: commandChord(ctx.keymap, 'delete', 'Delete'), danger: true,
+    disabled: locked || fixed, note: why ?? (locked ? widgetText(ctx, 'locked') : undefined), run: () => { draw.removeMany(ids); } });
   return out;
 }
 
-/** The rows for one price axis, every one read off `priceAxisState`. */
+/** Axis settings and placement stay attached to the target scale's identity. */
 function axisEntries(ctx: WidgetContext, paneIndex: number, scaleId: PriceScaleId): MenuEntry[] {
   const { chart } = ctx;
   const state = (): ReturnType<Chart['priceAxisState']> => chart.priceAxisState(paneIndex, scaleId);
@@ -163,6 +178,13 @@ function axisEntries(ctx: WidgetContext, paneIndex: number, scaleId: PriceScaleI
   const out: MenuEntry[] = [];
   out.push({ id: 'axis-autofit', label: widgetText(ctx, 'Auto-fit to the data'), mark: 'check', on: s.autoFit, keepOpen: true,
     run: () => { const now = state(); if (now !== null) chart.setPriceAxisAutoFit(paneIndex, scaleId, !now.autoFit); } });
+  const primaryScale = (): boolean => {
+    const primary = chart.primarySeries?.();
+    return primary != null && primary.priceScale() === chart.panes()[paneIndex]?.scaleFor(scaleId);
+  };
+  if (primaryScale()) out.push({ id: 'axis-price-only', label: widgetText(ctx, 'Fit primary prices only'),
+    mark: 'check', on: chart.priceOnlyAutoScale(), keepOpen: true,
+    run: () => { if (primaryScale()) chart.setPriceOnlyAutoScale(!chart.priceOnlyAutoScale()); } });
   out.push({ id: 'axis-invert', label: widgetText(ctx, 'Invert'), mark: 'check', on: s.inverted, keepOpen: true,
     run: () => { const now = state(); if (now !== null) chart.setPriceAxisOptions(paneIndex, scaleId, { inverted: !now.inverted }); } });
   // Holding the price-per-bar ratio while the time axis zooms needs a measured
@@ -181,14 +203,36 @@ function axisEntries(ctx: WidgetContext, paneIndex: number, scaleId: PriceScaleI
     out.push({ id: `axis-mode-${mode}`, label: widgetText(ctx, `schema.scaleMode.${mode}`, {}, SCALE_MODE_LABELS[mode]), mark: 'radio', on: s.mode === mode, keepOpen: true,
       run: () => { chart.setPriceAxisOptions(paneIndex, scaleId, { mode }); } });
   }
-  out.push(SEP);
-  out.push({ id: 'axis-move', label: s.side === 'right' ? widgetText(ctx, 'Move the scale to the left') : widgetText(ctx, 'Move the scale to the right'),
-    disabled: !s.movable, note: s.movable ? undefined : (s.active ? widgetText(ctx, 'other side taken') : widgetText(ctx, 'nothing on this side')),
-    run: () => {
-      const now = state();
-      if (now === null) return;
-      if (!chart.movePriceAxis(paneIndex, now.side, now.side === 'right' ? 'left' : 'right')) ctx.toast(widgetText(ctx, 'That side is already in use'), 'info');
-    } });
+  const placement = chart.priceAxisPlacement(paneIndex, scaleId);
+  const columns = (side: 'left' | 'right'): ReturnType<Chart['priceAxisLayout']> =>
+    chart.priceAxisLayout(paneIndex).filter(column => column.side === side).sort((a, b) => a.order - b.order);
+  if (placement !== null && placement.side !== 'hidden') {
+    out.push(SEP);
+    out.push({ id: 'axis-move', label: placement.side === 'right' ? widgetText(ctx, 'Move the scale to the left') : widgetText(ctx, 'Move the scale to the right'),
+      disabled: !s.active, note: s.active ? undefined : widgetText(ctx, 'nothing on this side'),
+      run: () => {
+        const now = chart.priceAxisPlacement(paneIndex, scaleId);
+        if (!state()?.active || now === null || now.side === 'hidden') return;
+        if (!chart.setPriceAxisPlacement(paneIndex, scaleId, now.side === 'right' ? 'left' : 'right')) {
+          ctx.toast(widgetText(ctx, 'The scale could not be moved'), 'info');
+        }
+      } });
+    const peers = columns(placement.side), index = peers.findIndex(column => column.scaleId === scaleId);
+    if (index >= 0 && peers.length > 1) for (const delta of [-1, 1] as const) {
+      out.push({ id: delta < 0 ? 'axis-closer' : 'axis-further',
+        label: delta < 0 ? widgetText(ctx, 'Move the scale closer to the plot') : widgetText(ctx, 'Move the scale further from the plot'),
+        disabled: peers[index + delta] === undefined, keepOpen: true,
+        run: () => {
+          const now = chart.priceAxisPlacement(paneIndex, scaleId);
+          if (!state()?.active || now === null || now.side === 'hidden') return;
+          const current = columns(now.side), at = current.findIndex(column => column.scaleId === scaleId);
+          const neighbor = at < 0 ? undefined : current[at + delta];
+          if (neighbor && !chart.setPriceAxisPlacement(paneIndex, scaleId, now.side, neighbor.order)) {
+            ctx.toast(widgetText(ctx, 'The scale could not be moved'), 'info');
+          }
+        } });
+    }
+  }
   out.push(SEP);
   out.push({ id: 'axis-settings', label: widgetText(ctx, 'Axis settings...'), icon: 'settings', run: () => { mountSettingsDialog(ctx, undefined, { tab: 'axes' }); } });
   return out;
@@ -209,12 +253,16 @@ export function contextMenuEntries(ctx: WidgetContext, e: ContextMenuEvent, hook
     out.push(...axisEntries(ctx, e.paneIndex, target.scaleId ?? target.side ?? 'right'));
     return out;
   }
+  // The price pane can sit below the studies, so it is found, never assumed.
+  const pricePane = chart.primaryPaneIndex();
 
   // Order entry: only through a host hook, and only at a price when there is
-  // one. Off the plot the order rows would be offering to trade at nothing.
+  // one. Off the plot the order rows would be offering to trade at nothing,
+  // and off the price pane at a study's reading: an RSI of 58 is not a limit
+  // price, so a study pane offers the market rows alone.
   const onOrder = hooks.onOrder;
   if (onOrder !== undefined && target.kind !== 'time-scale') {
-    const price = e.price;
+    const price = e.paneIndex === pricePane ? e.price : null;
     const source = { ...ctx.symbol(), interval: ctx.interval() };
     const capability = (type: OrderRequest['type']): ReturnType<typeof checkTradingCapability> =>
       checkTradingCapability(hooks.tradingCapabilities, { operation: 'place', type, mode: hooks.tradingMode, ...ctx.symbol() });
@@ -228,6 +276,7 @@ export function contextMenuEntries(ctx: WidgetContext, e: ContextMenuEvent, hook
     const lockReason = locked();
     const order = (side: OrderRequest['side'], type: OrderRequest['type']): MenuItem => ({
       id: `order-${side.toLowerCase()}-${type.toLowerCase()}`,
+      icon: side === 'BUY' ? 'buy' : 'sell',
       label: type === 'MARKET'
         ? widgetText(ctx, side === 'BUY' ? 'Buy market' : 'Sell market')
         : widgetText(ctx, side === 'BUY' ? (type === 'LIMIT' ? 'Buy limit at {price}' : 'Buy stop at {price}') : (type === 'LIMIT' ? 'Sell limit at {price}' : 'Sell stop at {price}'), { price: priceText(chart, e.paneIndex, price as number) }),
@@ -269,19 +318,19 @@ export function contextMenuEntries(ctx: WidgetContext, e: ContextMenuEvent, hook
     sep();
     if (hit) {
       const info = draw.alertInfo(hit.id);
-      out.push({ id: 'alert-drawing', label: widgetText(ctx, 'Create drawing alert...'), disabled: !info.available, note: info.reason,
+      out.push({ id: 'alert-drawing', label: widgetText(ctx, 'Create drawing alert...'), icon: 'bell', disabled: !info.available, note: info.reason,
         run: () => { mountAlertEditor(ctx, undefined, { source: { kind: 'drawing', drawingId: hit.id } }); } });
     } else if (target.kind === 'indicator' && target.instanceId) {
       const instance = chart.indicators().find(item => item.id === target.instanceId);
       const plot = instance && getIndicator(instance.indicatorId).plots.find(item =>
-        (item.overlay ? 0 : instance.paneIndex) === e.paneIndex && (target.plotKey === undefined || item.key === target.plotKey));
-      if (instance && plot) out.push({ id: 'alert-indicator', label: widgetText(ctx, 'Create study alert...'), run: () => {
+        (item.overlay ? pricePane : instance.paneIndex) === e.paneIndex && (target.plotKey === undefined || item.key === target.plotKey));
+      if (instance && plot) out.push({ id: 'alert-indicator', label: widgetText(ctx, 'Create study alert...'), icon: 'bell', run: () => {
         const values = instance.values()[plot.key];
         const value = values?.[e.index ?? chart.primaryBars().length - 1];
         mountAlertEditor(ctx, undefined, { source: { kind: 'indicator', instanceId: instance.id, plotKey: plot.key, value: value ?? NaN } });
       } });
-    } else if (e.paneIndex === 0 && e.price !== null && Number.isFinite(e.price)) {
-      out.push({ id: 'alert-create', label: widgetText(ctx, 'Create alert at {price}...', { price: priceText(chart, 0, e.price) }),
+    } else if (e.paneIndex === pricePane && e.price !== null && Number.isFinite(e.price)) {
+      out.push({ id: 'alert-create', label: widgetText(ctx, 'Create alert at {price}...', { price: priceText(chart, pricePane, e.price) }), icon: 'bell',
         run: () => { mountAlertEditor(ctx, undefined, { source: { kind: 'price', price: e.price! } }); } });
     }
     out.push({ id: 'chart-alerts', label: widgetText(ctx, 'Alerts...'), run: () => { mountAlertsPanel(ctx); } });
@@ -299,29 +348,66 @@ export function contextMenuEntries(ctx: WidgetContext, e: ContextMenuEvent, hook
     const inst = chart.indicators().find((i) => i.id === target.instanceId);
     if (inst !== undefined) {
       sep();
+      // A study its host protects shows the rows its policy withholds greyed,
+      // with the reason, rather than rows that would silently do nothing.
+      // A handle without policies (a host's own, older shape) allows everything.
+      const policy = (inst as Partial<IndicatorApi>).policy?.() ?? {};
+      const note = (flag: 'configurable' | 'removable'): string | undefined => policy[flag] === false ? widgetText(ctx, 'protected') : undefined;
       out.push({ id: 'ind-settings', label: widgetText(ctx, '{name} settings...', { name: inst.name }), icon: 'settings',
+        disabled: note('configurable') !== undefined, note: note('configurable'),
         run: () => { mountIndicatorSettings(ctx, undefined, { instanceId: inst.id }); } });
       out.push({ id: 'ind-visible', label: inst.visible() ? widgetText(ctx, 'Hide {name}', { name: inst.name }) : widgetText(ctx, 'Show {name}', { name: inst.name }), icon: inst.visible() ? 'eye' : 'eye-off',
         run: () => { inst.setVisible(!inst.visible()); } });
       out.push({ id: 'ind-remove', label: widgetText(ctx, 'Remove {name}', { name: inst.name }), icon: 'trash', danger: true,
+        disabled: note('removable') !== undefined, note: note('removable'),
         run: () => { chart.removeIndicator(inst.id); } });
+    }
+  }
+
+  // The pane under the pointer: it moves up or down a slot, the price pane
+  // included when the host opted in (`movablePrimaryPane`),
+  // and a study pane folds to its header strip and opens again. The price
+  // pane stays open in any slot. A menu raised from a button names no pane,
+  // and the time axis belongs to the whole chart, so neither gets these.
+  if (target.kind !== 'time-scale' && !SYNTHETIC.has(e)) {
+    const count = chart.panes().length, at = e.paneIndex;
+    if (count > 1 && at >= 0 && at < count) {
+      sep();
+      // A pinned price pane refuses a swap that moves or displaces it, so the
+      // row says so rather than doing nothing.
+      const pinned = (to: number): boolean => !chart.movablePrimaryPane() && (at === pricePane || to === pricePane);
+      const move = (id: string, label: 'Move pane up' | 'Move pane down', direction: -1 | 1, edge: boolean, where: 'at the top' | 'at the bottom'): MenuItem => {
+        const note = edge ? widgetText(ctx, where) : pinned(at + direction) ? widgetText(ctx, 'price pane stays on top') : undefined;
+        return { id, label: widgetText(ctx, label), disabled: note !== undefined, note, run: () => { chart.movePane(at, direction); } };
+      };
+      out.push(move('pane-up', 'Move pane up', -1, at === 0, 'at the top'));
+      out.push(move('pane-down', 'Move pane down', 1, at === count - 1, 'at the bottom'));
+    }
+    if (at !== pricePane && at >= 0 && at < count) {
+      const folded = chart.paneCollapsed(at);
+      sep();
+      out.push({ id: 'pane-collapse', label: widgetText(ctx, folded ? 'Expand pane' : 'Collapse pane'),
+        run: () => { chart.setPaneCollapsed(at, !folded); } });
     }
   }
 
   if (target.kind !== 'time-scale') {
     sep();
-    out.push({ id: 'draw-paste', label: widgetText(ctx, 'Paste'), icon: 'paste', chord: 'Ctrl+V',
+    out.push({ id: 'draw-paste', label: widgetText(ctx, 'Paste'), icon: 'paste', chord: commandChord(ctx.keymap, 'paste', 'Mod+V'),
       run: () => { void draw.paste().then((made) => { if (made.length === 0) ctx.toast(widgetText(ctx, 'Nothing to paste'), 'info'); }); } });
-    const n = draw.drawings().length;
+    // What `clear` would take: a read-only drawing stays, so it is not counted.
+    const n = draw.drawings().filter((d) => d.policy?.editable !== false).length;
     if (n > 0) {
       out.push({ id: 'draw-clear', label: widgetText(ctx, 'Remove all drawings ({count})', { count: n }), icon: 'trash', danger: true, run: () => { draw.clear(); } });
     }
   }
 
   sep();
-  out.push({ id: 'chart-fit', label: widgetText(ctx, 'Fit all bars'), icon: glyphSvg(FIT_GLYPH), run: () => { chart.fitContent(); } });
+  out.push({ id: 'chart-fit', label: widgetText(ctx, 'Fit all bars'), icon: 'fit', chord: commandChord(ctx.keymap, 'chart:fitContent'),
+    disabled: chart.navigationOptions().zoomEnabled === false,
+    run: () => { if (chart.navigationOptions().zoomEnabled !== false) chart.fitContent(); } });
   if (target.kind !== 'time-scale') {
-    out.push({ id: 'chart-indicators', label: widgetText(ctx, 'Indicators...'), run: () => { mountIndicatorPicker(ctx); } });
+    out.push({ id: 'chart-indicators', label: widgetText(ctx, 'Indicators...'), icon: 'indicators', run: () => { mountIndicatorPicker(ctx); } });
   }
   out.push({ id: 'chart-settings', label: widgetText(ctx, 'Settings...'), icon: 'settings', run: () => { mountSettingsDialog(ctx); } });
 
@@ -330,12 +416,17 @@ export function contextMenuEntries(ctx: WidgetContext, e: ContextMenuEvent, hook
   return out;
 }
 
+/** Events made for a menu raised from a button: they name no pane under a pointer. */
+const SYNTHETIC = new WeakSet<ContextMenuEvent>();
+
 /** A chart-level event for a menu raised from a button rather than the canvas. */
-function syntheticEvent(): ContextMenuEvent {
-  return {
-    paneIndex: 0, point: { x: 0, y: 0 }, price: null, time: null, index: null,
+function syntheticEvent(chart: Chart): ContextMenuEvent {
+  const event: ContextMenuEvent = {
+    paneIndex: chart.primaryPaneIndex(), point: { x: 0, y: 0 }, price: null, time: null, index: null,
     target: { kind: 'empty', id: null }, preventDefault: () => {},
   };
+  SYNTHETIC.add(event);
+  return event;
 }
 
 /** One menu per widget; a second right-click replaces the first. */
@@ -348,7 +439,7 @@ const OPEN = new WeakMap<HTMLElement, PanelHandle>();
 export function mountContextMenu(ctx: WidgetContext, anchor?: HTMLElement, opts: ContextMenuOptions = {}): PanelHandle {
   const doc = ctx.document;
   OPEN.get(ctx.root)?.close();
-  const e = opts.event ?? syntheticEvent();
+  const e = opts.event ?? syntheticEvent(ctx.chart);
   const hooks = opts.hooks ?? {};
 
   const menu = el(doc, 'div', 'oac-panel oac-ctx');
@@ -383,7 +474,7 @@ export function mountContextMenu(ctx: WidgetContext, anchor?: HTMLElement, opts:
       // edge whether anything is set or not.
       const mark = el(doc, 'span', 'oac-ctx__mark');
       if (item.mark === 'radio' && item.on === true) mark.appendChild(el(doc, 'span', 'oac-ctx__dot'));
-      else if (item.mark === 'check' && item.on === true) mark.innerHTML = TICK;
+      else if (item.mark === 'check' && item.on === true) mark.appendChild(chromeGlyph(doc, 'check'));
       else if (item.icon !== undefined) {
         if (item.icon.startsWith('<svg')) { const g = el(doc, 'span', 'oac-glyph oac-glyph--chrome'); g.innerHTML = item.icon; mark.appendChild(g); }
         else mark.appendChild(chromeGlyph(doc, item.icon));
@@ -391,13 +482,25 @@ export function mountContextMenu(ctx: WidgetContext, anchor?: HTMLElement, opts:
       row.appendChild(mark);
       row.appendChild(el(doc, 'span', 'oac-ctx__label', item.label));
       if (item.note !== undefined && item.note !== '') row.appendChild(el(doc, 'span', 'oac-ctx__note', item.note));
-      if (item.chord !== undefined) row.appendChild(el(doc, 'kbd', 'oac-ctx__key', item.chord));
+      if (item.chord !== undefined) {
+        // Shown beside the name, said as the row's shortcut rather than read into its name.
+        const key = row.appendChild(el(doc, 'kbd', 'oac-ctx__key', item.chord));
+        key.setAttribute('aria-hidden', 'true');
+        row.setAttribute('aria-keyshortcuts', ariaKeys(item.chord));
+      }
       if (item.disabled === true) {
         row.setAttribute('aria-disabled', 'true');
       } else {
         row.addEventListener('click', (ev) => {
           ev.stopPropagation();
-          item.run?.();
+          // One row is one step, including what the chart does not announce
+          // (an axis mode, an auto-fit switch). A row that changes nothing
+          // (fit, copy, an order) records nothing.
+          if (item.run !== undefined) {
+            const run = item.run;
+            if (ctx.history !== undefined) ctx.history.transact(() => run(), item.id);
+            else run();
+          }
           if (item.keepOpen === true) paint(rows.indexOf(row));
           else handle.close();
         });

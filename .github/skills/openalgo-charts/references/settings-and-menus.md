@@ -98,8 +98,13 @@ The Axes tab's **Navigation** group is backed by `ChartNavigationOptions`:
 
 | Key | Input | Default |
 |---|---|---|
+| `navigation.panEnabled` | Boolean: **Enable panning** | `true` |
+| `navigation.zoomEnabled` | Boolean: **Enable zooming** | `true` |
 | `navigation.mousePan` | `select`, label **Mouse drag**: **Horizontal only** (`'horizontal'`) or **Time and price** (`'both'`) | `'both'` |
 | `navigation.defaultVisibleBars` | `number`, label **Default visible bars (0 = all)**, `min: 0`, `max: 100000`, `step: 1` | `0` |
+| `navigation.defaultBarSpacing` | `number`, label **Default bar spacing (0 = use bar count)**, CSS pixels, `min: 0`, `max: 10000`, `step: 0.5` | `0` |
+
+`panEnabled` and `zoomEnabled` control native user gestures, keys and navigation buttons independently. Disabling zoom also disables user fit/reset actions in both hosts. Active motion is cancelled, while programmatic view changes and drawing or picking interactions remain available. Both booleans persist with the chart.
 
 ```ts
 applyChartSettings(chart, {
@@ -234,7 +239,7 @@ chart.on('contextmenu', (e) => {
 
 | Member | Returns | Notes |
 |---|---|---|
-| `priceAxisState(paneIndex = 0, scaleId = 'right')` | `PriceAxisState \| null` | Null for a pane that does not exist. |
+| `priceAxisState(paneIndex = primaryPaneIndex(), scaleId = 'right')` | `PriceAxisState \| null` | Null for a pane that does not exist. |
 | `setPriceAxisOptions(paneIndex, scaleId, patch)` | `void` | `Partial<PriceScaleOptions>`: mode, invert, margins, tick size. |
 | `setPriceAxisAutoFit(paneIndex, scaleId, on)` | `void` | Turning it on releases any ratio lock on that axis. |
 | `setPriceAxisLockRatio(paneIndex, scaleId, on)` | `boolean` | False when the lock could not be taken. |
@@ -246,7 +251,7 @@ chart.on('contextmenu', (e) => {
 - **`active: false`** is a scale no series maps to: the ladder on an empty chart, or the side a menu was raised on before anything was plotted there. Render those rows **disabled with their state still visible**, not absent.
 - **`scaled: false`** means nothing has measured the scale yet: it is still on its `0..1` placeholder. A ratio lock is refused there, because there is no price-per-bar to hold.
 - **`movable`** is already the whole test (`scaleId` is a real side, this side carries series, the other side is free), so gate the move row on it rather than re-deriving it.
-- **Moving an axis swaps the two side scales**, so range, mode, margins and formatter travel with it. The vacated strip starts again from the chart-wide defaults, the axis columns are recomputed (a strip no pane uses any more is released and the plot reclaims its width), a `priceAxisMoved` event is emitted, and a move onto an occupied side is refused: one strip draws one axis.
+- **Moving an axis swaps the two side scales**, so range, mode, margins and formatter travel with it. The vacated strip starts again from the chart-wide defaults, the axis columns are recomputed (a strip no pane uses any more is released and the plot reclaims its width), a `priceAxisMoved` event is emitted (deprecated with `movePriceAxis`, removed in 3.0.0; placement emits `priceAxisPlacementChanged`), and a move onto an occupied side is refused: one strip draws one axis.
 - **The ratio lock is real, not a stored flag.** The pane keeps the geometry the lock was taken at and rescales the visible span by height over bar spacing each frame, in transformed space, so a logarithmic axis holds its angle too. Auto-fit or `resetScale` releases it.
 
 A menu that also offers reference levels (previous close, session high and low) drives a `PriceLevels` primitive; each level's line and axis tag are two flags in one group, and a level with no data reports `available(kind) === false`, which is the row to disable. See [primitives-and-plugins](primitives-and-plugins.md).
@@ -259,9 +264,9 @@ A menu that also offers reference levels (previous close, session high and low) 
 | `setNavigationOptions(patch)` / `navigationOptions()` | Mouse/pen pan direction and the initial/reset visible-bar count. |
 | `setGridOptions(patch)` / `gridOptions()` | Grid alone. |
 | `setStatusLineOptions(patch)` / `statusLineOptions()` | Applied to every legend. |
-| `setPriceScaleOptions(patch, allScales = false)` / `priceScaleOptions()` | Defaults to the right scale of every pane; `allScales` includes left and overlay. Reads pane 0. |
+| `setPriceScaleOptions(patch, allScales = false)` / `priceScaleOptions()` | Defaults to the right scale of every pane; `allScales` includes left and overlay. Reads the price pane, pane 0 unless `movablePrimaryPane` let it move. |
 | `setAutoScale(on)` | Every pane at once. |
-| `setEvents(events, paneIndex = 0)` / `setEventOptions(patch)` / `eventOptions()` | The chart-owned corporate-action strip; `ChartEventOptions` filters `earnings`, `dividend`, `split`, `news`, each defaulting to on. |
+| `setEvents(events, paneIndex = primaryPaneIndex())` / `setEventOptions(patch)` / `eventOptions()` | The chart-owned corporate-action strip; `ChartEventOptions` filters `earnings`, `dividend`, `split`, `news`, each defaulting to on. |
 | `tradingSettings()` / `setTradingSettings(patch)` | Trading colours held on the chart, so reading them never instantiates the trade layer. |
 | `primarySeries()` / `primarySeriesInfo()` | `{ type, style }` for the Price tab. |
 | `setTimezone(zone)` / `timezone()` | IANA name behind the `time.timezone` control. |

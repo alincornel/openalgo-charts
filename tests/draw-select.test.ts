@@ -153,12 +153,37 @@ describe('clicking', () => {
     expect(draw.selection()).toEqual([b.id]);
   });
 
-  it('a click on empty space clears, unless it is the additive gesture', () => {
+  it('reads the additive gesture from `modifiers`, which outlives the flat flags', () => {
+    // The flat shiftKey, ctrlKey and metaKey on a click are deprecated for
+    // removal in the next major; the draw tier must not depend on them.
     const chart = makeChart();
     const draw = new DrawingController(chart);
     const a = line(draw);
+    const b = line(draw);
+    const c = line(draw);
+    const modified = (id: string, modifiers: Record<string, boolean>): void =>
+      chart.emit('click', { id, time: 1, price: 1, paneIndex: 0, point: { x: 1, y: 1 }, modifiers });
+    click(chart, `draw:${a.id}`);
+    modified(`draw:${b.id}`, { shift: true });
+    modified(`draw:${c.id}`, { ctrl: true });
+    expect(draw.selection()).toEqual([a.id, b.id, c.id]);
+    modified(`draw:${b.id}`, { meta: true });
+    expect(draw.selection()).toEqual([a.id, c.id]);
+    draw.select(a.id);
+    chart.emit('click', { id: null, time: 1, price: 1, paneIndex: 0, point: { x: 1, y: 1 }, modifiers: { shift: true } });
+    expect(draw.selection()).toEqual([a.id]);
+  });
+
+  it('a click on empty space clears, unless it is the additive gesture', () => {
+    const chart = makeChart();
+    // Shift+click on empty space is the temporary measure when that gesture
+    // is on (draw-measure.test.ts); with it off it is the additive click.
+    const draw = new DrawingController(chart, { gestures: { measure: false } });
+    const a = line(draw);
     draw.select(a.id);
     click(chart, null, { shiftKey: true });
+    expect(draw.selection()).toEqual([a.id]);
+    click(chart, null, { ctrlKey: true });
     expect(draw.selection()).toEqual([a.id]);
     click(chart, null);
     expect(draw.selection()).toEqual([]);
@@ -284,7 +309,7 @@ describe('multi-drag', () => {
     expect(updated).toEqual([]);                 // nothing until release
     chart.emit('drag:end', {});
     expect(updated).toEqual([a.id, b.id]);
-    expect(changed).toEqual({ ids: [a.id, b.id], kind: 'update' });
+    expect(changed).toEqual({ ids: [a.id, b.id], kind: 'update', step: expect.any(Number) });
   });
 
   it('a handle drag moves that anchor only, whatever else is selected', () => {

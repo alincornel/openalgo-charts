@@ -9,17 +9,33 @@ import { widgetText } from '../localization';
  * Picking a row adds an instance and leaves the picker up: a trader building
  * a layout adds three studies in a row, and closing after each would make
  * that three round trips through the menu.
+ *
+ * With a template store (the widget's `workspaces`), the footer's Templates
+ * button opens the saved study sets, bottom left where a dialog keeps its
+ * secondary control.
  */
 import { registeredIndicators } from 'openalgo-charts';
-import type { IndicatorApi, IndicatorDescriptor } from 'openalgo-charts';
+import type { IndicatorApi, IndicatorDescriptor, IndicatorPolicy } from 'openalgo-charts';
+import type { WorkspaceStore } from 'openalgo-charts/workspace';
 import type { WidgetContext } from '../context';
 import { button, dialogFrame, el, openPanel, type PanelHandle } from '../form';
+import { templateStoreOf } from '../layouts-templates';
+import { lazyPart, partFailed, usePart, type PartSlot } from '../lazy';
+
+/** The templates list, fetched when it first opens. Internal. */
+export const templatesPart = lazyPart(() => import('../layouts-templates-menu'));
 
 export interface IndicatorPickerOptions {
   /** Runs after each instance is added, with its handle. */
   onAdd?(inst: IndicatorApi): void;
   /** Close the picker after the first add. Default false. */
   closeOnAdd?: boolean;
+  /**
+   * Where saved indicator templates live. Default: the store the widget was
+   * given (`WidgetOptions.workspaces`); null offers none. A store without
+   * `planIndicatorTemplateState` offers none either. Since 2.5.10.
+   */
+  templates?: WorkspaceStore | null;
 }
 
 /** Descriptors matching `query` (name, id or category, case-insensitive), sorted by name. */
@@ -67,7 +83,27 @@ export function mountIndicatorPicker(
   list.setAttribute('aria-label', widgetText(ctx, 'Indicators'));
   frame.body.appendChild(findWrap);
   frame.body.appendChild(list);
+  const runningHead = el(doc, 'div', 'oac-head oac-pick__running-head', widgetText(ctx, 'schema.ui.indicatorPicker.running', {}, 'Running studies'));
+  const running = el(doc, 'div', 'oac-pick__running');
+  running.setAttribute('aria-label', widgetText(ctx, 'schema.ui.indicatorPicker.running', {}, 'Running studies'));
+  frame.body.appendChild(runningHead);
+  frame.body.appendChild(running);
   frame.actions.appendChild(button(doc, { label: widgetText(ctx, 'Done'), variant: 'primary', onClick: () => handle.close() }));
+  const templates = opts.templates === undefined ? templateStoreOf(ctx) : opts.templates ?? undefined;
+  let templatesMenu: PanelHandle | null = null;
+  if (templates?.planIndicatorTemplateState !== undefined) {
+    // The list loads on first use; a press while it loads opens it once, and none opens after the picker closed.
+    const slot: PartSlot = { waiting: null };
+    const open = button(doc, { label: widgetText(ctx, 'Templates'), icon: 'template', onClick: () => {
+      usePart(templatesPart, module => {
+        templatesMenu?.close();
+        templatesMenu = module.openTemplatesMenu(ctx, open, templates);
+      }, error => ctx.toast(partFailed(ctx, widgetText(ctx, 'Templates'), error), 'error'), () => handle.isOpen(), { slot, doc, from: open });
+    } });
+    open.dataset.action = 'templates';
+    open.setAttribute('aria-haspopup', 'dialog');
+    frame.lead.appendChild(open);
+  }
 
   let rows: HTMLButtonElement[] = [];
   let active = -1;
@@ -92,7 +128,43 @@ export function mountIndicatorPicker(
     find.focus();
   };
 
+  function paintRunning(): void {
+    running.innerHTML = '';
+    // A study its host keeps out of the inventory stays out of this list too.
+    const policy = (inst: IndicatorApi): Readonly<IndicatorPolicy> => (inst as Partial<IndicatorApi>).policy?.() ?? {};
+    const instances = chart.indicators().filter(inst => policy(inst).listed !== false);
+    if (instances.length === 0) {
+      running.appendChild(el(doc, 'div', 'oac-empty oac-pick__running-empty', widgetText(ctx, 'schema.ui.indicatorPicker.empty', {}, 'No running studies')));
+      return;
+    }
+    const ordinal = new Map<string, number>();
+    for (const inst of instances) {
+      const n = (ordinal.get(inst.indicatorId) ?? 0) + 1;
+      ordinal.set(inst.indicatorId, n);
+      const row = el(doc, 'div', 'oac-pick__running-row');
+      row.dataset.instanceId = inst.id;
+      row.appendChild(el(doc, 'span', 'oac-pick__running-name', inst.name));
+      row.appendChild(el(doc, 'span', 'oac-pick__running-number', String(n)));
+      const removeLabel = widgetText(ctx, 'schema.ui.indicatorPicker.remove', {}, 'Remove');
+      const remove = button(doc, {
+        label: removeLabel,
+        onClick: () => { chart.removeIndicator(inst.id); paint(); find.focus(); },
+      });
+      remove.classList.add('oac-pick__remove');
+      remove.setAttribute('aria-label', `${removeLabel} ${inst.name} ${n}`);
+      // Shown greyed with its reason: the host keeps this study on the chart.
+      if (policy(inst).removable === false) {
+        remove.disabled = true;
+        remove.title = widgetText(ctx, 'protected');
+        remove.setAttribute('aria-label', `${removeLabel} ${inst.name} ${n}, ${widgetText(ctx, 'protected')}`);
+      }
+      row.appendChild(remove);
+      running.appendChild(row);
+    }
+  }
+
   function paint(): void {
+    paintRunning();
     const query = find.value;
     list.innerHTML = '';
     rows = [];
@@ -144,10 +216,31 @@ export function mountIndicatorPicker(
   });
   paint();
 
-  const handle = openPanel(
+  const offObjects = chart.on('objects:change', paint);
+  const offRemove = chart.on('indicatorRemoved', paint);
+  const offRestore = chart.on('state:restore:end', paint);
+  const cleanup = (): void => { offObjects(); offRemove(); offRestore(); templatesMenu?.close(); };
+
+  const panel = openPanel(
     ctx, frame.el,
     anchor === undefined ? { placement: 'center', modal: true, initialFocus: find } : { anchor, placement: 'below', initialFocus: find },
-    () => {},
+    cleanup,
   );
+  const handle: PanelHandle = {
+    el: panel.el, isOpen: panel.isOpen,
+    close: () => { if (!panel.isOpen()) return; cleanup(); panel.close(); },
+  };
   return handle;
 }
+
+/** Include beside the dialog stylesheet in the widget's static CSP stylesheet. */
+export const INDICATOR_PICKER_CSS = `
+.oac-widget .oac-pick__running-head { margin-top: 10px; border-top: 1px solid var(--oac-bd); padding-top: 9px; }
+.oac-widget .oac-pick__running { display: grid; gap: 1px; max-height: 132px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--oac-sb-thumb) transparent; }
+.oac-widget .oac-pick__running::-webkit-scrollbar { width: 6px; }
+.oac-widget .oac-pick__running::-webkit-scrollbar-thumb { background: var(--oac-sb-thumb); border-radius: 3px; }
+.oac-widget .oac-pick__running-row { display: flex; align-items: center; gap: 7px; min-height: 29px; padding: 2px 6px; }
+.oac-widget .oac-pick__running-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.oac-widget .oac-pick__running-number { min-width: 16px; color: var(--oac-mut); font-size: 11px; text-align: right; }
+.oac-widget .oac-pick__running-row .oac-pick__remove { height: 23px; min-height: 23px; padding: 2px 6px; }
+`;

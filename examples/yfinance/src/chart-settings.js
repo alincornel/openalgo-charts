@@ -1,6 +1,6 @@
 import * as engine from '/dist/openalgo-charts.mjs';
 import { el, esc } from './ui.js';
-import { renderInputRows } from './indicators.js';
+import { renderInputRows, destroyInputRows } from './indicators.js';
 import { descriptionOf, exchangeOf, marketStatusReading, previousSessionClose } from './status.js';
 import { syncTimezoneFromChart } from './timezone.js';
 import { exitReplay } from './replay.js';
@@ -8,6 +8,7 @@ import { syncAxisChromeFromChart, syncStatusLineFromChart, syncTradeChoiceFromCh
 import { foldedInterval } from './intervals.js';
 import { restyleTradeChrome } from './orders.js';
 import { autosave } from './persist.js';
+import { asStep, historyGroup, withoutHistory } from './history.js';
 import { capturePaneTarget } from './pane-target.js';
 import { VOLUME_TAB, volumeSettings, applyVolumeSettings } from './volume.js';
 
@@ -76,11 +77,16 @@ const settingsValues = target => ({ ...readChartSettings(target.chart), ...volum
 function writeSettings(target, patch) {
   if (patch['time.timezone'] !== undefined && patch['time.timezone'] !== target.chart.timezone()) exitReplay(target.pane);
   const chartPatch = Object.fromEntries(Object.entries(patch).filter(([key]) => !key.startsWith('volume.') && key !== 'legend.iconSize'));
-  if (Object.keys(chartPatch).length) applyChartSettings(target.chart, chartPatch);
+  // The chart's settings are a step on its timeline; the chart does not
+  // announce them, so each write is measured as one.
+  if (Object.keys(chartPatch).length) asStep(target.pane, () => applyChartSettings(target.chart, chartPatch), 'Chart settings');
   if (patch['legend.iconSize'] !== undefined) target.chart.setLegendIconSize(normalizeLegendIconSize(patch['legend.iconSize']));
-  applyVolumeSettings(target.pane, patch);
+  // The volume row is the demo's own, saved with its layout, and an undo
+  // of the chart would not put the demo's copy of it back.
+  withoutHistory(target.pane, () => applyVolumeSettings(target.pane, patch));
   afterChartSettingsWrite(target);
 }
+let endSettingsStep = () => {};
 
 export function openChartSettings(tabId, target = capturePaneTarget(app)) {
   if (!target?.current()) return;
@@ -96,6 +102,8 @@ export function openChartSettings(tabId, target = capturePaneTarget(app)) {
   chartSetDirty.clear();
   chartSetTab = tabId || (tabs[0] && tabs[0].id);
   app.chartSettingsEditing = true;
+  // The session is one step, and a Cancel that puts everything back leaves none.
+  endSettingsStep = historyGroup(target.pane, 'Chart settings');
   disposeSettings = target.chart.on('destroy', discardChartSettings);
   renderChartSettings();
   el('chartset').hidden = false;
@@ -141,32 +149,32 @@ export function chartSettingUnavailable(key, option, target = chartSetTarget || 
   }
   const symbol = target.request.symbol || '';
   if (key === 'statusLine.openInterest' && target.chart.hasOpenInterest === false) {
-    return 'Open interest is unavailable for this instrument.';
+    return 'Open interest is unavailable for this instrument';
   }
   if (key === 'statusLine.titleMode' && option === 'description') {
     return descriptionOf(symbol) ? null
-      : 'no long name for ' + (symbol || 'this symbol').toUpperCase() + ' in this demo';
+      : 'No long name for ' + (symbol || 'this symbol').toUpperCase() + ' in this demo';
   }
   if (key === 'statusLine.marketStatus' && marketStatusReading(symbol) === undefined) {
-    return 'no session hours for ' + exchangeOf(symbol);
+    return 'No session hours for ' + exchangeOf(symbol);
   }
   if (key === 'statusLine.lastDayChange' && previousSessionClose(target.chart.primaryBars(), target.chart.timezone()) == null) {
-    return 'no previous session in the loaded range';
+    return 'No previous session in the loaded range';
   }
-  if (target.pane === 2 && key.startsWith('trading.')) return 'Trading simulation is available on chart 1';
+  if (target.pane === 2 && key.startsWith('trading.')) return 'Trading is available on Chart 1';
   const longPos = app.position && app.position.netQty > 0;
   const shortPos = app.position && app.position.netQty < 0;
   switch (key) {
-    case 'trading.longColor': return longPos ? null : 'no long position on the chart';
-    case 'trading.shortColor': return shortPos ? null : 'no short position on the chart';
+    case 'trading.longColor': return longPos ? null : 'No long position on the chart';
+    case 'trading.shortColor': return shortPos ? null : 'No short position on the chart';
     case 'trading.orderColor':
-      return app.orders.length || app.bracket ? null : 'no resting order or bracket on the chart';
+      return app.orders.length || app.bracket ? null : 'No resting order or bracket on the chart';
     case 'trading.tpColor': case 'trading.slColor':
-      return app.bracket ? null : 'no bracket on the chart';
+      return app.bracket ? null : 'No bracket on the chart';
     case 'trading.buyColor':
-      return app.fills.some((f) => f.shape === 'arrowUp') ? null : 'no buy execution on the chart';
+      return app.fills.some((f) => f.shape === 'arrowUp') ? null : 'No buy execution on the chart';
     case 'trading.sellColor':
-      return app.fills.some((f) => f.shape === 'arrowDown') ? null : 'no sell execution on the chart';
+      return app.fills.some((f) => f.shape === 'arrowDown') ? null : 'No sell execution on the chart';
     default: return null;
   }
 }
@@ -263,8 +271,12 @@ function settingsOwner() {
 }
 
 function discardChartSettings() {
+  destroyInputRows(el('cset-body'));
   disposeSettings?.();
   disposeSettings = null;
+  const end = endSettingsStep;
+  endSettingsStep = () => {};
+  end();
   el('chartset').hidden = true;
   chartSetBefore = null;
   chartSetTarget = null;

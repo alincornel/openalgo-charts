@@ -18,122 +18,32 @@
 // is a different type, and a consumer passing the real one got "separate
 // declarations of a private property". The entry is external to tier builds,
 // so this survives as `from 'openalgo-charts'` and stays one identity.
-import type { IPrimitive, DataLayer, AlertDrawingValue, AlertDrawingInfo } from 'openalgo-charts';
+import type { AlertDrawingValue, AlertDrawingInfo } from 'openalgo-charts';
 import type {
   Drawing, DrawingInput, DrawingPatch, DrawingPoint, DrawingStyle, DrawingTool, DrawingsDocument,
-  MagnetMode, ScreenPoint, VolumeAtPriceSource } from './types';
-import { DRAWING_STATE_VERSION } from './types';
-import { DrawingLayer, type DrawingPointerKind } from './layer';
-import { getDrawingTool, hasDrawingTool } from './tools';
-import { DrawingClipboard, cloneDrawing, type ClipboardPort } from './clipboard';
-import { migrateDrawings } from './migrate';
-import { rdpSimplify } from './freehand';
+  MagnetMode, ScreenPoint, DrawingGroup, DrawingSpace, DrawingStackTarget, ViewportPoint, VolumeAtPriceSource,
+} from './types';
+import type {
+  DrawingChartHost, DrawingControllerOptions, DrawingGestureOptions, DrawingPlacementOptions,
+  DrawingChangeKind, DrawingChangeEvent, DrawingEditOptions,
+} from './controller-types';
+import { DrawingLayer, placeViewportAnchors, sortByZIndex, type DrawingPointerKind } from './layer';
+import { getDrawingTool, hasDrawingTool, viewportDrawingTool } from './tools';
+import { readViewportPoints } from './viewport';
+import { DrawingClipboard, cloneDrawing } from './clipboard';
+import { migrateDrawings, migrateGroups } from './migrate';
+import { InputAnchors, type InputAnchorHost, type InputAnchorStep } from './input-anchors';
+import { DrawingScreen, within, type PaneProjection, type PointerSample } from './screen';
+import { barAt, magnetModeOf, magnetPoint, type SnapBar } from './snap';
+import { DrawingGestures, type GestureKeys } from './gestures';
+import { GestureLayer } from './gesture-layer';
+import { contextInterval, drawingsDocumentVersion, intervalFilter, passingContext, readIntervalRange } from './intervals';
+import { changedAnchor, historyPatch } from './patches';
 
-/**
- * The slice of the chart this controller needs.
- *
- * Declared structurally rather than as `Chart` on purpose. Each tier ships its
- * own bundled `.d.ts`, so naming the class here made the draw tier re-declare
- * `Chart`, and because `Chart` has private members, TypeScript treats the two
- * declarations as *different* types. A TS consumer passing the chart from
- * `createChart()` got "separate declarations of a private property", which made
- * the tier unusable from TypeScript at all. An interface with no private
- * members is structural, so the real `Chart` satisfies it with nothing to cast.
- */
-export interface DrawingChartHost {
-  readonly isDestroyed?: boolean;
-  /**
-   * The event bus. The controller listens for `click`, `crosshair:move`,
-   * `drag`, `drag:end` and `dblclick`, and for `hover` (`{ id }`, the hit id
-   * under the pointer whenever it changes), which is what drives the hover
-   * state: the chart has already hit-tested the move, so the controller
-   * reads its answer rather than testing a second time. A host that never
-   * emits `hover` has drawings that select and drag but do not light up.
-   */
-  on(event: string, handler: (payload: unknown) => void): () => void;
-  emit(event: string, payload: unknown): void;
-  addPrimitive(primitive: IPrimitive, paneIndex?: number): void;
-  removePrimitive(primitive: IPrimitive): void;
-  readonly dataLayer: DataLayer;
-  getVisibleLogicalRange(): { from: number; to: number } | null;
-  drawingState(): unknown;
-  setDrawingState(state: unknown): void;
-  setPlacementMode?(active: boolean): void;
-  /**
-   * Optional, and used only to move a drawing by a fixed screen distance (a
-   * paste offset, an arrow-key nudge, a multi-drag across panes). Going
-   * through pixels rather than adding a price delta keeps the offset the same
-   * visible nudge on a log scale as on a linear one, and the same on an RSI
-   * pane as on the price pane. A host without them still gets the time half.
-   */
-  priceToCoordinate?(price: number, paneIndex?: number): number | null;
-  coordinateToPrice?(y: number, paneIndex?: number): number | null;
-  /**
-   * Optional, the time-axis half of the same conversion. coordinateToTime also
-   * keeps previews and freehand strokes active in empty space beyond the bars.
-   * Without these methods a horizontal nudge assumes the default bar spacing.
-   */
-  timeToCoordinate?(time: number): number;
-  coordinateToTime?(x: number): number;
-  /**
-   * Optional, and used only to keep a paste from a chart with more panes than
-   * this one landing on a pane the user cannot see. Adding a primitive creates
-   * the pane it names, so without this a drawing copied out of an indicator
-   * pane would conjure an empty pane in a single-pane chart.
-   */
-  panes?(): readonly unknown[];
-}
-
-export interface DrawingControllerOptions {
-  /**
-   * Real traded volume at price, for the volume studies (Fixed Range Volume
-   * Profile). Without it they estimate volume from the candles. `null` clears
-   * a source set earlier.
-   */
-  volumeAtPrice?: VolumeAtPriceSource | null;
-  /**
-   * Snap new anchors to the O/H/L/C of the bar under the cursor. `'strong'`
-   * always takes the nearest of the four; `'weak'` only when one sits within
-   * a few pixels of the pointer, so a click on open space stays where it was
-   * made. `true` means `'strong'` and `false` means `'off'`, which is what
-   * the boolean meant before the modes existed. Default `'off'`. While a
-   * tool is armed the layer paints a ring where the next click will land.
-   */
-  magnet?: boolean | MagnetMode;
-  /** Style merged under every tool's own defaults. */
-  defaultStyle?: DrawingStyle;
-  /** Stay in the active tool after finishing a drawing. Default false. */
-  stayInDrawingMode?: boolean;
-  /** Undo depth. Default 50. */
-  historyLimit?: number;
-  /**
-   * Where copy and paste move text. Defaults to `navigator.clipboard`; pass a
-   * port to route through a host's own transfer, or `null` to stay in the
-   * process-local clipboard entirely.
-   */
-  clipboard?: ClipboardPort | null;
-  /**
-   * Whether a refused or failing clipboard write still lands in the in-process
-   * clipboard. Defaults to true, which is what makes copy and paste work between
-   * two charts on a page where the browser has denied clipboard permission.
-   *
-   * Pass false for a host that would rather a failed copy be a failed copy: with
-   * it off, `cut` leaves the drawing alone when the write does not land, so a
-   * shape is never destroyed for a transfer that did not happen.
-   */
-  clipboardFallbackToMemory?: boolean;
-  /**
-   * How far a pasted or duplicated copy lands from its original, in bars along
-   * time and in screen pixels down the price axis. A copy that lands exactly on
-   * top of the original reads as nothing having happened. Defaults: 2 bars,
-   * 16 px.
-   */
-  pasteOffsetBars?: number;
-  pasteOffsetPixels?: number;
-}
-
-/** What `drawing:change` reports happened to the listed ids. */
-export type DrawingChangeKind = 'add' | 'update' | 'remove' | 'reorder' | 'undo' | 'redo';
+export type {
+  DrawingChartHost, DrawingControllerOptions, DrawingGestureOptions, DrawingPlacementOptions,
+  DrawingChangeKind, DrawingChangeEvent, DrawingEditOptions,
+} from './controller-types';
 
 /**
  * The pointer facts the chart attaches to every gesture payload. Read
@@ -147,13 +57,6 @@ interface PointerFacts {
   pressure?: number;
 }
 
-/** One coalesced pointer position: container x, pane-local y, pressure. */
-interface PointerSample {
-  x: number;
-  y: number;
-  pressure?: number;
-}
-
 interface ClickPayload extends PointerFacts {
   id: string | null;
   time: number;
@@ -162,7 +65,10 @@ interface ClickPayload extends PointerFacts {
   point: { x: number; y: number };
   /** Set on the release half of a press-drag-release gesture. */
   viaDrag?: boolean;
-  /** Modifier state at the click; any of them makes a selection additive. */
+  /**
+   * The flat copy of `modifiers` the chart still sends on a click. It goes in
+   * 3.0.0 with the matching `ChartClickEvent` fields, so `modifiers` is read first.
+   */
   shiftKey?: boolean;
   ctrlKey?: boolean;
   metaKey?: boolean;
@@ -173,6 +79,8 @@ interface DragPayload extends PointerFacts {
   price: number;
   time: number;
   paneIndex: number;
+  /** Container x, pane-local y. What a viewport drag measures, where the bars cannot. */
+  point?: { x: number; y: number };
   /** Where the gesture was grabbed; deltas measure from here, not frame one. */
   fromPrice?: number;
   fromTime?: number;
@@ -194,107 +102,78 @@ interface CrosshairPayload extends PointerFacts {
   samples?: PointerSample[];
 }
 
-/** The two layers of one pane: under the series and over it. */
+/**
+ * The layers of one pane: under the series, over it, and one inside the
+ * series band for each entry a drawing is placed above.
+ */
 interface PaneLayers {
   bottom: DrawingLayer;
-  top: DrawingLayer;
+  top: GestureLayer;
+  series: Map<string, DrawingLayer>;
 }
 
-/**
- * The time scale's default bar spacing, for a horizontal nudge on a host that
- * cannot map pixels to time. Wrong by the zoom factor there, never by an order
- * of magnitude.
- */
-const FALLBACK_BAR_SPACING_PX = 8;
-
-/** How close, in media px, an O/H/L/C must be for the weak magnet to pull. */
-const WEAK_MAGNET_PX = 8;
-
-/** The angle step Shift locks a line to, in radians: 45 degrees. */
-const ANGLE_STEP = Math.PI / 4;
-
-/**
- * How far a thinned stroke may stray from the pointer's path, in media px.
- * Under the width of the ink itself, so the thinning is invisible; above the
- * jitter of a hand, so a stroke stops costing an anchor per pixel.
- */
-const STROKE_EPSILON_PX = 1.5;
-
-/**
- * The pressure a mouse reports while its button is held, and what a sample
- * without a value is taken to be. A sample at exactly this value stores
- * nothing, so a mouse stroke carries no pressure at all.
- */
-const REST_PRESSURE = 0.5;
-
 let nextId = 1;
+// Shared by every controller on the page, so a chart rebuilt with a new
+// controller never hands out a step a history still holds for the old one.
+let nextStep = 1;
 
 const sameIds = (a: readonly string[], b: readonly string[]): boolean =>
   a.length === b.length && a.every((id, i) => id === b[i]);
 
+/** Read-only to the user: `DrawingPolicy.editable` set to false. */
+const pinned = (d: Drawing | undefined): boolean => d?.policy?.editable === false;
+
 /**
- * The index of the one anchor that differs between two sets, or null when
- * none or several do. What a tool's constraint is told a points patch moved.
+ * Whether a key is held, from either form the payload carries it in. The flat
+ * flags on a click are deprecated (removed in 3.0.0): `modifiers` is read
+ * first so nothing here depends on them, and they are still read so that a
+ * synthetic payload carrying only them behaves the same until then.
  */
-function changedAnchor(prev: readonly DrawingPoint[], next: readonly DrawingPoint[]): number | null {
-  if (prev.length !== next.length) return null;
-  let found: number | null = null;
-  for (let i = 0; i < next.length; i++) {
-    if (prev[i].time === next[i].time && prev[i].price === next[i].price) continue;
-    if (found !== null) return null;
-    found = i;
-  }
-  return found;
-}
-
-/** The 1.9.x boolean and the 2.0 modes, folded onto one. */
-function magnetModeOf(value: boolean | MagnetMode | undefined): MagnetMode {
-  if (value === true) return 'strong';
-  if (value === 'weak' || value === 'strong') return value;
-  return 'off';
-}
-
-/** Whether Shift is held, from either form the payload carries it in. */
-const shiftOf = (p: PointerFacts & { shiftKey?: boolean }): boolean =>
-  p.modifiers?.shift === true || p.shiftKey === true;
+const held = (p: PointerFacts & { shiftKey?: boolean; ctrlKey?: boolean; metaKey?: boolean },
+  key: 'shift' | 'ctrl' | 'meta'): boolean => p.modifiers?.[key] === true || p[`${key}Key` as const] === true;
 
 /** The pointer kind behind a payload; anything unnamed is a mouse. */
+const keysOf = (p: PointerFacts & { shiftKey?: boolean; ctrlKey?: boolean; metaKey?: boolean }): GestureKeys =>
+  ({ shift: held(p, 'shift'), mod: held(p, 'ctrl') || held(p, 'meta'), alt: p.modifiers?.alt === true });
+
 const pointerKindOf = (p: PointerFacts): DrawingPointerKind =>
   p.pointerType === 'touch' || p.pointerType === 'pen' ? p.pointerType : 'mouse';
 
-type ControllerOptions = Required<Omit<DrawingControllerOptions, 'defaultStyle' | 'clipboard' | 'clipboardFallbackToMemory' | 'magnet' | 'volumeAtPrice'>>
-  & { defaultStyle: DrawingStyle; magnet: MagnetMode };
+type ControllerOptions = Required<Omit<DrawingControllerOptions, 'defaultStyle' | 'clipboard' | 'clipboardFallbackToMemory' | 'magnet' | 'inputAnchors' | 'gestures' | 'volumeAtPrice'>>
+  & { defaultStyle: DrawingStyle; magnet: MagnetMode; gestures: Required<DrawingGestureOptions> };
 
-interface DrawingHistoryEntry { before: string; after: string }
+/** Every gesture on, and a host's choice over it. */
+const gesturesOf = (base: Required<DrawingGestureOptions>, patch: DrawingGestureOptions = {}): Required<DrawingGestureOptions> =>
+  ({ ...base, ...Object.fromEntries(Object.entries(patch).filter(([key, on]) => key in base && typeof on === 'boolean')) });
+const ALL_GESTURES: Required<DrawingGestureOptions> = { snapModifier: true, measure: true, boxSelect: true, dragCopy: true };
+
+// `external` is a step of the history that is not a drawing edit, a study
+// anchor's drag: its snapshots are the drawings as they stood, unchanged by it.
+// `step` is the chart-wide history's number for the entry, so drawing edits
+// interleave with the chart's own steps in one timeline.
+interface DrawingHistoryEntry { before: string; after: string; step: number; external?: InputAnchorStep }
 
 /** @internal Reserved persistence metadata; a duplicate is a new drawing lineage. */
 export const DRAWING_LINK_METADATA_KEY = 'openalgo-charts/drawing-link';
-
-function historyPatch(current: unknown, before: unknown, after: unknown): unknown {
-  if (JSON.stringify(before) === JSON.stringify(after)) return current;
-  if (before === null || after === null || typeof before !== 'object' || typeof after !== 'object'
-    || Array.isArray(before) || Array.isArray(after)) return after;
-  const left = before as Record<string, unknown>;
-  const right = after as Record<string, unknown>;
-  const result = { ...(current as Record<string, unknown> | undefined) };
-  for (const key of new Set([...Object.keys(left), ...Object.keys(right)])) {
-    if (JSON.stringify(left[key]) === JSON.stringify(right[key])) continue;
-    if (!(key in right)) delete result[key];
-    else result[key] = historyPatch(result[key], left[key], right[key]);
-  }
-  return result;
-}
 
 export class DrawingController {
   private readonly _chart: DrawingChartHost;
   private _opts: ControllerOptions;
   private readonly _clipboard: DrawingClipboard;
+  /** Every conversion between data space and the screen. */
+  private readonly _screen: DrawingScreen;
+  /** The gestures that make no drawing: the temporary measure, box select and the eraser. */
+  private readonly _gestures: DrawingGestures;
   private readonly _layers = new Map<number, PaneLayers>();
   private _volumeAtPrice: VolumeAtPriceSource | null = null;
   private _drawings: Drawing[] = [];
+  private _groups: DrawingGroup[] = [];
+  private _nextGroup = 1;
   private readonly _linkedPreviews = new Map<string, Drawing>();
   private _destroyed = false;
   private _tool: string | null = null;
+  /** The space the armed tool places in; data whenever no tool is armed. */
+  private _toolSpace: DrawingSpace = 'data';
   private _pending: DrawingPoint[] = [];
   private _pendingPane = 0;
   /** Selected ids, in the order they were picked. The first is the primary. */
@@ -308,14 +187,31 @@ export class DrawingController {
    * a drag that follows the hand and one that stutters through the candles.
    */
   private readonly _lifted = new Set<string>();
+  /** The slots the series-band drawings were last listed in; see `_slotSignature`. */
+  private _slotKey = '';
   /** Shift as of the last pointer report: what angle lock reads mid-preview. */
   private _shift = false;
+  /** Ctrl or Cmd as of the last pointer report: the strong magnet while held. */
+  private _strong = false;
+  /** Placement mode as this controller last set it. */
+  private _placing = false;
+  /** Drawings an eraser drag has touched: still in the model, left unpainted until it lets go. */
+  private _hidden: ReadonlySet<string> = new Set();
+  /** The chart interval drawings are shown for; see `interval()`. */
+  private _interval: string | null = null;
+  /** The drawings the chart's interval hid when the layers were last listed; see `_followInterval`. */
+  private _offInterval = '';
   /** The device behind the last pointer report, for target sizing. */
   private _pointerKind: DrawingPointerKind = 'mouse';
   /** Snapshots for undo/redo; each is a full drawing list (they are small). */
   private _undo: DrawingHistoryEntry[] = [];
   private _redo: DrawingHistoryEntry[] = [];
   private _pendingHistory: DrawingHistoryEntry | null = null;
+  /** Depth of `untracked` runs, and the drawings as they were before the host's edit in progress. */
+  private _untracked = 0;
+  private _hostEdit: string | null = null;
+  /** The host's patches the recorded steps have yet to take, merged per drawing. */
+  private readonly _hostPatches = new Map<string, DrawingPatch>();
   /**
    * One gesture's starting state. `items` are ids rather than objects because
    * an undo mid-drag replaces every drawing object, and a stale reference
@@ -325,11 +221,22 @@ export class DrawingController {
     id: string;
     handle: number | null;
     from: DrawingPoint;
-    items: { id: string; paneIndex: number; points: DrawingPoint[] }[];
+    /** The press on its pane's plot, in media px: what a viewport drawing moves by the pointer from. */
+    origin: ScreenPoint | null;
+    /** For a shape grabbed by its body, the anchor of it the magnet lands. */
+    anchor: number | null;
+    /** The drawing that anchor is on: the one grabbed, or its copy. */
+    lead: string;
+    /** On a drag that copies, the copies it moves and the selection they replaced. */
+    copy?: { ids: string[]; sources: string[] };
+    items: { id: string; paneIndex: number; points: DrawingPoint[]; viewportPoints?: ViewportPoint[] }[];
     undo: DrawingHistoryEntry[];
     redo: DrawingHistoryEntry[];
   } | null = null;
   private readonly _off: (() => void)[] = [];
+  private _anchors: InputAnchors | null = null;
+  /** The host's timeline an anchor step goes to instead of this history; see `delegateInputAnchorSteps`. */
+  private _anchorSteps: ((step: InputAnchorStep) => void) | null = null;
   private _lastCursor: { time: number; price: number; paneIndex: number } | null = null;
   /**
    * Bar under the cursor, carried by the crosshair event, with the time the
@@ -340,8 +247,27 @@ export class DrawingController {
 
   public constructor(chart: DrawingChartHost, options: DrawingControllerOptions = {}) {
     this._chart = chart;
+    this._screen = new DrawingScreen(chart);
+    this._gestures = new DrawingGestures({
+      tool: () => this._tool,
+      options: () => this._opts.gestures,
+      aim: (point, pane) => this._aimPoint(point, pane),
+      style: () => this._opts.defaultStyle,
+      preview: () => this._syncPreview(),
+      emit: (event, payload) => this._chart.emit(event, payload),
+      // What the interval hides is not on the chart, so no box or sweep reaches it.
+      drawings: () => this._drawings.filter(this._shownFilter()),
+      selection: () => this._selection,
+      select: (ids) => this.select(ids),
+      layer: (pane, make) => make === true ? this._layerFor(pane).top : this._layers.get(pane)?.top,
+      hide: (ids) => { this._hidden = ids; this._syncLayers(); },
+      erase: (ids) => { this._removeIds(ids, true); },
+      plotRect: (pane) => this._chart.plotRect?.(pane) ?? null,
+      placement: () => { if (!this._destroyed && this._placementWanted() !== this._placing) this._setPlacementMode(!this._placing); },
+    });
     this._opts = {
       magnet: magnetModeOf(options.magnet),
+      gestures: gesturesOf(ALL_GESTURES, options.gestures),
       stayInDrawingMode: options.stayInDrawingMode ?? false,
       historyLimit: options.historyLimit ?? 50,
       pasteOffsetBars: options.pasteOffsetBars ?? 2,
@@ -361,30 +287,79 @@ export class DrawingController {
     this._off.push(chart.on('drag', (p) => this._onDrag(p as DragPayload)));
     this._off.push(chart.on('drag:end', () => this._onDragEnd()));
     this._off.push(chart.on('drag:cancel', () => { this.cancelDrag(); }));
-    this._off.push(chart.on('data:context', () => { this.cancelDrag(); }));
+    this._off.push(chart.on('data:context', context => { this.cancelDrag(); this._gestures.reset(); this._followInterval(context); }));
     this._off.push(chart.on('dblclick', () => { this.finish(); }));
     this._off.push(chart.on('drawings:restore', document => this.fromJSON(document)));
+    this._off.push(chart.on('pick:start', () => this._gestures.picking(true)));
+    this._off.push(chart.on('pick:end', () => this._gestures.picking(false)));
     // Restore anything a previous session left in the chart state. A 1.9.x
     // save is a bare array; the migration upgrades it in place.
     const saved = chart.drawingState();
-    if (saved !== undefined && saved !== null) this._drawings = migrateDrawings(saved).drawings;
+    if (saved !== undefined && saved !== null) {
+      const document = migrateDrawings(saved);
+      this._drawings = document.drawings;
+      this._groups = document.groups ?? [];
+    }
+    this._off.push(chart.on('paneRemoved', value => {
+      const { paneIndex } = value as { paneIndex: number };
+      this._remapPanes(index => index === paneIndex ? null : index > paneIndex ? index - 1 : index);
+    }));
+    this._off.push(chart.on('paneMoved', value => {
+      const { from, to } = value as { from: number; to: number };
+      this._remapPanes(index => index === from ? to : index === to ? from : index);
+    }));
+    // A study added, removed, moved or restacked changes which slot a drawing
+    // placed in the series band paints in, and nothing else of it: only the
+    // layers are re-listed, and only when a slot changed. Writing the chart
+    // state here would announce a change of its own and come straight back.
+    for (const event of ['objects:change', 'indicatorRemoved']) {
+      this._off.push(chart.on(event, () => { if (this._slotKey !== this._slotSignature()) this._syncLayers(); }));
+    }
+    this._interval = contextInterval(chart.getDataContext?.());
     this._sync();
+    if (options.inputAnchors !== false && typeof (chart as InputAnchorHost).indicators === 'function') {
+      this._anchors = new InputAnchors(chart as InputAnchorHost, {
+        record: (step, outside) => this._recordStep(step, outside),
+        placing: () => this._tool !== null,
+      });
+    }
   }
 
   // ── public API ──────────────────────────────────────────────────────────
 
-  /** Arm a tool for placement, or pass null to return to the cursor. */
-  public setTool(toolId: string | null): void {
+  /**
+   * Arm a tool for placement, or pass null to return to the cursor. With
+   * `options.space` set to `'viewport'` the drawing it places is pinned to the
+   * screen; a tool that cannot be (see `DrawingTool.viewport`) throws.
+   */
+  public setTool(toolId: string | null, options: DrawingPlacementOptions = {}): void {
     if (toolId !== null && !hasDrawingTool(toolId)) {
       throw new Error(`openalgo-charts: unknown drawing tool "${toolId}"`);
     }
+    const space: DrawingSpace = toolId !== null && options.space === 'viewport' ? 'viewport' : 'data';
+    if (space === 'viewport' && !viewportDrawingTool(toolId as string)) {
+      throw new Error(`openalgo-charts: drawing tool "${toolId}" cannot be anchored to the viewport`);
+    }
     this.cancelDrag();
+    this._gestures.reset();
+    this._gestures.setEraser(false);
     this._tool = toolId;
+    this._toolSpace = space;
     this._pending = [];
-    this._setPlacementMode(toolId !== null);
+    this._setPlacementMode(this._placementWanted());
     this._syncPreview();
     this._syncSnapRing();
-    this._chart.emit('draw:tool', { tool: toolId });
+    this._emitTool();
+  }
+
+  /** The space the armed tool places in: `'data'` unless it was armed for the viewport. */
+  public activeToolSpace(): DrawingSpace {
+    return this._toolSpace;
+  }
+
+  /** `draw:tool`, carrying the space only when it is not the default, as the payload always has. */
+  private _emitTool(): void {
+    this._chart.emit('draw:tool', this._toolSpace === 'viewport' ? { tool: this._tool, space: 'viewport' } : { tool: this._tool });
   }
 
   /**
@@ -392,8 +367,18 @@ export class DrawingController {
    * Guarded so a base bundle predating `setPlacementMode` still loads the tier.
    */
   private _setPlacementMode(active: boolean): void {
+    this._placing = active;
     const chart = this._chart as unknown as { setPlacementMode?: (a: boolean) => void };
     chart.setPlacementMode?.(active);
+  }
+
+  /**
+   * The armed tool's placement mode, or a gesture's. The gestures are asked even with a tool
+   * armed: their answer is also how they read the next press, and a stale one would take it.
+   */
+  private _placementWanted(): boolean {
+    const gesture = this._gestures.wantsPlacement();
+    return this._tool !== null || gesture;
   }
 
   public activeTool(): string | null {
@@ -403,37 +388,66 @@ export class DrawingController {
   public setOptions(patch: DrawingControllerOptions): void {
     // `clipboard` is a port, not a stored option: it is applied to the live
     // clipboard so a host can hand one over after the user grants permission.
-    const { clipboard, magnet, volumeAtPrice, ...rest } = patch;
-    if (volumeAtPrice !== undefined) {
-      this._volumeAtPrice = volumeAtPrice;
-      for (const pair of this._layers.values()) {
-        pair.bottom.setVolumeAtPrice(volumeAtPrice);
-        pair.top.setVolumeAtPrice(volumeAtPrice);
-      }
-    }
+    const { clipboard, magnet, gestures, volumeAtPrice, ...rest } = patch;
+    if (volumeAtPrice !== undefined) for (const layer of this._allLayers()) layer.setVolumeAtPrice(this._volumeAtPrice = volumeAtPrice);
     this._opts = {
       ...this._opts, ...rest,
       defaultStyle: patch.defaultStyle ?? this._opts.defaultStyle,
       magnet: magnet === undefined ? this._opts.magnet : magnetModeOf(magnet),
+      gestures: gesturesOf(this._opts.gestures, gestures),
     };
     if (clipboard !== undefined) this._clipboard.setPort(clipboard);
     this._syncSnapRing();
   }
 
-  /**
-   * Repaint every drawing without changing any of them — for a host whose
-   * `volumeAtPrice` answer (or other data a tool reads) has just arrived.
-   */
+  /** Repaint every drawing, unchanged: a host's `volumeAtPrice` answer (or other data a tool reads) arrived. */
   public refresh(): void {
-    for (const pair of this._layers.values()) {
-      pair.bottom.refresh();
-      pair.top.refresh();
-    }
+    for (const layer of this._allLayers()) layer.refresh();
   }
 
   /** The snap mode in force, after the boolean form has been folded. */
   public magnetMode(): MagnetMode {
     return this._opts.magnet;
+  }
+
+  /**
+   * Whether a temporary measure (Shift+click on empty space) is on the chart.
+   * `draw:measure` (`{ active }`) fires when one starts and when it goes. A
+   * host routing Escape to `cancel()` only while placing passes this too.
+   */
+  public measuring(): boolean {
+    return this._gestures.measuring();
+  }
+
+  /**
+   * Eraser mode: a click on a drawing deletes it, and a drag deletes every
+   * drawing it crosses, as one undo step on release. What the user could not
+   * delete by selecting it (read-only, locked, unselectable or hidden) stays.
+   * While it is on the chart is in placement mode, so a drag erases rather
+   * than pans. Turning it on disarms any tool; arming a tool, `cancel()` and
+   * `setEraser(false)` turn it off. `draw:eraser` (`{ active }`) fires on
+   * each change.
+   */
+  public setEraser(active: boolean): void {
+    if (this._destroyed || active === this._gestures.erasing()) return;
+    if (active) {
+      this.cancelDrag();
+      this._gestures.reset();
+      if (this._tool !== null) {
+        this._tool = null;
+        this._toolSpace = 'data';
+        this._pending = [];
+        this._syncPreview();
+        this._syncSnapRing();
+        this._emitTool();
+      }
+    }
+    this._gestures.setEraser(active);
+  }
+
+  /** Whether eraser mode is on. */
+  public erasing(): boolean {
+    return this._gestures.erasing();
   }
 
   /**
@@ -450,10 +464,213 @@ export class DrawingController {
     return this._clipboard;
   }
 
+  /** Named drawing sets, returned as detached records. */
+  public groups(): readonly DrawingGroup[] {
+    return this._groups.map(group => ({ ...group, members: [...group.members] }));
+  }
+
   /**
-   * Every drawing, in list order. That is creation order until a z-order call
-   * moves one; the list is the tie-break for equal `zIndex`, so it is also the
-   * paint order within a band.
+   * Group live drawings, replacing any previous membership for those ids. A
+   * read-only drawing's group is the host's, so it is left where it is
+   * unless `options.force` is set.
+   */
+  public createGroup(name: string, ids: readonly string[], options: DrawingEditOptions = {}): DrawingGroup | null {
+    const members = [...new Set(ids)].filter(id => this.get(id) !== undefined && (options.force || !pinned(this.get(id))));
+    if (this._destroyed || !name.trim() || !members.length) return null;
+    let id: string;
+    // An id that only a recorded step still holds is taken as well: that
+    // step would bring its group back over this one. Serialised, a group id
+    // is its quoted self; the same text anywhere else only skips a number.
+    do { id = `group-${this._nextGroup++}`; } while (this._groups.some(group => group.id === id)
+      || [...this._undo, ...this._redo].some(entry => (entry.before + entry.after).includes(`"${id}"`)));
+    const group = { id, name: name.trim(), members };
+    const moved = new Set(members);
+    this._regroup(options.force, groups => groups
+      .map(previous => ({ ...previous, members: previous.members.filter(member => !moved.has(member)) }))
+      .concat({ ...group, members: [...members] }));
+    this._sync();
+    this._emitChange(members, 'update');
+    return { ...group, members: [...members] };
+  }
+
+  /** Rename a group. One that holds a read-only drawing is the host's, and needs `options.force`. */
+  public renameGroup(id: string, name: string, options: DrawingEditOptions = {}): boolean {
+    const group = this._group(id, options);
+    if (!group || !name.trim()) return false;
+    this._regroup(options.force, groups => groups.map(item => item.id === id ? { ...item, name: name.trim() } : item));
+    this._sync();
+    this._emitChange(group.members, 'update');
+    return true;
+  }
+
+  /**
+   * Remove a group, optionally deleting all its drawings as one edit. One
+   * that holds a read-only drawing is the host's, and needs `options.force`.
+   */
+  public removeGroup(id: string, removeDrawings = false, options: DrawingEditOptions = {}): boolean {
+    const group = this._group(id, options);
+    if (!group) return false;
+    this._regroup(options.force, groups => groups.filter(item => item.id !== id));
+    if (!removeDrawings || this._removeIds(group.members, false, options.force).length === 0) { this._sync(); this._emitChange(group.members, 'update'); }
+    return true;
+  }
+
+  /**
+   * Make a grouping edit. The host's forced one is its own act, so every
+   * recorded step takes it as well, and no undo or redo reverses it.
+   */
+  private _regroup(force: boolean | undefined, edit: (groups: DrawingGroup[]) => DrawingGroup[]): void {
+    this._begin(!force);
+    this._groups = edit(this._groups);
+    if (force) this._rebase(document => { document.groups = edit(document.groups ?? []); });
+  }
+
+  /** The live group `id`, unless it holds a read-only drawing and the call is not forced. */
+  private _group(id: string, options: DrawingEditOptions): DrawingGroup | undefined {
+    const group = this._groups.find(item => item.id === id);
+    return this._destroyed || (!options.force && group?.members.some(member => pinned(this.get(member)))) ? undefined : group;
+  }
+
+  /**
+   * Move one step through the rendered stack, within the slot it paints in:
+   * its side of the series, or the entry it is placed above. `placeInStack`
+   * moves it between slots.
+   */
+  public reorder(id: string, direction: -1 | 1): boolean {
+    const drawing = this.get(id);
+    if (!drawing || this._destroyed || (direction !== -1 && direction !== 1)) return false;
+    const entries = this._entries(drawing.paneIndex), slot = this._slotOf(drawing, entries);
+    const band = this._drawings.filter(item => item.paneIndex === drawing.paneIndex && this._slotOf(item, entries) === slot)
+      .sort((a, b) => a.zIndex - b.zIndex);
+    const index = band.indexOf(drawing);
+    const target = index + direction;
+    if (target < 0 || target >= band.length) return false;
+    this._pushUndo();
+    [band[index], band[target]] = [band[target], band[index]];
+    const members = new Set(band);
+    let cursor = 0;
+    this._drawings = this._drawings.map(item => members.has(item) ? band[cursor++] : item);
+    band.forEach((item, position) => { item.zIndex = slot === 'below' ? position - band.length : position; });
+    this._sync();
+    for (const item of band) this._chart.emit('draw:update', { drawing: item });
+    this._emitChange(band.map(item => item.id), 'reorder');
+    return true;
+  }
+
+  /**
+   * Move a drawing directly above or below `target` in its pane's paint
+   * order, as one undo step. Next to another drawing it joins the slot that
+   * drawing paints in; above a series-band entry (`chart.seriesStack`) it is
+   * placed on that entry, under the drawings already there; below one it goes
+   * on top of the slot under that entry, the drawings behind the series when
+   * the entry is the first. A slot's drawings are renumbered, below the series
+   * up to -1 and elsewhere from 0. False, with nothing recorded, for a target
+   * on another pane, one the host cannot report, or a move that changes nothing.
+   * Like `reorder`, it is outside a drawing's policy.
+   */
+  public placeInStack(id: string, target: DrawingStackTarget, where: 'above' | 'below'): boolean {
+    const d = this.get(id);
+    if (d === undefined || this._destroyed || (where !== 'above' && where !== 'below') || target === null || typeof target !== 'object') return false;
+    const entries = this._entries(d.paneIndex);
+    let slot: string, index: number;
+    if ('drawing' in target) {
+      const t = this.get(target.drawing);
+      if (t === undefined || t === d || t.paneIndex !== d.paneIndex) return false;
+      slot = this._slotOf(t, entries);
+      index = this._slotMembers(d.paneIndex, slot, entries).filter(m => m !== d).indexOf(t) + (where === 'above' ? 1 : 0);
+    } else {
+      const at = entries.indexOf((target as { entry: string }).entry);
+      if (at < 0) return false;
+      slot = where === 'above' ? 'entry:' + entries[at] : at === 0 ? 'below' : 'entry:' + entries[at - 1];
+      index = where === 'above' ? 0 : this._slotMembers(d.paneIndex, slot, entries).filter(m => m !== d).length;
+    }
+    const members = this._slotMembers(d.paneIndex, slot, entries);
+    if (this._slotOf(d, entries) === slot && members.indexOf(d) === index) return false;
+    this._pushUndo();
+    const next = members.filter(m => m !== d);
+    next.splice(index, 0, d);
+    if (slot.startsWith('entry:')) d.stackAbove = slot.slice('entry:'.length);
+    else delete d.stackAbove;
+    next.forEach((m, position) => { m.zIndex = slot === 'below' ? position - next.length : position; });
+    this._sync();
+    for (const m of next) this._chart.emit('draw:update', { drawing: m });
+    this._emitChange(next.map(m => m.id), 'reorder');
+    return true;
+  }
+
+  /** A pane's series band as the chart reports it, or none on a host that cannot. */
+  private _entries(paneIndex: number): readonly string[] {
+    return this._chart.seriesStack?.(paneIndex) ?? [];
+  }
+
+  /**
+   * The slot a drawing paints in: `entry:<id>` while the entry it is placed
+   * above is in its pane's series band, else its side of the series by `zIndex`.
+   */
+  private _slotOf(d: Drawing, entries: readonly string[]): string {
+    return d.stackAbove !== undefined && entries.includes(d.stackAbove) ? 'entry:' + d.stackAbove : d.zIndex < 0 ? 'below' : 'above';
+  }
+
+  /** The drawings of one slot of a pane, in paint order. */
+  private _slotMembers(paneIndex: number, slot: string, entries: readonly string[]): Drawing[] {
+    return sortByZIndex(this._drawings.filter(d => d.paneIndex === paneIndex && this._slotOf(d, entries) === slot));
+  }
+
+  private _remapPanes(map: (index: number) => number | null): void {
+    // Cancel without syncing to numeric slots which have already shifted.
+    const drag = this._dragStart;
+    if (drag) {
+      this._dragStart = null;
+      for (const item of drag.items) { const drawing = this.get(item.id); if (drawing) this._restoreAnchors(drawing, item); }
+      this._dropCopies(drag);
+      this._undo = drag.undo;
+      this._redo = drag.redo;
+      this._pendingHistory = null;
+      this._lifted.clear();
+      this._chart.emit('draw:preview-clear', { ids: drag.items.map(item => item.id) });
+    }
+    this._pending = [];
+    this._lastCursor = null;
+    this._gestures.reset();
+    this._linkedPreviews.clear();
+    const remapSnapshot = (value: string): string => {
+      const document = migrateDrawings(JSON.parse(value));
+      document.drawings = document.drawings.filter(drawing => {
+        const pane = map(drawing.paneIndex);
+        if (pane === null) return false;
+        drawing.paneIndex = pane;
+        return true;
+      });
+      document.groups = migrateGroups(document.groups, document.drawings);
+      return JSON.stringify(document);
+    };
+    for (const entry of new Set([...this._undo, ...this._redo])) {
+      entry.before = remapSnapshot(entry.before);
+      entry.after = remapSnapshot(entry.after);
+    }
+    const removed: Drawing[] = [];
+    this._drawings = this._drawings.filter(drawing => {
+      const pane = map(drawing.paneIndex);
+      if (pane === null) { removed.push(drawing); return false; }
+      drawing.paneIndex = pane;
+      return true;
+    });
+    const layers = [...this._layers.entries()];
+    this._layers.clear();
+    for (const [index, pair] of layers) {
+      const pane = map(index);
+      if (pane !== null) this._layers.set(pane, pair);
+    }
+    this._pruneSelection();
+    this._sync();
+    for (const drawing of removed) this._chart.emit('draw:remove', { drawing });
+    this._emitChange(this._drawings.map(drawing => drawing.id), 'update');
+  }
+
+  /**
+   * Every drawing, in list order, those the interval hides included. That is
+   * creation order until a z-order call moves one; the list is the tie-break
+   * for equal `zIndex`, so it is also the paint order within a band.
    */
   public drawings(): readonly Drawing[] {
     return this._drawings;
@@ -461,6 +678,60 @@ export class DrawingController {
 
   public get(id: string): Drawing | undefined {
     return this._drawings.find((d) => d.id === id);
+  }
+
+  /**
+   * The chart interval drawings are shown for: the data context's `interval`
+   * when the controller was built, then as each `data:context` announces it,
+   * or null when the host names none (or a blank one), and then every drawing
+   * shows. Each drawing's `intervals` range is read against it.
+   */
+  public interval(): string | null {
+    return this._interval;
+  }
+
+  /**
+   * Whether a drawing is on the chart at the chart's interval: false for an
+   * unknown id and for one whose `intervals` range leaves that interval out.
+   * `visible` is not read; it is the user's own switch.
+   */
+  public shownOnInterval(id: string): boolean {
+    const d = this.get(id);
+    return d !== undefined && this._shownFilter()(d);
+  }
+
+  /**
+   * The ids of the drawings the chart's interval leaves off the chart, in
+   * model order. One pass for a caller asking about every drawing, as the
+   * object inventory does on each refresh: `shownOnInterval` per id would
+   * look each one up.
+   */
+  public hiddenOnInterval(): string[] {
+    const shown = this._shownFilter();
+    return this._drawings.filter(d => !shown(d)).map(d => d.id);
+  }
+
+  /** The test of whether a drawing is shown at the chart's interval, resolved once for a pass over many. */
+  private _shownFilter(): (d: Pick<Drawing, 'intervals'>) => boolean {
+    return intervalFilter(this._interval);
+  }
+
+  /**
+   * Follow a change of the chart's interval: what it hides leaves the layers
+   * and the selection, what it shows comes back. The layers are listed again
+   * only when that set changed, since a list under the series costs the
+   * series a repaint and a new symbol on the same interval changes nothing.
+   */
+  private _followInterval(context: unknown): void {
+    if (this._destroyed || passingContext(context)) return;
+    const read = this._chart.getDataContext;
+    this._interval = contextInterval(read === undefined ? context : read.call(this._chart));
+    if (this.hiddenOnInterval().join('\u0000') === this._offInterval) return;
+    const shown = this._shownFilter();
+    this._syncLayers();
+    const kept = this._selection.filter(id => { const d = this.get(id); return d !== undefined && shown(d); });
+    if (!sameIds(kept, this._selection)) this._setSelection(kept);
+    if (this._hovered !== null && !this.shownOnInterval(this._hovered)) this._setHovered(null);
   }
 
   public get isDestroyed(): boolean { return this._destroyed; }
@@ -477,8 +748,13 @@ export class DrawingController {
       this._pruneSelection();
     } else {
       const copy = cloneDrawing({ ...drawing, id });
+      const was = JSON.stringify(this._drawings[index]?.policy);
       if (index < 0) this._drawings.push(copy);
       else this._drawings[index] = copy;
+      // A policy the other chart's host changed holds here too, history included.
+      if (JSON.stringify(copy.policy) !== was) {
+        this._rebase(document => { for (const d of document.drawings) if (d.id === id) d.policy = copy.policy; });
+      }
     }
     this._sync();
     this._chart.emit('drawing:change', { ids: [id], kind: drawing === null ? 'remove' : index < 0 ? 'add' : 'update', linked: true });
@@ -510,6 +786,9 @@ export class DrawingController {
     const drawing = this.get(id);
     if (!drawing || !hasDrawingTool(drawing.tool)) return { available: false, reason: 'Drawing is unavailable', levels: [] };
     const tool = getDrawingTool(drawing.tool);
+    // A pinned drawing sits over whatever price is under it at the moment,
+    // which changes with every pan: there is no level to watch.
+    if (drawing.space === 'viewport') return { available: false, reason: 'A drawing pinned to the screen has no price', paneIndex: drawing.paneIndex, levels: [] };
     if (!tool.alertValue) return { available: false, reason: 'This tool has no numeric alert value', paneIndex: drawing.paneIndex, levels: [] };
     const levels = tool.alertLevels?.(drawing) ?? [{ id: 'line', title: 'Line' }];
     if (!this._chart.timeToCoordinate || !this._chart.priceToCoordinate || !this._chart.coordinateToPrice) {
@@ -522,27 +801,43 @@ export class DrawingController {
   /** Numeric drawing value using the actual pane projection and collapsed time axis. */
   public valueAt(id: string, time: number, level?: string): AlertDrawingValue | undefined {
     const drawing = this.get(id);
-    if (!drawing || !hasDrawingTool(drawing.tool) || !Number.isFinite(time)) return undefined;
+    if (!drawing || drawing.space === 'viewport' || !hasDrawingTool(drawing.tool) || !Number.isFinite(time)) return undefined;
     const tool = getDrawingTool(drawing.tool);
     const toX = this._chart.timeToCoordinate;
-    const fromY = this._chart.coordinateToPrice;
-    if (!tool.alertValue || !toX || !fromY) return undefined;
-    const pts: ScreenPoint[] = [];
-    for (const point of drawing.points) {
-      const pixel = this._toPixel(point, drawing.paneIndex);
-      if (!pixel) return undefined;
-      pts.push(pixel);
+    const toPrice = this._chart.coordinateToPrice;
+    if (!tool.alertValue || !toX || !toPrice) return undefined;
+    const pane = drawing.paneIndex;
+    let fromY = (y: number): number | null => toPrice.call(this._chart, y, pane);
+    let pts = drawing.points.map(point => this._screen.toPixel(point, pane));
+    if (pts.includes(null)) {
+      // A pane folded to a strip has no place on screen, so the chart maps no
+      // price there, yet an alert on it must keep firing. The pane's own scale
+      // keeps the projection it was drawn in, and every alert level is a line
+      // through the anchors, which the height of that scale cannot move.
+      const own = this._chart.panes?.()[pane] as PaneProjection | undefined;
+      if (typeof own?.priceToY !== 'function' || typeof own.yToPrice !== 'function') return undefined;
+      pts = drawing.points.map(point => ({ x: toX.call(this._chart, point.time), y: own.priceToY(point.price) }));
+      fromY = y => own.yToPrice(y);
     }
     const x = toX.call(this._chart, time);
     if (!Number.isFinite(x)) return undefined;
-    const value = tool.alertValue({ drawing, pts, time, x, fromY: y => fromY.call(this._chart, y, drawing.paneIndex) }, level);
+    const value = tool.alertValue({ drawing, pts: pts as ScreenPoint[], time, x, fromY }, level);
     if (!value || !Number.isFinite(value.price) || (value.upperPrice !== undefined && !Number.isFinite(value.upperPrice))) return undefined;
     return { ...value, paneIndex: drawing.paneIndex };
   }
 
-  /** Add a fully-specified drawing (import, or a host-authored one). */
+  /**
+   * Add a fully-specified drawing (import, or a host-authored one). One that
+   * carries a restriction is the host's, and placing it is not a step the
+   * user can take back, so it is not recorded.
+   */
   public add(drawing: DrawingInput): Drawing {
-    this._pushUndo();
+    // Refused before anything is recorded: a bad viewport drawing is the
+    // caller's mistake, and leaves no undo step behind.
+    if (drawing.space === 'viewport' && (!viewportDrawingTool(drawing.tool) || readViewportPoints(drawing.viewportPoints) === null)) {
+      throw new Error(`openalgo-charts: a "${drawing.tool}" drawing cannot be anchored to the viewport with those viewportPoints`);
+    }
+    this._begin(!Object.values(drawing.policy ?? {}).includes(false));
     const created = this._insert(drawing);
     this._sync();
     this._chart.emit('draw:add', { drawing: created });
@@ -568,6 +863,21 @@ export class DrawingController {
       zIndex: Number.isFinite(drawing.zIndex) ? (drawing.zIndex as number) : 0,
       createdAt: drawing.createdAt ?? Date.now(),
     };
+    // A copy: the object the caller keeps is not a switch on this drawing.
+    if (drawing.policy) created.policy = { ...drawing.policy };
+    // One space, one set of anchors: a viewport drawing keeps no data anchors
+    // that could be mistaken for its position, and data is never written out.
+    if (drawing.space === 'viewport') {
+      created.points = [];
+      created.viewportPoints = readViewportPoints(drawing.viewportPoints) ?? [];
+    } else {
+      delete created.space;
+      delete created.viewportPoints;
+    }
+    // A copy, and only a range that names a bound: an empty one limits nothing.
+    const intervals = readIntervalRange(drawing.intervals);
+    if (intervals === null) delete created.intervals;
+    else created.intervals = intervals;
     if (created.props?.[DRAWING_LINK_METADATA_KEY] !== undefined) {
       created.props = { ...created.props };
       delete created.props[DRAWING_LINK_METADATA_KEY];
@@ -583,32 +893,90 @@ export class DrawingController {
     return `d${nextId++}`;
   }
 
-  public update(id: string, patch: DrawingPatch): boolean {
+  /**
+   * Patch one drawing. False when there is no such drawing, or when it is
+   * read-only to the user and `options.force` is not set. A patch that
+   * carries `policy` is the host's, and like a forced one records no step.
+   *
+   * Also false when the patch asks for a `space` the drawing could not be
+   * moved to (a tool without viewport support, or a pane with no place on
+   * screen, folded or hidden behind a maximized pane): the rest of the patch
+   * still applies, and the false tells a host that the drawing is not in the
+   * space it asked for, which a control showing that space has to say.
+   */
+  public update(id: string, patch: DrawingPatch, options: DrawingEditOptions = {}): boolean {
     const d = this.get(id);
-    if (d === undefined) return false;
-    this._pushUndo();
-    this._applyPatch(d, patch);
-    this._sync();
-    this._chart.emit('draw:update', { drawing: d });
-    this._emitChange([id], 'update');
-    return true;
+    if (d === undefined || (pinned(d) && options.force !== true)) return false;
+    this.updateMany([{ id, patch }], options);
+    return patch.space === undefined || (d.space === 'viewport') === (patch.space === 'viewport');
   }
 
   /**
    * Patch several drawings as one undo entry: a colour change across a
    * multi-selection is one edit to the user, so it is one Ctrl+Z too. Ids that
-   * no longer exist are skipped; nothing is recorded when none exist.
+   * no longer exist are skipped, and so are read-only drawings unless
+   * `options.force` is set; nothing is recorded when nothing is left, or
+   * when every patch is the host's (forced, or carrying `policy`).
    */
-  public updateMany(patches: ReadonlyArray<{ id: string; patch: DrawingPatch }>): void {
+  public updateMany(patches: ReadonlyArray<{ id: string; patch: DrawingPatch }>, options: DrawingEditOptions = {}): void {
     const live = patches
       .map((p) => ({ d: this.get(p.id), patch: p.patch }))
-      .filter((p): p is { d: Drawing; patch: DrawingPatch } => p.d !== undefined);
+      .filter((p): p is { d: Drawing; patch: DrawingPatch } => p.d !== undefined && (options.force === true || !pinned(p.d)))
+      // A change of space the controller cannot make leaves nothing for that
+      // drawing to do, and it is not an edit to record.
+      .map(({ d, patch }) => ({ d, patch: this._spacePatch(d, patch), asked: Object.keys(patch).length }))
+      .filter(({ patch, asked }) => asked === 0 || Object.keys(patch).length > 0);
     if (live.length === 0) return;
-    this._pushUndo();
+    this._begin(!options.force && live.some(({ patch }) => !patch.policy));
     for (const { d, patch } of live) this._applyPatch(d, patch);
+    let rewrite = false;
+    for (const { d, patch: { points, ...rest } } of live) {
+      if (!options.force && !rest.policy) continue;
+      // The host's patch, whole, and the anchors exactly where they landed:
+      // a constraint run again on an older shape could put them elsewhere.
+      const held = this._hostPatches.get(d.id) ?? {};
+      this._applyPatch(held as Drawing, rest);
+      // Data is stored as an absent space, so the held patch names it outright.
+      if (rest.space !== undefined) held.space = rest.space;
+      // Likewise a drawing taken out of the series band.
+      if (rest.stackAbove !== undefined) (held as DrawingPatch).stackAbove = rest.stackAbove;
+      // And a range, cleared or set, as the drawing now holds it.
+      if (rest.intervals !== undefined) (held as DrawingPatch).intervals = d.intervals === undefined ? null : { ...d.intervals };
+      if (points) held.points = d.points;
+      this._hostPatches.set(d.id, held);
+      // History cannot reach a read-only drawing's content until its policy
+      // changes, and that change is a rewrite which takes this patch first,
+      // so moving one (a trailing level, every tick) costs no rewrite. Its
+      // place in the stack is within history's reach.
+      rewrite ||= !pinned(d) || !!rest.policy || rest.zIndex !== undefined || rest.stackAbove !== undefined;
+    }
+    if (rewrite) this._rebase();
     this._sync();
     for (const { d } of live) this._chart.emit('draw:update', { drawing: d });
     this._emitChange(live.map((p) => p.d.id), 'update');
+  }
+
+  /**
+   * A patch as it applies to `d`. A change of space comes out complete, with
+   * the anchors of the new space (converted at the view on screen unless the
+   * patch gives them), or is left out when it cannot be made; anchors of the
+   * space the drawing will not be in are left out too, so one drawing never
+   * carries two positions.
+   */
+  private _spacePatch(d: Drawing, patch: DrawingPatch): DrawingPatch {
+    const { space, points, viewportPoints, ...rest } = patch;
+    const from: DrawingSpace = d.space === 'viewport' ? 'viewport' : 'data';
+    let to: DrawingSpace = space === undefined ? from : space === 'viewport' ? 'viewport' : 'data';
+    if (to === 'viewport' && from === 'data' && !viewportDrawingTool(d.tool)) to = 'data';
+    if (to === 'viewport') {
+      const given = viewportPoints === undefined ? null : readViewportPoints(viewportPoints);
+      if (to === from) return given === null ? rest : { ...rest, viewportPoints: given };
+      const anchors = given ?? this._screen.toViewport(points ?? d.points, d.paneIndex, d);
+      return anchors === null ? rest : { ...rest, space: 'viewport', points: [], viewportPoints: anchors };
+    }
+    if (to === from) return points === undefined ? rest : { ...rest, points };
+    const anchors = points ?? this._screen.fromViewport(readViewportPoints(viewportPoints) ?? d.viewportPoints ?? [], d.paneIndex, d);
+    return anchors === null ? rest : { ...rest, space: 'data', points: anchors };
   }
 
   private _applyPatch(d: Drawing, patch: DrawingPatch): void {
@@ -617,36 +985,56 @@ export class DrawingController {
       const tool = hasDrawingTool(d.tool) ? getDrawingTool(d.tool) : undefined;
       // A patch that moved exactly one anchor (a price typed into a settings
       // field) is told which, so the constraint leaves that one where it was
-      // put, the same as a drag of its handle would.
-      d.points = tool?.constrain === undefined ? points : tool.constrain(points, changedAnchor(d.points, points));
+      // put, the same as a drag of its handle would. A move to the viewport
+      // empties the list, which leaves nothing to constrain.
+      d.points = tool?.constrain === undefined || points.length === 0 ? points : tool.constrain(points, changedAnchor(d.points, points));
     }
+    if (patch.space !== undefined) {
+      if (patch.space === 'viewport') d.space = 'viewport';
+      else { delete d.space; delete d.viewportPoints; }
+    }
+    if (patch.viewportPoints !== undefined) d.viewportPoints = patch.viewportPoints.map((p) => ({ x: p.x, y: p.y }));
     if (patch.style !== undefined) d.style = { ...d.style, ...patch.style };
     if (patch.text !== undefined) d.text = { ...d.text, ...patch.text };
     if (patch.props !== undefined) d.props = { ...d.props, ...patch.props };
     if (patch.locked !== undefined) d.locked = patch.locked;
     if (patch.visible !== undefined) d.visible = patch.visible;
+    if (patch.intervals !== undefined) {
+      const range = patch.intervals === null ? null : readIntervalRange(patch.intervals);
+      if (range === null) delete d.intervals;
+      else d.intervals = range;
+    }
     if (patch.zIndex !== undefined && Number.isFinite(patch.zIndex)) d.zIndex = patch.zIndex;
+    if (patch.policy !== undefined) d.policy = { ...d.policy, ...patch.policy };
+    if (typeof patch.stackAbove === 'string' && patch.stackAbove !== '') d.stackAbove = patch.stackAbove;
+    else if (patch.stackAbove === null) delete d.stackAbove;
   }
 
-  public remove(id: string): boolean {
-    return this._removeIds([id], true).length > 0;
+  /** Delete one drawing. A read-only one goes only with `options.force`. */
+  public remove(id: string, options: DrawingEditOptions = {}): boolean {
+    return this._removeIds([id], true, options.force).length > 0;
   }
 
-  /** Delete several drawings as one undo entry. Unknown ids are ignored. */
-  public removeMany(ids: readonly string[]): void {
-    this._removeIds(ids, true);
+  /**
+   * Delete several drawings as one undo entry. Unknown ids are ignored, and
+   * read-only drawings stay unless `options.force` is set.
+   */
+  public removeMany(ids: readonly string[], options: DrawingEditOptions = {}): void {
+    this._removeIds(ids, true, options.force);
   }
 
   /**
    * The delete shared by `remove`, `removeMany`, `cut` and `clear`. Returns
    * what went, and records nothing when nothing did.
    */
-  private _removeIds(ids: readonly string[], pushUndo: boolean): Drawing[] {
-    const set = new Set(ids);
-    const removed = this._drawings.filter((d) => set.has(d.id));
+  private _removeIds(ids: readonly string[], pushUndo: boolean, force = false): Drawing[] {
+    const wanted = new Set(ids);
+    const removed = this._drawings.filter((d) => wanted.has(d.id) && (force || !pinned(d)));
     if (removed.length === 0) return [];
-    if (pushUndo) this._pushUndo();
+    if (pushUndo) this._begin(!force);
+    const set = new Set(removed.map((d) => d.id));
     this._drawings = this._drawings.filter((d) => !set.has(d.id));
+    if (force) this._rebase(document => { document.drawings = document.drawings.filter((d) => !set.has(d.id)); });
     this._selection = this._selection.filter((id) => !set.has(id));
     this._sync();
     for (const d of removed) this._chart.emit('draw:remove', { drawing: d });
@@ -654,9 +1042,10 @@ export class DrawingController {
     return removed;
   }
 
-  public clear(): void {
+  /** Delete every drawing the user may, as one undo entry; `options.force` takes the read-only ones too. */
+  public clear(options: DrawingEditOptions = {}): void {
     if (this._drawings.length === 0) return;
-    this._removeIds(this._drawings.map((d) => d.id), true);
+    this._removeIds(this._drawings.map((d) => d.id), true, options.force);
     this._setSelection([]);
   }
 
@@ -664,14 +1053,15 @@ export class DrawingController {
 
   /**
    * Replace the selection, or with `additive` toggle each id into it (the
-   * shift-click gesture). Ids that name nothing are ignored, so the selection
-   * never refers to a drawing that is not there. Pass null to clear.
+   * shift-click gesture). Ids that name nothing, or a drawing whose policy
+   * says it cannot be selected, are ignored, so the selection only ever holds
+   * drawings that are there to act on. Pass null to clear.
    */
   public select(id: string | readonly string[] | null, additive = false): void {
     const wanted = id === null ? [] : typeof id === 'string' ? [id] : id;
     const known: string[] = [];
     for (const x of wanted) {
-      if (this.get(x) !== undefined && !known.includes(x)) known.push(x);
+      if (this._selectable(x) && !known.includes(x)) known.push(x);
     }
     if (!additive) {
       this._setSelection(known);
@@ -684,6 +1074,11 @@ export class DrawingController {
       else next.push(x);
     }
     this._setSelection(next);
+  }
+
+  private _selectable(id: string): boolean {
+    const d = this.get(id);
+    return d !== undefined && d.policy?.selectable !== false;
   }
 
   /** The primary selection: the first id picked, or null. */
@@ -699,21 +1094,24 @@ export class DrawingController {
   private _setSelection(next: string[]): void {
     const changed = !sameIds(next, this._selection);
     this._selection = next;
-    for (const l of this._layers.values()) {
-      l.bottom.setSelected(next);
-      l.top.setSelected(next);
-    }
+    for (const layer of this._allLayers()) layer.setSelected(next);
     if (!changed) return;
     this._chart.emit('draw:select', { id: this.selected() });
     this._chart.emit('drawing:select', { ids: next.slice() });
   }
 
   private _emitChange(ids: readonly string[], kind: DrawingChangeKind): void {
-    if (this._pendingHistory !== null) {
-      this._pendingHistory.after = JSON.stringify(this._drawings);
+    const recorded = this._pendingHistory;
+    if (recorded !== null) {
+      recorded.after = this._historyText();
       this._pendingHistory = null;
     }
-    this._chart.emit('drawing:change', { ids: ids.slice(), kind });
+    this._takeInHostEdit();
+    const change: DrawingChangeEvent = { ids: ids.slice(), kind };
+    // A trim can push the step out of the branch while it is being recorded,
+    // and a step nothing holds is not one to report.
+    if (recorded !== null && this._undo.includes(recorded)) change.step = recorded.step;
+    this._chart.emit('drawing:change', change);
   }
 
   // ── z-order ─────────────────────────────────────────────────────────────
@@ -734,7 +1132,7 @@ export class DrawingController {
     this._emitChange([id], 'reorder');
   }
 
-  /** In front of every other drawing on its pane. Stays on its side of the series. */
+  /** In front of every other drawing in its slot: its side of the series, or the entry it is placed above. */
   public bringToFront(id: string): void {
     const d = this.get(id);
     if (d === undefined) return;
@@ -743,7 +1141,7 @@ export class DrawingController {
     this._reorder(d, z, 'end');
   }
 
-  /** Behind every other drawing on its pane. Stays on its side of the series. */
+  /** Behind every other drawing in its slot: its side of the series, or the entry it is placed above. */
   public sendToBack(id: string): void {
     const d = this.get(id);
     if (d === undefined) return;
@@ -752,22 +1150,38 @@ export class DrawingController {
     this._reorder(d, z, 'start');
   }
 
-  /** Under the series (`zIndex` -1). A no-op for a drawing already there. */
+  /**
+   * Under the series (`zIndex` -1), out of the series band when it was placed
+   * in it. A no-op for a drawing already there.
+   */
   public sendBehindSeries(id: string): void {
     const d = this.get(id);
-    if (d !== undefined && d.zIndex >= 0) this.setZIndex(id, -1);
+    // A placement kept for a study that is gone goes too: the user chose a side.
+    if (d !== undefined && (d.stackAbove !== undefined || this._slotOf(d, this._entries(d.paneIndex)) !== 'below')) this._crossSeries(d, -1);
   }
 
-  /** Over the series (`zIndex` 0). A no-op for a drawing already there. */
+  /**
+   * Over the series (`zIndex` 0), out of the series band when it was placed
+   * in it. A no-op for a drawing already there.
+   */
   public bringAboveSeries(id: string): void {
     const d = this.get(id);
-    if (d !== undefined && d.zIndex < 0) this.setZIndex(id, 0);
+    if (d !== undefined && (d.stackAbove !== undefined || this._slotOf(d, this._entries(d.paneIndex)) !== 'above')) this._crossSeries(d, 0);
   }
 
-  /** The other drawings sharing `d`'s pane and side of the series. */
+  private _crossSeries(d: Drawing, z: number): void {
+    this._pushUndo();
+    d.zIndex = z;
+    delete d.stackAbove;
+    this._sync();
+    this._chart.emit('draw:update', { drawing: d });
+    this._emitChange([d.id], 'reorder');
+  }
+
+  /** The other drawings sharing `d`'s pane and slot. */
   private _band(d: Drawing): Drawing[] {
-    const below = d.zIndex < 0;
-    return this._drawings.filter((o) => o !== d && o.paneIndex === d.paneIndex && (o.zIndex < 0) === below);
+    const entries = this._entries(d.paneIndex), slot = this._slotOf(d, entries);
+    return this._drawings.filter((o) => o !== d && o.paneIndex === d.paneIndex && this._slotOf(o, entries) === slot);
   }
 
   private _reorder(d: Drawing, z: number, where: 'start' | 'end'): void {
@@ -789,18 +1203,23 @@ export class DrawingController {
   /**
    * Move drawings by a screen distance, `dx` right and `dy` down in media px,
    * as one undo entry. Pixels rather than data units so an arrow key moves a
-   * shape the same visible amount on every pane and scale. Locked drawings
-   * stay put.
+   * shape the same visible amount on every pane and scale. Locked and
+   * read-only drawings stay put.
    */
   public nudge(ids: readonly string[], dxPx: number, dyPx: number): void {
     if (dxPx === 0 && dyPx === 0) return;
-    const list = this._targets(ids).filter((d) => d.locked !== true);
+    const list = this._targets(ids).filter((d) => d.locked !== true && !pinned(d));
     if (list.length === 0) return;
     this._pushUndo();
     for (const d of list) {
+      if (d.space === 'viewport') {
+        const frame = this._screen.plotFrame(d.paneIndex);
+        if (frame !== null) d.viewportPoints = this._screen.shiftPinned(d, d.viewportPoints ?? [], dxPx, dyPx, frame);
+        continue;
+      }
       d.points = d.points.map((p) => ({
-        time: this._offsetTime(p.time, dxPx),
-        price: this._offsetPrice(p.price, d.paneIndex, dyPx),
+        time: this._screen.offsetTime(p.time, dxPx),
+        price: this._screen.offsetPrice(p.price, d.paneIndex, dyPx),
       }));
     }
     this._sync();
@@ -810,16 +1229,17 @@ export class DrawingController {
 
   /**
    * Clone drawings, offset like a paste so the copies are visibly new, and
-   * select the clones. One undo entry. Ids that name nothing are ignored.
+   * select the clones. One undo entry. Ids that name nothing are ignored. A
+   * clone is the user's own drawing, so it carries no policy.
    */
   public duplicate(ids: readonly string[]): Drawing[] {
     const sources = this._targets(ids);
     if (sources.length === 0) return [];
     this._pushUndo();
     const clones = sources.map((d) => {
-      const { id: _id, createdAt: _createdAt, ...rest } = cloneDrawing(d);
-      void _id; void _createdAt;
-      return this._insert({ ...rest, points: this._offsetPoints(d.points, d.paneIndex) });
+      const { id: _id, createdAt: _createdAt, policy: _policy, ...rest } = cloneDrawing(d);
+      void _id; void _createdAt; void _policy;
+      return this._insert({ ...rest, ...this._offsetAnchors(d, d.paneIndex) });
     });
     this._sync();
     for (const c of clones) this._chart.emit('draw:add', { drawing: c });
@@ -842,7 +1262,7 @@ export class DrawingController {
   public async copy(target?: string | readonly string[] | null): Promise<boolean> {
     const list = this._targets(target);
     if (list.length === 0) return false;
-    const ok = await this._clipboard.write(list);
+    const ok = await this._clipboard.write(this._portable(list));
     if (ok) this._chart.emit('draw:copy', { drawings: list.map(cloneDrawing) });
     return ok;
   }
@@ -850,12 +1270,13 @@ export class DrawingController {
   /**
    * Copy, then delete. The delete happens **only** after the clipboard write
    * resolves successfully, so a refused write leaves the model exactly as it
-   * was rather than destroying a drawing that went nowhere.
+   * was rather than destroying a drawing that went nowhere. A read-only
+   * drawing cannot be deleted, so it is not cut either: it stays, uncopied.
    */
   public async cut(target?: string | readonly string[] | null): Promise<boolean> {
-    const list = this._targets(target);
+    const list = this._targets(target).filter((d) => !pinned(d));
     if (list.length === 0) return false;
-    const ok = await this._clipboard.write(list);
+    const ok = await this._clipboard.write(this._portable(list));
     if (!ok) return false;
     // One undo step for the whole cut, and the drawings are re-read here
     // because the await above gave other code a chance to change the model.
@@ -886,9 +1307,12 @@ export class DrawingController {
     for (const e of entries) {
       if (!hasDrawingTool(e.tool)) return [];
     }
+    const shown = this._shownFilter();
     const prepared = entries.map((e) => {
       const paneIndex = this._clampPane(e.paneIndex);
-      return { ...e, paneIndex, points: this._offsetPoints(e.points, paneIndex) };
+      // A paste never lands hidden: a range leaving out this chart's interval
+      // would make the paste look like it did nothing, so it is not carried.
+      return { ...e, paneIndex, ...this._offsetAnchors(e, paneIndex), ...(shown(e) ? {} : { intervals: undefined }) };
     });
     this._pushUndo();
     const created = prepared.map((p) => this._insert(p));
@@ -912,85 +1336,173 @@ export class DrawingController {
     return out;
   }
 
-  /** Fold a pane index from another chart onto a pane this one actually has. */
+  /** The slot this chart keeps its price pane in, read at each use because a host can move it. */
+  private _pricePane(): number {
+    return this._chart.primaryPaneIndex?.() ?? 0;
+  }
+
+  /**
+   * Drawings as the clipboard carries them: panes counted price pane first,
+   * the study panes after it in their order, the way a portable template
+   * counts them. A price pane at the top, where every build before the move
+   * kept it, is written exactly as before, and a drawing copied beside the
+   * candles pastes beside the candles on any chart in any arrangement.
+   */
+  private _portable(list: readonly Drawing[]): Drawing[] {
+    const price = this._pricePane();
+    return list.map((d) => ({ ...d, paneIndex: d.paneIndex === price ? 0 : d.paneIndex < price ? d.paneIndex + 1 : d.paneIndex }));
+  }
+
+  /**
+   * Fold a clipboard pane onto a pane this chart actually has: clamped to the
+   * pane count in clipboard order, so a study drawing from a taller stack
+   * lands on the last study pane rather than on the price pane, then put in
+   * this chart's own slots around its price pane.
+   */
   private _clampPane(paneIndex: number): number {
     const panes = this._chart.panes;
-    if (panes === undefined) return paneIndex;
-    const n = panes.call(this._chart).length;
-    return n === 0 ? 0 : Math.min(paneIndex, n - 1);
+    const n = panes === undefined ? paneIndex + 1 : panes.call(this._chart).length;
+    const slot = n === 0 ? 0 : Math.min(paneIndex, n - 1), price = this._pricePane();
+    return slot === 0 ? price : slot <= price ? slot - 1 : slot;
+  }
+
+  /**
+   * A copy's anchors, offset from the original's in its own space. A viewport
+   * copy moves the paste offset in pixels on both axes, as a fraction of the
+   * pane it lands on, so it reads the same on a chart of any size, and stays
+   * on that pane's plot when the original sits at its edge.
+   */
+  private _offsetAnchors(d: Omit<Drawing, 'id'>, paneIndex: number): Pick<Drawing, 'points' | 'viewportPoints'> {
+    if (d.space !== 'viewport') return { points: this._offsetPoints(d.points, paneIndex) };
+    const anchors = d.viewportPoints ?? [];
+    const frame = this._screen.plotFrame(paneIndex);
+    const px = this._opts.pasteOffsetPixels;
+    return {
+      points: [],
+      viewportPoints: frame === null ? anchors.map((p) => ({ x: p.x, y: p.y })) : this._screen.shiftPinned({ ...d, id: '' }, anchors, px, px, frame),
+    };
   }
 
   /** Nudge every anchor so a pasted copy is not hidden under its original. */
   private _offsetPoints(points: readonly DrawingPoint[], paneIndex: number): DrawingPoint[] {
-    const dt = this._barSeconds() * this._opts.pasteOffsetBars;
+    const dt = this._screen.barSeconds() * this._opts.pasteOffsetBars;
     const px = this._opts.pasteOffsetPixels;
-    return points.map((p) => ({ time: p.time + dt, price: this._offsetPrice(p.price, paneIndex, px) }));
+    return points.map((p) => ({ time: p.time + dt, price: this._screen.offsetPrice(p.price, paneIndex, px) }));
   }
 
   /**
-   * Move a price down the screen by `px`. Done per anchor rather than as one
-   * price delta so the move is a rigid *screen* translation, which is what the
-   * eye expects and what keeps a shape's proportions on a log scale.
+   * Move a study's input anchor (a price input declared with `timeKey` and
+   * `anchor: true`) to `point` as the user, the way dragging its handle does:
+   * the time snaps to the bar under it, both halves stay inside the bounds the
+   * inputs declare, a study the user may not configure refuses it, and the move
+   * is one undo step in this history. For a host control that sets the point
+   * another way, such as a point pick on the chart, so Undo takes it back like
+   * a drag. A point written through the study's settings instead (a settings
+   * dialog's Pick point) is one step of this history as well, unless it is
+   * written inside `untracked` or forced on a study the user may not
+   * configure, which are the host's own. False when the study has no anchor for `key` (or the controller was
+   * built without input anchors), the study refuses, or it already holds the point.
    */
-  private _offsetPrice(price: number, paneIndex: number, px: number): number {
-    if (px === 0) return price;
-    const toY = this._chart.priceToCoordinate;
-    const toPrice = this._chart.coordinateToPrice;
-    if (toY === undefined || toPrice === undefined) return price;   // time offset only
-    const y = toY.call(this._chart, price, paneIndex);
-    if (y === null || !Number.isFinite(y)) return price;
-    const moved = toPrice.call(this._chart, y + px, paneIndex);
-    if (moved === null || !Number.isFinite(moved)) return price;
-    return moved;
+  public moveInputAnchor(studyId: string, key: string, point: { time: number; price: number }): boolean {
+    return this._anchors?.move(studyId, key, point.time, point.price) ?? false;
   }
 
-  /** Move a time right along the screen by `px`. */
-  private _offsetTime(time: number, px: number): number {
-    if (px === 0) return time;
-    const toX = this._chart.timeToCoordinate;
-    const toTime = this._chart.coordinateToTime;
-    if (toX !== undefined && toTime !== undefined) {
-      const x = toX.call(this._chart, time);
-      if (Number.isFinite(x)) {
-        const moved = toTime.call(this._chart, x + px);
-        if (Number.isFinite(moved)) return moved;
-      }
-    }
-    return time + (px / FALLBACK_BAR_SPACING_PX) * this._barSeconds();
+  /**
+   * Hand the step each study input anchor move makes (a handle dragged, a
+   * `moveInputAnchor`) to a timeline of the host's instead of this history,
+   * until the returned function gives them back. For a host keeping one undo
+   * history for the whole chart that already records the settings patch the
+   * move writes, as the widget's `ChartHistory` does: held here as well, one
+   * move would be taken back twice, and a press here would reach a step the
+   * other timeline had already taken back. `record` is called once the patch
+   * is written, in the same turn, with the step's own `undo` and `redo`
+   * (each false once the settings have moved on from it); this history
+   * records nothing for it and emits no `drawing:change`. A move made inside
+   * `untracked` is the host's own and reaches neither. A later call takes
+   * the steps from an earlier one. A point written to the settings some other
+   * way, which this history otherwise holds as a step of its own, is not
+   * handed over: the host's timeline sees that write itself.
+   */
+  public delegateInputAnchorSteps(record: (step: InputAnchorStep) => void): () => void {
+    this._anchorSteps = record;
+    return () => { if (this._anchorSteps === record) this._anchorSteps = null; };
   }
 
   // ── history and persistence ─────────────────────────────────────────────
 
   public undo(): boolean {
     this._onDragEnd();
-    const snap = this._undo.pop();
-    if (snap === undefined) return false;
-    this._redo.push(snap);
-    this._applyHistory(snap.after, snap.before, 'undo');
-    return true;
+    // A step that held nothing but changes to drawings now read-only does
+    // nothing any more, so the press goes on to the step before it.
+    for (let snap = this._undo.pop(); snap !== undefined; snap = this._undo.pop()) {
+      this._redo.push(snap);
+      if (snap.external ? this._external(snap.external.undo(), 'undo') : this._applyHistory(snap.after, snap.before, 'undo')) return true;
+    }
+    return false;
   }
 
   public redo(): boolean {
     this._onDragEnd();
-    const snap = this._redo.pop();
-    if (snap === undefined) return false;
-    this._undo.push(snap);
-    this._applyHistory(snap.before, snap.after, 'redo');
-    return true;
+    for (let snap = this._redo.pop(); snap !== undefined; snap = this._redo.pop()) {
+      this._undo.push(snap);
+      if (snap.external ? this._external(snap.external.redo(), 'redo') : this._applyHistory(snap.before, snap.after, 'redo')) return true;
+    }
+    return false;
   }
 
-  private _applyHistory(from: string, to: string, kind: 'undo' | 'redo'): void {
-    const before = JSON.parse(from) as Drawing[];
-    const after = JSON.parse(to) as Drawing[];
+  /**
+   * Move the model from one snapshot to the other; false when the policy left
+   * nothing to move. Without `kind` it only answers, and moves nothing.
+   */
+  private _applyHistory(from: string, to: string, kind?: 'undo' | 'redo'): boolean {
+    const beforeDocument = migrateDrawings(JSON.parse(from));
+    const afterDocument = migrateDrawings(JSON.parse(to));
+    const before = beforeDocument.drawings;
+    const after = afterDocument.drawings;
     const left = new Map(before.map(d => [d.id, d]));
     const right = new Map(after.map(d => [d.id, d]));
     const beforeOrder = before.filter(d => right.has(d.id)).map(d => d.id);
     const afterOrder = after.filter(d => left.has(d.id)).map(d => d.id);
-    const ids = [...new Set([...left.keys(), ...right.keys()])].filter(id =>
-      JSON.stringify(left.get(id)) !== JSON.stringify(right.get(id))
-      || beforeOrder.indexOf(id) !== afterOrder.indexOf(id));
+    const moved = afterOrder.some(id => beforeOrder.indexOf(id) !== afterOrder.indexOf(id));
+    let held = false;
+    const ids = [...new Set([...left.keys(), ...right.keys()])].filter(id => {
+      const a = left.get(id);
+      const b = right.get(id);
+      if (JSON.stringify(a) === JSON.stringify(b) && beforeOrder.indexOf(id) === afterOrder.indexOf(id)) return false;
+      // History is what the user did, and a read-only drawing is not theirs
+      // to change: its content stays whatever a step says. Its place in the
+      // stack is outside the policy, so a step that only restacked it runs.
+      if ((pinned(a) || pinned(b) || pinned(this.get(id)))
+        && !(a && b && JSON.stringify({ ...a, zIndex: 0 }) === JSON.stringify({ ...b, zIndex: 0 }))) { held = true; return false; }
+      return true;
+    });
     const changed = new Set(ids);
     const previous = new Map(this._drawings.map(d => [d.id, d]));
+    const beforeGroups = new Map((beforeDocument.groups ?? []).map(group => [group.id, group]));
+    const afterGroups = new Map((afterDocument.groups ?? []).map(group => [group.id, group]));
+    const fixed = (member: string): boolean => pinned(this.get(member));
+    // Where a step leaves group `id`, the policy allowing: a read-only drawing
+    // stays in the group it is in now, and that group keeps its name. The
+    // `order` form is what is applied; the other puts the read-only members
+    // last, so a step that differs only in them compares as doing nothing.
+    const place = (group: DrawingGroup | undefined, id: string, order?: boolean): DrawingGroup | undefined => {
+      const now = this._groups.find(item => item.id === id);
+      const kept = now?.members.filter(fixed) ?? [];
+      if (!kept.length && !group?.members.some(fixed)) return group;
+      const rest = group?.members.filter(member => !fixed(member) || (order && kept.includes(member))) ?? [];
+      const members = [...new Set([...rest, ...kept])];
+      return members.length ? { id, name: (kept.length ? now : group)!.name, members } : undefined;
+    };
+    const changedGroups = new Set([...beforeGroups.keys(), ...afterGroups.keys()]
+      .filter(id => JSON.stringify(place(beforeGroups.get(id), id)) !== JSON.stringify(place(afterGroups.get(id), id))));
+    // A step with nothing left to do is skipped by a press, and dropped by a
+    // rewrite (`kind` absent), which is where a grouping step the policy has
+    // emptied goes; one that never did anything still runs, as it always has.
+    if (!ids.length && !changedGroups.size && !moved && (held || !kind)) return false;
+    if (!kind) return true;
+    const regrouped = [...changedGroups].map(id => place(afterGroups.get(id), id, true));
+    this._groups = this._groups.filter(group => !changedGroups.has(group.id));
+    for (const group of regrouped) if (group) this._groups.push(group);
     // Property history patches in place. Removing and reinserting every edited
     // shape would also undo a later reorder performed on another chart.
     this._drawings = this._drawings.filter(d => !changed.has(d.id) || right.has(d.id))
@@ -1018,20 +1530,90 @@ export class DrawingController {
       else if (old !== undefined) this._chart.emit('draw:remove', { drawing: old, history: true });
     }
     this._emitChange(ids, kind);
+    return true;
   }
 
-  /** Drop selected ids the model no longer holds, after a history jump. */
+  /** Drop selected ids the model no longer holds, or that can no longer be selected. */
   private _pruneSelection(): void {
-    const next = this._selection.filter((id) => this.get(id) !== undefined);
+    const next = this._selection.filter((id) => this._selectable(id));
     if (!sameIds(next, this._selection)) this._setSelection(next);
   }
 
   public canUndo(): boolean { return this._undo.length > 0; }
   public canRedo(): boolean { return this._redo.length > 0; }
 
-  /** Serialisable document, the same shape `ChartState.drawings` carries. */
+  /**
+   * The steps each branch holds, oldest first, by the number `drawing:change`
+   * reported them under. For a host that keeps one timeline across drawings
+   * and its own edits: a step missing from both branches has been taken away
+   * (a reset, a trim, a host edit that left it nothing to do), and pressing
+   * undo for it would reach an older step instead. A step still being
+   * recorded, a drag in progress, is not listed until its change closes it.
+   */
+  public historySteps(): { undo: number[]; redo: number[] } {
+    const closed = (entry: DrawingHistoryEntry): boolean => entry !== this._pendingHistory;
+    return { undo: this._undo.filter(closed).map(entry => entry.step), redo: this._redo.map(entry => entry.step) };
+  }
+
+  /**
+   * Run `fn` as the host's own act. An edit it makes records no undo step and
+   * leaves both branches as they are, and every step already recorded takes
+   * it in, the way a forced call does, so no later undo or redo reverses it.
+   * Unlike `force` it reaches no read-only drawing, and `undo` or `redo`
+   * inside it still moves along the branches. For a host keeping one timeline
+   * across drawings and its own changes, whose own changes are never steps.
+   */
+  public untracked<T>(fn: () => T): T {
+    this._untracked++;
+    try { return fn(); }
+    finally {
+      // An edit a throw cut short is still the host's, and must not join the next one.
+      if (--this._untracked === 0) this._takeInHostEdit();
+    }
+  }
+
+  /** Give every recorded step the host's edit, drawing by drawing and group by group. */
+  private _takeInHostEdit(): void {
+    const from = this._hostEdit;
+    if (from === null) return;
+    this._hostEdit = null;
+    const was = migrateDrawings(JSON.parse(from));
+    const now = this._document(this._drawings);
+    const take = <T extends { id: string }>(list: T[], before: readonly T[], after: readonly T[]): T[] => {
+      const left = new Map(before.map(item => [item.id, JSON.stringify(item)]));
+      const right = new Map(after.map(item => [item.id, item]));
+      const changed = new Set([...left.keys(), ...right.keys()]
+        .filter(id => left.get(id) !== (right.has(id) ? JSON.stringify(right.get(id)) : undefined)));
+      // Changed where a step has it, gone everywhere, and made everywhere: a
+      // drawing the host changed is not put into a step from before it existed.
+      const out = list.filter(item => !changed.has(item.id) || right.has(item.id)).map(item => (changed.has(item.id) ? right.get(item.id)! : item));
+      for (const id of changed) if (!left.has(id) && !out.some(item => item.id === id)) out.push(right.get(id)!);
+      return out;
+    };
+    this._rebase(document => {
+      document.drawings = take(document.drawings, was.drawings, now.drawings);
+      document.groups = take(document.groups ?? [], was.groups ?? [], now.groups ?? []);
+    });
+  }
+
+  /**
+   * Serialisable document, the same shape `ChartState.drawings` carries.
+   * Transient drawings (`policy.persistent` false) are left out, and so is
+   * their group membership.
+   */
   public toJSON(): DrawingsDocument {
-    return { version: DRAWING_STATE_VERSION, drawings: this._drawings.map(cloneDrawing) };
+    return this._document(this._drawings.filter(d => d.policy?.persistent !== false));
+  }
+
+  /** `drawings` as a document, with the groups narrowed to them. */
+  private _document(drawings: readonly Drawing[]): DrawingsDocument {
+    const groups = migrateGroups(this._groups, drawings);
+    return { version: drawingsDocumentVersion(drawings), drawings: drawings.map(cloneDrawing), ...(groups.length ? { groups } : {}) };
+  }
+
+  /** Every drawing, transient ones too: an undo in the session reaches them. */
+  private _historyText(): string {
+    return JSON.stringify(this._document(this._drawings));
   }
 
   /**
@@ -1041,22 +1623,30 @@ export class DrawingController {
    */
   public fromJSON(data: unknown): void {
     this.cancelDrag();
+    this._gestures.reset();
     this._linkedPreviews.clear();
-    this._drawings = migrateDrawings(data).drawings;
+    const document = migrateDrawings(data);
+    this._drawings = document.drawings;
+    this._groups = document.groups ?? [];
     this._undo = [];
     this._redo = [];
+    this._hostPatches.clear();
     this._pendingHistory = null;
     this._setSelection([]);
     this._sync();
     this._chart.emit('draw:restore', {});
+    this._emitChange(this._drawings.map(drawing => drawing.id), 'update');
   }
 
   public destroy(): void {
     if (this._destroyed) return;
     this.cancelDrag();
+    this._gestures.reset();
+    this._gestures.setEraser(false);
     this._destroyed = true;
     this._linkedPreviews.clear();
     this._chart.emit('draw:destroy', { controller: this });
+    this._anchors?.destroy();
     this._setPlacementMode(false);   // never leave the chart unable to pan
     for (const off of this._off) off();
     this._off.length = 0;
@@ -1064,8 +1654,14 @@ export class DrawingController {
       l.top.setBelow(null);
       this._chart.removePrimitive(l.top);
       this._chart.removePrimitive(l.bottom);
+      for (const layer of l.series.values()) this._chart.removePrimitive(layer);
     }
     this._layers.clear();
+  }
+
+  /** Every layer of every pane. */
+  private _allLayers(): DrawingLayer[] {
+    return [...this._layers.values()].flatMap(l => [l.bottom, l.top, ...l.series.values()]);
   }
 
   // ── interaction ─────────────────────────────────────────────────────────
@@ -1081,35 +1677,36 @@ export class DrawingController {
       ? null : { time, price, paneIndex };
     const bar = p.bar ?? null;
     this._lastBar = bar === null || barTime === null ? null : { time: barTime, ...bar };
-    this._shift = shiftOf(p);
+    this._noteKeys(p);
     this._notePointer(p);
+    this._gestures.pointer({ paneIndex, point: p.point ?? null, pressed: p.pressed === true, keys: keysOf(p), touch: this._pointerKind === 'touch' });
     // The pointer left the plot: nothing is under it any more.
     if (time === null && price === null) this._setHovered(null);
     // Freehand tools ink while the pointer is held rather than on clicks.
     if (this._tool !== null && p.pressed === true && this._isFreehand()
       && time !== null && price !== null && paneIndex !== null
       && Number.isFinite(time) && Number.isFinite(price)) {
-      for (const q of this._coalesced(p, { time, price }, paneIndex)) this._inkPoint(q, paneIndex);
+      for (const q of this._screen.coalesced(p, { time, price }, paneIndex)) this._inkPoint(q, paneIndex);
       return;
     }
     this._syncSnapRing();
-    // A tool mid-placement previews against the live cursor.
-    if (this._tool !== null && this._pending.length > 0) this._syncPreview();
+    // A tool mid-placement previews against the live cursor, and so does a ruler.
+    if ((this._tool !== null && this._pending.length > 0) || this._gestures.follow(this._lastCursor)) this._syncPreview();
   }
 
   /** The chart's hit-test answer for the pointer position, whenever it changes. */
   private _onHover(p: { id?: string | null }): void {
     const id = p.id ?? null;
-    this._setHovered(id !== null && id.startsWith('draw:') ? id.slice('draw:'.length).split('#')[0] : null);
+    this._gestures.hover(id);
+    const hit = id !== null && id.startsWith('draw:') ? id.slice('draw:'.length).split('#')[0] : null;
+    // What cannot be selected is not a target for the keys either.
+    this._setHovered(hit !== null && this._selectable(hit) ? hit : null);
   }
 
   private _setHovered(id: string | null): void {
     if (id === this._hovered) return;
     this._hovered = id;
-    for (const l of this._layers.values()) {
-      l.bottom.setHovered(id);
-      l.top.setHovered(id);
-    }
+    for (const layer of this._allLayers()) layer.setHovered(id);
     this._chart.emit('drawing:hover', { id });
   }
 
@@ -1118,49 +1715,7 @@ export class DrawingController {
     const kind = pointerKindOf(p);
     if (kind === this._pointerKind) return;
     this._pointerKind = kind;
-    for (const l of this._layers.values()) {
-      l.bottom.setPointerType(kind);
-      l.top.setPointerType(kind);
-    }
-  }
-
-  /**
-   * The positions a pressed move passed through, as anchors, ending on the
-   * move's own point. The samples carry pixels (container x, pane-local y);
-   * the payload's point is the same position in its own space, so the gap
-   * between the two is the pane's offset, and each sample maps back through
-   * the host's converters. A host without them, or a payload without
-   * samples, inks the one point the move reports.
-   */
-  private _coalesced(p: CrosshairPayload, last: DrawingPoint, paneIndex: number): DrawingPoint[] {
-    const samples = p.samples;
-    const end = { ...last, ...this._pressureOf(p.pressure) };
-    const toTime = this._chart.coordinateToTime;
-    const toPrice = this._chart.coordinateToPrice;
-    if (!Array.isArray(samples) || samples.length < 2 || toTime === undefined || toPrice === undefined
-      || p.point === null || p.point === undefined) {
-      return [end];
-    }
-    const tail = samples[samples.length - 1];
-    const shift = p.point.y - tail.y;
-    if (!Number.isFinite(shift)) return [end];
-    const out: DrawingPoint[] = [];
-    for (let i = 0; i < samples.length - 1; i++) {
-      const s = samples[i];
-      const time = toTime.call(this._chart, s.x);
-      const price = toPrice.call(this._chart, s.y + shift, paneIndex);
-      if (price === null || !Number.isFinite(time) || !Number.isFinite(price)) continue;
-      out.push({ time, price, ...this._pressureOf(s.pressure) });
-    }
-    out.push({ ...end, ...this._pressureOf(tail.pressure ?? p.pressure) });
-    return out;
-  }
-
-  /** A pressure worth storing: finite, and not the mouse's stand-in. */
-  private _pressureOf(pressure: number | undefined): { pressure?: number } {
-    return typeof pressure === 'number' && Number.isFinite(pressure) && pressure !== REST_PRESSURE
-      ? { pressure: Math.min(1, Math.max(0, pressure)) }
-      : {};
+    for (const layer of this._allLayers()) layer.setPointerType(kind);
   }
 
   /**
@@ -1177,27 +1732,14 @@ export class DrawingController {
     const mapped = this._chart.timeToCoordinate !== undefined && this._chart.priceToCoordinate !== undefined
       && this._chart.coordinateToTime !== undefined && this._chart.coordinateToPrice !== undefined;
     const expanded = tool.expand(clicked, {
-      barSeconds: this._barSeconds(),
+      barSeconds: this._screen.barSeconds(),
       visibleBars,
       ...(mapped ? {
-        toPixel: (p: DrawingPoint) => this._toPixel(p, pane),
-        fromPixel: (at: ScreenPoint) => this._fromPixel(at, pane),
+        toPixel: (p: DrawingPoint) => this._screen.toPixel(p, pane),
+        fromPixel: (at: ScreenPoint) => this._screen.fromPixel(at, pane),
       } : {}),
     });
     return tool.constrain === undefined ? expanded : tool.constrain(expanded, null);
-  }
-
-  /**
-   * Bar spacing in seconds, read from the last gap in the data. A one-bar chart
-   * has no gap to read, so fall back to a minute rather than answering zero and
-   * producing zero-width defaults and invisible paste offsets.
-   */
-  private _barSeconds(): number {
-    const dl = this._chart.dataLayer;
-    const n = dl.baseIndex;
-    const a = n > 0 ? dl.indexToTime(n - 1) : undefined;
-    const b = n >= 0 ? dl.indexToTime(n) : undefined;
-    return a !== undefined && b !== undefined && b > a ? b - a : 60;
   }
 
   private _isFreehand(): boolean {
@@ -1226,16 +1768,28 @@ export class DrawingController {
   /** Commit `pts` as a drawing of the armed tool and leave placement. */
   private _commit(pts: DrawingPoint[]): void {
     const tool = getDrawingTool(this._tool as string);
-    const created = this.add({ tool: tool.id, points: pts, style: {}, paneIndex: this._pendingPane });
+    const pane = this._pendingPane;
+    // Placement runs in data space, where the preview already works; a tool
+    // armed for the viewport converts at the moment it lands, which is
+    // exactly where each anchor was clicked (the magnet does not pull for
+    // it). Its box is measured with the text the drawing will be given.
+    const text = tool.defaultText === undefined ? {} : { text: { ...tool.defaultText } };
+    const pinned = this._toolSpace === 'viewport'
+      ? this._screen.toViewport(pts, pane, { id: '', tool: tool.id, points: [], style: {}, paneIndex: pane, zIndex: 0, ...text })
+      : null;
+    const created = this.add(pinned === null
+      ? { tool: tool.id, points: pts, style: {}, paneIndex: pane }
+      : { tool: tool.id, points: [], space: 'viewport', viewportPoints: pinned, style: {}, paneIndex: pane });
     this._pending = [];
     if (!this._opts.stayInDrawingMode) {
       this._tool = null;
-      this._setPlacementMode(false);   // hand panning back to the chart
+      this._toolSpace = 'data';
+      this._setPlacementMode(this._placementWanted());   // hand panning back to the chart
     }
     this._syncPreview();
     this._syncSnapRing();
     this.select(created.id);
-    this._chart.emit('draw:tool', { tool: this._tool });
+    this._emitTool();
   }
 
   /**
@@ -1253,28 +1807,7 @@ export class DrawingController {
       this._syncPreview();
       return;
     }
-    this._commit(this._thinStroke(pts, this._pendingPane));
-  }
-
-  private _thinStroke(pts: DrawingPoint[], paneIndex: number): DrawingPoint[] {
-    const px: ScreenPoint[] = [];
-    for (const p of pts) {
-      const at = this._toPixel(p, paneIndex);
-      if (at === null) return pts;
-      px.push(at);
-    }
-    const kept = rdpSimplify(px, STROKE_EPSILON_PX);
-    // Kept points come back at their exact input coordinates, in order, so
-    // walking the input once pairs each with the sample it came from.
-    const out: DrawingPoint[] = [];
-    let j = 0;
-    for (const k of kept) {
-      while (j < px.length && (px[j].x !== k.x || px[j].y !== k.y)) j++;
-      if (j >= px.length) return pts;   // cannot happen; keep everything rather than lose a sample
-      out.push(pts[j]);
-      j++;
-    }
-    return out;
+    this._commit(this._screen.thinStroke(pts, this._pendingPane));
   }
 
   /**
@@ -1307,13 +1840,14 @@ export class DrawingController {
    * did nothing.
    */
   public cancel(): boolean {
-    if (this.cancelDrag()) return true;
+    if (this.cancelDrag() || this._gestures.endMeasure() || this._gestures.setEraser(false)) return true;
     if (this._tool === null) return false;
     const hadPending = this._pending.length > 0;
     this._pending = [];
     if (!hadPending || !this._opts.stayInDrawingMode) {
       this._tool = null;
-      this._setPlacementMode(false);
+      this._toolSpace = 'data';
+      this._setPlacementMode(this._placementWanted());
       this._syncPreview();
       this._syncSnapRing();
       this._chart.emit('draw:tool', { tool: null });
@@ -1341,6 +1875,7 @@ export class DrawingController {
 
   private _onClick(p: ClickPayload): void {
     this._notePointer(p);
+    if (this._gestures.click({ ...p, keys: keysOf(p) })) return;
     // Placement takes precedence: while a tool is armed, a click is an anchor.
     if (this._tool !== null) {
       // A freehand stroke was already collected move-by-move; the click pair a
@@ -1357,11 +1892,12 @@ export class DrawingController {
       // Reject an unmappable click outright: a NaN anchor serialises as null
       // and produces a drawing that can never be rendered or hit-tested.
       if (p.price === null || !Number.isFinite(p.price) || !Number.isFinite(p.time)) return;
-      this._shift = shiftOf(p);
+      this._noteKeys(p);
       this._placePoint(this._aimPoint({ time: p.time, price: p.price }, p.paneIndex), p.paneIndex);
       return;
     }
-    const additive = p.shiftKey === true || p.ctrlKey === true || p.metaKey === true;
+    // Shift, Ctrl or Cmd adds to the selection.
+    const additive = (['shift', 'ctrl', 'meta'] as const).some(key => held(p, key));
     if (p.id !== null && p.id.startsWith('draw:')) {
       this.select(p.id.slice('draw:'.length).split('#')[0], additive);
       return;
@@ -1403,74 +1939,103 @@ export class DrawingController {
   private _lockedPoint(point: DrawingPoint, paneIndex: number): DrawingPoint | null {
     if (!this._shift || this._tool === null || this._pending.length !== 1) return null;
     if (getDrawingTool(this._tool).angleLock !== true || paneIndex !== this._pendingPane) return null;
-    return this._lockAngle(this._pending[0], point, paneIndex);
+    return this._screen.lockAngle(this._pending[0], point, paneIndex);
   }
 
   /**
-   * The nearest O/H/L/C of the hovered bar, at that bar's time, when the
-   * magnet pulls; null when it does not. `strong` always pulls; `weak` only
-   * within a few pixels, measured on screen so the pull is the same reach at
-   * every zoom. Price panes only: an indicator pane's values are not prices.
+   * Where the magnet lands `point`, or null when it does not pull: the
+   * nearest O/H/L/C of `bar` on the price pane, the nearest plotted value on
+   * a study pane (`snap.ts`). Ctrl held pulls as the strong magnet whatever
+   * the mode. A placement reads the bar the chart reported under the
+   * pointer; a drag, which reports none, passes the bar under its time.
    */
-  private _snapPoint(point: DrawingPoint, paneIndex: number): DrawingPoint | null {
-    const mode = this._opts.magnet;
-    if (mode === 'off' || paneIndex !== 0) return null;
-    const bar = this._lastBar;
-    if (bar === null) return null;
-    const values = [bar.open, bar.high, bar.low, bar.close];
-    if (mode === 'strong') {
-      let best = values[0];
-      let bestD = Infinity;
-      for (const v of values) {
-        const d = Math.abs(v - point.price);
-        if (d < bestD) { bestD = d; best = v; }
-      }
-      return { time: bar.time, price: best };
-    }
-    // Weak: the nearest value by screen distance, and only when it is close.
-    // Without a pixel mapping there is no "close", so nothing pulls.
-    const toY = this._chart.priceToCoordinate;
-    if (toY === undefined) return null;
-    const y = toY.call(this._chart, point.price, paneIndex);
-    if (y === null || !Number.isFinite(y)) return null;
-    let best: number | null = null;
-    let bestD = WEAK_MAGNET_PX;
-    for (const v of values) {
-      const vy = toY.call(this._chart, v, paneIndex);
-      if (vy === null || !Number.isFinite(vy)) continue;
-      const d = Math.abs(vy - y);
-      if (d <= bestD) { bestD = d; best = v; }
-    }
-    return best === null ? null : { time: bar.time, price: best };
+  private _snapPoint(point: DrawingPoint, paneIndex: number, bar: SnapBar | null = this._lastBar): DrawingPoint | null {
+    const mode = this._strong ? 'strong' : this._opts.magnet;
+    // A drawing pinned to the screen lands where it is clicked: a bar's price
+    // is no reference for something that will not follow the bars.
+    if (mode === 'off' || this._toolSpace === 'viewport') return null;
+    return magnetPoint(this._chart, point, paneIndex, mode, this._pricePane(), bar);
+  }
+
+  /** Shift and Ctrl (Cmd) as the last pointer report carried them: the angle lock and the strong magnet. */
+  private _noteKeys(p: PointerFacts & { shiftKey?: boolean; ctrlKey?: boolean; metaKey?: boolean }): void {
+    this._shift = held(p, 'shift');
+    this._strong = this._opts.gestures.snapModifier && (held(p, 'ctrl') || held(p, 'meta'));
+  }
+
+  /**
+   * The anchor of a grabbed shape the magnet lands: the one nearest the
+   * press, since what the hand is closest to is what it means to put down.
+   */
+  private _grabbedAnchor(d: Drawing, p: DragPayload): number | null {
+    if (d.space === 'viewport' || d.points.length === 0) return null;
+    const press = this._screen.toPixel({ time: p.fromTime ?? p.time, price: p.fromPrice ?? p.price }, d.paneIndex);
+    let best = 0;
+    let bestD = Infinity;
+    d.points.forEach((q, i) => {
+      const at = press === null ? null : this._screen.toPixel(q, d.paneIndex);
+      const dist = at === null || press === null ? i : Math.hypot(at.x - press.x, at.y - press.y);
+      if (dist < bestD) { bestD = dist; best = i; }
+    });
+    return best;
+  }
+
+  /**
+   * A shape's move with the magnet's pull on its grabbed anchor applied, or
+   * null when nothing pulls: the whole shape shifts by what lands that one
+   * anchor on the value, so it keeps its form.
+   */
+  private _pullShape(start: NonNullable<typeof this._dragStart>, dt: number, dp: number): { dt: number; dp: number } | null {
+    const item = start.anchor === null ? undefined : start.items.find((i) => i.id === start.lead);
+    const a = item === undefined || item.viewportPoints !== undefined ? undefined : item.points[start.anchor as number];
+    if (a === undefined) return null;
+    const moved = { time: a.time + dt, price: a.price + dp };
+    const hit = this._snapPoint(moved, item!.paneIndex, barAt(this._chart, moved.time));
+    return hit === null ? null : { dt: hit.time - a.time, dp: hit.price - a.price };
   }
 
   private _onDrag(p: DragPayload): void {
     if (!p.id.startsWith('draw:')) return;
     const [rawId, handleStr] = p.id.slice('draw:'.length).split('#');
     const d = this.get(rawId);
-    if (d === undefined || d.locked === true) return;
+    if (d === undefined || d.locked === true || pinned(d) || !this._selectable(rawId)) return;
     const handle = handleStr === undefined ? null : Number(handleStr);
 
     this._notePointer(p);
-    this._shift = shiftOf(p);
+    this._noteKeys(p);
     if (this._dragStart === null || this._dragStart.id !== rawId || this._dragStart.handle !== handle) {
       // Grabbing the body of an unselected shape selects it first, on its own:
       // the selection is what moves, and a drag that moved something other than
       // what it grabbed would be a surprise.
       if (handle === null && !this._selection.includes(rawId)) this.select(rawId);
-      const moving = handle === null
-        ? this._targets(this._selection).filter((m) => m.locked !== true)
+      let moving = handle === null
+        ? this._targets(this._selection).filter((m) => m.locked !== true && !pinned(m))
         : [d];
+      // Alt on a body moves copies instead, and only once the pointer has
+      // really travelled: a copy dropped by a jitter would sit unseen under
+      // the drawing it copies.
+      const copy = handle === null && this._opts.gestures.dragCopy && p.modifiers?.alt === true;
+      if (copy && !this._travelled(p)) return;
       // Snapshot once per gesture so undo restores the pre-drag position, not
       // an intermediate frame.
       const undo = this._undo.slice();
       const redo = this._redo.slice();
       this._pushUndo();
+      const sources = this._selection.slice();
+      const lead = moving.indexOf(d);
+      if (copy) moving = this._copies(moving);
       this._dragStart = {
         id: rawId, handle,
         undo, redo,
         from: { time: p.fromTime ?? p.time, price: p.fromPrice ?? p.price },
-        items: moving.map((m) => ({ id: m.id, paneIndex: m.paneIndex, points: m.points.map((q) => ({ ...q })) })),
+        origin: this._screen.dragOrigin(p),
+        anchor: handle === null ? this._grabbedAnchor(d, p) : null,
+        lead: moving[lead]?.id ?? rawId,
+        ...(copy ? { copy: { ids: moving.map((m) => m.id), sources } } : {}),
+        items: moving.map((m) => ({
+          id: m.id, paneIndex: m.paneIndex, points: m.points.map((q) => ({ ...q })),
+          ...(m.space === 'viewport' ? { viewportPoints: (m.viewportPoints ?? []).map((q) => ({ ...q })) } : {}),
+        })),
       };
       // Anything under the series rides on the top layer for the gesture, so
       // the frames that follow repaint the overlay alone. Lifting re-lists the
@@ -1478,7 +2043,7 @@ export class DrawingController {
       // costs; a drag with nothing to lift never touches it.
       let lifted = false;
       for (const m of moving) {
-        if (m.zIndex < 0) { this._lifted.add(m.id); lifted = true; }
+        if (!this._onTop(m)) { this._lifted.add(m.id); lifted = true; }
       }
       this._moveDrag(p, d, handle);
       if (lifted) this._sync();
@@ -1489,6 +2054,36 @@ export class DrawingController {
     this._moveDrag(p, d, handle);
     this._syncDrag();
     this._emitDragPreview();
+  }
+
+  /** Whether a drag has left its press by more than the chart's click slop, on screen. */
+  private _travelled(p: DragPayload): boolean {
+    const from = this._screen.toPixel({ time: p.fromTime ?? p.time, price: p.fromPrice ?? p.price }, p.paneIndex);
+    const to = this._screen.toPixel({ time: p.time, price: p.price }, p.paneIndex);
+    return from === null || to === null || Math.hypot(to.x - from.x, to.y - from.y) > 3;
+  }
+
+  /**
+   * Copies of `sources` for a drag to move, in the model and selected. A
+   * copy is the user's own drawing, as a duplicate is: no policy, a fresh
+   * id, and `_insert` drops the link lineage.
+   */
+  private _copies(sources: readonly Drawing[]): Drawing[] {
+    const copies = sources.map((m) => {
+      const { id: _id, createdAt: _createdAt, policy: _policy, ...rest } = cloneDrawing(m);
+      void _id; void _createdAt; void _policy;
+      return this._insert(rest);
+    });
+    this._setSelection(copies.map((c) => c.id));
+    return copies;
+  }
+
+  /** A cancelled copy leaves nothing: its copies go, and the selection is what they were copied from. */
+  private _dropCopies(start: NonNullable<typeof this._dragStart>): void {
+    if (start.copy === undefined) return;
+    const gone = new Set(start.copy.ids);
+    this._drawings = this._drawings.filter((d) => !gone.has(d.id));
+    this._setSelection(start.copy.sources.filter((id) => this._selectable(id)));
   }
 
   private _emitDragPreview(): void {
@@ -1503,8 +2098,9 @@ export class DrawingController {
     this._dragStart = null;
     for (const item of start.items) {
       const drawing = this.get(item.id);
-      if (drawing !== undefined) drawing.points = item.points.map(point => ({ ...point }));
+      if (drawing !== undefined) this._restoreAnchors(drawing, item);
     }
+    this._dropCopies(start);
     this._undo = start.undo;
     this._redo = start.redo;
     this._pendingHistory = null;
@@ -1521,29 +2117,56 @@ export class DrawingController {
       // Whole shape: translate every anchor of every selected shape by the
       // cursor delta. A shape on another pane cannot take the price delta (its
       // scale is a different quantity), so it takes the same screen distance.
-      const dt = p.time - start.from.time;
-      const dp = p.price - start.from.price;
-      const dy = this._pixelDelta(start.from.price, p.price, p.paneIndex);
+      const pull = this._pullShape(start, p.time - start.from.time, p.price - start.from.price);
+      const dt = pull?.dt ?? p.time - start.from.time;
+      const dp = pull?.dp ?? p.price - start.from.price;
+      const dy = this._screen.pixelDelta(start.from.price, pull === null ? p.price : start.from.price + dp, p.paneIndex);
+      // A pinned shape takes the pointer's travel on screen, as a fraction of
+      // its own pane, so it moves with the hand whatever the scales say.
+      const at = this._screen.gesturePlot(p, p.paneIndex);
+      const travel = at === null || start.origin === null ? null : { x: at.x - start.origin.x, y: at.y - start.origin.y };
       for (const item of start.items) {
         const m = this.get(item.id);
         if (m === undefined) continue;
+        if (item.viewportPoints !== undefined) {
+          const frame = this._screen.plotFrame(item.paneIndex);
+          if (frame !== null && travel !== null) m.viewportPoints = this._screen.shiftPinned(m, item.viewportPoints, travel.x, travel.y, frame);
+          continue;
+        }
         const samePane = item.paneIndex === p.paneIndex;
         m.points = item.points.map((q) => ({
           ...q,
           time: q.time + dt,
-          price: samePane ? q.price + dp : this._offsetPrice(q.price, item.paneIndex, dy),
+          price: samePane ? q.price + dp : this._screen.offsetPrice(q.price, item.paneIndex, dy),
         }));
+      }
+    } else if (d.space === 'viewport') {
+      // A handle lands under the pointer, held on the plot, and then the box
+      // is kept inside it: a note's one handle is its corner, and the rest of
+      // the note has to stay where it can be seen and grabbed again too.
+      const anchors = start.items[0].viewportPoints ?? [];
+      const at = this._screen.gesturePlot(p, d.paneIndex);
+      const frame = this._screen.plotFrame(d.paneIndex);
+      if (handle >= 0 && handle < anchors.length && at !== null && frame !== null) {
+        const { width, height } = frame;
+        const placed = placeViewportAnchors(d, anchors, width, height);
+        placed[handle] = { x: within(at.x, width), y: within(at.y, height) };
+        // Where the box reaches an edge before the handle does (a label above
+        // a box), the handle stops short instead of pushing the other corners
+        // away from the edge it was dragged to.
+        placed[handle] = placeViewportAnchors(d, placed.map((q) => ({ x: q.x / width, y: q.y / height })), width, height)[handle];
+        d.viewportPoints = this._screen.pinPlot(d, placed, frame);
       }
     } else if (handle >= 0 && handle < d.points.length) {
       const item = start.items[0];
-      let target: DrawingPoint = { time: p.time, price: p.price };
+      const target: DrawingPoint = { time: p.time, price: p.price };
       // Shift on the handle of a two-anchor line locks it to the 45 degree
-      // step about the other anchor, the same way placement does.
-      if (this._shift && item.points.length === 2 && hasDrawingTool(d.tool)
-        && getDrawingTool(d.tool).angleLock === true) {
-        target = this._lockAngle(item.points[1 - handle], target, d.paneIndex) ?? target;
-      }
-      const moved = item.points.map((q, i) => (i === handle ? { ...q, ...target } : { ...q }));
+      // step about the other anchor, the same way placement does, and the
+      // lock wins over the magnet there too.
+      const locked = this._shift && item.points.length === 2 && hasDrawingTool(d.tool) && getDrawingTool(d.tool).angleLock === true
+        ? this._screen.lockAngle(item.points[1 - handle], target, d.paneIndex) : null;
+      const landed = locked ?? this._snapPoint(target, d.paneIndex, barAt(this._chart, target.time)) ?? target;
+      const moved = item.points.map((q, i) => (i === handle ? { ...q, ...landed } : { ...q }));
       // A tool with a constraint reads the whole set after the one anchor
       // moved, from the gesture's snapshot every frame: constraining the
       // already-constrained previous frame would let a flip feed on itself.
@@ -1552,60 +2175,41 @@ export class DrawingController {
     }
   }
 
-  /** How far down the screen `to` is from `from` on one pane, in media px. */
-  private _pixelDelta(from: number, to: number, paneIndex: number): number {
-    const toY = this._chart.priceToCoordinate;
-    if (toY === undefined) return 0;
-    const y0 = toY.call(this._chart, from, paneIndex);
-    const y1 = toY.call(this._chart, to, paneIndex);
-    return y0 === null || y1 === null || !Number.isFinite(y0) || !Number.isFinite(y1) ? 0 : y1 - y0;
-  }
-
-  /** An anchor in container media px, or null on a host without the mapping. */
-  private _toPixel(p: DrawingPoint, paneIndex: number): ScreenPoint | null {
-    const toX = this._chart.timeToCoordinate;
-    const toY = this._chart.priceToCoordinate;
-    if (toX === undefined || toY === undefined) return null;
-    const x = toX.call(this._chart, p.time);
-    const y = toY.call(this._chart, p.price, paneIndex);
-    return y === null || !Number.isFinite(x) || !Number.isFinite(y) ? null : { x, y };
-  }
-
-  /** The inverse of `_toPixel`. */
-  private _fromPixel(at: ScreenPoint, paneIndex: number): DrawingPoint | null {
-    const toTime = this._chart.coordinateToTime;
-    const toPrice = this._chart.coordinateToPrice;
-    if (toTime === undefined || toPrice === undefined) return null;
-    const time = toTime.call(this._chart, at.x);
-    const price = toPrice.call(this._chart, at.y, paneIndex);
-    return price === null || !Number.isFinite(time) || !Number.isFinite(price) ? null : { time, price };
-  }
-
   /**
-   * `free` projected onto the nearest 45 degree ray from `anchor`, all in
-   * screen space: the angle the eye reads is the one on the canvas, and a log
-   * scale or a tall pane would make a data-space angle anything but. The
-   * projection rather than a rotation, so a level line still ends under the
-   * pointer's x and a vertical one under its y; only the stray axis is
-   * dropped. Null when the host cannot map pixels, or the two coincide.
+   * The drawing's anchors in container media px, the space `timeToCoordinate`
+   * and `priceToCoordinate` answer in, whichever space it is anchored in. What
+   * a host places an overlay by (an inline editor, a popover). Null for an
+   * unknown id, or when the drawing's pane has no place on screen (folded to
+   * a strip, or hidden behind a maximized pane).
    */
-  private _lockAngle(anchor: DrawingPoint, free: DrawingPoint, paneIndex: number): DrawingPoint | null {
-    const a = this._toPixel(anchor, paneIndex);
-    const b = this._toPixel(free, paneIndex);
-    if (a === null || b === null) return null;
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
-    if (dx === 0 && dy === 0) return null;
-    const angle = Math.round(Math.atan2(dy, dx) / ANGLE_STEP) * ANGLE_STEP;
-    const ux = Math.cos(angle);
-    const uy = Math.sin(angle);
-    const along = dx * ux + dy * uy;
-    return this._fromPixel({ x: a.x + along * ux, y: a.y + along * uy }, paneIndex);
+  public screenPoints(id: string): ScreenPoint[] | null {
+    const d = this.get(id);
+    if (d === undefined) return null;
+    if (d.space !== 'viewport') {
+      const out: ScreenPoint[] = [];
+      for (const p of d.points) {
+        const at = this._screen.toPixel(p, d.paneIndex);
+        if (at === null) return null;
+        out.push(at);
+      }
+      return out;
+    }
+    const frame = this._screen.plotFrame(d.paneIndex);
+    if (frame === null) return null;
+    return placeViewportAnchors(d, d.viewportPoints ?? [], frame.width, frame.height)
+      .map((p) => ({ x: frame.left + p.x, y: frame.top + p.y }));
+  }
+
+  /** Put a drawing's anchors back as a gesture found them. */
+  private _restoreAnchors(d: Drawing, item: { points: readonly DrawingPoint[]; viewportPoints?: readonly ViewportPoint[] }): void {
+    d.points = item.points.map((point) => ({ ...point }));
+    if (item.viewportPoints !== undefined) d.viewportPoints = item.viewportPoints.map((point) => ({ ...point }));
   }
 
   private _onDragEnd(): void {
     if (this._dragStart === null) return;
     const moved = this._dragStart.items.map((i) => this.get(i.id)).filter((m): m is Drawing => m !== undefined);
+    const copied = this._dragStart.copy !== undefined;
     this._dragStart = null;
     this._chart.emit('draw:preview-clear', { ids: moved.map(d => d.id) });
     // Whatever was lifted for the gesture goes back under the series.
@@ -1613,8 +2217,10 @@ export class DrawingController {
       this._lifted.clear();
       this._sync();
     }
-    for (const m of moved) this._chart.emit('draw:update', { drawing: m });
-    if (moved.length > 0) this._emitChange(moved.map((m) => m.id), 'update');
+    // A copy is new at the drop: announced once, where it landed, so a link
+    // or an autosave never sees it at the place it was copied from.
+    for (const m of moved) this._chart.emit(copied ? 'draw:add' : 'draw:update', { drawing: m });
+    if (moved.length > 0) this._emitChange(moved.map((m) => m.id), copied ? 'add' : 'update');
   }
 
   // ── plumbing ────────────────────────────────────────────────────────────
@@ -1627,9 +2233,8 @@ export class DrawingController {
   private _layerFor(paneIndex: number): PaneLayers {
     let pair = this._layers.get(paneIndex);
     if (pair === undefined) {
-      pair = { bottom: new DrawingLayer('bottom'), top: new DrawingLayer('top') };
-      pair.bottom.setVolumeAtPrice(this._volumeAtPrice);
-      pair.top.setVolumeAtPrice(this._volumeAtPrice);
+      pair = { bottom: new DrawingLayer('bottom'), top: new GestureLayer(), series: new Map() };
+      for (const layer of [pair.bottom, pair.top]) layer.setVolumeAtPrice(this._volumeAtPrice);
       this._chart.addPrimitive(pair.bottom, paneIndex);
       this._chart.addPrimitive(pair.top, paneIndex);
       pair.top.setBelow(pair.bottom);
@@ -1640,41 +2245,109 @@ export class DrawingController {
     return pair;
   }
 
-  /** Whether a drawing paints on the top layer: over the series, or lifted for a drag. */
-  private _onTop(d: Drawing): boolean {
-    return d.zIndex >= 0 || this._lifted.has(d.id);
+  /**
+   * Whether a drawing paints on the top layer: over the series and outside
+   * the series band, or lifted for a drag.
+   */
+  private _onTop(d: Drawing, entries = this._entries(d.paneIndex)): boolean {
+    return this._lifted.has(d.id) || this._slotOf(d, entries) === 'above';
   }
 
   /** Push the current list into each pane's layers and into the chart state. */
   private _sync(): void {
-    const byPane = new Map<number, { below: Drawing[]; above: Drawing[] }>();
+    this._groups = migrateGroups(this._groups, this._drawings);
+    this._syncLayers();
+    // A hover or a selection on a drawing that has just gone, or has just
+    // been made unselectable, would otherwise outlive it until the pointer
+    // next moves.
+    this._pruneSelection();
+    if (this._hovered !== null && (!this._selectable(this._hovered) || !this.shownOnInterval(this._hovered))) this._setHovered(null);
+    this._chart.setDrawingState(this.toJSON());
+  }
+
+  /** Each drawing placed in the series band, with the slot it resolves to now. */
+  private _slotSignature(): string {
+    const stacks = new Map<number, readonly string[]>();
+    let key = '';
+    for (const d of this._drawings) {
+      if (d.stackAbove === undefined) continue;
+      let entries = stacks.get(d.paneIndex);
+      if (entries === undefined) stacks.set(d.paneIndex, entries = this._entries(d.paneIndex));
+      key += d.id + '\u0000' + this._slotOf(d, entries) + '\u0000';
+    }
+    return key;
+  }
+
+  /** List every drawing on the layer of the slot it paints in. */
+  private _syncLayers(): void {
+    this._slotKey = this._slotSignature();
+    const byPane = new Map<number, { below: Drawing[]; above: Drawing[]; series: Map<string, Drawing[]> }>();
+    const stacks = new Map<number, readonly string[]>();
+    const shown = this._shownFilter();
+    const off: string[] = [];
     for (const committed of this._drawings) {
+      if (!shown(committed)) { off.push(committed.id); continue; }
+      if (this._hidden.has(committed.id)) continue;
       const d = this._linkedPreviews.get(committed.id) ?? committed;
       let lists = byPane.get(d.paneIndex);
       if (lists === undefined) {
-        lists = { below: [], above: [] };
+        lists = { below: [], above: [], series: new Map() };
         byPane.set(d.paneIndex, lists);
       }
-      (this._onTop(d) ? lists.above : lists.below).push(d);
+      let entries = stacks.get(d.paneIndex);
+      if (entries === undefined) stacks.set(d.paneIndex, entries = this._entries(d.paneIndex));
+      const slot = this._lifted.has(d.id) ? 'above' : this._slotOf(d, entries);
+      if (slot === 'above') lists.above.push(d);
+      else if (slot === 'below') lists.below.push(d);
+      else {
+        const list = lists.series.get(slot.slice('entry:'.length));
+        if (list) list.push(d); else lists.series.set(slot.slice('entry:'.length), [d]);
+      }
     }
     for (const [pane, lists] of byPane) {
       const l = this._layerFor(pane);
       l.bottom.setDrawings(lists.below);
       l.top.setDrawings(lists.above);
+      this._syncSeriesLayers(pane, l, lists.series, stacks.get(pane) ?? []);
     }
     // Panes that lost their last drawing must be cleared, not left stale.
     for (const [pane, l] of this._layers) {
       if (!byPane.has(pane)) {
         l.bottom.setDrawings([]);
         l.top.setDrawings([]);
+        this._syncSeriesLayers(pane, l, new Map(), []);
       }
-      l.bottom.setSelected(this._selection);
-      l.top.setSelected(this._selection);
+      for (const layer of [l.bottom, l.top, ...l.series.values()]) layer.setSelected(this._selection);
     }
-    // A hover on a drawing that has just gone would otherwise outlive it
-    // until the pointer next moves.
-    if (this._hovered !== null && this.get(this._hovered) === undefined) this._setHovered(null);
-    this._chart.setDrawingState(this.toJSON());
+    this._offInterval = off.join('\u0000');
+  }
+
+  /**
+   * One series-band layer per entry a drawing on this pane is placed above,
+   * made on first use and dropped when its last drawing leaves, each painted
+   * by the chart right after its entry. The top layer answers for them,
+   * front to back, then for the layer under the series.
+   */
+  private _syncSeriesLayers(pane: number, l: PaneLayers, groups: ReadonlyMap<string, Drawing[]>, entries: readonly string[]): void {
+    for (const [entry, layer] of l.series) {
+      if (groups.has(entry)) continue;
+      l.series.delete(entry);
+      this._chart.removePrimitive(layer);
+    }
+    for (const [entry, list] of groups) {
+      let layer = l.series.get(entry);
+      if (layer === undefined) {
+        layer = new DrawingLayer('series');
+        layer.setVolumeAtPrice(this._volumeAtPrice);
+        this._chart.addPrimitive(layer, pane);
+        this._chart.setPrimitiveStackAbove?.(layer, entry);
+        layer.setPointerType(this._pointerKind);
+        layer.setHovered(this._hovered);
+        l.series.set(entry, layer);
+      }
+      layer.setDrawings(list);
+    }
+    l.top.setBelow([...entries].reverse().flatMap(entry => l.series.get(entry) ?? []).concat(l.bottom));
   }
 
   /**
@@ -1689,10 +2362,11 @@ export class DrawingController {
     const start = this._dragStart;
     if (start === null) return;
     const panes = new Set(start.items.map((i) => i.paneIndex));
+    const shown = this._shownFilter();
     for (const pane of panes) {
       const l = this._layers.get(pane);
       if (l === undefined) continue;
-      l.top.setDrawings(this._drawings.filter((d) => d.paneIndex === pane && this._onTop(d)));
+      l.top.setDrawings(this._drawings.filter((d) => d.paneIndex === pane && this._onTop(d) && shown(d)));
     }
     this._chart.setDrawingState(this.toJSON());
   }
@@ -1704,6 +2378,8 @@ export class DrawingController {
    */
   private _syncPreview(): void {
     for (const l of this._layers.values()) l.top.setPreview(null);
+    const ruler = this._gestures.ruler();
+    if (ruler !== null) this._layerFor(ruler.paneIndex).top.setPreview(ruler);
     if (this._tool === null || this._pending.length === 0) return;
     const cursor = this._lastCursor;
     const points = cursor === null || cursor.paneIndex !== this._pendingPane
@@ -1736,12 +2412,98 @@ export class DrawingController {
     if (ring !== null && !this._layers.has(pane)) this._layerFor(pane).top.setSnapPoint(ring);
   }
 
+  /**
+   * Record a step that is not a drawing edit, a study anchor's move, in the
+   * same history, so Undo walks it and the drawings in the order they were
+   * made. Like any new edit it clears the redo branch. An `outside` move was
+   * written to the settings by someone else (a settings dialog's Pick point):
+   * it ends no drawing drag, and a host timeline the steps are handed to saw
+   * that write itself, so only this history takes it.
+   */
+  private _recordStep(step: InputAnchorStep, outside = false): void {
+    if (!outside) this._onDragEnd();
+    // The host's own act, like any edit inside `untracked`: a step nowhere.
+    if (this._untracked > 0) return;
+    const owner = this._anchorSteps;
+    if (owner !== null) { if (!outside) owner(step); return; }
+    const text = this._historyText();
+    this._undo.push({ before: text, after: text, step: nextStep++, external: step });
+    if (this._undo.length > this._opts.historyLimit) this._undo.shift();
+    this._redo = [];
+    this._external(true, 'update');
+  }
+
+  /**
+   * Announce a move of the history that changed no drawing, with no ids, so
+   * a host's Undo and Redo controls, which refresh on `drawing:change`,
+   * follow it. Passes `applied` through.
+   */
+  private _external(applied: boolean, kind: DrawingChangeKind): boolean {
+    if (applied) this._chart.emit('drawing:change', { ids: [], kind });
+    return applied;
+  }
+
   private _pushUndo(): void {
     this._onDragEnd();
-    const before = JSON.stringify(this._drawings);
-    this._pendingHistory = { before, after: before };
+    const before = this._historyText();
+    // The host's own act: no step, both branches kept, and the recorded
+    // steps take the change in once it is made.
+    if (this._untracked > 0) { this._hostEdit ??= before; return; }
+    this._pendingHistory = { before, after: before, step: nextStep++ };
     this._undo.push(this._pendingHistory);
     if (this._undo.length > this._opts.historyLimit) this._undo.shift();
     this._redo = []; // a new edit invalidates the redo branch
+  }
+
+  /**
+   * Open an edit: recorded, or, for a change the history does not hold (a
+   * host placing or moving a read-only drawing), not recorded and leaving
+   * both branches alone. Either way a drag in progress ends first.
+   */
+  private _begin(record: boolean): void {
+    if (record) this._pushUndo();
+    else this._onDragEnd();
+  }
+
+  /**
+   * What the host does (a policy, a forced call) is its own act and never
+   * history's to reverse: `edit` makes the same change to every recorded
+   * snapshot, as if it had always been so, and a step left with nothing to do
+   * is dropped, so `canUndo` and `canRedo` match what a press would do. The
+   * step still being recorded stays whatever it holds so far. `edit` may
+   * share live objects, since each snapshot is serialised at once. The
+   * host's patches still held back go in first, being older. Both snapshots
+   * of every step are parsed and written, which is why a forced move of a
+   * read-only drawing is held back rather than paying for this.
+   */
+  private _rebase(edit?: (document: DrawingsDocument) => void): void {
+    const rewrite = (text: string): string => {
+      const document = JSON.parse(text) as DrawingsDocument;
+      for (const d of document.drawings) {
+        const { points, ...rest } = this._hostPatches.get(d.id) ?? {};
+        this._applyPatch(d, rest);
+        if (points) d.points = points;
+      }
+      edit?.(document);
+      return JSON.stringify(document);
+    };
+    const keep = (entry: DrawingHistoryEntry): boolean => {
+      entry.before = rewrite(entry.before);
+      entry.after = rewrite(entry.after);
+      // A step outside the drawings keeps whatever the host did to them.
+      return entry === this._pendingHistory || entry.external !== undefined || this._applyHistory(entry.before, entry.after);
+    };
+    // A drag holds the branches as they were when it began, for a cancel to
+    // put back. They share their steps with the live ones, and taking an
+    // edit twice changes nothing, since a snapshot is read through the
+    // migration.
+    const drag = this._dragStart;
+    if (drag) {
+      drag.undo = drag.undo.filter(keep);
+      drag.redo = drag.redo.filter(keep);
+    }
+    this._undo = this._undo.filter(keep);
+    this._redo = this._redo.filter(keep);
+    this._hostPatches.clear();
   }
 }
