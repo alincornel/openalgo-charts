@@ -33,18 +33,17 @@ export interface FootprintBuildOptions {
  * The row a price belongs to, as a row index on the `tickSize * rowTicks` grid.
  *
  * The price is first put on its tick (half away from zero), then the tick on
- * its row by round half to even. Rows are centred on multiples of the row size,
- * so a tick exactly between two row centres has to go one way or the other;
- * half to even sends alternate boundaries up and down instead of always up,
- * which keeps a ladder of grouped rows unbiased and matches the reference
- * order flow tooling this footprint is verified against.
+ * its row by round half up. Rows are centred on multiples of the row size, so
+ * a tick exactly between two row centres goes to the upper row: the rule of
+ * `bucketPrice` (volume profile, zeroFill grid) and of a backend that buckets
+ * with floor(price / row + 0.5), so every path puts a print on the same row.
+ * Upstream 2.6.1 rounds this tie half to even; the fork keeps half up.
  */
 function footprintRowIndex(price: number, tickSize: number, rowTicks: number): number {
   const scaled = price / tickSize;
   const tick = Math.sign(scaled) * Math.round(Math.abs(scaled));
   const below = Math.floor(tick / rowTicks);
-  const twice = 2 * (tick - below * rowTicks);
-  return twice > rowTicks || (twice === rowTicks && below % 2 !== 0) ? below + 1 : below;
+  return 2 * (tick - below * rowTicks) >= rowTicks ? below + 1 : below;
 }
 
 /** Price at the centre of the row holding `price`, on the same grid as `bucketPrice`. */

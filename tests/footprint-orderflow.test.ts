@@ -6,7 +6,7 @@ import { footprintSignals } from '../src/profile/footprint-signals';
 import { Footprint, type FootprintOptions } from '../src/profile/footprint-primitive';
 import { FOOTPRINT_THEMES } from '../src/profile/footprint-themes';
 import { TRADING_HOURS } from '../src/profile/market-profile';
-import type { FootprintBar } from '../src/profile/profile-model';
+import { bucketPrice, type FootprintBar } from '../src/profile/profile-model';
 import { DataLayer } from '../src/model/data-layer';
 import { PriceScale } from '../src/scale/price-scale';
 import { TimeScale } from '../src/scale/time-scale';
@@ -36,13 +36,30 @@ function context(times: number[], spacing = 120): PrimitiveRenderContext {
 
 describe('footprint row alignment', () => {
   // Row centres on a 2-point grid with a 0.05 tick: the odd whole numbers are exact ties.
+  // Fork: a tie goes UP (half up), the rule of `bucketPrice` and of the backend's
+  // row index, floor(price / row + 0.5); upstream 2.6.1 sends it to the even row.
   const prices = [22469, 22467, 22465, 22471, 22453, 22470.95];
-  const expected = [22472, 22470, 22468, 22464, 22452];
+  const expected = [22472, 22470, 22468, 22466, 22454];
 
-  it('sends a tick exactly between two row centres to the even row', () => {
+  it('sends a tick exactly between two row centres up, like bucketPrice', () => {
     const fp = computeFootprint(0, prices.map(price => ({ price, qty: 65, side: 'ask' as const })), 0.05, 40);
     expect(fp.cells.map(c => c.price)).toEqual(expected);
-    expect(fp.cells.find(c => c.price === 22468)!.askVol).toBe(130);
+    expect(fp.cells.find(c => c.price === 22470)!.askVol).toBe(130);
+  });
+
+  it('puts ES ties in the upper row at 2 and 4 ticks per row', () => {
+    const two = computeFootprint(0, [{ price: 5000.25, qty: 1, side: 'ask' }], 0.25, 2);
+    expect(two.cells.map(c => c.price)).toEqual([5000.5]);
+    const four = computeFootprint(0, [{ price: 5000.5, qty: 1, side: 'ask' }], 0.25, 4);
+    expect(four.cells.map(c => c.price)).toEqual([5001]);
+    const agg = new FootprintAggregator({ mode: 'interval', seconds: 60 }, 0.25, 2);
+    expect(agg.onTick({ time: 1, price: 5000.25, qty: 1, side: 'bid' }).bar.cells.map(c => c.price)).toEqual([5000.5]);
+    for (const price of [5000.25, 5000.5, 4999.75, 5001.75, -0.25]) {
+      for (const rowTicks of [1, 2, 3, 4]) {
+        const fp = computeFootprint(0, [{ price, qty: 1, side: 'ask' }], 0.25, rowTicks);
+        expect(fp.cells[0]!.price).toBe(bucketPrice(price, 0.25 * rowTicks));
+      }
+    }
   });
 
   it('streams onto the same rows as the batch builder', () => {

@@ -217,6 +217,11 @@ as a ladder instead of a hairline mesh.
     diagonals. `colorBy`, `cells: 'deltaVolume'`, the candle modes,
     `pocOutline`, the histogram, the plate tint, `onLayout` and `neutralVol`
     sit on upstream's new column code.
+  - Footprint rows round half up, not half to even (2.6.1): a tick exactly
+    between two row centres goes to the upper row in `computeFootprint` and
+    `FootprintAggregator`, as it does in `bucketPrice` and in a backend that
+    buckets with floor(price / row + 0.5). ES at 0.25 with 2 ticks per row puts
+    5000.25 in the 5000.50 row; with 4 ticks per row 5000.50 is in 5001.00.
   - `computeMarketProfile` keeps `pocTieBreak` and `valueAreaMethod`; with
     their defaults it is upstream's `valueArea`.
   - `updatePositionPnl` takes upstream's text-only form too; a `null` text
@@ -850,6 +855,7 @@ empty rows below.
   its row; a tick exactly between two row centres now goes to the even row
   instead of always up (with 2-point rows on a 0.05 tick, 22469.00 belongs to
   the 22468 row). A price that is not on a boundary lands where it always did.
+  (This fork keeps half up, the `bucketPrice` rule; see Unreleased.)
 - **Footprint columns show their untraded rows.** A row inside a bar that no
   trade reached is drawn as 0 x 0 instead of a gap, so every column spans its
   whole range. It changes only the drawing: imbalances, the point of control,
