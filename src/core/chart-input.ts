@@ -1047,7 +1047,9 @@ export class ChartInput {
     }
     // A crosshair finger whose capture is taken stops steering; the crosshair stays.
     if (this._touch.pointer === e.pointerId) this._touch.release();
-    if (this._pointers.has(e.pointerId)) this._touch.clearPress();
+    // A button press taken away is over: a tap id left behind would switch off
+    // the 3 px moved-is-not-a-click rule for the next gesture.
+    if (this._pointers.has(e.pointerId)) { this._touch.clearPress(); this._touch.tapId = null; }
     // Another element can take capture before release. Abandon the pan without a click or fling.
     if (!this._pointers.has(e.pointerId) || this._dragId !== null || this._paneResize !== null || this._brandingPress !== null) return;
     if (this._pinch !== null || this._navigationCancelled) {
