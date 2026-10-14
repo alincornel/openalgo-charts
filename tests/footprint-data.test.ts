@@ -110,14 +110,34 @@ describe('footprint diagonal and stacked imbalances', () => {
     expect(diagonalImbalances([{ price: 2, bidVol: 0, askVol: 0 }, cells[1]], 3, 1)).toEqual([]);
   });
 
-  it('never compares sparse rows across a missing price level', () => {
+  it('compares a row beside an untraded row inside the bar with zero', () => {
+    // Row 3 never traded: the ask at 4 and the bid at 2 each face zero across it.
     const cells = [{ price: 4, bidVol: 1, askVol: 100 }, { price: 2, bidVol: 1, askVol: 1 }, { price: 1, bidVol: 1, askVol: 1 }];
-    expect(diagonalImbalances(cells, 3, 1)).toEqual([]);
-    expect(diagonalImbalances(cells, 3)).toEqual([]);
+    const expected = [{ price: 4, side: 'buy' }, { price: 2, side: 'sell' }];
+    expect(diagonalImbalances(cells, 3, 1)).toEqual(expected);
+    expect(diagonalImbalances(cells, 3)).toEqual(expected);
   });
 
   it('uses explicit row size even when every observed gap spans missing levels', () => {
-    expect(diagonalImbalances([{ price: 4, bidVol: 0, askVol: 100 }, { price: 2, bidVol: 1, askVol: 0 }], 3, 1)).toEqual([]);
+    expect(diagonalImbalances([{ price: 4, bidVol: 0, askVol: 100 }, { price: 2, bidVol: 1, askVol: 0 }], 3, 1))
+      .toEqual([{ price: 4, side: 'buy' }, { price: 2, side: 'sell' }]);
+    // Read as a grid of 2, the same rows are next to each other: the bid at 2 faces the ask of 100.
+    expect(diagonalImbalances([{ price: 4, bidVol: 0, askVol: 100 }, { price: 2, bidVol: 1, askVol: 0 }], 3, 2))
+      .toEqual([{ price: 4, side: 'buy' }]);
+  });
+
+  it('does not compare the rows beyond the bar high and low', () => {
+    // The bid on the top row and the ask on the bottom row have no row to face.
+    expect(diagonalImbalances([{ price: 2, bidVol: 5, askVol: 0 }, { price: 1, bidVol: 0, askVol: 5 }], 3, 1)).toEqual([]);
+  });
+
+  it('does not compare across a gap too wide to be untraded rows', () => {
+    // 1999 rows apart: the row size is wrong for this bar, not 1999 rows untouched.
+    expect(diagonalImbalances([{ price: 2000, bidVol: 1, askVol: 100 }, { price: 0, bidVol: 100, askVol: 1 }], 3, 1)).toEqual([]);
+  });
+
+  it('does not compare rows closer than the row size', () => {
+    expect(diagonalImbalances([{ price: 1.5, bidVol: 0, askVol: 100 }, { price: 1, bidVol: 1, askVol: 0 }], 3, 1)).toEqual([]);
   });
 
   it('keeps both buy and sell flags on a row when forming a stack', () => {
@@ -132,8 +152,9 @@ describe('footprint diagonal and stacked imbalances', () => {
   });
 
   it('breaks stacks across gaps instead of treating separately adjacent runs as one', () => {
+    // 4 faces the untraded row 3, so it is an imbalance, but the run stops there: 6 to 4, not 6 to 1.
     const cells = [6, 5, 4, 2, 1, 0].map((price) => ({ price, bidVol: 1, askVol: 100 }));
-    expect(stackedImbalances(cells, 3, 3, 1)).toEqual([]);
+    expect(stackedImbalances(cells, 3, 3, 1)).toEqual([{ startPrice: 6, endPrice: 4, side: 'buy', count: 3 }]);
   });
 
   it('handles floating price grids and unsorted callers without mutating input', () => {

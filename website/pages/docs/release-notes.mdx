@@ -8,6 +8,48 @@ description: Version history for OpenAlgo Charts.
 The full, authoritative changelog lives in
 [`CHANGELOG.md`](https://github.com/marketcalls/openalgo-charts/blob/master/CHANGELOG.md).
 
+## 2.6.4
+
+2026-10-14
+
+An order flow release: imbalances beside a row that never traded, volume shaded by delta, zone
+alerts and a choice of which zones extend, a colour for each part of a footprint, six named
+themes, and a new [Order flow](/order-flow) page of live footprint and market profile examples.
+
+### Changed
+
+- **An untraded row inside a bar counts as zero for imbalances.** The cell beside such a row is
+  compared with zero, so a thin ladder no longer hides its imbalances. The rows beyond the bar's
+  high and low are still not compared, and a stacked run still stops at the gap. See
+  [Profiles and order flow](/docs/profiles-and-orderflow).
+
+### Added
+
+- **Delta-shaded volume.** `displayMode: 'deltaShadedVolume'` prints each row's volume on a cell
+  shaded by its delta.
+- **Zone alerts.** `footprint.onZoneAlert(handler)` reports each zone `showZones` extends once,
+  when a bar's range comes back to it after it became active; the bars a footprint is first given are
+  history and raise nothing. Zones carry `touchTime`.
+- **Which zones extend.** `zoneKinds` picks stacked imbalances, multiple nodes or absorption, and
+  `zoneLookback` starts zones only in the newest bars.
+- **A colour for each part**: imbalances, the volume view, candles, the visible profile, session
+  letters and the statistics table, each optional.
+- **Named themes.** `FOOTPRINT_THEMES` holds `ocean`, `ember`, `forest`, `neon`, `monochrome` and
+  `daylight` as options patches.
+- **The [Order flow](/order-flow) page**: footprint and market profile charts as live examples,
+  each with a short explanation.
+
+### Size
+
+Profile tier 20.83 kB (was 19.54 kB), all tiers 426.67 kB. The base engine and the chart-only
+import (87.30 KiB) are unchanged but for the version string.
+
+### Performance
+
+Frames are unchanged: the base engine is 2.6.3's code but for its version string. With Canvas 2D
+at 200,000 bars a pan, a full zoom-out and a ten-study tick measure 2.1, 55.3 and 146.6 ms against
+2.1, 53.0 and 150.3 ms. See the [benchmark](/benchmarks#264) measured against 2.6.3.
+
 ## 2.6.3
 
 2026-10-13

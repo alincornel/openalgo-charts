@@ -156,18 +156,40 @@ function observedRowSize(cells: readonly FootprintCell[]): number {
   return row;
 }
 
+function tolerance(upper: number, lower: number, row: number): number {
+  return Math.max(row * 1e-7, Math.max(Math.abs(upper), Math.abs(lower)) * Number.EPSILON * 8);
+}
+
 function adjacent(upper: number, lower: number, row: number): boolean {
-  const tolerance = Math.max(row * 1e-7, Math.max(Math.abs(upper), Math.abs(lower)) * Number.EPSILON * 8);
-  return Number.isFinite(row) && upper > lower && Math.abs(upper - lower - row) <= tolerance;
+  return Number.isFinite(row) && upper > lower && Math.abs(upper - lower - row) <= tolerance(upper, lower, row);
+}
+
+/** More empty rows than this in one gap means the row step is wrong for the bar, not that rows went untraded. */
+export const MAX_EMPTY_ROWS = 1000;
+
+/**
+ * The volume a cell is compared with between `upper` and `lower`: the next row's, or
+ * zero when rows that never traded lie between them inside the bar. Undefined
+ * when the two are closer than a row apart, or further apart than
+ * `MAX_EMPTY_ROWS` rows: either is a grid the row size does not describe, so
+ * nothing is compared.
+ */
+function across(upper: number, lower: number, row: number, volume: number): number | undefined {
+  if (adjacent(upper, lower, row)) return volume;
+  const gap = upper - lower;
+  return Number.isFinite(row) && gap > row + tolerance(upper, lower, row) && Math.round(gap / row) - 1 <= MAX_EMPTY_ROWS ? 0 : undefined;
 }
 
 /**
  * Diagonal imbalances compare ask at P with bid one row below, and bid at P
- * with ask one row above. Missing rows are never bridged or synthesized.
- * Supply rowSize for sparse ladders; legacy callers infer the minimum observed
- * gap, which cannot distinguish uniformly missing rows from a coarser grid.
- * Positive volume against a zero opposing volume is an imbalance; zero against
- * zero is not. threshold is the minimum dominant-side quantity (inclusive).
+ * with ask one row above. A row between the bar's high and low that never
+ * traded holds zero volume, so a cell beside it is compared with zero (since
+ * 2.6.4; through 2.6.3 such a cell was not compared). The rows beyond the
+ * bar's high and low are not compared at all. Supply rowSize for sparse
+ * ladders; legacy callers infer the minimum observed gap, which cannot
+ * distinguish uniformly missing rows from a coarser grid. Positive volume
+ * against a zero opposing volume is an imbalance; zero against zero is not.
+ * threshold is the minimum dominant-side quantity (inclusive).
  */
 export function diagonalImbalances(cells: readonly FootprintCell[], ratio = 3, rowSize?: number, threshold = 0): Imbalance[] {
   if (!Number.isFinite(ratio) || ratio <= 0) throw new RangeError('Imbalance ratio must be positive and finite');
@@ -181,8 +203,10 @@ export function diagonalImbalances(cells: readonly FootprintCell[], ratio = 3, r
     const here = sorted[i]!;
     const below = sorted[i + 1];
     const above = sorted[i - 1];
-    if (below && adjacent(here.price, below.price, row) && dominates(here.askVol, below.bidVol)) out.push({ price: here.price, side: 'buy' });
-    if (above && adjacent(above.price, here.price, row) && dominates(here.bidVol, above.askVol)) out.push({ price: here.price, side: 'sell' });
+    const bidBelow = below && across(here.price, below.price, row, below.bidVol);
+    const askAbove = above && across(above.price, here.price, row, above.askVol);
+    if (bidBelow !== undefined && dominates(here.askVol, bidBelow)) out.push({ price: here.price, side: 'buy' });
+    if (askAbove !== undefined && dominates(here.bidVol, askAbove)) out.push({ price: here.price, side: 'sell' });
   }
   return out;
 }

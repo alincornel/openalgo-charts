@@ -7,7 +7,7 @@
  * pinned call for call against the widget as it was.
  */
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
-import { type Bar, type BarsRequest, type DataFeed } from '../src/index';
+import { VERSION, type Bar, type BarsRequest, type DataFeed } from '../src/index';
 import {
   createWidget, createIndexedDbWidgetStorage, WidgetStorage, SAVE_DEBOUNCE_MS,
   type Widget, type WidgetOptions, type StorageLike, type WidgetStorageError,
@@ -76,7 +76,9 @@ class RecordingStorage implements StorageLike {
 
 async function digest(v: string | null): Promise<string> {
   if (v === null) return 'null';
-  const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(v)));
+  // The state names the library version that wrote it; a release must not change what this pins.
+  const record = v.split(`"savedBy":${JSON.stringify(VERSION)}`).join('"savedBy":"<version>"');
+  const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(record)));
   return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('').slice(0, 12);
 }
 
@@ -152,7 +154,8 @@ describe('a synchronous store the host passes', () => {
 // shortcuts editor reading the user's chords at each mount (2.5.10), marked.
 // The calls and their order are what this holds; the state record itself
 // changed in 2.6.3 (the widget's drag default in the chart state, and the
-// savedBy stamp), so its four hashes were taken again then.
+// savedBy stamp), so its state hashes were taken again then, and again in 2.6.4
+// once the stamp's version was left out of the hash.
 const SYNC_LOG: readonly string[] = [
   'get oac-widget:pin:state null',
   'get oac-widget:pin:drawings:NSE:ALPHA null',
@@ -160,12 +163,12 @@ const SYNC_LOG: readonly string[] = [
   'get oac-widget:pin:rail null',
   'get oac-widget:pin:keymap null', // the shortcuts editor
   'set oac-widget:pin:drawings:NSE:ALPHA dec3d03e62c9',
-  'set oac-widget:pin:state 56a1e4df5b26',
+  'set oac-widget:pin:state cdef0a98fedf',
   'get oac-widget:pin:drawings:NSE:BETA null',
   'set oac-widget:pin:drawings:NSE:BETA 37916dec368c',
-  'set oac-widget:pin:state 02e852fbdabc',
-  'set oac-widget:pin:state 02e852fbdabc',
-  'get oac-widget:pin:state 02e852fbdabc',
+  'set oac-widget:pin:state 92ca0b81d21d',
+  'set oac-widget:pin:state 92ca0b81d21d',
+  'get oac-widget:pin:state 92ca0b81d21d',
   'get oac-widget:pin:drawings:NSE:BETA 37916dec368c',
   'get oac-widget:pin:drawings:NSE:BETA 37916dec368c',
   'get oac-widget:pin:rail null',
@@ -173,8 +176,8 @@ const SYNC_LOG: readonly string[] = [
   'get oac-widget:pin:keymap null', // the shortcuts editor
   'set oac-widget:pin:rail bebd1f203d89',
   'get oac-widget:pin:drawings:NSE:ALPHA dec3d03e62c9',
-  'set oac-widget:pin:state e695c578a5ec',
-  'set oac-widget:pin:state e695c578a5ec',
+  'set oac-widget:pin:state c5cc8a9a7a40',
+  'set oac-widget:pin:state c5cc8a9a7a40',
 ];
 
 // ── the asynchronous contract ──────────────────────────────────────────

@@ -20,6 +20,11 @@ export default {
     type: 'page',
     theme: { layout: 'full', toc: false },
   },
+  'order-flow': {
+    title: 'Order flow',
+    type: 'page',
+    theme: { layout: 'full', toc: false },
+  },
   benchmarks: {
     title: 'Benchmarks',
     type: 'page',

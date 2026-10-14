@@ -1,9 +1,9 @@
 /** Footprint columns, volume profiles and cluster ladders from classified trades. */
 import type { IPrimitive, PrimitiveHost, PrimitiveRenderContext, PrimitiveHit, ZOrder } from 'openalgo-charts';
 import { bucketPrice, valueArea, type FootprintBar, type FootprintCell } from './profile-model';
-import { diagonalImbalances, stackedImbalances } from './footprint';
+import { MAX_EMPTY_ROWS, diagonalImbalances, stackedImbalances } from './footprint';
 import { footprintTextColor, readableTextColor, type FootprintTextColorMode } from './footprint-colors';
-import { footprintSignals, type FootprintSignals, type FootprintZoneEnd } from './footprint-signals';
+import { footprintSignals, type FootprintSignals, type FootprintZone, type FootprintZoneEnd } from './footprint-signals';
 import { drawAuctions, drawFlip, drawVisibleProfile, drawZones, type OverlayColors } from './footprint-overlays';
 import { sessionOpen, tpoLetter, type SessionWindow } from './market-profile';
 import { DEFAULT_TIMEZONE } from '../feed/time';
@@ -14,9 +14,19 @@ export type FootprintStatRow = 'volume' | 'bidVolume' | 'askVolume' | 'delta' | 
 /**
  * `bidask` shades both sides by volume; `imbalance` leaves cells plain and fills
  * only diagonal imbalances, shading the candle body's rows; `delta`, `deltaPct`,
- * `volume` and `volumeDelta` print one value per row.
+ * `volume`, `volumeDelta` and `deltaShadedVolume` print one value per row.
+ * `deltaShadedVolume` (since 2.6.4) prints the row's volume on a cell coloured
+ * and shaded by its delta.
  */
-export type FootprintDisplayMode = 'bidask' | 'imbalance' | 'delta' | 'deltaPct' | 'volume' | 'volumeDelta';
+export type FootprintDisplayMode = 'bidask' | 'imbalance' | 'delta' | 'deltaPct' | 'volume' | 'volumeDelta' | 'deltaShadedVolume';
+/** The zones `showZones` extends: stacked imbalances, multiple nodes and absorption. */
+export type FootprintZoneGroup = 'stacked' | 'node' | 'absorption';
+/** A zone that price came back to after it became active (since 2.6.4). */
+export interface FootprintZoneAlert {
+  zone: FootprintZone;
+  /** Time of the bar whose range came back to the zone. */
+  time: number;
+}
 export type FootprintCellStyle = 'heatmap' | 'profile' | 'ladder';
 export type { FootprintTextColorMode } from './footprint-colors';
 
@@ -92,8 +102,12 @@ export interface FootprintOptions {
   flipMinDeltaPct: number;
   /** Extend stacked imbalances, multiple nodes and absorption to the right as zones. Default false. */
   showZones: boolean;
+  /** Which of them `showZones` extends and alerts on (since 2.6.4). Default all three. */
+  zoneKinds: readonly FootprintZoneGroup[];
   zoneEnd: FootprintZoneEnd;
   zoneActiveAfter: number;
+  /** Zones start only in the newest this many bars (since 2.6.4). 0, the default, takes every bar. */
+  zoneLookback: number;
   /** Dash-dot line at a high or low that traded on both bid and ask. Default false. */
   showUnfinishedAuctions: boolean;
   auctionHighColor?: string;
@@ -118,6 +132,23 @@ export interface FootprintOptions {
   formingLastBar: boolean;
   buyColor?: string;
   sellColor?: string;
+  // Each colour below is optional (since 2.6.4); omitted, it keeps the colour it
+  // had before: the buy or sell colour, or the chart theme's background.
+  /** Imbalanced cells, stacked imbalance brackets and stacked zones. */
+  imbalanceBuyColor?: string;
+  imbalanceSellColor?: string;
+  /** Cells in the `volume` display mode, which otherwise take the colour of the side that traded more. */
+  volumeColor?: string;
+  /** The candle beside each column, and the body rows the `imbalance` mode shades. */
+  candleUpColor?: string;
+  candleDownColor?: string;
+  /** Ask and bid bars of the visible-range profile. */
+  profileAskColor?: string;
+  profileBidColor?: string;
+  /** Session letters in the table and the statistics cards. */
+  sessionColor?: string;
+  /** Background of the statistics table. */
+  tableBackground?: string;
   pocColor: string;
   radius: number;
 }
@@ -131,7 +162,7 @@ export const DEFAULT_FOOTPRINT_OPTIONS: FootprintOptions = {
   pocStyle: 'marker', pocColor: '#f0a020', showValueArea: false, valueAreaPercent: 0.7, radius: 2,
   multipleNodeBars: 0, nodeColor: '#e8c547', bigOrderMultiple: 0, bigOrderColor: '#2ea8ff',
   absorptionMultiple: 0, absorptionColor: '#a98bf0', signalLookback: 10, nearExtremeRows: 3,
-  flipBars: 0, flipMinDeltaPct: 8, showZones: false, zoneEnd: 'closeInside', zoneActiveAfter: 1,
+  flipBars: 0, flipMinDeltaPct: 8, showZones: false, zoneKinds: ['stacked', 'node', 'absorption'], zoneEnd: 'closeInside', zoneActiveAfter: 1, zoneLookback: 0,
   showUnfinishedAuctions: false, showDeltaLabels: false, markDivergence: false, divergenceColor: '#f2a33a',
   showVisibleProfile: false, profileWidth: 100, showEmptyRows: true, formingLastBar: true,
 };
@@ -184,11 +215,15 @@ function mix(a: string, b: string, t: number): string {
   return `rgb(${Math.round(ca.r + (cb.r - ca.r) * k)},${Math.round(ca.g + (cb.g - ca.g) * k)},${Math.round(ca.b + (cb.b - ca.b) * k)})`;
 }
 
+/** The options with their arrays copied, so a caller's array never changes them. */
+function copyOptions(o: FootprintOptions): FootprintOptions {
+  return { ...o, statsRows: [...o.statsRows], tableRows: [...o.tableRows], zoneKinds: [...o.zoneKinds] };
+}
+
 /** Midnight to midnight: the session when no window is given. */
 const WHOLE_DAY: SessionWindow = { startMinute: 0, endMinute: 0 };
 const TWO_SIDED = new Set<FootprintDisplayMode>(['bidask', 'imbalance']);
-/** More empty rows than this in one gap means the row step is wrong for the bar, not that rows went untraded. */
-const MAX_EMPTY_ROWS = 1000;
+const ZONE_GROUP: Record<FootprintZone['kind'], FootprintZoneGroup> = { stackedBuy: 'stacked', stackedSell: 'stacked', node: 'node', absorption: 'absorption' };
 
 /** A bar's cells, highest first, with a zero row at every row step the trades skipped. */
 function withEmptyRows(cells: readonly FootprintCell[], step: number): readonly FootprintCell[] {
@@ -218,7 +253,7 @@ interface Column {
   card?: { top: number; bottom: number };
   table?: { left: number; right: number; top: number; bottom: number };
 }
-interface Palette { buy: string; sell: string; bg: string }
+interface Palette { buy: string; sell: string; bg: string; imbBuy: string; imbSell: string }
 const STAT_LABEL: Record<FootprintStatRow, string> = {
   volume: 'Volume', bidVolume: 'Bid Volume', askVolume: 'Ask Volume', delta: 'Delta',
   minDelta: 'Min Delta', maxDelta: 'Max Delta', deltaPct: 'Delta %', cvd: 'CVD', trades: 'Trades',
@@ -238,10 +273,15 @@ export class Footprint implements IPrimitive {
   private _cols: Column[] = [];
   private _rc: PrimitiveRenderContext | null = null;
   private _inferredStep = 0;
+  private _primed = false;
+  /** Time of the newest bar at the last `setBars`: touches from it on are live. */
+  private _liveFrom = -Infinity;
+  private readonly _alertHandlers = new Set<(alert: FootprintZoneAlert) => void>();
+  /** Zones already reported or already touched when first seen, by kind, origin and low. */
+  private readonly _alerted = new Set<string>();
 
   public constructor(opts: Partial<FootprintOptions> = {}) {
-    this._opts = { ...DEFAULT_FOOTPRINT_OPTIONS, ...opts,
-      statsRows: [...(opts.statsRows ?? DEFAULT_FOOTPRINT_OPTIONS.statsRows)], tableRows: [...(opts.tableRows ?? [])] };
+    this._opts = copyOptions({ ...DEFAULT_FOOTPRINT_OPTIONS, ...opts });
     this._validateOptions(this._opts);
   }
   public attached(host: PrimitiveHost): void { this._host = host; }
@@ -264,6 +304,9 @@ export class Footprint implements IPrimitive {
     for (const rows of [o.statsRows, o.tableRows]) {
       if (rows.some(row => !Object.prototype.hasOwnProperty.call(STAT_LABEL, row)) || new Set(rows).size !== rows.length) throw new RangeError('Footprint statistics rows must be known and unique');
     }
+    if (o.zoneKinds.some(kind => kind !== 'stacked' && kind !== 'node' && kind !== 'absorption') || new Set(o.zoneKinds).size !== o.zoneKinds.length) {
+      throw new RangeError('Footprint zone kinds must be stacked, node or absorption, each once');
+    }
     // The signal options share one validator with the pure function.
     footprintSignals([], this._signalOptions(o));
   }
@@ -273,7 +316,7 @@ export class Footprint implements IPrimitive {
       imbalanceRatio: o.imbalanceRatio, imbalanceThreshold: o.imbalanceThreshold, stackedImbalances: o.stackedImbalances,
       multipleNodeBars: o.multipleNodeBars, bigOrderMultiple: o.bigOrderMultiple, absorptionMultiple: o.absorptionMultiple,
       signalLookback: o.signalLookback, nearExtremeRows: o.nearExtremeRows, flipBars: o.flipBars, flipMinDeltaPct: o.flipMinDeltaPct,
-      zoneEnd: o.zoneEnd, zoneActiveAfter: o.zoneActiveAfter, formingLastBar: o.formingLastBar,
+      zoneEnd: o.zoneEnd, zoneActiveAfter: o.zoneActiveAfter, zoneLookback: o.zoneLookback, formingLastBar: o.formingLastBar,
     };
   }
 
@@ -290,18 +333,57 @@ export class Footprint implements IPrimitive {
     this._inferredStep = Number.isFinite(step) ? step : 0;
     this._cols = [];
     this._recomputeStats();
+    this._reportTouches(true);
     this._host?.requestUpdate();
   }
 
   public setOptions(patch: Partial<FootprintOptions>): void {
     const next = { ...this._opts, ...patch };
     this._validateOptions(next);
-    this._opts = { ...next, statsRows: [...next.statsRows], tableRows: [...next.tableRows] };
+    this._opts = copyOptions(next);
     this._cols = [];
     this._recomputeStats();
+    // New options can make new zones out of old bars: nothing traded into them now.
+    this._reportTouches(false);
     this._host?.requestUpdate();
   }
-  public options(): FootprintOptions { return { ...this._opts, statsRows: [...this._opts.statsRows], tableRows: [...this._opts.tableRows] }; }
+  public options(): FootprintOptions { return copyOptions(this._opts); }
+
+  /**
+   * Called once for each zone that `showZones` extends (so nothing is reported
+   * while it is off) when a bar's range comes back to it after it became active
+   * (since 2.6.4), the moment to raise an alert or play a sound. The first bars
+   * a footprint is given are history and report nothing; each later `setBars`
+   * is read as the live tail, so a touch in the bar that was newest at the
+   * previous call, or in any bar after it, is reported. `setBars([])`, or bars
+   * that start again from an older bar, begin a new history. Returns the
+   * unsubscribe.
+   */
+  public onZoneAlert(handler: (alert: FootprintZoneAlert) => void): () => void {
+    this._alertHandlers.add(handler);
+    return () => { this._alertHandlers.delete(handler); };
+  }
+
+  private _reportTouches(live: boolean): void {
+    const o = this._opts, newest = this._bars[this._bars.length - 1]?.time;
+    // No bars, or bars ending before the last ones did, are another dataset: its touches are history.
+    if (newest === undefined || newest < this._liveFrom) { this._primed = false; this._alerted.clear(); this._liveFrom = -Infinity; }
+    if (newest === undefined) return;
+    const report = live && this._primed, from = this._liveFrom;
+    if (live) { this._primed = true; this._liveFrom = newest; }
+    if (!o.showZones) return;
+    for (const zone of this._signals.zones) {
+      if (zone.touchTime === null || !o.zoneKinds.includes(ZONE_GROUP[zone.kind])) continue;
+      const key = `${zone.kind}|${zone.time}|${zone.low}`;
+      if (this._alerted.has(key)) continue;
+      this._alerted.add(key);
+      // A touch is news when it is in the bar that was still forming at the last call, or later.
+      if (!report || zone.touchTime < from) continue;
+      for (const handler of [...this._alertHandlers]) {
+        try { handler({ zone: { ...zone }, time: zone.touchTime }); } catch (error) { queueMicrotask(() => { throw error; }); }
+      }
+    }
+  }
   public stats(): readonly FootprintBarStats[] { return this._stats; }
   /**
    * Multiple nodes, big orders, absorption, flips, divergence, zones and
@@ -369,7 +451,7 @@ export class Footprint implements IPrimitive {
     const mode = this._opts.displayMode, vol = cell.bidVol + cell.askVol, d = cell.askVol - cell.bidVol;
     if (mode === 'volume') return vol;
     if (mode === 'deltaPct') return vol > 0 ? Math.abs(d) / vol : 0;
-    if (mode === 'delta' || mode === 'volumeDelta') return Math.abs(d);
+    if (mode === 'delta' || mode === 'volumeDelta' || mode === 'deltaShadedVolume') return Math.abs(d);
     return Math.max(cell.bidVol, cell.askVol);
   }
 
@@ -385,7 +467,8 @@ export class Footprint implements IPrimitive {
     this._cols = [];
     if (this._bars.length === 0 || rc.plotHeight <= 0 || rc.plotWidth <= 0) return;
     const o = this._opts, dpr = rc.dpr;
-    const palette: Palette = { buy: o.buyColor ?? rc.theme.upColor, sell: o.sellColor ?? rc.theme.downColor, bg: rc.theme.background };
+    const buy = o.buyColor ?? rc.theme.upColor, sell = o.sellColor ?? rc.theme.downColor;
+    const palette: Palette = { buy, sell, bg: rc.theme.background, imbBuy: o.imbalanceBuyColor ?? buy, imbSell: o.imbalanceSellColor ?? sell };
     const slot = rc.timeScale.barSpacing;
     const outerWidth = Math.max(0.1, Math.min(o.cellWidth ?? slot * o.widthFactor, slot * 0.96));
     const gutter = o.showCandle && outerWidth >= 20 ? Math.min(9, outerWidth * 0.15) : 0;
@@ -416,7 +499,7 @@ export class Footprint implements IPrimitive {
     for (const col of this._cols) this._drawUnder(ctx, rc, col, palette, cellBottom);
     if (o.showVisibleProfile) {
       drawVisibleProfile(ctx, rc, this._cols.map(col => col.bar), this._cols[0]?.rowSize ?? 0, o.profileWidth, cellBottom,
-        palette.buy, palette.sell, palette.bg, o.textColor ?? rc.theme.axisText, o.pocColor, v => this._format(v / o.volumeDivisor), Math.max(8, o.font - 1));
+        o.profileAskColor ?? palette.buy, o.profileBidColor ?? palette.sell, palette.bg, o.textColor ?? rc.theme.axisText, o.pocColor, v => this._format(v / o.volumeDivisor), Math.max(8, o.font - 1));
     }
     ctx.restore();
     if (o.statsRows.length && o.statsPosition === 'bar') {
@@ -429,9 +512,9 @@ export class Footprint implements IPrimitive {
   /** Zones and unfinished auctions sit behind the columns. */
   private _drawAcross(ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext, p: Palette, bottom: number): void {
     const o = this._opts;
-    const colors: OverlayColors = { stackedBuy: p.buy, stackedSell: p.sell, node: o.nodeColor, absorption: o.absorptionColor,
+    const colors: OverlayColors = { stackedBuy: p.imbBuy, stackedSell: p.imbSell, node: o.nodeColor, absorption: o.absorptionColor,
       auctionHigh: o.auctionHighColor ?? p.buy, auctionLow: o.auctionLowColor ?? p.sell };
-    if (o.showZones) drawZones(ctx, rc, this._signals.zones, colors, bottom);
+    if (o.showZones) drawZones(ctx, rc, this._signals.zones.filter(zone => o.zoneKinds.includes(ZONE_GROUP[zone.kind])), colors, bottom);
     if (!o.showUnfinishedAuctions) return;
     const byTime = new Map(this._bars.map(bar => [bar.time, bar]));
     drawAuctions(ctx, rc, this._signals.auctions, colors, (auction) => {
@@ -453,10 +536,12 @@ export class Footprint implements IPrimitive {
     gutter: number, p: Palette, cellBottom: number, screenPeak: number): void {
     const o = this._opts, dpr = rc.dpr;
     const { bar, stats } = col;
-    const { buy, sell, bg } = p;
+    const { buy, sell, bg, imbBuy, imbSell } = p;
     const width = col.width * dpr, half = width / 2, x0 = col.x0 * dpr, center = col.x * dpr;
     const cells = o.showEmptyRows ? withEmptyRows(bar.cells, col.rowSize) : bar.cells;
     const flags = diagonalImbalances(bar.cells, o.imbalanceRatio, col.rowSize || undefined, o.imbalanceThreshold);
+    // Without a row size every bar has one row, so nothing faces anything.
+    const byPrice = new Map(col.rowSize > 0 ? bar.cells.map(cell => [bucketPrice(cell.price, col.rowSize), cell] as const) : []);
     const buys = new Set(flags.filter(flag => flag.side === 'buy').map(flag => flag.price));
     const sells = new Set(flags.filter(flag => flag.side === 'sell').map(flag => flag.price));
     const twoSided = TWO_SIDED.has(o.displayMode);
@@ -465,11 +550,16 @@ export class Footprint implements IPrimitive {
     for (const cell of bar.cells) textPeak = Math.max(textPeak, twoSided ? Math.max(cell.bidVol, cell.askVol) : cell.bidVol + cell.askVol);
     const signal = this._signals.bars[col.index];
     const body = this._bodyRows(bar, cells, col.rowSize);
-    const candle = bar.open !== undefined && bar.close !== undefined && bar.close < bar.open ? sell : buy;
+    const candle = bar.open !== undefined && bar.close !== undefined && bar.close < bar.open ? o.candleDownColor ?? sell : o.candleUpColor ?? buy;
     const lastRow = o.lastPriceColor !== undefined && col.index === this._bars.length - 1 && bar.close !== undefined
       ? this._rowOf(bar, bar.close, col.rowSize) : null;
-    if (gutter > 0) this._drawCandle(ctx, rc, col, gutter, buy, sell);
-    cells.forEach((cell, i) => {
+    if (gutter > 0) this._drawCandle(ctx, rc, col, gutter, o.candleUpColor ?? buy, o.candleDownColor ?? sell);
+    // The volume each imbalance was measured against: the diagonal row's, or zero across an untraded row.
+    const facing = (price: number, below: boolean): number => {
+      const other = byPrice.get(bucketPrice(price + (below ? -col.rowSize : col.rowSize), col.rowSize));
+      return other === undefined ? 0 : below ? other.bidVol : other.askVol;
+    };
+    cells.forEach((cell) => {
       const bounds = this._bounds(cell.price, col.rowSize, rc);
       if (bounds.bottom <= 0 || bounds.top >= cellBottom) return;
       col.rows.push({ cell, top: Math.max(0, bounds.top), bottom: Math.min(cellBottom, bounds.bottom) });
@@ -483,20 +573,23 @@ export class Footprint implements IPrimitive {
         if (o.displayMode === 'imbalance') {
           // Plain cells: only imbalances are coloured, and the candle body's rows are lightly shaded.
           const plain = body.has(cell.price) ? mix(bg, candle, 0.18) : bg;
-          const above = cells[i - 1], below = cells[i + 1];
-          bidFill = sells.has(cell.price) ? mix(bg, sell, this._imbalanceStrength(cell.bidVol, above?.askVol ?? 0)) : plain;
-          askFill = buys.has(cell.price) ? mix(bg, buy, this._imbalanceStrength(cell.askVol, below?.bidVol ?? 0)) : plain;
+          bidFill = sells.has(cell.price) ? mix(bg, imbSell, this._imbalanceStrength(cell.bidVol, facing(cell.price, false))) : plain;
+          askFill = buys.has(cell.price) ? mix(bg, imbBuy, this._imbalanceStrength(cell.askVol, facing(cell.price, true))) : plain;
         }
-        this._cell(ctx, rc, cell, x0, top, w, h, cell.bidVol, peak, textPeak, sell, buy, sell, bg, sells.has(cell.price), textAlpha, 'bid', bidFill);
-        this._cell(ctx, rc, cell, center + gap, top, w, h, cell.askVol, peak, textPeak, buy, buy, sell, bg, buys.has(cell.price), textAlpha, 'ask', askFill);
+        const bidHot = sells.has(cell.price), askHot = buys.has(cell.price);
+        this._cell(ctx, rc, cell, x0, top, w, h, cell.bidVol, peak, textPeak, bidHot ? imbSell : sell, buy, sell, bg, bidHot, textAlpha, 'bid', bidFill);
+        this._cell(ctx, rc, cell, center + gap, top, w, h, cell.askVol, peak, textPeak, askHot ? imbBuy : buy, buy, sell, bg, askHot, textAlpha, 'ask', askFill);
       } else {
         const direction = cell.askVol - cell.bidVol, vol = cell.bidVol + cell.askVol;
         const shade = this._cellMeasure(cell) * (o.displayMode === 'volume' ? 1 : Math.sign(direction) || 1);
         const label = o.displayMode === 'deltaPct' ? `${vol > 0 ? Math.round(direction / vol * 100) : 0}%`
           : o.displayMode === 'volumeDelta' ? `${this._format(vol / o.volumeDivisor)} x ${this._format(direction / o.volumeDivisor)}`
             : this._format((o.displayMode === 'delta' ? direction : vol) / o.volumeDivisor);
-        this._cell(ctx, rc, cell, x0, top, width, h, shade, peak, textPeak, direction > 0 ? buy : direction < 0 ? sell : mix(buy, sell, 0.5), buy, sell, bg,
-          direction > 0 ? buys.has(cell.price) : direction < 0 && sells.has(cell.price), textAlpha, 'single', undefined, label);
+        const hot = direction > 0 ? buys.has(cell.price) : direction < 0 && sells.has(cell.price);
+        const color = hot ? (direction > 0 ? imbBuy : imbSell)
+          : o.displayMode === 'volume' && o.volumeColor !== undefined ? o.volumeColor
+            : direction > 0 ? buy : direction < 0 ? sell : mix(buy, sell, 0.5);
+        this._cell(ctx, rc, cell, x0, top, width, h, shade, peak, textPeak, color, buy, sell, bg, hot, textAlpha, 'single', undefined, label);
       }
       if (signal?.node && cell.price === stats.poc) { ctx.fillStyle = withAlpha(o.nodeColor, 0.35); ctx.fillRect(x0, top, width, h); }
       if (lastRow === cell.price) { ctx.fillStyle = withAlpha(o.lastPriceColor!, 0.45); ctx.fillRect(x0, top, width, h); }
@@ -520,7 +613,7 @@ export class Footprint implements IPrimitive {
       ctx.strokeStyle = o.absorptionColor; ctx.lineWidth = dpr; ctx.strokeRect(x0, top, width, h);
     }
     this._drawValueArea(ctx, rc, col, x0, width);
-    this._drawBrackets(ctx, rc, col, buy, sell);
+    this._drawBrackets(ctx, rc, col, imbBuy, imbSell);
   }
 
   /** Row prices of the drawn cells between the bar's open and close rows, inclusive. */
@@ -683,13 +776,14 @@ export class Footprint implements IPrimitive {
       ctx.textAlign = 'left'; ctx.fillStyle = readableTextColor(o.textColor ?? rc.theme.axisText, fill);
       ctx.fillText(label, (col.x0 + 4) * dpr, y);
       ctx.textAlign = 'right';
-      ctx.fillStyle = readableTextColor(this._statColor(row, value, o.textColor ?? rc.theme.axisText, o.buyTextColor ?? p.buy, o.sellTextColor ?? p.sell), fill);
+      const neutral = row === 'session' ? o.sessionColor ?? o.textColor ?? rc.theme.axisText : o.textColor ?? rc.theme.axisText;
+      ctx.fillStyle = readableTextColor(this._statColor(row, value, neutral, o.buyTextColor ?? p.buy, o.sellTextColor ?? p.sell), fill);
       ctx.fillText(text, (col.x0 + col.width - 4) * dpr, y);
     });
   }
 
   private _drawFooter(ctx: CanvasRenderingContext2D, rc: PrimitiveRenderContext, p: Palette, height: number, rows: readonly FootprintStatRow[]): void {
-    const o = this._opts, dpr = rc.dpr, top = rc.plotHeight - height, { buy, sell, bg } = p;
+    const o = this._opts, dpr = rc.dpr, top = rc.plotHeight - height, { buy, sell } = p, bg = o.tableBackground ?? p.bg;
     const labelWidth = Math.min(o.tableLabelWidth, rc.plotWidth);
     ctx.fillStyle = bg; ctx.fillRect(0, top * dpr, rc.plotWidth * dpr, height * dpr);
     ctx.font = `${Math.max(8, o.font - 0.5) * dpr}px ui-monospace, SFMono-Regular, Menlo, monospace`;
@@ -719,7 +813,7 @@ export class Footprint implements IPrimitive {
         const text = this._statText(col.stats, row);
         const halfText = ctx.measureText(text).width / (2 * dpr) + 2;
         if (x - halfText < col.table.left || x + halfText > col.table.right) continue;
-        ctx.fillStyle = readableTextColor(o.textColor ?? rc.theme.axisText, fill);
+        ctx.fillStyle = readableTextColor(row === 'session' ? o.sessionColor ?? o.textColor ?? rc.theme.axisText : o.textColor ?? rc.theme.axisText, fill);
         ctx.fillText(text, x * dpr, y + o.statsRowHeight * dpr / 2);
       }
     });

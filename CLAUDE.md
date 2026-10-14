@@ -260,6 +260,16 @@ Figures and substitutions:
   both in the release notes.
 - The test count lives in the README badge, the README `npm test` line and the
   CHANGELOG Tests paragraph. A new regression test changes all three.
+- **The version is also hand-written** in the website footer (`website/theme.config.tsx`,
+  with its release-notes anchor), the diagram titles and version label, and the
+  `STATS` and `BENCH` release fields in `components/landing.tsx`. A grep for the old
+  version that skips the changelog and release notes finds them all.
+- **A release that leaves the base untouched still moves its size.** 2.6.4 changed
+  only the profile tier, yet the base measured 33 bytes more from the version string
+  alone. Confirm such a claim by diffing each bundle against the previous registry
+  tarball with the version string replaced, then publish the measured figure anyway.
+- **Write edit scripts with the Write tool, not a shell heredoc.** The heredoc
+  collapsed `\\|` in a markdown table to `\|`, so the script matched nothing.
 - **Comparing the registry tarball:** every file matches a local `npm pack` byte for
   byte except `dist/index.d.ts`, whose declaration blocks the bundler orders
   differently on Windows than on the Linux runner that publishes. Compare that one

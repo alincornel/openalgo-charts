@@ -39,6 +39,8 @@ export interface FootprintSignalOptions {
   zoneEnd: FootprintZoneEnd;
   /** Whole bars that must trade completely beyond a zone before it is active for alerts. */
   zoneActiveAfter: number;
+  /** Zones start only in the newest this many bars (since 2.6.4). 0, the default, takes every bar. */
+  zoneLookback: number;
   /**
    * The newest bar is still forming: its close is not final, so it cannot end a
    * zone by closing inside it, and its high and low are not final, so it gets no
@@ -50,7 +52,7 @@ export interface FootprintSignalOptions {
 export const DEFAULT_FOOTPRINT_SIGNAL_OPTIONS: FootprintSignalOptions = {
   imbalanceRatio: 3, imbalanceThreshold: 0, stackedImbalances: 3, multipleNodeBars: 2,
   bigOrderMultiple: 3, absorptionMultiple: 2, signalLookback: 10, nearExtremeRows: 3,
-  flipBars: 2, flipMinDeltaPct: 8, zoneEnd: 'closeInside', zoneActiveAfter: 1, formingLastBar: true,
+  flipBars: 2, flipMinDeltaPct: 8, zoneEnd: 'closeInside', zoneActiveAfter: 1, zoneLookback: 0, formingLastBar: true,
 };
 
 export interface FootprintZone {
@@ -64,6 +66,12 @@ export interface FootprintZone {
   endTime: number | null;
   /** Time of the bar that made it active for alerts, or null. */
   activeTime: number | null;
+  /**
+   * Time of the first bar after it became active whose high to low range
+   * reached it, which is when an alert fires (since 2.6.4), or null. A bar that
+   * jumps across the zone reaches it too, as it would trigger a stop there.
+   */
+  touchTime: number | null;
 }
 
 export interface FootprintAuction {
@@ -139,7 +147,7 @@ function validate(o: FootprintSignalOptions): void {
   for (const v of [o.imbalanceThreshold, o.bigOrderMultiple, o.absorptionMultiple, o.flipMinDeltaPct]) {
     if (!Number.isFinite(v) || v < 0) throw new RangeError('Footprint signal thresholds must be nonnegative and finite');
   }
-  for (const v of [o.stackedImbalances, o.multipleNodeBars, o.flipBars, o.zoneActiveAfter]) {
+  for (const v of [o.stackedImbalances, o.multipleNodeBars, o.flipBars, o.zoneActiveAfter, o.zoneLookback]) {
     if (!Number.isSafeInteger(v) || v < 0) throw new RangeError('Footprint signal counts must be nonnegative integers');
   }
   if (o.multipleNodeBars === 1) throw new RangeError('Footprint multipleNodeBars must be 0 or at least 2');
@@ -159,9 +167,11 @@ export function footprintSignals(bars: readonly FootprintBar[], options: Partial
   }));
   for (let k = 0; k < shapes.length; k++) out[k]!.flip = flipAt(shapes, k, o);
   const zones: FootprintZone[] = [];
+  const first = o.zoneLookback > 0 ? shapes.length - o.zoneLookback : 0;
   const zone = (kind: FootprintZoneKind, k: number, lowRow: number, highRow: number): void => {
+    if (k < first) return;
     const half = shapes[k]!.row / 2;
-    zones.push(resolveZone({ kind, time: shapes[k]!.bar.time, low: lowRow - half, high: highRow + half, endTime: null, activeTime: null }, shapes, k, o));
+    zones.push(resolveZone({ kind, time: shapes[k]!.bar.time, low: lowRow - half, high: highRow + half, endTime: null, activeTime: null, touchTime: null }, shapes, k, o));
   };
   for (let k = 0; k < shapes.length; k++) {
     const s = shapes[k]!;
@@ -265,6 +275,8 @@ function resolveZone(zone: FootprintZone, shapes: readonly Shape[], k: number, o
     const touch = s.high >= zone.low && s.low <= zone.high;
     const traverse = s.high >= zone.high && s.low <= zone.low;
     const inside = closed && close !== undefined && close >= zone.low && close <= zone.high;
+    // The bar that ends a zone can still be the first to come back to it.
+    if (zone.activeTime !== null && zone.touchTime === null && touch) zone.touchTime = s.bar.time;
     if (o.zoneEnd === 'touch' ? touch : o.zoneEnd === 'traverse' ? traverse : inside || traverse) {
       zone.endTime = s.bar.time;
       return zone;

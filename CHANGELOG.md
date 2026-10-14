@@ -2,6 +2,91 @@
 
 All notable changes to OpenAlgo Charts.
 
+## 2.6.4
+
+2026-10-14
+
+An order flow release. A footprint finds the imbalances beside a row that
+never traded, prints volume shaded by delta, extends and alerts on the zones
+a host picks, and takes a named colour theme or a colour for each of its
+parts. A new Order flow page on the website walks through footprint and
+market profile charts with live examples.
+
+### Changed
+
+- **An untraded row inside a bar counts as zero for imbalances.** A row
+  between a bar's high and low that no trade reached holds zero volume, so the
+  cell beside it is compared with zero: the ask above such a row, or the bid
+  below it, is an imbalance whenever it traded at all, subject to
+  `imbalanceThreshold`. Through 2.6.3 such a cell was not compared, so a thin
+  ladder showed fewer imbalances than it had. The rows beyond the bar's high and
+  low are still not compared, and a stacked run still stops at the untraded
+  row. `diagonalImbalances`, `stackedImbalances`, `footprintSignals` and the
+  `Footprint` primitive all follow the rule; the imbalance view fills such a
+  cell at full strength.
+
+### Added
+
+- **Delta-shaded volume.** `displayMode: 'deltaShadedVolume'` prints each
+  row's volume on a cell coloured by the side that won the row and shaded by
+  the size of its delta, so a busy row with little conviction reads pale.
+- **Zone alerts.** `footprint.onZoneAlert(handler)` calls the handler once
+  for each zone `showZones` extends when a bar's high to low range comes back
+  to it after it became active (a jump across it counts), with `{ zone, time }`, and returns the unsubscribe. The first
+  bars a footprint is given, and new zones that `setOptions` makes, are
+  recorded without a call. Each later `setBars` is the live tail: a touch in
+  the bar that was newest at the previous call, or in a later one, is
+  reported, so prints batched across a new bar lose nothing. `setBars([])`, or
+  bars that start again from an older bar, begin a new history. `FootprintZone` gains `touchTime`, the first bar after `activeTime`
+  whose range reached the zone.
+- **Which zones extend.** `zoneKinds` picks any of `'stacked'`, `'node'` and
+  `'absorption'` (default all three) for `showZones` to extend and alert on,
+  and `zoneLookback` (default 0, every bar; also a `footprintSignals` option)
+  starts zones only in the newest that many bars.
+- **A colour for each part.** `imbalanceBuyColor` and `imbalanceSellColor`
+  (imbalanced cells, stacked brackets and stacked zones), `volumeColor` (the
+  volume view), `candleUpColor` and `candleDownColor`, `profileAskColor` and
+  `profileBidColor` (the visible-range profile), `sessionColor` (session
+  letters) and `tableBackground` (the statistics table). Each is optional and
+  falls back to the colour it used before.
+- **Named themes.** `FOOTPRINT_THEMES` holds six colour sets as options
+  patches: `ocean`, `ember`, `forest`, `neon` and `monochrome` for a dark
+  chart, `daylight` for a light one. `new Footprint({ ...FOOTPRINT_THEMES.ocean })`.
+- **An Order flow page** on the website: footprint and market profile charts
+  as live examples, each with a short explanation of how to read it.
+
+### Size
+
+The profile tier is 20.83 kB (was 19.54 kB): about 0.57 kB for the six named
+themes and 0.72 kB for the alerts, the colours, the new view and the zone
+options. All tiers come to 426.67 kB and the nine classic scripts to
+440.43 kB. The base engine, trade, draw and widget bundles differ from 2.6.3
+only in their version string, which Brotli turns into a few dozen bytes either
+way: the base is 137.65 kB, base plus trade 154.52 kB, the widget terminal
+364.04 kB and the base classic script 137.69 kB. Each budget moved to its
+measured need. The chart-only import is unchanged at 87.30 KiB.
+
+### Performance
+
+- **Measured against 2.6.3** on the release bench (five runs of each build in
+  one session, `benchmarks/releases.json`, the website's Benchmarks page). The
+  base engine is the same code as 2.6.3 apart from its version string, so the
+  two columns time one renderer twice and their differences are the bench's
+  own spread: with Canvas 2D at 200,000 bars a pan, a full zoom-out and a
+  ten-study tick measure 2.1, 55.3 and 146.6 ms against 2.1, 53.0 and 150.3 ms
+  (each the lowest p95 of its five runs), and no cell differs by more than 10
+  percent either way. Every cell is within its frame budget.
+
+### Tests
+
+11690 engine tests across 516 files and 730 reference-host tests across 68
+files. Each new behaviour has a test that fails without it: the comparison
+across an untraded row and the limit on a gap too wide to be one, the zone
+lookback, the touch time, an alert for a live touch, for a touch batched with
+the next bar, never for history or a cleared footprint, and only for the kinds
+extended, the delta-shaded view, each colour option and the themes. The
+widget storage pins no longer change with the library version.
+
 ## 2.6.3
 
 2026-10-13
