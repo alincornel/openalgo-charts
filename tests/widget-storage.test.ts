@@ -7,12 +7,13 @@
  * pinned call for call against the widget as it was.
  */
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
-import { VERSION, type Bar, type BarsRequest, type DataFeed } from '../src/index';
+import { unregisterInterval, VERSION, type Bar, type BarsRequest, type DataFeed } from '../src/index';
 import {
   createWidget, createIndexedDbWidgetStorage, WidgetStorage, SAVE_DEBOUNCE_MS,
   type Widget, type WidgetOptions, type StorageLike, type WidgetStorageError,
 } from '../src/widget/index';
 import { fakeWidgetDocument, fakeContainer, ensureWindowGlobal, fire, type FakeDocument, type FakeElement } from './helpers/fake-dom-widget';
+import { createTimeframePreferences } from '../src/widget/timeframe-preferences';
 import { FakeIndexedDb } from './helpers/fake-indexeddb';
 import { FakeAsyncStore, settle } from './helpers/fake-async-store';
 
@@ -157,6 +158,7 @@ describe('a synchronous store the host passes', () => {
 // savedBy stamp), so its state hashes were taken again then, and again in 2.6.4
 // once the stamp's version was left out of the hash.
 const SYNC_LOG: readonly string[] = [
+  'get oac-widget:pin:timeframes null',
   'get oac-widget:pin:state null',
   'get oac-widget:pin:drawings:NSE:ALPHA null',
   'get oac-widget:pin:rail null',
@@ -168,6 +170,7 @@ const SYNC_LOG: readonly string[] = [
   'set oac-widget:pin:drawings:NSE:BETA 37916dec368c',
   'set oac-widget:pin:state 92ca0b81d21d',
   'set oac-widget:pin:state 92ca0b81d21d',
+  'get oac-widget:pin:timeframes null',
   'get oac-widget:pin:state 92ca0b81d21d',
   'get oac-widget:pin:drawings:NSE:BETA 37916dec368c',
   'get oac-widget:pin:drawings:NSE:BETA 37916dec368c',
@@ -1058,5 +1061,27 @@ describe('the widget over an asynchronous store', () => {
       delete g.addEventListener;
       delete g.removeEventListener;
     }
+  });
+});
+
+describe('removed active calendar intervals', () => {
+  it.each([false, true])('restores saved custom definitions independently of menu membership (async %s)', async (asynchronous) => {
+    const store = new MemoryStorage();
+    const preferences = createTimeframePreferences({ storage: store, key: 'prefs', defaults: [] });
+    preferences.addCustom('5M');
+    const first = make({ persist: 'calendar', storage: store, interval: '5M', symbol: 'TEST', timeframePreferences: preferences });
+    const saved = first.getState();
+    preferences.removeCustom('5M');
+    first.destroy(); preferences.destroy(); unregisterInterval('5M');
+    const asyncStore = new FakeAsyncStore();
+    for (const [key, value] of store.map) asyncStore.map.set(key, value);
+    const restored = make({ persist: 'calendar', storage: asynchronous ? asyncStore : store });
+    if (asynchronous) await settle();
+    expect(restored.interval()).toBe('5M');
+    unregisterInterval('5M');
+    const imported = make({});
+    expect(imported.restoreState(saved).applied).toBe(true);
+    expect(imported.interval()).toBe('5M');
+    unregisterInterval('5M');
   });
 });

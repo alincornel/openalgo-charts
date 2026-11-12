@@ -1,5 +1,5 @@
 import { widgetText } from './localization';
-import { chartTypeIcon, chromeIconSvg, registeredDrawingTools } from 'openalgo-charts/draw';
+import { chartTypeIcon, chromeIconSvg } from 'openalgo-charts/draw';
 import { h, glyph, historyPress, historyReady, type WidgetContext } from './context';
 import { drawingActionState, runDrawingAction } from './drawing-actions';
 import type { RailHandle } from './rail';
@@ -10,6 +10,9 @@ import {
 import { mountSymbolPicker, type SymbolPickerHandle } from './symbol-picker';
 import { timeBuckets } from './date-navigator';
 import { SCALE_TOGGLES, type BottombarControls } from './bottombar';
+import { mountMobileDrawings } from './mobile-drawings';
+import { openTimeframeMenu } from './timeframe-menu';
+import type { TimeframePreferences } from './timeframe-preferences';
 
 export type MobileMode = 'auto' | 'always' | 'never';
 
@@ -49,6 +52,8 @@ export function resolveMobileMode(mode: MobileMode, width: number, height: numbe
 }
 
 export interface MobileOptions {
+  timeframePreferences?: TimeframePreferences;
+  canSelectInterval?: (code: string) => boolean;
   mode?: MobileMode | undefined;
   container: HTMLElement;
   intervals: readonly string[];
@@ -108,6 +113,20 @@ interface ActionIdentity {
 
 /** The data attributes an action's identity is read from, so a repaint can put focus back on the same control. */
 const IDENTITY_KEYS = ['tool', 'interval', 'chartType', 'range', 'scale', 'zone'] as const;
+
+function fillIntervals(opts: MobileOptions, body: HTMLElement, close: () => void,
+  makeAction: (action: string, label: string, onClick: () => void) => HTMLButtonElement): void {
+  for (const code of opts.intervals) {
+    const button = makeAction('pick-interval', intervalLabel(code), () => {
+      opts.onInterval(code);
+      close();
+    });
+    button.dataset.interval = code;
+    const selected = opts.state().interval === code;
+    button.setAttribute('aria-pressed', String(selected));
+    body.appendChild(button);
+  }
+}
 
 /** Mount the narrow widget controls against the same chart and controllers as the desktop chrome. */
 export function mountMobile(ctx: WidgetContext, opts: MobileOptions): MobileHandle {
@@ -173,8 +192,8 @@ export function mountMobile(ctx: WidgetContext, opts: MobileOptions): MobileHand
   const openSheet = (
     title: string,
     anchor: HTMLElement,
-    paint: (body: HTMLElement, close: () => void) => void,
-    initialFocus: HTMLElement | null | undefined = undefined,
+    paint: (body: HTMLElement, close: () => void) => void | (() => void),
+    initialFocus: HTMLElement | null | undefined | ((body: HTMLElement) => HTMLElement | null) = undefined,
   ): void => {
     closeSheet();
     const panel = h(doc, 'section', 'oac-mobile-sheet', { 'aria-label': title });
@@ -191,12 +210,12 @@ export function mountMobile(ctx: WidgetContext, opts: MobileOptions): MobileHand
       const hadBodyFocus = focused !== null && body.contains(focused);
       const identity = hadBodyFocus ? identityOf(focused) : null;
       const scrollTop = body.scrollTop;
-      body.textContent = '';
-      paint(body, closeSheet);
+      if (update !== undefined) update();
+      else { body.textContent = ''; paint(body, closeSheet); }
       body.scrollTop = scrollTop;
       if (hadBodyFocus) {
         const next = identity === null ? null : findIdentity(body, identity);
-        (next ?? body.querySelector<HTMLElement>('[data-mobile-action]'))?.focus();
+        (next ?? body.querySelector<HTMLElement>('.oac-mobile__tool') ?? body.querySelector<HTMLElement>('[data-mobile-action]'))?.focus();
       }
     };
     let closeOverlay: () => void = () => {};
@@ -205,12 +224,12 @@ export function mountMobile(ctx: WidgetContext, opts: MobileOptions): MobileHand
       repaint,
     };
     sheet = entry;
-    paint(body, closeSheet);
+    const update = paint(body, closeSheet);
     closeOverlay = ctx.openOverlay(panel, {
       anchor,
       placement: 'center',
       dismissOnOutside: true,
-      initialFocus,
+      initialFocus: typeof initialFocus === 'function' ? initialFocus(body) : initialFocus,
       onClose: () => { if (sheet === entry) sheet = null; },
     });
   };
@@ -222,17 +241,13 @@ export function mountMobile(ctx: WidgetContext, opts: MobileOptions): MobileHand
       type: 'text', 'aria-label': widgetText(ctx, 'Symbol'), placeholder: widgetText(ctx, 'Symbol'), autocomplete: 'off', spellcheck: 'false',
     });
     intervalButton = makeAction('interval', '', (anchor) => {
+      if (opts.timeframePreferences) {
+        openTimeframeMenu(ctx, anchor, { intervals: opts.intervals, current: () => opts.state().interval,
+          preferences: opts.timeframePreferences, ...(opts.canSelectInterval ? { canSelect: opts.canSelectInterval } : {}), onSelect: opts.onInterval });
+        return;
+      }
       openSheet(widgetText(ctx, 'Interval'), anchor, (body, close) => {
-        for (const code of opts.intervals) {
-          const button = makeAction('pick-interval', intervalLabel(code), () => {
-            opts.onInterval(code);
-            close();
-          });
-          button.dataset.interval = code;
-          const selected = opts.state().interval === code;
-          button.setAttribute('aria-pressed', String(selected));
-          body.appendChild(button);
-        }
+        fillIntervals(opts, body, close, makeAction);
       });
     });
     const commitSymbol = (symbol: string, exchange?: string): void => {
@@ -284,35 +299,10 @@ export function mountMobile(ctx: WidgetContext, opts: MobileOptions): MobileHand
   let studiesButton: HTMLButtonElement | null = null;
   if (opts.rail !== null) {
     drawButton = makeAction('draw', widgetText(ctx, 'Draw'), (anchor) => {
-      openSheet(widgetText(ctx, 'Drawing'), anchor, (body) => {
-        const active = ctx.draw.activeTool();
-        if (active !== null) {
-          const controls = h(doc, 'div', 'oac-mobile-sheet__controls');
-          controls.append(
-            makeAction('finish', widgetText(ctx, 'Finish'), () => { ctx.draw.finish(); refresh(); }),
-            makeAction('cancel', widgetText(ctx, 'Cancel'), () => { ctx.draw.cancel(); refresh(); }),
-            ...historyActions(),
-            makeAction('magnet', widgetText(ctx, 'Magnet: {mode}', { mode: widgetText(ctx, `schema.magnet.${opts.rail?.magnetMode() ?? 'off'}`, {}, opts.rail?.magnetMode() ?? 'off') }), () => { opts.rail?.cycleMagnet(); refresh(); }),
-            makeAction('stay', widgetText(ctx, 'Keep tool active: {mode}', { mode: opts.rail?.stayMode() ? widgetText(ctx, 'on') : widgetText(ctx, 'off') }), () => {
-              if (opts.rail !== null) opts.rail.setStayMode(!opts.rail.stayMode());
-              refresh();
-            }),
-          );
-          body.appendChild(controls);
-        }
-        const allowed = opts.tools === undefined ? null : new Set(opts.tools);
-        for (const tool of registeredDrawingTools()) {
-          if (allowed !== null && !allowed.has(tool.id)) continue;
-          const button = makeAction('tool', widgetText(ctx, `schema.drawing.${tool.id}.name`, {}, tool.name), () => {
-            ctx.draw.setTool(tool.id);
-            closeSheet();
-          });
-          button.classList.add('oac-mobile__tool');
-          button.dataset.tool = tool.id;
-          button.setAttribute('aria-pressed', String(active === tool.id));
-          body.appendChild(button);
-        }
-      });
+      openSheet(widgetText(ctx, 'Drawing'), anchor, (body, close) => mountMobileDrawings(ctx, body, {
+        rail: opts.rail!, tools: opts.tools, makeAction, historyActions, refresh, close,
+      }), body => body.querySelector<HTMLElement>('.oac-mobile-sheet__controls button, .oac-mobile__tool')
+        ?? body.querySelector<HTMLElement>('[data-mobile-action="cursor"]'));
     });
     bar.appendChild(drawButton);
   }

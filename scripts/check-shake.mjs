@@ -317,6 +317,15 @@ const BUNDLE = new URL('../dist/openalgo-charts.mjs', import.meta.url).pathname.
 // curve per event, and a log scale pads in log space, which every chart
 // carries: 89391 bytes (87.30 KiB), up 111; allow 87.30 KiB, the first
 // hundredth at or above it.
+// 2.6.6 measures 89437 bytes, up 18 for stable legend actions and the version.
+// Keep the byte ceiling exact rather than giving
+// a rounded KiB display room that the measured build does not need.
+// 2.6.7 adds optional confirmed-bar availability context to charts. Source
+// planning, resampling and the custom interval UI still shake out. The final
+// build measures 89568 bytes, 131 more than 2.6.6; retain the exact ceiling.
+// 2.6.8 draws an OHLC bar's stroke at a weight that follows the zoom, which
+// a plain chart can draw. The final build measures 89611 bytes, 43 more than
+// 2.6.7; retain the exact ceiling.
 //
 // Fork on upstream 2.6.4: upstream measures 89391 bytes (87.30 KiB), the fork
 // 91774 bytes (89.62 KiB), the same ~2.3 KiB of fork input and axis work
@@ -329,6 +338,7 @@ const BUNDLE = new URL('../dist/openalgo-charts.mjs', import.meta.url).pathname.
 // guards; retiring wheelZoomSensitivity takes about 70 bytes back. Measured
 // 91976 bytes (89.82 KiB), up 202 from 91774; allow 89.83 KiB, the first
 // hundredth at or above it.
+// Fork on upstream 2.6.9: MEASURE_ME
 const LIMIT_BYTES = 89.83 * 1024;
 
 // Absent from a chart-only build. Each is a string that appears in the adapter

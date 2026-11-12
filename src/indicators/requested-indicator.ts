@@ -19,6 +19,8 @@ export interface RequestedIndicatorContext {
 /** A requested expression with an instance-owned snapshot lifecycle. */
 export interface RequestedIndicatorDescriptor extends Pick<IndicatorDescriptor,
   'id' | 'name' | 'category' | 'placement' | 'inputs' | 'plots' | 'levels' | 'range'> {
+  /** False refreshes on range/provider/data changes, not price-only source revisions. Default true. */
+  refreshOnSourceUpdate?: boolean;
   /**
    * Select a complete history window, including expression warmup. null means
    * unsupported. The helper owns cancellation; signal is not a selector input.
@@ -88,13 +90,15 @@ function checkedRequest(value: Omit<IndicatorSnapshotRequest, 'signal'>, market?
     || typeof value.interval !== 'string' || value.interval.trim() === ''
     || (value.exchange !== undefined && typeof value.exchange !== 'string')
     || !Number.isFinite(value.from) || !Number.isFinite(value.to) || value.from > value.to
-    || (value.asOf !== undefined && !Number.isFinite(value.asOf))) invalid('request requires an instrument and a finite ordered time window');
+    || (value.asOf !== undefined && !Number.isFinite(value.asOf))
+    || (value.warmupBars !== undefined && (!Number.isInteger(value.warmupBars) || value.warmupBars < 0 || value.warmupBars > 100_000))) invalid('request requires an instrument and a finite ordered time window');
   let variant;
   try { variant = value.variant === undefined ? inheritedDataVariant(market?.variant) : normalizeDataVariant(value.variant); }
   catch { invalid('request variant must be a data variant'); }
   // An absent `exchange` or `asOf` is copied as undefined, which a provider
   // reads as absent; the request types keep those members exact for hosts.
   return { symbol: value.symbol, exchange: value.exchange, interval: value.interval, from: value.from, to: value.to, asOf: value.asOf,
+    ...(value.warmupBars === undefined ? {} : { warmupBars: value.warmupBars }),
     ...(variant ? { variant } : {}) } as Omit<IndicatorSnapshotRequest, 'signal'>;
 }
 
@@ -115,6 +119,12 @@ function ownSnapshot(value: RequestedBarsSnapshot, asOf?: number): RequestedBars
   });
 }
 
+function validateDescriptor(d: RequestedIndicatorDescriptor): void {
+  if (typeof d.request !== 'function' || typeof d.expression !== 'function') invalid('request and expression must be functions');
+  if (d.gaps !== undefined && d.gaps !== 'carry' && d.gaps !== 'missing') invalid('gaps must be carry or missing');
+  if (d.targetTimes !== undefined && typeof d.targetTimes !== 'function') invalid('targetTimes must be a function');
+}
+
 /**
  * Manage one requested snapshot per instance. Changes are observed through the
  * optional native request hooks, or through data notifications on older hosts.
@@ -124,9 +134,7 @@ function ownSnapshot(value: RequestedBarsSnapshot, asOf?: number): RequestedBars
  * unchanged. Calculation performs no requests and never prealigns cached values.
  */
 export function createRequestedIndicator(d: RequestedIndicatorDescriptor): IndicatorDescriptor {
-  if (typeof d.request !== 'function' || typeof d.expression !== 'function') invalid('request and expression must be functions');
-  if (d.gaps !== undefined && d.gaps !== 'carry' && d.gaps !== 'missing') invalid('gaps must be carry or missing');
-  if (d.targetTimes !== undefined && typeof d.targetTimes !== 'function') invalid('targetTimes must be a function');
+  validateDescriptor(d);
   const columns = [...new Set(d.plots.flatMap(plot => plot.ohlc === undefined
     ? [plot.key] : [plot.ohlc.open, plot.ohlc.high, plot.ohlc.low, plot.ohlc.close]))];
   // Native hosts can contain calculation errors instead of throwing to attach.
@@ -282,7 +290,7 @@ export function createRequestedIndicator(d: RequestedIndicatorDescriptor): Indic
         const source = requestState?.source;
         const market = context.dataContext;
         const key = JSON.stringify([
-          selected.symbol, selected.exchange, selected.interval, selected.asOf,
+          selected.symbol, selected.exchange, selected.interval, selected.asOf, selected.warmupBars,
           market?.symbol, market?.exchange, market?.interval, variant, selected.variant ?? null,
           requestState?.providerRevision, source?.sourceId,
           replay === undefined ? source?.historyRevision : null, replay !== undefined,
@@ -291,7 +299,8 @@ export function createRequestedIndicator(d: RequestedIndicatorDescriptor): Indic
         if (state.key !== key || backward) { clear(); if (!fresh()) return; state.key = key; }
         if (replay?.asOf !== undefined) selected.asOf = selected.asOf === undefined ? replay.asOf : Math.min(selected.asOf, replay.asOf);
         const version = JSON.stringify([
-          key, selected.from, selected.to, selected.asOf, replay === undefined ? source?.revision : null,
+          key, selected.from, selected.to, selected.asOf, selected.warmupBars,
+          replay === undefined && d.refreshOnSourceUpdate !== false ? source?.revision : null,
           requestState?.dataRevision, replay?.time, replay?.forming, fallbackRevision,
         ]);
         const selection = { key, version, request: selected };

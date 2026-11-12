@@ -1,5 +1,52 @@
 # Indicators
 
+## Independent higher-timeframe history
+
+`createTimeframeProvider(feed, options)` from the indicators tier accepts a base
+`TimeframeFeed` and `TimeframeProviderOptions`. The host supplies
+`availability(bar, request)` returning explicit `{at, confirmed}`. Unknown
+availability stays null. Optional `historicalSnapshot` must return historical
+value versions; without it `asOf` requests reject. Optional `now` returns UTC
+seconds. Attach the result with `chart.setBarsProvider(provider)`.
+
+The additive `IndicatorSnapshotRequest.warmupBars` asks for confirmed observations
+before `from`, in addition to the requested range. A provider advertises
+`IndicatorBarsProviderAccess.supportsWarmup`; the chart exposes it through
+`IndicatorRequestState.supportsWarmup`. Legacy providers default to false.
+`createRequestedIndicator` includes warmup in request identity and cancellation.
+
+The timeframe provider counts actual observations, pages until enough history or
+explicit exhaustion. Each window asks for the bars still needed, so an intraday
+warmup window is a few hours and a weekend or holiday is many empty windows in a
+row: since 2.6.8 each empty window doubles the next (up to 64 times), and only an
+empty run of at least four windows spanning more than 30 days, with no exhaustion
+hint, produces a retryable insufficient-history error. Before 2.6.8 four empty
+windows alone did, so a chart whose history began right after a weekend showed
+that error instead of the study. A new listing still cannot trigger hundreds of
+empty reads. It also rejects after 512 pages or 100,000 observations rather
+than fabricating history. It retains a stable confirmed seed across advancing
+windows. Its bounded memo (24 series, 250,000 bars, five-minute lifetime) never
+retains a forming or unknown-availability tail as immutable history. Tail refreshes
+and shared requests preserve independent cancellation. Change the market key when
+calendar, provider, adjustment policy or historical data corrections invalidate
+earlier values.
+
+The 29 built-ins with a timeframe input use this independent history only when
+both snapshot and warmup capabilities are advertised. Daily EMA 200 can therefore
+show on a short five-minute chart. Values align by explicit availability, so the
+current daily close never appears on earlier intraday bars. Built-in recipes cover
+each kernel's sufficient seed length, including multi-stage smoothers; recursive
+values depend on the supplied seed history and are not convergence guarantees.
+Negative displaced plots are unsupported in this independent path. The existing
+local fold remains available with legacy providers and direct `calc` calls.
+
+`withTimeframe(descriptor, options?)` accepts `TimeframeOptions.historyBars(settings)`
+for a custom causal study's required seed count. Unknown custom descriptors keep
+local folding unless this callback is supplied. `RequestedIndicatorDescriptor`
+accepts `refreshOnSourceUpdate?: boolean` (default true). The independent built-ins
+set it false so price-only primary revisions do not refetch external history;
+range, settings, provider, replay and explicit requested-data changes still do.
+
 ## Per-bar open interest
 
 `OPEN_INTEREST`, `OPEN_INTEREST_CHANGE` and `OPEN_INTEREST_BUILDUP` are exported
@@ -368,6 +415,11 @@ gap and a pass that moved more than eight points. A series that ignores `update`
 shows the study frozen at its last whole write.
 
 ## Source access and legend sizing (2.4.6)
+
+Since 2.6.6, hovered legend actions sit after the title and parameters, before
+changing readings. The fitted prefix does not depend on value width, so the
+controls and hit targets stay stationary during crosshair and readout updates.
+Narrow rows retain whole readings that fit after the controls.
 
 `IndicatorDescriptor.hasSource: true` adds a source button beside the legend's settings
 button. It emits `indicatorSource` with `{ instanceId, indicatorId, paneIndex }`.
@@ -1528,7 +1580,8 @@ ema.setSettings({ timeframe: '' });   // the chart's own timeframe again
   change. A layout saved before the key existed loads as `''` and computes what it did;
   `getState()` then writes `timeframe: ''` for these 29 studies only, and
   `indicatorDefaults()` gains the key for them only.
-- **Set, it reads each completed bucket.** The bars are folded by the `securityExpression`
+- **Set, it reads each completed bucket.** With a capable provider it reads independent
+  confirmed history as described above. Without one, bars are folded by the `securityExpression`
   fold in `confirmed` mode: the study runs on the folded bars, and a bucket's value is
   drawn from the first bar of the next bucket and held across it. A value never changes
   once shown, live or on reload; the first bucket's bars are `null`. The legend reads
@@ -1550,7 +1603,7 @@ ema.setSettings({ timeframe: '' });   // the chart's own timeframe again
   new bucket recomputes the fold once. A setting that reads ahead (a negative `offset` on
   `vwma` or `donchian`) shifts a later bucket onto shown bars, so it recomputes in full
   on every tick instead.
-- **History depth.** The fold has only the loaded bars: an hourly EMA 20 needs about 20
+- **Legacy history depth.** Without a warmup-capable provider, the fold has only the loaded bars: an hourly EMA 20 needs about 20
   hours of bars on the chart, a daily one about 20 sessions.
 - **Refused on a transformed chart's own bars.** A study computing on the
   bars of a chart that transforms them (`chart.setSeriesTransform`, Heikin Ashi

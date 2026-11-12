@@ -14,9 +14,10 @@ import '/dist/openalgo-charts.indicators.mjs';
 import * as widgetTier from '/dist/openalgo-charts.widget.mjs';
 import { el, initShell, chartTheme, chartMotionOptions, setChartState, toast, currentTheme } from './ui.js';
 import { initHover } from './hover.js';
-import { fillIntervalSelect, clampPeriod, rangeLoad } from './intervals.js';
+import { fillIntervalSelect, clampPeriod, rangeLoad, ensureIntervalOption } from './intervals.js';
 import { initFeed, fetchBars, fetchNote, feedErrorState } from './feed.js';
-import { chartTypeSeries, inChartTransforms, keepsView } from './transforms.js';
+import { attachReferenceTimeframes, referenceTimeframePreferences } from './timeframes.js';
+import { chartTypeSeries, inChartTransforms, keepsView, showsVolume } from './transforms.js';
 import { isExpression, fetchExpressionBars, mountOperatorKeypad, referenceDataContext } from './expression.js';
 import { initStatus, nameOf, symbolStatus } from './status.js';
 import { requestVariant, sessionOf, sessionLabel } from './session.js';
@@ -44,7 +45,7 @@ import { initSplit, joinLink, installSecondaryWorkspace, drawingLinkContext } fr
 import { initLink } from './link.js';
 import { initClipboard } from './clipboard.js';
 import { initMenus, openContextMenu } from './menus.js';
-import { initPersist, datasetKey, applyLayout, stripView, autosave, restorePrimarySelection, primaryLayoutSelection } from './persist.js';
+import { initPersist, datasetKey, applyLayout, stripView, autosave, flushAutosave, restorePrimarySelection, primaryLayoutSelection } from './persist.js';
 import { attachAlerts, detachAlerts } from './alerts.js';
 import { initInspection, attachInspection, detachInspection } from './inspection.js';
 import { initToolbar, renderToolbar } from './toolbar.js';
@@ -101,8 +102,8 @@ if (!inChartTransforms) MISSING.push('in-chart transforms');
  * comparisons) lives here rather than on the chart.
  */
 const app = {
-  // The chart and its two series. `volume` is null on a chart whose transform
-  // forms elements at times of its own (all but Heikin Ashi).
+  // The chart and its two series. `volume` is null on a Kagi chart, whose
+  // elements keep line thickness in `volume` (transforms.js showsVolume).
   chart: null,
   price: null,
   volume: null,
@@ -230,6 +231,7 @@ function render({ keepView = true, state } = {}) {
     ...decorations,
   });
   app.chart.setDataContext(dataContext);
+  attachReferenceTimeframes(app.chart, app.timeframes.provider);
   app.offBranding = app.chart.on('branding:changed', renderToolbar);
   applyAxisChrome();
   applyStatusLineChoice();   // before the legends: a row added later obeys the switches
@@ -302,7 +304,7 @@ function render({ keepView = true, state } = {}) {
   // The chart rounds a dragged price alert by the same bands, since the axis
   // grid alone accepts prices a coarse band does not trade at.
   app.chart.setTickSchedule?.(app.ticks);
-  attachVolume(1, !isTransform || sel === 't:heikin-ashi');
+  attachVolume(1, showsVolume(sel));
   if (!isTransform) {
     app.markersApi = app.price.createMarkers();
     app.markersApi.setMarkers(app.fills);
@@ -444,6 +446,7 @@ function installWorkspace({ layout, bars }) {
   invalidateComparisons(1);
   removeBracket(); removeAllOrders(); clearPosition();
   app.req = { ...selection.request };
+  ensureIntervalOption(app.req.interval);
   for (const key of ['symbol', 'interval', 'period']) el(key).value = app.req[key];
   el('session').value = sessionOf(app.req);
   el('ctype').value = selection.chartType || 'candlestick';
@@ -582,7 +585,11 @@ async function load(opts) {
       app.loading = false;
       syncReplayAlertPause();
       renderToolbar();
-      if (!app.loadFailed) autosave();
+      if (!app.loadFailed) {
+        autosave();
+        // A completed context switch must survive an immediate browser reload.
+        if (identityChanged) flushAutosave();
+      }
     }
   }
 }
@@ -799,7 +806,7 @@ app.onFocusPane = () => { renderToolbar(); renderIndicatorChips(); autosave(); a
 initRail(app, { mountPropertiesBar });
 initDrawing(app);
 initMobile(app);
-fillIntervalSelect();
+fillIntervalSelect(referenceTimeframePreferences().custom());
 initWorkspaceHost(app, installWorkspace);
 app.startupLayout = await initWorkspaces(app);
 initTemplates(app);

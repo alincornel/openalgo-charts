@@ -4,6 +4,36 @@
 
 ## The DataFeed contract
 
+### Compatible custom timeframes
+
+Base exports `planTimeframe`, `timeframeBucketAt`, `TimeframeBucket`,
+`TimeframeSource`, `TimeframeMarket` and `TimeframePlan`. Supply native wire tokens,
+their half-open `bounds(time)` and a `SessionCalendar`, with a market key that
+changes when provider/calendar/session/adjustment metadata changes. A null source
+bound permits native requests but refuses derivation. Native aliases preserve the
+provider's wire token. Derived intraday bars use the coarsest divisible source,
+anchored separately to each exchange session and clipped at its close. Daily
+observations supply calendar W/M/Q periods; register month/quarter codes through
+`registerInterval` first. Weeks start Monday with a continuous multi-week anchor.
+`earliest` rejects requests outside a source's declared retention. `maxBars` and
+`maxSpanSeconds` describe per-call limits, for paging rather than silently truncating
+results. Source bounds must also be checked against every returned candle: a
+resolution probe cannot prove all historical bars have the same alignment.
+
+`withTimeframes(feed, options)` returns a `TimeframeFeed`; `TimeframeFeedOptions`
+supplies `market(request)` and optional UTC-second `now()`. `resolve` exposes the
+selected source and `destroy` cancels only wrapper-owned consumers/streams.
+`aggregateTimeframeBars(bars, plan)` sorts and replaces repeated source timestamps,
+rejects crossing source boundaries, sums volume only when every contribution has
+it, and keeps the final OI reading. Derived reads require finite ascending dates
+and expand to whole buckets. Pages use explicit source cursors or declared date
+limits; 512 calls / 100,000 observations is an error, not exhausted history.
+Live aggregation bootstraps the active bucket, replaces contributions, propagates
+provisional state and requests resync for older corrections or reconnects.
+`CandleBuilderOptions.bucketStart(time)` optionally uses the same calendar rules;
+custom candles preserve accumulated volume across daily counter resets. Hosts
+must filter closed-session ticks before calling the builder.
+
 `src/feed/types.ts`. The chart core never imports a broker SDK; it depends only on this.
 
 ```ts

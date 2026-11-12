@@ -480,18 +480,18 @@ test('primary layout selection is restored before the first history request', as
   await page.screenshot({ path: info.outputPath('reference-primary-layout-restored.png') });
 });
 
-test('saved calendar timezone is used for the first fold after reload', async ({ page }) => {
+test('saved display timezone restores while monthly bars use the exchange calendar', async ({ page }) => {
   await page.addInitScript(() => {
     Date.now = () => Date.UTC(2026, 2, 2, 12);
     localStorage.setItem('oa-charts:layout', JSON.stringify({ schema: 2, version: 1,
       dataset: 'TSLA|1mo|5y', request: { symbol: 'TSLA', interval: '1mo', period: '5y' },
-      chartType: 'line', pfmode: 'atr', timezone: 'America/New_York', indicators: [] }));
+      chartType: 'line', pfmode: 'atr', timezone: 'UTC', indicators: [] }));
   });
   const requests: string[] = [];
   await page.route('**/api/history?**', async route => {
     const query = new URL(route.request().url()).searchParams;
     requests.push(query.get('symbol') + '/' + query.get('interval') + '/' + query.get('period'));
-    await route.fulfill({ json: ['2026-01-31T18:00:00Z', '2026-02-01T02:00:00Z', '2026-02-01T14:00:00Z'].map((time, i) => ({
+    await route.fulfill({ json: ['2026-01-30T14:30:00Z', '2026-02-02T14:30:00Z', '2026-02-27T14:30:00Z'].map((time, i) => ({
       time: Date.parse(time) / 1000, open: 10 * (i + 1), high: 10 * (i + 1), low: 10 * (i + 1), close: 10 * (i + 1), volume: i + 1,
     })) });
   });
@@ -500,9 +500,9 @@ test('saved calendar timezone is used for the first fold after reload', async ({
   expect(await page.evaluate(() => {
     const app = (window as any).__oac.app;
     return { timezone: app.chart.timezone(), bars: app.chart.primaryBars().map((bar: any) => ({ time: bar.time, close: bar.close, volume: bar.volume })) };
-  })).toEqual({ timezone: 'America/New_York', bars: [
-    { time: Date.parse('2026-01-01T05:00:00Z') / 1000, close: 20, volume: 3 },
-    { time: Date.parse('2026-02-01T05:00:00Z') / 1000, close: 30, volume: 3 },
+  })).toEqual({ timezone: 'UTC', bars: [
+    { time: Date.parse('2026-01-01T05:00:00Z') / 1000, close: 10, volume: 1 },
+    { time: Date.parse('2026-02-01T05:00:00Z') / 1000, close: 30, volume: 5 },
   ] });
 });
 
@@ -963,6 +963,19 @@ test('reference selection survives hover and snapshot menus retain their chart o
   const other = (await primary.boundingBox())!;
   await page.mouse.move(other.x + other.width * 0.4, other.y + other.height * 0.35);
   expect(await page.evaluate(() => (window as any).__oac.app.focusPane)).toBe(2);
+  // The strip below is read for the frame over the chart's empty background, so
+  // nothing may be drawn under it. The fixture's bars move with the clock, and a
+  // candle that landed under the strip failed this at some times of day on any
+  // build. Start the second chart's bars well inside the plot so its left edge
+  // is background; a frame painted beneath the canvas would still be hidden.
+  await page.evaluate(async () => {
+    const app = (window as any).__oac.app;
+    const n = app.chart2.primaryBars().length;
+    const path = '/examples/yfinance/src/split.js';
+    // Forty bar widths of empty plot before the first bar.
+    (await import(path)).withoutViewportSync(() => app.chart2.setVisibleLogicalRange({ from: -40, to: n + 5 }));
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
   const edge = await page.screenshot({ clip: { x: box.x, y: box.y + 80, width: 3, height: 12 } });
   // The frame's colour as the page composites it over the chart: read from the
   // stylesheet, so the check follows the palette rather than pinning one.
@@ -1253,8 +1266,26 @@ test('reference volume settings follow each chart and update their own average',
     expect(pixels[1], theme + ' down-volume pixels').toBeGreaterThan(20);
     if (theme === 'light') await page.screenshot({ path: info.outputPath('reference-volume-average-light.png') });
   }
+  // Since 2.6.8 Renko bricks carry the volume traded while they formed, so the
+  // pane and its settings work there and plot each brick's own volume. Kagi
+  // keeps line thickness in volume, so it is the chart type left without them.
   await page.getByRole('button', { name: /^Chart type, / }).click();
   await page.getByRole('menuitemradio', { name: 'Renko', exact: true }).click();
+  await page.getByRole('button', { name: 'Chart settings (or right-click the chart)', exact: true }).click();
+  await page.locator('#cset-tabs').getByRole('button', { name: 'Volume', exact: true }).click();
+  await expect(page.locator('[data-key="volume.showMA"]')).toBeEnabled();
+  await page.locator('#cset-ok').click();
+  const bricks = await page.evaluate(() => {
+    const app = (window as any).__oac.app;
+    return { plotted: app.volume2.getData().map((bar: any) => bar.close),
+      volumes: app.chart2.primaryBars().map((bar: any) => bar.volume) };
+  });
+  expect(bricks.volumes.length).toBeGreaterThan(3);
+  expect(bricks.volumes.every((volume: unknown) => typeof volume === 'number')).toBe(true);
+  expect(bricks.plotted).toEqual(bricks.volumes);
+  await page.getByRole('button', { name: /^Chart type, / }).click();
+  await page.getByRole('menuitemradio', { name: 'Kagi', exact: true }).click();
+  expect(await page.evaluate(() => (window as any).__oac.app.volume2)).toBeNull();
   await page.getByRole('button', { name: 'Chart settings (or right-click the chart)', exact: true }).click();
   await page.locator('#cset-tabs').getByRole('button', { name: 'Volume', exact: true }).click();
   await expect(page.locator('[data-key="volume.showMA"]')).toBeDisabled();
@@ -1294,13 +1325,15 @@ test('transformed price readout uses displayed candles', async ({ page }) => {
   expect(reading.volume).toBe(true);
 });
 
-test('calendar timezone settings refold only their owner after confirmation', async ({ page }) => {
+test('display timezone settings affect only their owner and preserve exchange monthly bars', async ({ page }) => {
   await openDemo(page);
   await page.getByRole('button', { name: /Open a second, linked chart/ }).click();
   await page.waitForFunction(() => (window as any).__oac?.app.chart2?.primaryBars().length > 0);
   await page.locator('#chart2').focus();
-  await page.locator('#shellbar .pills').getByRole('button', { name: '1MO', exact: true }).click();
+  await page.locator('#timeframe-menu').click();
+  await page.locator('[data-pick-interval="1mo"]').click();
   await page.waitForFunction(() => !(window as any).__oac.app.loading2 && (window as any).__oac.app.p2.interval === '1mo');
+  const before = await page.evaluate(() => (window as any).__oac.app.chart2.primaryBars());
   await page.evaluate(() => { (window as any).__settingsOwner = (window as any).__oac.app.chart2; });
   const settings = page.getByRole('button', { name: 'Chart settings (or right-click the chart)', exact: true });
   await settings.click();
@@ -1313,10 +1346,10 @@ test('calendar timezone settings refold only their owner after confirmation', as
   await page.locator('#cset-tabs').getByRole('button', { name: 'Axes', exact: true }).click();
   await page.locator('[data-key="time.timezone"]').selectOption('UTC');
   await page.locator('#cset-ok').click();
-  await page.waitForFunction(() => !(window as any).__oac.app.loading2 && (window as any).__oac.app.chart2 !== (window as any).__settingsOwner);
+  await expect.poll(() => page.evaluate(() => (window as any).__oac.app.chart2.timezone())).toBe('UTC');
+  expect(await page.evaluate(() => (window as any).__oac.app.chart2 === (window as any).__settingsOwner)).toBe(true);
+  expect(await page.evaluate(() => (window as any).__oac.app.chart2.primaryBars())).toEqual(before);
   const firstTime = await page.evaluate(() => (window as any).__oac.app.chart2.primaryBars()[0].time);
-  const first = new Date(firstTime * 1000);
-  expect([first.getUTCDate(), first.getUTCHours(), first.getUTCMinutes()]).toEqual([1, 0, 0]);
   expect(await page.evaluate(() => (window as any).__oac.app.chart.timezone())).toBe('Asia/Kolkata');
   await page.getByRole('button', { name: 'Save layout', exact: true }).click();
   await page.reload();
@@ -1615,7 +1648,7 @@ test('reference replay loading and playback stay silent and cancellation leaves 
   const waiting = new Promise<void>(resolve => { started = resolve; });
   const gate = new Promise<void>(resolve => { release = resolve; });
   await page.route('**/api/history?**', async route => {
-    if (new URL(route.request().url()).searchParams.get('interval') !== '60m') { await route.continue(); return; }
+    if (new URL(route.request().url()).searchParams.get('interval') !== '1h') { await route.continue(); return; }
     started();
     await gate;
     await route.fulfill({ json: [] }).catch(() => {});

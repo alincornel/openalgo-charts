@@ -521,6 +521,389 @@ as a ladder instead of a hairline mesh.
 
 - Base engine budget 62 -> 63 kB, for the bar-indexed gates and the request
   adapter: 0.23 kB brotli measured against a 61.94 kB baseline.
+## 2.6.9
+
+2026-10-28
+
+A security release for the build toolchain and the documentation site. The
+published library is the 2.6.8 code with a new version number, so a host
+upgrades with no changes.
+
+### Security
+
+- **Documentation site: Next.js 15.5.27 to 15.5.28.** Fixes GHSA-2464-fhr4-w9xw
+  (critical: remote code execution in the image optimization API through its
+  image library, on glibc Linux) and GHSA-p3m5-59mp-jv5r (high: denial of
+  service through App Router Server Actions). The site is a static export to
+  GitHub Pages, so neither the image optimizer nor Server Actions ever ran in
+  production; the update takes them out of the build toolchain as well. The
+  lockfile keeps sharp on the fixed 0.35.5. All 1,860 pages build identical to
+  2.6.8 apart from Next.js's own chunk hashes and build id.
+- **Build toolchain: serialize-javascript 7.1.0 to 7.1.4.** Fixes
+  GHSA-m5mm-p8h7-m29v (low: a serialized function whose source ends in a bare
+  `</script` was not escaped). It reaches the build only through
+  `@rollup/plugin-terser`, which uses it to pass options to its workers, and
+  the published package still has no runtime dependencies. `npm audit` reports
+  no vulnerabilities for the package.
+- **Not fixed: zod in the documentation site (GHSA-mrhx-c7xc-m3w5, high).** Only
+  zod 4.6.6 fixes it, and nextra 3 (last release 3.3.1) needs zod 3: with zod 4
+  forced in, the site build stops in nextra's own configuration check. The
+  vulnerable code is the zod 4 core that zod 3.25 also ships under `zod/v4`;
+  nextra imports only `zod`, which loads the v3 code, and validates only the
+  site's own configuration at build time. The published site contains no zod.
+  Clearing the alert means moving the site to nextra 4, a separate migration.
+
+### Size
+
+Every published file is byte for byte the 2.6.8 build apart from the version
+string (the declaration index compared by its sorted lines), yet that one digit
+moves Brotli: the base engine is 140.14 kB, 102 bytes more, base + trade
+157.02 kB, the widget terminal 372.41 kB, all tiers 435.21 kB, the nine
+classic scripts 448.70 kB and the base classic script 140.12 kB. Every other
+tier and the chart-only import (89,611 bytes) keep their size. Budgets rise
+only where the measured bundle needs it.
+
+### Performance
+
+Five runs per version on one dedicated 4-vCPU Linux runner (AMD EPYC 7763),
+headless Chromium 149.0.7827.55 and software GL (SwiftShader), under the
+unchanged render budgets. At 200,000 bars, the lowest Canvas 2D p95 pan, full
+zoom-out and ten-study tick are 8.4, 118.5 and 263.4 ms against 7.0, 120.9
+and 263.2 ms for 2.6.8 in the same session. The two builds run the same code,
+so the differences are variation between runs. The page marks two cells
+slower, pan at 200,000 bars and zoom-out at 10,000, and in each the 2.6.8
+figure is one outlying run: its five pan runs span 7.0 to 10.3 ms against 8.4
+to 11.7, and its other four zoom-out runs (24.9 to 25.9 ms) are slower than
+every 2.6.9 run (23.3 to 23.8). See the
+[same-session benchmark](https://marketcalls.github.io/openalgo-charts/benchmarks#269).
+
+### Tests
+
+11,870 engine tests across 527 files and 737 reference-host tests across 69
+files, unchanged. The two drawing edge walks (fifteen throws, a resize and a
+full-canvas pixel scan after each step) now have 120 seconds instead of 30:
+on CI's shared WebKit runner the walk at a device pixel ratio of two reached
+30 s with every check passing, and the same test was the only failure in
+three recent runs with unrelated changes.
+
+## 2.6.8
+
+2026-10-27
+
+Volume studies on price-driven charts, higher-timeframe studies after a weekend, bar charts that follow the zoom, and the development toolchain past its open security advisories.
+
+### Fixed
+
+- **Volume studies on Renko, range bar, line break and point and figure
+  charts.** Their elements carried no volume, so On-Balance Volume drew a flat
+  zero, VWAP drew nothing and a host's own study reading `bar.volume` (a Weis
+  Wave, for example) read nothing, while the same studies worked on every
+  time-based chart. Each element now carries the volume traded while it
+  formed: the sum of the source bars pushed since the element before it, all
+  of it on the first element a bar completes and 0 on the rest, so a running
+  total such as On-Balance Volume keeps counting. A point and figure reversal
+  bar counts toward the column it opens, and a range bar or column still
+  forming carries what has traded in it so far. Live ticks and history give
+  the same elements.
+- A source that reports no volume, such as an index, leaves elements without
+  one, exactly as before. Heikin Ashi still carries each bar's own volume.
+  Kagi keeps its line thickness in `volume`, which its renderer reads, so a
+  volume study on a Kagi chart still needs `barSource: 'underlying'`.
+- Time-based charts are unchanged. A host that sums raw volume under each
+  element for its own volume pane can now read the element's `volume`
+  instead (every transform but Kagi).
+
+- **Higher-timeframe studies after a weekend or holiday.** A study on
+  another timeframe (a 15 minute EMA on a 5 minute chart) warms up from
+  history fetched in windows of a few hours, and gave up with "Insufficient
+  confirmed history" after four empty windows. A weekend is many of those, so
+  whenever the chart's history began right after a weekend or a holiday the
+  study showed that error instead of its line. An empty window now doubles
+  the next, and history is only declared missing when the empty stretch also
+  spans more than 30 days, so weekends, long weekends and holidays are
+  crossed in a few reads while a source with nothing older still fails
+  honestly. Daily studies stop exactly as before.
+- **OHLC bars follow the zoom.** An OHLC or high-low bar was drawn with a
+  one-pixel stroke at every zoom, so zoomed-in bar charts were thin threads
+  between wide gaps. The stroke is now a fifth of the bar spacing, and the
+  open and close ticks share its weight, centred on their prices. Packed bars
+  keep their exact pixels: below about ten pixels of spacing nothing changes,
+  so default and zoomed-out views look as they did.
+
+### Security
+
+- Development dependencies only: the published package still has no runtime
+  dependencies, so no installed chart was exposed. `vitest` 4.1.11 to 4.1.12
+  with `@vitest/mocker` (GHSA-qxg6-89mg-rqv8, GHSA-xp26-3454-mjgp), `vite`
+  8.2.2 to 8.2.4 (GHSA-587h-7wmj-h5pm, GHSA-9jrq-w75r-8gcw,
+  GHSA-rq7h-c2jc-7f22, GHSA-vfpm-58rq-9qcg, GHSA-r825-w8mm-5pxw,
+  GHSA-698v-4r3x-3vcv) and `markdown-it` 14.3.2 to 14.3.3
+  (GHSA-gfr2-rv44-r23c, GHSA-vfgh-jcmw-g37q). npm's resolver stops on an
+  optional peer cycle in vite 8, so the lockfile entries were moved to the
+  patched releases directly from the registry's manifests; nothing else in
+  the tree changed.
+
+### Size
+
+The transform tier is 6.38 kB Brotli, 157 bytes more than 2.6.7 for the
+element volume. The bar stroke adds to the base engine, which Brotli still
+codes in 140.04 kB, 69 bytes under 2.6.7; the indicator tier is 44.85 kB.
+The WebGL2 tier draws the same bars in 6.99 kB, 22 bytes more. All tiers are 435.11 kB, the nine classic scripts 448.68 kB, base + trade
+156.92 kB and the widget terminal 372.31 kB. The chart-only import is 89,611
+bytes (87.51 KiB), 43 more than 2.6.7, because a plain chart can draw bars.
+Every other tier keeps its size. Budgets rise only where the measured bundle
+needs it.
+
+### Performance
+
+Five runs per version on one dedicated 4-vCPU Linux runner (AMD EPYC 9V45),
+headless Chromium 149.0.7827.55 and software GL (SwiftShader), under the
+unchanged render budgets. At 200,000 bars, the lowest Canvas 2D p95 pan, full
+zoom-out and ten-study tick are 9.2, 123.1 and 271.4 ms against 8.5, 129.1
+and 269.3 ms for 2.6.7 in the same session: the two builds measure alike,
+pan within the variation between runs and zoom-out a little faster. This
+runner was about twice as slow for both builds as in an earlier session the
+same day, which is why a release is only compared with the previous one
+timed alongside it. The bench draws candles, so the bar stroke is not on its
+path, and neither are the transforms or the warmup that changed. See the
+[same-session benchmark](https://marketcalls.github.io/openalgo-charts/benchmarks#268).
+
+### Tests
+
+11,870 engine tests across 527 files and 737 reference-host tests across 69
+files. Four new tests take a Monday warmup back to Friday, cross a four-day
+holiday weekend in at most 12 reads, cross a weekend when only two bars are
+still needed, and still reject a source with no older history; four pin the
+bar stroke, including exact unchanged pixels for packed bars. The
+higher-timeframe end-to-end tests and render parity run in Chromium, Firefox
+and WebKit in CI, and the bar stroke was also checked by eye in Chromium at
+three zoom levels against a reference. The eight new engine tests for element volume cover each transform with
+worked cases, conservation over a 2,000-bar walk, unchanged output for a
+source without volume, Heikin Ashi and Kagi unchanged, and On-Balance Volume
+and a host study on a Renko chart through history and live ticks; all but
+the two that pin unchanged behaviour fail on 2.6.7. The published 2.6.7 build
+and this one, rendered side by side in Chromium, Firefox and WebKit with the
+same Renko chart, OBV, VWAP and a host volume study: 2.6.7 shows a flat zero
+OBV, no VWAP and an empty host study; 2.6.8 shows all three, and a time-based
+control is identical in both. The reference host's volume pane now shows on
+Renko, range bars, line break and point and figure, checked in Chromium.
+OpenAlgo's full frontend suite (3,592 tests), typecheck and production build
+pass against the packed candidate. Consumer traffic is synthetic and does not
+place live broker orders.
+
+## 2.6.7
+
+2026-10-17
+
+Custom intervals and independently fetched, confirmed higher-timeframe studies.
+
+### Added
+
+- **Compatible custom candles.** `planTimeframe`, `timeframeBucketAt`,
+  `aggregateTimeframeBars` and `withTimeframes` derive intervals from native
+  sources, using exchange sessions and calendar periods. Examples include 7m
+  from 1m, aligned 2h from 1h, and weeks, months, quarters and years from daily
+  history. Seconds require a suitable seconds source. Source candles are never
+  split to invent smaller observations.
+- **Independent indicator history.** `createTimeframeProvider` supplies confirmed
+  snapshots and warmup for built-in higher-timeframe studies. Daily EMA 200 on a
+  five-minute chart reads daily history independently. Optional descriptor
+  `historyBars` and provider capabilities support custom requested studies.
+- **Custom interval controls.** The widget and reference host have grouped,
+  collapsible choices, an add dialog, removal and saved favorites. Favorite
+  preferences are shared; selection remains pane-owned. Empty favorites stay
+  empty and unsupported choices are disabled. Removing an active calendar
+  choice preserves its saved chart through reload.
+- **Reference examples.** The yfinance example supplies source capabilities,
+  requests daily study history separately and exposes the custom interval UI.
+  The website includes a runnable seven-minute aggregation example.
+
+### Correctness and compatibility
+
+- Source alignment is checked at the target boundary and for every returned
+  candle. Session resets, shortened days and calendar periods retain their
+  actual boundaries. Month tokens remain distinct from minute tokens.
+- Live updates replace a source candle's contribution instead of adding its
+  cumulative volume again. Reconnects and older corrections request resync.
+- Only confirmed source observations reach the chart at their availability
+  time. Unknown availability remains a gap. Independent replay requires a
+  historical snapshot provider; a live-only provider cannot expose later data.
+- History traversal has explicit page and bar ceilings and stops with a
+  retryable insufficient-history error after four consecutive empty windows.
+  A single empty holiday window does not declare exhaustion. Requests cancel
+  on context changes and teardown; confirmed-prefix caching is bounded.
+- Hosts must supply accurate native capabilities, source bounds, retention and
+  request limits. Missing broker history is reported, not fabricated. Recursive
+  studies remain sensitive to their retained seed history. Revised historical
+  snapshots are not invented by a live feed.
+- Existing native feed calls, legacy indicator providers and saved-state
+  formats remain supported. No runtime dependencies are added.
+- The reference server accepts bounded history windows before 1970, preserving
+  full-history ranges and date navigation with explicit source requests.
+
+### Size
+
+The base engine is 140.11 kB Brotli, base + trade 156.98 kB, indicators
+44.85 kB, the widget 128.98 kB, the widget terminal 372.38 kB and all tiers
+435.01 kB. Against published 2.6.6, the base adds 2,167 bytes, indicators
+1,836 bytes and the widget 3,142 bytes; the other six tier files retain
+their compressed sizes. The chart-only import measures 89,568 bytes
+(87.47 KiB), up 131 bytes. Source planning and the UI remain tree-shakeable;
+budgets cover the measured need without added runtime dependencies.
+
+### Performance
+
+Five runs per version on one dedicated 4-vCPU Linux runner (AMD EPYC 9V45),
+headless Chromium 149.0.7827.55 and software GL (SwiftShader), under the unchanged
+render budgets. At 200,000 bars, the lowest Canvas 2D p95 pan, full zoom-out and
+ten-study tick are 4, 56.7 and 175.5 ms against 4.3, 61.3 and 177.5 ms for 2.6.6 in the same
+session. Runs vary, particularly zoom-out; these measurements do not establish
+a general speedup. All built files match the locally validated candidate.
+See the [same-session benchmark](https://marketcalls.github.io/openalgo-charts/benchmarks#267).
+
+### Tests
+
+11,854 engine tests across 525 files and 734 reference-host tests across
+69 files. The reference custom-interval suite passes 18 browser cases across
+Chromium, Firefox and WebKit. The packaged widget passes 12 desktop/mobile
+cases for addition, favorites, hover targets, reload and removal. OpenAlgo's full frontend suite covers 3,528 tests;
+its actual trading and Historify routes exercise custom intervals, daily EMA
+200 values and rendered pixels, favorites, reload, multiple panes and themes.
+Consumer traffic is synthetic and does not place live broker orders.
+
+## 2.6.6
+
+2026-10-17
+
+A focused indicator legend fix: changing readings no longer move the controls
+under the pointer, and the packaged widget opens the selected study's settings.
+
+### Fixed
+
+- **Stationary legend controls.** Actions follow the fitted title and parameters,
+  before the values. Crosshair movement, missing readings and live updates keep
+  the same click targets. Narrow rows fit the label independently and retain
+  complete readings that fit after the controls. Resolves issue #64.
+- **Widget indicator settings.** A legend Settings request opens the requested
+  instance through the existing dialog registry. Registered replacements and
+  unregistering remain supported. Protected or removed studies do not open a
+  settings form, and removing the study or destroying the widget closes it.
+- **Direct hover coverage.** The tooltip regression checks a fixed target instead
+  of repeatedly moving the pointer to follow a shifting button.
+
+### Compatibility
+
+Published 2.6.5 joins declaration and saved-document checks, alongside OpenAlgo's
+2.6.4 pin and the retained 2.x baselines. Public signatures, indicator IDs,
+preferences and saved-state formats are unchanged. Existing hosts receive the
+legend positioning fix without adopting the packaged widget.
+
+### Size
+
+The base engine is 137.94 kB Brotli, base + trade 154.82 kB, the widget
+125.84 kB and all tiers 427.86 kB. Against published 2.6.5, the base adds
+106 bytes and the widget removes 55 bytes; the other seven tier files keep
+their compressed sizes. Production source grows by 14 lines, with no new
+public exports or runtime dependencies. The chart-only import measures
+89,437 bytes (87.34 KiB), 18 bytes more than 2.6.5. Budgets match the measured need.
+
+### Performance
+
+Five runs of each version on one dedicated 4-vCPU Linux runner, with
+headless Chromium 149.0.7827.55 and software GL (SwiftShader). At 200,000 bars, the lowest
+Canvas 2D p95 pan, full zoom-out and ten-study tick are 7.4, 114.9, 256.9 ms
+against 7.1, 112.6, 256.3 ms for 2.6.5. This release changes legend layout
+and widget event handling; these differences do not establish a general
+rendering speedup. See the [same-session benchmark](https://marketcalls.github.io/openalgo-charts/benchmarks#266).
+
+### Tests
+
+11,744 engine tests across 519 files and 730 reference-host tests across
+68 files. The new legend regressions pass 12 cases across Chromium, Firefox
+and WebKit. The packed candidate also passes OpenAlgo's 1,248 trading tests,
+typecheck, production build and 22 trading-page checks per browser, including
+live ticks preserving hovered readings. Consumer traffic is synthetic;
+these checks do not place live broker orders.
+
+## 2.6.5
+
+2026-10-17
+
+A correctness and mobile usability release. Order modifications retain only
+acknowledged values, compact drawing tools are searchable and grouped, and
+running indicators are easier to reach.
+
+### Fixed
+
+- **Failed order edits cannot supply values to a later partial edit.**
+  `OpenAlgoTradeFeed.modify()` builds its full payload from acknowledged
+  context and serializes modifications for the same order. Successful edits
+  retain each other's fields, and unrelated orders remain independent.
+- **Uncertain modification outcomes require reconciliation.** After any
+  failed on-wire modification, including an HTTP error, load a new readable
+  order book through `getOrders()` or `getOrderBook()` before editing that
+  order again. An HTTP error can arrive after broker dispatch, so it does
+  not prove the order stayed unchanged. Already-running or older reads
+  cannot clear that uncertainty or undo a newer acknowledgement.
+  Cancellation retains the instrument identity needed by capability checks.
+- **The context-menu shortcut test covers both platforms.** It checks
+  `Ctrl+C` and `Cmd+C` deterministically without changing shortcut behavior.
+
+### Added
+
+- **Mobile drawing search and groups.** The Drawing sheet searches tool
+  IDs, original names and translated names, browses the rail's existing
+  groups, and presents each tool with its existing SVG glyph and text.
+  Custom tools remain searchable and tool allowlists still apply.
+- **Shared mobile favorites.** Pin a tool from the compact chooser or
+  browse Favorites. The pins use the existing rail preferences and storage.
+  Search text, caret, focus and scroll survive drawing-state refreshes;
+  search, group and tool controls have touch-sized targets.
+
+### Changed
+
+- **Running studies precede the indicator catalog.** Search stays first;
+  running instances and the available catalog scroll separately, preserving
+  protected-study policies, instance-specific removal and Arrow/Enter selection.
+- **An explicit build heap budget.** `npm run build` gives Rollup a 4 GiB
+  JavaScript heap budget for the tier and declaration builds. Contributor
+  guidance describes the requirement; chart runtime allocations are unaffected.
+- **A dedicated release benchmark runner.** The Nightly workflow can prepare
+  a requested candidate version and measure five current and five previous
+  runs on one hosted runner, under the existing budgets. It retains the
+  generated data and built files for comparison without publishing.
+- **Current-release compatibility fixtures.** Declaration checks and
+  saved-document tests include published 2.6.4, the previous release and
+  OpenAlgo's current pin, while retaining the older 2.x baselines.
+  Public method signatures, tool IDs and saved-state formats are unchanged.
+
+### Size
+
+The base engine is 137.83 kB Brotli, base + trade 154.71 kB, the widget
+125.89 kB and all tiers 427.81 kB. Against the published 2.6.4 files,
+the base adds 189 bytes and the widget 954 bytes; the other seven tier
+files are unchanged in compressed size. The chart-only import measures
+89,419 bytes (87.32 KiB). Production source grows by 134 lines, with no
+new public exports or runtime dependencies. Budgets match these measurements.
+
+### Performance
+
+Five runs of each version on one dedicated four-vCPU Linux runner, with
+Chromium 149 and software GL. At 200,000 bars, the lowest Canvas 2D p95 pan,
+full zoom-out and ten-study tick are 7.1, 126.3 and 264.2 ms against 8.2,
+124.2 and 263.0 ms for 2.6.4. Rendering paths are unchanged; these timing
+differences do not establish a rendering speedup. See the
+[same-session benchmark](https://marketcalls.github.io/openalgo-charts/benchmarks#265).
+All 27 measured runtime files match the locally tested build byte-for-byte.
+
+### Tests
+
+11,725 engine tests across 518 files and 730 reference-host tests across
+68 files. The affected compact chooser and indicator picker pass 39
+browser cases across Chromium, Firefox and WebKit. The packed candidate
+also passes OpenAlgo's 1,248 trading tests, typecheck, production build
+and the actual trading-page harness in all three browser engines.
+Consumer checks use synthetic broker traffic; they do not place live orders.
 
 ## 2.6.4
 
