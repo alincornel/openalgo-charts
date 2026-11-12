@@ -1,6 +1,6 @@
 ---
 title: Drawing Tools
-description: 87 drawing tools, a headless controller, undo/redo, and persistence.
+description: 90 drawing tools, a headless controller, undo/redo, and persistence.
 ---
 
 import { Callout } from 'nextra/components'
@@ -8,7 +8,7 @@ import DrawingToolsDemo from '../../components/DrawingToolsDemo'
 
 # Drawing Tools
 
-`openalgo-charts/draw` is a lazy tier (**58.44 kB** Brotli in 2.6.6) with 87 tools and a headless
+`openalgo-charts/draw` is a lazy tier (**60.79 kB** Brotli in 2.7.2) with 90 tools and a headless
 controller. It ships **no UI**: no toolbar, no dialogs. It owns the model and the
 interactions; your app supplies the buttons.
 
@@ -42,7 +42,7 @@ draw.setTool('trend-line');   // the next two clicks place it
 
 ## The tools
 
-**87 built-in tools**, all registered when the tier is imported.
+**90 built-in tools**, all registered when the tier is imported.
 
 | Group | `id` | Anchors |
 |---|---|---|
@@ -59,7 +59,8 @@ draw.setTool('trend-line');   // the next two clicks place it
 | Gann | `gann-fan`, `gann-box`, `gann-square` | 2 |
 | Geometric studies | `dedekind-tessellation`, `sonic`, `supersonic`, `golden-sonic`, `golden-supersonic` | 2 |
 | Harmonic patterns | `xabcd-pattern`, `gartley`, `bat`, `butterfly`, `crab`, `shark`, `cypher`; `abcd-pattern` | 5; 4 |
-| Wave patterns | `elliott-impulse`; `elliott-correction`; `head-shoulders` | 5; 3; 7 |
+| Elliott waves | `elliott-impulse`, `elliott-triangle`, `elliott-triple-combo`; `elliott-correction`, `elliott-double-combo` | 6; 4 |
+| Chart patterns | `head-shoulders` | 7 |
 | Forecasting | `long-position`, `short-position`; `forecast` | 3; 2 |
 | Measurers | `price-range`, `date-range`, `measure` | 2 |
 | Marks | `arrow-up`, `arrow-down`, `arrow-left`, `arrow-right`, `icon-stamp` | 1 |
@@ -104,6 +105,37 @@ the ellipse that differing axis scales would otherwise produce. `arc` passes *th
 middle anchor; `curve` treats that anchor as a control handle, so the path only leans toward
 it. `highlighter` is `path` with a fat translucent stroke, and is grabbable anywhere across
 its width.
+
+## Elliott wave counts
+
+Five tools draw a wave count from the origin it starts at, point 0, the end of the wave
+before it. The first click places the origin, which has no label of its own, and each click
+after it ends a wave and names it: `elliott-impulse` (1 2 3 4 5, six anchors),
+`elliott-correction` (A B C, four), `elliott-triangle` (A B C D E, six),
+`elliott-double-combo` (W X Y, four) and `elliott-triple-combo` (W X Y X Z, six). While a
+count is placed it is drawn as far as it goes, so the second click already shows wave 1 and
+its label. Each label is centred over the point it names, above a peak and below a trough.
+
+Two settings choose how the labels read. **Degree** (`props.degree`) runs from Grand
+Supercycle to Subminuette: the three largest degrees count in upper Roman numerals, the
+middle three in Arabic and the three smallest in lower Roman, each family circled, in
+parentheses and plain from its largest degree down, so a count reads apart from the one it
+subdivides. Intermediate, the default since 2.7.2, is `(1) (2) (3) (4) (5)` and
+`(A) (B) (C)`; Minor is the same in plain numerals and letters. **Label style**
+(`props.labelStyle`) keeps the degree's own form or forces plain, parentheses or circled.
+
+```ts
+draw.add({
+  tool: 'elliott-impulse', paneIndex: 0, style: {},
+  points: [p0, p1, p2, p3, p4, p5],          // the origin first, unlabelled
+  props: { degree: 'minor' },                // 1 2 3 4 5
+});
+```
+
+Through 2.7.0 the impulse took five anchors and the correction three, with no origin, so
+the first wave was never drawn. A saved count of that shape is given an origin on its first
+anchor when it loads, and when a host adds one: it draws no leg there, and dragging that
+point away draws the first wave.
 
 ## Anchored analysis
 
@@ -1030,11 +1062,12 @@ draw.setTool('zigzag');
 Geometry helpers are exported: `distToSegment`, `distToLine`, `distToPolyline`,
 `distToRect`, `distToEllipse`, `rectOf`, `extendSegment`.
 
-Two optional fields change how a tool is *placed*:
+Four optional fields change how a tool is *placed*, and `progressive` also what is drawn while it is:
 
 | Field | Effect |
 |---|---|
 | `freehand: true` | Sample the cursor while the pointer is held and commit on release: one press-drag-release is one stroke. Only the first and last anchors get grab handles. Requires `points: 0`. |
+| `progressive: true` | Paint the tool itself while it is placed, from its second anchor on, in place of the dashed guide other multi-anchor tools show. Declare it only when `draw` paints whatever anchors it is given, from two up to `points`. The Elliott counts set it, so each click shows the wave it ends and its label. |
 | `expand(clicked, ctx)` | Turn the anchors actually clicked into the tool's full anchor set, so it can place a complete, editable default from fewer clicks. `ctx` carries `barSeconds` and `visibleBars`, and `toPixel` / `fromPixel` when the host can map coordinates, so a default can be sized in pixels and fall back to chart units when it cannot. |
 | `constrain(points, handle)` | Keep the anchors consistent after one moves: a handle drag (`handle` is its index) or a `points` patch (`handle` is `null`). Returns the anchors to store. Pure. The position tools use it to hold the stop and the target on opposite sides of the entry. |
 
@@ -1101,18 +1134,21 @@ lockButton.innerHTML = chromeIconSvg('lock');   // 16px
 canvas.style.cursor = toolCursor('trend-line'); // the glyph over a contrasting halo
 ```
 
-Each path is the whole glyph. The marks that tell siblings apart (the anchor dots of a
-trend line, the origin dot of a ray, an arrowhead, a magnet's pole caps) are drawn in the
-path as outlines, so a host that wraps the raw path data gets every one of them. Some
-glyphs also carry an **accent**: the same marks again, for a fill on top. The builders
-always draw it, as a second `<path>` with `fill="currentColor" stroke="none"`; a host with
-its own wrapper can do the same:
+Each path is the whole glyph. A tool glyph is its drawing as the chart shows it selected,
+in miniature: every point you place is an open ring, the grab handle at this scale, and a
+stroke stops on the ring's edge. The rings tell siblings apart (a trend line has one at
+each end, a ray one at its start, an extended line two inside a line that runs on) and are
+drawn in the path, so a host that wraps the raw path data gets every one of them. A ring
+takes no fill. A few glyphs also carry an **accent**: a mark meant solid, such as a
+magnet's poles, again, for a fill on top. The builders always draw it, as a second
+`<path>` with `fill="currentColor" stroke="none"`; a host with its own wrapper can do the
+same:
 
 ```ts
 import { drawingToolIcon, drawingToolAccent, ICON_ATTRS } from 'openalgo-charts/draw';
 
-const accent = drawingToolAccent('ray');         // undefined when the glyph has none
-svg.innerHTML = `<path d="${drawingToolIcon('ray')}"/>`
+const accent = drawingToolAccent('magnet');      // undefined when the glyph has none
+svg.innerHTML = `<path d="${drawingToolIcon('magnet')}"/>`
   + (accent ? `<path d="${accent}" fill="currentColor" stroke="none"/>` : '');
 ```
 

@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { PATTERN_DRAWING_TOOLS } from '../src/draw/pattern-tools';
-import { RecordingContext } from './helpers/fake-ctx';
+import { FontMeasuringContext, type RecordingContext } from './helpers/fake-ctx';
 import type { Drawing, DrawingPoint, DrawingTool } from '../src/draw/types';
 import type { PrimitiveRenderContext } from '../src';
 
-const IDS = ['xabcd-pattern', 'abcd-pattern', 'elliott-impulse', 'elliott-correction', 'head-shoulders',
+const WAVES = ['elliott-impulse', 'elliott-correction', 'elliott-triangle', 'elliott-double-combo', 'elliott-triple-combo'];
+const IDS = ['xabcd-pattern', 'abcd-pattern', ...WAVES, 'head-shoulders',
   'gartley', 'bat', 'butterfly', 'crab', 'shark', 'cypher'];
 const POINTS: Record<string, number> = {
-  'xabcd-pattern': 5, 'abcd-pattern': 4, 'elliott-impulse': 5, 'elliott-correction': 3,
+  'xabcd-pattern': 5, 'abcd-pattern': 4, 'elliott-impulse': 6, 'elliott-correction': 4,
+  'elliott-triangle': 6, 'elliott-double-combo': 4, 'elliott-triple-combo': 6,
   'head-shoulders': 7, gartley: 5, bat: 5, butterfly: 5, crab: 5, shark: 5, cypher: 5,
 };
 const rc = (dpr = 1): PrimitiveRenderContext => ({
@@ -29,7 +31,7 @@ function project(d: Drawing, context = rc()) {
     y: context.priceScale.priceToY(p.price),
   }));
 }
-class AlphaContext extends RecordingContext {
+class AlphaContext extends FontMeasuringContext {
   public globalAlpha = 1;
   private stack: number[] = [];
   override save(): void { this.stack.push(this.globalAlpha); super.save(); }
@@ -52,7 +54,7 @@ const texts = (rec: RecordingContext): string[] => rec.ops.filter(op => op.type 
 const coords = (rec: RecordingContext, type: string): number[][] => rec.ops.filter(op => op.type === type).map(op => op.args.slice(0, 2));
 
 describe('pattern drawing descriptors', () => {
-  it('exports the eleven exact tools with fixed independent anchors', () => {
+  it('exports the fourteen exact tools with fixed independent anchors', () => {
     expect(PATTERN_DRAWING_TOOLS.map(item => item.id)).toEqual(IDS);
     for (const id of IDS) {
       expect(tool(id).points).toBe(POINTS[id]);
@@ -64,8 +66,12 @@ describe('pattern drawing descriptors', () => {
   it.each([
     ['xabcd-pattern', ['X', 'A', 'B', 'C', 'D']],
     ['abcd-pattern', ['A', 'B', 'C', 'D']],
-    ['elliott-impulse', ['1', '2', '3', '4', '5']],
-    ['elliott-correction', ['A', 'B', 'C']],
+    // A count's origin is not labelled; its waves read in the default degree.
+    ['elliott-impulse', ['(1)', '(2)', '(3)', '(4)', '(5)']],
+    ['elliott-correction', ['(A)', '(B)', '(C)']],
+    ['elliott-triangle', ['(A)', '(B)', '(C)', '(D)', '(E)']],
+    ['elliott-double-combo', ['(W)', '(X)', '(Y)']],
+    ['elliott-triple-combo', ['(W)', '(X)', '(Y)', '(X)', '(Z)']],
     ['head-shoulders', ['LS', 'H', 'RS']],
   ] as const)('%s connects its full sequence and labels every named point', (id, labels) => {
     const d = drawing(id);
@@ -189,7 +195,7 @@ describe('pattern settings and hit geometry', () => {
   });
 
   it('does not hit an excess imported leg', () => {
-    const points = [point(100, 500), point(200, 400), point(300, 500)];
+    const points = [point(50, 450), point(100, 500), point(200, 400), point(300, 500)];
     const base = drawing('elliott-correction', points);
     const imported = drawing('elliott-correction', [...points, point(300, 100)]);
     expect(hit(base, 300, 400)).toBeGreaterThan(100);
@@ -231,6 +237,7 @@ describe('pattern settings and hit geometry', () => {
       'style.fill': false, 'style.fillColor': '#77cc11', 'style.fillOpacity': 0.67,
       'style.showLabels': false, 'text.color': '#ffff00', 'text.fontSize': 24,
       'text.fontFamily': 'monospace', 'text.bold': true, 'text.italic': true,
+      'props.degree': 'primary', 'props.labelStyle': 'circled',
     };
     for (const descriptor of PATTERN_DRAWING_TOOLS) {
       for (const field of descriptor.settings!.fields) {
@@ -239,6 +246,7 @@ describe('pattern settings and hit geometry', () => {
         const [root, key] = field.path.split('.');
         if (root === 'style') changed.style = { ...changed.style, [key]: values[field.path] };
         if (root === 'text') changed.text = { ...changed.text!, [key]: values[field.path] };
+        if (root === 'props') changed.props = { ...changed.props, [key]: values[field.path] };
         expect(paint(changed).ops, `${descriptor.id} ${field.path}`).not.toEqual(paint(base).ops);
       }
     }

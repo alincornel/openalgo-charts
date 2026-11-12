@@ -29,7 +29,25 @@ interface GeometryArc {
   /** Close a filled arc through its center, for a circular sector. */
   sector?: boolean;
 }
-export interface GeometryLabel { at: ScreenPoint; text: string; color?: string | undefined }
+export interface GeometryLabel {
+  at: ScreenPoint; text: string; color?: string | undefined;
+  /**
+   * Drawn inside a ring, as a circled wave label is. Painted with the text,
+   * where it lands after the collision search, because a ring worked out
+   * from `at` would stay behind when the label moves to another lane.
+   */
+  ring?: boolean;
+  /**
+   * A label that names the point `at`: centred on it, on this side of it, and
+   * `gap` px clear of it measured to the label's ink, its ring included, so a
+   * wide label's ring stands as far off as a narrow one's. Without it the
+   * label's bottom left corner is `at`.
+   */
+  side?: 'above' | 'below';
+  gap?: number;
+  /** The text size in CSS px, where the drawing's own text sets none. */
+  size?: number;
+}
 export interface DrawingGeometry { paths: GeometryPath[]; labels?: GeometryLabel[] }
 /** Builds from media-px anchors, as many as the tool declares (`ToolAnchors`). */
 type GeometryBuilder<N extends number = number> = (c: HitContext & ToolAnchors<N>) => DrawingGeometry;
@@ -195,6 +213,13 @@ export function geometryDistance(x: number, y: number, geometry: DrawingGeometry
   return Number.isFinite(best) ? best : null;
 }
 
+/**
+ * The lanes a crowded label may move to, in line heights from where it was
+ * put: either way for a free label, and only away from its point for one that
+ * names a point, since a lane past the gap would set it across the point.
+ */
+const LANES = { free: [0, -1, 1, -2, 2, -3, 3, -4], above: [0, -1, -2, -3, -4], below: [0, 1, 2, 3, 4] } as const;
+
 export function paintGeometry(c: DrawContext, geometry: DrawingGeometry): void {
   const { ctx, rc, style } = c, dpr = rc.dpr;
   ctx.save();
@@ -226,28 +251,45 @@ export function paintGeometry(c: DrawContext, geometry: DrawingGeometry): void {
     }
     if (path.stroke !== false) { ctx.strokeStyle = path.color ?? style.color; ctx.stroke(); }
   }
-  const text = c.drawing.text;
-  const size = (text?.fontSize ?? 11) * dpr;
-  ctx.font = fontOf(textOf(c.drawing), size);
+  const text = c.drawing.text, font = textOf(c.drawing);
   ctx.textAlign = 'left';
   ctx.textBaseline = 'bottom';
-  const occupied: { x: number; y: number; width: number }[] = [];
-  const lineHeight = size / dpr * 1.3;
+  const occupied: { x: number; width: number; top: number; bottom: number }[] = [];
   for (const label of geometry.labels ?? []) {
     if (!finiteDevicePoint(label.at, dpr)) continue;
+    const size = (text?.fontSize ?? label.size ?? 11) * dpr, em = size / dpr;
+    ctx.font = fontOf(font, size);
+    const lineHeight = em * 1.3;
     let { x, y } = label.at;
+    // Whether the point the label belongs to is on the plot, before the label
+    // is moved off it: one whose point is off the plot is not pulled back on.
+    const inside = x >= 0 && x <= rc.plotWidth && y >= 0 && y <= rc.plotHeight;
+    const width = drawingTextWidth(ctx, label.text) / dpr;
+    // A ring rounds the text's box, whose cap height is about seven tenths of
+    // the size, and stands past it on every side: it takes that much room.
+    const radius = label.ring === true ? Math.max(width, em * 0.7) / 2 + 3 : 0;
+    const pad = Math.max(0, radius - width / 2);
+    // The ink above and below the text's bottom edge: the text box, or a ring
+    // centred four tenths of the size up, whichever reaches further.
+    const ink = Math.max(em, em * 0.4 + radius), drop = Math.max(0, radius - em * 0.4);
+    if (label.side !== undefined) {
+      x -= width / 2;
+      y = label.side === 'above' ? y - (label.gap ?? 0) - drop : y + (label.gap ?? 0) + ink;
+    }
     // Keep nearby levels readable at ordinary zoom and on narrow panes. The
     // bounded search changes text placement only; saved anchors stay exact.
-    if (x >= 0 && x <= rc.plotWidth && y >= 0 && y <= rc.plotHeight) {
-      const width = drawingTextWidth(ctx, label.text) / dpr;
-      x = Math.max(0, Math.min(x, rc.plotWidth - width));
+    if (inside) {
+      x = Math.max(pad, Math.min(x, rc.plotWidth - width - pad));
       let placed = false;
-      for (const lane of [0, -1, 1, -2, 2, -3, 3, -4]) {
+      for (const lane of LANES[label.side ?? 'free']) {
         const candidateY = y + lane * lineHeight;
-        if (candidateY < size / dpr || candidateY > rc.plotHeight) continue;
-        if (occupied.some(box => x < box.x + box.width + 3 && x + width + 3 > box.x && Math.abs(candidateY - box.y) < lineHeight - 0.01)) continue;
+        // A lane that would cut the text or its ring at the plot's edge is not one.
+        if (candidateY - ink < 0 || candidateY + drop > rc.plotHeight) continue;
+        const top = candidateY - Math.max(lineHeight, ink), bottom = candidateY + drop;
+        if (occupied.some(box => x - pad < box.x + box.width + 3 && x + width + pad + 3 > box.x
+          && top < box.bottom - 0.01 && box.top < bottom - 0.01)) continue;
         y = candidateY;
-        occupied.push({ x, y, width });
+        occupied.push({ x: x - pad, width: width + 2 * pad, top, bottom });
         placed = true;
         break;
       }
@@ -255,6 +297,17 @@ export function paintGeometry(c: DrawContext, geometry: DrawingGeometry): void {
     }
     ctx.fillStyle = text?.color ?? label.color ?? style.color;
     ctx.fillText(label.text, x * dpr, y * dpr);
+    if (label.ring === true) {
+      // Solid whatever the line's dash.
+      ctx.save();
+      ctx.setLineDash([]);
+      ctx.lineWidth = dpr;
+      ctx.strokeStyle = ctx.fillStyle;
+      ctx.beginPath();
+      ctx.arc((x + width / 2) * dpr, y * dpr - size * 0.4, radius * dpr, 0, 2 * Math.PI);
+      ctx.stroke();
+      ctx.restore();
+    }
   }
   ctx.restore();
 }
