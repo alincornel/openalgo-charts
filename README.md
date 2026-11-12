@@ -181,9 +181,9 @@ Unused optional tiers stay out of the base chart download.
 
 | Import | Contents | Brotli |
 |---|---|---|
-| `openalgo-charts` | Engine, 13 chart types, panes and scales, custom indicator registry, primitives, alerts, replay, comparisons, chart linking, state, feeds, bar cache, trading overlays, CSV and SVG export | 140.06 kB |
+| `openalgo-charts` | Engine, 13 chart types, panes and scales, custom indicator registry, primitives, alerts, replay, comparisons, chart linking, state, feeds, bar cache, trading overlays, CSV and SVG export | 143.64 kB |
 | `openalgo-charts/indicators` | 112 built-in indicators, calculation helpers and helpers for studies that use external data | 44.85 kB |
-| `openalgo-charts/draw` | 90 drawing tools + a headless drawing controller, clipboard, settings schema, level palette, freehand geometry and SVG icons | 60.79 kB |
+| `openalgo-charts/draw` | 90 drawing tools + a headless drawing controller, clipboard, settings schema, level palette, freehand geometry and SVG icons | 61.34 kB |
 | `openalgo-charts/transform` | Heikin Ashi, Renko, Range bars, Line Break, Point &amp; Figure, Kagi, and symbol arithmetic (`AAPL/MSFT`) | 6.38 kB |
 | `openalgo-charts/profile` | Volume Profile, Market Profile (TPO) with compact pixel letters, Footprint, order flow | 20.83 kB |
 | `openalgo-charts/trade` | Order, position and bracket tools, account state, order preview and position commands, plus a depth-of-market ladder | 16.88 kB |
@@ -191,7 +191,7 @@ Unused optional tiers stay out of the base chart download.
 | `openalgo-charts/widget` | `createWidget`: toolbar, bottom bar, Data, Objects, Watchlist and News dock, account summary, symbol search, dialogs, mobile controls, a shortcuts editor, saved layouts, the chart grid (`createChartGrid`) and optional persistence in IndexedDB | 129.58 kB |
 | `openalgo-charts/workspace` | Validated workspace and indicator-template documents, named watchlists, named catalogs with revision checks, asynchronous storage and an IndexedDB adapter; no DOM | 11.73 kB |
 
-Everything together is **438.07 kB Brotli**; a widget terminal with built-in indicators (base + draw + indicators + widget) is 375.27 kB. The widget's eight first-use parts (the shortcuts editor, the Layouts menu, the templates list, the chart data dialog, the chart type settings dialog, the grid bar and its menus, and the IndexedDB store) add 21.00 kB in files of their own, fetched only when a widget first uses one. The nine classic-script files together are 451.66 kB. Figures are measured from the 2.7.2 release build. The trade tier is 16.88 kB on its own; base + trade costs 156.93 kB. Sizes use decimal kB.
+Everything together is **444.57 kB Brotli**; a widget terminal with built-in indicators (base + draw + indicators + widget) is 379.40 kB. The widget's eight first-use parts (the shortcuts editor, the Layouts menu, the templates list, the chart data dialog, the chart type settings dialog, the grid bar and its menus, and the IndexedDB store) add 21.00 kB in files of their own, fetched only when a widget first uses one. The nine classic-script files together are 458.19 kB. Figures are the measured `size-limit` output of this fork on upstream 2.7.2. The trade tier is 16.88 kB on its own; base + trade costs 160.59 kB. Sizes use decimal kB.
 
 ## What's built
 
@@ -517,19 +517,19 @@ Enforced in CI by [`size-limit`](./.size-limit.json). Nothing is excluded, becau
 
 | Bundle | Limit | Actual |
 |---|---|---|
-| Base engine | 140.14 kB | 140.06 kB |
-| Base + trade | 157.02 kB | 156.93 kB |
+| Base engine | 143.65 kB | 143.64 kB |
+| Base + trade | 160.59 kB | 160.59 kB |
 | Indicators tier | 44.86 kB | 44.85 kB |
-| Draw tier | 60.79 kB | 60.79 kB |
+| Draw tier | 61.34 kB | 61.34 kB |
 | Transform tier | 6.39 kB | 6.38 kB |
 | Profile tier | 20.83 kB | 20.83 kB |
 | WebGL2 tier | 6.99 kB | 6.99 kB |
 | Widget tier | 129.58 kB | 129.58 kB |
 | Widget first-use parts (eight files beside the widget tier) | 21.00 kB | 21.00 kB |
-| Widget terminal (base + draw + indicators + widget) | 375.27 kB | 375.27 kB |
+| Widget terminal (base + draw + indicators + widget) | 379.41 kB | 379.40 kB |
 | Workspace tier | 11.73 kB | 11.73 kB |
-| Script tags (the nine classic-script files) | 451.66 kB | 451.66 kB |
-| **Everything** | 438.08 kB | 438.07 kB |
+| Script tags (the nine classic-script files) | 458.19 kB | 458.19 kB |
+| **Everything** | 444.57 kB | 444.57 kB |
 
 ## Documentation
 

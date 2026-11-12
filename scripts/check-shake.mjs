@@ -338,8 +338,11 @@ const BUNDLE = new URL('../dist/openalgo-charts.mjs', import.meta.url).pathname.
 // guards; retiring wheelZoomSensitivity takes about 70 bytes back. Measured
 // 91976 bytes (89.82 KiB), up 202 from 91774; allow 89.83 KiB, the first
 // hundredth at or above it.
-// Fork on upstream 2.6.9: MEASURE_ME
-const LIMIT_BYTES = 89.83 * 1024;
+// Fork on upstream 2.7.2: upstream measures 89611 bytes, the fork 92168
+// (90.01 KiB), 2557 bytes over upstream, the same fork input, axis and trade
+// pill work as on 2.6.4 (2585 over). Allow 90.01 KiB, the first hundredth at
+// or above it.
+const LIMIT_BYTES = 90.01 * 1024;
 
 // Absent from a chart-only build. Each is a string that appears in the adapter
 // source and nowhere in the rendering core.
